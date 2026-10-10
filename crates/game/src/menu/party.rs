@@ -34,7 +34,7 @@ impl Menu {
     }
 
     pub(super) fn page_party(&mut self, input: Input) -> Option<i16> {
-        let length = self.checkpoint.as_ref()?.progress().party.formation.len();
+        let length = self.checkpoint.as_ref()?.progress.party.formation.len();
         let shift = page_shift(input, length, self.first_character);
         self.first_character = self.first_character.saturating_add_signed(shift);
         self.character = self.character.saturating_add_signed(shift);
@@ -43,7 +43,7 @@ impl Menu {
 
     pub(super) fn move_party_cursor(&mut self, input: Input) -> Option<i16> {
         use MenuAction::*;
-        let length = self.checkpoint.as_ref()?.progress().party.formation.len();
+        let length = self.checkpoint.as_ref()?.progress.party.formation.len();
         let previous = self.character;
         if input == Some(Up) {
             self.character = self.character.saturating_sub(1);
@@ -64,7 +64,7 @@ impl Menu {
             return Some(3);
         }
         if matches!(input, Some(Confirm | Menu)) {
-            let party = &mut self.checkpoint.as_mut()?.progress_mut().party;
+            let party = &mut self.checkpoint.as_mut()?.progress.party;
             if let Some(origin) = self.swap_character.take() {
                 party.formation.swap(origin, self.character);
             } else if input == Some(Menu) {

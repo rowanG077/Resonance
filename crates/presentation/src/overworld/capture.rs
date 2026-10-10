@@ -270,17 +270,22 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             .after(ui)
             .before(capture),
     );
-    crate::field_ui::install(&mut app);
+    crate::field_ui::install_menu_draws(&mut app);
     crate::materials::install(&mut app);
     sparse_animation::install(&mut app);
     crate::renderer::configure(&mut app);
     let ready = crate::RenderReady::default();
     app.insert_resource(ready.clone());
+    app.add_systems(
+        PostUpdate,
+        crate::timing::prepare_draws
+            .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+    );
     app.sub_app_mut(bevy::render::RenderApp)
         .insert_resource(ready)
         .add_systems(
             bevy::render::Render,
-            crate::check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
+            crate::timing::rendered.in_set(bevy::render::RenderSystems::Cleanup),
         );
     anyhow::ensure!(app.run() == AppExit::Success, "overworld capture failed");
     Ok(())
@@ -389,7 +394,7 @@ fn capture(
         || parts.is_empty()
         || parts.iter().any(|(_, p)| !p.prepared)
         || !resident.active.load(Ordering::Acquire)
-        || !ready.0.load(Ordering::Acquire)
+        || !ready.0.lock().unwrap().completed.load(Ordering::Acquire)
     {
         capture.settled = 0;
         return;

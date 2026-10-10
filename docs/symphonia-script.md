@@ -41,7 +41,7 @@ pub task start() {
         await field::notice(greeting);
         story::set_flag(500, true);
     }
-    await field::wait_ticks(20ticks);
+    await field::wait_ticks(ticks(20));
 }
 ```
 
@@ -68,8 +68,10 @@ Implemented language constructs:
   fixed arrays and `Option<T>`.
 - Exhaustive statement `match`, including payload bindings and wildcard arms.
 - `i32`, `f32`, `bool`, `string`, `Ticks`, `Message`, and native-declared handles/assets.
-- Explicit `i32(...)`, `f32(...)` and `ticks(...)` conversions. `20ticks` is a
-  duration literal. Integer overflow and invalid arithmetic are runtime faults.
+- Explicit `i32(...)`, `f32(...)` and `ticks(...)` conversions. Construct a strongly
+  typed duration with `ticks(20)` or `ticks(count)`, including in constants.
+  APIs taking `Ticks` require this type; integers are not implicitly converted.
+  Negative durations, integer overflow and invalid arithmetic are rejected.
 - Literal/array constants, named messages and typed logical asset declarations.
 - Typed message templates with named number, character-name and item-name substitutions.
 
@@ -399,7 +401,7 @@ checked-in library, and `resonance-script api model` to inspect the native API.
 Adding `--assets ASSETS` checks against cooked `std` exclusively, ignoring local
 standard-library files. Both field and model runtime preparation resolve `std`
 from verified cooked bytes. Library modules declare `script library;` and can be
-imported by either script kind.
+imported by any execution host.
 Change the checked-in source, rebuild and recook to update these programs.
 Missing or modified cooked files fail integrity checks; there is no embedded
 runtime fallback. The development `--scripts` field-entry tool does not override
@@ -482,3 +484,6 @@ cover enum/catalog agreement, registered signatures, duplicate registration,
 borrowed host state, nested arguments, immediate/deferred results, unsupported
 calls, stack/memory limits and the original classroom/setup events. Bytecode
 `.ssb` files retain their original encoding and are hash-checked before execution.
+
+Battle actions use native Rust definitions and do not have a script host.
+See [battle support and validation](battle-status.md) for supported features.

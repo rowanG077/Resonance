@@ -1,14 +1,8 @@
 //! Field scene instances: shared cooked assets, independent actor state.
 #[path = "field_backdrop.rs"]
 mod backdrop;
-#[path = "field_lighting.rs"]
-mod lighting;
-#[path = "field_panorama.rs"]
-mod panorama;
 #[path = "field_shadow.rs"]
 mod shadows;
-#[path = "field_water.rs"]
-mod water;
 use super::draw_order::DrawOrderPlugin;
 use super::{
     camera::TitleProjection,
@@ -30,6 +24,7 @@ use bevy::{
     ecs::system::SystemParam,
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
+    sprite_render::Material2dPlugin,
     world_serialization::WorldInstanceReady,
 };
 use resonance_content::{
@@ -110,8 +105,7 @@ fn recover(world: &mut World) {
 }
 
 fn has_session(state: State, recovery: Option<Res<RecoverField>>) -> bool {
-    recovery.is_none()
-        && (state.live.as_ref().is_some_and(|s| s.is_field()) || state.checkpoint.is_some())
+    recovery.is_none() && (state.live.is_some() || state.checkpoint.is_some())
 }
 #[derive(SystemParam)]
 pub(super) struct State<'w> {
@@ -123,10 +117,11 @@ impl State<'_> {
         if let Some(session) = &self.checkpoint {
             return &session.0;
         }
-        self.live
+        &self
+            .live
             .as_ref()
             .expect("field renderer needs a session")
-            .field()
+            .field
     }
 }
 
@@ -142,7 +137,8 @@ impl Plugin for FieldPlugin {
                 Update,
                 super::field_ui::subtitles
                     .after(super::movie::update)
-                    .after(load_live),
+                    .after(load_live)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PreUpdate,
@@ -161,6 +157,7 @@ impl Plugin for FieldPlugin {
                 (advance_live, recover)
                     .chain()
                     .before(super::new_game::advance)
+                    .run_if(super::battle::field_running)
                     .run_if(super::dungeons::running),
             )
             .add_systems(
@@ -172,10 +169,12 @@ impl Plugin for FieldPlugin {
                 (
                     (retire_live, load_live, recover)
                         .chain()
+                        .run_if(super::battle::field_running)
                         .run_if(super::dungeons::running),
                     scene_systems()
                         .run_if(resource_exists::<Art>)
-                        .run_if(has_session),
+                        .run_if(has_session)
+                        .run_if(super::battle::field_presenting),
                 )
                     .chain()
                     .after(super::new_game::movie_handoff)
@@ -191,13 +190,12 @@ impl Plugin for FieldPlugin {
 struct FieldRendering;
 impl Plugin for FieldRendering {
     fn build(&self, app: &mut App) {
-        super::field_ui::install(app);
+        super::field_ui::install_menu_draws(app);
         super::materials::install(app);
         super::sparse_animation::install(app);
         super::field_refraction::install(app);
         super::menu_backdrop::install(app);
         super::model_preview::install(app);
-        water::install(app);
         app.init_resource::<super::display::Display>()
             .init_resource::<Applied>()
             .init_resource::<super::field_pose::Authored>()
@@ -207,26 +205,17 @@ impl Plugin for FieldRendering {
                 // skeletons before the first rendered pose, including actors
                 // replaced by a script in the same simulation tick.
                 (
-                    pose,
-                    super::field_animation::bind,
-                    super::secondary_motion::bind,
+                    super::field_pose::restore,
+                    super::secondary_motion::restore,
+                    super::field_animation::sample.run_if(resource_exists::<Art>),
                 )
                     .chain()
-                    .before(super::field_pose::restore)
-                    .run_if(resource_exists::<Art>)
-                    .run_if(has_session),
-            )
-            .add_systems(
-                PostUpdate,
-                sample_poses()
-                    .before(super::field_animation::blend)
-                    .run_if(has_session),
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
                 (
-                    super::field_animation::blend,
-                    super::field_animation::face_camera,
                     super::field_pose::bones,
                     super::secondary_motion::apply,
                     super::field_pose::attachments,
@@ -234,8 +223,6 @@ impl Plugin for FieldRendering {
                     shadows::pose,
                     super::field_effects::render,
                     fog,
-                    water::render,
-                    water::layers,
                     ui,
                 )
                     .chain()
@@ -245,14 +232,16 @@ impl Plugin for FieldRendering {
                     .before(bevy::asset::AssetEventSystems)
                     .before(bevy::transform::TransformSystems::Propagate)
                     .run_if(resource_exists::<Art>)
-                    .run_if(has_session),
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
                 audit::check
                     .after(bevy::transform::TransformSystems::Propagate)
                     .run_if(resource_exists::<Art>)
-                    .run_if(has_session),
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             );
     }
 }
@@ -278,7 +267,6 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
         super::field_model_particles::spawn,
         super::field_model_particles::sync,
         camera,
-        panorama::render,
     )
         .chain()
 }
@@ -306,7 +294,6 @@ struct RetainedFields(
 pub(super) struct Art {
     pub(super) map: u32,
     pub(super) models: BTreeMap<u32, Vec<Part>>,
-    pub(super) environment: resonance_content::field::FieldEnvironment,
     texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
     instances: BTreeMap<i32, Vec<Entity>>,
     pub(super) ready: bool,
@@ -316,8 +303,6 @@ pub(super) struct Art {
     pub(super) toon_ramp: Handle<Image>,
     unlit: bool,
     disabled_shadows: bool,
-    pub(super) panorama: Option<panorama::Artwork>,
-    water: Option<water::Artwork>,
 }
 pub(super) struct Part {
     pub(super) spec: ScenePart,
@@ -470,6 +455,7 @@ impl Part {
 
 #[derive(Component)]
 pub(super) struct ActorPart {
+    pub(super) creation: Option<resonance_events::ActorCreation>,
     pub(super) actor: i32,
     instance: u64,
     pub(super) resource: u32,
@@ -611,7 +597,7 @@ pub(super) fn save_point_diagnostic(world: &World) -> serde_json::Value {
     };
     let art = world.get_resource::<Art>();
     let surfaces = world.get_resource::<Assets<TitleSurface>>();
-    serde_json::json!(session.events().world.save_points.iter().map(|point| {
+    serde_json::json!(session.field.events.world.save_points.iter().map(|point| {
         let passes: Vec<_> = art.and_then(|art| art.instances.get(&point.actor)).into_iter().flatten().filter_map(|&entity| {
             let part = world.get::<ActorPart>(entity)?;
             Some(serde_json::json!({
@@ -624,7 +610,7 @@ pub(super) fn save_point_diagnostic(world: &World) -> serde_json::Value {
             }))
         }).collect();
         serde_json::json!({"actor":point.actor,"resource":point.resource,"active":point.active,
-            "born":point.born,"age":session.events().tick().saturating_sub(point.born),
+            "born":point.born,"age":session.field.events.tick().saturating_sub(point.born),
             "glow_scale":point.glow_scale,"drawn":save_point_drawn(world, point.actor),"passes":passes})
     }).collect::<Vec<_>>())
 }
@@ -705,12 +691,6 @@ pub(super) fn retire_live(world: &mut World) {
     let ui = world.remove_resource::<super::field_ui::Artwork>();
     let effects = world.remove_resource::<super::field_effects::Artwork>();
     if let (Some(mut art), Some(mut ui), Some(mut effects)) = (art, ui, effects) {
-        if let Some(panorama) = &mut art.panorama {
-            panorama.despawn(world);
-        }
-        if let Some(water) = &mut art.water {
-            water.despawn(world);
-        }
         art.shadows.despawn(world);
         for entity in std::mem::take(&mut art.instances).into_values().flatten() {
             world.despawn(entity);
@@ -760,10 +740,23 @@ fn load_live(
         controls.input = Default::default();
         return;
     }
-    let files = session.files();
+    let Some(files) = resident.files.read().unwrap().clone() else {
+        failures.fatal(
+            "field model behavior preparation",
+            anyhow::anyhow!("missing verified field files"),
+        );
+        return;
+    };
+    let behavior_sources = match files.script_sources() {
+        Ok(sources) => sources,
+        Err(error) => {
+            failures.fatal("field model behavior preparation", error);
+            return;
+        }
+    };
     let mut ui = match super::field_ui::Artwork::load_with(
-        session.field_assets(),
-        session.data().clone(),
+        &session.assets,
+        session.data.clone(),
         &server,
         &mut materials,
         &mut images,
@@ -778,7 +771,7 @@ fn load_live(
     ui.prepare(&mut commands, &mut meshes, &mut materials);
     let effects = match super::field_effects::Artwork::load_with(
         &std::path::PathBuf::new(),
-        session.field_assets(),
+        &session.assets,
         &server,
         &mut meshes,
         &mut surfaces,
@@ -949,6 +942,7 @@ pub(super) fn advance_live(
     server: Res<AssetServer>,
     parts: Query<&ActorPart>,
     mut controls: ResMut<Controls>,
+    mut menu_memory: Option<ResMut<super::battle::MenuMemory>>,
     mut failures: Failures,
     resident: Res<super::loading::Resident>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
@@ -962,13 +956,12 @@ pub(super) fn advance_live(
         controls.clear_actions();
         return;
     };
-    if quickload.is_some()
-        || !resident.active.load(std::sync::atomic::Ordering::Acquire)
-        || session.overworld().is_some()
+    if !resident.active.load(std::sync::atomic::Ordering::Acquire)
+        || session.overworld.is_some()
         || !session.ready_for_field
         || session.audio.is_some()
-        || session.field().events.world.field_transition.is_some()
-        || session.field().events.battle_pending()
+        || session.field.events.world.field_transition.is_some()
+        || session.field.events.battle_pending()
     {
         controls.clear_actions();
         return;
@@ -989,19 +982,24 @@ pub(super) fn advance_live(
             return;
         }
     }
-    match ui.skit_ready(session.field(), &images, &server) {
+    match ui.skit_ready(&session.field, &images, &server) {
         Ok(true) => {}
         Ok(false) => {
             controls.clear_actions();
             return;
         }
         Err(error) => {
+            ui.clear_skit(&mut failures.commands);
             controls.clear_actions();
-            failures.fatal("field skit artwork", error);
+            if failures.skip("field skit artwork", error)
+                && let Err(error) = session.field.cancel_skit()
+            {
+                failures.fatal("field skit recovery", error);
+            }
             return;
         }
     }
-    if !ui.menu_published(session.field())
+    if !ui.menu_published(&session.field)
         || parts.iter().any(|part| !part.prepared)
         || session
             .field()
@@ -1023,13 +1021,20 @@ pub(super) fn advance_live(
     if let Some(mut scenario) = scenario {
         scenario.acknowledge_input();
     }
-
-    if let Err(error) = session.field_mut().step(input) {
+    if let Some(memory) = &menu_memory {
+        session.field.set_unison_character(memory.unison_character);
+    }
+    if let Err(error) = session.field.step(input) {
         // The VM may already have changed state. Cancel this lifetime and
         // return to title; never retry a partially applied field update.
-        session.field_mut().events.cancel();
+        session.field.events.cancel();
         session.ready_for_field = false;
         failures.fatal("field update", error);
+    } else if let Some(memory) = &mut menu_memory {
+        memory.unison_character = session.field.unison_character();
+        if let Some(menu) = &session.field.menu {
+            memory.character = menu.character;
+        }
     }
 }
 
@@ -1144,7 +1149,7 @@ fn ui(
     let field = checkpoint
         .as_mut()
         .map(|session| &mut session.0)
-        .or_else(|| live.as_mut().map(|session| session.field_mut()))
+        .or_else(|| live.as_mut().map(|session| &mut session.field))
         .expect("field UI session");
     if !art.ready(&images) {
         if field
@@ -1248,8 +1253,13 @@ fn ui(
             return;
         }
         Err(error) => {
-            failures.fatal("field skit rendering", error);
-            return;
+            if !failures.skip("field skit rendering", error) {
+                return;
+            }
+            if let Err(error) = field.cancel_skit() {
+                failures.fatal("field skit recovery", error);
+                return;
+            }
         }
     }
     match art.render(field, &heads, &mut commands, &mut meshes, &mut materials) {
@@ -1282,7 +1292,11 @@ fn ui(
     }
 }
 
-fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
+fn load_art(
+    manifest: &FieldAssets,
+    server: &AssetServer,
+    behavior_sources: BTreeMap<String, String>,
+) -> Art {
     let loads = super::loading::LoadTasks::default();
     let mut models = BTreeMap::new();
     for (resource, parts) in manifest
@@ -1305,18 +1319,12 @@ fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
     Art {
         map: manifest.map_id,
         texture_animations: manifest.texture_animations.clone(),
-        environment: manifest.environment.clone(),
         models,
         instances: BTreeMap::new(),
         ready: false,
         loading_since: Instant::now(),
         unlit: false,
         disabled_shadows: false,
-        panorama: manifest
-            .panorama
-            .as_ref()
-            .map(|path| panorama::Artwork::load(path, server, &loads)),
-        water: manifest.water.clone().map(water::Artwork::new),
         shadows: shadows::Artwork::load(&manifest.contact_shadow, server),
         toon_ramp: server
             .load_builder()
@@ -1410,16 +1418,10 @@ fn prepare_part(
     asset_ready(server, part.scene.id().untyped())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Field preparation resolves meshes, materials and animation assets together."
-)]
 fn prepare(
     mut art: ResMut<Art>,
     server: Res<AssetServer>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
-    gltf_meshes: Res<Assets<bevy::gltf::GltfMesh>>,
-    meshes: Res<Assets<Mesh>>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
     images: Res<Assets<Image>>,
     mut failures: Failures,
@@ -1434,33 +1436,8 @@ fn prepare(
     // other model resources available and preventing an impossible ready gate.
     art.models.retain(|resource, parts| {
         let result = parts.iter_mut().try_fold(true, |ready, part| {
-            let resolved = part.resolved;
             let loaded = prepare_part(part, &server, &gltfs, &clips, &images)
                 .with_context(|| format!("model {resource}, {}", part.spec.mesh))?;
-            if !resolved
-                && part.resolved
-                && *resource == SCENERY_RESOURCE_BASE + u32::from(part.spec.resource)
-                && DrawStage::scenery(part.spec.resource) == Some(DrawStage::Foreground)
-            {
-                let gltf = gltfs.get(&part.gltf).expect("resolved field model");
-                for (handle, material) in gltf.meshes.iter().zip(&mut part.spec.materials) {
-                    let mesh = gltf_meshes.get(handle).expect("resolved field mesh");
-                    // Translucent light panels must not occlude later scenery.
-                    // Cutout foliage keeps depth writes between overlapping leaves.
-                    if material.blend && material.vertex_color {
-                        material.depth_write &= !mesh.primitives.iter().any(|primitive| {
-                            let mesh = meshes
-                                .get(&primitive.mesh)
-                                .expect("resolved field primitive");
-                            matches!(
-                                mesh.attribute(Mesh::ATTRIBUTE_COLOR),
-                                Some(bevy::mesh::VertexAttributeValues::Float32x4(colors))
-                                    if colors.iter().any(|color| color[3] < 1.)
-                            )
-                        });
-                    }
-                }
-            }
             ensure!(
                 loaded || !timed_out,
                 "model {resource} did not load within 30 seconds"
@@ -1484,25 +1461,6 @@ fn prepare(
     });
     if stopped {
         return;
-    }
-    if let Some(panorama) = &art.panorama {
-        let result = asset_ready(&server, panorama.image.id().untyped()).and_then(|loaded| {
-            let loaded = loaded && images.contains(&panorama.image);
-            ensure!(
-                loaded || !timed_out,
-                "field panorama did not load within 30 seconds"
-            );
-            Ok(loaded)
-        });
-        match result {
-            Ok(loaded) => ready &= loaded,
-            Err(error) => {
-                if !failures.skip("field panorama", error) {
-                    return;
-                }
-                art.panorama = None;
-            }
-        }
     }
     for (index, (handle, disabled)) in [
         (art.toon_ramp.clone(), art.unlit),
@@ -1592,6 +1550,9 @@ fn instances(
                         WorldAssetRoot(part.scene.clone()),
                         Transform::default(),
                         ActorPart {
+                            creation: actor
+                                .creation
+                                .filter(|p| p.tick == session.get().events.tick()),
                             actor: id,
                             instance: actor.instance,
                             resource: actor.model_resource(),
@@ -1668,27 +1629,10 @@ fn pose(
     mut applied: ResMut<Applied>,
     effects: Res<super::field_effects::Artwork>,
     mut failures: Failures,
-    mut actor_depths: Local<Vec<(i32, f32)>>,
 ) {
     let session = session.get();
     let world = &session.events.world;
     let tick = session.events.tick();
-    let direction = world.field_camera.as_ref().map_or(Vec3::ZERO, |camera| {
-        Vec3::from_array(camera.target) - Vec3::from_array(camera.position)
-    });
-    actor_depths.clear();
-    actor_depths.extend(world.actor_order().iter().filter_map(|&id| {
-        // Attached models have local coordinates; sort them with their owner.
-        let actor = std::iter::successors(world.actors.get(&id), |actor| {
-            world.actors.get(&actor.attachment.as_ref()?.actor)
-        })
-        .take(world.actors.len())
-        .last()?;
-        Some((id, Vec3::from_array(actor.visual_position()).dot(direction)))
-    }));
-    // Stable ties preserve submission order. Recompute from the live camera
-    // and positions so moving actors and camera cuts update the blend order.
-    actor_depths.sort_by(|a, b| b.1.total_cmp(&a.1));
     for (root, mut instance, mut transform, mut visibility) in &mut roots {
         if instance.disabled {
             *visibility = Visibility::Hidden;
@@ -1803,7 +1747,6 @@ fn pose(
                 Vec4::ONE
             };
         let light = session.character_light(instance.actor);
-        let scenery_lighting = lighting::resolve(&art.environment, world, instance.actor);
         let ambient_color = if let Some(rgba) = echo_color {
             Vec4::new(
                 f32::from(rgba[0]),
@@ -1817,7 +1760,9 @@ fn pose(
             Vec4::new(64., 64., 64., 0.)
         };
         let light_position = match light.position {
-            LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
+            LightPosition::Relative(p) => {
+                Vec3::from_array(p) + Vec3::from_array(actor.presented_position())
+            }
             LightPosition::World(p) => Vec3::from_array(p),
             LightPosition::Actor { id, height } => world.actors.get(&id).map_or(Vec3::ZERO, |a| {
                 Vec3::from_array(a.position) + Vec3::Z * height
@@ -1832,13 +1777,6 @@ fn pose(
             }))
             .extend(1.)
         });
-        transform.scale = Vec3::from_array(
-            wing_echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(tick)),
-        ) * wing_layer.as_ref().map_or(1., |layer| layer.scale);
-        if instance.actor == world.controlled_actor {
-            transform.scale *= world.player_size.model_scale();
-        }
-        let mirrored = transform.scale.element_product() < 0.;
         for (index, material) in part.spec.materials.iter().enumerate() {
             let tint = tint
                 * part
@@ -1891,15 +1829,15 @@ fn pose(
                     }
                 }
             }
-            for (index, animation) in art.texture_animations.iter().enumerate() {
+            for animation in &art.texture_animations {
                 if animation.actor.resolve(&world.texture_bindings) != instance.actor {
                     continue;
                 }
                 let texture = animation.texture.resolve(&world.texture_bindings);
-                let uv = world
-                    .texture_animation_states
-                    .get(index)
-                    .map_or([0.; 2], |state| state.offset);
+                let uv = animation.offset(
+                    world.texture_animation_tick,
+                    world.texture_animation_effect_tick,
+                );
                 for (stage, binding) in [&material.color, &material.multiply]
                     .into_iter()
                     .enumerate()
@@ -1933,13 +1871,7 @@ fn pose(
             {
                 resonance_content::CullFace::None
             } else {
-                // Reflection reverses triangle winding, including outline geometry.
-                use resonance_content::CullFace;
-                match (material.cull, mirrored) {
-                    (CullFace::Back, true) => CullFace::Front,
-                    (CullFace::Front, true) => CullFace::Back,
-                    (cull, _) => cull,
-                }
+                material.cull
             };
             let blend = actor.blend.or_else(|| {
                 if actor.ring_station || (save_point.is_some() && !sealed) {
@@ -1957,7 +1889,6 @@ fn pose(
                     || s.blend != blend
                     || s.field_light != light_position
                     || s.shade_colors != shades
-                    || s.scenery_lighting != scenery_lighting
                     || s.toon_ramp != toon_ramp
                     || s.cull != cull
                     || s.vertex_alpha != actor.ring_station
@@ -1972,7 +1903,6 @@ fn pose(
                 surface.blend = blend;
                 surface.field_light = light_position;
                 surface.shade_colors = shades;
-                surface.scenery_lighting = scenery_lighting;
                 surface.toon_ramp = toon_ramp;
                 surface.cull = cull;
                 surface.vertex_alpha = actor.ring_station;
@@ -1982,6 +1912,12 @@ fn pose(
         transform.translation = Vec3::from_array(
             wing_echo.map_or_else(|| actor.visual_position(), |echo| echo.position),
         );
+        transform.scale = Vec3::from_array(
+            wing_echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(tick)),
+        ) * wing_layer.as_ref().map_or(1., |layer| layer.scale);
+        if instance.actor == world.controlled_actor {
+            transform.scale *= world.player_size.model_scale();
+        }
         let [x, y, z] = wing_echo.map_or_else(
             || {
                 [
@@ -1995,10 +1931,7 @@ fn pose(
         transform.rotation = Quat::from_rotation_z(z.to_radians())
             * Quat::from_rotation_y(y.to_radians())
             * Quat::from_rotation_x(x.to_radians());
-        // Fades can stop at one byte of opacity; omit the whole model so it
-        // cannot leave invisible depth coverage behind.
-        *visibility = if tint.w > 1. / 255.
-            && actor.visible
+        *visibility = if actor.visible
             && world.tick >= actor.visible_from
             && !actor.appearance.model_hidden
             && !actor.animation_culled
@@ -2030,14 +1963,6 @@ fn pose(
                 -2 => Layer::ModelEffects(2 * MODEL_DRAW_SPAN),
                 _ => Layer::Scene(DrawStage::Actors.offset()),
             }
-        };
-        let actor_order = if draw_stage.is_field_actor() {
-            actor_depths
-                .iter()
-                .position(|(id, _)| *id == instance.actor)
-                .unwrap()
-        } else {
-            actor_order
         };
         if !instance.prepared {
             let mut descendants = 0;
@@ -2072,24 +1997,74 @@ fn pose(
                     instance.geometry.push((index, entity));
                     commands.entity(entity).insert((
                         MeshMaterial3d(instance.materials[index].clone()),
-                        DrawOrder::field_model(
-                            draw_stage,
+                        // Translucent circle passes follow scenery and actors;
+                        // drawing them among opaque model parts clips the glow.
+                        DrawOrder(
+                            if save_point.is_some() {
+                                Layer::FieldOverlay(
+                                    part.spec.materials[index].draw_order
+                                        + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                                )
+                            } else {
+                                Layer::Scene(
+                                    part.spec.materials[index].draw_order
+                                        + u32::from(instance.pass) * MODEL_DRAW_SPAN
+                                        + if (SCENERY_RESOURCE_BASE
+                                            ..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
+                                            .contains(&actor.resource)
+                                        {
+                                            0
+                                        } else {
+                                            DrawStage::Actors.offset()
+                                        },
+                                )
+                            },
                             actor_order,
-                            part.spec.materials[index].draw_order
-                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                            0,
                         ),
                     ));
                 }
             }
             instance.prepared = descendants > 0;
         }
+        let draw_stage = if save_point.is_some() {
+            Layer::FieldOverlay(0)
+        } else if (SCENERY_RESOURCE_BASE..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
+            .contains(&actor.resource)
+        {
+            Layer::Scene(0)
+        } else {
+            match actor.draw_layer {
+                -1 => Layer::Scene(DrawStage::LateActors.offset()),
+                -4 => Layer::Scene(DrawStage::TranslucentScenery.offset() + 2 * MODEL_DRAW_SPAN),
+                -3 => Layer::ModelEffects(MODEL_DRAW_SPAN),
+                -2 => Layer::ModelEffects(2 * MODEL_DRAW_SPAN),
+                _ => Layer::Scene(DrawStage::Actors.offset()),
+            }
+        };
         for &(material, entity) in &instance.geometry {
             if let Ok(mut order) = draw_orders.get_mut(entity) {
-                let next = DrawOrder::field_model(
-                    draw_stage,
+                let next = DrawOrder(
+                    match draw_stage {
+                        Layer::Scene(stage) => Layer::Scene(
+                            stage
+                                + part.spec.materials[material].draw_order
+                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                        ),
+                        Layer::FieldOverlay(stage) => Layer::FieldOverlay(
+                            stage
+                                + part.spec.materials[material].draw_order
+                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                        ),
+                        Layer::ModelEffects(stage) => Layer::ModelEffects(
+                            stage
+                                + part.spec.materials[material].draw_order
+                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                        ),
+                        _ => unreachable!(),
+                    },
                     actor_order,
-                    part.spec.materials[material].draw_order
-                        + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                    0,
                 );
                 if *order != next {
                     *order = next;
@@ -2136,77 +2111,6 @@ fn pose(
 #[cfg(test)]
 #[path = "field_view/input_tests.rs"]
 mod input_tests;
-
-pub fn capture_classroom(root: &Path, output: &Path, tick: Option<u32>) -> Result<()> {
-    capture_field(
-        root,
-        output,
-        CaptureTarget {
-            at: tick.map_or(CaptureMoment::Control, |update| CaptureMoment::Tick {
-                update,
-            }),
-            ..Default::default()
-        },
-    )
-}
-
-pub fn capture_classroom_probe(
-    root: &Path,
-    output: &Path,
-    probe: &super::ClassroomProbe,
-) -> Result<()> {
-    capture_field(
-        root,
-        output,
-        CaptureTarget {
-            probe: Some(probe),
-            ..Default::default()
-        },
-    )
-}
-
-pub fn capture_setup(
-    root: &Path,
-    output: &Path,
-    tick: u32,
-    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
-) -> Result<()> {
-    capture_field(
-        root,
-        output,
-        CaptureTarget {
-            scene: FieldScene::NewGame,
-            at: CaptureMoment::Tick { update: tick },
-            preferences,
-            ..Default::default()
-        },
-    )
-}
-
-pub fn capture_dialogue(
-    root: &Path,
-    output: &Path,
-    prefix: &str,
-    hold_ticks: u32,
-    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
-) -> Result<()> {
-    capture_field(
-        root,
-        output,
-        CaptureTarget {
-            at: CaptureMoment::Dialogue {
-                prefix: prefix.into(),
-                hold_updates: hold_ticks,
-            },
-            preferences,
-            ..Default::default()
-        },
-    )
-}
-
-fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Result<()> {
-    capture_field_cached(root, output, target, &mut BTreeMap::new())
-}
 
 /// Consecutive frames from real scripts; no audio device or movie decoder.
 pub fn capture_field_sequence(root: &Path, output: &Path, sequence: &FieldSequence) -> Result<()> {
@@ -2274,14 +2178,9 @@ fn capture_field_cached(
     let root = fs::canonicalize(root)?;
     let checkpoint = target.scene.checkpoint();
     let scene_entry = matches!(target.scene, FieldScene::Arrival { .. });
-    let (mut assets, mut session) = if setup_prompt {
+    let (assets, mut session) = if setup_prompt {
         let entry = super::new_game::Session::load(&root)?;
-        {
-            let super::new_game::Scene::Field(field) = entry.scene else {
-                unreachable!()
-            };
-            (field.package.assets.clone(), field.session)
-        }
+        (entry.assets, entry.field)
     } else {
         let map = checkpoint.map_or(340, |c| c.map_id);
         if let std::collections::btree_map::Entry::Vacant(entry) = packages.entry(map) {
@@ -2302,7 +2201,10 @@ fn capture_field_cached(
         }
         let assets = package.assets.clone();
         let entry = if let Some(checkpoint) = checkpoint {
-            let data = package.data.clone();
+            let (data, _) = super::new_game::admit_definitions(
+                |path| Ok(package.files.read(path)?.to_vec()),
+                package.files.diagnostics(),
+            )?;
             let available_fields = super::new_game::available_fields(&root)?;
             if scene_entry {
                 ensure!(
@@ -2427,13 +2329,13 @@ fn capture_field_cached(
             )?);
         party.settings.preferences = preferences.clone();
     }
-    if target
-        .sequence
-        .is_some_and(|sequence| sequence.isolation.is_some())
-    {
-        assets.panorama = None;
-        assets.water = None;
-    }
+    let behavior_sources = resonance_content::prepared::Files::load(
+        &root,
+        &[&resonance_content::field::preload_path(assets.map_id)],
+        &mut Default::default(),
+        || false,
+    )?
+    .script_sources()?;
     let mut app = App::new();
     super::model_preview::register(&mut app, &root);
     app.add_plugins(
@@ -2459,16 +2361,17 @@ fn capture_field_cached(
     .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
         std::time::Duration::ZERO,
     ))
-    .add_plugins((
-        super::materials::install_surface_material,
-        super::materials::install_output_materials,
-    ))
+    .add_plugins(MaterialPlugin::<TitleSurface>::default())
+    .add_plugins(Material2dPlugin::<TitleOutput>::default())
     .add_plugins(FieldRendering)
     .add_plugins(DrawOrderPlugin)
     .init_resource::<super::scene::SampledImages>()
     .insert_resource(Session(session))
     .insert_resource(Manifest(assets))
-    .insert_resource(Root { assets: root })
+    .insert_resource(Root {
+        assets: root,
+        behavior_sources,
+    })
     .insert_resource(super::display::OutputStage::Framebuffer)
     .insert_resource(super::display::Display(resolution))
     .insert_resource(Checkpoint {
@@ -2490,15 +2393,22 @@ fn capture_field_cached(
         )
             .chain(),
     );
+    super::materials::embed_shaders(&mut app);
     super::renderer::configure(&mut app);
+    bevy::asset::embedded_asset!(app, "title_output.wgsl");
     let ready = super::RenderReady::default();
     app.insert_resource(ready.clone());
+    app.add_systems(
+        PostUpdate,
+        crate::timing::prepare_draws
+            .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+    );
     app.get_sub_app_mut(bevy::render::RenderApp)
         .context("render application unavailable")?
         .insert_resource(ready)
         .add_systems(
             bevy::render::Render,
-            super::check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
+            super::timing::rendered.in_set(bevy::render::RenderSystems::Cleanup),
         );
     let failure = target
         .sequence
@@ -2596,7 +2506,6 @@ fn setup(
             ..default()
         },
         RenderTarget::Image(source.clone().into()),
-        super::FieldOverlayCamera,
         super::camera::overlay_alignment(),
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::Fixed {
@@ -2660,7 +2569,11 @@ fn setup(
             ..default()
         })),
     ));
-    commands.insert_resource(load_art(&manifest.0, &server));
+    commands.insert_resource(load_art(
+        &manifest.0,
+        &server,
+        root.behavior_sources.clone(),
+    ));
 }
 
 #[allow(clippy::too_many_arguments)] // Snapshot readiness, actor evidence, and GPU readback.
@@ -2690,7 +2603,12 @@ fn capture(
     if !art.ready
         || parts.is_empty()
         || parts.iter().any(|p| !p.prepared)
-        || !ready.0.load(std::sync::atomic::Ordering::Acquire)
+        || !ready
+            .0
+            .lock()
+            .unwrap()
+            .completed
+            .load(std::sync::atomic::Ordering::Acquire)
         || !refraction.get()
     {
         checkpoint.settled = 0;
@@ -2759,4 +2677,5 @@ struct Manifest(FieldAssets);
 #[derive(Resource)]
 struct Root {
     assets: PathBuf,
+    behavior_sources: BTreeMap<String, String>,
 }

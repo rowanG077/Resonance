@@ -194,7 +194,37 @@ fn main_anchor(state: &Unison) -> Result<[f32; 2]> {
         [x + 8., 92. + (state.row - state.first) as f32 * 28.]
     })
 }
-
+impl MenuArtwork {
+    #[allow(clippy::too_many_arguments)] // One borrowed page and its prepared drawing resources.
+    pub(crate) fn render_battle_unison(
+        &mut self,
+        page: UnisonPage<'_>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        tick: u32,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        self.set_page(Some(ActivePage::Menu(Page::Unison)));
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
+        draw.opacity = 255;
+        // A field caller already owns its background.
+        draw.shade(draw.screen);
+        draw.plane = 1;
+        draw.unison_page(page)?;
+        let drawing = draw.batches;
+        self.submit_drawing(drawing, commands, meshes)
+    }
+}
+impl Drawing<'_> {
+    fn unison_page(&mut self, page: UnisonPage<'_>) -> Result<()> {
+        let anchor = self.unison(page, false)?;
+        self.unison_cursors(page);
+        self.cursor(anchor, 255);
+        Ok(())
+    }
+}
 #[cfg(test)]
 #[path = "unison_tests.rs"]
 mod tests;

@@ -35,11 +35,11 @@ fn strategy_cursor_anchors_follow_page_slides_and_nested_focus() -> Result<()> {
     state.preset = 2;
     state.preset_opacity = 0;
     assert_eq!(main_anchor(&state)?, [396., -27.]);
-    assert_eq!(main_plane(&state), 3);
+    assert_eq!((main_plane(&state), main_alpha(&state)), (3, 255));
     state.focus = Focus::Rename;
     state.preset_opacity = 255;
     assert_eq!(main_anchor(&state)?, [396., 28.]);
-    assert_eq!(main_plane(&state), 3);
+    assert_eq!((main_plane(&state), main_alpha(&state)), (3, 127));
     assert_eq!(key_position(5, 4), [250., 240.]);
     assert_eq!(key_position(10, 8), [414., 352.]);
     state.focus = Focus::Presets;

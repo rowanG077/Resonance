@@ -1,5 +1,5 @@
-//! Player menus own input while the active scene remains at its checkpoint.
-use crate::{Checkpoint, DirectionRepeat};
+//! Player menus own input while the field remains at a controllable checkpoint.
+use crate::{DirectionRepeat, field::FieldCheckpoint};
 use anyhow::Context;
 use resonance_content::{menu_data, prepared::Files};
 use std::sync::Arc;
@@ -506,7 +506,7 @@ impl Menu {
         match self.page {
             Page::Synopsis => self.synopsis.transition.page_fade,
             Page::Strategy => self.strategy.transition.page_fade,
-            Page::Tech | Page::Unison => 0,
+            Page::Items | Page::Tech | Page::Unison => 0,
             _ => self.main_fade,
         }
     }
@@ -564,7 +564,7 @@ impl Menu {
         resonance_events::GameplayRandom,
     )> {
         std::mem::take(&mut self.party_changed).then(|| {
-            let progress = &self.checkpoint.as_ref().unwrap().progress();
+            let progress = &self.checkpoint.as_ref().unwrap().progress;
             (progress.party.clone(), progress.gameplay_random)
         })
     }
@@ -577,7 +577,7 @@ impl Menu {
     pub(crate) fn set_play_time(&mut self, time: crate::clock::PlayTime) {
         self.play_time = time;
         if let Some(checkpoint) = &mut self.checkpoint {
-            checkpoint.set_played_ticks(time.total());
+            checkpoint.played_ticks = time.total();
         }
     }
     pub fn take_command(&mut self) -> Option<Command> {
@@ -605,7 +605,6 @@ impl Menu {
                 self.main_fade = 0;
                 match page {
                     Page::Status => self.animate_status_portrait(),
-                    Page::Items => self.fade_item_description(),
                     Page::Strategy => {
                         self.step_strategy(None);
                     }
@@ -645,13 +644,6 @@ impl Menu {
         self.returning = false;
         let page = self.page;
         match page {
-            Page::Items => {
-                self.remember_item_description();
-                self.fade_item_target();
-                if self.advance_item_page() {
-                    return None;
-                }
-            }
             Page::Rename => self.advance_rename(),
             Page::Cooking => self.remember_cooking_description(),
             Page::ExSkills => self.remember_ex_description(),
@@ -665,10 +657,6 @@ impl Menu {
         let cue = self.step_input(input);
         self.step_catalogue_animation();
         match self.page {
-            Page::Items => {
-                self.step_item_preview();
-                self.fade_item_description();
-            }
             Page::Collection => self.fade_collection_description(),
             Page::WorldMap => self.fade_world_map_description(),
             Page::Cooking => self.fade_cooking_description(),
@@ -739,11 +727,6 @@ impl Menu {
         }
         if self.page == Page::Rename {
             return self.step_rename(input);
-        }
-        if self.page == Page::Items
-            && (self.inventory.page_closing || self.inventory.page_fade != 0)
-        {
-            return None;
         }
         if self.page == Page::Collection
             && (self.collection.page_closing || self.collection.page_fade != 0)
@@ -894,8 +877,6 @@ impl Menu {
                         Page::Items if available => {
                             self.inventory.focus = items::Focus::List;
                             self.open_items();
-                            self.entering = Some(Page::Items);
-                            self.inventory.clamp(self.inventory_items().len());
                         }
                         page @ (Page::Tech | Page::Status | Page::ExSkills | Page::Equip)
                             if available && self.main_entry_available(page) =>
@@ -1125,9 +1106,6 @@ mod tests {
                         "successful admission keeps its typed data"
                     );
                     assert!(menu.close_items(Page::Main));
-                    for _ in 0..12 {
-                        menu.advance_item_page();
-                    }
                     assert_eq!(menu.page, Page::Main);
                 }
             }

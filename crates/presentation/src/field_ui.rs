@@ -1,4 +1,6 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
+#[path = "battle_ui.rs"]
+mod battle_ui;
 #[path = "field_ui_coverage.rs"]
 mod coverage;
 #[path = "credits.rs"]
@@ -12,15 +14,15 @@ pub(crate) mod session_screen;
 pub(super) use failure::update as transition_failure;
 #[path = "field_ui_fade.rs"]
 mod fade;
+pub(super) use battle_ui::{Artwork as BattleHud, EnemyHud as BattleEnemyHud, PartyHudInput};
+#[path = "game_over_ui.rs"]
+mod game_over_ui;
+pub(super) use game_over_ui::Artwork as GameOverArt;
 #[path = "field_ui_menu.rs"]
 mod menu;
 #[cfg(test)]
 pub(super) use menu::MenuDraws;
-pub(super) fn install(app: &mut App) {
-    app.add_plugins(bevy::sprite_render::Material2dPlugin::<Surface>::default());
-    bevy::asset::embedded_asset!(app, "field_ui.wgsl");
-    menu::install(app);
-}
+pub(super) use menu::install as install_menu_draws;
 #[path = "field_ui_overlay.rs"]
 mod overlay;
 pub(super) fn model_preview_depth() -> f32 {
@@ -51,6 +53,43 @@ use resonance_game::{dialogue::DialoguePlayer, field::FieldSession};
 use std::{collections::BTreeMap, fs, path::Path};
 pub(super) use world::Artwork as WorldArtwork;
 
+/// Decode before activation. Callers decide whether failure is fatal or optional.
+fn ui_image(
+    path: &str,
+    size: [u32; 2],
+    repeat: bool,
+    read: &impl Fn(&str) -> Result<Vec<u8>>,
+) -> Result<Image> {
+    use bevy::image::{CompressedImageFormats, ImageType};
+    let extension = path
+        .rsplit_once('.')
+        .context("UI image has no extension")?
+        .1;
+    let address = if repeat {
+        ImageAddressMode::Repeat
+    } else {
+        ImageAddressMode::ClampToEdge
+    };
+    let image = Image::from_buffer(
+        &read(path)?,
+        ImageType::Extension(extension),
+        CompressedImageFormats::NONE,
+        false,
+        ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: address,
+            address_mode_v: address,
+            ..ImageSamplerDescriptor::linear()
+        }),
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_context(|| format!("UI image {path}"))?;
+    anyhow::ensure!(
+        [image.width(), image.height()] == size,
+        "UI image dimensions differ from its descriptor: {path}"
+    );
+    Ok(image)
+}
+
 /// Retained dialogue text may outlive its visible window or request owner.
 pub(super) fn displayed_dialogue<'a>(
     player: &DialoguePlayer,
@@ -75,8 +114,7 @@ mod layer {
     pub const SPEAKER: usize = 7;
     pub const FONT: usize = 8;
     // Cooked atlas indices: fill, frame, color overlay, font and cursor.
-    pub const CURSOR: usize = 9;
-    pub const TEXTURES: [usize; 10] = [7, 7, 0, 1, 0, 0, 1, 0, 9, 10];
+    pub const TEXTURES: [usize; 9] = [7, 7, 0, 1, 0, 0, 1, 0, 9];
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -98,17 +136,8 @@ pub(super) struct Surface {
     coverage: Coverage,
     opaque: bool,
     additive: bool,
-    texture_effect: TextureEffect,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub(super) enum TextureEffect {
-    #[default]
-    Plain,
     /// Channel swap: both texture and raster become [R,R,R,A].
-    RedChannel,
-    /// A translucent atlas pattern clipped by the glyph's alpha.
-    GlyphPattern,
+    red_channel: bool,
 }
 impl Surface {
     pub(super) fn images_ready(&self, images: &Assets<Image>) -> bool {
@@ -123,10 +152,10 @@ impl Surface {
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) struct SurfaceKey(bool, bool, TextureEffect);
+pub(super) struct SurfaceKey(bool, bool, bool);
 impl From<&Surface> for SurfaceKey {
     fn from(surface: &Surface) -> Self {
-        Self(surface.opaque, surface.additive, surface.texture_effect)
+        Self(surface.opaque, surface.additive, surface.red_channel)
     }
 }
 impl Material2d for Surface {
@@ -141,26 +170,14 @@ impl Material2d for Surface {
     }
     fn specialize(
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        layout: &bevy::mesh::MeshVertexBufferLayoutRef,
+        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         key: bevy::sprite_render::Material2dKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/field-ui".into());
-        if key.bind_group_data.2 == TextureEffect::RedChannel
+        if key.bind_group_data.2
             && let Some(fragment) = &mut descriptor.fragment
         {
             fragment.shader_defs.push("RED_CHANNEL".into());
-        }
-        if key.bind_group_data.2 == TextureEffect::GlyphPattern {
-            descriptor.vertex.buffers = vec![layout.0.get_layout(&[
-                Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
-                Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
-                Mesh::ATTRIBUTE_UV_1.at_shader_location(3),
-                Mesh::ATTRIBUTE_COLOR.at_shader_location(4),
-            ])?];
-            descriptor.vertex.shader_defs.push("GLYPH_PATTERN".into());
-            if let Some(fragment) = &mut descriptor.fragment {
-                fragment.shader_defs.push("GLYPH_PATTERN".into());
-            }
         }
         if key.bind_group_data.1
             && let Some(fragment) = &mut descriptor.fragment
@@ -197,7 +214,6 @@ pub(super) struct Artwork {
     surfaces: Vec<Handle<Surface>>,
     layers: BTreeMap<(u8, usize), Layer>,
     head_heights: BTreeMap<u64, f32>,
-    choice_trail: super::choice_cursor::Trail,
     subtitles: Vec<resonance_content::font::SubtitleCue>,
     subtitle_layer: Option<Layer>,
     fade_surface: Handle<Surface>,
@@ -256,7 +272,7 @@ impl MenuOverlay {
             color_mask: image,
             coverage: Coverage::default(),
             additive: false,
-            texture_effect: Default::default(),
+            red_channel: false,
             opaque: false,
         });
         let artwork = menu::MenuArtwork::load(
@@ -265,7 +281,6 @@ impl MenuOverlay {
             server,
             materials,
             (&surface, [font.width, font.height]),
-            &dialogue.cursor,
             diagnostics,
         )?;
         Ok(Self {
@@ -453,7 +468,7 @@ impl Artwork {
             .textures
             .iter()
             .map(|t| t.path.clone())
-            .chain([font.texture.clone(), spec.cursor.path.clone()])
+            .chain([font.texture.clone()])
             .enumerate()
             .map(|(index, path)| {
                 server
@@ -484,7 +499,7 @@ impl Artwork {
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
                     additive: false,
-                    texture_effect: Default::default(),
+                    red_channel: false,
                     opaque: false,
                 })
             })
@@ -495,7 +510,6 @@ impl Artwork {
             server,
             materials,
             (&surfaces[9], [font.width, font.height]),
-            &spec.cursor,
             files.diagnostics(),
         )?;
         let skits = skit::Artwork::load(read, server, materials, &surfaces[9], image_assets)?;
@@ -512,7 +526,6 @@ impl Artwork {
             surfaces,
             layers: BTreeMap::new(),
             head_heights: BTreeMap::new(),
-            choice_trail: Default::default(),
             subtitles: Vec::new(),
             subtitle_layer: None,
             fade_surface,
@@ -554,6 +567,9 @@ impl Artwork {
         self.skits
             .ready(session.active_skit.as_ref(), images, server)
     }
+    pub(super) fn clear_skit(&mut self, commands: &mut Commands) {
+        self.skits.clear(commands);
+    }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_menu(
         &mut self,
@@ -589,7 +605,7 @@ impl Artwork {
         images: &mut Assets<Image>,
         server: &AssetServer,
     ) -> Result<bool> {
-        self.skit_ready(session, images, server).and_then(|ready| {
+        let result = self.skit_ready(session, images, server).and_then(|ready| {
             if !ready {
                 return Ok(false);
             }
@@ -602,7 +618,11 @@ impl Artwork {
                 images,
             )?;
             Ok(true)
-        })
+        });
+        if !matches!(result, Ok(true)) {
+            self.clear_skit(commands);
+        }
+        result
     }
     pub fn menu_settled(&self, menu: &resonance_game::menu::Menu, tick: u32) -> bool {
         self.menu.visually_settled(menu, tick)
@@ -622,13 +642,37 @@ impl Artwork {
         self.prepare_damage(commands, meshes);
         self.overlays.prepare(commands, meshes);
         self.prepare_fade(commands, meshes);
-        prepare_dialogue(
-            &mut self.layers,
-            &self.surfaces,
-            commands,
-            meshes,
-            materials,
-        );
+        for slot in 0..DIALOGUE_SLOTS {
+            for (index, texture) in layer::TEXTURES.into_iter().enumerate() {
+                if self.layers.contains_key(&(slot, index)) {
+                    continue;
+                }
+                let mut batch = Batch::default();
+                batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
+                let mesh = meshes.add(batch.mesh([1, 1]));
+                let template = materials.get(&self.surfaces[texture]).unwrap().clone();
+                let material = materials.add(template);
+                let order = index as f32;
+                let entity = commands
+                    .spawn((
+                        Mesh2d(mesh.clone()),
+                        MeshMaterial2d(material.clone()),
+                        Transform::from_xyz(0., 0., 10. + f32::from(slot) * 20. + order),
+                        Visibility::Hidden,
+                    ))
+                    .id();
+                self.layers.insert(
+                    (slot, index),
+                    Layer {
+                        entity,
+                        mesh,
+                        material,
+                        uploaded: None,
+                        visible: false,
+                    },
+                );
+            }
+        }
         if self.subtitle_layer.is_none() {
             let mut batch = Batch::default();
             batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
@@ -905,11 +949,6 @@ impl DialogueDraw<'_> {
                 .collect();
             let preferences = world.party.as_ref().map(|p| &p.settings.preferences);
             let window = preferences.map_or(self.spec.selection.mode, |p| p.window);
-            let (cursor_image, cursor_size) = self.menu.choice_cursor(window).unwrap_or((
-                &self.images[layer::TEXTURES[layer::CURSOR]],
-                [self.spec.cursor.width, self.spec.cursor.height],
-            ));
-
             if request.flags & flags::FRAMELESS == 0 {
                 frame(
                     &mut batches,
@@ -960,11 +999,11 @@ impl DialogueDraw<'_> {
                 && player.fully_revealed()
                 && (player.accepts_input() || !choice.operation.is_pending())
             {
-                let y = super::choice_cursor::drawing_y(top + f32::from(lines.selected_line) * 25.);
-                let overlay = super::choice_cursor::overlay_rect;
+                let y =
+                    super::ui_coordinates::drawing_y(top + f32::from(lines.selected_line) * 25.);
+                let overlay = super::ui_coordinates::overlay_rect;
                 let mut style = self.spec.selection.clone();
                 style.mode = window;
-                [style.bob_amplitude, style.bob_step] = self.menu.cursor_motion(window);
                 style.color = preferences.map_or(style.color, |p| p.colors.selection);
                 let mut color = style.color.map(|v| f32::from(v) / 255.);
                 color[3] = f32::from(u16::from(style.color[3]) * 128 / 255) / 255.;
@@ -982,31 +1021,7 @@ impl DialogueDraw<'_> {
                         );
                     }
                 }
-                let [w, h] = cursor_size.map(|v| v as f32);
-                let bob = super::choice_cursor::bob(&style, presentation_tick);
-                let x = left + bob;
-                let y = y - bob;
-                for ([tx, ty], alpha) in self
-                    .choice_trail
-                    .sample(presentation_tick, [x as i32, y as i32])
-                {
-                    let [tx, ty] = [tx as f32, ty as f32];
-                    batches[layer::CURSOR].quad(
-                        overlay([tx + 4. - w, ty + 8., tx + 4., ty + 8. + h]),
-                        [0., 0., w, h],
-                        [1., 1., 1., f32::from(alpha) / 255.],
-                    );
-                }
-                batches[layer::CURSOR].quad(
-                    overlay([x + 8. - w, y + 12., x + 8., y + 12. + h]),
-                    [0., 0., w, h],
-                    [0., 0., 0., 127. / 255.],
-                );
-                batches[layer::CURSOR].quad(
-                    overlay([x + 4. - w, y + 8., x + 4., y + 8. + h]),
-                    [0., 0., w, h],
-                    [1.; 4],
-                );
+                highlight.cursor([left, y], 1.);
             }
             let mut x = left;
             let mut y = top;
@@ -1069,8 +1084,7 @@ impl DialogueDraw<'_> {
             }
             batches[layer::FONT].append(highlight);
             if !player.persistent
-                && player.fully_revealed()
-                && player.accepts_input()
+                && player.continue_marker_visible()
                 && request.flags & flags::FRAMELESS == 0
                 && (player.page + 1 < player.pages.len()
                     || !world
@@ -1125,7 +1139,6 @@ impl DialogueDraw<'_> {
                 };
                 let size = match index {
                     layer::FONT => [self.font.width, self.font.height],
-                    layer::CURSOR => cursor_size,
                     _ => [
                         self.spec.textures[texture_index].width,
                         self.spec.textures[texture_index].height,
@@ -1138,11 +1151,7 @@ impl DialogueDraw<'_> {
                 let material = materials
                     .get(&layer.material)
                     .context("dialogue layer material was removed")?;
-                let source = if index == layer::CURSOR {
-                    cursor_image
-                } else {
-                    &self.images[texture_index]
-                };
+                let source = &self.images[texture_index];
                 if material.coverage != coverage || material.source != *source {
                     let mut material = materials.get_mut(&layer.material).unwrap();
                     material.coverage = coverage;
@@ -1780,6 +1789,19 @@ impl Batch {
         self.indices
             .extend([start, start + 2, start + 1, start, start + 3, start + 2]);
     }
+    fn cursor(&mut self, [x, y]: [f32; 2], alpha: f32) {
+        for (offset, color) in [(2., [0., 0., 0., alpha * 0.6]), (0., [1., 1., 1., alpha])] {
+            let start = self.positions.len() as u32;
+            for [dx, dy] in [[-14., 7.], [-4., 14.], [-14., 21.]] {
+                let [x, y, _, _] =
+                    super::ui_coordinates::overlay_rect([x + dx + offset, y + dy + offset, 0., 0.]);
+                self.positions.push([x - 320., 240. - y, 0.]);
+            }
+            self.uv.extend([[0.5; 2]; 3]);
+            self.colors.extend([color; 3]);
+            self.indices.extend([start, start + 2, start + 1]);
+        }
+    }
     fn mesh(mut self, [width, height]: [u32; 2]) -> Mesh {
         for uv in &mut self.uv {
             uv[0] /= width as f32;
@@ -1867,35 +1889,30 @@ mod tests {
                 .take()
                 .context("preview did not request skit")?;
             let completion = request.operation.clone();
-            session.field_mut().events.world.skit_request = Some(request);
+            session.field.events.world.skit_request = Some(request);
             for _ in 0..300 {
-                session.field_mut().step(Default::default())?;
-                if session
-                    .field()
-                    .active_skit
-                    .as_ref()
-                    .is_some_and(|playback| {
-                        playback
-                            .events
-                            .world
-                            .skit
-                            .as_ref()
-                            .is_some_and(|scene| !scene.portraits.is_empty())
-                    })
-                {
+                session.field.step(Default::default())?;
+                if session.field.active_skit.as_ref().is_some_and(|playback| {
+                    playback
+                        .events
+                        .world
+                        .skit
+                        .as_ref()
+                        .is_some_and(|scene| !scene.portraits.is_empty())
+                }) {
                     break;
                 }
             }
             let portrait = session
-                .field()
+                .field
                 .active_skit
                 .as_ref()
                 .and_then(|playback| playback.events.world.skit.as_ref())
                 .and_then(|scene| scene.portraits.values().next())
                 .context("skit did not publish a portrait")?
                 .resource;
-            let mut active_skit = session.field_mut().active_skit.take();
-            session.reload(&root, checkpoint)?;
+            let mut active_skit = session.field.active_skit.take();
+            session.restore(checkpoint)?;
             session.audio = None;
             skit_catalog.portraits.get_mut(&portrait).unwrap().images[0].texture =
                 "missing-active-skit.ktx2".into();
@@ -1930,14 +1947,13 @@ mod tests {
             .init_asset::<Image>()
             .init_asset::<Mesh>()
             .init_asset::<Surface>()
-            .init_asset::<WorldAsset>()
+            .init_asset::<bevy::gltf::Gltf>()
             .init_asset::<crate::sparse_animation::Clip>()
             .init_asset::<crate::materials::TitleSurface>()
             .register_asset_loader(bevy::image::ImageLoader::new(
                 bevy::image::CompressedImageFormats::NONE,
             ))
             .init_resource::<Controls>()
-            .init_resource::<crate::display::Display>()
             .init_resource::<crate::scene::SampledImages>()
             .init_resource::<crate::field_warm::Shared>()
             .add_message::<AppExit>();
@@ -1947,7 +1963,7 @@ mod tests {
             app.insert_resource(resident);
             app.world_mut().spawn(crate::menu_backdrop::Quad);
             let server = app.world().resource::<AssetServer>().clone();
-            let field_art = crate::field_view::prepared_test_art(session.field_assets(), &server);
+            let field_art = crate::field_view::prepared_test_art(&session.assets, &server);
             let mut images = app.world_mut().remove_resource::<Assets<Image>>().unwrap();
             let mut materials = app
                 .world_mut()
@@ -1955,8 +1971,8 @@ mod tests {
                 .unwrap();
             let mut meshes = app.world_mut().remove_resource::<Assets<Mesh>>().unwrap();
             let mut art = Artwork::load_with(
-                session.field_assets(),
-                session.data().clone(),
+                &session.assets,
+                session.data.clone(),
                 &server,
                 &mut materials,
                 &mut images,
@@ -2081,19 +2097,20 @@ mod tests {
                     .active
                     .load(Ordering::Acquire)
             );
-            let before = world.resource::<Session>().field().events.tick();
+            let before = world.resource::<Session>().field.events.tick();
             world.run_system_once(advance_live).unwrap();
-            assert!(world.resource::<Session>().field().events.tick() > before);
+            assert!(world.resource::<Session>().field.events.tick() > before);
             assert!(
                 diagnostics.entries().is_empty(),
                 "unused optional image was diagnosed"
             );
-            world.resource_mut::<Session>().field_mut().step(
-                resonance_game::field::FieldInput {
+            world
+                .resource_mut::<Session>()
+                .field
+                .step(resonance_game::field::FieldInput {
                     pressed_buttons: [resonance_events::input::Button::Menu].into(),
                     ..Default::default()
-                },
-            )?;
+                })?;
             let draw = |mut commands: Commands,
                         mut art: ResMut<Artwork>,
                         mut live: ResMut<Session>,
@@ -2102,14 +2119,14 @@ mod tests {
                         server: Res<AssetServer>,
                         mut failures: crate::field_view::Failures| {
                 if let Err(error) = art.render_menu(
-                    live.field(),
+                    &live.field,
                     100,
                     &mut commands,
                     &mut meshes,
                     &images,
                     &server,
                 ) {
-                    failures.menu_page(live.field_mut(), error);
+                    failures.menu_page(&mut live.field, error);
                 }
             };
             world.run_system_once(draw).unwrap();
@@ -2152,7 +2169,7 @@ mod tests {
             let retained = serde_json::to_value(
                 world
                     .resource::<Session>()
-                    .field()
+                    .field
                     .menu
                     .as_ref()
                     .unwrap()
@@ -2160,7 +2177,7 @@ mod tests {
             )?;
             world
                 .resource_mut::<Session>()
-                .field_mut()
+                .field
                 .menu
                 .as_mut()
                 .unwrap()
@@ -2178,7 +2195,7 @@ mod tests {
                         && world.get::<Visibility>(layer.entity) == Some(&Visibility::Hidden))
             );
             assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
-            let menu = world.resource::<Session>().field().menu.as_ref().unwrap();
+            let menu = world.resource::<Session>().field.menu.as_ref().unwrap();
             assert_eq!(
                 menu.page,
                 if paranoid { Page::WorldMap } else { Page::Main }
@@ -2195,43 +2212,57 @@ mod tests {
                 world.flush();
                 world
                     .resource_mut::<Session>()
-                    .field_mut()
+                    .field
                     .menu
                     .as_mut()
                     .unwrap()
                     .closed = true;
                 world.run_system_once(advance_live).unwrap();
-                assert!(world.resource::<Session>().field().menu.is_none());
+                assert!(world.resource::<Session>().field.menu.is_none());
                 world.run_system_once(draw).unwrap();
                 world.run_system_once(advance_live).unwrap();
-                assert!(world.resource::<Session>().field().events.tick() > before + 1);
+                assert!(world.resource::<Session>().field.events.tick() > before + 1);
             }
             world.resource_mut::<Messages<AppExit>>().clear();
             {
                 let mut live = world.resource_mut::<Session>();
-                live.field_mut().menu = None;
-                live.field_mut().active_skit = active_skit.take();
+                live.field.menu = None;
+                live.field.active_skit = active_skit.take();
             }
-            let before_skit = world.resource::<Session>().field().events.tick();
+            let stale = {
+                let mut art = world.resource_mut::<Artwork>();
+                art.skits.layers[0].visible = true;
+                art.skits.layers[0].entity
+            };
+            world.entity_mut(stale).insert(Visibility::Visible);
+            let before_skit = world.resource::<Session>().field.events.tick();
             world.run_system_once(advance_live).unwrap();
             world.flush();
             assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
+            assert_eq!(completion.is_pending(), paranoid);
+            assert_eq!(world.get::<Visibility>(stale), Some(&Visibility::Hidden));
             assert_eq!(
-                world.contains_resource::<crate::field_view::RecoverField>(),
-                !paranoid
+                world.resource::<Session>().field.active_skit.is_some(),
+                paranoid
             );
-            // Required active art stops this scene; its owner handles return to
-            // title. Do not complete the script as if the skit had played.
-            assert!(completion.is_pending());
-            assert!(world.resource::<Session>().field().active_skit.is_some());
-            assert_eq!(
-                world.resource::<Session>().field().events.tick(),
-                before_skit
+            assert!(
+                world
+                    .resource::<Artwork>()
+                    .skits
+                    .layers
+                    .iter()
+                    .all(|layer| !layer.visible)
             );
-            assert_eq!(
-                diagnostics.entries().last().unwrap().scope,
-                "field skit artwork"
-            );
+            if !paranoid {
+                caller.step()?;
+                assert!(
+                    caller.main_finished(),
+                    "skit failure stranded its script caller"
+                );
+                world.run_system_once(draw).unwrap();
+                world.run_system_once(advance_live).unwrap();
+                assert!(world.resource::<Session>().field.events.tick() > before_skit);
+            }
         }
         Ok(())
     }
@@ -2452,7 +2483,7 @@ mod tests {
             [2., 4., 6., 8.],
             [0.25, 0.5, 0.75, 1.],
         );
-        let mesh = batch.clone().mesh([8, 16]);
+        let mesh = batch.mesh([8, 16]);
         assert!(mesh.attribute(Mesh::ATTRIBUTE_UV_1).is_none());
         let bevy::mesh::VertexAttributeValues::Float32x2(uv) =
             mesh.attribute(Mesh::ATTRIBUTE_UV_0).unwrap()
@@ -2460,14 +2491,6 @@ mod tests {
             panic!("wrong UV format")
         };
         assert_eq!(uv, &[[0.25, 0.25], [0.75, 0.25], [0.75, 0.5], [0.25, 0.5]]);
-        batch.pattern_uv = vec![[4., 8.], [8., 8.], [8., 16.], [4., 16.]];
-        let patterned = batch.mesh([8, 16]);
-        let bevy::mesh::VertexAttributeValues::Float32x2(pattern_uv) =
-            patterned.attribute(Mesh::ATTRIBUTE_UV_1).unwrap()
-        else {
-            panic!("wrong pattern UV format")
-        };
-        assert_eq!(pattern_uv, &[[0.5, 0.5], [1., 0.5], [1., 1.], [0.5, 1.]]);
         let image = Handle::<Image>::default();
         let surface = Surface {
             source: image.clone(),
@@ -2477,12 +2500,9 @@ mod tests {
             coverage: Coverage::default(),
             opaque: false,
             additive: false,
-            texture_effect: Default::default(),
+            red_channel: false,
         };
-        assert_eq!(
-            SurfaceKey::from(&surface),
-            SurfaceKey(false, false, TextureEffect::Plain)
-        );
+        assert_eq!(SurfaceKey::from(&surface), SurfaceKey(false, false, false));
     }
 
     #[test]

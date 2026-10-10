@@ -12,49 +12,29 @@ use bevy::{
 /// Native drawing phases. Asset material order is local to its scene or instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Layer {
-    Background,
     Scene(u32),
     FieldOverlay(u32),
     Shadows,
+    Actor(usize, ActorLayer),
+    Foreground(u8),
     Effects,
     ModelEffects(u32),
     EffectOverlay,
     Overlay,
 }
 
-impl Layer {
-    pub(super) fn is_field_actor(self) -> bool {
-        use resonance_content::field::DrawStage;
-        matches!(self, Self::Scene(stage)
-            if stage == DrawStage::Actors.offset() || stage == DrawStage::LateActors.offset())
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum ActorLayer {
+    Behind,
+    BackWeapon(u8, bool),
+    Body,
+    FrontWeapon(u8, bool),
+    Front,
 }
 
 /// Layer, instance order, then material order within that instance.
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ExtractComponent)]
 pub(super) struct DrawOrder(pub Layer, pub usize, pub u32);
-
-impl DrawOrder {
-    pub(super) fn field_model(mut layer: Layer, instance: usize, material: u32) -> Self {
-        use resonance_content::field::MODEL_DRAW_SPAN;
-        // Actors are ordered back to front. Finish the whole model, including
-        // its outline, before a nearer translucent actor can write depth.
-        if layer.is_field_actor() {
-            return Self(layer, instance, material);
-        }
-        // Scenery and effects retain their authored material passes.
-        match &mut layer {
-            Layer::Scene(stage) | Layer::FieldOverlay(stage) | Layer::ModelEffects(stage) => {
-                *stage += material / MODEL_DRAW_SPAN * MODEL_DRAW_SPAN;
-            }
-            _ => unreachable!("field model layer"),
-        }
-        Self(layer, instance, material % MODEL_DRAW_SPAN)
-    }
-}
-
-#[derive(Resource, Default)]
-struct VisibleOrders(MainEntityHashMap<DrawOrder>);
 
 pub(super) struct DrawOrderPlugin;
 impl Plugin for DrawOrderPlugin {
@@ -116,26 +96,16 @@ mod tests {
     };
 
     #[test]
-    fn field_actors_finish_body_and_outline_before_nearer_models() {
+    fn field_models_finish_body_materials_before_the_next_instance() {
         use resonance_content::field::{DrawStage, MODEL_DRAW_SPAN};
-        for stage in [DrawStage::Actors, DrawStage::LateActors] {
-            let layer = Layer::Scene(stage.offset());
-            let far_body = DrawOrder::field_model(layer, 0, 15);
-            let far_outline = DrawOrder::field_model(layer, 0, MODEL_DRAW_SPAN);
-            let near_body = DrawOrder::field_model(layer, 1, 0);
-            let near_outline = DrawOrder::field_model(layer, 1, MODEL_DRAW_SPAN);
-            assert!(far_body < far_outline);
-            assert!(far_outline < near_body);
-            assert!(near_body < near_outline);
-            assert!(
-                near_outline < DrawOrder(Layer::Scene(stage.offset() + 2 * MODEL_DRAW_SPAN), 0, 0)
-            );
-        }
-        // Static scenery keeps its separate foreground pass.
-        assert!(
-            DrawOrder::field_model(Layer::Scene(0), 3, DrawStage::Foreground.offset() + 7)
-                == DrawOrder(Layer::Scene(DrawStage::Foreground.offset()), 3, 7)
-        );
+        let layer = Layer::Scene(DrawStage::Actors.offset());
+        let first_body = DrawOrder::field_model(layer, 0, 15);
+        let second_body = DrawOrder::field_model(layer, 1, 0);
+        let first_outline = DrawOrder::field_model(layer, 0, MODEL_DRAW_SPAN);
+        assert!(DrawOrder::field_model(layer, 0, 0) < first_body);
+        assert!(first_body < second_body);
+        assert!(second_body < first_outline);
+        assert!(first_outline < DrawOrder(Layer::Scene(DrawStage::Foreground.offset()), 0, 0));
     }
 
     #[test]

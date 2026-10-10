@@ -78,10 +78,6 @@ impl FieldPackage {
             })
             .collect::<Result<_>>()?;
         Ok(Self {
-            data,
-            text: Arc::new(files.json("game/text.json")?),
-            skits: Arc::new(skits),
-            effects,
             script: files.read(&assets.script)?,
             messages: files.read(&assets.messages)?,
             assets,
@@ -177,17 +173,13 @@ impl FieldPackage {
     ) -> Result<(FieldSession, Option<FieldCheckpoint>)> {
         let entry = checkpoint
             .clone()
-            .entry(&self.assets, self.data.clone(), available_fields)?;
+            .entry(&self.assets, data.clone(), available_fields)?;
+        entry.skits = Some(skits);
         let kind = entry.kind;
         let mut field = self.enter(entry)?;
-        let restored = if kind == resonance_game::field::EntryKind::Restore {
-            initialize_checkpoint(&mut field, checkpoint, &self.data)?;
-            Some(field.checkpoint()?)
-        } else {
-            None
-        };
-        // Record the loaded state before an entry script takes control. New
-        // Game Plus starts a new story and has no restored exploration frame.
+        if kind == resonance_game::field::EntryKind::Restore {
+            initialize_checkpoint(&mut field, checkpoint, &data)?;
+        }
         self.queue_entry(&mut field, kind);
         Ok((field, restored))
     }
@@ -220,15 +212,23 @@ impl FieldPackage {
     }
 
     pub fn enter(&self, mut entry: FieldEntry) -> Result<FieldSession> {
-        entry.effect_palette = resonance_events::effect::Palette(self.effects.palette.clone());
-        entry.rising_light_destination = Some(self.effects.rising_light_destination);
-        entry.text = self.text.clone();
-        entry.skits = Some(self.skits.clone());
-        entry.data = Some(self.data.clone());
-        entry.menu_data = self.data.rules.clone();
+        let effects: resonance_content::effect::FieldEffects =
+            self.files.json(&self.assets.effects)?;
+        effects.validate()?;
+        entry.effect_palette = resonance_events::effect::Palette(effects.palette);
+        entry.rising_light_destination = Some(effects.rising_light_destination);
+        entry.text = Arc::new(self.files.json("game/text.json")?);
         entry.services = Some(self.services.clone());
         entry.attachments = self.attachments.clone();
         entry.available_movies = self.movies.clone();
+        if entry.menu_data.is_none() {
+            let (data, menus) = super::admit_definitions(
+                |path| Ok(self.files.read(path)?.to_vec()),
+                self.files.diagnostics(),
+            )?;
+            entry.data = Some(data);
+            entry.menu_data = Some(menus);
+        }
         entry.menu_files = self.files.clone();
         let mut field = FieldSession::enter(
             &self.script,

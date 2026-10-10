@@ -13,12 +13,13 @@ use std::{
 };
 
 pub(crate) struct Sources {
+    pub module: String,
     pub usual: String,
     pub enemy: String,
     pub weapons: String,
     pub magic: String,
     pub stages: String,
-    pub skill: String,
+    archive: String,
 }
 
 impl Sources {
@@ -32,12 +33,13 @@ impl Sources {
         let module = Rel::read(&files.join(&module_path))?;
         let declaration = |offset| declared_path(&files, &module.text((4, offset))?);
         Ok(Self {
+            module: module_path,
             usual: declared_path(&files, &dol::text(executable, 0x8017e53c)?)?,
             enemy: declaration(0x2404)?,
             weapons: declaration(0xdfc)?,
             magic: declaration(0x1f34)?,
             stages: declaration(0x24b4)?,
-            skill: declaration(0x1f4c)?,
+            archive: declaration(0x1f4c)?,
         })
     }
 
@@ -46,7 +48,7 @@ impl Sources {
     pub(crate) fn deferred_paths(&self) -> BTreeSet<String> {
         [&self.usual, &self.enemy, &self.weapons, &self.magic]
             .into_iter()
-            .chain([&self.skill, &self.stages])
+            .chain([&self.archive, &self.stages])
             .cloned()
             .collect()
     }

@@ -30,7 +30,7 @@ pub(super) fn apply(
         })
         .unwrap_or_default();
     let helper = transforms.p0();
-    let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots) else {
+    let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots, None) else {
         return;
     };
     let mut locals = Vec::new();
@@ -48,7 +48,7 @@ pub(super) fn apply(
     let (mut transforms, mut affine) = transforms.p1();
     for (entity, local) in locals {
         if let Ok(mut transform) = transforms.get_mut(entity) {
-            local.apply(entity, &mut transform, &mut affine);
+            affine.set(entity, &mut transform, local);
         }
     }
 }

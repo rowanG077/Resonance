@@ -6,7 +6,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "1920x1080".into())
         .parse()
         .map_err(anyhow::Error::msg)?;
-    let root = args.next().unwrap_or_else(|| "local/cooked".into());
+    let root = args.next().unwrap_or_else(|| "local/all-assets".into());
     resonance_presentation::run_window_probe(
         std::path::Path::new(&root),
         std::path::Path::new(&output),

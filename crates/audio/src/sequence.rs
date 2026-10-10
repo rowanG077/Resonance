@@ -16,9 +16,6 @@ pub type BusFrame = [[i32; 2]; 3];
 
 /// Native polyphony limit, shared by music and sound effects.
 pub const VOICE_BUDGET: usize = 64;
-/// Keep dense combat effects from stealing music, and vice versa.
-pub const MUSIC_VOICE_BUDGET: usize = 42;
-pub const SOUND_EFFECT_VOICE_BUDGET: usize = VOICE_BUDGET - MUSIC_VOICE_BUDGET;
 
 /// Maximum retained values per voice and requests per entry per quantum. Each
 /// voice retains at most 4 KiB; the voice limit also bounds the delivery queue.

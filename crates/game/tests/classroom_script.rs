@@ -334,13 +334,7 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
     party.leader_locked = false;
     for (hp, petrified) in [(0, false), (1, true)] {
-        let member = &mut menu
-            .checkpoint
-            .as_mut()
-            .unwrap()
-            .progress_mut()
-            .party
-            .members[7];
+        let member = &mut menu.checkpoint.as_mut().unwrap().progress.party.members[7];
         member.hp = hp;
         member.ailments.petrified = petrified;
         assert_eq!(press(&mut menu, Accept), Some(4));
@@ -1403,7 +1397,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     }
     menu.tech.character = 0;
     learn(
-        &mut menu.checkpoint.as_mut().unwrap().progress_mut().party,
+        &mut menu.checkpoint.as_mut().unwrap().progress.party,
         0,
         &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
     );
@@ -1658,7 +1652,18 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         before_discard,
         "confirming the default No must preserve the item"
     );
-    press(&mut session, confirm);
+    session.step(confirm).unwrap();
+    assert_eq!(
+        session.menu.as_ref().unwrap().inventory.focus,
+        Focus::Target
+    );
+    session.step(cancel).unwrap();
+    assert_eq!(session.menu.as_ref().unwrap().inventory.focus, Focus::List);
+    assert_eq!(
+        session.events.world.party.as_ref().unwrap().items,
+        before_discard
+    );
+    session.step(confirm).unwrap();
     assert_eq!(
         session.menu.as_ref().unwrap().inventory.focus,
         Focus::Target
@@ -1701,7 +1706,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         );
         assert_eq!(session.menu.as_ref().unwrap().inventory.target, expected);
     }
-    press(&mut session, confirm);
+    session.step(confirm).unwrap();
     assert_eq!(session.menu.as_ref().unwrap().inventory.focus, Focus::List);
     let party = session.events.world.party.as_ref().unwrap();
     assert!(!party.items.contains_key(&1));
@@ -1743,7 +1748,19 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         session: data.clone(),
         data: Arc::new(menus.clone()),
     }));
-    let press_book = press_menu;
+    let press_book = |book: &mut resonance_game::menu::Menu, input| {
+        let cue = book.step(input);
+        book.step(Default::default());
+        for _ in 0..24 {
+            let moving = book.page == Page::Collection
+                && (book.collection.page_closing || book.collection.page_fade != 0);
+            if !moving {
+                break;
+            }
+            book.step(Default::default());
+        }
+        cue
+    };
     book.checkpoint
         .as_mut()
         .unwrap()
@@ -1993,7 +2010,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         .checkpoint
         .as_mut()
         .unwrap()
-        .progress_mut()
+        .progress
         .party
         .change_item(&data, 155, 1)
         .unwrap();
@@ -2004,18 +2021,19 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         .position(|&id| id == 155)
         .unwrap();
     let before = serde_json::to_value(equipment.party()).unwrap();
-    assert_eq!(press_book(&mut equipment, confirm), Some(2));
+    assert_eq!(equipment.step(confirm), Some(2));
     assert_eq!(equipment.inventory.focus, Focus::Target);
-    assert_eq!(press_book(&mut equipment, cancel), Some(3));
+    assert_eq!(equipment.step(cancel), Some(3));
     assert_eq!(equipment.inventory.focus, Focus::List);
     assert_eq!(serde_json::to_value(equipment.party()).unwrap(), before);
-    assert_eq!(press_book(&mut equipment, confirm), Some(2));
-    assert_eq!(press_book(&mut equipment, confirm), Some(2));
+    assert_eq!(equipment.step(confirm), Some(2));
+    assert_eq!(equipment.step(confirm), Some(2));
     assert_eq!(equipment.inventory.focus, Focus::List);
     assert_eq!(equipment.party().members[0].equipment[0], 155);
     assert!(!equipment.party().items.contains_key(&155));
     let equipped = serde_json::to_value(equipment.party()).unwrap();
-    press_book(&mut equipment, cancel);
+    equipment.step(Default::default());
+    equipment.step(cancel);
     assert_eq!(serde_json::to_value(equipment.party()).unwrap(), equipped);
 }
 
@@ -2255,12 +2273,27 @@ fn figurine_book_filters_saved_ownership_and_preserves_the_checkpoint() {
 fn training_manual_filters_learned_topics_and_bounds_each_reading_page() {
     use resonance_game::menu::Page;
     let mut menu = key_item_menu(73);
-    let press = press_menu;
+    let press = |menu: &mut Menu, input| {
+        let cue = menu.step(input);
+        menu.step(Default::default());
+        for _ in 0..24 {
+            let moving = match menu.page {
+                Page::Manual => menu.manual.page_closing || menu.manual.page_fade != 0,
+                _ => false,
+            };
+            if !moving {
+                break;
+            }
+            menu.step(Default::default());
+        }
+        cue
+    };
     let confirm = Accept.input();
     let cancel = Cancel.input();
     let down = Down.input();
     let next = PageDown.input();
     assert_eq!(menu.step(confirm), Some(2));
+    assert_eq!(menu.page, Page::Manual);
     assert_eq!(menu.step(down), None);
     press(&mut menu, Default::default());
     assert_eq!(menu.page, Page::Manual);
@@ -2335,7 +2368,34 @@ fn world_map_directory_uses_saved_visits_and_preserves_inventory() {
     let party = &menu.checkpoint.as_ref().unwrap().progress().party;
     assert_eq!(party.travel.current_location, Some(2));
     assert_eq!(party.travel.visited_locations, [2].into());
-    let press = press_menu;
+    let press = |menu: &mut Menu, input| {
+        let cue = menu.step(input);
+        menu.step(Default::default());
+        for _ in 0..24 {
+            let map = &menu.world_map;
+            let moving = match menu.page {
+                Page::WorldMap => {
+                    map.page_closing
+                        || map.page_fade != 0
+                        || map.location_scroll != 0
+                        || map.item_scroll != 0
+                        || map.shops_opacity
+                            != if map.focus == Focus::Locations {
+                                0
+                            } else {
+                                255
+                            }
+                        || map.items_opacity != if map.focus == Focus::Items { 255 } else { 0 }
+                }
+                _ => false,
+            };
+            if !moving {
+                break;
+            }
+            menu.step(Default::default());
+        }
+        cue
+    };
     let confirm = Accept.input();
     assert_eq!(press(&mut menu, confirm), Some(2));
     assert_eq!(menu.page, Page::WorldMap);

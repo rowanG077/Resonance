@@ -53,13 +53,9 @@ pub enum Description {
     Item(u16),
 }
 pub struct Inventory {
-    pub page_fade: u8,
-    pub page_closing: bool,
-    pub(super) destination: Option<Page>,
     pub category: usize,
     pub row: usize,
     pub first: usize,
-    pub scroll: i8,
     pub focus: Focus,
     pub notice: Option<String>,
     pending_discard: Option<u16>,
@@ -67,24 +63,13 @@ pub struct Inventory {
     pub target: usize,
     pub target_all: bool,
     pub target_equipment: bool,
-    pub target_preview: usize,
-    pub target_ticks: u8,
-    pub target_opacity: u8,
-    pub target_closing: bool,
-    pub description_previous: Description,
-    pub description_fade: u8,
-    pub description_opacity: u8,
 }
 impl Default for Inventory {
     fn default() -> Self {
         Self {
-            page_fade: 0,
-            page_closing: false,
-            destination: None,
             category: 1,
             row: 0,
             first: 0,
-            scroll: 0,
             focus: Focus::List,
             notice: None,
             pending_discard: None,
@@ -92,13 +77,6 @@ impl Default for Inventory {
             target: 0,
             target_all: false,
             target_equipment: false,
-            target_preview: 0,
-            target_ticks: 0,
-            target_opacity: 0,
-            target_closing: false,
-            description_previous: Description::None,
-            description_fade: 0,
-            description_opacity: 255,
         }
     }
 }
@@ -113,111 +91,42 @@ impl Inventory {
 }
 
 impl Menu {
-    pub(super) fn step_item_preview(&mut self) {
-        let target = &mut self.inventory;
-        target.target_preview = target.target;
-        if target.focus == Focus::Target && target.target_all {
-            const PREVIEW_TICKS: u8 = 121;
-            target.target_ticks += 1;
-            if target.target_ticks == PREVIEW_TICKS {
-                target.target_ticks = 0;
-                target.target = (target.target + 1)
-                    % self
-                        .checkpoint
-                        .as_ref()
-                        .unwrap()
-                        .progress()
-                        .party
-                        .formation
-                        .len();
-            }
-        }
+    pub(super) fn open_items(&mut self) {
+        self.page = Page::Items;
+        self.inventory.clamp(self.inventory_items().len());
     }
 
-    pub(super) fn fade_item_target(&mut self) {
-        let target = &mut self.inventory;
-        if !matches!(target.focus, Focus::Target | Focus::Transform(_)) {
-            return;
-        }
-        target.target_opacity = if target.target_closing {
-            target.target_opacity.saturating_sub(32)
-        } else {
-            target.target_opacity.saturating_add(32)
-        };
-        if target.target_closing && target.target_opacity == 0 {
-            if matches!(target.focus, Focus::Transform(_)) {
-                target.notice = None;
-                target.transform.result = None;
-            }
-            target.target_closing = false;
-            target.focus = Focus::List;
-        }
-    }
-
-    pub(super) fn fade_item_description(&mut self) {
-        let description = self.item_description();
-        if description != Description::None {
-            let state = &mut self.inventory;
-            state.description_opacity = fade_description(
-                &mut state.description_fade,
-                state.description_previous != description,
-            );
-        }
-    }
-
-    pub(super) fn remember_item_description(&mut self) {
-        if self.inventory.description_fade == 0 {
-            self.inventory.description_previous = self.item_description();
-        }
-    }
-
-    pub(super) fn advance_item_page(&mut self) -> bool {
-        if self.inventory.page_fade == 255 {
-            self.page = self
-                .inventory
-                .destination
-                .take()
-                .expect("Items destination");
-            match self.page {
-                Page::Main => self.return_to_main(),
-                Page::Collection => self.open_collection(),
-                Page::WorldMap => self.open_world_map(),
-                Page::Monsters => {
-                    self.monsters = monsters::MonsterList {
-                        view: preview::View::open(),
-                        ..Default::default()
-                    };
-                }
-                Page::Figurines => {
-                    self.figurines = figurines::Figurines {
-                        view: preview::View::open(),
-                        ..Default::default()
-                    };
-                }
-                Page::Manual => {
-                    self.manual = manual::Manual {
-                        page_fade: 231 - MAIN_SLIDE_STEP,
-                        ..Default::default()
-                    };
-                }
-                Page::Rename => self.advance_rename(),
-                _ => unreachable!("unsupported Items transition"),
-            }
-            return true;
-        }
-        let state = &mut self.inventory;
-        if state.target_closing {
+    pub(super) fn close_items(&mut self, destination: Page) -> bool {
+        if !self.admit_page(destination) {
             return false;
         }
-        state.page_fade = if state.page_closing {
-            state.page_fade.saturating_add(MAIN_SLIDE_STEP)
-        } else {
-            state.page_fade.saturating_sub(MAIN_SLIDE_STEP)
-        };
-        if state.page_closing && state.page_fade == 255 {
-            state.page_closing = false;
+        self.page = destination;
+        match destination {
+            Page::Main => self.return_to_main(),
+            Page::Collection => self.open_collection(),
+            Page::WorldMap => self.open_world_map(),
+            Page::Monsters => {
+                self.monsters = monsters::MonsterList {
+                    view: preview::View::open(),
+                    ..Default::default()
+                }
+            }
+            Page::Figurines => {
+                self.figurines = figurines::Figurines {
+                    view: preview::View::open(),
+                    ..Default::default()
+                }
+            }
+            Page::Manual => {
+                self.manual = manual::Manual {
+                    page_fade: 231 - MAIN_SLIDE_STEP,
+                    ..Default::default()
+                }
+            }
+            Page::Rename => self.advance_rename(),
+            _ => unreachable!("unsupported Items transition"),
         }
-        false
+        true
     }
 
     pub(super) fn open_items(&mut self) {
@@ -296,8 +205,7 @@ impl Menu {
     pub fn inventory_items(&self) -> Vec<u16> {
         let party = self.party();
         let data = &self.resources.as_ref().unwrap().data;
-        let transforming =
-            matches!(self.inventory.focus, Focus::Transform(_)) && !self.inventory.target_closing;
+        let transforming = matches!(self.inventory.focus, Focus::Transform(_));
         let source: Vec<_> = if self.inventory.category == 0 && !transforming {
             party.recent_items.clone()
         } else {
@@ -359,13 +267,6 @@ impl Menu {
     }
 
     pub(super) fn step_items(&mut self, input: Input) -> Option<i16> {
-        self.inventory.scroll = (self.inventory.scroll + self.inventory.scroll.signum()) % 5;
-        if self.inventory.scroll != 0
-            || (matches!(self.inventory.focus, Focus::Target | Focus::Transform(_))
-                && (self.inventory.target_closing || self.inventory.target_opacity < 255))
-        {
-            return None;
-        }
         use MenuAction::*;
         let [left, right, up, down, page_up, page_down] =
             [Left, Right, Up, Down, PageUp, PageDown].map(|action| input == Some(action));
@@ -400,7 +301,7 @@ impl Menu {
                     self.select_main(Page::Items);
                 }
                 Focus::List => self.inventory.focus = Focus::Categories,
-                Focus::Target => self.inventory.target_closing = true,
+                Focus::Target => self.inventory.focus = Focus::List,
                 Focus::Transform(_) => self.close_transformation(),
                 _ => {
                     self.inventory.focus = Focus::List;
@@ -474,7 +375,7 @@ impl Menu {
                         party.use_item(&resources.session, &resources.data, id, target)
                     };
                     if !party.items.contains_key(&id) {
-                        self.inventory.target_closing = true;
+                        self.inventory.focus = Focus::List;
                     }
                     return self.item_result(if self.inventory.target_all {
                         result.map(|cue| cue.map(|_| 2))
@@ -543,8 +444,6 @@ impl Menu {
                     self.inventory.row = old + 2;
                 }
                 self.inventory.clamp(items.len());
-                self.inventory.scroll =
-                    (self.inventory.first as isize - first as isize).signum() as i8;
                 let selected = items.get(self.inventory.row).copied();
                 if input == Some(Alternate) && self.inventory.focus == Focus::List {
                     if selected.is_some_and(|id| resources.data.items[usize::from(id)].price != 0) {
@@ -637,12 +536,9 @@ impl Menu {
                             definition.field_use,
                             Some(ItemUse::Recover { party: true, .. })
                         );
-                        self.inventory.target_closing = false;
                         if self.inventory.target_all {
                             self.inventory.target = 0;
-                            self.inventory.target_ticks = 0;
                         }
-                        self.inventory.target_preview = self.inventory.target;
                     }
                     return Some(2);
                 }

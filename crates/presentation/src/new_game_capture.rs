@@ -14,14 +14,16 @@ pub(super) fn screenshot_held(
     failed: Arc<AtomicBool>,
     written: Arc<AtomicU32>,
 ) -> Result<()> {
+    let fixed_battle = app
+        .world()
+        .get_resource::<battle::Owner>()
+        .and_then(|battle| battle.diagnostic());
     let fixed_presentation = app.world().resource::<Clock>().0.tick();
     let fixed_tick = app
         .world()
         .get_resource::<new_game::Session>()
-        .filter(|s| {
-            s.is_field() && s.ready_for_field && !app.world().resource::<movie::Playback>().active
-        })
-        .map(|s| s.field().events.tick());
+        .filter(|s| s.ready_for_field && !app.world().resource::<movie::Playback>().active)
+        .map(|s| s.field.events.tick());
     {
         // Readback happens on a later render submission. Keep the gameplay
         // snapshot fixed so an effect/opening image cannot depict tick N+1
@@ -42,14 +44,15 @@ pub(super) fn screenshot_held(
     let framebuffer = app.world().resource::<Framebuffer>().0.clone();
     let secondary = super::secondary_motion::diagnostic(app.world_mut());
     let shadows = field_view::shadow_diagnostic(app.world_mut());
-    let mut metadata = app.world().get_resource::<new_game::Session>().filter(|s| s.is_field()).map(|session| {
-        let field = session.field();
+    let mut metadata = app.world().get_resource::<new_game::Session>().map(|session| {
+        let field = &session.field;
         let (dialogue, retained_dialogue) =
             diagnostic_dialogue(&field.dialogue, &field.events.world.dialogue);
         serde_json::json!({"tick":field.events.tick(),"input_enabled":field.events.world.input_enabled,
             "checkpoint":field.checkpoint().ok(), "restored_checkpoint":session.restored_checkpoint,
             "output_stage":app.world().resource::<display::OutputStage>(),
             "talking":field.talking, "state_tick_locked":true,
+            "battle":fixed_battle.as_ref(),
             "secondary_chains":secondary,
             "contact_shadows":shadows,
             "camera":field.events.world.field_camera.as_ref().map(|c|serde_json::json!({"position":c.position,"target":c.target,"fov_degrees":c.fov_degrees()})),
@@ -94,12 +97,16 @@ pub(super) fn screenshot_held(
                 fixed_tick.is_none_or(|tick| app
                     .world()
                     .get_resource::<new_game::Session>()
-                    .is_some_and(|session| session.is_field() && session.events().tick() == tick)),
+                    .is_some_and(|session| session.field.events.tick() == tick)),
                 "field checkpoint advanced gameplay during readback"
             );
             anyhow::ensure!(
-                app.world().resource::<Clock>().0.tick() == fixed_presentation,
-                "presentation checkpoint changed during readback"
+                app.world()
+                    .get_resource::<battle::Owner>()
+                    .and_then(|battle| battle.diagnostic())
+                    == fixed_battle
+                    && app.world().resource::<Clock>().0.tick() == fixed_presentation,
+                "battle checkpoint changed during readback"
             );
             anyhow::ensure!(
                 crate::saves::recording_scene(app.world())? == fixed_scene,

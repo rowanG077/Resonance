@@ -13,7 +13,7 @@ struct Pair {
     version: u32,
     revision: u8,
     description: String,
-    /// Explain the checkpoint and input alignment for this comparison.
+    /// Explain the matching game events selected for comparison.
     registration: String,
     disc_sha256: String,
     native_save: Fixture,
@@ -41,9 +41,8 @@ struct Dolphin {
     binary_sha256: String,
     configs: BTreeMap<String, String>,
     game_settings: BTreeMap<String, String>,
-    /// Opt into timestamped video; explicitly register its first frame to a VI.
-    #[serde(default)]
-    video_first_vi: Option<i64>,
+    /// Register the verified video recording's first frame to a VI.
+    video_first_vi: i64,
     /// Select a recording explicitly when Dolphin creates multiple files.
     #[serde(default)]
     video_segment: Option<usize>,
@@ -53,85 +52,23 @@ struct Dolphin {
 struct Start {
     map_id: u32,
     story: i32,
-    position: [f32; 3],
-    heading: f32,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Frame {
     name: String,
     native: String,
-    #[serde(default)]
-    dolphin: Option<u32>,
     dolphin_vi: u32,
-    #[serde(default)]
-    save_prompt: bool,
-    #[serde(default)]
-    action_prompt: bool,
-    #[serde(default)]
-    skit_prompt: bool,
-    #[serde(default)]
-    slot_confirmation: bool,
-    /// Check popup content and opacity during entry, dismissal and settled frames.
-    #[serde(default)]
-    slot_popup: bool,
-    /// Compare formation, saved leader, controlled member and the script lock.
+    /// Compare saved formation and field leader.
     #[serde(default)]
     party_state: bool,
-    /// Compare Strategy navigation, all current instructions and all three presets.
-    #[serde(default)]
-    strategy_state: bool,
-    /// Compare Synopsis navigation, visible entries and their saved metadata.
-    #[serde(default)]
-    synopsis_state: bool,
-    /// Compare Start's party display and the primary/secondary Status page.
-    #[serde(default)]
-    statistics_state: bool,
-    #[serde(default)]
-    status_state: bool,
-    #[serde(default)]
-    rename_state: bool,
-    /// Compare the active option panel and every draft preference, including offsets.
-    #[serde(default)]
-    customize_state: bool,
-    /// Compare the applied mixer settings with committed field preferences.
-    #[serde(default)]
-    audio_state: bool,
-    #[serde(default)]
-    collection_state: bool,
-    #[serde(default)]
-    world_map_state: bool,
-    #[serde(default)]
-    monster_state: bool,
-    #[serde(default)]
-    manual_state: bool,
-    #[serde(default)]
-    figurine_state: bool,
-    #[serde(default)]
-    ex_state: bool,
-    #[serde(default)]
-    unison_state: bool,
-    #[serde(default)]
-    tech_state: bool,
-    /// Navigation/transitions only, for recordings predating equipment/save-point observations.
-    #[serde(default)]
-    tech_navigation_state: bool,
-    #[serde(default)]
-    equipment_state: bool,
-    /// Compare shop navigation, baskets, transactions and the equipment handoff.
-    #[serde(default)]
-    shop_state: bool,
+    /// Compare the visible Items category, list selection, and inventory counts.
     #[serde(default)]
     inventory_state: bool,
-    /// Compare persistent cooking choices, training, inventory and party vitals.
+    /// Compare saved cooking choices, training, inventory, and party vitals.
     #[serde(default)]
     cooking_state: bool,
-    /// Compare the visible paralysis symbol's atlas frame, including menu pauses.
-    #[serde(default)]
-    paralysis_state: bool,
-    /// Compare the main menu's slide/fade phase; a removed menu is fully faded.
-    #[serde(default)]
-    main_menu_state: bool,
+    /// Explicit acceptance regions; the full image remains diagnostic when present.
     #[serde(default)]
     regions: Vec<[u32; 4]>,
     /// Exclude only the original Figurine Book's DVD transfer notice/bar.
@@ -164,7 +101,7 @@ pub(super) fn run(
     let bytes = fs::read(case)?;
     let pair: Pair = serde_json::from_slice(&bytes)?;
     ensure!(
-        pair.version == 1
+        pair.version == 2
             && pair.revision == 0
             && pair.replay.game_id == "GQSEAF"
             && !pair.description.is_empty()
@@ -173,10 +110,6 @@ pub(super) fn run(
         "invalid paired case"
     );
     ensure!(!output.exists(), "paired output already exists");
-    ensure!(
-        pair.dolphin.video_segment.is_none() || pair.dolphin.video_first_vi.is_some(),
-        "video segment selection requires a first-VI registration"
-    );
     let base = case.parent().unwrap_or(Path::new("."));
     let save = pair.native_save.verify(base)?;
     let replay = pair.native_replay.verify(base)?;
@@ -185,6 +118,18 @@ pub(super) fn run(
     check_hash(&prefix, &pair.dolphin.prefix_sha256)?;
     check_hash(disc, &pair.disc_sha256)?;
     let native_spec: Value = serde_json::from_slice(&fs::read(&replay)?)?;
+    ensure!(
+        native_spec["version"] == 2,
+        "paired native replay requires version 2 event steps"
+    );
+    let native_steps = native_spec["steps"]
+        .as_array()
+        .context("missing native replay steps")?;
+    let native_captures: BTreeSet<_> = native_steps
+        .iter()
+        .filter(|step| step["do"] == "capture")
+        .map(|step| step["name"].as_str().context("missing native capture name"))
+        .collect::<Result<_>>()?;
     let source_script = append_dtm(&pair.replay, &fs::read(&prefix)?, pair.dolphin.start_poll)?;
     let input_hash = format!("{:x}", Sha256::digest(&source_script));
     let reference = references.dolphin.map(Path::canonicalize).transpose()?;
@@ -206,10 +151,6 @@ pub(super) fn run(
         validate_name(&frame.native)?;
         ensure!(names.insert(&frame.name), "duplicate paired frame name");
         ensure!(
-            !frame.disc_loading_overlay || frame.figurine_state,
-            "disc-loading exclusion requires Figurine Book state observations"
-        );
-        ensure!(
             frame.regions.iter().all(|&[x, y, w, h]| w > 0
                 && h > 0
                 && u64::from(x) + u64::from(w) <= 640
@@ -217,17 +158,9 @@ pub(super) fn run(
             "invalid paired image region"
         );
         ensure!(
-            match pair.dolphin.video_first_vi {
-                Some(first) => frame.dolphin.is_none() && i64::from(frame.dolphin_vi) >= first,
-                None => frame
-                    .dolphin
-                    .is_some_and(|index| index > 0 && index < pair.replay.polls),
-            } && frame.dolphin_vi < pair.replay.polls
-                && native_spec["captures"]
-                    .as_object()
-                    .is_some_and(|captures| captures
-                        .values()
-                        .any(|v| v.as_str() == Some(&frame.native))),
+            i64::from(frame.dolphin_vi) >= pair.dolphin.video_first_vi
+                && frame.dolphin_vi < pair.replay.polls
+                && native_captures.contains(frame.native.as_str()),
             "unbound paired frame {}",
             frame.name
         );
@@ -249,10 +182,9 @@ pub(super) fn run(
             "native reference save/replay differs from the paired fixture"
         );
         let report: Value = serde_json::from_slice(&fs::read(path.join("report.json"))?)?;
-        // Older incomplete reports did not preserve the renderer hash. Keep it unknown.
-        report["native_binary_sha256"].as_str().map(str::to_owned)
+        verify_native_reference(&report, path)?
     } else {
-        Some(file_hash(native)?)
+        file_hash(native)?
     };
     fs::create_dir_all(output)?;
     let output = output.canonicalize()?;
@@ -270,6 +202,7 @@ pub(super) fn run(
         Process::new("python3")
             .arg(scripts.join("state.py"))
             .arg(&state)
+            .arg("--field-origin")
             .arg("--output")
             .arg(output.join("source-state.json")),
         &output.join("state.log"),
@@ -283,28 +216,13 @@ pub(super) fn run(
         &pair.start,
         &observed["field"]["map_id"],
         &observed["progress"]["story"],
-        &observed["controlled_actor"]["position"],
-        &observed["controlled_actor"]["heading_current"],
     )?;
     let saved: Value = serde_json::from_slice(&fs::read(&save)?)?;
-    let mut native_start = pair.start;
-    if let Some(origin) = native_spec.get("story_origin") {
-        ensure!(
-            saved["state"]["progress"]["script_globals"][16] == origin["from"]
-                && origin["to"] == pair.start.story,
-            "controlled story origin differs from saved/source progress"
-        );
-        native_start.story = origin["from"]
-            .as_i64()
-            .context("invalid story origin")?
-            .try_into()?;
-    }
+    let native_start = pair.start;
     verify_start(
         &native_start,
         &saved["state"]["map_id"],
         &saved["state"]["progress"]["script_globals"][16],
-        &saved["state"]["position"],
-        &saved["state"]["heading"],
     )?;
     if let Some(path) = &native_reference {
         fs::create_dir(output.join("native"))?;
@@ -329,40 +247,22 @@ pub(super) fn run(
     let native_record: Value =
         serde_json::from_slice(&fs::read(output.join("native/recording.json"))?)?;
     ensure!(
-        native_record["output_stage"] == "framebuffer",
-        "Dolphin frame dumps require native framebuffer captures, before display positioning"
-    );
-    ensure!(
         native_record["complete"] == true
+            && native_record["valid"] == true
             && native_record["audio_device"] == false
             && native_record["keyboard_input"] == true
-            && native_record["late_reads"] == 0
+            && native_record["unprepared_reads"] == 0
             && native_record["width"] == 640
             && native_record["height"] == 480,
         "native replay did not meet recording invariants"
     );
-    ensure!(
-        native_record["updates"] == native_spec["updates"]
-            && native_spec["captures"].as_object().is_some_and(|expected| {
-                native_record["captures"].as_array().is_some_and(|actual| {
-                    expected.len() == actual.len()
-                        && expected.iter().all(|(update, name)| {
-                            actual.iter().any(|capture| {
-                                capture["name"] == *name
-                                    && capture["update"].as_u64() == update.parse().ok()
-                            })
-                        })
-                })
-            }),
-        "native recording differs from the pinned replay schedule"
-    );
+    let recorded_captures =
+        verify_native_captures(&native_record, native_steps.len(), &native_captures)?;
     let initialized = &native_record["initial"];
     verify_start(
         &native_start,
         &initialized["map_id"],
         &initialized["progress"]["script_globals"][16],
-        &initialized["position"],
-        &initialized["heading"],
     )?;
     let dolphin_output = reference.clone().unwrap_or_else(|| output.join("dolphin"));
     if reference.is_none() {
@@ -379,42 +279,25 @@ pub(super) fn run(
             .arg(output.join("dolphin"))
             .arg("--dolphin")
             .arg(dolphin)
-            .arg("--xvfb");
-        if pair.frames.iter().any(|f| f.synopsis_state) {
-            command.arg("--watch-synopsis");
-        }
-        if let Some(first_vi) = pair.dolphin.video_first_vi {
-            let last_vi = i64::from(pair.frames.iter().map(|f| f.dolphin_vi).max().unwrap());
-            let observations = last_vi
-                .checked_sub(first_vi.min(0))
-                .and_then(|vi| vi.checked_add(1))
-                .and_then(|count| u32::try_from(count).ok())
-                .context("video observation count exceeds the capture limit")?;
-            command
-                .arg("--video")
-                .arg("--watch-vis")
-                .arg(observations.to_string())
-                // Long catalogue sweeps need time for lossless capture as well as emulation.
-                .arg("--timeout")
-                .arg((observations / 15 + 60).max(240).to_string());
-        } else {
-            command
-                .arg("--frame")
-                .arg(
-                    pair.frames
-                        .iter()
-                        .filter_map(|f| f.dolphin)
-                        .max()
-                        .unwrap()
-                        .to_string(),
-                )
-                .args(["--keep-frames", "--watch-state"]);
-        }
+            .args(["--xvfb", "--field-origin"]);
+        let last_vi = i64::from(pair.frames.iter().map(|f| f.dolphin_vi).max().unwrap());
+        let observations = last_vi
+            .checked_sub(pair.dolphin.video_first_vi.min(0))
+            .and_then(|vi| vi.checked_add(1))
+            .and_then(|count| u32::try_from(count).ok())
+            .context("video observation count exceeds the capture limit")?;
+        command
+            .arg("--video")
+            .arg("--watch-vis")
+            .arg(observations.to_string())
+            .arg("--timeout")
+            .arg((observations / 15 + 60).max(240).to_string());
         run_logged(&mut command, &output.join("capture.log"))?;
     }
     let capture: Value = serde_json::from_slice(&fs::read(dolphin_output.join("capture.json"))?)?;
     verify_capture(&pair, &capture, &input_hash)?;
-    if let Some(first_vi) = pair.dolphin.video_first_vi {
+    {
+        let first_vi = pair.dolphin.video_first_vi;
         let videos = capture["video"]
             .as_array()
             .context("missing timestamped video")?;
@@ -449,26 +332,11 @@ pub(super) fn run(
         }
     }
     let mut results = Vec::new();
-    let mut popup_content = Value::Null;
     let memory: BTreeMap<u32, Value> = fs::read_to_string(dolphin_output.join("memory.jsonl"))?
         .lines()
         .map(|line| -> Result<_> {
-            let mut value = serde_json::from_str::<Value>(line)?;
+            let value: Value = serde_json::from_str(line)?;
             let vi = u32::try_from(value["vi_sample"].as_u64().context("missing VI index")?)?;
-            // Dismissal returns to the slot list before its old message fades.
-            // Retain content from observed menu state, never the native output.
-            if let Some(screen) = value["save_screen_word"].as_u64().map(|v| v >> 16)
-                && matches!(screen, 6 | 13 | 14) {
-                popup_content = json!({"confirmation":{
-                    "kind":match screen { 6 => "save", 13 => "overwrite", _ => "load" },
-                    "bank":value["save_selection_word"].as_u64().context("missing bank")? >> 24,
-                    "yes":(value["save_mode_word"].as_u64().context("missing choice")? >> 8) & 255 == 0,
-                }});
-            }
-            if value["save_popup_alpha_word"].as_u64().is_some_and(|v| v >> 24 == 0) {
-                popup_content = Value::Null;
-            }
-            value["save_popup_content"] = popup_content.clone();
             Ok((vi, value))
         })
         .collect::<Result<_>>()?;
@@ -478,12 +346,7 @@ pub(super) fn run(
         let source_state = memory
             .get(&frame.dolphin_vi)
             .context("missing registered VI")?;
-        let native_state = native_record["captures"]
-            .as_array()
-            .context("missing native captures")?
-            .iter()
-            .find(|c| c["name"] == frame.native)
-            .context("missing native state")?;
+        let native_state = recorded_captures[frame.native.as_str()];
         for (section, location, value) in [
             ("field", "8035a768 10d0", "map_id"),
             ("progress", "8035a578 40", "story"),
@@ -510,148 +373,35 @@ pub(super) fn run(
             "native_story":native_state["story"],"dolphin_story":source_state["story"],
             "passed":native_state["map_id"] == source_state["map_id"]
                 && native_state["story"] == source_state["story"]});
-        let presentation: Value = serde_json::from_slice(&fs::read(
-            output.join(format!("native/{}.json", frame.native)),
-        )?)?;
-        let position_error = vector_error(&native_state["position"], source_state, "controlled")?;
-        let camera_position_error =
-            vector_error(&presentation["camera"]["position"], source_state, "camera")?;
-        let camera_target_error = vector_error(
-            &presentation["camera"]["target"],
-            source_state,
-            "camera_target",
-        )?;
-        let heading_error = ((native_state["heading"]
-            .as_f64()
-            .context("missing native heading")?
-            - observed_float(source_state, "controlled_heading_bits")?
-            + 180.)
-            .rem_euclid(360.)
-            - 180.)
-            .abs();
-        let prompt = |enabled: bool, kind| {
-            enabled
-                .then(|| field_prompt(kind, native_state, source_state))
-                .transpose()
-        };
-        let save = prompt(frame.save_prompt, Prompt::Save)?;
-        let action = prompt(frame.action_prompt, Prompt::Action)?;
-        let skit = prompt(frame.skit_prompt, Prompt::Skit)?;
-        let menu = (frame.slot_confirmation || frame.slot_popup)
-            .then(|| slot_confirmation(native_state, source_state, frame.slot_popup))
-            .transpose()?;
-        let audio_settings = frame.audio_state.then(|| -> Result<Value> {
-            let expected = audio_settings(source_state)?;
-            let actual = &native_state["audio_settings"];
-            Ok(json!({"expected":expected,"actual":actual,"passed":same_values(actual,&expected)}))
-        }).transpose()?;
-        let tech = (frame.tech_state || frame.tech_navigation_state)
-            .then(|| tech_state(native_state, source_state, frame.tech_state))
-            .transpose()?;
-        let paralysis = frame
-            .paralysis_state
-            .then(|| -> Result<_> {
-                let uv = observed_word(source_state, "field_symbol_uv_word")
-                    .context("missing paralysis atlas observation")?;
-                let frame = match uv {
-                    0x8910b81f => 0,
-                    0x8900b80f => 1,
-                    _ => anyhow::bail!("unexpected paralysis atlas rectangle {uv:08x}"),
-                };
-                let actual = &native_state["paralysis"]["frame"];
-                Ok(json!({"passed":actual == frame,"native":actual,"source":frame}))
-            })
-            .transpose()?;
-        let main_menu = frame
-            .main_menu_state
-            .then(|| -> Result<_> {
-                let fade = observed_word(source_state, "main_menu_fade_word")
-                    .context("missing main menu fade observation")?
-                    >> 24;
-                let mut expected = json!({"fade":fade});
-                let mut actual =
-                    json!({"fade":native_state["main_menu_fade"].as_u64().unwrap_or(255)});
-                let menu = &native_state["menu"];
-                let page = &menu["page"];
-                if page.as_str().is_some_and(|page| {
-                    matches!(page, "Main" | "Party" | "System") || page.starts_with("Character(")
-                }) {
-                    expected["first"] = json!(
-                        observed_word(source_state, "party_menu_first_word")
-                            .context("missing Main party viewport")?
-                            >> 16
-                    );
-                    expected["character"] = json!(
-                        observed_word(source_state, "party_menu_display_word")
-                            .context("missing Main selected character")?
-                            >> 24
-                    );
-                    actual["first"] = menu["first_character"].clone();
-                    actual["character"] = menu["character"].clone();
-                }
-                Ok(json!({"passed":actual == expected,"native":actual,"source":expected}))
-            })
-            .transpose()?;
-        let mut gates = json!({
-            "save_prompt":save,"action_prompt":action,"skit_prompt":skit,
-            "slot_confirmation":menu,"audio_settings":audio_settings,"tech":tech,
-            "paralysis":paralysis,"main_menu":main_menu
-        });
+        let presentation = fs::read(output.join(format!("native/{}.json", frame.native)))
+            .context("missing presentation diagnostics")
+            .and_then(|bytes| serde_json::from_slice(&bytes).map_err(Into::into));
+        let diagnostics = pose_diagnostics(native_state, presentation, source_state);
+        let mut gates = json!({});
         type CompareState = fn(&Value, &Value) -> Result<Value>;
         for (name, enabled, compare) in [
             ("party", frame.party_state, party_state as CompareState),
-            ("strategy", frame.strategy_state, strategy_state),
-            ("synopsis", frame.synopsis_state, synopsis_state),
-            ("statistics", frame.statistics_state, statistics_state),
-            ("status", frame.status_state, status_state),
-            ("rename", frame.rename_state, rename_state),
-            ("customize", frame.customize_state, customize_state),
-            ("collection", frame.collection_state, collection_state),
-            ("world_map", frame.world_map_state, world_map_state),
-            ("monster", frame.monster_state, monster_state),
-            ("manual", frame.manual_state, manual_state),
-            ("figurine", frame.figurine_state, figurine_state),
-            ("ex_skills", frame.ex_state, ex_state),
-            ("unison", frame.unison_state, unison_state),
-            ("equipment", frame.equipment_state, equipment_state),
-            ("shop", frame.shop_state, shop_state),
             ("inventory", frame.inventory_state, inventory_state),
             ("cooking", frame.cooking_state, cooking_state),
         ] {
-            gates[name] = enabled
-                .then(|| compare(native_state, source_state))
-                .transpose()?
-                .unwrap_or(Value::Null);
+            if enabled {
+                gates[name] = compare(native_state, source_state)?;
+            }
         }
-        let good = [
-            position_error,
-            camera_position_error,
-            camera_target_error,
-            heading_error,
-        ]
-        .into_iter()
-        .all(|error| error <= 0.01)
-            && gates
-                .as_object()
-                .unwrap()
-                .values()
-                .all(|gate| gate.is_null() || gate["passed"] == true)
+        let good = gates
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|gate| gate.is_null() || gate["passed"] == true)
             && location["passed"] == true;
         passed &= good;
-        let mut state = json!({"name":frame.name,"dolphin_vi":frame.dolphin_vi,
+        let state = json!({"name":frame.name,"dolphin_vi":frame.dolphin_vi,
             "location":location,
-            "position_error":position_error,"camera_position_error":camera_position_error,
-            "camera_target_error":camera_target_error,"heading_error":heading_error,
-            "tolerance":0.01,"passed":good});
-        let Value::Object(gates) = gates else {
-            unreachable!()
-        };
-        state.as_object_mut().unwrap().extend(gates);
+            "diagnostics":diagnostics,
+            "gates":gates,
+            "passed":good});
         states.push(state);
-        let source = match frame.dolphin {
-            Some(index) => dolphin_output.join(format!("user/Dump/Frames/framedump_{index}.png")),
-            None => output.join(format!("video-frames/vi-{:06}.png", frame.dolphin_vi)),
-        };
+        let source = output.join(format!("video-frames/vi-{:06}.png", frame.dolphin_vi));
         let actual = output.join(format!("native/{}.png", frame.native));
         if frame.disc_loading_overlay {
             ensure!(
@@ -664,73 +414,17 @@ pub(super) fn run(
                 "disc-loading exclusion requires a visible source transfer notice"
             );
         }
-        let mut regions = vec![None];
-        regions.extend(frame.regions.iter().copied().map(Some));
-        for (i, region) in regions.into_iter().enumerate() {
-            let name = format!("{}-{i}", frame.name);
-            let full = compare(
-                &source,
-                &actual,
-                &output.join("images").join(&name),
-                8,
-                0.01,
-                region,
-            )?;
-            let exclusions = if frame.disc_loading_overlay {
-                // Authored text at (360,220), 16x20 glyphs, and the transfer line
-                // at y=244. Bounds include shadows and 448-to-480 presentation scaling.
-                &[[359, 235, 145, 24], [358, 258, 260, 7]][..]
-            } else {
-                &[]
-            };
-            let good = if exclusions.is_empty() {
-                full
-            } else {
-                compare_excluding(
-                    &source,
-                    &actual,
-                    &output
-                        .join("images")
-                        .join(&name)
-                        .join("without-disc-loading"),
-                    8,
-                    0.01,
-                    region,
-                    exclusions,
-                )?
-            };
-            passed &= good;
-            results.push(json!({"name":name,"passed":good,"full_image_passed":full,
-                "excluded_regions":exclusions,
-                "exclusion_reason":if exclusions.is_empty() { None } else {
-                    Some("Original DVD transfer telemetry; native shows loading text only during actual asset preparation.")
-                }}));
-        }
+        let (images_passed, frame_results) =
+            compare_frame_images(frame, &source, &actual, &output.join("images"))?;
+        passed &= images_passed;
+        results.extend(frame_results);
     }
     let mut audio_results = Vec::new();
     if !pair.audio.is_empty() {
-        let recordings = capture["audio"]["recordings"]
-            .as_array()
-            .context("missing Dolphin audio evidence")?;
-        let dsp: Vec<_> = recordings
-            .iter()
-            .filter(|r| {
-                r["path"]
-                    .as_str()
-                    .is_some_and(|p| p.ends_with("_dspdump.wav"))
-            })
-            .collect();
-        ensure!(
-            dsp.len() == 1 && dsp[0]["finalized"] == true,
-            "expected one finalized DSP recording"
-        );
+        let dsp = verified_dsp_recording(&capture, &dolphin_output)?;
         for window in &pair.audio {
-            let report = audio::compare(
-                &dolphin_output.join(dsp[0]["path"].as_str().unwrap()),
-                &output.join("native/audio.wav"),
-                None,
-                &window.window,
-            )?;
+            let report =
+                audio::compare(&dsp, &output.join("native/audio.wav"), None, &window.window)?;
             passed &= report.passed;
             audio_results.push(
                 json!({"name":window.name,"registration":window.registration,"report":report}),
@@ -744,6 +438,7 @@ pub(super) fn run(
             "native_binary_sha256":native_hash,
             "native_reference":native_reference,
             "native_recording_sha256":file_hash(&output.join("native/recording.json"))?,
+            "native_artifacts":native_artifacts(&output.join("native"))?,
             "reference":reference,
             "reference_capture_sha256":file_hash(&dolphin_output.join("capture.json"))?,
             "reference_memory_sha256":file_hash(&dolphin_output.join("memory.jsonl"))?,
@@ -758,12 +453,56 @@ pub(super) fn run(
     );
     Ok(())
 }
-// Fail before rendering when a reused recording lacks observations for these gates.
+
+fn compare_frame_images(
+    frame: &Frame,
+    source: &Path,
+    actual: &Path,
+    output: &Path,
+) -> Result<(bool, Vec<Value>)> {
+    let mut passed = true;
+    let mut results = Vec::new();
+    let mut regions = vec![None];
+    regions.extend(frame.regions.iter().copied().map(Some));
+    for (i, region) in regions.into_iter().enumerate() {
+        let name = format!("{}-{i}", frame.name);
+        let full = compare(source, actual, &output.join(&name), 8, 0.01, region)?;
+        let exclusions = if frame.disc_loading_overlay {
+            // Authored text at (360,220), 16x20 glyphs, and the transfer line
+            // at y=244. Bounds include shadows and 448-to-480 presentation scaling.
+            &[[359, 235, 145, 24], [358, 258, 260, 7]][..]
+        } else {
+            &[]
+        };
+        let good = if exclusions.is_empty() {
+            full
+        } else {
+            compare_excluding(
+                source,
+                actual,
+                &output.join(&name).join("without-disc-loading"),
+                8,
+                0.01,
+                region,
+                exclusions,
+            )?
+        };
+        let acceptance = region.is_some() || frame.regions.is_empty();
+        passed &= !acceptance || good;
+        results.push(json!({"name":name,"acceptance":acceptance,"passed":good,"full_image_passed":full,
+            "excluded_regions":exclusions,
+            "exclusion_reason":if exclusions.is_empty() { None } else {
+                Some("Original DVD transfer telemetry; native shows loading text only during actual asset preparation.")
+            }}));
+    }
+    Ok((passed, results))
+}
+// Validate requested observations before launching native rendering.
 fn verify_observations(pair: &Pair, path: &Path) -> Result<()> {
     let memory: BTreeMap<u64, Value> = fs::read_to_string(path)?
         .lines()
         .map(|line| -> Result<_> {
-            let value = serde_json::from_str::<Value>(line)?;
+            let value: Value = serde_json::from_str(line)?;
             Ok((
                 value["vi_sample"].as_u64().context("missing VI index")?,
                 value,
@@ -774,216 +513,33 @@ fn verify_observations(pair: &Pair, path: &Path) -> Result<()> {
         let source = memory
             .get(&u64::from(frame.dolphin_vi))
             .with_context(|| format!("missing registered VI {}", frame.dolphin_vi))?;
-        verify_frame_observations(frame, source)?;
-    }
-    Ok(())
-}
-
-fn verify_frame_observations(frame: &Frame, source: &Value) -> Result<()> {
-    let require = |key: &str| -> Result<()> {
-        ensure!(
-            source[key].as_u64().is_some(),
-            "frame {} at VI {} requires source observation {key}",
-            frame.name,
-            frame.dolphin_vi
-        );
-        Ok(())
-    };
-    require("presentation_counter")?;
-    if frame.tech_state {
-        require("field_control_flags_word")?;
-    }
-    if frame.main_menu_state {
-        for key in [
-            "main_menu_fade_word",
-            "party_menu_first_word",
-            "party_menu_display_word",
-        ] {
-            require(key)?;
+        if frame.disc_loading_overlay {
+            observed_word(source, "figurine_model_load_word")?;
         }
-    }
-    if frame.manual_state {
-        for key in [
-            "manual_mode_chapter_word",
-            "manual_topic_paragraph_word",
-            "manual_fade_word",
-            "ui_clock",
-        ] {
-            require(key)?;
+        // These comparisons validate all needed source fields before inspecting native values.
+        if frame.party_state {
+            party_state(&Value::Null, source)?;
         }
-    }
-    if frame.ex_state {
-        for key in [
-            "ui_clock",
-            "ex_mode_slot_word",
-            "ex_skill_gem_word",
-            "ex_compound_scroll_word",
-            "ex_scroll_character_word",
-            "ex_gem_inventory_word",
-            "ex_max_inventory_word",
-            "ex_compound_count_word",
-        ] {
-            require(key)?;
+        if frame.inventory_state {
+            inventory_state(&Value::Null, source)?;
         }
-        if matches!(source["ex_mode_slot_word"].as_u64().unwrap() >> 16, 5 | 7) {
-            require("ex_counts_confirm_word")?;
-        }
-        for character in 0..9 {
-            for suffix in ["gems", "skills", "compounds", "recent_compounds"] {
-                require(&format!("ex_character_{character}_{suffix}_word"))?;
-            }
-        }
-        let count = source["ex_compound_count_word"].as_u64().unwrap() >> 16;
-        ensure!(count <= 24, "invalid EX compound list size");
-        for index in 0..count.div_ceil(2) {
-            require(&format!("ex_compound_ids_{index}_word"))?;
-        }
-    }
-    for (enabled, prefix) in [
-        (frame.figurine_state, "figurine"),
-        (frame.monster_state, "monster"),
-    ] {
-        if enabled {
-            require("ui_clock")?;
-            for suffix in [
-                "fade_word",
-                "opacity_word",
-                "yaw_bits",
-                "distance_bits",
-                "animation_time_bits",
-                "animation_end_bits",
-                "animation_rate_bits",
-            ] {
-                require(&format!("{prefix}_{suffix}"))?;
-            }
-        }
-    }
-    if frame.figurine_state {
-        for key in [
-            "figurine_mode_row_word",
-            "figurine_selection_scroll_word",
-            "figurine_scroll_count_word",
-            "figurine_model_load_word",
-        ] {
-            require(key)?;
-        }
-    }
-    if frame.monster_state {
-        for key in [
-            "monster_mode_count_word",
-            "monster_selection_variant_word",
-            "monster_list_scroll_word",
-        ] {
-            require(key)?;
-        }
-        if source["monster_mode_count_word"].as_u64().unwrap() >> 16 == 1 {
-            require("monster_list_selection_word")?;
-        }
-    }
-    if frame.save_prompt || frame.action_prompt || frame.skit_prompt {
-        require("field_control_flags_word")?;
-        require("scene_flags_word")?;
-        let suppressed = source["field_control_flags_word"].as_u64().unwrap() >> 24 != 0;
-        for (enabled, prefix, id) in [
-            (
-                frame.save_prompt || frame.action_prompt,
-                "action_prompt",
-                "action_prompt",
-            ),
-            (frame.skit_prompt, "skit_prompt", "skit_id"),
-        ] {
-            if enabled {
-                let alpha = format!("{prefix}_alpha");
-                require(&alpha)?;
-                require(&format!("{prefix}_remaining"))?;
-                if (frame.save_prompt && prefix == "action_prompt")
-                    || (!suppressed && source[&alpha].as_u64().unwrap() != 0)
-                {
-                    require(id)?;
+        if frame.cooking_state {
+            observed_word(source, "cooking_settings_word")?;
+            observed_word(source, "cooking_known_word")?;
+            observed_inventory(source)?;
+            for character in 0..9 {
+                observed_word(source, &format!("tech_character_{character}_vitals_word"))?;
+                observed_word(
+                    source,
+                    &format!("tech_character_{character}_conditions_word"),
+                )?;
+                for index in 0..6 {
+                    observed_word(
+                        source,
+                        &format!("cooking_character_{character}_training_{index}_word"),
+                    )?;
                 }
             }
-        }
-    }
-    for (enabled, prefix, last) in [
-        (
-            frame.tech_state || frame.tech_navigation_state,
-            "tech",
-            0x20,
-        ),
-        (frame.equipment_state, "equipment", 0x14),
-        (frame.customize_state, "customize", 0x4c),
-    ] {
-        if enabled {
-            require("ui_clock")?;
-            for offset in (0..=last).step_by(4) {
-                require(&format!("{prefix}_menu_{offset:02x}_word"))?;
-            }
-        }
-    }
-    if frame.inventory_state {
-        require("ui_clock")?;
-        for offset in [0x00, 0x10, 0x14, 0x18, 0x1c, 0x24, 0x28, 0x30] {
-            require(&format!("inventory_menu_{offset:02x}_word"))?;
-        }
-        if (6..=8).contains(&(source["inventory_menu_14_word"].as_u64().unwrap() & 65535)) {
-            require("inventory_menu_0c_word")?;
-        }
-    }
-    if frame.inventory_state || frame.equipment_state {
-        observed_inventory(source)?;
-    }
-    if frame.shop_state {
-        ShopState::observe(source).with_context(|| {
-            format!(
-                "frame {} at VI {} requires Shop observations",
-                frame.name, frame.dolphin_vi
-            )
-        })?;
-    }
-    if frame.inventory_state || frame.equipment_state || frame.tech_state {
-        for character in 0..9 {
-            observed_equipment(source, character)?;
-            if frame.inventory_state || frame.tech_state {
-                for suffix in ["vitals", "conditions"] {
-                    require(&format!("tech_character_{character}_{suffix}_word"))?;
-                }
-            }
-            if frame.tech_state {
-                require(&format!("ex_character_{character}_skills_word"))?;
-                for suffix in [
-                    "shortcuts_0",
-                    "shortcuts_1",
-                    "assists",
-                    "assist_owners",
-                    "known_hi",
-                    "known_lo",
-                    "enabled_hi",
-                    "enabled_lo",
-                ] {
-                    require(&format!("tech_character_{character}_{suffix}_word"))?;
-                }
-            }
-        }
-    }
-    if frame.tech_state || frame.tech_navigation_state {
-        require("party_control_types_word")?;
-        let controls = source["party_control_types_word"].as_u64().unwrap();
-        let character = (source["tech_menu_0c_word"].as_u64().unwrap() >> 8) & 255;
-        let owner = if source["tech_menu_00_word"].as_u64().unwrap() >> 16 >= 13 {
-            source["tech_menu_04_word"].as_u64().unwrap() & 65535
-        } else {
-            character
-        };
-        ensure!(owner < 8, "invalid Tech list owner {owner}");
-        let counts = format!("tech_counts_{}_word", owner / 2);
-        require(&counts)?;
-        let count = (source[&counts].as_u64().unwrap() >> (16 - owner % 2 * 16)) & 65535;
-        ensure!(count <= 36, "invalid Tech list length {count}");
-        for index in 0..count.div_ceil(2) {
-            require(&format!("tech_{owner}_choices_{index}_word"))?;
-        }
-        if character < 4 && (controls >> (24 - character * 8)) & 255 == 2 {
-            require(&format!("controller_{character}_status_word"))?;
         }
     }
     Ok(())
@@ -1023,229 +579,6 @@ fn observed_word(source: &Value, key: &str) -> Result<u64> {
         .with_context(|| format!("missing {key}"))
 }
 
-fn matching_fields(actual: &Value, expected: &Value) -> bool {
-    expected
-        .as_object()
-        .unwrap()
-        .iter()
-        .all(|(key, value)| actual[key] == *value)
-}
-
-// JSON writers differ on integer-valued floats (0 versus 0.0).
-fn same_values(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Number(a), Value::Number(b)) => a.as_f64() == b.as_f64(),
-        (Value::Array(a), Value::Array(b)) => {
-            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_values(a, b))
-        }
-        (Value::Object(a), Value::Object(b)) => {
-            a.len() == b.len()
-                && a.iter()
-                    .all(|(k, a)| b.get(k).is_some_and(|b| same_values(a, b)))
-        }
-        _ => a == b,
-    }
-}
-
-fn synopsis_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| -> Result<u32> {
-        Ok(observed_word(source, key)
-            .with_context(|| format!("missing Synopsis observation {key}"))?
-            .try_into()?)
-    };
-    let frequency = u64::from(word("synopsis_bus_clock")? / 4);
-    ensure!(frequency != 0, "invalid source calendar clock");
-    let mut records = BTreeMap::new();
-    for id in 0..200 {
-        let [value, extra, level, _] = word(&format!("synopsis_{id}_record_word"))?.to_be_bytes();
-        if value != 0 {
-            let ticks = u64::from(word(&format!("synopsis_{id}_time_hi_word"))?) << 32
-                | u64::from(word(&format!("synopsis_{id}_time_lo_word"))?);
-            records.insert(
-                id.to_string(),
-                json!({"value":value,"extra":extra,"level":level,
-                "recorded_at":946_684_800 + ticks / frequency}),
-            );
-        }
-    }
-    let menu = &native["menu"];
-    let actual_records: BTreeMap<_, _> = menu["synopsis_records"]
-        .as_object()
-        .context("missing native Synopsis records")?
-        .iter()
-        .filter(|(_, r)| r["value"] != 0)
-        .map(|(id, r)| {
-            (
-                id,
-                json!({"value":r["value"],"extra":r["extra"],
-            "level":r["level"],"recorded_at":r["recorded_at"]}),
-            )
-        })
-        .collect();
-    let position = word("synopsis_row_first_word")?;
-    let mode = word("synopsis_reading_count_word")?;
-    let count = (mode & 65535) as usize;
-    ensure!(
-        count <= 200 && mode >> 16 <= 1,
-        "invalid source Synopsis navigation"
-    );
-    let ids = (0..count.div_ceil(2))
-        .map(|i| word(&format!("synopsis_ids_{i}_word")))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .flat_map(|w| [w >> 16, w & 65535])
-        .take(count)
-        .collect::<Vec<_>>();
-    let motion = word("synopsis_scroll_word")?;
-    let observed_scroll = |key: &str| -> Result<i64> {
-        let pose = menu["synopsis"][key]
-            .as_i64()
-            .context("missing Synopsis scroll pose")?;
-        Ok((pose + pose.signum()) % 5)
-    };
-    let expected = json!({"row":position >> 16,"first":position & 65535,"reading":mode >> 16 == 1,
-        "ui_clock":source["ui_clock"],
-        "list_scroll":((motion >> 16) as u16) as i16,"text_scroll":(motion as u16) as i16,
-        "text_opacity":(word("synopsis_fade_word")? >> 8) & 255,
-        "page_fade":word("synopsis_fade_word")? >> 24,
-        "ids":ids,"records":records});
-    let actual = json!({"row":menu["synopsis"]["row"],"first":menu["synopsis"]["first"],
-        "ui_clock":native["presentation_counter"],
-        "list_scroll":observed_scroll("list_scroll")?,"text_scroll":observed_scroll("text_scroll")?,
-        "text_opacity":menu["synopsis"]["text_opacity"],
-        "page_fade":menu["synopsis"]["page_fade"],
-        "reading":menu["synopsis"]["reading"],"ids":menu["synopsis_ids"],"records":actual_records});
-    Ok(
-        json!({"expected":expected,"actual":actual,"passed":menu["page"] == "Synopsis" && actual == expected}),
-    )
-}
-
-fn strategy_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| -> Result<u32> {
-        Ok(observed_word(source, key)
-            .with_context(|| format!("missing Strategy observation {key}"))?
-            .try_into()?)
-    };
-    let triples = |prefix: &str| -> Result<Vec<[u8; 3]>> {
-        (0..9)
-            .map(|i| {
-                Ok(word(&format!("{prefix}_character_{i}_word"))?.to_be_bytes()[..3].try_into()?)
-            })
-            .collect()
-    };
-    let presets = (0..3)
-        .map(|i| -> Result<_> {
-            let bytes: Vec<_> = (0..2)
-                .map(|j| word(&format!("strategy_preset_{i}_name_{j}_word")))
-                .collect::<Result<Vec<_>>>()?
-                .into_iter()
-                .flat_map(u32::to_be_bytes)
-                .take_while(|b| *b != 0)
-                .collect();
-            Ok(json!({"name":String::from_utf8(bytes)?,
-                "members":triples(&format!("strategy_preset_{i}"))?}))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let fg = word("strategy_focus_group_word")?;
-    let op = word("strategy_option_preset_word")?;
-    let focus = [
-        "Character",
-        "Setting",
-        "Options",
-        "Presets",
-        "Rename",
-        "PresetCharacter",
-        "PresetSetting",
-        "PresetOptions",
-    ]
-    .get((fg >> 16) as usize)
-    .context("unknown Strategy focus")?;
-    let menu = &native["menu"];
-    let state = &menu["strategy"];
-    let mut expected = json!({"focus":focus,"first":word("strategy_first_scroll_word")? >> 16,
-        "character":(word("strategy_character_word")? >> 16) & 255});
-    let mut actual =
-        json!({"focus":state["focus"],"first":state["first"],"character":state["character"]});
-    expected["page_fade"] = json!(word("strategy_page_transition_word")? >> 24);
-    actual["page_fade"] = state["page_fade"].clone();
-    expected["preset_opacity"] = json!((word("strategy_page_transition_word")? >> 8) & 255);
-    actual["preset_opacity"] = state["preset_opacity"].clone();
-    expected["rename_opacity"] = json!(word("strategy_rename_opacity_word")? >> 24);
-    actual["rename_opacity"] = state["rename_opacity"].clone();
-    expected["ui_clock"] = source["ui_clock"].clone();
-    actual["ui_clock"] = native["presentation_counter"].clone();
-    if *focus == "Rename" || state["rename_opacity"].as_u64().unwrap_or(0) != 0 {
-        let cell = word("strategy_rename_cell_word")?;
-        let bytes: Vec<_> = [
-            word("strategy_rename_text_first_word")?,
-            word("strategy_rename_text_last_word")?,
-        ]
-        .into_iter()
-        .flat_map(u32::to_be_bytes)
-        .take_while(|b| *b != 0)
-        .collect();
-        expected["rename"] = json!({"column":cell >> 16,"row":cell & 65535,
-            "position":word("strategy_rename_position_word")? >> 16,
-            "value":String::from_utf8(bytes)?});
-        actual["rename"] = state["rename"].clone();
-    }
-    let scroll = state["scroll"]
-        .as_i64()
-        .context("missing Strategy scroll pose")?;
-    // The source advances its row-scroll pose after drawing.
-    expected["scroll"] = json!((word("strategy_first_scroll_word")? as u16) as i16);
-    actual["scroll"] = json!((scroll + scroll.signum()) % 10);
-    let previous = word("strategy_description_previous_word")?;
-    let previous = if previous == 0 {
-        None
-    } else {
-        let mut row = None;
-        for (group, count) in [9, 9, 7].into_iter().enumerate() {
-            let base = word(&format!("strategy_description_group_{group}_word"))?;
-            if previous >= base && previous < base + count * 16 && (previous - base) % 16 == 0 {
-                row = Some([group, ((previous - base) / 16) as usize]);
-            }
-        }
-        Some(row.context("unknown Strategy description")?)
-    };
-    expected["description_previous"] = json!(previous);
-    actual["description_previous"] = state["description_previous"].clone();
-    expected["description_fade"] = json!(word("strategy_description_fade_word")? >> 24);
-    actual["description_fade"] = state["description_fade"].clone();
-    if matches!(
-        *focus,
-        "Setting" | "Options" | "PresetSetting" | "PresetOptions"
-    ) {
-        expected["group"] = json!(fg & 65535);
-        actual["group"] = state["group"].clone();
-    }
-    if matches!(*focus, "Options" | "PresetOptions") {
-        expected["option"] = json!(op >> 16);
-        actual["option"] = state["option"].clone();
-    }
-    if matches!(
-        *focus,
-        "Presets" | "Rename" | "PresetCharacter" | "PresetSetting" | "PresetOptions"
-    ) {
-        expected["preset"] = json!(op & 65535);
-        actual["preset"] = state["preset"].clone();
-    }
-    let current = triples("strategy")?;
-    let actual_current: Vec<_> = menu["party"]["members"]
-        .as_array()
-        .context("missing Strategy party")?
-        .iter()
-        .map(|m| m["strategy"].clone())
-        .collect();
-    Ok(
-        json!({"passed":menu["page"] == "Strategy" && actual == expected
-            && json!(current) == json!(actual_current) && json!(presets) == menu["strategy_presets"],
-        "navigation":{"expected":expected,"actual":actual},
-        "current":{"expected":current,"actual":actual_current},
-        "presets":{"expected":presets,"actual":menu["strategy_presets"]}}),
-    )
-}
-
 fn party_state(native: &Value, source: &Value) -> Result<Value> {
     let word = |key| {
         observed_word(source, key).with_context(|| format!("missing party observation {key}"))
@@ -1264,389 +597,10 @@ fn party_state(native: &Value, source: &Value) -> Result<Value> {
         "field_leader":((leaders >> 8) & 255) + 1,
         "leader_locked":word("party_restrictions_word")? & 0x0008_0000 != 0
     });
-    let controlled = ((leaders >> 16) & 255) + 1;
-    Ok(json!({"expected":expected,"actual":native["party"],
-        "expected_controlled_actor":controlled,"actual_controlled_actor":native["controlled_actor"],
-        "passed":native["party"] == expected && native["controlled_actor"] == controlled}))
-}
-
-fn statistics_state(native: &Value, source: &Value) -> Result<Value> {
-    let status = matches!(native["menu"]["page"].as_str(), Some("Status" | "Titles"));
-    let word = if status {
-        "status_menu_page_word"
-    } else {
-        "party_menu_display_word"
-    };
-    let expected =
-        (observed_word(source, word).context("missing statistics display observation")? >> 8) & 255
-            != 0;
-    let actual = &native["menu"]["statistics"][if status { "status" } else { "party" }];
+    let party = &native["persistent_party"];
+    let actual = json!({"formation":party["formation"], "field_leader":party["field_leader"],
+        "leader_locked":party["leader_locked"]});
     Ok(json!({"expected":expected,"actual":actual,"passed":actual == expected}))
-}
-
-fn status_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let selection = word("status_menu_00_word")?;
-    let transition = word("status_menu_50_word")?;
-    let portrait = word("status_menu_60_word")?;
-    let previous = (portrait >> 16) as u16 as i16;
-    let expected = json!({
-        "details":word("status_menu_page_word")? & 0xff00 != 0,
-        "title_focus":selection & 255 != 0,
-        "row":word("status_menu_08_word")? >> 24,
-        "page_fade":transition >> 24,
-        "closing":matches!((transition >> 16) & 255, 2 | 4),
-        "previous":(previous >= 0).then_some(previous),
-        "portrait_fade":(portrait >> 8) & 255,
-        "title_opacity":(transition >> 8) & 255,
-        "title_closing":transition & 255 == 6
-    });
-    let actual = &native["menu"]["status"];
-    let page = if selection & 0xff00 == 0 {
-        "Status"
-    } else {
-        "Titles"
-    };
-    let passed = actual == &expected
-        && native["menu"]["page"] == page
-        && native["menu"]["character"] == (selection >> 16) & 255
-        && native["presentation_counter"] == source["ui_clock"];
-    Ok(json!({"expected":expected,"actual":actual,"passed":passed}))
-}
-
-fn audio_settings(source: &Value) -> Result<Value> {
-    let committed = u32::try_from(
-        observed_word(source, "preferences_audio_word")
-            .context("missing source committed audio preferences")?,
-    )?
-    .to_be_bytes();
-    let voice = u32::try_from(
-        observed_word(source, "preferences_voice_word")
-            .context("missing source committed voice preferences")?,
-    )? >> 24;
-    Ok(json!({"stereo":committed[1] & 2 != 0,
-        "levels":[committed[2], committed[3], if committed[1] & 64 != 0 { voice } else { 0 }]}))
-}
-
-fn customize_state(native: &Value, source: &Value) -> Result<Value> {
-    let mut bytes = Vec::with_capacity(0x50);
-    for offset in (0..0x50).step_by(4) {
-        let key = format!("customize_menu_{offset:02x}_word");
-        bytes.extend(u32::try_from(observed_word(source, &key)?)?.to_be_bytes());
-    }
-    let signed = |at| i16::from_be_bytes([bytes[at], bytes[at + 1]]);
-    let enabled = |mask| bytes[0x21] & mask != 0;
-    let focus = ["Options", "Colors", "Volume", "Position", "Controls"]
-        .get(usize::from(bytes[2]))
-        .context("unknown source Customize panel")?;
-    let mut audio = audio_settings(source)?;
-    audio["levels"][0] = json!(bytes[0x22]);
-    let expected = json!({
-        "row":bytes[0], "defaults":bytes[1] != 0, "focus":focus,
-        "component":bytes[3], "color_group":bytes[4], "channel":bytes[5],
-        "button":bytes[7], "first":signed(8),
-        "scroll":signed(0x0a), "color_scroll":bytes[6] as i8,
-        "preview_wait":bytes[0x0c], "preview_shown":bytes[0x0d],
-        "page_fade":bytes[0x18], "page_closing":bytes[0x19] == 4,
-        "audio":audio,
-        "draft":{
-            "message_speed":bytes[0x20], "battle_rank":bytes[0x2f],
-            "window":bytes[0x27] >> 4 & 3, "background":bytes[0x27] & 15,
-            "battle_voiceover":enabled(128), "event_voiceover":enabled(64),
-            "skit_notifications":enabled(32), "movie_subtitles":enabled(16),
-            "battle_auto_zoom":enabled(8), "rumble":enabled(4), "stereo":enabled(2),
-            "button_map":bytes[0x28..0x2f], "screen_position":[signed(0x4c), signed(0x4e)],
-            "volumes":{"music":bytes[0x22], "effects":bytes[0x23], "voice":bytes[0x24],
-                "battle_effects":bytes[0x25], "battle_voice":bytes[0x26]},
-            "colors":{"menu":bytes[0x30..0x34], "dialogue":bytes[0x34..0x38],
-                "choice":bytes[0x38..0x3c], "popup":bytes[0x3c..0x40],
-                "shade_top":bytes[0x40..0x44], "shade_bottom":bytes[0x44..0x48],
-                "selection":bytes[0x48..0x4c]}
-        }
-    });
-    let mut actual = native["menu"]["customize"].clone();
-    for (key, steps) in [("scroll", 5), ("color_scroll", 20)] {
-        let value = actual[key]
-            .as_i64()
-            .with_context(|| format!("missing Customize {key}"))?;
-        actual[key] = json!((value + value.signum()) % steps);
-    }
-    actual["page_closing"] = json!(actual["page_closing"] == true && actual["page_fade"] != 255);
-    actual["audio"] = native["audio_settings"].clone();
-    let passed = native["menu"]["page"] == "Customize" && same_values(&actual, &expected);
-    Ok(json!({"expected":expected,"actual":actual,"passed":passed}))
-}
-
-fn rename_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| -> Result<u32> { Ok(observed_word(source, key)?.try_into()?) };
-    let string = |keys: Vec<String>| -> Result<String> {
-        let bytes = keys
-            .iter()
-            .map(|key| word(key))
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flat_map(u32::to_be_bytes)
-            .take_while(|b| *b != 0)
-            .collect();
-        Ok(String::from_utf8(bytes)?)
-    };
-    let names = (0..9)
-        .map(|i| {
-            string(
-                (0..4)
-                    .map(|w| format!("character_{i}_name_{w}_word"))
-                    .collect(),
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    // The fully transparent handoff frame has no interactive editor.
-    let active = (word("status_menu_5c_word")? & 255 != 0
-        || word("inventory_menu_1c_word")? >> 16 == 1006)
-        && word("rename_menu_1c_word")? >> 24 != 255;
-    let mut expected =
-        json!({"active":active,"names":names,"gems":word("ex_max_inventory_word")? & 255});
-    let menu = &native["menu"];
-    let mut actual = json!({
-        "active":menu["page"] == "Rename"
-            && !(menu["rename"]["closing"] == true && menu["rename"]["fade"] == 255),
-        "names":menu["names"],"gems":menu["rename_gems"]});
-    if active {
-        let selection = word("rename_menu_00_word")?;
-        let keyboard = word("rename_menu_04_word")?;
-        let command = word("rename_menu_08_word")?;
-        let transition = word("rename_menu_1c_word")?;
-        expected["editor"] = json!({"focus":match selection >> 16 {0=>"Name",1=>"Keyboard",2=>"Commands",_=>anyhow::bail!("unknown name editor focus")},
-            "position":selection & 65535,"column":keyboard >> 16,"row":keyboard & 65535,
-            "character":((command >> 8) & 255).checked_sub(1).context("missing name target")?,
-            "fade":transition >> 24,"closing":(transition >> 16) & 255 == 4,
-            "value":string([0xc,0x10,0x14,0x18].map(|at|format!("rename_menu_{at:02x}_word")).into())?});
-        // The source retains an unused command index across editor openings.
-        if selection >> 16 == 2 {
-            expected["editor"]["command"] = (command >> 16).into();
-        }
-        actual["editor"] = expected["editor"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(|key| (key.clone(), menu["rename"][key].clone()))
-            .collect();
-    }
-    Ok(json!({"passed":expected == actual,"expected":expected,"actual":actual}))
-}
-
-fn collection_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let selection = word("collection_selection_word")?;
-    let mode = word("collection_mode_word")?;
-    let mut expected = json!({"category":selection >> 24,"row":selection & 65535,
-        "first":word("collection_scroll_word")? >> 16,"categories":mode & 65535 == 0});
-    let page = word("collection_fade_word")?;
-    expected["page_fade"] = json!(page >> 24);
-    expected["page_closing"] = json!((page >> 16) & 255 == 4);
-    let scroll = word("collection_scroll_word")? as u16 as i16;
-    // Source observations follow drawing, which advances the scroll pose.
-    let native_scroll = native["menu"]["collection"]["scroll"].as_i64().unwrap_or(0);
-    let description = word("collection_description_word")?;
-    let previous = (description >> 16) as u16 as i16;
-    expected["description_previous"] = match previous {
-        0 => json!("None"),
-        ..0 => json!({"Category":-previous - 1}),
-        _ => json!({"Item":previous}),
-    };
-    expected["description_fade"] = json!((description >> 8) & 255);
-    let actual = &native["menu"]["collection"];
-    let passed = matching_fields(actual, &expected)
-        && i64::from(scroll) == (native_scroll + native_scroll.signum()) % 5
-        && native["presentation_counter"] == source["ui_clock"]
-        && native["menu"]["page"] == "Collection";
-    Ok(
-        json!({"expected":expected,"actual":actual,"count":mode >> 16,
-        "scroll":{"expected":scroll,"actual":(native_scroll + native_scroll.signum()) % 5},
-        "passed":passed}),
-    )
-}
-
-fn world_map_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let mode = word("world_map_mode_word")?;
-    let selection = word("world_map_selection_word")?;
-    let scroll = word("world_map_scroll_word")?;
-    let fade = word("world_map_fade_word")?;
-    let description = word("world_map_description_word")?;
-    let expected = json!({"world":(mode >> 8) & 255,
-        "focus": match mode >> 16 { 0 => "locations", 1 => "shops", 2 => "items", _ => "invalid" },
-        "location": selection >> 16, "shop": selection & 65535,
-        "item": scroll >> 16, "first_location": scroll & 65535,
-        "first_item": word("world_map_item_scroll_word")? & 65535,
-        "page_fade":fade >> 24,"page_closing":(fade >> 16) & 255 == 4,
-        "shops_opacity":(fade >> 8) & 255,"items_opacity":fade & 255,
-        "description_previous":description >> 16,"description_fade":(description >> 8) & 255});
-    let actual = &native["menu"]["world_map"];
-    let mut passed = native["menu"]["page"] == "WorldMap"
-        && native["presentation_counter"] == source["ui_clock"]
-        && matching_fields(actual, &expected);
-    let mut scrolls = json!({});
-    for (key, word) in [
-        ("location_scroll", word("world_map_item_scroll_word")?),
-        ("item_scroll", word("world_map_count_word")?),
-    ] {
-        let expected = (word >> 16) as u16 as i16;
-        let actual = actual[key].as_i64().context("missing map scroll")?;
-        passed &= i64::from(expected) == (actual + actual.signum()) % 5;
-        scrolls[key] = json!({"expected":expected,"actual":actual});
-    }
-    Ok(
-        json!({"expected":expected,"actual":actual,"count":word("world_map_count_word")? & 65535,
-        "scroll":scrolls,"passed":passed}),
-    )
-}
-
-fn manual_state(native: &Value, source: &Value) -> Result<Value> {
-    let mode = observed_word(source, "manual_mode_chapter_word")
-        .context("missing manual chapter state")?;
-    let topic = observed_word(source, "manual_topic_paragraph_word")
-        .context("missing manual topic state")?;
-    let fade = observed_word(source, "manual_fade_word").context("missing manual fade state")?;
-    let expected = json!({"reading":mode >> 16 == 1,"chapter":mode & 65535,
-        "topic":topic >> 16,"paragraph":topic & 65535,
-        "page_fade":fade >> 24,"page_closing":(fade >> 16) & 255 == 4});
-    let actual = &native["menu"]["manual"];
-    let expected_clock = observed_word(source, "ui_clock").context("missing UI clock")?;
-    let actual_clock = native["presentation_counter"]
-        .as_u64()
-        .context("missing native presentation clock")?;
-    Ok(json!({"expected":expected,"actual":actual,
-            "clock":{"expected":expected_clock,"actual":actual_clock},
-            "passed":actual == &expected && native["menu"]["page"] == "Manual"
-                && actual_clock == expected_clock}))
-}
-
-fn monster_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let mode = word("monster_mode_count_word")?;
-    let selection = word("monster_selection_variant_word")?;
-    let listing = mode >> 16 == 1;
-    let fade = word("monster_fade_word")?;
-    let mut expected = json!({"listing":listing,"row":selection >> 24,
-        "variant":(selection >> 16) & 255,
-        "page_fade":fade >> 24,"page_closing":(fade >> 16) & 255 == 4,
-        "model_opacity":(word("monster_opacity_word")? >> 16) & 255,
-        "yaw":observed_float(source, "monster_yaw_bits")?,
-        "distance":observed_float(source, "monster_distance_bits")?});
-    if listing {
-        expected["list_row"] = json!(word("monster_list_selection_word")? & 65535);
-        expected["first"] = json!(word("monster_list_scroll_word")? >> 16);
-    }
-    let actual = &native["menu"]["monsters"];
-    let animation = &native["menu"]["monster_animation"];
-    let sample = observed_float(source, "monster_animation_time_bits")? * 2.;
-    let duration = observed_float(source, "monster_animation_end_bits")? * 2.;
-    let rate = observed_float(source, "monster_animation_rate_bits")? * 2.;
-    let scroll_word = word("monster_list_scroll_word")?;
-    let source_scroll = scroll_word as i16;
-    let scroll = actual["scroll"]
-        .as_i64()
-        .context("missing monster scroll")?;
-    let drawn_scroll = if listing {
-        (scroll + scroll.signum()) % 5
-    } else {
-        scroll
-    };
-    let started = actual["model_started"] == true;
-    let passed = native["menu"]["page"] == "Monsters"
-        && native["presentation_counter"] == source["ui_clock"]
-        && drawn_scroll == i64::from(source_scroll)
-        && native["menu"]["party"]["monsters"]
-            .as_object()
-            .is_some_and(|m| m.len() as u64 == mode & 65535)
-        && expected
-            .as_object()
-            .unwrap()
-            .iter()
-            .all(|(key, value)| match key.as_str() {
-                "yaw" | "distance" => actual[key]
-                    .as_f64()
-                    .is_some_and(|v| (v - value.as_f64().unwrap()).abs() < 0.01),
-                _ => actual[key] == *value,
-            })
-        && (!started
-            || (animation["sample"]
-                .as_f64()
-                .is_some_and(|s| (s - sample).abs() < 0.01)
-                && animation["duration"].as_f64() == Some(duration)
-                && rate == 1.));
-    Ok(
-        json!({"expected":expected,"actual":actual,"count":mode & 65535,
-        "animation":animation,"expected_sample":sample,"expected_duration":duration,
-        "expected_rate":rate,"scroll":{"actual":drawn_scroll,"expected":source_scroll},
-        "clock":{"actual":native["presentation_counter"],"expected":source["ui_clock"]},
-        "passed":passed}),
-    )
-}
-
-fn figurine_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let mode = word("figurine_mode_row_word")?;
-    let selection = word("figurine_selection_scroll_word")?;
-    let count = word("figurine_scroll_count_word")? & 65535;
-    let fade = word("figurine_fade_word")?;
-    let expected = json!({"row":mode & 65535,"first":selection & 65535,
-        "page_fade":fade >> 24,"page_closing":(fade >> 16) & 255 == 4,
-        "model_opacity":(word("figurine_opacity_word")? >> 16) & 255,
-        "figurine":word("figurine_model_load_word")? >> 16,
-        "sample":observed_float(source, "figurine_animation_time_bits")? * 2.,
-        "duration":observed_float(source, "figurine_animation_end_bits")? * 2.,
-        "yaw":observed_float(source, "figurine_yaw_bits")?,
-        "distance":observed_float(source, "figurine_distance_bits")?});
-    let menu = &native["menu"];
-    let actual = json!({"row":menu["figurines"]["row"],"first":menu["figurines"]["first"],
-        "page_fade":menu["figurines"]["page_fade"],"page_closing":menu["figurines"]["page_closing"],
-        "model_opacity":menu["figurines"]["model_opacity"],
-        "figurine":menu["figurine_selected"],
-        "sample":menu["figurine_animation"]["sample"],
-        "duration":menu["figurine_animation"]["duration"],
-        "yaw":menu["figurine_animation"]["yaw"],
-        "distance":menu["figurine_animation"]["distance"]});
-    let rate = observed_float(source, "figurine_animation_rate_bits")? * 2.;
-    let scroll = menu["figurines"]["scroll"]
-        .as_i64()
-        .context("missing figurine scroll")?;
-    let source_scroll = (word("figurine_scroll_count_word")? >> 16) as i16;
-    let drawn_scroll = (scroll + scroll.signum()) % 5;
-    let started = menu["figurines"]["model_started"] == true;
-    let passed = mode >> 16 == 0
-        && menu["page"] == "Figurines"
-        && menu["party"]["figurines"]
-            .as_array()
-            .is_some_and(|ids| ids.len() as u64 == count)
-        && expected.as_object().unwrap().iter().all(|(key, value)| {
-            if key == "page_closing" {
-                actual[key] == *value
-            } else if !started && matches!(key.as_str(), "sample" | "duration") {
-                true
-            } else {
-                actual[key]
-                    .as_f64()
-                    .is_some_and(|v| (v - value.as_f64().unwrap()).abs() < 0.01)
-            }
-        })
-        && native["presentation_counter"] == source["ui_clock"]
-        && drawn_scroll == i64::from(source_scroll)
-        && (!started || rate == 1.);
-    Ok(
-        json!({"expected":expected,"actual":actual,"count":count,"rate":rate,
-        "scroll":{"actual":drawn_scroll,"expected":source_scroll},"passed":passed}),
-    )
-}
-
-fn observed_equipment(source: &Value, character: usize) -> Result<Vec<u64>> {
-    [0, 1, 2, 4, 5, 3]
-        .into_iter()
-        .map(|slot| {
-            let key = format!("tech_character_{character}_equipment_{}_word", slot / 2);
-            Ok((observed_word(source, &key)? >> (16 - slot % 2 * 16)) & 65535)
-        })
-        .collect()
 }
 
 fn observed_inventory(source: &Value) -> Result<Value> {
@@ -1668,17 +622,45 @@ fn observed_inventory(source: &Value) -> Result<Value> {
     Ok(serde_json::to_value(counts)?)
 }
 
+fn native_conditions(conditions: u32, hp: u32) -> Result<(Value, BTreeSet<String>)> {
+    ensure!(
+        conditions & !(0x8000_03e0 | 0x001f_f000) == 0,
+        "observation contains unsupported source conditions {conditions:#x}"
+    );
+    ensure!(
+        (hp == 0) == (conditions & 0x8000_0000 != 0),
+        "inconsistent knockout condition"
+    );
+    let ailments = json!({
+        "poison": match conditions & 0x60 {
+            0x20 => "mild", 0x40 => "severe", 0x60 => "both", _ => "none",
+        },
+        "paralysis": conditions & 0x80 != 0,
+        "petrified": conditions & 0x100 != 0,
+        "curse": conditions & 0x200 != 0,
+    });
+    let buffs = [
+        (0x1000, "attack_up"),
+        (0x4000, "defense_up"),
+        (0x40000, "magic_attack_up"),
+        (0x100000, "magic_defense_up"),
+        (0x10000, "accuracy_up"),
+        (0x2000, "attack_down"),
+        (0x8000, "defense_down"),
+        (0x20000, "accuracy_down"),
+        (0x80000, "magic_attack_down"),
+    ]
+    .into_iter()
+    .filter(|&(flag, _)| conditions & flag != 0)
+    .map(|(_, buff)| buff.to_owned())
+    .collect();
+    Ok((ailments, buffs))
+}
+
 fn cooking_state(native: &Value, source: &Value) -> Result<Value> {
     let word = |key: &str| -> Result<u32> { Ok(observed_word(source, key)?.try_into()?) };
     let [full, recipe, chef, _] = word("cooking_settings_word")?.to_be_bytes();
-    let party = if native["menu"].is_null() {
-        // Older captures only recorded party progress when a restart was allowed.
-        native
-            .get("persistent_party")
-            .unwrap_or(&native["checkpoint"]["progress"]["party"])
-    } else {
-        &native["menu"]["party"]
-    };
+    let party = &native["persistent_party"];
     ensure!(
         party.is_object(),
         "cooking check needs persistent party state"
@@ -1701,11 +683,17 @@ fn cooking_state(native: &Value, source: &Value) -> Result<Value> {
             .flatten()
             .collect::<Vec<_>>();
         let vitals = word(&format!("tech_character_{character}_vitals_word"))?;
+        let (ailments, buffs) = native_conditions(
+            word(&format!("tech_character_{character}_conditions_word"))?,
+            vitals >> 16,
+        )?;
         let expected = json!({"hp":vitals >> 16,"tp":vitals & 65535,
-            "conditions":word(&format!("tech_character_{character}_conditions_word"))?,"training":training});
+            "ailments":ailments,"queued_buffs":buffs,"training":training});
         let member = &party["members"][character];
+        let buffs: std::collections::BTreeSet<String> =
+            serde_json::from_value(member["queued_buffs"].clone())?;
         let actual = json!({"hp":member["hp"],"tp":member["tp"],
-            "conditions":member["conditions"].as_u64().unwrap_or(0),"training":member["cooking"]});
+            "ailments":member["ailments"],"queued_buffs":buffs,"training":member["cooking"]});
         passed &= expected == actual;
         members.push(json!({"character":character,"expected":expected,"actual":actual}));
     }
@@ -1714,581 +702,27 @@ fn cooking_state(native: &Value, source: &Value) -> Result<Value> {
 }
 
 fn inventory_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let selection = word("inventory_menu_14_word")?;
+    let selection = observed_word(source, "inventory_menu_14_word")?;
     let mode = selection & 65535;
     let focus = match mode {
         0 => "Categories".to_owned(),
         1 | 5 | 10 => "List".to_owned(),
         2..=4 => "Target".to_owned(),
         6..=8 => "Transform(22)".to_owned(),
-        9 => format!("Discard({})", word("inventory_menu_18_word")? >> 16 == 0),
+        9 => format!(
+            "Discard({})",
+            observed_word(source, "inventory_menu_18_word")? >> 16 == 0
+        ),
         _ => anyhow::bail!("unsupported Items observation mode {mode}"),
     };
-    let menu = &native["menu"];
-    let mut expected = json!({"category":word("inventory_menu_00_word")? >> 24,
-        "row":selection >> 16,"first":word("inventory_menu_10_word")? >> 16,"focus":focus});
-    expected["target_ticks"] = json!(word("inventory_menu_1c_word")? & 255);
-    let transition = word("inventory_menu_28_word")?;
-    expected["target_opacity"] = json!(transition >> 24);
-    expected["target_closing"] = json!((transition >> 16) & 255 == 6);
-    let page = word("inventory_menu_24_word")?;
-    expected["page_fade"] = json!(page >> 24);
-    expected["page_closing"] = json!((page >> 16) & 255 == 4);
-    let description = word("inventory_menu_30_word")?;
-    let previous = (description >> 16) as u16 as i16;
-    expected["description_previous"] = match previous {
-        0 => json!("None"),
-        ..0 => json!({"Category":-previous - 1}),
-        _ => json!({"Item":previous}),
-    };
-    expected["description_fade"] = json!((description >> 8) & 255);
-    if (6..=8).contains(&mode) {
-        let original = word("inventory_menu_0c_word")?;
-        expected["transform_original_row"] = json!(original >> 16);
-        expected["transform_original_first"] = json!(original & 65535);
-    }
-    if focus == "Target" {
-        expected["target_all"] = json!(mode == 3);
-        expected["target_equipment"] = json!(mode == 4);
-    }
-    let target = word("inventory_menu_18_word")? & 65535;
-    let scroll = word("inventory_menu_10_word")? as u16 as i16;
-    let native_scroll = menu["inventory"]["scroll"].as_i64().unwrap_or(0);
-    let mut passed = menu["page"] == "Items"
-        && i64::from(scroll) == (native_scroll + native_scroll.signum()) % 5
-        && native["presentation_counter"] == source["ui_clock"]
-        && menu["inventory"]["notice"].is_string() == matches!(mode, 5 | 7 | 8 | 10)
-        && menu["inventory"]["transform"]["result"].is_number() == (mode == 8)
-        && (focus != "Target" || menu["inventory"]["target"] == target)
-        && expected.as_object().unwrap().iter().all(|(k, v)| {
-            let actual = if let Some(key) = k.strip_prefix("transform_") {
-                &menu["inventory"]["transform"][key]
-            } else {
-                &menu["inventory"][k]
-            };
-            actual == v
-        });
-    let counts = observed_inventory(source)?;
-    passed &= menu["party"]["items"] == counts;
-    let mut members = Vec::new();
-    for character in 0..9 {
-        let vitals = word(&format!("tech_character_{character}_vitals_word"))?;
-        let expected = json!({"hp":vitals >> 16,"tp":vitals & 65535,
-            "conditions":word(&format!("tech_character_{character}_conditions_word"))?,
-            "equipment":observed_equipment(source,character)?});
-        let member = &menu["party"]["members"][character];
-        let actual = json!({"hp":member["hp"],"tp":member["tp"],"conditions":member["conditions"].as_u64().unwrap_or(0),
-            "equipment":member["equipment"]});
-        passed &= expected == actual;
-        members.push(json!({"character":character,"expected":expected,"actual":actual}));
-    }
-    Ok(json!({"expected":expected,"actual":menu["inventory"],
-        "scroll":{"expected":scroll,"actual":(native_scroll + native_scroll.signum()) % 5},
-        "target":{"expected":target,"actual":menu["inventory"]["target"]},"members":members,
-        "items":{"expected":counts,"actual":menu["party"]["items"]},"passed":passed}))
-}
-
-struct ShopState {
-    expected: Value,
-    compare_list: bool,
-    compare_description: bool,
-}
-
-impl ShopState {
-    fn observe(source: &Value) -> Result<Self> {
-        let observed = |key: &str| -> Result<u32> {
-            u32::try_from(observed_word(source, key)?)
-                .with_context(|| format!("invalid Shop observation {key}"))
-        };
-        let word = |offset: u8| observed(&format!("shop_menu_{offset:02x}_word"));
-        ensure!(
-            observed("scene_flags_word")? >> 24 == 2,
-            "source shop is not active"
-        );
-        let party = word(4)?;
-        let navigation = word(16)?;
-        let mode = navigation & 65535;
-        let focus = match mode {
-            0 => json!("root"),
-            1 => json!("categories"),
-            2 => json!("items"),
-            3 => json!("characters"),
-            4 => json!("equipment"),
-            5 => {
-                ensure!(navigation >> 16 <= 1, "invalid shop confirmation choice");
-                json!({"confirm":{"yes":navigation >> 16 == 0}})
-            }
-            6 => json!("empty"),
-            _ => anyhow::bail!("invalid shop focus {mode}"),
-        };
-        let selection = word(20)?;
-        let choice = match selection >> 16 {
-            0 => "buy",
-            1 => "sell",
-            2 => "equip",
-            3 => "leave",
-            other => anyhow::bail!("invalid shop choice {other}"),
-        };
-        ensure!(selection & 65535 < 52, "invalid shop ID");
-        ensure!(
-            matches!(party & 255, 0 | 2),
-            "invalid shop equipment handoff"
-        );
-        let equipment = party & 255 == 2;
-        let visited = [
-            observed("visited_shops_first_word")?,
-            observed("visited_shops_last_word")?,
-        ];
-        let visited: Vec<_> = (0..52)
-            .filter(|id| visited[id / 32] & (1 << (id % 32)) != 0)
-            .collect();
-        let mut expected = json!({
-            "id":selection & 65535,"choice":choice,"focus":focus,
-            "fade":word(28)? >> 24,"total":word(24)?,"equipment":equipment,
-            "gald":observed("party_gald_word")?,"spent_gald":observed("party_spent_gald_word")?,
-            "visited":visited,"items":observed_inventory(source)?,"clock":observed("ui_clock")?
-        });
-        // Checkout leaves obsolete basket rows behind at Root. Equip uses the same buffer.
-        let compare_list = mode != 0 && !equipment;
-        if compare_list {
-            let list = word(8)?;
-            let count = list >> 16;
-            ensure!(count <= 528, "invalid shop list length {count}");
-            let rows = (0..count)
-                .map(|index| {
-                    let packed = observed(&format!("shop_basket_{}_word", index / 2))?;
-                    let entry = ((packed >> (16 - index % 2 * 16)) & 65535) as u16;
-                    let id = entry >> 6;
-                    ensure!((1..528).contains(&id), "invalid shop basket item {id}");
-                    Ok(json!({"id":id,"quantity":entry & 63}))
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let position = word(12)?;
-            expected["rows"] = json!(rows);
-            expected["row"] = json!(list & 65535);
-            expected["first"] = json!(position >> 16);
-            expected["scroll"] = json!(position as u16 as i16);
-            if choice == "sell" {
-                ensure!(party >> 24 < 7, "invalid shop category");
-                expected["category"] = json!(party >> 24);
-            }
-            if matches!(mode, 3 | 4) {
-                expected["character"] = json!((party >> 8) & 255);
-            }
-        }
-        let compare_description = matches!(mode, 1..=4) && !equipment;
-        if compare_description {
-            let description = word(36)?;
-            expected["description_previous"] = match (description >> 16) as i16 {
-                0 => json!("None"),
-                id @ 1..=527 => json!({"Item":id}),
-                category @ -8..=-2 => json!({"Category":-category - 1}),
-                other => anyhow::bail!("invalid shop description {other}"),
-            };
-            expected["description_fade"] = json!((description >> 8) & 255);
-        }
-        Ok(Self {
-            expected,
-            compare_list,
-            compare_description,
-        })
-    }
-
-    fn compare(self, native: &Value) -> Result<Value> {
-        ensure!(native["shop"].is_object(), "missing native shop snapshot");
-        let mut actual = native["shop"].clone();
-        actual["equipment"] = json!(native["menu"]["page"] == "Equip");
-        actual["clock"] = native["presentation_counter"].clone();
-        if self.compare_list {
-            let scroll = actual["scroll"].as_i64().context("missing Shop scroll")?;
-            actual["scroll"] = json!((scroll + scroll.signum()) % 5);
-        }
-        if self.compare_description {
-            let opacity = actual["description_opacity"]
-                .as_u64()
-                .context("missing Shop description opacity")?;
-            ensure!(opacity <= 255, "invalid Shop description opacity");
-            // The capture observes memory after drawing; the snapshot retains the drawn opacity.
-            actual["description_fade"] = json!((255 - opacity).saturating_sub(16));
-        }
-        let passed = matching_fields(&actual, &self.expected);
-        Ok(json!({"expected":self.expected,"actual":actual,"passed":passed}))
-    }
-}
-
-fn shop_state(native: &Value, source: &Value) -> Result<Value> {
-    ShopState::observe(source)?.compare(native)
-}
-
-fn equipment_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |offset: u8| {
-        let key = format!("equipment_menu_{offset:02x}_word");
-        observed_word(source, &key)
-    };
-    let owner = word(0)?;
-    let selection = word(4)?;
-    let mode = word(8)? >> 16;
-    let position = word(12)?;
-    let transition = word(16)?;
-    let description = word(20)?;
-    let focus = match mode {
-        0 => json!("Character"),
-        1 => json!({"Optimal":{"thrust":(owner >> 16) & 255 != 0}}),
-        2 => json!("Slots"),
-        3 => json!("List"),
-        _ => anyhow::bail!("invalid Equip mode {mode}"),
-    };
-    let previous = description >> 16;
-    let mut expected = json!({"focus":focus,"slot":selection & 65535,
-        "by_parameter":owner >> 24 != 0,
-        "page_fade":transition >> 24,"page_closing":(transition >> 16) & 255 == 4,
-        "description_previous":(previous != 0).then_some(previous),
-        "description_fade":(description >> 8) & 255});
-    let menu = &native["menu"];
-    let mut actual = menu["equipment"].clone();
-    actual["page_closing"] = json!(actual["page_closing"] == true && actual["page_fade"] != 255);
-    if matches!(mode, 2 | 3) {
-        expected["first"] = json!(position >> 16);
-        expected["scroll"] = json!(position as u16 as i16);
-        let scroll = actual["scroll"].as_i64().context("missing Equip scroll")?;
-        actual["scroll"] = json!((scroll + scroll.signum()) % 5);
-    }
-    if mode == 3 {
-        expected["row"] = json!(selection >> 16);
-    }
+    let expected = json!({"category":observed_word(source, "inventory_menu_00_word")? >> 24,
+        "row":selection >> 16,"first":observed_word(source, "inventory_menu_10_word")? >> 16,"focus":focus});
+    let actual = &native["menu"]["inventory"];
     let items = observed_inventory(source)?;
-    let mut passed = menu["page"] == "Equip"
-        && menu["character"] == (owner >> 8) & 255
-        && menu["equipment_count"] == word(8)? & 65535
-        && menu["party"]["items"] == items
-        && native["presentation_counter"] == source["ui_clock"]
-        && matching_fields(&actual, &expected);
-    let mut equipment = Vec::new();
-    for character in 0..9 {
-        let expected = json!(observed_equipment(source, character)?);
-        let actual = &menu["party"]["members"][character]["equipment"];
-        passed &= *actual == expected;
-        equipment.push(json!({"character":character,"expected":expected,"actual":actual}));
-    }
+    let actual_items = &native["persistent_party"]["items"];
+    let passed = native["menu"]["page"] == "Items" && *actual == expected && *actual_items == items;
     Ok(
-        json!({"expected":expected,"actual":actual,"equipment":equipment,
-        "inventory":{"expected":items,"actual":menu["party"]["items"]},
-        "character":{"expected":(owner >> 8) & 255,"actual":menu["character"]},
-        "count":{"expected":word(8)? & 65535,"actual":menu["equipment_count"]},"passed":passed}),
-    )
-}
-
-fn tech_state(native: &Value, source: &Value, loadout: bool) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let mode_slot = word("tech_menu_00_word")?;
-    let mode = mode_slot >> 16;
-    let focus = match mode {
-        0 => "Control",
-        1 => "Character",
-        2 | 5 => "Shortcuts",
-        3 | 4 | 6 => "List",
-        7 | 8 => "CannotForget",
-        9 | 10 => "Forget",
-        11 | 12 => "Target",
-        13 => "AssistCharacter",
-        14 | 15 => "AssistList",
-        _ => anyhow::bail!("unsupported Tech observation mode {mode}"),
-    };
-    let row_target = word("tech_menu_04_word")?;
-    let party = word("tech_menu_0c_word")?;
-    let mut expected = json!({"focus":focus,"unison":matches!(mode,5|6),
-        "row":row_target >> 16,"first":word("tech_menu_08_word")? >> 16,
-        "target_ticks":party & 255});
-    if matches!(mode, 9 | 10) {
-        expected["focus"] = json!({"Forget":{"yes":word("tech_menu_10_word")? >> 24 == 0}});
-    }
-    if matches!(mode, 2 | 5 | 6) || mode >= 13 {
-        expected["slot"] = json!(mode_slot & 65535);
-    }
-    if matches!(mode, 11 | 12) {
-        expected["target"] = json!(row_target & 65535);
-    }
-    if mode >= 13 {
-        expected["assist"] = json!(row_target & 65535);
-    }
-    let menu = &native["menu"];
-    let mut actual = menu["tech"].clone();
-    let transition = word("tech_menu_14_word")?;
-    expected["page_fade"] = json!(transition >> 24);
-    expected["page_closing"] = json!((transition >> 16) & 255 == 4);
-    actual["page_closing"] = json!(actual["page_closing"] == true && actual["page_fade"] != 255);
-    expected["scroll"] = json!(word("tech_menu_08_word")? as u16 as i16);
-    let scroll = actual["scroll"].as_i64().context("missing Tech scroll")?;
-    actual["scroll"] = json!((scroll + scroll.signum()) % 5);
-    let description = word("tech_menu_1c_word")?;
-    expected["description_previous"] = if description >> 16 == 0 {
-        Value::Null
-    } else {
-        json!({"technique":description >> 16,"character":description & 65535})
-    };
-    expected["description_fade"] = json!(word("tech_menu_20_word")? >> 24);
-    expected["cannot_forget_opacity"] = json!((word("tech_menu_18_word")? >> 8) & 255);
-    expected["forget_opacity"] = json!(word("tech_menu_18_word")? & 255);
-    if mode >= 13 || matches!(mode, 5 | 6) {
-        expected["banner_opacity"] = json!(word("tech_menu_18_word")? >> 24);
-    }
-    let controls = word("party_control_types_word")?;
-    let controls = [24, 16, 8, 0].map(|shift| (controls >> shift) & 255);
-    let character = ((party >> 8) & 255) as usize;
-    let list_owner = if mode >= 13 {
-        (row_target & 65535) as usize
-    } else {
-        character
-    };
-    ensure!(list_owner < 8, "invalid Tech list owner {list_owner}");
-    let counts = word(&format!("tech_counts_{}_word", list_owner / 2))?;
-    let count = ((counts >> (16 - (list_owner % 2) * 16)) & 65535) as usize;
-    ensure!(count <= 36, "invalid Tech list length {count}");
-    let choices = (0..count)
-        .map(|i| {
-            word(&format!("tech_{list_owner}_choices_{}_word", i / 2))
-                .map(|packed| (packed >> (16 - (i % 2) * 16)) & 65535)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let unison_available = character < 4
-        && controls[character] == 2
-        && word(&format!("controller_{character}_status_word"))? & 0xff00 != 0;
-    let navigation = menu["page"] == "Tech"
-        && menu["character"] == (party >> 8) & 255
-        && native["presentation_counter"] == source["ui_clock"]
-        && matching_fields(&actual, &expected);
-    if !loadout {
-        return Ok(
-            json!({"scope":"navigation", "mode":mode,"expected":expected,"actual":actual,
-            "passed":navigation}),
-        );
-    }
-    let at_save_point = (word("field_control_flags_word")? >> 16) & 255 == 1;
-    let mut passed = navigation
-        && menu["at_save_point"] == at_save_point
-        && menu["tech_choices"] == json!(choices)
-        && menu["party"]["settings"]["battle_controls"] == json!(controls)
-        && menu["tech_unison_available"] == unison_available
-        && menu["party"]["formation"]
-            .as_array()
-            .is_some_and(|f| f.len() as u64 == party >> 24);
-    let mut members = Vec::new();
-    for character in 0..9 {
-        let vitals = word(&format!("tech_character_{character}_vitals_word"))?;
-        let skills = word(&format!("ex_character_{character}_skills_word"))?;
-        let skills = [24, 16, 8, 0].map(|shift| (skills >> shift) & 255);
-        let equipment = observed_equipment(source, character)?;
-        let mut shortcuts = Vec::new();
-        for index in 0..2 {
-            let packed = word(&format!(
-                "tech_character_{character}_shortcuts_{index}_word"
-            ))?;
-            shortcuts.extend([packed >> 16, packed & 65535]);
-        }
-        let assists = word(&format!("tech_character_{character}_assists_word"))?;
-        let owners = word(&format!("tech_character_{character}_assist_owners_word"))?;
-        let assists: Vec<_> = (0..2)
-            .map(|i| {
-                let owner = (owners >> (24 - i * 8)) & 255;
-                let technique = (assists >> (16 - i * 16)) & 65535;
-                if owner == 0 || technique == 0 {
-                    Value::Null
-                } else {
-                    json!({"character":owner - 1,"technique":technique})
-                }
-            })
-            .collect();
-        let expected = json!({"hp":vitals >> 16,"tp":vitals & 65535,"ex_skills":skills,"equipment":equipment,
-            "conditions":word(&format!("tech_character_{character}_conditions_word"))?,
-            "shortcuts":shortcuts,"assists":assists});
-        let member = &menu["party"]["members"][character];
-        let actual = json!({"hp":member["hp"],"tp":member["tp"],"conditions":member["conditions"].as_u64().unwrap_or(0),
-            "ex_skills":member.get("ex_skills").cloned().unwrap_or(json!([0,0,0,0])),"equipment":member["equipment"],
-            "shortcuts":member["shortcuts"],"assists":(0..2).map(|i|member["assist_shortcuts"][i].clone()).collect::<Vec<_>>()});
-        passed &= expected == actual;
-        let bits = |name| -> Result<u64> {
-            Ok(
-                word(&format!("tech_character_{character}_{name}_hi_word"))? << 32
-                    | word(&format!("tech_character_{character}_{name}_lo_word"))?,
-            )
-        };
-        let known = bits("known")?;
-        let flags = json!([known, bits("enabled")? & known]);
-        passed &= flags == menu["tech_flags"][character];
-        members.push(
-            json!({"character":character,"expected":expected,"actual":actual,
-            "expected_flags":flags,"actual_flags":menu["tech_flags"][character]}),
-        );
-    }
-    Ok(
-        json!({"mode":mode,"expected":expected,"actual":actual,"members":members,
-        "at_save_point":{"expected":at_save_point,"actual":menu["at_save_point"]},
-        "choices":{"expected":choices,"actual":menu["tech_choices"]},
-        "controls":{"expected":controls,"actual":menu["party"]["settings"]["battle_controls"]},
-        "unison_available":{"expected":unison_available,"actual":menu["tech_unison_available"]},"passed":passed}),
-    )
-}
-
-fn unison_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let mode_slot = word("unison_mode_slot_word")?;
-    let mode = mode_slot >> 16;
-    ensure!(mode <= 1, "invalid Unison menu mode");
-    let party = word("unison_scroll_party_word")?;
-    let character = party & 255;
-    let count = (party >> 8) & 255;
-    ensure!(
-        (1..=4).contains(&count) && character < count,
-        "invalid Unison party selection"
-    );
-    let mut expected = json!({"focus":if mode==0 {"Slots"} else {"List"},
-        "character":character,"slot":mode_slot & 65535});
-    if mode == 1 {
-        let selection = word("unison_row_first_word")?;
-        expected["row"] = json!(selection >> 16);
-        expected["first"] = json!(selection & 65535);
-    }
-    let menu = &native["menu"];
-    let mut actual = menu["unison"].clone();
-    let scroll = actual["scroll"].as_i64().context("missing Unison scroll")?;
-    actual["scroll"] = json!((scroll + scroll.signum()) % 5);
-    expected["scroll"] = json!((party >> 16) as u16 as i16);
-    let mut passed = menu["page"] == "Unison"
-        && native["presentation_counter"] == source["ui_clock"]
-        && matching_fields(&actual, &expected);
-    let mut members = Vec::new();
-    for character in 0..9 {
-        let mut shortcuts = Vec::new();
-        for index in 0..2 {
-            let packed = word(&format!(
-                "tech_character_{character}_shortcuts_{index}_word"
-            ))?;
-            shortcuts.extend([packed >> 16, packed & 65535]);
-        }
-        let actual = &menu["party"]["members"][character]["shortcuts"];
-        passed &= *actual == json!(shortcuts);
-        members.push(json!({"character":character,"expected":shortcuts,"actual":actual}));
-    }
-    let counts = word(if character < 2 {
-        "unison_counts_first_word"
-    } else {
-        "unison_counts_last_word"
-    })?;
-    let count = (counts >> if character % 2 == 0 { 16 } else { 0 }) & 65535;
-    ensure!(count <= 36, "invalid Unison technique count");
-    let choices = (0..count)
-        .map(|i| {
-            word(&format!("unison_{character}_choices_{}_word", i / 2))
-                .map(|w| (w >> if i % 2 == 0 { 16 } else { 0 }) & 65535)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    passed &= menu["unison_choices"] == json!(choices);
-    let description = word("unison_description_word")?;
-    let selected = if description >> 16 == 0 {
-        Value::Null
-    } else {
-        json!({"character":description & 65535,"technique":description >> 16})
-    };
-    passed &= menu["unison"]["description_previous"] == selected;
-    Ok(
-        json!({"expected":expected,"actual":actual,"members":members,
-        "choices":{"expected":choices,"actual":menu["unison_choices"]},
-        "description_previous":{"expected":selected,"actual":menu["unison"]["description_previous"]},"passed":passed}),
-    )
-}
-
-fn ex_state(native: &Value, source: &Value) -> Result<Value> {
-    let word = |key: &str| observed_word(source, key);
-    let mode_slot = word("ex_mode_slot_word")?;
-    let mode = mode_slot >> 16;
-    let selection = word("ex_skill_gem_word")?;
-    let scroll = word("ex_compound_scroll_word")?;
-    let focus = match mode {
-        0 => json!("Character"),
-        1 => json!("Gems"),
-        2 => json!("Skills"),
-        3 => json!("GemList"),
-        4 => json!("SkillList"),
-        5 | 7 => json!({"Confirm": {
-            "yes":word("ex_counts_confirm_word")? & 255 == 0,"replacing":mode == 5}}),
-        6 => json!("Compounds"),
-        _ => anyhow::bail!("unknown EX menu mode {mode}"),
-    };
-    let mut expected = json!({"focus":focus,"slot":mode_slot & 65535});
-    match mode {
-        3 | 5 | 7 => expected["gem"] = json!(selection & 65535),
-        4 => expected["skill"] = json!(selection >> 16),
-        6 => expected["compound"] = json!(scroll >> 16),
-        _ => {}
-    }
-    if matches!(mode, 2..=5 | 7) {
-        expected["first"] = json!(scroll & 65535);
-    }
-    let menu = &native["menu"];
-    let actual = &menu["ex_skills"];
-    let character = (word("ex_scroll_character_word")? >> 8) & 255;
-    let mut passed = menu["page"] == "ExSkills"
-        && menu["character"] == character
-        && native["presentation_counter"] == source["ui_clock"]
-        && matching_fields(actual, &expected);
-    let unpack = |word: u64| [24, 16, 8, 0].map(|shift| (word >> shift) & 255);
-    let counts = unpack(word("ex_gem_inventory_word")?);
-    let mut inventory = Vec::new();
-    for (id, count) in [40, 41, 42, 43, 496].into_iter().zip(
-        counts
-            .into_iter()
-            .chain([word("ex_max_inventory_word")? >> 24]),
-    ) {
-        let actual = menu["party"]["items"][id.to_string()].as_u64().unwrap_or(0);
-        passed &= actual == count;
-        inventory.push(json!({"item":id,"expected":count,"actual":actual}));
-    }
-    let mut members = Vec::new();
-    for character in 0..9 {
-        let gems = unpack(word(&format!("ex_character_{character}_gems_word"))?);
-        let skills = unpack(word(&format!("ex_character_{character}_skills_word"))?);
-        let compounds = word(&format!("ex_character_{character}_compounds_word"))?;
-        let recent = word(&format!("ex_character_{character}_recent_compounds_word"))?;
-        let expected = json!({"ex_gems":gems,"ex_skills":skills,
-            "compound_ex_skills":(0..24).filter(|i| compounds & (1 << i) != 0).collect::<Vec<_>>(),
-            "recent_compound_ex_skills":(0..24).filter(|i| recent & (1 << i) != 0).collect::<Vec<_>>()});
-        let member = &menu["party"]["members"][character];
-        let actual = json!({"ex_gems":member["ex_gems"],"ex_skills":member["ex_skills"],
-            "compound_ex_skills":member.get("compound_ex_skills").cloned().unwrap_or(json!([])),
-            "recent_compound_ex_skills":member.get("recent_compound_ex_skills").cloned().unwrap_or(json!([]))});
-        passed &= actual == expected;
-        members.push(json!({"character":character,"expected":expected,"actual":actual}));
-    }
-    let count = word("ex_compound_count_word")? >> 16;
-    ensure!(count <= 24, "invalid EX compound list size");
-    let compounds = (0..count)
-        .map(|i| {
-            word(&format!("ex_compound_ids_{}_word", i / 2))
-                .map(|word| (word >> if i % 2 == 0 { 16 } else { 0 }) & 65535)
-        })
-        .collect::<Result<Vec<_>>>()?;
-    passed &= menu["ex_compounds"] == json!(compounds);
-    let member = menu["party"]["formation"][character as usize]
-        .as_u64()
-        .context("missing selected EX character")?
-        - 1;
-    let stats_word = |name| word(&format!("ex_character_{member}_{name}_word"));
-    let vitals = stats_word("vitals")?;
-    let attack = stats_word("attack")?;
-    let defense = stats_word("defense_luck")?;
-    let accuracy = stats_word("accuracy_evasion")?;
-    let stats = json!({"hp":vitals >> 16,"tp":vitals & 65535,
-        "slash":attack >> 16,"thrust":attack & 65535,
-        "defense":defense >> 16,"luck":defense & 65535,
-        "accuracy":accuracy >> 16,"evasion":accuracy & 65535,
-        "intelligence":stats_word("intelligence")? >> 16});
-    passed &= matching_fields(&menu["ex_stats"], &stats);
-    Ok(
-        json!({"expected":expected,"actual":actual,"character":character,
-        "inventory":inventory,"members":members,
-        "compounds":{"expected":compounds,"actual":menu["ex_compounds"]},
-        "stats":{"expected":stats,"actual":menu["ex_stats"]},"passed":passed}),
+        json!({"expected":expected,"actual":actual,"items":{"expected":items,"actual":actual_items},"passed":passed}),
     )
 }
 
@@ -2299,123 +733,6 @@ fn observed_float(state: &Value, key: &str) -> Result<f64> {
     let value = f32::from_bits(bits);
     ensure!(value.is_finite(), "nonfinite observation {key}");
     Ok(f64::from(value))
-}
-
-fn slot_confirmation(native: &Value, source: &Value, animated: bool) -> Result<Value> {
-    let word = |key: &str| -> Result<u32> {
-        Ok(u32::try_from(
-            observed_word(source, key).with_context(|| format!("missing observation {key}"))?,
-        )?)
-    };
-    let selection = word("save_selection_word")?;
-    let mode = word("save_mode_word")?;
-    let screens = word("save_screen_word")?;
-    let screen = screens >> 16;
-    let opacity = word("save_popup_alpha_word")? >> 24;
-    let page = match mode & 255 {
-        0 => "Slots(Save)",
-        1 => "Slots(Load)",
-        _ => anyhow::bail!("unsupported source save menu mode"),
-    };
-    let confirming = matches!(screen, 6 | 13 | 14);
-    ensure!(
-        confirming || animated && screen == 5,
-        "unsupported source popup screen"
-    );
-    let yes = (mode >> 8) & 255 == 0;
-    let mut expected = json!({"page":page,"bank":selection >> 24,"slot":(selection >> 16) & 255,
-        "confirmation":confirming.then_some(yes),"focus":"List","busy":false,"notice":null});
-    let menu = &native["menu"];
-    let mut actual = json!({"page":menu["page"],"bank":menu["bank"],"slot":menu["slot"],
-        "confirmation":menu["confirmation"],"focus":menu["focus"],"busy":menu["busy"],"notice":menu["notice"]});
-    if animated {
-        expected["popup"] = if opacity == 0 {
-            Value::Null
-        } else {
-            ensure!(
-                !source["save_popup_content"].is_null(),
-                "popup content was not observed before dismissal"
-            );
-            json!({"content":source["save_popup_content"],"opacity":opacity})
-        };
-        actual["popup"] = menu["popup"].clone();
-    }
-    let passed = expected == actual && (animated || opacity == 255 && confirming);
-    Ok(
-        json!({"expected":expected,"actual":actual,"source_screen":screen,"source_opacity":opacity,"passed":passed}),
-    )
-}
-#[derive(Clone, Copy, PartialEq)]
-enum Prompt {
-    Save,
-    Action,
-    Skit,
-}
-
-fn field_prompt(kind: Prompt, native: &Value, source: &Value) -> Result<Value> {
-    let name = match kind {
-        Prompt::Save => "save",
-        Prompt::Action => "action",
-        Prompt::Skit => "skit",
-    };
-    let prefix = if kind != Prompt::Skit {
-        "action_prompt"
-    } else {
-        "skit_prompt"
-    };
-    let alpha =
-        observed_word(source, &format!("{prefix}_alpha")).context("missing prompt opacity")?;
-    let remaining =
-        observed_word(source, &format!("{prefix}_remaining")).context("missing prompt lifetime")?;
-    ensure!(
-        alpha <= 255
-            && remaining < if kind == Prompt::Skit { 1800 } else { 30 }
-            && (kind != Prompt::Save || source["action_prompt"] == 23),
-        "source action is not a supported {name} prompt"
-    );
-    let suppressed = observed_word(source, "field_control_flags_word")
-        .context("missing field control observation")?
-        >> 24
-        != 0;
-    let mut expected = if alpha == 0 || suppressed {
-        Value::Null
-    } else {
-        json!({"opacity":alpha,"text_opacity":if remaining < 19 { (remaining + 1) * 12 } else { 255 }})
-    };
-    if kind == Prompt::Skit && alpha != 0 && !suppressed {
-        expected["id"] = json!(observed_word(source, "skit_id").context("missing skit ID")?);
-    }
-    if kind == Prompt::Action && alpha != 0 && !suppressed {
-        expected["id"] =
-            json!(observed_word(source, "action_prompt").context("missing action ID")?);
-    }
-    let mut actual = native.get(format!("{name}_prompt")).cloned();
-    if let Some(Value::Object(value)) = &mut actual {
-        value.remove("title"); // Text is checked by the image gate.
-    }
-    let native_phase = native
-        .get("effect_counter")
-        .and_then(Value::as_u64)
-        .context("missing native prompt phase")?;
-    let source_phase =
-        observed_word(source, "presentation_counter").context("missing source prompt phase")?;
-    let scene = observed_word(source, "scene_flags_word").context("missing source scene")?;
-    let source_field = scene >> 24 == 0 && scene & 0x7f == 7;
-    let native_field = ["menu", "shop", "skit"]
-        .into_iter()
-        .all(|key| native[key].is_null());
-    let blink_matches = (source_field && native_field)
-        .then_some(alpha == 0 || suppressed || native_phase & 32 == source_phase & 32);
-    let not_checked_reason = blink_matches
-        .is_none()
-        .then_some("a nonfield scene retains the previous prompt presentation");
-    Ok(
-        json!({"expected":expected,"actual":actual,"blink_matches":blink_matches,
-        "not_checked_reason":not_checked_reason,
-        "field_presentation":{"native_active":native_field,"source_active":source_field},
-        "passed":actual.as_ref().is_some_and(|p| *p == expected)
-            && native_field == source_field && blink_matches.unwrap_or(true)}),
-    )
 }
 
 fn vector_error(native: &Value, source: &Value, prefix: &str) -> Result<f64> {
@@ -2444,6 +761,100 @@ fn check_hash(path: &Path, expected: &str) -> Result<()> {
     );
     Ok(())
 }
+fn verify_native_captures<'a>(
+    recording: &'a Value,
+    steps: usize,
+    expected: &BTreeSet<&str>,
+) -> Result<BTreeMap<&'a str, &'a Value>> {
+    ensure!(
+        recording["completed_steps"].as_u64() == Some(steps as u64),
+        "native recording did not complete every event step"
+    );
+    let mut captures = BTreeMap::new();
+    for capture in recording["captures"]
+        .as_array()
+        .context("missing native captures")?
+    {
+        let name = capture["name"]
+            .as_str()
+            .context("missing native capture name")?;
+        ensure!(
+            captures.insert(name, capture).is_none(),
+            "duplicate native capture {name}"
+        );
+    }
+    ensure!(
+        captures.keys().copied().eq(expected.iter().copied()),
+        "native recording did not complete exactly the named captures"
+    );
+    Ok(captures)
+}
+
+fn verified_dsp_recording(capture: &Value, directory: &Path) -> Result<PathBuf> {
+    let recordings = capture["audio"]["recordings"]
+        .as_array()
+        .context("missing Dolphin audio evidence")?;
+    let dsp: Vec<_> = recordings
+        .iter()
+        .filter(|recording| {
+            recording["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("_dspdump.wav"))
+        })
+        .collect();
+    ensure!(
+        dsp.len() == 1 && dsp[0]["finalized"] == true,
+        "expected one finalized DSP recording"
+    );
+    let path = directory.join(dsp[0]["path"].as_str().unwrap());
+    check_hash(
+        &path,
+        dsp[0]["sha256"]
+            .as_str()
+            .context("DSP recording has no content hash")?,
+    )?;
+    Ok(path)
+}
+fn native_artifacts(directory: &Path) -> Result<BTreeMap<String, String>> {
+    fs::read_dir(directory)?
+        .map(|entry| {
+            let entry = entry?;
+            ensure!(
+                entry.file_type()?.is_file(),
+                "unexpected native recording entry"
+            );
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("invalid native artifact name"))?;
+            Ok((name, file_hash(&entry.path())?))
+        })
+        .collect()
+}
+
+fn verify_native_reference(report: &Value, directory: &Path) -> Result<String> {
+    ensure!(
+        report["complete"] == true,
+        "native reference report is incomplete"
+    );
+    let renderer = report["native_binary_sha256"]
+        .as_str()
+        .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .context("native reference has no valid renderer identity")?;
+    check_hash(
+        &directory.join("case.json"),
+        report["case_sha256"]
+            .as_str()
+            .context("native reference has no case identity")?,
+    )?;
+    let artifacts = native_artifacts(&directory.join("native"))?;
+    ensure!(
+        artifacts.contains_key("recording.json")
+            && serde_json::to_value(artifacts)? == report["native_artifacts"],
+        "native reference artifacts differ from their report"
+    );
+    Ok(renderer.to_owned())
+}
 pub(super) fn file_hash(path: &Path) -> Result<String> {
     let mut hash = Sha256::new();
     let mut file = fs::File::open(path)?;
@@ -2468,29 +879,57 @@ fn validate_name(name: &str) -> Result<()> {
     );
     Ok(())
 }
-fn verify_start(
-    start: &Start,
-    map: &Value,
-    story: &Value,
-    position: &Value,
-    heading: &Value,
-) -> Result<()> {
+fn verify_start(start: &Start, map: &Value, story: &Value) -> Result<()> {
     ensure!(
         map.as_u64() == Some(u64::from(start.map_id))
             && story.as_i64() == Some(i64::from(start.story)),
         "paired field/story differs"
     );
-    ensure!(
-        position.as_array().is_some_and(|p| p.len() == 3
-            && p.iter().zip(start.position).all(|(a, b)| a
-                .as_f64()
-                .is_some_and(|a| (a - f64::from(b)).abs() <= 0.001)))
-            && heading
-                .as_f64()
-                .is_some_and(|a| (a - f64::from(start.heading)).abs() <= 0.001),
-        "paired player pose differs"
-    );
     Ok(())
+}
+
+/// Optional telemetry explains a mismatch; missing diagnostics never alter a gate.
+fn pose_diagnostics(native: &Value, presentation: Result<Value>, source: &Value) -> Value {
+    let mut diagnostics = json!({});
+    let presentation = match presentation {
+        Ok(value) => value,
+        Err(error) => {
+            diagnostics["presentation_error"] = json!(format!("{error:#}"));
+            Value::Null
+        }
+    };
+    let heading = || -> Result<f64> {
+        let heading = native["heading"]
+            .as_f64()
+            .context("missing native heading")?;
+        Ok(
+            ((heading - observed_float(source, "controlled_heading_bits")? + 180.)
+                .rem_euclid(360.)
+                - 180.)
+                .abs(),
+        )
+    };
+    for (name, result) in [
+        (
+            "position_error",
+            vector_error(&native["position"], source, "controlled"),
+        ),
+        (
+            "camera_position_error",
+            vector_error(&presentation["camera"]["position"], source, "camera"),
+        ),
+        (
+            "camera_target_error",
+            vector_error(&presentation["camera"]["target"], source, "camera_target"),
+        ),
+        ("heading_error", heading()),
+    ] {
+        diagnostics[name] = match result {
+            Ok(value) => json!({"value":value}),
+            Err(error) => json!({"unavailable":format!("{error:#}")}),
+        };
+    }
+    diagnostics
 }
 fn run_logged(command: &mut Process, log: &Path) -> Result<()> {
     let file = fs::File::create(log)?;
@@ -2511,6 +950,201 @@ mod tests {
     use super::*;
 
     #[test]
+    fn explicit_image_regions_accept_matching_content_and_report_background_differences()
+    -> Result<()> {
+        let directory = std::env::temp_dir().join(format!(
+            "resonance-image-regions-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        fs::create_dir(&directory)?;
+        let source = directory.join("source.png");
+        let actual = directory.join("actual.png");
+        image::RgbImage::from_pixel(16, 16, image::Rgb([255; 3])).save(&source)?;
+        let mut image = image::RgbImage::from_fn(16, 16, |x, y| {
+            image::Rgb(if x < 4 && y < 4 { [255; 3] } else { [0; 3] })
+        });
+        image.save(&actual)?;
+        let mut frame: Frame = serde_json::from_value(json!({
+            "name":"dialogue", "native":"dialogue", "dolphin_vi":1,
+            "regions":[[0,0,4,4]]
+        }))?;
+        let (passed, reports) =
+            compare_frame_images(&frame, &source, &actual, &directory.join("explicit"))?;
+        assert!(passed);
+        assert_eq!(reports[0]["acceptance"], false);
+        assert_eq!(reports[0]["passed"], false);
+        assert_eq!(reports[1]["acceptance"], true);
+        assert_eq!(reports[1]["passed"], true);
+        assert!(
+            directory
+                .join("explicit/dialogue-0/difference.png")
+                .is_file()
+        );
+
+        frame.regions.clear();
+        assert!(
+            !compare_frame_images(&frame, &source, &actual, &directory.join("whole"))?.0,
+            "without explicit regions the whole image remains the acceptance gate"
+        );
+        frame.regions.push([0, 0, 4, 4]);
+        image.put_pixel(0, 0, image::Rgb([0; 3]));
+        image.save(&actual)?;
+        assert!(
+            !compare_frame_images(&frame, &source, &actual, &directory.join("broken"))?.0,
+            "a mismatch inside an explicit region must fail"
+        );
+        fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    #[test]
+    fn optional_pose_telemetry_reports_missing_values_without_rejecting_the_origin() -> Result<()> {
+        let start: Start = serde_json::from_value(json!({"map_id":332,"story":2500}))?;
+        verify_start(&start, &json!(332), &json!(2500))?;
+        assert!(verify_start(&start, &json!(333), &json!(2500)).is_err());
+        let native = json!({"position":[0,0,0],"heading":360});
+        let mut source = json!({"controlled_heading_bits":0});
+        for axis in ["x", "y", "z"] {
+            source[format!("controlled_{axis}_bits")] = json!(0);
+        }
+        let report = pose_diagnostics(&native, Ok(Value::Null), &source);
+        assert_eq!(report["position_error"]["value"], 0.);
+        assert_eq!(report["heading_error"]["value"], 0.);
+        assert!(report["camera_position_error"]["unavailable"].is_string());
+        source["controlled_x_bits"] = json!(f32::NAN.to_bits());
+        let report = pose_diagnostics(&native, Err(anyhow::anyhow!("missing sidecar")), &source);
+        assert!(report["position_error"]["unavailable"].is_string());
+        assert_eq!(report["presentation_error"], "missing sidecar");
+        verify_start(&start, &json!(332), &json!(2500))?;
+        Ok(())
+    }
+
+    #[test]
+    fn paired_images_require_registered_video_instead_of_unhashed_frame_dumps() {
+        assert!(
+            serde_json::from_value::<Frame>(json!({
+                "name":"A","native":"A","dolphin_vi":1,"dolphin":1
+            }))
+            .is_err()
+        );
+        let mut dolphin = json!({
+            "state":{"path":"state","sha256":"hash"},"prefix_sha256":"prefix",
+            "start_poll":1,"version":"2606","binary_sha256":"binary",
+            "configs":{},"game_settings":{}
+        });
+        assert!(serde_json::from_value::<Dolphin>(dolphin.clone()).is_err());
+        dolphin["video_first_vi"] = json!(0);
+        assert!(serde_json::from_value::<Dolphin>(dolphin).is_ok());
+    }
+
+    #[test]
+    fn native_recording_requires_each_named_capture_exactly_once() -> Result<()> {
+        let expected = BTreeSet::from(["A", "B", "C"]);
+        let recording = json!({"completed_steps":5,"captures":[
+            {"name":"C","map_id":340},{"name":"A"},{"name":"B"}
+        ]});
+        assert_eq!(
+            verify_native_captures(&recording, 5, &expected)?["C"]["map_id"],
+            340
+        );
+        for names in [
+            vec!["A", "A", "C"],
+            vec!["A", "C"],
+            vec!["A", "B", "D"],
+            vec!["A", "B", "C", "C"],
+        ] {
+            let mut invalid = recording.clone();
+            invalid["captures"] = json!(
+                names
+                    .into_iter()
+                    .map(|name| json!({"name":name}))
+                    .collect::<Vec<_>>()
+            );
+            assert!(verify_native_captures(&invalid, 5, &expected).is_err());
+        }
+        assert!(verify_native_captures(&recording, 6, &expected).is_err());
+        let mut invalid = recording;
+        invalid["captures"][0] = json!({});
+        assert!(verify_native_captures(&invalid, 5, &expected).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn reused_dsp_recording_requires_its_recorded_content_hash() -> Result<()> {
+        let directory = std::env::temp_dir().join(format!(
+            "resonance-audio-reference-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        fs::create_dir(&directory)?;
+        let path = directory.join("capture_dspdump.wav");
+        fs::write(&path, b"recorded PCM")?;
+        let capture = json!({"audio":{"recordings":[{
+            "path":"capture_dspdump.wav","finalized":true,"sha256":file_hash(&path)?
+        }]}});
+        assert_eq!(verified_dsp_recording(&capture, &directory)?, path);
+        fs::write(&path, b"different PCM")?;
+        assert!(verified_dsp_recording(&capture, &directory).is_err());
+        fs::write(&path, b"recorded PCM")?;
+        for key in ["sha256", "finalized"] {
+            let mut invalid = capture.clone();
+            invalid["audio"]["recordings"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+            assert!(verified_dsp_recording(&invalid, &directory).is_err());
+        }
+        fs::remove_file(&path)?;
+        assert!(verified_dsp_recording(&capture, &directory).is_err());
+        fs::remove_dir(directory)?;
+        Ok(())
+    }
+
+    #[test]
+    fn native_reference_requires_complete_identified_unchanged_artifacts() -> Result<()> {
+        let directory = std::env::temp_dir().join(format!(
+            "resonance-native-reference-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        fs::create_dir_all(directory.join("native"))?;
+        fs::write(directory.join("case.json"), b"case")?;
+        fs::write(directory.join("native/recording.json"), b"recording")?;
+        fs::write(directory.join("native/frame.png"), b"image")?;
+        let report = json!({"complete":true,"native_binary_sha256":"a".repeat(64),
+            "case_sha256":file_hash(&directory.join("case.json"))?,
+            "native_artifacts":native_artifacts(&directory.join("native"))?});
+        assert_eq!(
+            verify_native_reference(&report, &directory)?,
+            "a".repeat(64)
+        );
+        for missing in [
+            "complete",
+            "native_binary_sha256",
+            "case_sha256",
+            "native_artifacts",
+        ] {
+            let mut incomplete = report.clone();
+            incomplete.as_object_mut().unwrap().remove(missing);
+            assert!(verify_native_reference(&incomplete, &directory).is_err());
+        }
+        fs::write(directory.join("native/frame.png"), b"different image")?;
+        assert!(verify_native_reference(&report, &directory).is_err());
+        fs::write(directory.join("native/frame.png"), b"image")?;
+        fs::write(directory.join("case.json"), b"different case")?;
+        assert!(verify_native_reference(&report, &directory).is_err());
+        fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    #[test]
     fn cooking_observations_do_not_require_a_restartable_checkpoint() {
         let mut source = json!({"cooking_settings_word":0,"cooking_known_word":0});
         for index in 0..132 {
@@ -2529,239 +1163,32 @@ mod tests {
             }
         }
         let party = json!({"cooking":{"known":0,"full":false,"recipe":0,"chef":0},
-            "items":{},"members":vec![json!({"hp":100,"tp":10,"conditions":0,"cooking":vec![0;24]});9]});
+            "items":{},"members":vec![json!({"hp":100,"tp":10,
+                "ailments":{"poison":"none","paralysis":false,"petrified":false,"curse":false},
+                "queued_buffs":[],"cooking":vec![0;24]});9]});
         let mut native = json!({"persistent_party":party,"checkpoint":null,"menu":null});
         assert_eq!(cooking_state(&native, &source).unwrap()["passed"], true);
         native["persistent_party"]["members"][0]["hp"] = json!(99);
         assert_eq!(cooking_state(&native, &source).unwrap()["passed"], false);
         native["persistent_party"] = party.clone();
-        native["menu"] = json!({"party":party});
-        native["menu"]["party"]["items"] = json!({"1":1});
+        native["menu"] = json!({"page":"Cooking"});
+        assert_eq!(cooking_state(&native, &source).unwrap()["passed"], true);
+        native["persistent_party"]["items"] = json!({"1":1});
         assert_eq!(cooking_state(&native, &source).unwrap()["passed"], false);
-        native["menu"] = Value::Null;
-        native["checkpoint"] = json!({"progress":{"party":party}});
         native["persistent_party"] = Value::Null;
         assert!(cooking_state(&native, &source).is_err());
-        native.as_object_mut().unwrap().remove("persistent_party");
+        native["persistent_party"] = party;
+        native["persistent_party"]["members"][0]["ailments"]["poison"] = json!("both");
+        native["persistent_party"]["members"][0]["queued_buffs"] =
+            json!(["attack_up", "accuracy_up"]);
+        source["tech_character_0_conditions_word"] = json!(0x11060);
         assert_eq!(cooking_state(&native, &source).unwrap()["passed"], true);
-    }
-
-    #[test]
-    fn shop_gate_checks_money_and_baskets_without_reading_inactive_shared_storage() {
-        // Halo after selling one Apple Gel: 450 Gald, 100 spent, three gels remain.
-        let mut source = json!({
-            "presentation_counter":37351,"ui_clock":37784,"scene_flags_word":0x02000087,
-            "shop_menu_04_word":0x00030000,"shop_menu_08_word":0x00030000,
-            "shop_menu_0c_word":0,"shop_menu_10_word":2,"shop_menu_14_word":0x00010001,
-            "shop_menu_18_word":0,"shop_menu_1c_word":0,"shop_menu_24_word":0x0000e000,
-            "shop_basket_0_word":0x004000c0,"shop_basket_1_word":0x02c00000,
-            "party_gald_word":450,"party_spent_gald_word":100,
-            "visited_shops_first_word":2,"visited_shops_last_word":0
-        });
-        for index in 0..132 {
-            let key = match index {
-                10 => "ex_gem_inventory_word".into(),
-                124 => "ex_max_inventory_word".into(),
-                _ => format!("inventory_{index}_word"),
-            };
-            source[key] = json!(if index == 0 { 3 << 16 } else { 0 });
+        for invalid in [1u32, 4, 0x400, 0x800, 0x200000, 0x80000000] {
+            source["tech_character_0_conditions_word"] = json!(invalid);
+            assert!(cooking_state(&native, &source).is_err());
         }
-        let frame: Frame = serde_json::from_value(json!({
-            "name":"sale","native":"sale","dolphin_vi":1641,"shop_state":true
-        }))
-        .unwrap();
-        verify_frame_observations(&frame, &source).unwrap();
-        let native = json!({"presentation_counter":37784,"menu":null,"shop":{
-            "id":1,"choice":"sell","focus":"items","row":0,"first":0,"category":0,
-            "rows":[{"id":1,"quantity":0},{"id":3,"quantity":0},{"id":11,"quantity":0}],
-            "total":0,"fade":0,"scroll":0,"description_previous":"None","description_opacity":15,
-            "gald":450,"spent_gald":100,"visited":[1],"items":{"1":3}
-        }});
-        assert_eq!(shop_state(&native, &source).unwrap()["passed"], true);
-        for (key, value) in [
-            ("gald", json!(400)),
-            ("spent_gald", json!(0)),
-            ("items", json!({"1":4})),
-        ] {
-            let mut wrong = native.clone();
-            wrong["shop"][key] = value;
-            assert_eq!(shop_state(&wrong, &source).unwrap()["passed"], false);
-        }
-        let mut wrong = native.clone();
-        wrong["shop"]["rows"][0]["quantity"] = json!(1);
-        assert_eq!(shop_state(&wrong, &source).unwrap()["passed"], false);
-        for key in source.as_object().unwrap().keys() {
-            let mut missing = source.clone();
-            missing.as_object_mut().unwrap().remove(key);
-            assert!(
-                verify_frame_observations(&frame, &missing).is_err(),
-                "accepted missing {key}"
-            );
-        }
-        let mut overflow = source.clone();
-        overflow["party_gald_word"] = json!(u64::from(u32::MAX) + 1);
-        assert!(ShopState::observe(&overflow).is_err());
-        source["shop_menu_10_word"] = json!(0);
-        source["shop_menu_14_word"] = json!(0x00020001);
-        source["shop_menu_04_word"] = json!(0x00030002);
-        source["shop_menu_1c_word"] = json!(0xff000002_u32);
-        source.as_object_mut().unwrap().remove("shop_basket_0_word");
-        source.as_object_mut().unwrap().remove("shop_basket_1_word");
-        let mut equipment = native;
-        equipment["menu"] = json!({"page":"Equip"});
-        equipment["shop"]["choice"] = json!("equip");
-        equipment["shop"]["focus"] = json!("root");
-        equipment["shop"]["fade"] = json!(255);
-        assert_eq!(shop_state(&equipment, &source).unwrap()["passed"], true);
-        equipment["menu"] = Value::Null;
-        assert_eq!(shop_state(&equipment, &source).unwrap()["passed"], false);
-    }
-
-    #[test]
-    fn prompt_blink_checks_the_absolute_rendered_effect_phase() {
-        let source = json!({
-            "presentation_counter":32,"field_control_flags_word":0,"scene_flags_word":0x87,
-            "action_prompt":1,"action_prompt_alpha":255,"action_prompt_remaining":29,
-        });
-        let mut native = json!({
-            "effect_counter":32,"presentation_counter":0,
-            "action_prompt":{"id":1,"opacity":255,"text_opacity":255},
-        });
-        assert_eq!(
-            field_prompt(Prompt::Action, &native, &source).unwrap()["passed"],
-            true
-        );
-        native["effect_counter"] = json!(0);
-        native["presentation_counter"] = json!(32);
-        assert_eq!(
-            field_prompt(Prompt::Action, &native, &source).unwrap()["blink_matches"],
-            false
-        );
-        native.as_object_mut().unwrap().remove("effect_counter");
-        assert!(field_prompt(Prompt::Action, &native, &source).is_err());
-    }
-
-    #[test]
-    fn modal_prompt_checks_preserve_scene_and_content_gates() {
-        for (scene, modal) in [(0x01000087, "menu"), (0x02000087, "shop"), (0x8b, "skit")] {
-            let source = json!({
-                "presentation_counter":32,"field_control_flags_word":0,"scene_flags_word":scene,
-                "action_prompt":1,"action_prompt_alpha":255,"action_prompt_remaining":29,
-            });
-            let mut native = json!({
-                "effect_counter":0,"presentation_counter":32,
-                "action_prompt":{"id":1,"opacity":255,"text_opacity":255},
-            });
-            native[modal] = json!({});
-            let result = field_prompt(Prompt::Action, &native, &source).unwrap();
-            assert_eq!(result["passed"], true);
-            assert!(result["blink_matches"].is_null());
-            assert!(result["not_checked_reason"].is_string());
-            native[modal] = Value::Null;
-            assert_eq!(
-                field_prompt(Prompt::Action, &native, &source).unwrap()["passed"],
-                false
-            );
-            native[modal] = json!({});
-            native["action_prompt"]["opacity"] = json!(254);
-            assert_eq!(
-                field_prompt(Prompt::Action, &native, &source).unwrap()["passed"],
-                false
-            );
-        }
-    }
-
-    #[test]
-    fn reused_observations_require_every_requested_transition_word() {
-        let mut frame: Frame = serde_json::from_value(json!({
-            "name":"opening", "native":"opening", "dolphin_vi":183,
-        }))
-        .unwrap();
-        let mut source = json!({"presentation_counter":37734});
-        assert!(verify_frame_observations(&frame, &source).is_ok());
-        source["ui_clock"] = json!(38267);
-        frame.figurine_state = true;
-        source["figurine_mode_row_word"] = json!(0);
-        source["figurine_selection_scroll_word"] = json!(0);
-        source["figurine_scroll_count_word"] = json!(19);
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("figurine_fade_word")
-        );
-        frame.figurine_state = false;
-        frame.skit_prompt = true;
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("field_control_flags_word")
-        );
-        frame.skit_prompt = false;
-        frame.tech_navigation_state = true;
-        source["ui_clock"] = json!(38267);
-        for offset in (0..=0x20).step_by(4) {
-            source[format!("tech_menu_{offset:02x}_word")] = json!(0);
-        }
-        source["party_control_types_word"] = json!(0);
-        source["tech_counts_0_word"] = json!(0);
-        assert!(verify_frame_observations(&frame, &source).is_ok());
-        source.as_object_mut().unwrap().remove("tech_menu_18_word");
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("tech_menu_18_word")
-        );
-        source["tech_menu_18_word"] = json!(0);
-        source["tech_counts_0_word"] = json!(3 << 16);
-        source["tech_0_choices_0_word"] = json!(0);
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("tech_0_choices_1_word")
-        );
-        source["tech_0_choices_1_word"] = json!(0);
-        source["party_control_types_word"] = json!(2 << 24);
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("controller_0_status_word")
-        );
-        source["controller_0_status_word"] = json!(0);
-        assert!(verify_frame_observations(&frame, &source).is_ok());
-        // Assist lists belong to the target, independently of the selected character.
-        source["tech_menu_00_word"] = json!(13 << 16);
-        source["tech_menu_04_word"] = json!(3);
-        source["tech_counts_1_word"] = json!(1);
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("tech_3_choices_0_word")
-        );
-        source["tech_3_choices_0_word"] = json!(0);
-        assert!(verify_frame_observations(&frame, &source).is_ok());
-        frame.tech_navigation_state = false;
-        frame.inventory_state = true;
-        for offset in [0x00, 0x10, 0x14, 0x18, 0x1c, 0x24, 0x28, 0x30] {
-            source[format!("inventory_menu_{offset:02x}_word")] = json!(0);
-        }
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("inventory_0_word")
-        );
-        source["inventory_menu_14_word"] = json!(6);
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("inventory_menu_0c_word")
-        );
+        source["tech_character_0_conditions_word"] = json!(0);
+        source["tech_character_0_vitals_word"] = json!(10);
+        assert!(cooking_state(&native, &source).is_err());
     }
 }

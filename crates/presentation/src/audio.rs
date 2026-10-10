@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
 use resonance_audio::{
-    BLOCK_FRAMES,
+    BLOCK_FRAMES, CONTROLS_PER_BLOCK,
     package::{Loaded, Package},
     sequence,
 };
@@ -54,13 +54,23 @@ pub(super) fn validate_startup(app: &App, silent: bool, capture: bool) -> Result
 #[derive(Clone)]
 pub(super) struct TitleMusic {
     music: Arc<Loaded>,
-    master_lead_ms: u16,
 }
 
 impl TitleMusic {
-    fn entry(mut self, full_intro: bool) -> Self {
-        self.master_lead_ms = if full_intro { 1200 } else { 1185 };
-        self
+    pub fn load(root: &Path) -> Result<Self> {
+        let path = root.join("title-audio.json");
+        let info: TitleAudio = serde_json::from_slice(
+            &fs::read(&path).with_context(|| format!("reading {}", path.display()))?,
+        )?;
+        info.validate()?;
+        Ok(Self {
+            music: Arc::new(Package::load_verified(
+                root,
+                &info.path,
+                &info.sha256,
+                &mut Default::default(),
+            )?),
+        })
     }
     pub fn load(root: &Path) -> Result<Self> {
         let path = root.join("title-audio.json");
@@ -83,8 +93,6 @@ impl TitleMusic {
 pub(super) struct MusicFrames {
     stream: sequence::stream::Stream,
     studio: resonance_audio::reverb::Studio,
-    fade: resonance_audio::volume::Startup,
-    frame: u64,
     pcm: [i16; 320],
     cursor: usize,
     level: f32,
@@ -96,8 +104,6 @@ impl MusicFrames {
         Ok(Self {
             stream: sequence::stream::Stream::new(music.music.clone(), true)?,
             studio: resonance_audio::reverb::Studio::new(music.music.reverbs())?,
-            fade: resonance_audio::volume::Startup::new(2000, 100, music.master_lead_ms)?,
-            frame: 0,
             pcm: [0; 320],
             cursor: 320,
             level: 1.,
@@ -114,14 +120,7 @@ impl MusicFrames {
         Ok(frame)
     }
     fn render(&mut self) -> Result<()> {
-        let controls = std::array::from_fn(|i| sequence::LiveControls {
-            volume: self
-                .fade
-                .value_at(self.frame + i as u64 * resonance_audio::CONTROL_FRAMES as u64)
-                * self.level,
-            mono: self.mono,
-            ..Default::default()
-        });
+        let controls = [sequence::LiveControls { volume: self.level, mono: self.mono, ..Default::default() }; CONTROLS_PER_BLOCK];
         let mut buses = [[[0; 2]; 3]; BLOCK_FRAMES];
         ensure!(
             self.stream.render_block(controls, &mut buses)? == BLOCK_FRAMES,
@@ -135,7 +134,6 @@ impl MusicFrames {
                     .map(|s| s.clamp(i16::MIN as i32, i16::MAX as i32) as i16),
             );
         }
-        self.frame += BLOCK_FRAMES as u64;
         self.cursor = 0;
         Ok(())
     }
@@ -167,7 +165,6 @@ pub fn record_title_music(
     root: &Path,
     output: &Path,
     frames: u32,
-    full_intro: bool,
     events: &[CueEvent],
 ) -> Result<()> {
     ensure!(
@@ -181,7 +178,7 @@ pub fn record_title_music(
         "invalid cue recording schedule"
     );
     let assets = PlaybackAssets::load(root, Diagnostics::new(true))?;
-    let (audio, control) = assets.session(full_intro);
+    let (audio, control) = assets.session();
     let mut decoder = audio.decoder();
     control.check()?;
     if let Some(parent) = output.parent() {
@@ -234,6 +231,7 @@ pub fn record_title_music(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resonance_audio::volume;
 
     fn assets() -> std::path::PathBuf {
         std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
@@ -245,10 +243,7 @@ mod tests {
     #[test]
     #[ignore = "requires cooked menu programs; never opens a device"]
     fn menu_programs_preserve_authored_gain_stereo_and_output_completion() -> Result<()> {
-        use resonance_audio::{
-            cue::Studio,
-            sequence::{LiveControls, stream::Stream},
-        };
+        use resonance_audio::sequence::{LiveControls, stream::Stream};
         let root = assets();
         let metadata: resonance_content::TitleAudio =
             serde_json::from_slice(&fs::read(root.join("title-sounds.json"))?)?;
@@ -272,8 +267,7 @@ mod tests {
                 let mut output = Vec::new();
                 loop {
                     let mut block = [[[0; 2]; 3]; BLOCK_FRAMES];
-                    let length = stream
-                        .render_block([control; resonance_audio::CONTROLS_PER_BLOCK], &mut block)?;
+                    let length = stream.render_block([control; CONTROLS_PER_BLOCK], &mut block)?;
                     output.extend_from_slice(&block[..length]);
                     assert_eq!(
                         stream.submitted_until(),
@@ -283,10 +277,7 @@ mod tests {
                     if length == 0 {
                         block.fill([[1; 2]; 3]);
                         assert_eq!(
-                            stream.render_block(
-                                [control; resonance_audio::CONTROLS_PER_BLOCK],
-                                &mut block
-                            )?,
+                            stream.render_block([control; CONTROLS_PER_BLOCK], &mut block)?,
                             0
                         );
                         assert_eq!(
@@ -306,17 +297,6 @@ mod tests {
                     .map(|frame| f64::from(frame[0][channel]).powi(2))
                     .sum()
             };
-            let mut studio = Studio::new(loaded.reverbs())?;
-            studio.set_group_volume(0.)?;
-            studio.play(loaded.clone())?;
-            for _ in 0..320 {
-                assert_eq!(studio.next_frame(Err)?, [0; 2], "{name} mute");
-            }
-            studio.set_group_volume(1.)?;
-            assert!(
-                (0..3200).any(|_| studio.next_frame(Err).unwrap() != [0; 2]),
-                "{name} did not resume after the group gain changed"
-            );
             let baseline = render(1., None)?;
             let total = energy(&baseline, 0) + energy(&baseline, 1);
             assert!(total > 0., "{name} must be audible");
@@ -379,7 +359,6 @@ mod tests {
         let reverbs = [[0., 0., 1., 0., 0.]; 2];
         let (resources, score, tables) = crate::field_audio::test_score_data(ScoreOrigin::Sequence);
         let music = TitleMusic {
-            master_lead_ms: 1185,
             music: Arc::new(Loaded::new(resources, score, tables, reverbs)?),
         };
         let cue = |amplitude, length, id| -> Result<_> {
@@ -416,7 +395,7 @@ mod tests {
         );
         const FRAMES: usize = 6400;
         let render = |names: &[&str]| -> Result<Vec<f32>> {
-            let (audio, control) = assets.clone().session(false);
+            let (audio, control) = assets.clone().session();
             let (mixer, mut output) = resonance_playback::Offline::new();
             let source = audio.decoder();
             let sink = mixer.play(false, move || Ok(Box::new(source)))?;
@@ -437,10 +416,19 @@ mod tests {
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
         let mixed = render(&names)?;
+        let fade_frames = volume::frames_from_millis(volume::TITLE_STARTUP_MS)? as usize;
+        for (frame, stereo) in music.chunks_exact(2).enumerate() {
+            let gain = (frame as f64 / fade_frames as f64).min(1.);
+            // At most two PCM units are lost to the envelope and bus gain quantizations.
+            let expected = 12000. / 32768. * gain;
+            assert!(
+                stereo
+                    .iter()
+                    .all(|&actual| (f64::from(actual) - expected).abs() <= 2. / 32768.)
+            );
+        }
         assert_eq!(&music[..2], &[0.; 2]);
-        assert!(music.iter().all(|sample| sample.is_finite()));
-        assert!(music[640] > 0. && music[640] < music[3200]);
-        assert!(music[3200] < music[(FRAMES - 1) * 2]);
+        assert_eq!(music[fade_frames * 2], music[fade_frames * 2 + 2]);
         let contributions: Vec<Vec<f32>> = isolated
             .iter()
             .map(|solo| {
@@ -490,18 +478,27 @@ mod tests {
         let first_loop = *preview.loop_starts.first().context("title did not loop")? as usize;
         let second = resonance_audio::SOURCE_RATE as usize;
         assert!(first_loop >= second && first_loop + second <= preview.pcm.len() / 2);
-        let mut music = MusicFrames::start(&title)?;
-        let mut audible = [false; 2];
-        for frame in 0..first_loop + second {
-            let sample = music.next_frame()?;
-            if frame >= first_loop - second {
-                audible[usize::from(frame >= first_loop)] |= sample != [0.; 2];
-            }
+        for range in [
+            first_loop - second..first_loop,
+            first_loop..first_loop + second,
+        ] {
+            assert!(
+                preview.pcm[range.start * 2..range.end * 2]
+                    .iter()
+                    .any(|&sample| sample != 0)
+            );
         }
-        assert_eq!(
-            audible, [true; 2],
-            "title music fell silent around its loop"
-        );
+        let mut music = MusicFrames::start(&title)?;
+        for (frame, expected) in preview.pcm.chunks_exact(2).enumerate() {
+            assert_eq!(
+                music.next_frame()?,
+                [
+                    f32::from(expected[0]) / 32768.,
+                    f32::from(expected[1]) / 32768.
+                ],
+                "title frame {frame}"
+            );
+        }
         Ok(())
     }
 

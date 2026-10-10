@@ -1,6 +1,6 @@
 //! Static native bindings. Signatures and handlers are registered together.
 use crate::{ARGUMENT_STACK_LIMIT, Memory};
-use symphonia_script::authored::NativeDeclaration;
+use symphonia_script::authored::{NativeDeclaration, Type};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NativeSignature {
@@ -58,6 +58,33 @@ impl<H> NativeBindings<H> {
         });
         self
     }
+    /// Authored programs use this process's declaration table, including its
+    /// assigned opcodes. Reordering registrations invalidates prepared programs.
+    pub const fn register_authored(
+        self,
+        name: &'static str,
+        parameters: &'static [Type],
+        result: Option<Type>,
+        suspends: bool,
+        handler: NativeHandler<H>,
+    ) -> Self {
+        let mut opcode = 0;
+        while opcode < self.entries.len() && self.entries[opcode].is_some() {
+            opcode += 1;
+        }
+        assert!(opcode < self.entries.len(), "native binding table is full");
+        self.register_typed(
+            NativeDeclaration {
+                name,
+                opcode: opcode as u8,
+                parameters,
+                result,
+                suspends,
+            },
+            handler,
+        )
+    }
+
     /// Use the same declaration when checking source and registering execution.
     pub const fn register_typed(
         self,
@@ -86,31 +113,6 @@ impl<H> NativeBindings<H> {
             .unwrap()
             .declaration = Some(declaration);
         bindings
-    }
-    /// Allocate a host-local opcode; authored source names and handlers stay together.
-    pub const fn function(
-        self,
-        name: &'static str,
-        parameters: &'static [symphonia_script::authored::Type],
-        result: Option<symphonia_script::authored::Type>,
-        suspends: bool,
-        handler: NativeHandler<H>,
-    ) -> Self {
-        let mut opcode = 0;
-        while opcode < self.entries.len() && self.entries[opcode].is_some() {
-            opcode += 1;
-        }
-        assert!(opcode < self.entries.len(), "native binding table is full");
-        self.register_typed(
-            NativeDeclaration {
-                name,
-                opcode: opcode as u8,
-                parameters,
-                result,
-                suspends,
-            },
-            handler,
-        )
     }
     pub fn declarations(&self) -> impl Iterator<Item = NativeDeclaration> + '_ {
         self.entries

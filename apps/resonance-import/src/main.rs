@@ -55,19 +55,6 @@ enum Action {
         #[arg(long = "event", required = true, value_parser = parse_sound_event)]
         events: Vec<(u32, u16)>,
     },
-    /// Render an original-score diagnostic window including loops, without playback.
-    RenderTitleAudioPreview {
-        #[arg(long, default_value = "local/extracted/disc1")]
-        extracted: PathBuf,
-        #[arg(long)]
-        output: PathBuf,
-        #[arg(long, default_value_t = 160000)]
-        frames: u32,
-        /// Include the title's 2000-ms master / 100-ms sequence startup fades;
-        /// specify how many milliseconds the master fade precedes song startup.
-        #[arg(long)]
-        master_fade_lead_ms: Option<u16>,
-    },
     /// Diagnose one instrument macro through note-off and release, without playback.
     RenderMusicVoice {
         #[arg(long, default_value = "local/extracted/disc1")]
@@ -125,8 +112,6 @@ enum Action {
         output: PathBuf,
         #[arg(long, default_value_t = 1280000)]
         frames: u32,
-        #[arg(long, default_value_t = 1185)]
-        master_fade_lead_ms: u16,
     },
     /// Diagnose Rust voice buses and their studio mix; writes WAVs without playback.
     RenderSoundBuses {
@@ -213,17 +198,6 @@ fn main() -> anyhow::Result<()> {
             frames,
             events,
         } => resonance_import::media::render_sound_sequence(&extracted, &output, frames, &events),
-        Action::RenderTitleAudioPreview {
-            extracted,
-            output,
-            frames,
-            master_fade_lead_ms,
-        } => resonance_import::media::render_title_audio_preview(
-            &extracted,
-            &output,
-            frames,
-            master_fade_lead_ms,
-        ),
         Action::RenderMusicVoice {
             extracted,
             output,
@@ -272,13 +246,7 @@ fn main() -> anyhow::Result<()> {
             assets,
             output,
             frames,
-            master_fade_lead_ms,
-        } => resonance_import::media::render_cooked_title_audio(
-            &assets,
-            &output,
-            frames,
-            master_fade_lead_ms,
-        ),
+        } => resonance_import::media::render_cooked_title_audio(&assets, &output, frames),
         Action::RenderSoundBuses {
             extracted,
             bank,
@@ -304,7 +272,7 @@ mod tests {
     fn cooking_and_audio_diagnostics_use_generated_filters() {
         for arguments in [
             vec!["cook-all"],
-            vec!["render-title-audio-preview", "--output", "out"],
+            vec!["render-cooked-title-audio", "--output", "out"],
             vec![
                 "render-music-voice",
                 "--output",
@@ -319,7 +287,7 @@ mod tests {
             let mut command = vec!["resonance-import"];
             command.extend(&arguments);
             Args::try_parse_from(&command).unwrap();
-            command.extend(["--coefficients", "reference.bin"]);
+            command.extend(["--dsp-coefficients", "obsolete.bin"]);
             assert_eq!(
                 Args::try_parse_from(command).err().unwrap().kind(),
                 clap::error::ErrorKind::UnknownArgument

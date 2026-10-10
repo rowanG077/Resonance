@@ -73,8 +73,6 @@ pub struct MenuArt {
 pub struct WindowArt {
     pub patterns: [usize; 6],
     pub heading: Option<usize>,
-    pub cursor: Option<usize>,
-    pub cursor_motion: [f32; 2],
     /// A plain beveled window has no decorative slices.
     pub slices: Option<[usize; 12]>,
     pub outset: u8,
@@ -102,7 +100,6 @@ pub enum Sprite {
     Technique,
     Numbers,
     Leader,
-    WorldHud,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -164,7 +161,7 @@ pub struct MenuTexture {
     pub opaque: bool,
 }
 impl MenuArt {
-    pub const VERSION: u32 = 19;
+    pub const VERSION: u32 = 18;
     pub const ATLAS_TEXTURE: usize = 18;
     pub const PORTRAIT_TEXTURES: std::ops::Range<usize> = 19..28;
     pub const WORLD_MAP_TEXTURES: std::ops::Range<usize> = 28..30;
@@ -250,7 +247,6 @@ impl MenuArt {
         for &index in std::iter::once(pattern)
             .chain(window.slices.iter().flatten())
             .chain(&window.heading)
-            .chain(&window.cursor)
         {
             self.texture(index)?;
         }
@@ -320,7 +316,6 @@ impl MenuArt {
             (Sprite::Technique, 13),
             (Sprite::Numbers, 1),
             (Sprite::Leader, 1),
-            (Sprite::WorldHud, 7),
         ] {
             ensure!(
                 self.sprites.group(group)?.len() == count,
@@ -356,7 +351,6 @@ mod tests {
                 "18": {"path":"ui/atlas.png", "width":32, "height":32, "repeat":false, "opaque":false}
             },
             "windows": {"1": {"patterns":vec![0;6], "heading":null, "slices":null,
-                "cursor":null, "cursor_motion":[0.,0.],
                 "outset":0, "flourish_outset":[0,0], "foot_outset":0, "left_joins":[0,0], "left_strip":[0,0]}},
             "sprites": {"rects": {"buttons": [[0,0,8,8]]}}
         });

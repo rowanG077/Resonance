@@ -46,6 +46,7 @@ pub(super) struct Resident {
     cache: Arc<Mutex<Cache>>,
     pub active: Arc<AtomicBool>,
     /// Battle preparation and rendering temporarily own the shared asset reader.
+    pub battle: Arc<AtomicBool>,
     pub memory_reads: Arc<AtomicU64>,
     pub unprepared_reads: Arc<AtomicU64>,
 }
@@ -56,6 +57,7 @@ impl Default for Resident {
             files: Default::default(),
             cache: Default::default(),
             active: Default::default(),
+            battle: Default::default(),
             memory_reads: Default::default(),
             unprepared_reads: Default::default(),
         }
@@ -168,6 +170,7 @@ pub(super) fn install(app: &mut App, root: &Path) {
 
 pub(super) type Pending = Task<super::new_game::Session>;
 pub(super) type FieldPending = Task<super::new_game::FieldPackage>;
+pub(super) type BattlePending = Task<super::battle::Package>;
 #[derive(Resource)]
 pub(super) struct Task<T: Send + 'static> {
     receiver: Mutex<mpsc::Receiver<Result<T>>>,
@@ -215,21 +218,11 @@ impl Pending {
             let checkpoint = checkpoint
                 .map(|bytes| resonance_persistence::decode::<super::saves::SceneCheckpoint>(&bytes))
                 .transpose()?;
-            let paths = match checkpoint.as_ref().map(|save| &save.state) {
-                None => vec![
-                    super::new_game::manifest_path(5),
-                    super::new_game::manifest_path(340),
-                ],
-                Some(super::saves::SceneCheckpoint::Field(saved)) => {
-                    let mut paths = vec![super::new_game::manifest_path(saved.map_id)];
-                    if saved.map_id == 5 {
-                        paths.push(super::new_game::manifest_path(340));
-                    }
-                    paths
-                }
-                Some(super::saves::SceneCheckpoint::World(_)) => Vec::new(),
-            };
-            let new_game = checkpoint.is_none();
+            let map = checkpoint.as_ref().map_or(5, |save| save.state.map());
+            let mut paths = vec![super::new_game::manifest_path(map)];
+            if map == 5 {
+                paths.push(super::new_game::manifest_path(340));
+            }
             let mut cache = cache.lock().unwrap();
             cache.configure_scripts(script_root);
             let files = Arc::new(Files::load_with_diagnostics(
@@ -265,12 +258,15 @@ impl Pending {
                 None => super::new_game::Session::load_prepared(
                     &root,
                     files,
-                    None,
+                    checkpoint.map(|c| match c {
+                        super::saves::SceneCheckpoint::Field(c) => c,
+                        _ => unreachable!(),
+                    }),
                     initial_preferences,
                     &mut cache,
                 )?,
             };
-            if new_game {
+            if map == 5 {
                 session.prepare_movie(&root, || stop.load(Ordering::Relaxed))?;
             }
             Ok(session)
@@ -334,6 +330,59 @@ impl WorldPending {
         })
     }
 }
+impl BattlePending {
+    pub fn battle(root: PathBuf, entry: super::battle::Entry, resident: &Resident) -> Result<Self> {
+        let cache = resident.cache.clone();
+        Self::spawn(move |stop| {
+            let super::battle::Entry {
+                files: retained,
+                party,
+                setup,
+                options,
+                data,
+                menus,
+                gameplay_random,
+            } = entry;
+            let mut cache = cache.lock().unwrap();
+            let (files, descriptor) = resonance_game::battle::audio::prepare(
+                &root,
+                (*retained).clone(),
+                &mut cache.bytes,
+                || stop.load(Ordering::Relaxed),
+            )?;
+            let audio =
+                super::battle_audio::Assets::load(&files, descriptor.as_ref(), &mut cache.audio)?;
+            let inputs = resonance_game::battle::encounter::Inputs::load(
+                &root,
+                &files,
+                &menus,
+                &data,
+                &party,
+                setup,
+                &mut cache.bytes,
+                || stop.load(Ordering::Relaxed),
+            )?;
+            let assets = resonance_game::battle::encounter::Assets {
+                inputs,
+                audio: descriptor,
+            };
+            let entry_seed = options.random_seed;
+            let prepared = assets.prepare(&menus, options, |sound| audio.bind(sound))?;
+            let catalogue = assets.catalogue.clone();
+            Ok(super::battle::Package {
+                assets: Arc::new(assets),
+                prepared,
+                audio,
+                party,
+                menus,
+                data,
+                catalogue,
+                gameplay_random,
+                entry_seed,
+            })
+        })
+    }
+}
 
 impl<T: Send + 'static> Task<T> {
     pub(super) fn spawn(
@@ -377,25 +426,15 @@ pub(super) fn black_hold(
     session: Option<Res<super::new_game::Session>>,
     resident: Res<Resident>,
     mut outputs: ResMut<Assets<super::materials::TitleOutput>>,
+    battle: Option<Res<super::battle::Owner>>,
     title_return: Option<Res<super::game_over::Returning>>,
 ) {
+    let battle_visible = battle.is_some();
     let held = title_return.is_some()
         || pending.is_some()
         || field.is_some()
-        || session.is_some() && !resident.active.load(Ordering::Acquire);
-    let portal = title_return.is_none()
-        && session
-            .as_ref()
-            .and_then(|s| s.overworld())
-            .is_some_and(|scene| scene.session.portal().is_some());
-    super::materials::TitleOutput::update(&mut outputs, |b| {
-        b.z = f32::from(held && !portal);
-        if held && portal {
-            // Keep the portal's whiteout while the destination artwork loads.
-            b.x = 0.;
-            b.y = 1.;
-        }
-    });
+        || session.is_some() && !resident.active.load(Ordering::Acquire) && !battle_visible;
+    super::materials::TitleOutput::update(&mut outputs, |b| b.z = f32::from(held));
 }
 
 #[cfg(test)]

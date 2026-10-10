@@ -101,6 +101,39 @@ pub(crate) struct Protection {
     pub(crate) suppresses: Vec<u8>,
 }
 
+/// Item-effect IDs are the keys of the imported description table.
+#[repr(u8)]
+enum PhysicalProtection {
+    Poison = 1,
+    Paralysis = 3,
+    Weakness = 4,
+    Petrification = 5,
+    Reserved = 6,
+    Curse = 7,
+    WeakenedItems = 9,
+    Heavy = 10,
+    All = 12,
+}
+
+fn physical_ailment_protection() -> Protection {
+    use PhysicalProtection::*;
+    Protection {
+        effect: All as u8,
+        suppresses: [
+            Poison,
+            Paralysis,
+            Weakness,
+            Petrification,
+            Reserved,
+            Curse,
+            WeakenedItems,
+            Heavy,
+        ]
+        .map(|effect| effect as u8)
+        .to_vec(),
+    }
+}
+
 pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut texts = TextPool::default();
     let equipment_effects = texts.table(executable, EFFECTS, 109)?;
@@ -110,10 +143,7 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
         effect: pairs[i * 2],
         suppresses: pairs[i * 2 + 1],
     });
-    let ailment_protection = Protection {
-        effect: 12,
-        suppresses: vec![1, 3, 4, 5, 6, 7, 9, 10],
-    };
+    let ailment_protection = physical_ailment_protection();
     ensure!(
         overrides
             .iter()
@@ -159,7 +189,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both extracted discs; no media conversion or playback"]
-    fn original_status_ui_preserves_labels_conditions_and_suppression() -> Result<()> {
+    fn status_ui_imports_labels_conditions_and_suppression() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let mut first = None;
         for disc in [1, 2] {

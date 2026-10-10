@@ -82,7 +82,7 @@ impl Artwork {
                 color_mask: image.clone(),
                 coverage: Coverage::default(),
                 additive: false,
-                texture_effect: Default::default(),
+                red_channel: false,
                 opaque: false,
             });
             canvases.push(Canvas {
@@ -122,6 +122,12 @@ impl Artwork {
             }
         }
         Ok(ready)
+    }
+    pub fn clear(&mut self, commands: &mut Commands) {
+        for layer in &mut self.layers {
+            layer.show(false, commands);
+            layer.uploaded = None;
+        }
     }
     pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
         if !self.layers.is_empty() {
@@ -420,7 +426,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires cook-all and prepared skits; no graphics or audio device"]
-    fn original_shared_portraits_decode_and_compose_without_atlases() -> Result<()> {
+    fn shared_portraits_decode_and_compose_without_atlases() -> Result<()> {
         use bevy::image::{CompressedImageFormats, ImageType};
         let root = std::env::var_os("RESONANCE_WORLD_ASSETS")
             .map(std::path::PathBuf::from)

@@ -9,6 +9,7 @@ fn main() -> anyhow::Result<()> {
         .parse()
         .map_err(anyhow::Error::msg)?;
     let seconds = args.next().unwrap_or_else(|| "120".into()).parse()?;
+    let assets = args.next().unwrap_or_else(|| "local/all-assets".into());
     let profile = args.next().is_some_and(|arg| arg == "profile");
     let save = args.next().map(std::path::PathBuf::from);
     let replay = args
@@ -17,7 +18,7 @@ fn main() -> anyhow::Result<()> {
         .transpose()?;
     anyhow::ensure!(args.next().is_none(), "unexpected argument");
     resonance_presentation::run_frame_benchmark(
-        &root,
+        std::path::Path::new(&assets),
         std::path::Path::new(&output),
         size,
         seconds,

@@ -1,5 +1,7 @@
 //! Desktop presentation for the high-level title controller.
 mod diagnostics;
+#[cfg(test)]
+mod test_support;
 use anyhow::{Context, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
@@ -23,6 +25,8 @@ use std::{
 };
 mod audio;
 mod audio_output;
+mod battle;
+mod battle_view;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
 mod camera;
@@ -35,13 +39,13 @@ mod loading;
 mod renderer;
 mod testing;
 pub use display::Resolution;
-mod choice_cursor;
 mod draw_order;
-mod field_ambient;
 mod field_animation;
 mod field_audio;
 #[cfg(test)]
 mod field_test;
+mod ui_coordinates;
+pub(crate) use field_audio::battle as battle_audio;
 mod sparse_animation;
 pub use field_audio::record_field_audio;
 mod field_audit;
@@ -73,8 +77,8 @@ pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
     CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
-    prepare_overworld_test_fixture, record_checkpoint, record_checkpoint_window, record_new_game,
-    run_menu_probe, run_overworld_field_probe, run_quicksave_probe, run_title_load_probe,
+    prepare_overworld_test_fixture, record_checkpoint, record_new_game, run_menu_probe,
+    run_overworld_field_probe, run_quicksave_probe, run_title_load_probe,
 };
 mod new_game_capture;
 mod performance;
@@ -86,13 +90,10 @@ mod screenshot;
 pub use field_probe::ClassroomProbe;
 pub use field_view::{
     CaptureMoment, FieldControls, FieldScene, FieldSequence, FieldSequenceRenderer,
-    capture_classroom, capture_classroom_probe, capture_dialogue,
-    capture_field_sequence as capture_effect_sequence, capture_setup,
+    capture_field_sequence as capture_effect_sequence,
 };
 
 pub use field_probe::{FieldCapture, capture_field, capture_field_sequence};
-#[cfg(test)]
-mod test_support;
 mod timing;
 mod title_field;
 use audio::{GameAudio, PlaybackAssets};
@@ -108,8 +109,6 @@ pub struct RunOptions {
     /// Optional editable source project containing explicit fields.json bindings.
     pub script_root: Option<PathBuf>,
     pub capture_at: Option<CaptureAt>,
-    pub presentation_start: Option<u32>,
-    pub replay: Option<PathBuf>,
     pub capture: Option<PathBuf>,
     pub reveal: bool,
     pub selected: usize,
@@ -138,8 +137,6 @@ pub enum CaptureAt {
     LoadedField,
 }
 #[derive(Resource)]
-struct Replay(Option<resonance_game::replay::TitleReplay>);
-#[derive(Resource)]
 struct Menu(TitleState);
 #[derive(Resource, Default)]
 struct Clock(PresentationClock);
@@ -158,7 +155,7 @@ struct TitleQuad {
     row: Option<usize>,
 }
 #[derive(Resource, Default, Clone)]
-struct RenderReady(Arc<AtomicBool>);
+struct RenderReady(Arc<std::sync::Mutex<model_preview::gpu::Report>>);
 #[derive(Resource)]
 struct Framebuffer(RenderTarget);
 #[derive(Component)]
@@ -167,7 +164,6 @@ struct Framebuffer(RenderTarget);
 struct FieldCamera;
 #[derive(Component)]
 struct FieldOverlayCamera;
-type FieldCameraFilter = Or<(With<FieldCamera>, With<FieldOverlayCamera>)>;
 #[derive(Resource, Default)]
 struct PendingInput {
     held: MenuInput,
@@ -177,19 +173,6 @@ struct PendingInput {
 }
 
 impl PendingInput {
-    fn record_replay(&mut self, replay: &resonance_game::replay::TitleReplay, tick: u32) {
-        let held = replay.held(tick);
-        self.pressed = MenuInput {
-            up: held.up && !self.held.up,
-            down: held.down && !self.held.down,
-            accept: held.accept && !self.held.accept,
-            reveal: (held.up && !self.held.up)
-                || (held.down && !self.held.down)
-                || (held.accept && !self.held.accept),
-        };
-        self.held = held;
-    }
-
     fn consume(&mut self, clock: PresentationClock) -> MenuInput {
         let pressed = std::mem::take(&mut self.pressed);
         MenuInput {
@@ -249,9 +232,8 @@ fn build_app_with_display(
         options.capture_at.is_none() || options.capture.is_some(),
         "capture target requires an output path"
     );
-    options.skip_intro |= options.saves.load.is_some()
-        || options.replay.is_some()
-        || matches!(options.capture_at, Some(CaptureAt::TitleTick(_)));
+    options.skip_intro |=
+        options.saves.load.is_some() || matches!(options.capture_at, Some(CaptureAt::TitleTick(_)));
     let assets = fs::canonicalize(&options.assets)
         .context("missing cooked assets; run resonance-import cook-all first")?;
     let title_path = assets.join("title.json");
@@ -273,16 +255,6 @@ fn build_app_with_display(
         );
     }
     let (scene, events) = title_field::load(&assets)?;
-    let replay = options
-        .replay
-        .as_ref()
-        .map(|p| -> Result<resonance_game::replay::TitleReplay> {
-            let replay: resonance_game::replay::TitleReplay =
-                serde_json::from_slice(&fs::read(p)?)?;
-            replay.validate()?;
-            Ok(replay)
-        })
-        .transpose()?;
     let state = TitleState {
         selected: options.selected,
         revealed: options.reveal,
@@ -290,9 +262,12 @@ fn build_app_with_display(
     };
     let music =
         Some(PlaybackAssets::load(&assets, diagnostics.clone())?).filter(|audio| !audio.is_empty());
-    let movie = movie::Playback::load(&assets, &options)?;
-    let boot = boot::Playback::load(&assets, &options)?;
-    let initial_clock = PresentationClock::new(options.presentation_start.unwrap_or(0));
+    let mut movie = diagnostics
+        .attempt("startup movie", movie::Playback::load(&assets, &options))?
+        .unwrap_or_default();
+    let boot = diagnostics
+        .attempt("startup logos", boot::Playback::load(&assets, &options))?
+        .unwrap_or_default();
     let mut app = App::new();
     app.insert_resource(session_screen::Title {
         events: Some(events.fresh()?),
@@ -300,11 +275,12 @@ fn build_app_with_display(
     });
     app.insert_resource(crate::diagnostics::Diagnostics(diagnostics));
     app.insert_resource(TitleActive);
-    saves::install(
-        &mut app,
-        &options.saves,
-        !options.headless() && options.replay.is_none(),
-    )?;
+    saves::install(&mut app, &options.saves, !options.headless())?;
+    movie.mono = !app
+        .world()
+        .resource::<config::Preferences>()
+        .settings
+        .stereo;
     loading::install(&mut app, &assets);
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
@@ -352,8 +328,7 @@ fn build_app_with_display(
         .insert_resource(boot)
         .insert_resource(options)
         .insert_resource(Menu(state))
-        .insert_resource(Clock(initial_clock))
-        .insert_resource(Replay(replay))
+        .init_resource::<Clock>()
         .insert_resource(scene)
         .insert_resource(Art {
             manifest,
@@ -403,6 +378,12 @@ fn build_app_with_display(
         .add_systems(PostUpdate, loading::black_hold)
         .add_systems(Update, audio::check)
         .add_systems(
+            PostUpdate,
+            timing::prepare_draws
+                .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+        )
+        .add_systems(Update, audio::check)
+        .add_systems(
             Update,
             saves::release_frame.after(field_view::FieldPreparation),
         )
@@ -412,7 +393,9 @@ fn build_app_with_display(
                 timing::advance_clock,
                 boot::advance,
                 advance.run_if(dungeons::running),
-                new_game::advance.run_if(dungeons::running),
+                new_game::advance
+                    .run_if(dungeons::running)
+                    .run_if(battle::field_running),
             )
                 .chain(),
         )
@@ -423,7 +406,9 @@ fn build_app_with_display(
                 new_game::enter,
                 new_game::skip_test_battles.run_if(dungeons::running),
                 (
-                    new_game::transition.run_if(dungeons::running),
+                    new_game::transition
+                        .run_if(dungeons::running)
+                        .run_if(battle::field_running),
                     session_screen::update,
                 )
                     .chain(),
@@ -440,7 +425,7 @@ fn build_app_with_display(
                 movie::update,
                 new_game::movie_handoff,
                 start_audio,
-                field_audio::update,
+                field_audio::update.run_if(battle::field_running),
                 layout,
             )
                 .chain(),
@@ -469,25 +454,13 @@ fn build_app_with_display(
         .insert_resource(render_diagnostics)
         .add_systems(
             bevy::render::Render,
-            check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
+            timing::rendered.in_set(bevy::render::RenderSystems::Cleanup),
         );
     field_warm::install(&mut app);
+    battle::install(&mut app);
     game_over::install(&mut app)?;
     renderer::configure(&mut app);
     Ok((app, recording))
-}
-
-fn check_pipelines(
-    cache: Res<bevy::render::render_resource::PipelineCache>,
-    ready: Res<RenderReady>,
-) {
-    use bevy::render::render_resource::CachedPipelineState;
-    let complete = cache.pipelines().next().is_some()
-        && cache.waiting_pipelines().next().is_none()
-        && cache
-            .pipelines()
-            .all(|p| matches!(p.state, CachedPipelineState::Ok(_)));
-    ready.0.store(complete, Ordering::Relaxed);
 }
 
 #[allow(clippy::too_many_arguments)] // Bevy injects independent resources into this startup system.
@@ -671,7 +644,6 @@ fn setup(
 
 #[allow(clippy::too_many_arguments)] // Readiness, movie handoff, and audio asset ownership.
 fn start_audio(
-    options: Res<RunOptions>,
     mut commands: Commands,
     mut music: ResMut<PendingAudio>,
     mut assets: ResMut<Assets<GameAudio>>,
@@ -686,7 +658,7 @@ fn start_audio(
         return;
     }
     if let Some(music) = music.0.take() {
-        let (source, control) = music.session(!options.skip_intro);
+        let (source, control) = music.session();
         sounds.control = Some(control);
         commands.spawn(AudioPlayer(assets.add(source)));
     }
@@ -737,14 +709,10 @@ fn gather_input(
     input: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
     mut pending: ResMut<PendingInput>,
-    replay: Option<Res<Replay>>,
     dungeons: Option<Res<dungeons::Menu>>,
 ) {
     if dungeons.is_some_and(|menu| menu.blocked()) {
         *pending = PendingInput::default();
-        return;
-    }
-    if replay.is_some_and(|r| r.0.is_some()) {
         return;
     }
     // Preserve presses across render frames with no fixed update; consume them
@@ -790,6 +758,7 @@ fn gather_input(
 #[allow(clippy::too_many_arguments)] // Input, clock, readiness, and cue playback resources.
 fn advance(
     mut commands: Commands,
+    diagnostics: Res<crate::diagnostics::Diagnostics>,
     mut exit: MessageWriter<AppExit>,
     mut menu: ResMut<Menu>,
     replay: Option<Res<Replay>>,
@@ -803,11 +772,12 @@ fn advance(
     new_game: Option<Res<new_game::Session>>,
     loading: Option<Res<loading::Pending>>,
     title_menu: Option<Res<saves::title::TitleMenu>>,
-    game_over: Option<Res<session_screen::GameOver>>,
+    game_over: Option<Res<game_over::Active>>,
     scenario: Option<ResMut<saves::ScenarioInput>>,
 ) {
     if game_over.is_some()
         || new_game.is_some()
+        || game_over.is_some()
         || title_menu.is_some()
         || loading.is_some()
         || movie.active
@@ -815,9 +785,6 @@ fn advance(
         || !ready.0
     {
         return;
-    }
-    if let Some(replay) = replay.as_ref().and_then(|replay| replay.0.as_ref()) {
-        pending.record_replay(replay, menu.0.tick + 1);
     }
     let previous_selection = menu.0.selected;
     let input = pending.consume(clock.0);
@@ -827,9 +794,11 @@ fn advance(
     if let Some(events) = &mut events
         && let Err(error) = events.0.step()
     {
-        error!("title script: {error:#}");
-        exit.write(AppExit::error());
-        return;
+        if diagnostics.0.report("title script", error).is_err() {
+            exit.write(AppExit::error());
+            return;
+        }
+        commands.remove_resource::<Events>();
     }
     match menu.0.step(input) {
         Some(resonance_game::TitleAction::NewGame) => {

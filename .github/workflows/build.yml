@@ -60,7 +60,7 @@ jobs:
             build-essential pkg-config cmake ninja-build \
             libasound2-dev libdbus-1-dev libudev-dev libvulkan-dev mesa-vulkan-drivers \
             libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
-            libxkbcommon-dev libwayland-dev
+            libxkbcommon-dev libwayland-dev python3-numpy python3-scipy
 
       - name: Build release executables
         run: cargo build --locked --release -p resonance -p resonance-import-cli
@@ -69,25 +69,24 @@ jobs:
         env:
           RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
         run: |
-          cargo test --locked --release -p resonance-import --lib texture::tests::
-          cargo test --locked --release -p resonance-import --lib source_inventory_paths
-          cargo test --locked --release -p resonance-audio-cook --lib interpolation::tests::
-          cargo test --locked --release -p resonance-import --lib coefficients
-          cargo test --locked --release -p resonance-import-cli
-          cargo test --locked --release -p resonance-playback --lib
-          cargo test --locked --release -p resonance-media --lib --test rust_codecs --test audio_smoke
-          cargo test --locked --release -p resonance-persistence --test slots
-          cargo test --locked --release -p resonance-game -p resonance-events
-          cargo test --locked --release -p resonance-presentation --lib
+          if [[ "${{ matrix.platform }}" != "linux-x64" ]]; then
+            cargo test --locked --release -p resonance-import --lib texture::tests::
+            cargo test --locked --release -p resonance-media --test rust_codecs --test audio_smoke
+            cargo test --locked --release -p resonance-persistence --test slots
+          fi
           "target/release/resonance$EXE" --help
           "target/release/resonance-import$EXE" --help
 
-      - name: Check effect comparison gates and generators
+      - name: Validate workspace without private resources
         if: matrix.platform == 'linux-x64'
+        env:
+          RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
         run: |
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace --lib --tests
           python3 -m venv target/oracle-tests
           target/oracle-tests/bin/pip install numpy Pillow
-          target/oracle-tests/bin/python -m unittest discover -s tools/oracle -p 'test_effect*.py'
+          target/oracle-tests/bin/python -m unittest discover -s tools/oracle -p 'test_*.py'
 
       - name: Render and check pixels (Metal on macOS, CPU elsewhere)
         run: cargo run --locked --release -p resonance-presentation --example ci_render -- target/smoke

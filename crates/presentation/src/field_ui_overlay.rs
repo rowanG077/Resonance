@@ -74,7 +74,7 @@ impl Artwork {
                     color_mask: source,
                     coverage: Coverage::default(),
                     additive: false,
-                    texture_effect: Default::default(),
+                    red_channel: false,
                     opaque: false,
                 }));
                 loaded.extend(pages);

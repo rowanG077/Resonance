@@ -1,8 +1,6 @@
 //! Presentation time continues across scene changes, independently of scene age.
 //! Pure asset preparation does not present frames or advance this counter.
 
-/// Simulation runs at the NTSC cadence of 60000/1001 updates per second.
-/// Animation timestamps use a separate nominal 60 ticks per second.
 pub const UPDATE_RATE_NUMERATOR: u64 = 60_000;
 pub const UPDATE_RATE_DENOMINATOR: u64 = 1001;
 pub const UPDATE_HZ: f64 = UPDATE_RATE_NUMERATOR as f64 / UPDATE_RATE_DENOMINATOR as f64;
@@ -25,7 +23,6 @@ impl PlayTime {
             session: 0,
         }
     }
-
     pub fn advance(&mut self) {
         self.session = self.session.saturating_add(1);
     }
@@ -41,7 +38,7 @@ impl PlayTime {
 pub struct PresentationClock(u32);
 
 impl PresentationClock {
-    /// Start a presentation clock at the given tick.
+    /// Start a presentation counter at a specific tick.
     pub const fn new(tick: u32) -> Self {
         Self(tick)
     }
@@ -61,7 +58,7 @@ mod tests {
     use crate::{MenuInput, TitleState};
 
     #[test]
-    fn play_time_accumulates_and_resets_session_on_load() {
+    fn play_time_preserves_total_and_resets_session_on_load() {
         let mut time = PlayTime::resume(100);
         time.advance();
         assert_eq!((time.total(), time.session()), (101, 1));

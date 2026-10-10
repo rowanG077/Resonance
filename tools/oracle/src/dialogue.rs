@@ -17,33 +17,58 @@ struct Case {
     variants: Vec<Variant>,
 }
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum Capture {
-    Dialogue { prefix: String, hold_ticks: u32 },
-    Setup { tick: u32 },
+#[serde(deny_unknown_fields)]
+struct Capture {
+    checkpoint: Option<PathBuf>,
+    scenario: PathBuf,
 }
 impl Capture {
-    fn command(&self, native: Option<&Path>, image: &Path, settings: &Path) -> Result<Command> {
-        let binary = match self {
-            Self::Dialogue { .. } => "target/debug/examples/dialogue_capture",
-            Self::Setup { .. } => "target/debug/examples/setup_capture",
+    fn command(
+        &self,
+        native: &Path,
+        image: &Path,
+        settings: &Path,
+        assets: &Path,
+        log: &fs::File,
+    ) -> Result<Command> {
+        let checkpoint = if let Some(source) = &self.checkpoint {
+            let checkpoint = image.with_extension("save.json");
+            let fixture = native
+                .parent()
+                .context("native capture executable has no directory")?
+                .join("checkpoint_fixture");
+            let status = Command::new(fixture)
+                .arg(source)
+                .arg(&checkpoint)
+                .arg(assets)
+                .arg("--preferences")
+                .arg(settings)
+                .stdout(log.try_clone()?)
+                .stderr(log.try_clone()?)
+                .status()?;
+            ensure!(status.success(), "dialogue checkpoint preparation failed");
+            Some(checkpoint)
+        } else {
+            None
         };
-        let mut command = Command::new(native.unwrap_or(Path::new(binary)));
-        command.arg(image);
-        match self {
-            Self::Dialogue { prefix, hold_ticks } => {
-                ensure!(
-                    !prefix.is_empty() && *hold_ticks <= 3600,
-                    "invalid dialogue capture"
-                );
-                command.arg(prefix).arg(hold_ticks.to_string());
-            }
-            Self::Setup { tick } => {
-                ensure!((1..=3600).contains(tick), "invalid setup capture");
-                command.arg(tick.to_string());
-            }
-        }
-        command.arg(settings);
+        let initial_preferences = if checkpoint.is_none() {
+            Some(serde_json::from_slice::<CustomizeSettings>(&fs::read(
+                settings,
+            )?)?)
+        } else {
+            None
+        };
+        let scenario: serde_json::Value = serde_json::from_slice(&fs::read(&self.scenario)?)?;
+        let spec = image.with_extension("capture.json");
+        fs::write(
+            &spec,
+            serde_json::to_vec_pretty(&json!({
+                "checkpoint":checkpoint, "initial_preferences":initial_preferences,
+                "scenario":scenario
+            }))?,
+        )?;
+        let mut command = Command::new(native);
+        command.arg(spec).arg(image).arg(assets);
         Ok(command)
     }
 }
@@ -65,6 +90,9 @@ struct Variant {
 
 pub(super) fn run(case_path: &Path, output: &Path, native: Option<&Path>) -> Result<()> {
     let case: Case = serde_json::from_slice(&fs::read(case_path)?)?;
+    let native = native.unwrap_or(Path::new("target/debug/examples/dialogue_capture"));
+    let assets = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map_or_else(|| PathBuf::from("local/all-assets"), PathBuf::from);
     ensure!(
         case.version == 2 && !case.regions.is_empty() && (1..=18).contains(&case.variants.len()),
         "invalid dialogue case"
@@ -110,7 +138,7 @@ pub(super) fn run(case_path: &Path, output: &Path, native: Option<&Path>) -> Res
             .capture
             .as_ref()
             .unwrap_or(&case.capture)
-            .command(native, &image, &settings)?;
+            .command(native, &image, &settings, &assets, &log)?;
         let native_hash = pair::file_hash(Path::new(command.get_program()))?;
         let status = command.stdout(log.try_clone()?).stderr(log).status()?;
         ensure!(status.success(), "dialogue capture failed: {name}");

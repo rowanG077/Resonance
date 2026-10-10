@@ -263,15 +263,6 @@ fn voice_writer(
 }
 
 pub(crate) fn write_package(output: &Path, path: &str, package: &Package) -> Result<Asset> {
-    write_package_from(output, output, path, package)
-}
-
-pub(crate) fn write_package_from(
-    library: &Path,
-    output: &Path,
-    path: &str,
-    package: &Package,
-) -> Result<Asset> {
     resonance_content::validate_asset_path(path)?;
     let bytes = serde_json::to_vec(package)?;
     // Validate the candidate and its complete sample closure before replacing
@@ -283,7 +274,7 @@ pub(crate) fn write_package_from(
                 return Ok(bytes.clone());
             }
             let mut sample = Vec::new();
-            fs::File::open(library.join(requested))?
+            fs::File::open(output.join(requested))?
                 .take(limit as u64 + 1)
                 .read_to_end(&mut sample)?;
             Ok(sample)

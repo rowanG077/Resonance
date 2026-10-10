@@ -127,6 +127,10 @@ pub(crate) enum Event {
         story: Option<i32>,
         max_x: Option<f32>,
     },
+    Battle {
+        encounter: u16,
+        phase: BattleStage,
+    },
     Menu {
         page: MenuPage,
     },
@@ -191,14 +195,20 @@ pub(crate) enum ItemsFocus {
 
 fn current_menu(world: &World) -> Option<&resonance_game::menu::Menu> {
     world
-        .get_resource::<title::TitleMenu>()
+        .get_resource::<title::LoadMenu>()
         .map(|menu| &menu.0)
-        .or_else(|| world.get_resource::<new_game::Session>()?.menu())
+        .or_else(|| {
+            world
+                .get_resource::<new_game::Session>()?
+                .field
+                .menu
+                .as_ref()
+        })
 }
 
 fn menu_settled(world: &World, menu: &resonance_game::menu::Menu) -> bool {
     let tick = world.resource::<Clock>().0.tick();
-    if world.contains_resource::<title::TitleMenu>() {
+    if world.contains_resource::<title::LoadMenu>() {
         world
             .get_resource::<crate::field_ui::MenuOverlay>()
             .is_some_and(|art| art.menu_settled(menu, tick))
@@ -209,6 +219,15 @@ fn menu_settled(world: &World, menu: &resonance_game::menu::Menu) -> bool {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum BattleStage {
+    Entry,
+    Combat,
+    Ending,
+    Results,
+    Finished,
+}
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum MenuPage {
@@ -246,25 +265,23 @@ impl MenuPage {
 }
 impl Event {
     fn matches(&self, world: &World) -> Result<bool> {
-        let session = world
-            .get_resource::<new_game::Session>()
-            .filter(|s| s.is_field());
+        let session = world.get_resource::<new_game::Session>();
         Ok(match self {
             Self::FieldReady => {
                 scene::phase(world)? == scene::Phase::Field
                     && session.is_some_and(|session| {
-                        session.ready_for_field && session.field().player_has_control()
+                        session.ready_for_field && session.field.player_has_control()
                     })
             }
             Self::FieldEmote { map_id, .. } | Self::FieldBillboard { map_id, .. } => {
                 scene::phase(world)? == scene::Phase::Field
                     && session.is_some_and(|session| {
                         session.ready_for_field
-                            && session.field().map_id == *map_id
+                            && session.field.map_id == *map_id
                             && world
                                 .get_resource::<crate::field_effects::Artwork>()
                                 .is_some_and(|art| {
-                                    let field = &session.field().events.world;
+                                    let field = &session.field.events.world;
                                     match self {
                                         Self::FieldEmote {
                                             actor, emote_kind, ..
@@ -300,25 +317,42 @@ impl Event {
                 story,
                 max_x,
             } => session.is_some_and(|session| {
-                session.field().map_id == *map_id
+                session.field.map_id == *map_id
                     && session.ready_for_field
                     && !world.resource::<crate::movie::Playback>().active
-                    && (!free_control || session.field().player_has_control())
-                    && story
-                        .is_none_or(|story| session.field().story_progress().ok() == Some(story))
+                    && !world.contains_resource::<crate::battle::Owner>()
+                    && (!free_control || session.field.player_has_control())
+                    && story.is_none_or(|story| session.field.story_progress().ok() == Some(story))
                     && max_x.is_none_or(|x| {
                         session
-                            .field()
+                            .field
                             .events
                             .world
                             .actors
-                            .get(&session.field().events.world.controlled_actor)
+                            .get(&session.field.events.world.controlled_actor)
                             .is_some_and(|actor| actor.position[0] <= x)
                     })
             }),
-            Self::Menu { page } => current_menu(world).is_some_and(|menu| {
-                menu.page == page.page() && !menu.busy && !menu.main_animating()
-            }),
+            Self::Battle { encounter, phase } => world
+                .get_resource::<crate::battle::Owner>()
+                .and_then(|owner| owner.replay_phase())
+                .is_some_and(|(actual, stage)| {
+                    actual == *encounter
+                        && match phase {
+                            BattleStage::Entry => stage == resonance_battle::BattlePhase::Entry,
+                            BattleStage::Combat => stage == resonance_battle::BattlePhase::Combat,
+                            BattleStage::Ending => stage == resonance_battle::BattlePhase::Ending,
+                            BattleStage::Results => stage == resonance_battle::BattlePhase::Results,
+                            BattleStage::Finished => {
+                                stage == resonance_battle::BattlePhase::Finished
+                            }
+                        }
+                }),
+            Self::Menu { page } => session
+                .and_then(|session| session.field.menu.as_ref())
+                .is_some_and(|menu| {
+                    menu.page == page.page() && !menu.busy && !menu.main_animating()
+                }),
             Self::MenuSettled { page } => current_menu(world)
                 .is_some_and(|menu| menu.page == page.page() && menu_settled(world, menu)),
             Self::ItemsFocus { focus } => current_menu(world).is_some_and(|menu| {
@@ -354,22 +388,16 @@ impl Event {
                     && world.resource::<crate::Menu>().0.selected == 1
             }
             Self::SavePoint => session.is_some_and(|session| {
-                session.field().player_has_control()
-                    && session
-                        .field()
-                        .events
-                        .world
-                        .save_points
-                        .iter()
-                        .any(|point| {
-                            point.active && crate::field_view::save_point_drawn(world, point.actor)
-                        })
+                session.field.player_has_control()
+                    && session.field.events.world.save_points.iter().any(|point| {
+                        point.active && crate::field_view::save_point_drawn(world, point.actor)
+                    })
             }),
             Self::Dialogue { contains } => session.is_some_and(|session| {
-                session.field().dialogue.iter().any(|(slot, page)| {
+                session.field.dialogue.iter().any(|(slot, page)| {
                     crate::field_ui::displayed_dialogue(
                         page,
-                        session.field().events.world.dialogue.get(slot),
+                        session.field.events.world.dialogue.get(slot),
                     )
                     .is_some()
                         && page.fully_revealed()
@@ -379,13 +407,13 @@ impl Event {
             Self::Choice { slot } => {
                 session.is_some_and(|session| {
                     session
-                        .field()
+                        .field
                         .events
                         .world
                         .choices
                         .get(slot)
                         .is_some_and(|choice| choice.operation.is_pending())
-                        && session.field().dialogue.values().all(|page| {
+                        && session.field.dialogue.values().all(|page| {
                             page.closed || page.fully_revealed() && page.accepts_input()
                         })
                 })
@@ -521,10 +549,6 @@ pub enum Key {
     Start,
     Quicksave,
     Quickload,
-    Order1,
-    Order2,
-    Order3,
-    CancelOrders,
 }
 impl Key {
     fn event(self, state: bevy::input::ButtonState) -> bevy::input::keyboard::KeyboardInput {
@@ -549,10 +573,6 @@ impl Key {
             Self::Start => (KeyCode::Home, Logical::Home),
             Self::Quicksave => (KeyCode::F5, Logical::F5),
             Self::Quickload => (KeyCode::F9, Logical::F9),
-            Self::Order1 => (KeyCode::Digit1, Logical::Character("1".into())),
-            Self::Order2 => (KeyCode::Digit2, Logical::Character("2".into())),
-            Self::Order3 => (KeyCode::Digit3, Logical::Character("3".into())),
-            Self::CancelOrders => (KeyCode::Digit0, Logical::Character("0".into())),
         };
         bevy::input::keyboard::KeyboardInput {
             key_code,
@@ -581,10 +601,6 @@ impl Key {
             Self::NextPage => RightTrigger,
             Self::Skit => Z,
             Self::Start => Start,
-            Self::Order1 => DPadLeft,
-            Self::Order2 => DPadUp,
-            Self::Order3 => DPadRight,
-            Self::CancelOrders => DPadDown,
             _ => return None,
         })
     }
@@ -667,7 +683,6 @@ impl ScenarioInput {
     }
 }
 
-#[cfg(test)]
 pub(crate) fn install_scenario_input(app: &mut App, mut scenario: CheckpointReplay) -> Result<()> {
     scenario.validate()?;
     scenario
@@ -710,80 +725,6 @@ fn install_cursor(app: &mut App, steps: Vec<Step>, pad: Option<Entity>) {
             .in_set(InputSystems),
     )
     .add_systems(FixedPostUpdate, scenario_consumed);
-}
-
-/// Run the ordinary input cursor on the wall clock; capture steps only mark the stream.
-pub(crate) fn install_benchmark_replay(
-    app: &mut App,
-    spec: &CheckpointReplay,
-    output: &Path,
-    completed: std::sync::Arc<AtomicBool>,
-) -> Result<()> {
-    use std::io::{BufWriter, Write};
-    spec.validate()?;
-    let mut markers = BufWriter::new(fs::File::create(output.join("markers.jsonl"))?);
-    fs::write(output.join("replay.json"), serde_json::to_vec_pretty(spec)?)?;
-    install_cursor(app, spec.steps.clone(), None);
-    let output = output.to_owned();
-    let began = Instant::now();
-    app.add_systems(Last, move |world: &mut World| {
-        let result = (|| -> Result<()> {
-            let _ = settle_cursor(world);
-            ensure!(
-                !world.resource::<ScenarioInput>().failed,
-                "benchmark replay input failed"
-            );
-            while let Some(name) = world
-                .resource::<ScenarioInput>()
-                .capture()
-                .map(str::to_owned)
-            {
-                serde_json::to_writer(
-                    &mut markers,
-                    &serde_json::json!({
-                        "name":name, "elapsed_seconds":began.elapsed().as_secs_f64(),
-                        "updates":world.resource::<ScenarioInput>().updates,
-                        "scene":recording_scene(world)?,
-                    }),
-                )?;
-                markers.write_all(b"\n")?;
-                world.resource_mut::<ScenarioInput>().index += 1;
-                let _ = settle_cursor(world);
-            }
-            if world.resource::<ScenarioInput>().complete() {
-                markers.flush()?;
-                let unprepared = world
-                    .resource::<loading::Resident>()
-                    .unprepared_reads
-                    .load(Ordering::Relaxed);
-                let diagnostics = world
-                    .resource::<crate::diagnostics::Diagnostics>()
-                    .0
-                    .entries();
-                fs::write(
-                    output.join("recording.json"),
-                    serde_json::to_vec_pretty(&serde_json::json!({
-                        "complete":true, "valid":unprepared == 0 && diagnostics.is_empty(),
-                        "source":"wall_clock_benchmark", "captures":"markers_only",
-                        "updates":world.resource::<ScenarioInput>().updates,
-                        "unprepared_reads":unprepared, "diagnostics":diagnostics,
-                    }))?,
-                )?;
-                ensure!(
-                    unprepared == 0 && diagnostics.is_empty(),
-                    "benchmark replay reported diagnostics or unprepared reads"
-                );
-                completed.store(true, Ordering::Release);
-                world.write_message(AppExit::Success);
-            }
-            Ok(())
-        })();
-        if let Err(error) = result {
-            error!("Benchmark replay: {error:#}");
-            world.write_message(AppExit::error());
-        }
-    });
-    Ok(())
 }
 
 fn settle_cursor(world: &mut World) -> Option<Vec<Key>> {
@@ -874,106 +815,6 @@ pub fn record_checkpoint(
     options: CheckpointRecordingOptions<'_>,
 ) -> Result<()> {
     record(root, Some(save), output, spec, options)
-}
-
-/// Record ordinary input through the player's window loop and wall clock.
-pub fn record_checkpoint_window(
-    root: &Path,
-    save: &Path,
-    output: &Path,
-    spec: &CheckpointReplay,
-    options: CheckpointRecordingOptions<'_>,
-) -> Result<()> {
-    use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
-    use std::sync::Arc;
-    spec.validate()?;
-    ensure!(
-        !options.gamepad,
-        "window replay currently uses keyboard input"
-    );
-    let mut app = probe::app_with_target(
-        root,
-        output,
-        SaveOptions {
-            directory: Some(
-                options
-                    .save_directory
-                    .map_or_else(|| output.join("slots"), Path::to_path_buf),
-            ),
-            quick_slot: Some("probe".into()),
-            load: Some(save.into()),
-        },
-        options.resolution,
-        options.paranoid,
-        true,
-    )?;
-    install_cursor(&mut app, spec.steps.clone(), None);
-    let output = output.to_owned();
-    let started = Instant::now();
-    let written = Arc::new(AtomicU32::new(0));
-    let finished = Arc::new(AtomicBool::new(false));
-    let completed = finished.clone();
-    let mut requested = 0;
-    app.add_systems(Last, move |world: &mut World| {
-        let result = (|| -> Result<()> {
-            ensure!(started.elapsed().as_secs() < 180, "window replay timed out");
-            let cursor = world.resource::<ScenarioInput>();
-            ensure!(!cursor.failed, "window replay input failed");
-            if let Some(name) = cursor.capture().map(str::to_owned) {
-                fs::write(
-                    output.join(format!("{name}.json")),
-                    serde_json::to_vec_pretty(&recording_scene(world)?)?,
-                )?;
-                let path = output.join(format!("{name}.png"));
-                let written = written.clone();
-                world.spawn(Screenshot::primary_window()).observe(
-                    move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                        match crate::screenshot::write(&event.image, &path, None) {
-                            Ok(()) => {
-                                written.fetch_add(1, Ordering::Release);
-                            }
-                            Err(error) => {
-                                error!("Window replay screenshot: {error:#}");
-                                exit.write(AppExit::error());
-                            }
-                        }
-                    },
-                );
-                world.resource_mut::<ScenarioInput>().index += 1;
-                requested += 1;
-            } else if cursor.complete() && written.load(Ordering::Acquire) == requested {
-                let unprepared = world
-                    .resource::<loading::Resident>()
-                    .unprepared_reads
-                    .load(Ordering::Relaxed);
-                let diagnostics = world
-                    .resource::<crate::diagnostics::Diagnostics>()
-                    .0
-                    .entries();
-                fs::write(
-                    output.join("recording.json"),
-                    serde_json::to_vec_pretty(&serde_json::json!({
-                        "source": "live_window", "silent": true, "complete": true,
-                        "valid": unprepared == 0 && diagnostics.is_empty(),
-                        "updates": cursor.updates, "captures": requested,
-                        "unprepared_reads": unprepared, "diagnostics": diagnostics,
-                    }))?,
-                )?;
-                completed.store(true, Ordering::Release);
-                world.write_message(AppExit::Success);
-            }
-            Ok(())
-        })();
-        if let Err(error) = result {
-            error!("Window replay: {error:#}");
-            world.write_message(AppExit::error());
-        }
-    });
-    ensure!(
-        app.run() == AppExit::Success && finished.load(Ordering::Acquire),
-        "window replay did not complete"
-    );
-    Ok(())
 }
 
 fn record(
@@ -1285,12 +1126,10 @@ fn observe(
     let mut capture = serde_json::json!({"name":name, "update":update, "audio_frame":audio_frame,
         "quicksave_available":quicksave_available,
         "asset_reads":world.resource::<loading::Resident>().memory_reads.load(Ordering::Acquire),
-        "scene":recording_scene(world)?, "presentation_counter":world.resource::<Clock>().0.tick()});
-    if let Some(session) = world
-        .get_resource::<new_game::Session>()
-        .filter(|s| s.is_field())
-    {
-        let field = session.field();
+        "scene":recording_scene(world)?, "presentation_counter":world.resource::<Clock>().0.tick(),
+        "battle":world.get_resource::<crate::battle::Owner>().and_then(|owner|owner.diagnostic())});
+    if let Some(session) = world.get_resource::<new_game::Session>() {
+        let field = &session.field;
         let actor = field
             .events
             .world
@@ -1435,12 +1274,35 @@ pub(super) fn wait_ready(app: &mut App, timed_out: &mut bool) -> Result<()> {
         if *timed_out {
             return Ok(());
         }
+        if world
+            .get_resource::<crate::battle::Owner>()
+            .is_some_and(|battle| battle.failed())
+        {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("battle preparation failed during checkpoint replay"),
+            )?;
+            return Ok(());
+        }
+        let battle_clock = app
+            .world()
+            .get_resource::<crate::battle::Owner>()
+            .and_then(|battle| battle.capture_clock());
+        let entry_clock = app
+            .world()
+            .get_resource::<crate::battle::Owner>()
+            .and_then(|battle| battle.entry_clock());
         let presentation_tick = app.world().resource::<Clock>().0.tick();
         let field_tick = (phase == scene::Phase::Field)
             .then(|| app.world().get_resource::<new_game::Session>())
             .flatten()
-            .map(|s| (s.field().map_id, s.field().events.tick()));
-        if began.elapsed().as_secs() >= 60 {
+            .map(|s| (s.field.map_id, s.field.events.tick()));
+        let timeout = if app.world().contains_resource::<crate::battle::Owner>() {
+            120
+        } else {
+            60
+        };
+        if began.elapsed().as_secs() >= timeout {
             diagnostics.report(
                 "checkpoint preparation",
                 anyhow::anyhow!("checkpoint scene preparation timed out"),
@@ -1462,16 +1324,36 @@ pub(super) fn wait_ready(app: &mut App, timed_out: &mut bool) -> Result<()> {
         }
         if let Some((map, tick)) = field_tick
             && let Some(session) = world.get_resource::<new_game::Session>()
-            && session.is_field()
-            && session.map_id() == map
-            && session.field().events.tick() != tick
+            && session.field.map_id == map
+            && session.field.events.tick() != tick
         {
             diagnostics.report(
                 "checkpoint preparation",
                 anyhow::anyhow!("field advanced during checkpoint preparation"),
             )?;
         }
-
+        if let Some(clock) = battle_clock
+            && world
+                .get_resource::<crate::battle::Owner>()
+                .and_then(|battle| battle.capture_clock())
+                != Some(clock)
+        {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("battle advanced during checkpoint preparation"),
+            )?;
+        }
+        if let Some(clock) = entry_clock
+            && world
+                .get_resource::<crate::battle::Owner>()
+                .and_then(|battle| battle.entry_clock())
+                != Some(clock)
+        {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("entry transition advanced during checkpoint preparation"),
+            )?;
+        }
         thread::sleep(std::time::Duration::from_millis(1));
     }
 }
@@ -1714,7 +1596,7 @@ mod tests {
     fn items_focus_requires_the_requested_panel() {
         use resonance_game::menu::{Menu, Page, items::Focus};
         let mut world = World::new();
-        world.insert_resource(title::TitleMenu(Menu::new(Page::Items, None, false)));
+        world.insert_resource(title::LoadMenu(Menu::new(Page::Items, None, false)));
         let list = Event::ItemsFocus {
             focus: ItemsFocus::List,
         };
@@ -1723,10 +1605,10 @@ mod tests {
         };
         assert!(list.matches(&world).unwrap());
         assert!(!target.matches(&world).unwrap());
-        world.resource_mut::<title::TitleMenu>().0.inventory.focus = Focus::Target;
+        world.resource_mut::<title::LoadMenu>().0.inventory.focus = Focus::Target;
         assert!(!list.matches(&world).unwrap());
         assert!(target.matches(&world).unwrap());
-        world.resource_mut::<title::TitleMenu>().0.page = Page::Main;
+        world.resource_mut::<title::LoadMenu>().0.page = Page::Main;
         assert!(!target.matches(&world).unwrap());
     }
 
@@ -1759,6 +1641,7 @@ mod tests {
         for scenario in [
             include_str!("../../examples/scenarios/new-game.json"),
             include_str!("../../examples/scenarios/field-route.json"),
+            include_str!("../../../../tools/oracle/cases/native-navigation.json"),
             include_str!("../../examples/scenarios/field-menus.json"),
         ] {
             let spec: CheckpointReplay = serde_json::from_str(scenario).unwrap();
@@ -1975,17 +1858,10 @@ mod tests {
         )
         .unwrap();
         // Save the initialized field, including its camera bounds.
-        let saved = session.field().checkpoint().unwrap();
+        let saved = session.field.checkpoint().unwrap();
         session.audio = None;
         // Restore the saved party while acknowledging the quickload input once.
-        session
-            .field_mut()
-            .events
-            .world
-            .party
-            .as_mut()
-            .unwrap()
-            .gald += 1;
+        session.field.events.world.party.as_mut().unwrap().gald += 1;
         let store = Store::new(directory.0.clone());
         let slot = SlotId::new("scenario").unwrap();
         store
@@ -2000,7 +1876,7 @@ mod tests {
                         played_ticks: saved.played_ticks,
                         saved_unix_seconds: 0,
                     },
-                    &SceneCheckpoint::Field(saved.clone()),
+                    &saved,
                 )
                 .unwrap(),
             )
@@ -2025,7 +1901,22 @@ mod tests {
             source: Handle::default(),
             output: None,
         })
-        .insert_resource(crate::test_support::run_options(root))
+        .insert_resource(crate::RunOptions {
+            assets: root,
+            saves: SaveOptions::default(),
+            script_root: None,
+            capture: None,
+            capture_at: None,
+            reveal: false,
+            selected: 0,
+            silent: true,
+            paranoid: true,
+            skip_intro: true,
+            record_playthrough: None,
+            record_title_ticks: 0,
+            skip_battles: false,
+            allow_incomplete_scripts: false,
+        })
         .insert_resource(Persistence {
             store,
             slot,
@@ -2051,7 +1942,7 @@ mod tests {
                     if session.audio.is_some() {
                         return;
                     }
-                    session.field_mut().step(controls.consume()).unwrap();
+                    session.field.step(controls.consume()).unwrap();
                     scenario.acknowledge_input();
                 },
             )
@@ -2059,10 +1950,8 @@ mod tests {
         )
         .add_systems(FixedPostUpdate, super::shortcuts.before(scenario_consumed));
         // Renderer readiness is injected; persistence and field restoration are real.
-        let art = field_view::prepared_test_art(
-            session.field_assets(),
-            app.world().resource::<AssetServer>(),
-        );
+        let art =
+            field_view::prepared_test_art(&session.assets, app.world().resource::<AssetServer>());
         app.insert_resource(art).insert_resource(session);
         app.world()
             .resource::<loading::Resident>()
@@ -2092,19 +1981,9 @@ mod tests {
             resonance_game::clock::UPDATE_STEP,
         ));
         app.update();
-        assert!(app.world().contains_resource::<super::Quickload>());
-        let began = Instant::now();
-        while app.world().contains_resource::<super::Quickload>() {
-            assert!(
-                began.elapsed().as_secs() < 30,
-                "quickload preparation stalled"
-            );
-            super::update(app.world_mut());
-            std::thread::yield_now();
-        }
         let restored = app.world().resource::<new_game::Session>();
         assert_eq!(
-            restored.field().events.world.party.as_ref().unwrap().gald,
+            restored.field.events.world.party.as_ref().unwrap().gald,
             saved.progress.party.gald
         );
         assert_checkpoint(restored.restored_checkpoint.as_ref().unwrap(), &saved).unwrap();
@@ -2113,11 +1992,6 @@ mod tests {
         assert_eq!(app.world().resource::<Clock>().0.tick(), 1);
         // Publication would prepare these assets before the next native update.
         app.world_mut().resource_mut::<new_game::Session>().audio = None;
-        app.world()
-            .resource::<loading::Resident>()
-            .active
-            .store(true, Ordering::Release);
-        super::release_frame(app.world_mut());
         app.update();
         let _ = settle_cursor(app.world_mut());
         let cursor = app.world().resource::<ScenarioInput>();

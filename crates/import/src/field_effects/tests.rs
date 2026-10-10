@@ -17,8 +17,8 @@ fn field_sprites_and_palette_decode_from_both_discs() -> Result<()> {
 
 #[test]
 #[cfg(unix)]
-#[ignore = "requires both original discs; private output, no audio devices"]
-fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Result<()> {
+#[ignore = "requires both extracted discs; private output, no audio devices"]
+fn field_effects_bind_shared_images_and_renamed_declarations() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
     for disc in [1, 2] {
         let root = tempfile::tempdir()?;

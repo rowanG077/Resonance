@@ -61,7 +61,7 @@ impl Fixture {
             color_mask: Handle::default(),
             coverage: Coverage::default(),
             additive: false,
-            texture_effect: Default::default(),
+            red_channel: false,
             opaque: false,
         });
         let artwork = MenuArtwork::load(
@@ -70,7 +70,6 @@ impl Fixture {
             app.world().resource::<AssetServer>(),
             &mut materials,
             (&shared, [self.font.width, self.font.height]),
-            &self.dialogue.cursor,
             &resonance_content::diagnostics::Diagnostics::new(true),
         )?;
         world.insert_resource(app.world_mut().remove_resource::<Assets<Image>>().unwrap());
@@ -83,8 +82,6 @@ impl Fixture {
             spec: &self.art,
             font: &self.font,
             selection: &self.dialogue.selection,
-            cursor_texture: &self.dialogue.cursor,
-            trail: Default::default(),
             preferences: Some(&self.party.settings.preferences),
             experience: &self.session.experience,
             tick,
@@ -97,31 +94,28 @@ impl Fixture {
     pub(super) fn field_menu(&self) -> Menu {
         let mut menu = Menu::new(
             resonance_game::menu::Page::Main,
-            Some(resonance_game::Checkpoint::Field(
-                resonance_game::field::FieldCheckpoint {
-                    map_id: 330,
-                    position: [0.; 3],
-                    heading: 0.,
-                    camera: {
-                        let mut rig = resonance_events::camera::CameraRig::default();
-                        *rig.current_mut() =
-                            resonance_events::camera::EntryCamera::following(1).camera;
-                        Some(rig.settings(1).unwrap())
-                    },
-                    played_ticks: 17,
-                    allow_incomplete_scripts: false,
-                    progress: resonance_events::SavedProgress {
-                        script_globals: vec![0; 256],
-                        script_state: Default::default(),
-                        party: self.party.clone(),
-                        event_flags: Default::default(),
-                        event_records: Default::default(),
-                        random_state: 0,
-                        gameplay_random: Default::default(),
-                        tick: 17,
-                    },
+            Some(resonance_game::field::FieldCheckpoint {
+                map_id: 330,
+                position: [0.; 3],
+                heading: 0.,
+                camera: {
+                    let mut rig = resonance_events::camera::CameraRig::default();
+                    *rig.current_mut() = resonance_events::camera::EntryCamera::following(1).camera;
+                    Some(rig.settings(1).unwrap())
                 },
-            )),
+                played_ticks: 17,
+                allow_incomplete_scripts: false,
+                progress: resonance_events::SavedProgress {
+                    script_globals: vec![0; 256],
+                    script_state: Default::default(),
+                    party: self.party.clone(),
+                    event_flags: Default::default(),
+                    event_records: Default::default(),
+                    random_state: 0,
+                    gameplay_random: Default::default(),
+                    tick: 17,
+                },
+            }),
             false,
         );
         menu.main_fade = 0;

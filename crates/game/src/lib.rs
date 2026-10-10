@@ -1,5 +1,6 @@
 //! High-level title behavior. No rendering, original RAM, or disc dependencies.
 pub mod authored;
+pub mod battle;
 pub mod boot;
 mod checkpoint;
 pub use checkpoint::Checkpoint;
@@ -7,9 +8,9 @@ pub mod choice;
 pub mod clock;
 pub mod dialogue;
 pub mod field;
+pub mod game_over;
 pub mod menu;
 pub mod overworld;
-pub mod replay;
 pub mod skit;
 pub mod title_events;
 pub const TITLE_REVEAL_TICKS: u32 = 843;

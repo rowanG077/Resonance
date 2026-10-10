@@ -1,14 +1,7 @@
-//! Silent registered rendering diagnosis. This is not a normal-route acceptance capture.
+//! Capture a prepared checkpoint or ordinary New Game scenario.
+#[path = "common/field_capture.rs"]
+mod capture;
+
 fn main() -> anyhow::Result<()> {
-    use anyhow::Context;
-    use std::{fs, path::Path};
-    let mut args = std::env::args().skip(1);
-    let spec = args.next().context("PROBE.json OUTPUT.png [COOKED_ROOT]")?;
-    let output = args.next().context("OUTPUT.png")?;
-    let root = args.next().unwrap_or_else(|| "local/cooked".into());
-    let probe = serde_json::from_slice(&fs::read(&spec)?)?;
-    resonance_presentation::capture_classroom_probe(Path::new(&root), Path::new(&output), &probe)?;
-    // Preserve exactly what was registered beside the rendered pose evidence.
-    fs::copy(spec, Path::new(&output).with_extension("probe.json"))?;
-    Ok(())
+    capture::run(false)
 }

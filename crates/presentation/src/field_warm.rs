@@ -116,7 +116,8 @@ pub(super) fn install(app: &mut App) {
         Update,
         (retire, begin, convert, effects, complete, guard)
             .chain()
-            .after(super::field_view::FieldPreparation),
+            .after(super::field_view::FieldPreparation)
+            .run_if(super::battle::field_running),
     );
     app.get_sub_app_mut(bevy::render::RenderApp)
         .unwrap()
@@ -207,7 +208,7 @@ fn begin(
             return;
         }
     }
-    let Ok((backdrop_mesh, backdrop_material)) = backdrop.single() else {
+    let Ok(backdrop) = backdrop.single() else {
         return;
     };
     let mut entities = Vec::new();
@@ -258,35 +259,6 @@ fn begin(
             ))
             .id(),
     );
-    // Loading may freeze the live cameras until preparation finishes. Warm the
-    // menu backdrop offscreen too, so readiness never depends on that frozen view.
-    let backdrop = commands
-        .spawn((
-            backdrop_mesh.clone(),
-            backdrop_material.clone(),
-            Transform::default(),
-            RenderLayers::layer(LAYER),
-            NoFrustumCulling,
-        ))
-        .id();
-    report.expected.insert(backdrop.into());
-    entities.push(backdrop);
-    if let Some(panorama) = &art.panorama
-        && let Some(draw) = &panorama.draw
-    {
-        let entity = commands
-            .spawn((
-                Mesh3d(draw.mesh.clone()),
-                MeshMaterial3d(draw.material.clone()),
-                Transform::default(),
-                RenderLayers::layer(LAYER),
-                NoFrustumCulling,
-            ))
-            .id();
-        report.expected.insert(entity.into());
-        report.images.insert(panorama.image.id());
-        entities.push(entity);
-    }
     for (mesh, material, essential) in ui.prepared_layers() {
         // Optional pages may still be loading, or may never be selected. Their
         // missing textures must not enter the mandatory submission fence.
@@ -358,16 +330,21 @@ fn begin(
                 .into_iter()
                 .flat_map(|depth_write| {
                     [false, true].into_iter().flat_map(move |lighting| {
-                        std::iter::once((None, false))
-                            .chain(Blend::ACTOR_MODES.into_iter().flat_map(|blend| {
-                                [false, true].map(|two_sided| (Some(blend), two_sided))
-                            }))
-                            .map(move |(blend, two_sided)| MaterialVariant::Actor {
-                                depth_write,
-                                lighting,
-                                blend,
-                                two_sided,
-                            })
+                        [
+                            (None, false),
+                            (Some(Blend::Alpha), false),
+                            (Some(Blend::Additive), false),
+                            (Some(Blend::Subtractive), false),
+                            (Some(Blend::Alpha), true),
+                            (Some(Blend::Additive), true),
+                            (Some(Blend::Subtractive), true),
+                        ]
+                        .map(|(blend, two_sided)| MaterialVariant::Actor {
+                            depth_write,
+                            lighting,
+                            blend,
+                            two_sided,
+                        })
                     })
                 })
                 .chain(
@@ -694,7 +671,9 @@ fn rendered(
     if report.map.is_none() {
         return;
     }
-
+    if resident.battle.load(Ordering::Acquire) {
+        return;
+    }
     if resident.active.load(Ordering::Acquire) {
         let error = report.pipelines.iter().find_map(|&pipeline| {
             if let CachedPipelineState::Err(error) = cache.get_render_pipeline_state(pipeline)

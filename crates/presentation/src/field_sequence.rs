@@ -447,7 +447,12 @@ fn capture(
         if art.ready
             && !roots.is_empty()
             && roots.iter().all(|(_, p)| p.prepared)
-            && ready.0.load(std::sync::atomic::Ordering::Acquire)
+            && ready
+                .0
+                .lock()
+                .unwrap()
+                .completed
+                .load(std::sync::atomic::Ordering::Acquire)
             && refraction.get()
         {
             recording.settled += 1;
@@ -478,7 +483,12 @@ fn capture(
         return;
     }
     if !recording.presenting
-        || !ready.0.load(std::sync::atomic::Ordering::Acquire)
+        || !ready
+            .0
+            .lock()
+            .unwrap()
+            .completed
+            .load(std::sync::atomic::Ordering::Acquire)
         || !refraction.get()
         || roots.iter().any(|(_, p)| !p.prepared)
         || session.0.events.world.actors.iter().any(|(id, actor)| {

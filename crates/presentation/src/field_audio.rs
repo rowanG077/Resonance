@@ -2,6 +2,8 @@
 //! The same source feeds Bevy and the device-free recorder.
 use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
 use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
+#[path = "battle_audio.rs"]
+pub(crate) mod battle;
 #[path = "field_audio_record.rs"]
 mod record;
 #[path = "field_audio_validation.rs"]
@@ -552,6 +554,7 @@ fn voice_completion(command: &AudioCommand) -> Option<Arc<AtomicBool>> {
 }
 
 enum Message {
+    Battle(u64, battle::Command),
     LeaveField,
     EnterField(Arc<Assets>),
     Script(AudioCommand),
@@ -676,7 +679,6 @@ pub(super) struct FieldSource {
 
 struct ScorePlayer {
     stream: Stream,
-    cue: Option<i16>,
     controls: LiveControls,
     slot: Option<u16>,
     volume: f32,
@@ -688,7 +690,6 @@ impl ScorePlayer {
         let looping = looping && !package.score().loop_events.is_empty();
         Ok(Self {
             stream: Stream::in_synthesizer(package, looping, synth)?,
-            cue: None,
             controls: LiveControls::default(),
             slot: None,
             volume: 1.,
@@ -743,6 +744,7 @@ impl Spoken {
 }
 pub(super) struct Frames {
     synth: Synthesizer,
+    battle: Option<battle::State>,
     completions: Completions,
     assets: Arc<Assets>,
     receive: Option<Receiver<Message>>,
@@ -799,6 +801,7 @@ impl Frames {
         }
         self.music = None;
         self.sounds.clear();
+        self.battle = None;
     }
     fn stop_voice(&mut self) -> Result<()> {
         if let Some(voice) = self.voice.take()
@@ -989,6 +992,9 @@ impl Frames {
         }
         loop {
             match self.receive.as_ref().unwrap().try_recv() {
+                Ok(Message::Battle(command_id, command)) => {
+                    self.battle_command(command_id, command)?
+                }
                 Ok(Message::LeaveField) => {
                     self.sounds.clear();
                     self.stop_voice()?;
@@ -1030,13 +1036,14 @@ impl Frames {
         }
         if self.frame.is_multiple_of(BLOCK_FRAMES as u64) {
             self.stream_block.fill([[0; 2]; 3]);
+            if let Some(battle) = &mut self.battle {
+                battle.prepare_stream_block(&mut self.stream_block, self.frame, &self.synth);
+            }
         }
         let mut buses = [[0; 2]; 3];
         let master = self.master;
-        let levels = self.levels;
-
-        let [music_level, effects_level, _] = levels.map(|v| f32::from(v) * (1. / 127.));
-        let voice_level = self.assets.voice_gains[usize::from(levels[2])];
+        let [music_level, effects_level, _] = self.levels.map(|v| f32::from(v) * (1. / 127.));
+        let voice_level = self.assets.voice_gains[usize::from(self.levels[2])];
         let diagnostics = self.assets.diagnostics.clone();
         if let Some(music) = &mut self.music {
             music.player.controls.mono = !self.stereo;
@@ -1068,7 +1075,9 @@ impl Frames {
                 self.sounds.remove(index);
             }
         }
-
+        if let Some(battle) = &mut self.battle {
+            battle.prepare_shared()?;
+        }
         // The synthesizer has already retired only failed entries and prepared
         // the healthy players' current frame before reporting its errors.
         diagnostics.attempt("audio synthesizer", self.synth.advance())?;
@@ -1081,6 +1090,11 @@ impl Frames {
         }
         if let Some(music) = &mut self.music {
             music.fade.advance(1);
+            if self.battle.as_ref().is_some_and(|state| state.stop_music())
+                && music.fade.value() == 0.
+            {
+                self.music = None;
+            }
         }
         self.master.advance(1);
         let mut index = 0;
@@ -1110,7 +1124,9 @@ impl Frames {
             }
             index += 1;
         }
-
+        if let Some(battle) = &mut self.battle {
+            battle.frame(&mut buses, self.frame, &self.completions)?;
+        }
         // Read after every player so submitted PCM and release tails reach
         // the shared studio exactly once, including after a player stops.
         for (bus, unread) in buses.iter_mut().zip(self.synth.unread_frame()) {
@@ -1207,6 +1223,7 @@ impl Decodable for FieldSource {
     fn decoder(&self) -> Frames {
         Frames {
             synth: Synthesizer::default(),
+            battle: None,
             completions: self.completions.clone(),
             assets: self.assets.clone(),
             receive: self
@@ -1235,7 +1252,7 @@ impl Decodable for FieldSource {
 }
 
 pub(super) fn update(world: &mut World) {
-    if world.contains_resource::<super::new_game::TransitionFailure>() {
+    if world.contains_resource::<battle::Playback>() {
         return;
     }
     if !world.contains_resource::<super::new_game::Session>() {
@@ -1252,6 +1269,7 @@ pub(super) fn update(world: &mut World) {
         return;
     }
     let result = (|| -> Result<()> {
+        let mut restarting = false;
         if let Some(control) = world.get_resource::<Control>()
             && let Err(error) = control.check()
         {
@@ -1260,6 +1278,7 @@ pub(super) fn update(world: &mut World) {
             retire(world);
             diagnostics.report("field audio mixer", error)?;
             if let Some(mut session) = world.get_resource_mut::<super::new_game::Session>() {
+                restarting = session.audio.is_none();
                 session.audio.get_or_insert(assets);
             }
         }
@@ -1267,8 +1286,15 @@ pub(super) fn update(world: &mut World) {
             retire(world);
             return Ok(());
         }
-        if world.resource::<super::new_game::Session>().audio.is_some()
-            && !super::new_game::scene_ready(world)
+        // Keep music running through loading. A replacement bank and its opening
+        // cues wait for the destination's prepared scene.
+        if !world
+            .resource::<super::loading::Resident>()
+            .active
+            .load(Ordering::Acquire)
+            || !restarting
+                && world.resource::<super::new_game::Session>().audio.is_some()
+                && !super::field_view::ready(world)
         {
             return Ok(());
         }
@@ -1285,9 +1311,7 @@ pub(super) fn update(world: &mut World) {
             }
             let mut session = world.resource_mut::<super::new_game::Session>();
             session.audio = None;
-            if session.is_field() {
-                session.field_mut().voice_feedback = true;
-            }
+            session.field.voice_feedback = true;
         }
         let owner = world.resource::<super::new_game::Session>();
         let preferences = owner
@@ -1376,15 +1400,14 @@ fn flush_commands(world: &mut World) -> Result<()> {
 /// Field effects and dialogue end at the boundary; music and its clock survive.
 /// A full queue defers the transition; a stopped optional mixer cannot block it.
 pub(super) fn leave_field(world: &mut World) -> Result<bool> {
-    let Some(control) = world.get_resource::<Control>() else {
+    let Some(mut control) = world.get_resource::<Control>().cloned() else {
         return Ok(true);
     };
-    let checked = control.check();
-    let diagnostics = control.diagnostics.clone();
-    let result = checked.and_then(|()| {
+    let result = control.check().and_then(|()| {
         flush_commands(world)?;
-        world.resource_mut::<Control>().leave_field()
+        control.leave_field()
     });
+    let diagnostics = control.diagnostics.clone();
     if let Err(error) = result {
         let full = matches!(
             error.downcast_ref::<mpsc::TrySendError<Message>>(),
@@ -2262,24 +2285,17 @@ mod tests {
             let waiting = Arc::new(AtomicBool::new(false));
             let mut session = super::super::new_game::Session::load(&root)?;
             session.audio = None;
-            session.field_mut().voice_feedback = true;
-            session.field_mut().events.world.audio_commands = vec![AudioCommand::Voice {
+            session.field.voice_feedback = true;
+            session.field.events.world.audio_commands = vec![AudioCommand::Voice {
                 resource: 7,
                 completion: Some(waiting.clone()),
             }];
             let resident = super::super::loading::Resident::default();
             resident.active.store(true, Ordering::Release);
             let mut app = App::new();
-            app.add_plugins((MinimalPlugins, AssetPlugin::default()))
-                .init_asset::<Image>();
-            let art = crate::field_view::prepared_test_art(
-                session.field_assets(),
-                app.world().resource::<AssetServer>(),
-            );
             app.init_resource::<bevy::asset::Assets<FieldSource>>()
                 .add_message::<AppExit>()
                 .insert_resource(super::super::diagnostics::Diagnostics(diagnostics))
-                .insert_resource(art)
                 .insert_resource(resident)
                 .insert_resource(session)
                 .insert_resource(control)
@@ -2304,7 +2320,7 @@ mod tests {
             assert!(
                 app.world()
                     .resource::<super::super::new_game::Session>()
-                    .field()
+                    .field
                     .events
                     .world
                     .audio_commands
@@ -2338,7 +2354,7 @@ mod tests {
             let completed = Arc::new(AtomicBool::new(false));
             app.world_mut()
                 .resource_mut::<super::super::new_game::Session>()
-                .field_mut()
+                .field
                 .events
                 .world
                 .audio_commands
@@ -2372,19 +2388,17 @@ mod tests {
                 let diagnostics = Diagnostics::new(paranoid);
                 let mut session = new_game::Session::load(&root)?;
                 for tick in 0..3000 {
-                    if session.field().events.world.field_transition.is_some() {
+                    if session.field.events.world.field_transition.is_some() {
                         break;
                     }
-                    session
-                        .field_mut()
-                        .step(resonance_game::field::FieldInput {
-                            pressed_buttons: (resonance_events::input::Buttons::default())
-                                .with(resonance_events::input::Button::Accept, tick % 120 == 0),
-                            ..Default::default()
-                        })?;
+                    session.field.step(resonance_game::field::FieldInput {
+                        pressed_buttons: (resonance_events::input::Buttons::default())
+                            .with(resonance_events::input::Button::Accept, tick % 120 == 0),
+                        ..Default::default()
+                    })?;
                 }
                 let request = session
-                    .field()
+                    .field
                     .events
                     .world
                     .field_transition
@@ -2393,7 +2407,7 @@ mod tests {
                 assert_eq!(request.map, 340);
                 let operation = request.operation.clone();
                 session.audio = None;
-                session.field_mut().events.world.audio_commands.clear();
+                session.field.events.world.audio_commands.clear();
                 let mut assets = synthetic_assets();
                 assets.diagnostics = diagnostics.clone();
                 assets
@@ -2421,11 +2435,9 @@ mod tests {
                 resident.active.store(true, Ordering::Release);
                 let mut app = App::new();
                 app.init_resource::<bevy::asset::Assets<FieldSource>>()
-                    .init_resource::<ButtonInput<KeyCode>>()
                     .add_message::<AppExit>()
                     .insert_resource(super::super::diagnostics::Diagnostics(diagnostics.clone()))
                     .insert_resource(resident)
-                    .insert_resource(crate::test_support::run_options(&root))
                     .insert_resource(session)
                     .insert_resource(control)
                     // Match the ordinary player: transition precedes audio update.
@@ -2436,43 +2448,31 @@ mod tests {
                     .add(source);
                 let entity = app.world_mut().spawn(AudioPlayer(handle)).id();
                 app.update();
-                assert!(app.world().resource::<Messages<AppExit>>().is_empty());
+                assert_eq!(
+                    !app.world().resource::<Messages<AppExit>>().is_empty(),
+                    paranoid
+                );
                 if paranoid {
-                    assert_eq!(app.world().resource::<new_game::Session>().map_id(), 5);
-                    assert!(
-                        operation.is_pending(),
-                        "failed handoff must remain retryable"
-                    );
+                    assert_eq!(app.world().resource::<new_game::Session>().assets.map_id, 5);
+                    assert!(!operation.is_pending());
+                    continue;
                 }
                 if !stopped {
                     let session = app.world().resource::<new_game::Session>();
-                    assert_eq!(session.map_id(), 5);
-                    assert!(session.field().events.world.field_transition.is_some());
+                    assert_eq!(session.assets.map_id, 5);
+                    assert!(session.field.events.world.field_transition.is_some());
                     assert!(operation.is_pending());
                     assert!(waiting.iter().all(|token| !token.load(Ordering::Acquire)));
                     decoder.as_mut().unwrap().frame()?;
-                }
-                if paranoid {
-                    app.world_mut()
-                        .resource_mut::<ButtonInput<KeyCode>>()
-                        .press(KeyCode::Enter);
-                }
-                app.update();
-                if !stopped {
+                    app.update();
                     let frames = decoder.as_mut().unwrap();
                     frames.frame()?;
                     app.world()
                         .resource::<Control>()
                         .acknowledge_frames(frames.frame);
                 }
-                let began = std::time::Instant::now();
-                while app.world().resource::<new_game::Session>().map_id() == 5 {
-                    ensure!(began.elapsed().as_secs() < 30, "field preparation stalled");
-                    app.update();
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
                 let session = app.world().resource::<new_game::Session>();
-                assert_eq!(session.map_id(), 340);
+                assert_eq!(session.assets.map_id, 340);
                 assert!(
                     session.audio.is_some(),
                     "destination audio was not retained"
@@ -2744,6 +2744,92 @@ mod tests {
     }
 
     #[test]
+    fn battle_audio_preparation_skips_unavailable_descriptors_and_independent_bad_entries()
+    -> Result<()> {
+        use resonance_content::{battle_audio, field_preload::File};
+        let (base_files, base) = prepared_bank(Diagnostics::default());
+        let inventory = [
+            (base.music[&1].clone(), AudioRole::AudioPackage),
+            (base.voices[&7].asset.clone(), AudioRole::Voice),
+        ]
+        .into_iter()
+        .map(|(asset, role)| {
+            let bytes = base_files.read(&asset.path).unwrap().len() as u64;
+            (
+                asset.path,
+                File {
+                    sha256: asset.sha256,
+                    bytes,
+                    roles: [role].into(),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+        let descriptor = serde_json::to_value(battle_audio::Audio {
+            assets: base,
+            files: inventory,
+            effect_spatial: [320., 5., 64., 0., 127.],
+            voice_spatial: [320., 5., 64., 24., 104.],
+        })?;
+        let mut bad_header = descriptor.clone();
+        bad_header["assets"]["version"] = 0.into();
+        let mut bad_entry = descriptor;
+        bad_entry["assets"]["voices"]["8"] = bad_entry["assets"]["voices"]["7"].clone();
+        bad_entry["assets"]["voices"]["8"]["path"] = "audio/broken.wav".into();
+        bad_entry["files"]["audio/broken.wav"] = serde_json::json!(false);
+        for (bytes, available) in [
+            (None, false),
+            (Some(b"invalid JSON".to_vec()), false),
+            (Some(serde_json::to_vec(&bad_header)?), false),
+            (Some(serde_json::to_vec(&bad_entry)?), true),
+        ] {
+            for paranoid in [false, true] {
+                let (mut files, _) = prepared_bank(Diagnostics::new(paranoid));
+                if let Some(bytes) = &bytes {
+                    files.insert(battle_audio::PATH.into(), bytes.clone().into());
+                }
+                let prepared = resonance_game::battle::audio::prepare(
+                    &std::env::temp_dir(),
+                    files,
+                    &mut resonance_content::prepared::Cache::default(),
+                    || false,
+                );
+                if paranoid {
+                    assert!(prepared.is_err());
+                    continue;
+                }
+                let (mut files, descriptor) = prepared?;
+                assert_eq!(descriptor.is_some(), available);
+                assert!(files.diagnostics().has_errors());
+                // Playback uses the admitted descriptor; it does not decode it again.
+                files.remove(battle_audio::PATH);
+                let loaded =
+                    battle::Assets::load(&files, descriptor.as_ref(), &mut Cache::default())?;
+                if let Some(descriptor) = descriptor {
+                    assert_eq!(
+                        descriptor.assets.voices.keys().copied().collect::<Vec<_>>(),
+                        [7]
+                    );
+                    let previous = files.diagnostics().entries();
+                    loaded.bind(resonance_game::battle::voice::Sound::Cue(2))?;
+                    loaded.bind(resonance_game::battle::voice::Sound::Stream(7))?;
+                    assert_eq!(files.diagnostics().entries(), previous);
+                }
+            }
+        }
+        assert!(
+            resonance_game::battle::audio::prepare(
+                &std::env::temp_dir(),
+                base_files,
+                &mut resonance_content::prepared::Cache::default(),
+                || true,
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
     fn valid_audio_banks_admit_entries_beyond_former_count_limits() -> Result<()> {
         let (files, mut manifest) = prepared_bank(Diagnostics::new(true));
         let package = manifest.music[&1].clone();
@@ -2997,7 +3083,7 @@ mod tests {
             }
         }
         assert!(heard_scene_music);
-        assert_eq!(app.world().resource::<Session>().field().map_id, 526);
+        assert_eq!(app.world().resource::<Session>().field.map_id, 526);
         assert_eq!(audio.frames.music.as_ref().map(|music| music.id), Some(8));
 
         // The next room inherits the same mixer; its script only changes volume.
@@ -3033,7 +3119,7 @@ mod tests {
             flush_commands(app.world_mut())?;
             audio.advance()?;
             assert_eq!(audio.frames.music.as_ref().map(|music| music.id), Some(8));
-            if app.world().resource::<Session>().field().story_progress()? == 1_204_000 {
+            if app.world().resource::<Session>().field.story_progress()? == 1_204_000 {
                 break;
             }
         }
@@ -3120,43 +3206,6 @@ mod tests {
         assert!(fade.value() > 0.);
         fade.advance(1);
         assert_eq!(block_gains(master, Some(fade)), [0.; CONTROLS_PER_BLOCK]);
-    }
-
-    #[test]
-    fn field_entry_clears_scripted_music_fades_before_destination_commands() -> Result<()> {
-        let mut assets = synthetic_assets();
-        assets.music.insert(0, test_music());
-        let assets = Arc::new(assets);
-        let (source, mut control) = assets.clone().session();
-        let mut frames = source.decoder();
-        control.send(AudioCommand::Music(MusicCommand::Play(0)))?;
-        control.levels([0, 127, 127])?;
-        frames.frame()?;
-        for (volume, duration_ticks) in [(0, 0), (50, 0), (0, 120)] {
-            control.send(AudioCommand::MusicVolume {
-                volume,
-                duration_ticks,
-            })?;
-            frames.frame()?;
-            let previous = frames.music.as_ref().unwrap().fade.value();
-            control.leave_field()?;
-            frames.frame()?;
-            assert!(frames.music.as_ref().unwrap().fade.value() <= previous);
-
-            control.enter_field(assets.clone())?;
-            control.send(AudioCommand::Music(MusicCommand::Play(0)))?;
-            frames.frame()?;
-            assert_eq!(frames.music.as_ref().unwrap().fade.value(), 1.);
-            assert_eq!(frames.levels[0], 0, "keep the user's music setting");
-        }
-        control.enter_field(assets)?;
-        control.send(AudioCommand::MusicVolume {
-            volume: 50,
-            duration_ticks: 0,
-        })?;
-        frames.frame()?;
-        assert_eq!(frames.music.as_ref().unwrap().fade.value(), 50. / 127.);
-        Ok(())
     }
 
     #[test]
