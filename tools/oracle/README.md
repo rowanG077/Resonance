@@ -228,6 +228,9 @@ The catalogue includes all 70 implemented emitters, including the new trails,
 star orbits, cylinders, light sheets and bursts. They use the same named input
 domains for individual comparisons, random compositions and shrinking. Sprite
 coverage also includes flames, sparkles, lightning and cooking clouds.
+Cloud cleanup runs in each emission phase with both cleanup transitions, in
+addition to randomized controls and compositions. Rust tests cover script results,
+resource requirements and particle ownership; this suite covers visual appearance.
 
 Required private effect inputs live in `local/oracle-fixtures/effects/`: one
 savestate and companion `.s01.dtm` per starting field, plus the native scene

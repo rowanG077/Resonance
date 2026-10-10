@@ -209,6 +209,7 @@ impl Emitter {
             Kind::RisingOrbs(effect) => !effect.preserve_particles,
             Kind::Inward { clear, .. } => *clear == 1,
             Kind::Stream(stream::Stream::Flame { cleanup, .. }) => *cleanup,
+            Kind::Cloud(cloud) => cloud.cleanup,
             _ => true,
         }
     }
@@ -369,7 +370,9 @@ impl Emitter {
                 actor.position = std::array::from_fn(|i| center[i] + velocity[i]);
                 *phase = 1;
             }
-            Kind::Cloud(cloud) => cloud.emit(center, born, clock, *phase, actor, random, out),
+            Kind::Cloud(cloud) => {
+                cloud.emit((owner, center), born, clock, *phase, actor, random, out)
+            }
             Kind::Orbiting(orbiting) => {
                 orbiting.emit((owner, center), actor, phase, born, clock, random, out)?
             }

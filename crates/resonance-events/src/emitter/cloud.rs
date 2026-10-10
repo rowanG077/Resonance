@@ -13,13 +13,14 @@ pub(super) struct Cloud {
     pub lifetime: [u32; 2],
     pub alpha: [u32; 2],
     pub fade: [f32; 2],
+    pub cleanup: bool,
     turn: f32,
 }
 
 impl Cloud {
     pub fn emit(
         &mut self,
-        center: [f32; 3],
+        (owner, center): (i32, [f32; 3]),
         born: u32,
         clock: u32,
         phase: u8,
@@ -51,6 +52,7 @@ impl Cloud {
                 self.lifetime[0]
             } + 1;
             let mut glow = particle(center, born, self.palette, lifetime);
+            glow.owner = (phase == 0).then_some(owner);
             glow.recipe = GLOW_SPRITE;
             glow.field_fog = false;
             glow.blend = Some(actor.blend.unwrap_or(Blend::Additive));
@@ -114,6 +116,7 @@ impl Cloud {
             self.lifetime[1]
         } + 1;
         let mut mote = particle(center, born, color, lifetime);
+        mote.owner = (phase == 0).then_some(owner);
         mote.field_fog = false;
         mote.size = [if release {
             self.lifetime[0] as f32

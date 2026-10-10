@@ -112,8 +112,9 @@ EMITTERS = {kind: definition for kinds, definition in [
     ((59,), Emitter([(0, 'palette', PALETTES), (1, 'size', SIZES), (2, 'trail_size', SIZES),
                 (3, 'lifetime', (30, 60, 90)), (4, 'trail_lifetime', (30, 60, 90)),
                 (5, 'alpha', VISIBLE_ALPHAS), (6, 'trail_alpha', VISIBLE_ALPHAS),
-                (7, 'fade_sixteenths', (-16, -32, -64)), (8, 'trail_fade_sixteenths', (0, -16, -32))],
-                speeds=(3, 5, 8), phases=((1, 2),), tail=max(VISIBLE_ALPHAS)+1, depth=6)),
+                (7, 'fade_sixteenths', (-16, -32, -64)), (8, 'trail_fade_sixteenths', (0, -16, -32)),
+                (9, 'cleanup', (0, 1))],
+                speeds=(3, 5, 8), phases=((1, 2), (3,), ()), tail=max(VISIBLE_ALPHAS)+1, depth=6)),
     ((62,), Emitter([(0, 'radius', (30, 60, 100)), (1, 'size', SIZES),
                 (2, 'size_variation', (1, 8, 20))], tail=301, depth=4)),
     ((64,), Emitter([(0, 'radius', (30, 60, 100)), (1, 'size', SIZES),
@@ -242,7 +243,8 @@ FIELD_TYPES = ([('sprite', n) for n in SPRITES] + [('model', n) for n in range(3
                + [('emitter', n) for n in EMITTERS if n not in RESOURCE_EMITTERS]
                + [('emote', n) for n in range(20)])
 EMPTY_TAIL_UPDATES = 6
-CLEANUP_CASES = ('emitter-38-cleanup-0-to-1', 'emitter-38-cleanup-1-to-0')
+CLEANUP_CASES = {f'emitter-{variant}-phase-{phase}-cleanup-{before}-to-{1-before}': (variant, phase, before)
+                 for variant, phase in [(38, 2), (59, 0), (59, 1), (59, 2)] for before in (0, 1)}
 FAR_CLIP_DISTANCE = 40000
 BACKDROP_SEPARATION = 2
 
@@ -336,10 +338,20 @@ def effect(kind, variant, camera, rng, index=0, actor=None, *, baseline=False):
                             {name: rng.choice(visual_values(variant, name, values))}])
         if not baseline and 'target' in parameters and variant != 67 and rng.choice((False, True)):
             # Moving bursts accept per-update displacement after launch.
-            motion = ({'velocity': [rng.randint(0, 4), 0, 0]} if variant in (19, 32, 46, 47, 50, 51, 58) else
-                      {'target': [position[0]+rng.randint(50, 150), *position[1:]]})
-            changes.append([birth + rng.randint(1, 8),
-                            motion])
+            if variant in (19, 32, 46, 47, 50, 51, 58):
+                motion = {'velocity': [rng.randint(0, 4), 0, 0]}
+            else:
+                target = parameters['target'].copy()
+                offset = rng.randint(50, 150)
+                # Constructors accept signed coordinates; later target edits are unsigned.
+                axis = next((i for i, v in enumerate(target) if 0 <= v <= 0xffff-offset), None)
+                motion = {}
+                if axis is not None:
+                    target[axis] += offset
+                    motion = {'target': target}
+            at = birth + rng.randint(1, 8)
+            if motion:
+                changes.append([at, motion])
         if variant == 18:
             # A restart after the first update still needs an outward and return
             # step. Shorter flights divide by zero in the source simulation.
@@ -501,12 +513,17 @@ def effect_events(effect):
             yield [birth+70, 0x19, [1, 4000, 0, 0]]
     else:
         raise ValueError(f'unknown effect kind {kind}')
-    for tick, changes in effect['changes']:
+    target = p.get('target')
+    for tick, changes in sorted(effect['changes'], key=lambda row: row[0]):
         for name, value in changes.items():
             if kind == 'emitter':
                 if name in ('target', 'velocity', 'direction_target'):
                     for axis, coordinate in enumerate(value):
+                        if name == 'target' and target is not None and coordinate == target[axis]:
+                            continue
                         yield [tick, 0x1d, [handle, 113+emitter_vector_slot(variant, name)+axis, coordinate]]
+                    if name == 'target':
+                        target = value
                 else:
                     property = 33 if name == 'phase' else 5 if name == 'movement_speed' else 113+definition.slots[name]
                     yield [tick, 0x1d, [handle, property, value]]
@@ -586,12 +603,11 @@ def cases(camera, family='field'):
         for kind, variant in FIELD_TYPES:
             name = f'{kind}-{variant}'
             yield frame_ascent(composed_case(name, [effect(kind, variant, camera, random.Random(name), baseline=True)], 1), camera)
-        for before, name in enumerate(CLEANUP_CASES):
-            subject = effect('emitter', 38, camera, random.Random(name), baseline=True)
+        for name, (variant, phase, before) in CLEANUP_CASES.items():
+            subject = effect('emitter', variant, camera, random.Random(name), baseline=True)
             subject['parameters']['cleanup'] = before
-            subject['changes'] = [[tick, values] for tick, values in subject['changes'] if 'cleanup' not in values]
-            release = next(tick for tick, values in subject['changes'] if values.get('phase') == 2)
-            subject['changes'].append([release+1, {'cleanup': 1-before}])
+            subject['changes'] = [[subject['birth'], {'phase': phase}],
+                                  [subject['removal']-1, {'cleanup': 1-before}]]
             yield composed_case(name, [subject], 1)
     else:
         raise ValueError(f'unknown effect family {family}')

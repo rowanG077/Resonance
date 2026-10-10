@@ -676,6 +676,7 @@ impl Emitter {
                     value.map(|v| i32::from(v as i16)),
                     16.,
                 ),
+                9 => flag(&mut s.cleanup, value),
                 _ => Ok(0),
             },
             Kind::Orbiting(s) => match slot {

@@ -59,178 +59,52 @@ fn enemy_resources() -> ResourceLibrary {
 }
 
 #[test]
-fn rising_smoke_fills_its_volume_then_runs_out_and_fades() {
-    let setup = script(&[(
-        Call::CreateEffectEmitter,
-        &emitter(41, 100, &[3, 40, 0, 4, 10, 20, 5, 100, 20]),
-    )]);
-    let query = script(&[(Call::GetActorProperty, &[500, 113])]);
-    let mut events = interactive_effect(&setup, &query);
-    steps(&mut events, 5);
-    assert_eq!(events.world.billboards.len(), 3);
-    for (i, p) in events.world.billboards.values().enumerate() {
-        assert_eq!(p.position[0], 0.);
-        assert!(p.position[1].abs() <= 4.);
-        assert!((i as f32 * 10. ..=i as f32 * 10. + 5.).contains(&p.position[2]));
-        assert!((100..120).contains(&p.rgba[3]));
+fn textured_emitters_require_their_images_before_creation() {
+    for kind in [40, 70] {
+        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 5, &[100, 40]))]);
+        let program = program(&setup, &[0x20ff]);
+        assert!(
+            EventRuntime::with_state(
+                program.clone(),
+                Arc::new(Default::default()),
+                controlled_world(),
+                Default::default()
+            )
+            .is_err()
+        );
+        let mut world = controlled_world();
+        world.effect_textures.extend([(0, (100, 0)), (1, (101, 0))]);
+        let events = runtime(program, Default::default(), world);
+        assert!(!events.world.actors[&500].visible);
     }
-    assert!(events.trigger(42, true).unwrap());
-    events.step().unwrap();
-    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
-    steps(&mut events, 50);
-    assert!(events.world.billboards.is_empty());
 }
 
 #[test]
-fn curved_projectile_emits_one_impact_then_leaves_it_to_finish() {
-    let mut input = emitter(40, 5, &[100, 40, 0, 0, 100, 0, 0, 0, 0, 100]);
-    input[4] = 999; // This sprite emitter does not need a model resource.
-    let setup = script(&[(Call::CreateEffectEmitter, &input)]);
-    let query = script(&[(Call::GetActorProperty, &[500, 33])]);
-    let program = program(&setup, &query);
-    assert!(
-        EventRuntime::with_state(
-            program.clone(),
-            Arc::new(Default::default()),
-            controlled_world(),
-            Default::default()
-        )
-        .is_err()
-    );
-    let mut world = controlled_world();
-    world.effect_textures.insert(0, (100, 0));
-    let mut events = runtime(program, Default::default(), world);
-    assert!(!events.world.actors[&500].visible);
-    steps(&mut events, 20);
-    let impact: Vec<_> = events
-        .world
-        .billboards
-        .iter()
-        .filter(|(_, p)| p.texture == Some((100, 0)))
-        .map(|(&id, p)| (id, p.position))
-        .collect();
-    assert_eq!(impact.len(), 5);
-    let arrival = events.world.actors[&500].position;
-    assert!(events.trigger(42, true).unwrap());
-    steps(&mut events, 5);
-    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
-    assert_ne!(events.world.actors[&500].position, arrival);
-    assert_eq!(
-        events
-            .world
-            .billboards
-            .values()
-            .filter(|p| p.texture.is_some())
-            .count(),
-        5
-    );
-    for (id, position) in impact {
-        let p = &events.world.billboards[&id];
-        assert_eq!(p.position, position);
-        assert!(p.size[0] > 0.);
-    }
-    steps(&mut events, 70);
-    assert!(events.world.billboards.is_empty());
-}
-
-#[test]
-fn curved_projectiles_finish_their_trails_and_report_their_phase() {
-    for (kind, phase, color) in [
-        (10, 2, Some(65)),
-        (37, 1, Some(34)),
-        (61, 2, None),
-        (66, 3, None),
+fn projectiles_report_completion_to_the_waiting_script() {
+    for (kind, parameters, phase) in [
+        (10, vec![100, 40, 0, -400, 100, 0, 0, 0, 0, 100], 2),
+        (37, vec![100, 34, 40, 0, 100, 0, 0, 0, 0, 100], 1),
+        (61, vec![100, 40, 0, -400, 100, 0, 0, 0, 0, 100], 2),
+        (66, vec![100, 40, 0, -400, 100, 0, 0, 0, 0, 100], 3),
+        (56, vec![101, 20, 4, -4, 100, 0, 0], 2),
     ] {
-        let mut parameters = [100, 40, 0, -400, 100, 0, 0, 0, 0, 100];
-        if kind == 37 {
-            parameters[1..3].copy_from_slice(&[34, 40]);
-        }
         let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 5, &parameters))]);
         let query = script(&[(Call::GetActorProperty, &[500, 33])]);
         let mut events = interactive_effect(&setup, &query);
-        if let Some(color) = color {
-            events.world.effect_palette.0[color] = [12, 23, 45, 255];
-        }
-        steps(&mut events, 10);
-        assert!(events.world.actors[&500].position[2] > 15.);
-        if color.is_some() {
-            assert!(
-                events
-                    .world
-                    .billboards
-                    .values()
-                    .all(|p| p.rgba[..3] == [12, 23, 45])
-            );
-        }
-        steps(&mut events, 10);
-        let end = events.world.actors[&500].position;
-        assert!(!events.world.billboards.is_empty());
+        steps(&mut events, 20);
         assert!(events.trigger(42, true).unwrap());
         events.step().unwrap();
-        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), phase);
-        steps(&mut events, 65);
-        assert_eq!(events.world.actors[&500].position == end, kind != 37);
-        assert!(events.world.billboards.is_empty());
+        assert_eq!(
+            events.memory().read(0x20, Width::S32).unwrap(),
+            phase,
+            "emitter {kind}"
+        );
+        finish_effects(&mut events);
     }
 }
 
 #[test]
-fn timed_light_trail_emits_along_its_path_and_then_finishes() {
-    let setup = script(&[(
-        Call::CreateEffectEmitter,
-        &emitter(56, 0, &[101, 20, 4, -4, 100, 0, 0]),
-    )]);
-    let query = script(&[(Call::GetActorProperty, &[500, 33])]);
-    let mut events = interactive_effect(&setup, &query);
-    steps(&mut events, 5);
-    assert_eq!(
-        events
-            .world
-            .billboards
-            .values()
-            .map(|p| p.position[0])
-            .collect::<Vec<_>>(),
-        [0., 25., 50., 75., 100.]
-    );
-    let end = events.world.actors[&500].position;
-    assert!(events.trigger(42, true).unwrap());
-    events.step().unwrap();
-    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
-    steps(&mut events, 65);
-    assert_eq!(events.world.actors[&500].position, end);
-    assert!(events.world.billboards.is_empty());
-}
-
-#[test]
-fn radial_flash_expands_once_and_its_sparks_travel_outward() {
-    use resonance_content::effect::sprite::ORB_SPRITE;
-    let setup = script(&[(Call::CreateEffectEmitter, &emitter(52, 0, &[10]))]);
-    let mut events = interactive_effect(&setup, &[0x20ff]);
-    events.step().unwrap();
-    assert_eq!(events.world.billboards.len(), 34);
-    let glows = events
-        .world
-        .billboards
-        .values()
-        .filter(|p| p.recipe == ORB_SPRITE);
-    assert_eq!(glows.count(), 2);
-    steps(&mut events, 5);
-    for p in events.world.billboards.values() {
-        if p.recipe == ORB_SPRITE {
-            assert!(p.size[0] > 100.);
-            assert_eq!(p.alpha(events.world.tick), 255.);
-        } else {
-            assert!(p.alpha(events.world.tick) < 200.);
-            let distance = p.position.iter().map(|v| v * v).sum::<f32>().sqrt();
-            assert!(distance >= 45. - 0.001, "spark distance: {distance}");
-        }
-    }
-    steps(&mut events, 40);
-    assert!(events.world.billboards.is_empty());
-}
-
-#[test]
-fn charged_light_gathers_then_travels_and_reports_completion() {
+fn charged_light_waits_for_release_then_reports_completion() {
     let setup = script(&[(
         Call::CreateEffectEmitter,
         &emitter(58, 10, &[0, 100, 0, -5, 100]),
@@ -243,55 +117,15 @@ fn charged_light_gathers_then_travels_and_reports_completion() {
     let mut events = interactive_effect(&setup, &launch);
     steps(&mut events, 10);
     assert_eq!(events.world.actors[&500].position, [0.; 3]);
-    assert!(events.world.billboards.values().all(|p| {
-        p.position
-            .iter()
-            .zip(p.velocity)
-            .map(|(x, v)| x * v)
-            .sum::<f32>()
-            < 0.
-    }));
     assert!(events.trigger(42, true).unwrap());
     steps(&mut events, 25);
     assert_eq!(events.world.actors[&500].position, [100., 0., 0.]);
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 3);
-    steps(&mut events, 100);
-    assert!(events.world.billboards.is_empty());
+    finish_effects(&mut events);
 }
 
 #[test]
-fn soft_burst_mixes_lights_and_smoke_then_expires() {
-    use resonance_events::effect::Blend;
-    let setup = script(&[(
-        Call::CreateEffectEmitter,
-        &emitter(74, 200, &[100, 35, 10, 75, 25, 300, 500]),
-    )]);
-    let mut events = interactive_effect(&setup, &[0x20ff]);
-    events.step().unwrap();
-    assert_eq!(events.world.billboards.len(), 100);
-    for blend in [Blend::Alpha, Blend::Additive] {
-        assert!(
-            events
-                .world
-                .billboards
-                .values()
-                .any(|p| p.blend == Some(blend))
-        );
-    }
-    steps(&mut events, 10);
-    assert!(
-        events
-            .world
-            .billboards
-            .values()
-            .all(|p| p.position != [0.; 3] && p.size[0] >= 75.)
-    );
-    steps(&mut events, 40);
-    assert!(events.world.billboards.is_empty());
-}
-
-#[test]
-fn staged_glow_charges_once_and_can_restart_after_settling() {
+fn staged_glow_can_restart_after_reporting_completion() {
     let setup = script(&[(Call::CreateEffectEmitter, &emitter(4, 0, &[]))]);
     let charge = script(&[
         (Call::SetActorProperty, &[500, 33, 1]),
@@ -303,448 +137,76 @@ fn staged_glow_charges_once_and_can_restart_after_settling() {
         assert!(events.trigger(42, true).unwrap());
         steps(&mut events, 25);
         assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
-        assert!(
-            events
-                .world
-                .billboards
-                .values()
-                .any(|p| p.size == [700.; 2])
-        );
-        assert!(events.world.billboards.values().any(|p| p.velocity[2] < 0.));
-        steps(&mut events, 130);
-        assert!(events.world.billboards.values().all(|p| p.size[0] <= 100.));
     }
 }
 
 #[test]
-fn charging_ray_gathers_then_sends_growing_lights_along_its_path() {
-    use resonance_content::effect::sprite::ELECTRIC_ARC_SPRITE;
-    let setup = script(&[(
-        Call::CreateEffectEmitter,
-        &emitter(67, 3, &[69, 10, 10, 1, 120, 0, 0, 100, 100, 250]),
-    )]);
-    let release = script(&[(Call::SetActorProperty, &[500, 33, 2])]);
-    let mut events = interactive_effect(&setup, &release);
-    steps(&mut events, 10);
-    assert!(!events.world.billboards.is_empty());
-    assert!(events.world.billboards.values().all(|p| {
-        p.position
-            .iter()
-            .zip(p.velocity)
-            .map(|(x, v)| x * v)
-            .sum::<f32>()
-            < 0.
-    }));
-    assert!(events.trigger(42, true).unwrap());
-    steps(&mut events, 12);
-    let (&id, arc) = events
-        .world
-        .billboards
-        .iter()
-        .find(|(_, p)| p.recipe == ELECTRIC_ARC_SPRITE)
-        .unwrap();
-    let size = arc.size;
-    assert_eq!(arc.velocity, [3., 0., 0.]);
-    assert!(arc.position[0] > 0.);
-    steps(&mut events, 2);
-    assert!(events.world.billboards[&id].size[0] > size[0]);
-    events.world.actors.remove(&500);
-    steps(&mut events, 100);
-    assert!(events.world.billboards.is_empty());
-}
-
-#[test]
-fn light_sheets_stretch_without_drifting_and_bursts_finish() {
-    for kind in [71, 72] {
-        let setup = script(&[(
-            Call::CreateEffectEmitter,
-            &emitter(kind, 0, &[33, 10, 20, 30, 40, 200, 0, 2, 3]),
-        )]);
-        let mut events = interactive_effect(&setup, &[0x20ff]);
-        steps(&mut events, 4);
-        let (&id, p) = events.world.billboards.first_key_value().unwrap();
-        let (size, position) = (p.size, p.position);
-        assert_eq!(position, [0., 10., 0.]);
-        steps(&mut events, 2);
-        let p = &events.world.billboards[&id];
-        assert_eq!(p.position, position);
-        assert_eq!(p.size, [size[0] + 4., size[1] + 16.]);
+fn releasing_lights_reuses_existing_particles_and_eventually_finishes() {
+    for (args, release) in [
+        (
+            emitter(65, 5, &[100, 12, 10, 10, 0, 100, 0, 500, 0, 100]),
+            2,
+        ),
+        (
+            emitter(68, 5, &[100, 12, 10, 10, 0, 100, 0, 500, 0, 100]),
+            2,
+        ),
+        (emitter(73, 200, &[101, 50, 15, 15, 0, 20, 200, 0, 2]), 1),
+    ] {
+        let setup = script(&[(Call::CreateEffectEmitter, &args)]);
+        let release = script(&[(Call::SetActorProperty, &[500, 33, release])]);
+        let resources = ResourceLibrary {
+            rising_light_destination: Some([500., 0., 100.]),
+            ..Default::default()
+        };
+        let mut events = runtime(program(&setup, &release), resources, controlled_world());
         steps(&mut events, 30);
-        assert_eq!(events.world.billboards.is_empty(), kind == 72);
-    }
-}
-
-#[test]
-fn cylinder_layers_animate_then_release_one_flash() {
-    use resonance_content::effect::sprite::CYLINDER_RAY_SPRITE;
-    let setup = script(&[(Call::CreateEffectEmitter, &emitter(70, 0, &[33]))]);
-    let release = script(&[(Call::SetActorProperty, &[500, 33, 1])]);
-    let mut world = controlled_world();
-    world.effect_textures.extend([(0, (100, 0)), (1, (101, 0))]);
-    let mut events = runtime(program(&setup, &release), Default::default(), world);
-    steps(&mut events, 12);
-    assert!(
-        events
-            .world
-            .billboards
-            .values()
-            .any(|p| p.texture == Some((100, 0)))
-    );
-    assert!(
-        events
-            .world
-            .billboards
-            .values()
-            .any(|p| p.recipe == CYLINDER_RAY_SPRITE && p.size[1] > 80.)
-    );
-    assert!(events.trigger(42, true).unwrap());
-    steps(&mut events, 20);
-    assert_eq!(events.world.billboards.len(), 2);
-    assert!(
-        events
-            .world
-            .billboards
-            .values()
-            .all(|p| p.position[2] == 150.)
-    );
-    steps(&mut events, 70);
-    assert!(events.world.billboards.is_empty());
-}
-
-#[test]
-fn rising_lights_release_toward_the_cooked_destination() {
-    let setup = script(&[(
-        Call::CreateEffectEmitter,
-        &emitter(73, 200, &[101, 50, 15, 15, 0, 20, 200, 0, 2]),
-    )]);
-    let release = script(&[(Call::SetActorProperty, &[500, 33, 1])]);
-    let destination = [500., 0., 100.];
-    let resources = ResourceLibrary {
-        rising_light_destination: Some(destination),
-        ..Default::default()
-    };
-    let mut events = runtime(program(&setup, &release), resources, controlled_world());
-    steps(&mut events, 20);
-    assert!(!events.world.billboards.is_empty());
-    let ids: std::collections::BTreeSet<_> = events.world.billboards.keys().copied().collect();
-    assert!(events.trigger(42, true).unwrap());
-    steps(&mut events, 2);
-    for (id, p) in &events.world.billboards {
-        assert!(ids.contains(id));
-        assert!(!p.field_fog);
-        let delta: [f32; 3] = std::array::from_fn(|i| destination[i] - p.position[i]);
-        let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
-        let speed = p.velocity.iter().map(|v| v * v).sum::<f32>().sqrt();
-        assert!(speed > 0.);
-        for i in 0..3 {
-            assert!((p.velocity[i] / speed - delta[i] / distance).abs() < 0.001);
-        }
-    }
-    steps(&mut events, 300);
-    assert!(events.world.billboards.is_empty());
-}
-
-#[test]
-fn orbiting_particles_release_existing_lights_toward_their_destination() {
-    for kind in [65, 68] {
-        let setup = script(&[(
-            Call::CreateEffectEmitter,
-            &emitter(kind, 5, &[100, 12, 10, 10, 0, 100, 0, 500, 0, 100]),
-        )]);
-        let release = script(&[(Call::SetActorProperty, &[500, 33, 2])]);
-        let mut events = interactive_effect(&setup, &release);
-        steps(&mut events, 30);
-        assert_eq!(events.world.billboards.len(), 12);
         let ids: std::collections::BTreeSet<_> = events.world.billboards.keys().copied().collect();
-        assert!(
-            events
-                .world
-                .billboards
-                .values()
-                .all(|p| p.velocity == [0.; 3])
-        );
+        assert!(!ids.is_empty());
         assert!(events.trigger(42, true).unwrap());
-        let mut travelled = false;
         for _ in 0..180 {
             events.step().unwrap();
-            for (id, p) in &events.world.billboards {
-                assert!(ids.contains(id));
-                if p.velocity != [0.; 3] {
-                    travelled = true;
-                    assert!(p.velocity[0] > 0.);
-                }
-            }
+            assert!(events.world.billboards.keys().all(|id| ids.contains(id)));
         }
-        assert!(travelled);
-        steps(&mut events, 600);
-        assert!(events.world.billboards.is_empty());
+        finish_effects(&mut events);
     }
 }
 
 #[test]
-fn explosion_and_spray_particles_move_outward_and_expire() {
-    for kind in [43, 45] {
-        let parameters = if kind == 43 {
-            vec![73, 20, 10, 16, 2]
-        } else {
-            vec![73]
-        };
-        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 5, &parameters))]);
-        let remove = script(&[(Call::DespawnActor, &[500])]);
-        let mut events = interactive_effect(&setup, &remove);
-        steps(&mut events, 10);
-        let moving: Vec<_> = events
-            .world
-            .billboards
-            .values()
-            .filter(|p| p.velocity != [0.; 3])
-            .collect();
-        assert!(!moving.is_empty());
-        assert!(
-            moving
-                .iter()
-                .filter(|p| p.born < events.world.tick)
-                .all(|p| p.position != [0.; 3])
-        );
-        if kind == 43 {
-            assert_eq!(events.world.billboards.len(), 17);
-            assert!(events.world.billboards.values().any(|p| p.size[0] >= 90.));
-        }
-        assert!(events.trigger(42, true).unwrap());
-        events.step().unwrap();
-        steps(&mut events, 120);
-        assert!(events.world.billboards.is_empty());
-    }
-}
-
-#[test]
-fn twin_glow_stops_its_satellites_without_losing_its_core() {
-    let setup = script(&[(Call::CreateEffectEmitter, &emitter(42, 0, &[0, 100, 10]))]);
-    let stop = script(&[(Call::SetActorProperty, &[500, 33, 1])]);
-    let mut events = interactive_effect(&setup, &stop);
-    steps(&mut events, 10);
-    assert!(
-        events
-            .world
-            .billboards
-            .values()
-            .any(|p| p.position != [0.; 3])
-    );
-    assert!(events.trigger(42, true).unwrap());
-    events.step().unwrap();
-    steps(&mut events, 50);
-    assert!(!events.world.billboards.is_empty());
-    assert!(
-        events
-            .world
-            .billboards
-            .values()
-            .all(|p| p.position == [0.; 3] && p.size == [100.; 2])
-    );
-}
-
-#[test]
-fn shafts_converge_on_the_emitter_and_spirals_rise_around_the_scene_focus() {
-    let center = [150., 200., 50.];
-    for kind in [20, 21] {
-        let mut input = emitter(kind, 0, &[]);
-        input[1..4].copy_from_slice(&center.map(|v| v as i32));
-        let setup = script(&[(Call::CreateEffectEmitter, &input)]);
-        let mut events = interactive_effect(&setup, &[0x20ff]);
-        steps(&mut events, 10);
-        let (&id, particle) = events.world.billboards.iter().next().unwrap();
-        let before = particle.position;
-        let velocity = particle.velocity;
-        steps(&mut events, 10);
-        let particle = &events.world.billboards[&id];
-        let focus = if kind == 21 {
-            [130., 335., center[2]]
-        } else {
-            center
-        };
-        let distance = |p: [f32; 3]| {
-            p.into_iter()
-                .zip(focus)
-                .map(|(p, c)| (p - c).powi(2))
-                .sum::<f32>()
-                .sqrt()
-        };
-        if kind == 20 {
-            assert!(distance(particle.position) < distance(before));
-            assert!(
-                particle.velocity.iter().map(|v| v * v).sum::<f32>()
-                    > velocity.iter().map(|v| v * v).sum::<f32>()
-            );
-        } else {
-            assert_eq!(particle.position[2] - before[2], 50.);
-            assert!(distance(particle.position) > distance(before));
-        }
-    }
-}
-
-#[test]
-fn plane_lights_and_rising_circles_use_their_shared_artwork_and_expire() {
-    use resonance_content::effect::sprite::{PLANE_LIGHT_SPRITES, RISING_LIGHT_SPRITE};
-    for (kind, parameters) in [
-        (57, [100, 30, 25, 25, 255, 0, 1, 2]),
-        (64, [50, 20, 10, 2, 3, 0, 0, 0]),
-    ] {
-        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 50, &parameters))]);
-        let remove = script(&[(Call::DespawnActor, &[500])]);
-        let mut events = interactive_effect(&setup, &remove);
-        steps(&mut events, 20);
-        assert!(!events.world.billboards.is_empty());
-        for p in events.world.billboards.values() {
-            if kind == 57 {
-                assert!(PLANE_LIGHT_SPRITES.contains(&p.recipe));
-                assert!(matches!(p.orientation, effect::SpriteOrientation::World));
-                assert!(p.position[0].hypot(p.position[1]) < 100.);
-                assert!((25. ..50.).contains(&p.size[0]));
+fn cloud_and_flame_cleanup_uses_the_setting_at_removal() {
+    for (kind, phase) in [(25, 0), (59, 0), (59, 1), (59, 2)] {
+        for cleanup in [0, 1] {
+            let mut args = if kind == 25 {
+                emitter(kind, 0, &[60, 57])
             } else {
-                assert_eq!(p.recipe, RISING_LIGHT_SPRITE);
-                assert!((p.position[0].hypot(p.position[1]) - 50.).abs() < 0.001);
-                assert_eq!(p.velocity, [0., 0., 50.]);
-            }
-        }
-        assert!(events.trigger(42, true).unwrap());
-        events.step().unwrap();
-        steps(&mut events, 80);
-        assert!(events.world.billboards.is_empty());
-    }
-}
-
-#[test]
-fn lightning_and_colored_flames_obey_their_spawn_bounds_and_cleanup() {
-    use resonance_content::effect::sprite::{GLOW_SPRITE, LIGHTNING_BOLT_SPRITE};
-    for (kind, parameters) in [
-        (25, [60, 57, 64, 30, 0, 0, 0, 0, 0, 0]),
-        (25, [60, 57, 64, 30, 0, 0, 0, 0, 0, 1]),
-        (39, [57, 60, 1000, 0, 0, 0, 0, 0, 0, 0]),
-    ] {
-        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 0, &parameters))]);
-        let remove = script(&[(Call::DespawnActor, &[500])]);
-        let mut events = interactive_effect(&setup, &remove);
-        events.world.effect_palette.0[57] = [10, 20, 90, 255];
-        steps(&mut events, 20);
-        assert!(!events.world.billboards.is_empty());
-        for p in events.world.billboards.values() {
-            if kind == 25 {
-                assert_eq!(p.recipe, GLOW_SPRITE);
-                assert_eq!(p.rgba, [64, 30, 90, 255]);
-                assert!(p.velocity[2] >= 2. && p.size_delta < 0.);
-            } else {
-                assert_eq!(p.recipe, LIGHTNING_BOLT_SPRITE);
-                assert!((96. ..128.).contains(&p.size[0]));
-                assert_eq!(p.size[1], 1024.);
-                assert!(p.position[0].hypot(p.position[1]) < 1000.);
-            }
-        }
-        assert!(events.trigger(42, true).unwrap());
-        events.step().unwrap();
-        steps(&mut events, 3);
-        assert_eq!(events.world.billboards.is_empty(), parameters[9] == 1);
-        steps(&mut events, 80);
-        assert!(events.world.billboards.is_empty());
-    }
-}
-
-#[test]
-fn travelling_ray_leaves_glow_and_arcs_along_its_direction() {
-    use resonance_content::effect::sprite::{ELECTRIC_ARC_SPRITE, ORB_SPRITE};
-    let setup = script(&[(
-        Call::CreateEffectEmitter,
-        &emitter(32, 25, &[70, 200, 0, 0, 100, 0, 0]),
-    )]);
-    let remove = script(&[(Call::DespawnActor, &[500])]);
-    let mut events = interactive_effect(&setup, &remove);
-    steps(&mut events, 8);
-    assert_eq!(events.world.actors[&500].position, [200., 0., 0.]);
-    let glows: Vec<_> = events
-        .world
-        .billboards
-        .values()
-        .filter(|p| p.recipe == ORB_SPRITE)
-        .collect();
-    let arcs: Vec<_> = events
-        .world
-        .billboards
-        .values()
-        .filter(|p| p.recipe == ELECTRIC_ARC_SPRITE)
-        .collect();
-    assert_eq!(glows.len(), 8);
-    assert_eq!(arcs.len(), 8);
-    for (i, (glow, arc)) in glows.iter().zip(&arcs).enumerate() {
-        assert_eq!(glow.position, [i as f32 * 25., 0., 0.]);
-        assert!((arc.position[0] - glow.position[0]).abs() <= 15.);
-        assert!(glow.alpha(events.world.tick) <= 255.);
-        assert!(arc.angular_velocity[2].abs() > 0.);
-    }
-    assert!(events.trigger(42, true).unwrap());
-    events.step().unwrap();
-    steps(&mut events, 30);
-    assert!(events.world.billboards.is_empty());
-}
-
-#[test]
-fn phased_cloud_keeps_its_particles_moving_after_emission_stops() {
-    use resonance_content::effect::sprite::{GLOW_SPRITE, ORB_SPRITE};
-    for phase in 0..=2 {
-        let setup = script(&[
-            (
-                Call::CreateEffectEmitter,
-                &emitter(59, 8, &[69, 35, 25, 300, 120, 100, 150, -16, 0]),
-            ),
-            (Call::SetActorProperty, &[500, 33, phase]),
-        ]);
-        let stop = script(&[(Call::SetActorProperty, &[500, 33, 3])]);
-        let mut events = interactive_effect(&setup, &stop);
-        steps(&mut events, 9);
-        assert!(
-            events
-                .world
-                .billboards
-                .values()
-                .any(|p| p.recipe == GLOW_SPRITE)
-        );
-        assert!(
-            events
-                .world
-                .billboards
-                .values()
-                .any(|p| p.recipe == ORB_SPRITE)
-        );
-        if phase == 2 {
-            assert!(
-                events
-                    .world
-                    .billboards
-                    .values()
-                    .filter(|p| p.recipe == GLOW_SPRITE)
-                    .all(|p| p.position[1] == 0.)
+                emitter(kind, 8, &[69, 35, 25, 300, 120, 100, 150, -16, 0])
+            };
+            args[17] = 1 - cleanup;
+            let setup = script(&[
+                (Call::CreateEffectEmitter, &args),
+                (Call::SetActorProperty, &[500, 33, phase]),
+            ]);
+            let remove = script(&[
+                (Call::SetActorProperty, &[500, 122, cleanup]),
+                (Call::DespawnActor, &[500]),
+            ]);
+            let mut events = interactive_effect(&setup, &remove);
+            steps(&mut events, 9);
+            assert!(!events.world.billboards.is_empty());
+            assert!(events.trigger(42, true).unwrap());
+            steps(&mut events, 4);
+            assert_eq!(
+                events.world.billboards.is_empty(),
+                phase == 0 && cleanup == 1,
+                "emitter {kind}, phase {phase}, cleanup {cleanup}"
             );
+            finish_effects(&mut events);
         }
-        assert!(events.trigger(42, true).unwrap());
-        events.step().unwrap();
-        let positions: Vec<_> = events
-            .world
-            .billboards
-            .iter()
-            .map(|(&id, p)| (id, p.position))
-            .collect();
-        steps(&mut events, 5);
-        assert_eq!(events.world.billboards.len(), positions.len());
-        assert!(
-            positions
-                .iter()
-                .all(|(id, position)| events.world.billboards[id].position != *position)
-        );
-        steps(&mut events, 310);
-        assert!(events.world.billboards.is_empty());
     }
 }
 
 #[test]
-fn model_trail_reaches_its_target_then_its_copies_expire() {
+fn model_trail_reports_completion_and_retires_its_copies() {
     let mut input = emitter(50, 0, &[0, 4, 0, 0, 100, 0, 0]);
     input[4] = 1;
     let setup = script(&[(Call::CreateEffectEmitter, &input)]);
@@ -754,63 +216,13 @@ fn model_trail_reaches_its_target_then_its_copies_expire() {
         enemy_resources(),
         controlled_world(),
     );
-    events.step().unwrap();
-    let first = events.world.model_particles.values().next().unwrap();
-    assert_eq!(first.born, events.world.tick);
-    steps(&mut events, 3);
+    steps(&mut events, 4);
     assert!(!events.world.actors[&500].visible);
-    assert_eq!(
-        events
-            .world
-            .model_particles
-            .values()
-            .map(|p| p.position[0])
-            .collect::<Vec<_>>(),
-        [25., 50., 75., 100.]
-    );
-    assert!(
-        events
-            .world
-            .model_particles
-            .values()
-            .all(|p| p.resource == 1)
-    );
-    let first = events.world.model_particles.values().next().unwrap();
-    assert!(first.scale[2] > first.scale[0]);
+    assert!(!events.world.model_particles.is_empty());
     assert!(events.trigger(42, true).unwrap());
     events.step().unwrap();
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
-    steps(&mut events, 10);
-    assert!(events.world.model_particles.is_empty());
-}
-
-#[test]
-fn expanding_flash_is_brief_and_rising_embers_leave_no_permanent_particles() {
-    let flash = script(&[(Call::CreateEffectEmitter, &emitter(53, 0, &[]))]);
-    let mut events = interactive_effect(&flash, &[0x20ff]);
-    events.step().unwrap();
-    let p = events.world.billboards.values().next().unwrap();
-    assert_eq!(p.rgba, [10, 200, 200, 255]);
-    assert_eq!(p.blend, Some(effect::Blend::Subtractive));
-    let size = p.size;
-    events.step().unwrap();
-    assert!(events.world.billboards.values().next().unwrap().size[0] > size[0]);
-    steps(&mut events, 15);
-    assert!(events.world.billboards.is_empty());
-
-    let embers = script(&[(Call::CreateEffectEmitter, &emitter(62, 0, &[50, 15, 15]))]);
-    let remove = script(&[(Call::DespawnActor, &[500])]);
-    let mut events = interactive_effect(&embers, &remove);
-    steps(&mut events, 20);
-    assert!(!events.world.billboards.is_empty());
-    for p in events.world.billboards.values() {
-        assert!(p.position[0].hypot(p.position[1]) <= 50.);
-        assert!((1. ..=5.).contains(&p.velocity[2]));
-    }
-    assert!(events.trigger(42, true).unwrap());
-    events.step().unwrap();
-    steps(&mut events, 130);
-    assert!(events.world.billboards.is_empty());
+    finish_effects(&mut events);
 }
 
 #[test]
