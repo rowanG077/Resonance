@@ -1,5 +1,6 @@
 //! Sparse animation curves and deterministic, renderer-independent bone poses.
 mod codec;
+pub mod pose;
 mod skeleton;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -112,7 +113,8 @@ pub struct VectorCurve {
     pub incoming: Vec<[f32; 3]>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outgoing: Vec<[f32; 3]>,
-    /// Incoming/outgoing time controls, independently authored per key.
+    /// Incoming/outgoing easing durations as fractions of a key interval.
+    /// Negative controls disable easing; values above one use the full interval.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ease: Vec<[f32; 2]>,
 }
@@ -134,7 +136,7 @@ pub struct QuaternionCurve {
     pub incoming: Vec<[f32; 4]>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outgoing: Vec<[f32; 4]>,
-    /// Incoming/outgoing time controls, independently authored per key.
+    /// Incoming/outgoing easing durations, with the same rules as vector curves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ease: Vec<[f32; 2]>,
 }
@@ -144,7 +146,6 @@ pub type Matrix = [[f32; 4]; 4];
 
 #[derive(Debug, Clone)]
 pub struct Pose {
-    pub local: Vec<Transform>,
     pub global: Vec<Matrix>,
 }
 
@@ -157,22 +158,39 @@ impl Skeleton {
         for (index, bone) in self.bones.iter().enumerate() {
             ensure!(!bone.name.is_empty(), "empty name for bone {index}");
             bone.bind.validate()?;
-            let mut cursor = bone.parent;
-            let mut depth = 0;
-            while let Some(parent) = cursor {
-                ensure!(
-                    usize::from(parent) != index && depth < self.bones.len(),
-                    "cyclic bone hierarchy"
-                );
-                cursor = self
-                    .bones
-                    .get(usize::from(parent))
-                    .context("invalid bone parent")?
-                    .parent;
-                depth += 1;
+        }
+        self.parent_order(0..self.bones.len())?;
+        Ok(())
+    }
+
+    fn parent_order(&self, starts: impl IntoIterator<Item = usize>) -> Result<Vec<usize>> {
+        #[derive(Clone, Copy)]
+        enum Visit {
+            New,
+            Active,
+            Complete,
+        }
+        let mut visits = vec![Visit::New; self.bones.len()];
+        let mut path = Vec::new();
+        let mut order = Vec::new();
+        for start in starts {
+            let mut cursor = Some(start);
+            while let Some(index) = cursor {
+                let visit = visits.get_mut(index).context("invalid bone parent")?;
+                match visit {
+                    Visit::Complete => break,
+                    Visit::Active => anyhow::bail!("cyclic bone hierarchy"),
+                    Visit::New => *visit = Visit::Active,
+                }
+                path.push(index);
+                cursor = self.bones[index].parent.map(usize::from);
+            }
+            while let Some(index) = path.pop() {
+                visits[index] = Visit::Complete;
+                order.push(index);
             }
         }
-        Ok(())
+        Ok(order)
     }
 
     pub fn bone(&self, name: &str) -> Option<u16> {
@@ -183,7 +201,7 @@ impl Skeleton {
     }
 
     pub fn bind_pose(&self) -> Result<Pose> {
-        self.pose(self.bones.iter().map(|b| b.bind).collect())
+        self.pose(self.bones.iter().map(|b| b.bind.matrix()).collect())
     }
 
     pub fn sample(&self, motion: &Motion, frame: f32) -> Result<Pose> {
@@ -191,12 +209,17 @@ impl Skeleton {
             frame.is_finite() && frame >= 0. && frame <= motion.duration_frames,
             "motion frame outside clip"
         );
-        let mut local = self.bones.iter().map(|bone| bone.bind).collect::<Vec<_>>();
+        let mut local = self
+            .bones
+            .iter()
+            .map(|bone| bone.bind.matrix())
+            .collect::<Vec<_>>();
         for track in &motion.tracks {
-            let bind = local
-                .get_mut(usize::from(track.bone))
+            let index = usize::from(track.bone);
+            let matrix = local
+                .get_mut(index)
                 .context("motion bone outside skeleton")?;
-            *bind = track.sample(frame, *bind)?;
+            *matrix = track.sample_matrix(frame, self.bones[index].bind)?;
         }
         self.pose(local)
     }
@@ -223,103 +246,47 @@ impl Skeleton {
             frame.is_finite() && frame >= 0. && frame <= motion.duration_frames,
             "motion frame outside clip"
         );
-        self.sampled_global(motion, frame, bone, 0)
+        self.sampled_global(motion, frame, bone)
     }
 
-    fn sampled_global(
-        &self,
-        motion: &Motion,
-        frame: f32,
-        index: u16,
-        depth: usize,
-    ) -> Result<Matrix> {
-        ensure!(depth < self.bones.len(), "cyclic attachment hierarchy");
-        let bone = self
-            .bones
+    fn sampled_global(&self, motion: &Motion, frame: f32, index: u16) -> Result<Matrix> {
+        self.bones
             .get(usize::from(index))
             .context("missing attachment bone")?;
-        let local = motion
-            .tracks
-            .iter()
-            .find(|track| track.bone == index)
-            .map_or_else(
+        let mut tracks = vec![None; self.bones.len()];
+        for track in &motion.tracks {
+            if let Some(slot) = tracks.get_mut(usize::from(track.bone)) {
+                slot.get_or_insert(track);
+            }
+        }
+        let mut global = None;
+        for index in self.parent_order([usize::from(index)])? {
+            let bone = &self.bones[index];
+            let local = tracks[index].map_or_else(
                 || Ok(bone.bind.matrix()),
                 |track| track.sample_matrix(frame, bone.bind),
             )?;
-        match bone.parent {
-            Some(parent) => Ok(multiply(
-                self.sampled_global(motion, frame, parent, depth + 1)?,
-                local,
-            )),
-            None => Ok(local),
+            global = Some(match global {
+                Some(parent) => multiply(parent, local),
+                None => local,
+            });
         }
+        global.context("missing attachment bone")
     }
 
-    /// Blend local transforms, then compose the hierarchy. The combat clock
-    /// supplies the transition weight; this function does not advance time.
-    pub fn blend(&self, from: &Pose, to: &Pose, weight: f32) -> Result<Pose> {
+    /// Compose local matrices in place, retaining affine scale and shear.
+    pub fn pose(&self, mut global: Vec<Matrix>) -> Result<Pose> {
         ensure!(
-            from.local.len() == self.bones.len()
-                && to.local.len() == self.bones.len()
-                && weight.is_finite()
-                && (0. ..=1.).contains(&weight),
-            "invalid pose blend"
-        );
-        self.pose(
-            from.local
-                .iter()
-                .zip(&to.local)
-                .map(|(a, b)| a.blend(*b, weight))
-                .collect(),
-        )
-    }
-
-    pub fn pose(&self, local: Vec<Transform>) -> Result<Pose> {
-        let matrices = local
-            .iter()
-            .map(|transform| transform.matrix())
-            .collect::<Vec<_>>();
-        self.pose_with_matrices(local, &matrices)
-    }
-
-    /// Explicit local matrices retain model-controller products that contain shear.
-    pub fn pose_with_matrices(&self, local: Vec<Transform>, matrices: &[Matrix]) -> Result<Pose> {
-        ensure!(
-            local.len() == self.bones.len() && matrices.len() == local.len(),
+            global.len() == self.bones.len(),
             "pose bone count differs from skeleton"
         );
-        let mut global = vec![None; local.len()];
-        for index in 0..local.len() {
-            self.compose(index, matrices, &mut global, 0)?;
+        for index in self.parent_order(0..global.len())? {
+            global[index] = match self.bones[index].parent {
+                Some(parent) => multiply(global[usize::from(parent)], global[index]),
+                None => global[index],
+            };
         }
-        Ok(Pose {
-            local,
-            global: global.into_iter().map(Option::unwrap).collect(),
-        })
-    }
-
-    fn compose(
-        &self,
-        index: usize,
-        local: &[Matrix],
-        global: &mut [Option<Matrix>],
-        depth: usize,
-    ) -> Result<Matrix> {
-        ensure!(depth < self.bones.len(), "cyclic bone hierarchy");
-        if let Some(matrix) = *global.get(index).context("invalid bone parent")? {
-            return Ok(matrix);
-        }
-        let matrix = local[index];
-        let matrix = if let Some(parent) = self.bones[index].parent {
-            multiply(
-                self.compose(usize::from(parent), local, global, depth + 1)?,
-                matrix,
-            )
-        } else {
-            matrix
-        };
-        global[index] = Some(matrix);
-        Ok(matrix)
+        Ok(Pose { global })
     }
 }
 
@@ -337,12 +304,14 @@ impl Transform {
     /// Pose transitions use a shortest arc with a linear near-angle fallback.
     /// This differs from the authored spherical cubic curves inside a motion.
     pub fn blend(self, to: Self, weight: f32) -> Self {
-        let rotation = if dot(self.rotation, to.rotation) < 0. {
-            to.rotation.map(|v| -v)
+        let from_rotation = normalize(self.rotation);
+        let to_rotation = normalize(to.rotation);
+        let rotation = if dot(from_rotation, to_rotation) < 0. {
+            to_rotation.map(|v| -v)
         } else {
-            to.rotation
+            to_rotation
         };
-        let dot = dot(self.rotation, rotation).clamp(-1., 1.);
+        let dot = dot(from_rotation, rotation).clamp(-1., 1.);
         let (a, b) = if 1. - dot > 0.001 {
             let angle = dot.acos();
             (
@@ -356,7 +325,7 @@ impl Transform {
             translation: std::array::from_fn(|i| {
                 (1. - weight) * self.translation[i] + weight * to.translation[i]
             }),
-            rotation: std::array::from_fn(|i| a * self.rotation[i] + b * rotation[i]),
+            rotation: std::array::from_fn(|i| a * from_rotation[i] + b * rotation[i]),
             scale: std::array::from_fn(|i| (1. - weight) * self.scale[i] + weight * to.scale[i]),
         }
     }
@@ -366,16 +335,15 @@ impl Transform {
             self.translation
                 .iter()
                 .chain(&self.scale)
-                .chain(&self.rotation)
                 .all(|v| v.is_finite())
-                && dot(self.rotation, self.rotation) > 0.5,
+                && valid_quaternions(&[self.rotation]),
             "invalid bone transform"
         );
         Ok(())
     }
 
     pub fn matrix(self) -> Matrix {
-        let [x, y, z, w] = self.rotation;
+        let [x, y, z, w] = normalize(self.rotation);
         let [sx, sy, sz] = self.scale;
         [
             [
@@ -527,11 +495,10 @@ impl Motion {
             if let Some(curve) = &track.rotation {
                 ensure!(
                     curve.values.len() == n
-                        && finite(&curve.values)
+                        && valid_quaternions(&curve.values)
                         && valid_ease(&curve.ease, n)
                         && (curve.ease.is_empty()
-                            || curve.interpolation == QuaternionInterpolation::Squad)
-                        && curve.values.iter().all(|&q| dot(q, q) > 0.5),
+                            || curve.interpolation == QuaternionInterpolation::Squad),
                     "invalid quaternion curve values"
                 );
                 ensure!(
@@ -540,7 +507,8 @@ impl Motion {
                         &curve.outgoing,
                         n,
                         curve.interpolation == QuaternionInterpolation::Squad
-                    ),
+                    ) && valid_quaternions(&curve.incoming)
+                        && valid_quaternions(&curve.outgoing),
                     "invalid quaternion curve controls"
                 );
             }
@@ -553,33 +521,29 @@ fn valid_ease(values: &[[f32; 2]], count: usize) -> bool {
     (values.is_empty() || values.len() == count) && finite(values)
 }
 
-/// Preserve the source evaluator's time warp, including signed controls.
+/// Accelerate, cruise, then decelerate while traversing exactly one key interval.
 fn eased_time(ease: &[[f32; 2]], a: usize, b: usize, t: f32) -> Result<f32> {
     if ease.is_empty() || t == 0. || t == 1. {
         return Ok(t);
     }
-    let mut first = ease.get(a).context("missing outgoing time control")?[1];
-    let mut second = ease.get(b).context("missing incoming time control")?[0];
+    let mut first = ease.get(a).context("missing outgoing time control")?[1].clamp(0., 1.);
+    let mut second = ease.get(b).context("missing incoming time control")?[0].clamp(0., 1.);
     let total = first + second;
-    if total == 0. {
-        return Ok(t);
-    }
-    let inverse = 1. / total;
     if total > 1. {
-        first *= inverse;
-        second *= inverse;
+        first /= total;
+        second /= total;
     }
-    let shape = 0.5 - inverse;
+    let speed = 1. / (1. - (first + second) * 0.5);
     let value = if t < first {
-        t * (t * (shape / first))
-    } else if t < 1. - second {
-        shape * (2. * t - first)
-    } else {
+        speed * t * t / (2. * first)
+    } else if t > 1. - second {
         let rest = 1. - t;
-        1. - rest * (rest * (shape / second))
+        1. - speed * rest * rest / (2. * second)
+    } else {
+        speed * (t - first * 0.5)
     };
     ensure!(value.is_finite(), "invalid eased animation time");
-    Ok(value)
+    Ok(value.clamp(0., 1.))
 }
 
 fn euler_rotation(degrees: [f32; 3]) -> [f32; 4] {
@@ -718,20 +682,24 @@ impl VectorCurve {
 impl QuaternionCurve {
     fn sample(&self, a: usize, b: usize, t: f32) -> Result<[f32; 4]> {
         let t = eased_time(&self.ease, a, b, t)?;
-        let av = *self.values.get(a).context("missing quaternion key")?;
-        let bv = *self.values.get(b).context("missing quaternion key")?;
+        let av = normalize(*self.values.get(a).context("missing quaternion key")?);
+        let bv = normalize(*self.values.get(b).context("missing quaternion key")?);
         let value = match self.interpolation {
             QuaternionInterpolation::Step => av,
             QuaternionInterpolation::ShortestSlerp => shortest_slerp(av, bv, t),
             QuaternionInterpolation::Squad => {
-                let ac = *self
-                    .outgoing
-                    .get(a)
-                    .context("missing outgoing quaternion control")?;
-                let bc = *self
-                    .incoming
-                    .get(b)
-                    .context("missing incoming quaternion control")?;
+                let ac = normalize(
+                    *self
+                        .outgoing
+                        .get(a)
+                        .context("missing outgoing quaternion control")?,
+                );
+                let bc = normalize(
+                    *self
+                        .incoming
+                        .get(b)
+                        .context("missing incoming quaternion control")?,
+                );
                 let t = t.clamp(0., 1.);
                 spherical(
                     spherical(av, bv, t),
@@ -740,11 +708,9 @@ impl QuaternionCurve {
                 )
             }
         };
-        ensure!(
-            finite(&[value]) && dot(value, value) > 0.5,
-            "invalid sampled quaternion"
-        );
-        Ok(normalize(value))
+        let value = normalize(value);
+        ensure!(finite(&[value]), "invalid sampled quaternion");
+        Ok(value)
     }
 }
 
@@ -756,8 +722,16 @@ fn dot(a: [f32; 4], b: [f32; 4]) -> f32 {
     (0..4).map(|i| a[i] * b[i]).sum()
 }
 fn normalize(q: [f32; 4]) -> [f32; 4] {
+    // Rescale before squaring: every finite nonzero quaternion has a length in
+    // [1, 2] here, even when its authored components are subnormal or near MAX.
+    let largest = q.iter().fold(0_f32, |largest, v| largest.max(v.abs()));
+    let q = q.map(|v| v / largest);
     let length = dot(q, q).sqrt();
     q.map(|v| v / length)
+}
+
+fn valid_quaternions(values: &[[f32; 4]]) -> bool {
+    values.iter().all(|&q| finite(&[normalize(q)]))
 }
 
 fn shortest_slerp(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
@@ -785,6 +759,59 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deep_unordered_hierarchy_composes_and_rejects_cycles() -> Result<()> {
+        let count = usize::from(u16::MAX);
+        let mut skeleton = Skeleton {
+            bones: (0..count)
+                .map(|index| Bone {
+                    name: "joint".into(),
+                    parent: (index + 1 < count).then_some((index + 1) as u16),
+                    bind_channels: TransformChannels(8),
+                    bind: Transform {
+                        translation: [1., 0., 0.],
+                        ..Transform::default()
+                    },
+                })
+                .collect(),
+        };
+        let motion = Motion {
+            duration_frames: 1.,
+            tracks: (0..count)
+                .map(|bone| Track {
+                    bone: bone as u16,
+                    bind_channels: TransformChannels(0),
+                    period_frames: 1.,
+                    times: vec![0.],
+                    translation: None,
+                    scale: None,
+                    rotation: None,
+                    euler_degrees: None,
+                    matrices: Some(vec![[1., 0., 0., 2., 0., 1., 0., 0., 0., 0., 1., 0.]]),
+                })
+                .collect(),
+        };
+        skeleton.validate()?;
+        motion.validate(&skeleton)?;
+        let pose = skeleton.bind_pose()?;
+        assert_eq!(pose.point(0, [0.; 3])?, [count as f32, 0., 0.]);
+        assert_eq!(pose.point((count - 1) as u16, [0.; 3])?, [1., 0., 0.]);
+        assert_eq!(
+            skeleton.sample_point(&motion, 0.5, 0, [2., 3., 4.])?,
+            [2. * count as f32 + 2., 3., 4.]
+        );
+        for parent in [(count / 2) as u16, u16::MAX] {
+            skeleton.bones[count - 1].parent = Some(parent);
+            assert!(skeleton.validate().is_err());
+            assert!(skeleton.bind_pose().is_err());
+            assert!(skeleton.sample_point(&motion, 0.5, 0, [0.; 3]).is_err());
+        }
+        skeleton.bones[count - 1].parent = None;
+        skeleton.bones[0].bind.translation[0] = f32::NAN;
+        assert!(skeleton.validate().is_err());
+        Ok(())
+    }
+
+    #[test]
     fn curves_preserve_bezier_offsets_and_authored_quaternion_arcs() {
         let curve = VectorCurve {
             interpolation: VectorInterpolation::Bezier,
@@ -798,6 +825,76 @@ mod tests {
         assert_eq!(curve.sample(0, 1, 1.).unwrap(), curve.values[1]);
         let mid = spherical([0., 0., 0., 1.], [0., 0., 0.8660254, -0.5], 0.5);
         assert!(mid[2] > 0.86 && mid[3] > 0.49);
+
+        let mut motion = Motion {
+            duration_frames: 2.,
+            tracks: vec![Track {
+                bone: 0,
+                bind_channels: TransformChannels(0),
+                period_frames: 2.,
+                times: vec![0., 2.],
+                translation: None,
+                scale: None,
+                rotation: None,
+                euler_degrees: None,
+                matrices: None,
+            }],
+        };
+        for interpolation in [
+            QuaternionInterpolation::Step,
+            QuaternionInterpolation::ShortestSlerp,
+            QuaternionInterpolation::Squad,
+        ] {
+            let controls = if interpolation == QuaternionInterpolation::Squad {
+                vec![[0., 0., 1., -1.]; 2]
+            } else {
+                vec![]
+            };
+            let reference = QuaternionCurve {
+                interpolation,
+                values: vec![[0., 0., 0., 1.], [0., 0., 1., 1.]],
+                incoming: controls.clone(),
+                outgoing: controls,
+                ease: vec![],
+            };
+            for magnitude in [f32::MAX, f32::MIN_POSITIVE, f32::from_bits(1)] {
+                let mut scaled = reference.clone();
+                for q in scaled
+                    .values
+                    .iter_mut()
+                    .chain(&mut scaled.incoming)
+                    .chain(&mut scaled.outgoing)
+                {
+                    *q = q.map(|v| v * magnitude);
+                }
+                motion.tracks[0].rotation = Some(scaled.clone());
+                motion.validate_bones(1).unwrap();
+                for t in [0., 0.25, 0.5, 1.] {
+                    let expected = reference.sample(0, 1, t).unwrap();
+                    let actual = scaled.sample(0, 1, t).unwrap();
+                    assert!(
+                        actual
+                            .iter()
+                            .zip(expected)
+                            .all(|(a, b)| (a - b).abs() < 0.00001)
+                    );
+                }
+            }
+            for invalid in [[0.; 4], [f32::NAN; 4], [f32::INFINITY; 4]] {
+                let mut broken = reference.clone();
+                broken.values[0] = invalid;
+                assert!(broken.sample(0, 1, 0.5).is_err());
+                motion.tracks[0].rotation = Some(broken);
+                assert!(motion.validate_bones(1).is_err());
+                if interpolation == QuaternionInterpolation::Squad {
+                    let mut broken = reference.clone();
+                    broken.outgoing[0] = invalid;
+                    assert!(broken.sample(0, 1, 0.5).is_err());
+                    motion.tracks[0].rotation = Some(broken);
+                    assert!(motion.validate_bones(1).is_err());
+                }
+            }
+        }
     }
 
     #[test]
@@ -849,10 +946,6 @@ mod tests {
         motion.validate(&skeleton).unwrap();
         let pose = skeleton.sample(&motion, 0.25).unwrap();
         assert_eq!(pose.point(1, [1., 0., 0.]).unwrap(), [9., 0., 0.]);
-        let blend = skeleton
-            .blend(&skeleton.bind_pose().unwrap(), &pose, 0.5)
-            .unwrap();
-        assert_eq!(blend.point(1, [1., 0., 0.]).unwrap(), [8.5, 0., 0.]);
         // Some battle clips return to their first pose at a duplicate endpoint.
         let track = &mut motion.tracks[0];
         track.times.push(2.);
@@ -876,12 +969,40 @@ mod tests {
         assert!(motion.validate(&skeleton).is_err());
     }
     #[test]
-    fn authored_time_euler_and_affine_channels_remain_distinct() {
+    fn native_time_easing_is_continuous_bounded_and_monotonic() {
+        for (incoming, outgoing) in [
+            (0., 0.),
+            (0.25, 0.25),
+            (0.8, 0.8),
+            (-0.5, 0.25),
+            (2., 0.1),
+            (0., 1.),
+            (1., 0.),
+        ] {
+            let ease = [[0., incoming], [outgoing, 0.]];
+            assert_eq!(eased_time(&ease, 0, 1, 0.).unwrap(), 0.);
+            assert_eq!(eased_time(&ease, 0, 1, 1.).unwrap(), 1.);
+            let mut previous = 0.;
+            for step in 1..=1000 {
+                let value = eased_time(&ease, 0, 1, step as f32 / 1000.).unwrap();
+                assert!((previous..=1.).contains(&value));
+                previous = value;
+            }
+            for boundary in [0.25, 0.5, 0.75] {
+                let before = eased_time(&ease, 0, 1, boundary - 0.00001).unwrap();
+                let after = eased_time(&ease, 0, 1, boundary + 0.00001).unwrap();
+                assert!((after - before).abs() < 0.0001);
+            }
+        }
+        assert_eq!(eased_time(&[[0.; 2]; 2], 0, 1, 0.37).unwrap(), 0.37);
         assert_eq!(
-            eased_time(&[[0., 0.25], [0.25, 0.]], 0, 1, 0.125).unwrap(),
-            -0.09375
+            eased_time(&[[0., -1.], [-1., 0.]], 0, 1, 0.37).unwrap(),
+            0.37
         );
-        assert_eq!(eased_time(&[[0., 0.], [0., 0.]], 0, 1, 0.37).unwrap(), 0.37);
+    }
+
+    #[test]
+    fn authored_time_euler_and_affine_channels_remain_distinct() {
         let curve = VectorCurve {
             interpolation: VectorInterpolation::ShortestAngleLinear,
             values: vec![[0., 0., 350.], [0., 0., 10.]],
@@ -914,5 +1035,133 @@ mod tests {
             track.sample(0.5, Transform::default()).is_err(),
             "shear must not be approximated as TRS"
         );
+
+        let mut skeleton = Skeleton {
+            bones: [Some(2), None, Some(1), None]
+                .into_iter()
+                .map(|parent| Bone {
+                    name: "joint".into(),
+                    parent,
+                    bind_channels: TransformChannels(0),
+                    bind: Transform::default(),
+                })
+                .collect(),
+        };
+        skeleton.bones[0].bind.translation = [3., 0., 0.];
+        skeleton.bones[0].bind.rotation = [0., 0., 0., f32::from_bits(1)];
+        skeleton.bones[1].bind.scale = [2., 3., 1.];
+        skeleton.bones[1].bind.rotation = [0., 0., 0., f32::MAX];
+        let root_track = Track {
+            bone: 1,
+            times: vec![0., 2.],
+            translation: Some(VectorCurve {
+                interpolation: VectorInterpolation::Linear,
+                values: vec![[0.; 3], [4., 0., 0.]],
+                incoming: vec![],
+                outgoing: vec![],
+                ease: vec![],
+            }),
+            matrices: None,
+            ..track.clone()
+        };
+        let mut motion = Motion {
+            duration_frames: 2.,
+            tracks: vec![root_track, Track { bone: 2, ..track }],
+        };
+        skeleton.validate().unwrap();
+        motion.validate(&skeleton).unwrap();
+        let point = [0., 2., 0.];
+        for frame in [0., 0.25, 1., 2.] {
+            let pose = skeleton.sample(&motion, frame).unwrap();
+            let sparse = skeleton.sample_point(&motion, frame, 0, point).unwrap();
+            assert_eq!(sparse, [14. + 2. * frame, 18., 5.]);
+            assert_eq!(sparse, pose.point(0, point).unwrap());
+        }
+        skeleton.bones[3].parent = Some(3);
+        let mut unused = motion.tracks[0].clone();
+        unused.bone = 3;
+        unused.times.clear();
+        motion.tracks.push(unused);
+        assert!(skeleton.bind_pose().is_err());
+        assert_eq!(
+            skeleton.sample_point(&motion, 0.5, 0, point).unwrap(),
+            [15., 18., 5.]
+        );
+        assert!(skeleton.sample_point(&motion, 0.5, 3, point).is_err());
+    }
+
+    #[test]
+    fn near_angle_blends_keep_orthogonal_basis_and_authored_scale() {
+        let from = Transform {
+            rotation: [0., 0., 0.5, 0.8660254],
+            ..Transform::default()
+        };
+        let to = Transform {
+            rotation: [0., 0., 0.5150381, 0.8571673],
+            ..from
+        };
+        let mut middle = from.blend(to, 0.4);
+        middle.scale = [2., 3., 4.];
+        middle.translation = [5., 6., 7.];
+        let matrix = middle.matrix();
+        for (column, scale) in matrix[..3].iter().zip(middle.scale) {
+            let length_squared: f32 = column[..3].iter().map(|v| v * v).sum();
+            assert!((length_squared - scale * scale).abs() < 0.00001);
+        }
+        assert_eq!(matrix[3], [5., 6., 7., 1.]);
+        assert_eq!(
+            Transform::default().matrix(),
+            [
+                [1., 0., 0., 0.],
+                [0., 1., 0., 0.],
+                [0., 0., 1., 0.],
+                [0., 0., 0., 1.],
+            ]
+        );
+        let turn = Transform {
+            rotation: [0., 0., 1., 1.],
+            translation: middle.translation,
+            scale: middle.scale,
+        };
+        for magnitude in [f32::MAX, 1e-30, f32::from_bits(1)] {
+            let scaled = Transform {
+                rotation: [0., 0., magnitude, magnitude],
+                ..turn
+            };
+            scaled.validate().unwrap();
+            for (actual, expected) in scaled
+                .matrix()
+                .into_iter()
+                .flatten()
+                .zip(turn.matrix().into_iter().flatten())
+            {
+                assert!(actual.is_finite() && (actual - expected).abs() < 0.00001);
+            }
+            let to = Transform {
+                rotation: [0., 0., 0., -magnitude],
+                ..Transform::default()
+            };
+            for weight in [0., 0.25, 0.75, 1.] {
+                let actual = scaled.blend(to, weight).matrix();
+                let expected = turn.blend(Transform::default(), weight).matrix();
+                assert!(
+                    actual
+                        .into_iter()
+                        .flatten()
+                        .zip(expected.into_iter().flatten())
+                        .all(|(a, b)| a.is_finite() && (a - b).abs() < 0.00001)
+                );
+            }
+        }
+        for rotation in [[0.; 4], [f32::NAN, 0., 0., 1.], [0., f32::INFINITY, 0., 1.]] {
+            assert!(
+                Transform {
+                    rotation,
+                    ..Transform::default()
+                }
+                .validate()
+                .is_err()
+            );
+        }
     }
 }

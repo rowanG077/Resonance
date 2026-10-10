@@ -47,6 +47,7 @@ fn start(mut landmarks: Landmarks, guideposts: Vec<Guidepost>) -> Result<Session
         ..Default::default()
     });
     let assets = Arc::new(Assets {
+        files: Default::default(),
         world: crate::overworld::World::Sylvarant,
         terrain: Arc::new(terrain(1)),
         rules: Arc::new(Rules::new(crate::overworld::tests::tables())?),
@@ -222,7 +223,8 @@ fn temporary_battle_bypass_resumes_world_and_scripted_encounters_as_victories() 
                 }
             ]
         ),
-        "a skipped battle restores music once"
+        "a skipped battle restores music once: {:?}",
+        events.world.audio_commands
     );
     for address in [0x20, 0x24] {
         assert_eq!(
@@ -803,7 +805,7 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
     });
     catalog.validate()?;
     let mut files = resonance_content::prepared::Files::default();
-    files.bytes.insert(
+    files.insert(
         "skit.ssb".into(),
         words
             .into_iter()
@@ -811,14 +813,12 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
             .collect::<Vec<_>>()
             .into(),
     );
-    files
-        .bytes
-        .insert("messages.json".into(), b"[]".to_vec().into());
-    files.bytes.insert(
+    files.insert("messages.json".into(), b"[]".to_vec().into());
+    files.insert(
         "game/text.json".into(),
         serde_json::to_vec(&resonance_content::session::GameText::default())?.into(),
     );
-    files.bytes.insert(
+    files.insert(
         "game/session-data.json".into(),
         serde_json::to_vec(data().as_ref())?.into(),
     );

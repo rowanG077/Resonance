@@ -190,6 +190,7 @@ impl Plugin for OverworldPlugin {
                 FixedUpdate,
                 advance
                     .run_if(super::dungeons::running)
+                    .run_if(super::battle::field_running)
                     .before(super::new_game::advance)
                     .before(super::field_view::advance_live),
             )
@@ -208,11 +209,14 @@ impl Plugin for OverworldPlugin {
                 )
                     .chain()
                     .after(super::new_game::transition)
-                    .after(super::field_view::FieldPreparation),
+                    .after(super::field_view::FieldPreparation)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
-                animate.before(bevy::transform::TransformSystems::Propagate),
+                animate
+                    .before(bevy::transform::TransformSystems::Propagate)
+                    .run_if(super::battle::field_presenting),
             );
     }
 }
@@ -618,24 +622,27 @@ fn bind(
                     commands.entity(entity).insert((
                         MeshMaterial3d(instance.materials[slot].clone()),
                         super::draw_order::DrawOrder(
-                            part.spec.materials[slot].draw_order
-                                + match instance.model {
-                                    Model::Sky => 0,
-                                    Model::Cinematic(actor)
-                                        if art
-                                            .cinematic
-                                            .is_some_and(|id| cinematic::background(id, actor)) =>
-                                    {
-                                        0
-                                    }
-                                    // The native secondary terrain pass (water,
-                                    // shore foam and foliage) follows all opaque
-                                    // terrain and actors, with depth writes off.
-                                    Model::Tile(_) if part.spec.resource == 2 => 3 << 20,
-                                    Model::Tile(_) => 1 << 20,
-                                    _ => 2 << 20,
-                                },
+                            super::draw_order::Layer::Scene(
+                                part.spec.materials[slot].draw_order
+                                    + match instance.model {
+                                        Model::Sky => 0,
+                                        Model::Cinematic(actor)
+                                            if art.cinematic.is_some_and(|id| {
+                                                cinematic::background(id, actor)
+                                            }) =>
+                                        {
+                                            0
+                                        }
+                                        // The native secondary terrain pass (water,
+                                        // shore foam and foliage) follows all opaque
+                                        // terrain and actors, with depth writes off.
+                                        Model::Tile(_) if part.spec.resource == 2 => 3 << 20,
+                                        Model::Tile(_) => 1 << 20,
+                                        _ => 2 << 20,
+                                    },
+                            ),
                             instance.landmark.map_or(0, usize::from),
+                            0,
                         ),
                     ));
                     if let Model::Tile(tile) = instance.model {
@@ -718,8 +725,8 @@ fn terrain_order(
     for (draw, mut order) in &mut draws {
         let key =
             ((if draw.secondary { 3 } else { 1 }) << 20) + rank[draw.tile] * 4096 + draw.material;
-        if order.0 != key {
-            order.0 = key;
+        if order.0 != super::draw_order::Layer::Scene(key) {
+            order.0 = super::draw_order::Layer::Scene(key);
         }
     }
 }

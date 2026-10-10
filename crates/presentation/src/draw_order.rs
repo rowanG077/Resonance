@@ -11,14 +11,32 @@ use bevy::{
 };
 use std::collections::HashMap;
 
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ExtractComponent)]
-pub(super) struct DrawOrder(pub u32, pub usize);
+/// Native drawing phases. Asset material order is local to its scene or instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Layer {
+    Scene(u32),
+    FieldOverlay(u32),
+    Shadows,
+    Actor(usize, ActorLayer),
+    Foreground(u8),
+    Effects,
+    ModelEffects(u32),
+    EffectOverlay,
+    Overlay,
+}
 
-pub(super) const FIELD_TRANSLUCENCY: u32 = 1 << 21;
-pub(super) const CONTACT_SHADOWS: u32 = 3 << 20;
-pub(super) const EFFECTS: u32 = 1 << 22;
-pub(super) const MODEL_EFFECTS: u32 = EFFECTS + (1 << 16);
-pub(super) const EFFECT_UI_OFFSET: u32 = 2 << 16;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum ActorLayer {
+    Behind,
+    BackWeapon(u8, bool),
+    Body,
+    FrontWeapon(u8, bool),
+    Front,
+}
+
+/// Layer, instance order, then material order within that instance.
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ExtractComponent)]
+pub(super) struct DrawOrder(pub Layer, pub usize, pub u32);
 
 pub(super) struct DrawOrderPlugin;
 impl Plugin for DrawOrderPlugin {
@@ -44,19 +62,17 @@ fn apply(
         .map(|(entity, order)| (*entity, *order))
         .collect();
     for phase in phases.values_mut() {
-        // The depth sort is stable. Seed equal material/pass keys with actor
-        // submission order instead of asynchronous scene insertion order.
+        // Stable native keys determine transparent order, independent of ECS insertion.
         phase
             .items
             .sort_by_key(|_, item| orders.get(&item.main_entity()).copied());
-        for item in phase.items.values_mut() {
-            if let Some(order) = orders.get(&item.main_entity()) {
-                // A common center makes this sort solely by the cooked order,
-                // regardless of camera movement or deforming mesh bounds. This
-                // changes scheduling only; actual depth tests remain enabled.
+        for (rank, item) in phase.items.values_mut().enumerate() {
+            if orders.contains_key(&item.main_entity()) {
+                // Feed the native order into Bevy's ascending depth sort. This changes
+                // scheduling only; the material's real depth tests remain enabled.
                 item.sorting_info = TransparentSortingInfo3d::Sorted {
                     mesh_center: Vec3::ZERO,
-                    depth_bias: order.0 as f32,
+                    depth_bias: rank as f32,
                 };
             }
         }

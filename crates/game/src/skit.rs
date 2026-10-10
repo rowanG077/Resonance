@@ -18,34 +18,52 @@ impl Prepared {
             Arc::new(files.json("game/text.json")?);
         let data: Arc<resonance_content::session::SessionData> =
             Arc::new(files.json("game/session-data.json")?);
-        catalog
-            .resources
-            .iter()
-            .map(|(&id, paths)| {
-                Ok((
+        Self::load_with(
+            catalog,
+            files,
+            &ResourceLibrary {
+                text,
+                session_data: Some(data),
+                ..Default::default()
+            },
+            files.diagnostics(),
+        )
+    }
+
+    pub(crate) fn load_with(
+        catalog: Arc<SkitCatalog>,
+        files: &Files,
+        resources: &ResourceLibrary,
+        diagnostics: &resonance_content::diagnostics::Diagnostics,
+    ) -> Result<BTreeMap<u16, Self>> {
+        let mut prepared = BTreeMap::new();
+        for (&id, paths) in &catalog.resources {
+            let result = (|| -> Result<Self> {
+                Ok(Self {
                     id,
-                    Self {
-                        id,
-                        title: catalog
-                            .skits
-                            .iter()
-                            .find(|s| s.id == id)
-                            .map(|s| s.title.clone())
-                            .or_else(|| paths.title.clone())
-                            .unwrap_or_default(),
-                        program: Arc::new(Program::decode(&files.read(&paths.script)?)?),
-                        resources: Arc::new(ResourceLibrary {
-                            skits: Some(catalog.clone()),
-                            text: text.clone(),
-                            session_data: Some(data.clone()),
-                            messages: files.json(&paths.messages)?,
-                            actor_names: ResourceLibrary::character_names(),
-                            ..Default::default()
-                        }),
-                    },
-                ))
-            })
-            .collect()
+                    title: catalog
+                        .skits
+                        .iter()
+                        .find(|s| s.id == id)
+                        .map(|s| s.title.clone())
+                        .or_else(|| paths.title.clone())
+                        .unwrap_or_default(),
+                    program: Arc::new(Program::decode(&files.read(&paths.script)?)?),
+                    resources: Arc::new(ResourceLibrary {
+                        skits: Some(catalog.clone()),
+                        text: resources.text.clone(),
+                        session_data: resources.session_data.clone(),
+                        messages: files.json(&paths.messages)?,
+                        actor_names: ResourceLibrary::character_names(),
+                        ..Default::default()
+                    }),
+                })
+            })();
+            if let Some(skit) = diagnostics.attempt(&format!("skit {id} preparation"), result)? {
+                prepared.insert(id, skit);
+            }
+        }
+        Ok(prepared)
     }
 }
 
@@ -178,6 +196,13 @@ impl Playback {
         {
             return Ok(false);
         }
+        self.complete(parent)?;
+        Ok(true)
+    }
+    fn complete(&mut self, parent: &mut EventRuntime) -> Result<()> {
+        if self.finished {
+            return Ok(());
+        }
         if !self.preview {
             // Skits share story globals with their caller. Copy only persistent
             // variables; dispatcher registers belong to each suspended VM.
@@ -193,6 +218,14 @@ impl Playback {
                 .viewed_skits
                 .insert(self.id);
         }
+        self.cancel(parent)
+    }
+
+    /// Retire a failed optional scene without publishing partial progress.
+    pub fn cancel(&mut self, parent: &mut EventRuntime) -> Result<()> {
+        if self.finished {
+            return Ok(());
+        }
         if let Some(operation) = &self.completion {
             operation.complete(None).map_err(anyhow::Error::msg)?;
         }
@@ -204,7 +237,8 @@ impl Playback {
                 duration_ticks: 60,
             },
         ]);
+        self.events.cancel();
         self.finished = true;
-        Ok(true)
+        Ok(())
     }
 }

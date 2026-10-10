@@ -1,7 +1,7 @@
 //! High-level startup logos, rendered from cooked textures.
 use super::*;
 use resonance_content::BootAssets;
-use resonance_game::boot::{LOGO_TICKS, Logos};
+use resonance_game::boot::Logos;
 use std::path::Path;
 
 #[derive(Resource, Default)]
@@ -13,11 +13,7 @@ pub(super) struct Playback {
 
 impl Playback {
     pub fn load(root: &Path, options: &RunOptions) -> Result<Self> {
-        if options.skip_intro
-            || options.tick.is_some()
-            || options.replay.is_some()
-            || options.movie_frame.is_some()
-        {
+        if options.skip_intro || matches!(options.capture_at, Some(CaptureAt::MovieFrame(_))) {
             return Ok(Self::default());
         }
         let asset: BootAssets =
@@ -25,15 +21,8 @@ impl Playback {
                 "missing startup logos; run resonance-import cook-all or use --skip-intro",
             )?)?;
         asset.validate()?;
-        let mut logos = Logos::default();
-        if let Some(tick) = options.boot_frame {
-            anyhow::ensure!(tick < LOGO_TICKS, "boot-frame must be below {LOGO_TICKS}");
-            for _ in 0..tick {
-                logos.step(false);
-            }
-        }
         Ok(Self {
-            logos: Some(logos),
+            logos: Some(Logos::default()),
             asset: Some(asset),
             images: Vec::new(),
         })
@@ -51,6 +40,17 @@ impl Playback {
                     .iter()
                     .all(|h| server.is_loaded_with_dependencies(h.id()))
         })
+    }
+
+    pub fn check_images(&mut self, server: &AssetServer) -> Result<()> {
+        for image in &self.images {
+            if let Some(bevy::asset::LoadState::Failed(error)) = server.get_load_state(image.id()) {
+                // A broken logo must not hold the title behind an endless load.
+                *self = Self::default();
+                anyhow::bail!("startup logo image failed: {error}");
+            }
+        }
+        Ok(())
     }
 }
 
@@ -115,16 +115,18 @@ pub(super) fn setup(
 pub(super) fn advance(
     mut boot: ResMut<Playback>,
     ready: Res<timing::Ready>,
-    options: Res<RunOptions>,
     mut input: ResMut<PendingInput>,
-    recording: Option<Res<playthrough::Recording>>,
+    scenario: Option<ResMut<saves::ScenarioInput>>,
 ) {
-    if !ready.0 || options.capture.is_some() || recording.is_some_and(|r| !r.started) {
+    if !ready.0 {
         return;
     }
     if let Some(logos) = &mut boot.logos
         && logos.active()
     {
+        if let Some(mut scenario) = scenario {
+            scenario.acknowledge_input();
+        }
         logos.step(std::mem::take(&mut input.pressed).accept);
     }
 }
@@ -135,13 +137,15 @@ pub(super) fn update(
     mut quads: Query<(&MeshMaterial2d<TitleText>, &mut Transform), With<LogoQuad>>,
     mut materials: ResMut<Assets<TitleText>>,
 ) {
+    for mut camera in &mut cameras {
+        camera.is_active = boot.active();
+    }
     let Some(logos) = &boot.logos else {
         return;
     };
     let texture = &boot.asset.as_ref().unwrap().textures[logos.texture];
     let alpha = f32::from(logos.alpha) / 255.;
     for mut camera in &mut cameras {
-        camera.is_active = boot.active();
         let rgb = texture.background.map(|v| f32::from(v) / 255. * alpha);
         camera.clear_color = ClearColorConfig::Custom(Color::linear_rgb(rgb[0], rgb[1], rgb[2]));
     }

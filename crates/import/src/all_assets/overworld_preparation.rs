@@ -315,16 +315,12 @@ pub(super) fn prepare(
     dialogue.validate()?;
     let menu: resonance_content::menu::MenuArt =
         serde_json::from_slice(&fs::read(output.join("ui/menu.json"))?)?;
-    menu.validate()?;
+    let data: resonance_content::menu_data::MenuData =
+        serde_json::from_slice(&fs::read(output.join("game/menu-data.json"))?)?;
+    menu.validate(data.items.len())?;
     paths.extend(["ui/dialogue.json".into(), "ui/menu.json".into()]);
-    paths.extend(
-        dialogue
-            .textures
-            .iter()
-            .chain([&dialogue.cursor])
-            .map(|texture| texture.path.clone()),
-    );
-    paths.extend(menu.textures.into_iter().map(|texture| texture.path));
+    paths.extend(dialogue.textures.iter().map(|texture| texture.path.clone()));
+    paths.extend(menu.textures.into_values().map(|texture| texture.path));
     let skits: resonance_content::skit::SkitCatalog =
         serde_json::from_slice(&fs::read(output.join("game/skits.json"))?)?;
     skits.validate()?;
@@ -491,11 +487,15 @@ fn original_world_terrain_packages_bind_through_the_production_preparer() -> Res
     // libraries can have a valid JSON document with an obsolete schema version.
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     crate::font::prepare(&extracted, &output)?;
+    let battle_sources = crate::source_assets::Sources::read_with(&extracted, &executable)?;
+    let usual = fs::read(extracted.join("files").join(&battle_sources.usual))?;
     crate::menu::cook(
         &extracted,
         &output,
         &executable,
         &super::embedded::Catalogues::read(&executable)?,
+        &battle_sources,
+        &usual,
     )?;
     let plan = discover(
         &extracted,
@@ -555,7 +555,7 @@ fn original_world_terrain_packages_bind_through_the_production_preparer() -> Res
         &mut Default::default(),
         || false,
     )?;
-    assert_eq!(files.bytes.len(), restored.files.len());
+    assert_eq!(files.len(), restored.files.len());
     for parts in package
         .visuals
         .actors

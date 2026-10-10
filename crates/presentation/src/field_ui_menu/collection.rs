@@ -17,16 +17,16 @@ impl Drawing<'_> {
         let description_offset = (fade * 120 / 256) as f32;
         self.opacity = opacity;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.heading(&data.labels["collectors_book"])?;
+        self.heading(data.label("collectors_book")?)?;
         self.offset = [list_offset, 0.];
-        self.framed([16., 60., 604., 264.], true);
+        self.framed([16., 60., 604., 264.], true)?;
         self.offset = [0., description_offset];
         self.frame_detail(
             [16., 336., 604., 92.],
             !book.categories && !items.is_empty(),
             self.menu_color(),
             true,
-        );
+        )?;
         self.offset = [list_offset, 0.];
         let count = if items.is_empty() {
             "-/-".into()
@@ -50,7 +50,9 @@ impl Drawing<'_> {
             self.highlight([x, y, 168., 24.], 255);
             anchor = [x, y + 8.];
         }
-        for (category, &rect) in self.spec.sprites.item_tabs[1..].iter().enumerate() {
+        for index in 1..self.spec.sprites.group(Sprite::ItemTabs)?.len() {
+            let category = index - 1;
+            let rect = self.spec.sprite(Sprite::ItemTabs, index)?;
             let selected = category == book.category;
             let x = 362. + category as f32 * 32.;
             let y = if selected { 52. } else { 56. };
@@ -70,13 +72,15 @@ impl Drawing<'_> {
             let x = 28. + column * 197.;
             let y = 96. + (row_in_view / COLUMNS) as f32 * 28. - scroll_offset as f32;
             let item = &data.items[usize::from(id)];
+            let item_text = data.item_text(id)?;
             self.sprite_rect(
-                self.spec.sprites.items[usize::from(item.category - 1)],
+                self.spec
+                    .sprite(Sprite::Items, usize::from(item.category - 1))?,
                 [x, y, x + 24., y + 24.],
                 [1.; 4],
             );
             self.text(
-                &item.name,
+                &item_text.name,
                 [x + 24., y],
                 14.,
                 if party.recent_items.contains(&id) {
@@ -88,10 +92,10 @@ impl Drawing<'_> {
         }
         self.clip_rows(starts, [96., 320.]);
         if book.first > 0 {
-            self.scroll_arrow(SCROLL_UP, [306., 80.]);
+            self.scroll_arrow(SCROLL_UP, [306., 80.])?;
         }
         if book.first + VISIBLE < items.len() {
-            self.scroll_arrow(SCROLL_DOWN, [306., 312.]);
+            self.scroll_arrow(SCROLL_DOWN, [306., 312.])?;
         }
         anchor[0] += list_offset;
         self.offset = [0., description_offset];

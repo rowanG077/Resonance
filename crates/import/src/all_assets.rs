@@ -127,6 +127,8 @@ struct Disc<'a> {
     movies: Vec<File>,
     executable_hash: String,
     skit_key: String,
+    battle_sources: crate::source_assets::Sources,
+    usual: Vec<u8>,
 }
 
 struct Document {
@@ -199,6 +201,21 @@ impl Job {
     }
 }
 
+fn shared_voice_inputs(
+    requested: &BTreeSet<(String, usize)>,
+    voices: &BTreeMap<(String, usize), pool::Output<CookedJob>>,
+) -> Result<Vec<pool::Output<CookedJob>>> {
+    requested
+        .iter()
+        .map(|key @ (hash, member)| {
+            voices
+                .get(key)
+                .copied()
+                .with_context(|| format!("unqueued skit voice {hash}/{member}"))
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Exclusion {
@@ -231,16 +248,6 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         "worker count must be 1..={MAX_WORKERS}"
     );
     let discs = source_discs(options.discs)?;
-    let output_session = media::OutputSession::open(options.output)?;
-    let _publications = crate::publication::Session::start_if_needed(options.output)?;
-    let catalogue = options.output.join("sources.json");
-    for path in [&catalogue, &options.output.join("coverage.json")] {
-        match fs::remove_file(path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error).context("invalidate previous cook result"),
-        }
-    }
     let documents = read_documents(&discs)?;
     // Workers convert assets in-process; the caller collects results.
     let workers = options.jobs;
@@ -298,6 +305,19 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             );
         }
     }
+    // Source identity, catalogue and declared-resource failures take precedence
+    // over authored requirements. Both preflights preserve the existing output.
+    let battle_audio = crate::battle_audio::maintained_selection()?;
+    let output_session = media::OutputSession::open(options.output)?;
+    let _publications = crate::publication::Session::start_if_needed(options.output)?;
+    let catalogue = options.output.join("sources.json");
+    for path in [&catalogue, &options.output.join("coverage.json")] {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).context("invalidate previous cook result"),
+        }
+    }
     let mut report = Report::default();
     let mut seen = BTreeSet::new();
     let mut tables = BTreeMap::<String, Vec<String>>::new();
@@ -306,6 +326,12 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     let mut sources = BTreeMap::new();
     let mut excluded = BTreeMap::new();
     let mut outputs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut battle_table_paths = BTreeMap::<String, Vec<String>>::new();
+    let mut battle_module_paths = BTreeMap::<(String, String), Vec<String>>::new();
+    let mut battle_scene_paths = BTreeMap::new();
+    let mut battle_stage_paths = BTreeMap::new();
+    let mut battle_ui_paths = BTreeMap::new();
+    let mut battle_victory_paths = BTreeMap::new();
     let mut all_jobs = Vec::new();
     let mut pending = BTreeMap::new();
     for (&disc, &extracted) in &discs {
@@ -372,8 +398,155 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             }
         }
         let mut jobs = Vec::new();
-        let deferred_sources =
-            crate::source_assets::Sources::read_with(extracted, executable)?.deferred_paths();
+        let battle_sources = crate::source_assets::Sources::read_with(extracted, executable)?;
+        let usual = fs::read(extracted.join("files").join(&battle_sources.usual))?;
+        let usual_hash = crate::digest(&usual);
+        // Shared field inventories need these operands before the later embedded
+        // artwork pass. Publish once per source module in the same cooking run.
+        let module_hash = hashed
+            .get(&battle_sources.module)
+            .context("missing battle module")?;
+        let module_key = (module_hash.clone(), usual_hash.clone());
+        let module_paths = if let Some(paths) = battle_module_paths.get(&module_key) {
+            paths.clone()
+        } else {
+            let prefix = if battle_module_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{module_hash}/{usual_hash}")
+            };
+            let module = extracted.join("files").join(&battle_sources.module);
+            let paths = vec![
+                crate::battle_recoil::publish(&module, options.output, &prefix)?,
+                crate::battle_profile::publish_party(&module, &usual, options.output, &prefix)?,
+                crate::battle_effect::publish_tints(&module, options.output, &prefix)?,
+            ];
+            battle_module_paths.insert(module_key, paths.clone());
+            paths
+        };
+        for hash in [module_hash, &usual_hash] {
+            outputs
+                .entry(hash.clone())
+                .or_default()
+                .extend(module_paths.clone());
+        }
+        let victory_inputs = crate::battle_victory::inputs(extracted)?;
+        let victory_key = crate::digest(&serde_json::to_vec(&victory_inputs)?);
+        let victory = if let Some(path) = battle_victory_paths.get(&victory_key) {
+            String::clone(path)
+        } else {
+            let prefix = if battle_victory_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{victory_key}")
+            };
+            let path = crate::battle_victory::publish_source(extracted, options.output, &prefix)?;
+            battle_victory_paths.insert(victory_key, path.clone());
+            path
+        };
+        for hash in victory_inputs.values() {
+            outputs
+                .entry(hash.clone())
+                .or_default()
+                .push(victory.clone());
+        }
+        let magic_hash = hashed
+            .get(&battle_sources.magic)
+            .context("missing spell archive")?;
+        let scene_key = (module_hash.clone(), magic_hash.clone());
+        let scene = if let Some(path) = battle_scene_paths.get(&scene_key) {
+            String::clone(path)
+        } else {
+            let prefix = if battle_scene_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{module_hash}/{magic_hash}")
+            };
+            let path = crate::battle_scene::publish_source(
+                extracted,
+                &battle_sources,
+                237,
+                options.output,
+                &prefix,
+            )?;
+            battle_scene_paths.insert(scene_key, path.clone());
+            path
+        };
+        for hash in [module_hash, magic_hash] {
+            outputs.entry(hash.clone()).or_default().push(scene.clone());
+        }
+        let stage_hash = hashed
+            .get(&battle_sources.stages)
+            .context("missing stage archive")?;
+        let stage_key = (module_hash.clone(), stage_hash.clone());
+        let stage = if let Some(path) = battle_stage_paths.get(&stage_key) {
+            String::clone(path)
+        } else {
+            let prefix = if battle_stage_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{module_hash}/{stage_hash}")
+            };
+            let path = crate::battle_stage::publish_source(
+                extracted,
+                &battle_sources,
+                13,
+                options.output,
+                &prefix,
+            )?;
+            battle_stage_paths.insert(stage_key, path.clone());
+            path
+        };
+        for hash in [module_hash, stage_hash] {
+            outputs.entry(hash.clone()).or_default().push(stage.clone());
+        }
+        let ui_key = (module_hash.clone(), usual_hash.clone());
+        let ui_paths = if let Some(paths) = battle_ui_paths.get(&ui_key) {
+            Vec::clone(paths)
+        } else {
+            let prefix = if battle_ui_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{module_hash}/{usual_hash}")
+            };
+            let module =
+                crate::rel::Rel::read(&extracted.join("files").join(&battle_sources.module))?;
+            let paths = crate::battle_ui::publish_source(&usual, &module, options.output, &prefix)?;
+            battle_ui_paths.insert(ui_key, paths.clone());
+            paths
+        };
+        for hash in [module_hash, &usual_hash] {
+            outputs
+                .entry(hash.clone())
+                .or_default()
+                .extend(ui_paths.clone());
+        }
+        let table_paths = if let Some(paths) = battle_table_paths.get(&usual_hash) {
+            paths.clone()
+        } else {
+            let prefix = if battle_table_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{usual_hash}")
+            };
+            let path = format!("{prefix}/formations.json");
+            crate::battle_formation::publish(&usual, &options.output.join(&path))?;
+            let mut paths = vec![path];
+            paths.extend(crate::battle_effect::publish(
+                &usual,
+                options.output,
+                &prefix,
+            )?);
+            paths.push(crate::battle_projectile::publish(
+                &usual,
+                options.output,
+                &prefix,
+            )?);
+            battle_table_paths.insert(usual_hash.clone(), paths.clone());
+            paths
+        };
+        outputs.entry(usual_hash).or_default().extend(table_paths);
+        let deferred_sources = battle_sources.deferred_paths();
         let audio = audio::Cooker::new(extracted, &output_session, &hashed);
         let mut movies = Vec::new();
         for (relative, mut hash) in hashed {
@@ -419,7 +592,15 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 report.deferred.push(DeferredAsset {
                     path: label,
                     source_sha256: Some(hash.clone()),
-                    reason: "battle gameplay, effects and presentation are deferred; shared menu/audio readers may consume this source".into(),
+                    reason: if relative == battle_sources.usual {
+                        "formations, common action/projectile tables and common/technique effect sources are cooked; remaining battle tables and presentation are pending"
+                    } else if relative == battle_sources.enemy {
+                        "enemy statistics and models are cooked; behavior, effects and embedded sound banks are pending"
+                    } else if relative == battle_sources.weapons {
+                        "weapon rigs and model layers are cooked; trails, animated attachment bindings and presentation remain pending"
+                    } else {
+                        "remaining battle semantics and presentation are pending; shared menu/audio readers consume applicable records"
+                    }.into(),
                 });
                 continue;
             }
@@ -496,6 +677,8 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 movies,
                 executable_hash,
                 skit_key,
+                battle_sources,
+                usual,
             },
         );
     }
@@ -503,10 +686,36 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     let (&primary_disc, &primary) = discs.first_key_value().context("no source disc")?;
     let overworld =
         overworld_preparation::discover(primary, &sources, &documents[&primary_disc].executable)?;
+    let skits = (|| -> Result<_> {
+        let source = crate::skit::Source::read(primary, &documents[&primary_disc].executable)?;
+        let requested = source
+            .voice_members(primary)?
+            .into_iter()
+            .map(|(path, member)| {
+                let label = format!("disc{primary_disc}/{path}");
+                let hash = sources
+                    .get(&label)
+                    .with_context(|| format!("missing skit voice source {label}"))?;
+                Ok((hash.clone(), member))
+            })
+            .collect::<Result<BTreeSet<_>>>()?;
+        Ok((source, requested))
+    })();
+    let party_sources = crate::battle_model::party::discover(
+        primary,
+        primary_disc,
+        &documents[&primary_disc].catalogues.resources,
+        &mut sources,
+    )?;
     let required = fields
         .iter()
         .flat_map(|field| field.dependencies.iter().cloned())
         .chain(overworld.dependencies.iter().cloned())
+        .chain(
+            party_sources
+                .iter()
+                .flat_map(|source| source.keys.iter().cloned()),
+        )
         .collect::<BTreeSet<_>>();
     let maps = fields
         .iter()
@@ -515,8 +724,8 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     // Publish independent packages before retaining the shared inputs and field archives.
     all_jobs.sort_by_key(|(_, job)| {
         (
+            matches!(job, Job::File(_)) && required.contains(job.output_key()),
             maps.contains_key(job.output_key()),
-            required.contains(job.output_key()),
         )
     });
     let aliases = sources.iter().fold(
@@ -538,23 +747,31 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     );
     let started = AtomicUsize::new(0);
     let mut dag = pool::Dag::new();
-    let mut physical_packages = Vec::<pool::Output<CookedJob>>::new();
+    let mut voices = BTreeMap::new();
     let mut shared = None;
     for (disc, job) in &all_jobs {
         let (pending, started, maps, aliases) = (&pending, &started, &maps, &aliases);
-        let retain = required.contains(job.output_key());
+        let retain = matches!(job, Job::File(_)) && required.contains(job.output_key());
         if retain && shared.is_none() {
             let documents = &documents;
             let sources = &sources;
-            let inputs = physical_packages.clone();
+            let skits = &skits;
+            let inputs = skits
+                .as_ref()
+                .map_err(|error| anyhow::anyhow!("{error:#}"))
+                .and_then(|(_, requested)| shared_voice_inputs(requested, &voices));
             let prepared = dag.add(
                 "shared presentation",
                 inputs
                     .iter()
+                    .flatten()
                     .map(|job| job.dependency())
                     .collect::<Vec<_>>(),
                 move |_, resolver| {
-                    for input in &inputs {
+                    let inputs = inputs
+                        .as_ref()
+                        .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+                    for input in inputs {
                         resolver.get(*input)?.require_success()?;
                     }
                     let document = &documents[&primary_disc];
@@ -564,6 +781,12 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                         sources,
                         &document.executable,
                         &document.catalogues,
+                        &pending[&primary_disc].battle_sources,
+                        &pending[&primary_disc].usual,
+                        &skits
+                            .as_ref()
+                            .map_err(|error| anyhow::anyhow!("{error:#}"))?
+                            .0,
                     )?;
                     for document in documents.values() {
                         ensure!(
@@ -578,80 +801,82 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             shared = Some(prepared);
         }
         let job_count = all_jobs.len();
-        let handle = dag.add(
-            format!("disc{disc}/{}", job.label()),
-            shared.map(|shared| shared.dependency()),
-            move |_, _| {
-                let source = &pending[disc];
-                let extracted = source.extracted;
-                let audio = &source.audio;
-                let count = started.fetch_add(1, Ordering::Relaxed) + 1;
-                if count == 1 || count.is_multiple_of(100) {
-                    eprintln!("Starting job {count}/{}", job_count);
-                }
-                let mut local = Report::default();
-                let mut decoded = crate::scene::decoded::Package::default();
-                let paths = match job {
-                    Job::Voice { member, .. } => audio
-                        .as_ref()
-                        .map_err(|error| anyhow::anyhow!("{error:#}"))?
-                        .cook_member(member)?,
-                    Job::File(file) => match cook_file(
-                        options,
-                        extracted,
-                        file,
-                        audio,
-                        &mut local,
-                        PackageInput {
-                            map: maps.get(&file.hash).map(Arc::as_ref),
-                            models: &mut decoded,
-                            aliases: aliases
-                                .get(&file.hash)
-                                .filter(|_| retain)
-                                .map(Vec::as_slice)
-                                .unwrap_or_default(),
-                        },
-                    ) {
-                        Ok(paths) => paths,
-                        Err(error) => {
-                            local.record(&format!("disc{disc}/{}", file.relative), Err(error));
-                            Vec::new()
-                        }
+        let handle = dag.add(format!("disc{disc}/{}", job.label()), [], move |_, _| {
+            let source = &pending[disc];
+            let extracted = source.extracted;
+            let audio = &source.audio;
+            let count = started.fetch_add(1, Ordering::Relaxed) + 1;
+            if count == 1 || count.is_multiple_of(100) {
+                eprintln!("Starting job {count}/{}", job_count);
+            }
+            let mut local = Report::default();
+            let mut decoded = crate::scene::decoded::Package::default();
+            let paths = match job {
+                Job::Voice { member, .. } => audio
+                    .as_ref()
+                    .map_err(|error| anyhow::anyhow!("{error:#}"))?
+                    .cook_member(member)?,
+                Job::File(file) => match cook_file(
+                    options,
+                    extracted,
+                    file,
+                    audio,
+                    &mut local,
+                    PackageInput {
+                        map: maps.get(&file.hash).map(Arc::as_ref),
+                        models: &mut decoded,
+                        aliases: aliases
+                            .get(&file.hash)
+                            .filter(|_| retain)
+                            .map(Vec::as_slice)
+                            .unwrap_or_default(),
                     },
-                };
-                if let Job::File(file) = job {
-                    for deferred in &mut local.deferred {
-                        if !deferred.path.starts_with(&format!("disc{disc}/")) {
-                            deferred.path.insert_str(0, &format!("disc{disc}/"));
-                        }
-                        deferred.source_sha256 = Some(file.hash.clone());
+                ) {
+                    Ok(paths) => paths,
+                    Err(error) => {
+                        local.record(&format!("disc{disc}/{}", file.relative), Err(error));
+                        Vec::new()
                     }
+                },
+            };
+            if let Job::File(file) = job {
+                for deferred in &mut local.deferred {
+                    if !deferred.path.starts_with(&format!("disc{disc}/")) {
+                        deferred.path.insert_str(0, &format!("disc{disc}/"));
+                    }
+                    deferred.source_sha256 = Some(file.hash.clone());
                 }
-                let succeeded = local.failures.is_empty();
-                local.cooked += usize::from(succeeded && !paths.is_empty());
-                Ok(CookedJob {
-                    key: job.output_key().to_owned(),
-                    paths,
-                    report: local,
-                    decoded: Arc::new(if retain { decoded } else { Default::default() }),
-                })
-            },
-        );
+            }
+            let succeeded = local.failures.is_empty();
+            local.cooked += usize::from(succeeded && !paths.is_empty());
+            Ok(CookedJob {
+                key: job.output_key().to_owned(),
+                paths,
+                report: local,
+                decoded: Arc::new(if retain { decoded } else { Default::default() }),
+            })
+        });
         dag.estimate(
             handle,
             if retain { 16 * 1024 * 1024 } else { 4096 },
             64 * 1024 * 1024,
         )?;
-        if !retain {
-            physical_packages.push(handle);
+        if let Job::Voice { member, hash } = job {
+            ensure!(
+                voices.insert((hash.clone(), member.id), handle).is_none(),
+                "duplicate skit voice job {hash}/{}",
+                member.id
+            );
         }
         packages.insert(job.output_key().to_owned(), handle);
     }
+    let party = preparation::party(&mut dag, &party_sources, &packages, options.output)?;
     preparation::add(
         &mut dag,
         &fields,
         &packages,
         shared.context("no field preparation jobs")?,
+        party,
         options.output,
     )?;
     // Bind each terrain package as soon as its decoder finishes. Keeping all
@@ -741,7 +966,12 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         },
     );
     dag.estimate(world_task, 0, 256 * 1024 * 1024)?;
-    let mut prepared_fields = BTreeSet::new();
+    let mut prepared_fields = BTreeMap::new();
+    let mut shared_paths = BTreeSet::new();
+    let weapon_owner_motion = crate::battle_model::weapon::owner_motion_path(
+        pending[&primary_disc].extracted,
+        &pending[&primary_disc].document.executable,
+    )?;
     dag.run_bounded(
         workers,
         2 * 1024 * 1024 * 1024,
@@ -762,7 +992,41 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 }
                 report.merge(result.report.clone());
             } else if let Ok(field) = completion.result::<preparation::PreparedField>() {
-                prepared_fields.insert(field.0);
+                prepared_fields.insert(field.0, field.1.clone());
+            } else if let Ok(party) = completion.result::<preparation::PreparedParty>() {
+                shared_paths.extend(party.files.iter().cloned());
+                for (key, paths) in &party.outputs {
+                    outputs
+                        .entry(key.clone())
+                        .or_default()
+                        .extend(paths.clone());
+                }
+            } else if let Ok(shared) = completion.result::<crate::shared::Prepared>() {
+                shared_paths.extend(shared.files.iter().cloned());
+                for path in [
+                    &weapon_owner_motion,
+                    &pending[&primary_disc].battle_sources.weapons,
+                    &pending[&primary_disc].battle_sources.module,
+                ] {
+                    let source = format!("disc{primary_disc}/{path}");
+                    outputs
+                        .entry(sources[&source].clone())
+                        .or_default()
+                        .push(resonance_content::battle_model::WEAPONS_PATH.into());
+                }
+                let source = format!(
+                    "disc{primary_disc}/{}",
+                    pending[&primary_disc].battle_sources.enemy
+                );
+                outputs.entry(sources[&source].clone()).or_default().extend(
+                    (0..resonance_content::monster::MONSTER_COUNT).flat_map(|id| {
+                        [
+                            format!("monsters/{id:03}.json"),
+                            resonance_content::battle_model::enemy_path(id as u8),
+                            resonance_content::battle_enemy::path(id as u8),
+                        ]
+                    }),
+                );
             }
         },
     )?;
@@ -841,10 +1105,6 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 (
                     "event bank directory",
                     crate::event_bank_directory::Directory::cook(extracted, &table_output),
-                ),
-                (
-                    "stream mixer",
-                    crate::stream_mixer::Tables::cook(extracted, &table_output),
                 ),
                 (
                     "font directory",
@@ -934,7 +1194,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         paths.sort();
         paths.dedup();
     }
-    let sources = sources
+    let mut sources = sources
         .into_iter()
         .map(|(source, hash)| {
             let paths = outputs.get(&hash).cloned().unwrap_or_default();
@@ -963,8 +1223,10 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             options,
             &fields,
             &prepared_fields,
+            &shared_paths,
             &output_session,
-            &sources,
+            &battle_audio,
+            &mut sources,
         ),
     );
     report.source_files = sources.len();
@@ -1213,6 +1475,67 @@ pub(crate) fn cook_script(bytes: &[u8], name: &str, output: &Path) -> Result<boo
 mod tests {
     use super::*;
 
+    #[test]
+    fn shared_voice_dependencies_isolate_unrelated_and_shared_failures() -> Result<()> {
+        for selected_fails in [false, true] {
+            let mut dag = pool::Dag::new();
+            let selected = dag.add("selected voice", [], move |_, _| {
+                ensure!(!selected_fails, "selected voice failed");
+                Ok(CookedJob {
+                    key: "archive".into(),
+                    paths: vec!["selected.pcm".into()],
+                    report: Report::default(),
+                    decoded: Default::default(),
+                })
+            });
+            let other_member = dag.add("other member", [], |_, _| -> Result<CookedJob> {
+                anyhow::bail!("unrelated member failed")
+            });
+            let other_archive = dag.add("other archive", [], |_, _| -> Result<CookedJob> {
+                anyhow::bail!("unrelated archive failed")
+            });
+            let voices = BTreeMap::from([
+                (("archive".into(), 4), selected),
+                (("archive".into(), 5), other_member),
+                (("another".into(), 4), other_archive),
+            ]);
+            assert!(shared_voice_inputs(&[("archive".into(), 6)].into(), &voices).is_err());
+            let inputs = shared_voice_inputs(&[("archive".into(), 4)].into(), &voices)?;
+            let shared = dag.add(
+                "shared presentation",
+                inputs
+                    .iter()
+                    .map(|input| input.dependency())
+                    .collect::<Vec<_>>(),
+                move |_, resolver| {
+                    let voice = resolver.get(inputs[0])?;
+                    voice.require_success()?;
+                    ensure!(voice.paths == ["selected.pcm"], "wrong voice dependency");
+                    Ok(())
+                },
+            );
+            let physical = dag.add("field decoding", [], |_, _| Ok(()));
+            for input in [selected, other_member, other_archive] {
+                dag.estimate(input, 1, 1)?;
+            }
+            dag.estimate(shared, 1, 1)?;
+            dag.estimate(physical, 1, 1)?;
+            let mut completed = BTreeMap::new();
+            dag.run_bounded(
+                2,
+                8,
+                || (),
+                |result| {
+                    completed.insert(result.name.to_owned(), result.error().is_none());
+                },
+            )?;
+            assert_eq!(completed["shared presentation"], !selected_fails);
+            assert!(completed["field decoding"]);
+            assert!(!completed["other member"] && !completed["other archive"]);
+        }
+        Ok(())
+    }
+
     fn options(output: &Path) -> Options<'_> {
         Options {
             discs: &[],
@@ -1386,7 +1709,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_discovery_invalidates_previous_success_markers() -> Result<()> {
+    fn failed_source_discovery_preserves_previous_success_markers() -> Result<()> {
         let root = tempfile::tempdir()?;
         let disc = root.path().join("disc");
         fs::create_dir_all(disc.join("sys"))?;
@@ -1396,14 +1719,21 @@ mod tests {
         for name in ["sources.json", "coverage.json"] {
             fs::write(output.join(name), b"previous result")?;
         }
+        let error = cook(&Options {
+            discs: &[disc],
+            ..options(&output)
+        })
+        .err()
+        .context("missing executable unexpectedly admitted")?;
         assert!(
-            cook(&Options {
-                discs: &[disc],
-                ..options(&output)
-            })
-            .is_err()
+            error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound)
         );
-        assert!(fs::read_dir(output)?.next().is_none());
+        for name in ["sources.json", "coverage.json"] {
+            assert_eq!(fs::read(output.join(name))?, b"previous result");
+        }
+        assert_eq!(fs::read_dir(output)?.count(), 2);
         Ok(())
     }
 

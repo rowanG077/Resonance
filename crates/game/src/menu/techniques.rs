@@ -1,7 +1,56 @@
-use super::*;
-use resonance_content::menu_data::TechniqueUse;
-use resonance_events::input::Button;
-use resonance_events::party::TechniqueShortcut;
+//! Shared field and battle Tech page. The caller owns the party.
+pub use super::Input;
+use super::MenuAction;
+use anyhow::{Result, ensure};
+pub use resonance_battle::TechniqueTarget as TargetKind;
+use resonance_battle::{ActorId, Battle, PreparedTechnique};
+use resonance_content::{
+    menu_data::{MenuData, TechniqueUse},
+    session::SessionData,
+};
+use resonance_events::party::{Member, Party, TechniqueShortcut};
+
+pub const VISIBLE_SHORTCUT_CHOICES: usize = 8;
+
+#[derive(Clone, Copy)]
+pub enum Context<'a> {
+    Field {
+        at_save_point: bool,
+        connected: &'a [bool; 4],
+    },
+    Battle {
+        battle: &'a Battle,
+        actors: &'a [(ActorId, u8)],
+        connected: &'a [bool; 4],
+    },
+}
+
+impl<'a> Context<'a> {
+    fn battle(self) -> bool {
+        matches!(self, Self::Battle { .. })
+    }
+    fn connected(self) -> &'a [bool; 4] {
+        match self {
+            Self::Field { connected, .. } | Self::Battle { connected, .. } => connected,
+        }
+    }
+    fn prepared(self, member: usize, catalogue: u16) -> Option<(ActorId, &'a PreparedTechnique)> {
+        let Self::Battle { battle, actors, .. } = self else {
+            return None;
+        };
+        let actor = actors
+            .iter()
+            .find(|(_, character)| usize::from(*character) == member + 1)?
+            .0;
+        Some((actor, battle.prepared_technique(actor, catalogue)?))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BattlePage {
+    pub state: Tech,
+    pub connected: [bool; 4],
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
@@ -17,703 +66,1233 @@ pub enum Focus {
     Forget {
         yes: bool,
     },
+    Closed {
+        technique: Option<u16>,
+    },
 }
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Tech {
-    #[serde(flatten)]
-    pub transition: super::Transition,
+    pub character: usize,
     pub focus: Focus,
     pub unison: bool,
     pub slot: usize,
     pub row: usize,
     pub first: usize,
-    pub scroll: i8,
-    pub description_previous: Option<TechniqueShortcut>,
-    pub description_fade: u8,
-    pub description_opacity: u8,
-    pub banner_opacity: u8,
-    pub banner_closing: Option<Focus>,
-    pub cannot_forget_opacity: u8,
-    pub forget_opacity: u8,
-    pub forget_yes: bool,
     pub assist: usize,
     pub target: usize,
-    pub target_preview: usize,
-    pub target_ticks: u8,
-    pub target_opacity: u8,
     pub return_to: Focus,
 }
-
-impl Tech {
-    pub(super) fn opening() -> Self {
-        Self {
-            transition: super::Transition::opening(),
-            description_fade: DESCRIPTION_FADE_START,
-            description_opacity: 15,
-            ..Default::default()
-        }
-    }
-    fn banner_visible(&self) -> bool {
-        self.unison
-            || matches!(self.focus, Focus::AssistCharacter | Focus::AssistList)
-            || self.focus == Focus::Target && self.return_to == Focus::AssistList
-    }
-    pub fn animating(&self) -> bool {
-        self.transition.animating()
-            || self.scroll != 0
-            || self.banner_closing.is_some()
-            || self.banner_visible() && self.banner_opacity != 255
-            || self.focus != Focus::Target && self.target_opacity != 0
-    }
-    fn fade_popups(&mut self) {
-        if self.focus == Focus::CannotForget {
-            if self.forget_opacity != 0 {
-                self.cannot_forget_opacity = std::mem::take(&mut self.forget_opacity);
-            }
-            self.cannot_forget_opacity = self.cannot_forget_opacity.saturating_add(32);
-        } else {
-            self.cannot_forget_opacity = self.cannot_forget_opacity.saturating_sub(32);
-        }
-        if let Focus::Forget { yes } = self.focus {
-            self.forget_yes = yes;
-            if self.cannot_forget_opacity != 0 {
-                self.forget_opacity = std::mem::take(&mut self.cannot_forget_opacity);
-            }
-            self.forget_opacity = self.forget_opacity.saturating_add(32);
-        } else {
-            self.forget_opacity = self.forget_opacity.saturating_sub(32);
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edit {
+    Control {
+        slot: usize,
+        value: u8,
+    },
+    Shortcut {
+        member: usize,
+        slot: usize,
+        selected: Option<TechniqueShortcut>,
+    },
+    Enabled {
+        member: usize,
+        technique: u16,
+        enabled: bool,
+    },
+    FieldForget {
+        member: usize,
+        technique: u16,
+    },
+    FieldCast {
+        member: usize,
+        target: usize,
+        technique: u16,
+        at_save_point: bool,
+    },
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EditResult {
+    pub changed: bool,
+    pub cue: Option<u16>,
 }
 
-impl Menu {
-    pub fn tech_description(&self) -> Option<TechniqueShortcut> {
-        self.selected_technique()
-            .filter(|_| !self.tech_target_visible())
+pub(crate) fn shortcut_selection(
+    party: &Party,
+    member: usize,
+    slot: usize,
+) -> Option<TechniqueShortcut> {
+    let owner = party.members.get(member)?;
+    if slot >= 4 {
+        return owner.assist_shortcuts.get(slot - 4).copied().flatten();
     }
-    pub(super) fn remember_tech_description(&mut self) {
-        if self.tech.description_fade == 0 {
-            self.tech.description_previous = self.tech_description();
-        }
+    let technique = owner.shortcuts[slot];
+    (technique != 0).then_some(TechniqueShortcut {
+        character: member,
+        technique,
+    })
+}
+
+pub(crate) fn shortcut_choice(
+    choices: &[u16],
+    selected: Option<TechniqueShortcut>,
+) -> Option<(usize, usize)> {
+    if choices.is_empty() {
+        return None;
     }
-    pub(super) fn fade_tech_description(&mut self) {
-        let changed = self.tech.description_fade == 0
-            && self.tech.description_previous != self.tech_description();
-        self.tech.description_opacity = fade_description(&mut self.tech.description_fade, changed);
-    }
-    fn close_tech_banner(&mut self, focus: Focus) {
-        self.tech.banner_closing = Some(focus);
-    }
-    pub fn tech_target_visible(&self) -> bool {
-        self.tech.focus == Focus::Target || self.tech.target_opacity > 0
-    }
-    pub(super) fn fade_tech_target(&mut self) {
-        const FADE_STEP: u8 = 32;
-        self.tech.target_opacity = if self.tech.focus == Focus::Target {
-            self.tech.target_opacity.saturating_add(FADE_STEP)
-        } else {
-            self.tech.target_opacity.saturating_sub(FADE_STEP)
-        };
-    }
-    pub(super) fn step_tech_preview(&mut self) {
-        self.tech.target_preview = self.tech.target;
-        if self.tech_target_visible() && self.tech_targets_all() {
-            const PREVIEW_TICKS: u8 = 121;
-            self.tech.target_ticks += 1;
-            if self.tech.target_ticks == PREVIEW_TICKS {
-                self.tech.target_ticks = 0;
-                let count = self.party().formation.len();
-                self.tech.target = (self.tech.target + 1) % count;
+    let row = selected
+        .and_then(|selected| choices.iter().position(|&id| id == selected.technique))
+        .unwrap_or(0);
+    Some((row, row.saturating_sub(VISIBLE_SHORTCUT_CHOICES - 1)))
+}
+
+impl Edit {
+    /// Field convenience; battle commits through its prevalidated live binding join.
+    pub fn apply_field(self, party: &mut Party, data: &MenuData) -> Result<EditResult> {
+        let changed = match self {
+            Self::Control { slot, value } => {
+                ensure!(
+                    slot < party.formation.len() && slot < 4 && value < 3,
+                    "invalid Tech control edit"
+                );
+                let old = &mut party.settings.battle_controls[slot];
+                let changed = *old != value;
+                *old = value;
+                changed
             }
+            Self::Shortcut {
+                member,
+                slot,
+                selected,
+            } => party
+                .assign_technique(member, slot, selected)
+                .map_err(anyhow::Error::msg)?,
+            Self::Enabled {
+                member,
+                technique,
+                enabled,
+            } => {
+                let member = party
+                    .members
+                    .get_mut(member)
+                    .ok_or_else(|| anyhow::anyhow!("unknown Tech member"))?;
+                ensure!(
+                    member.techniques.contains(&technique),
+                    "cannot enable an unlearned technique"
+                );
+                if enabled {
+                    member.disabled_techniques.remove(&technique)
+                } else {
+                    member.disabled_techniques.insert(technique)
+                }
+            }
+            Self::FieldForget { member, technique } => party
+                .forget_technique(data, member, technique)
+                .map_err(anyhow::Error::msg)?,
+            Self::FieldCast {
+                member,
+                target,
+                technique,
+                at_save_point,
+            } => {
+                let cue = party
+                    .cast_technique(data, member, target, technique, at_save_point)
+                    .map_err(anyhow::Error::msg)?;
+                return Ok(EditResult {
+                    changed: cue.is_some(),
+                    cue: Some(cue.map_or(4, |v| v as u16)),
+                });
+            }
+        };
+        Ok(EditResult { changed, cue: None })
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Exit {
+    pub character: usize,
+    pub member: usize,
+    pub technique: Option<u16>,
+    /// Formation slot selected by the party target panel.
+    pub target: usize,
+    pub target_kind: Option<TargetKind>,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Visit {
+    pub cue: Option<u16>,
+    pub changed: bool,
+    pub exit: Option<Exit>,
+}
+/// Navigation completes immediately; edits leave page state untouched until committed.
+pub enum Step {
+    Navigate(Visit),
+    Edit(Edit),
+}
+
+#[derive(Clone, Copy)]
+pub struct Page<'a> {
+    pub state: &'a Tech,
+    pub party: &'a Party,
+    pub session: &'a SessionData,
+    pub data: &'a MenuData,
+    pub context: Context<'a>,
+}
+impl<'a> Page<'a> {
+    pub fn battle(self) -> bool {
+        self.context.battle()
+    }
+    pub fn at_save_point(self) -> bool {
+        matches!(
+            self.context,
+            Context::Field {
+                at_save_point: true,
+                ..
+            }
+        )
+    }
+    pub fn party_count(self) -> usize {
+        match self.context {
+            Context::Battle { actors, .. } => actors.len(),
+            Context::Field { .. } => self.party.formation.len(),
         }
     }
-    pub fn tech_unison_available(&self) -> bool {
-        // Input currently belongs to player one; other party slots have no controller.
-        (1..VISIBLE_PARTY).contains(&self.character) && self.tech_auto()
+    pub fn member_index(self) -> usize {
+        usize::from(self.party.formation[self.state.character] - 1)
     }
-    pub fn tech_targets_all(&self) -> bool {
-        self.selected_technique().is_some_and(|selected| {
-            matches!(
-                self.resources.as_ref().unwrap().data.techniques[usize::from(selected.technique)]
-                    .field_use,
-                Some(
-                    TechniqueUse::Recover { party: true, .. } | TechniqueUse::Cure { party: true }
-                )
-            )
-        })
+    pub fn member(self) -> &'a Member {
+        &self.party.members[self.member_index()]
     }
-    pub fn tech_auto(&self) -> bool {
-        self.party()
+    pub fn tech_target_visible(self) -> bool {
+        self.state.focus == Focus::Target
+    }
+    pub fn tech_member_index(self) -> usize {
+        let assisted = matches!(self.state.focus, Focus::AssistCharacter | Focus::AssistList)
+            || self.state.focus == Focus::Target && self.state.return_to == Focus::AssistList;
+        usize::from(
+            self.party.formation[if assisted {
+                self.state.assist
+            } else {
+                self.state.character
+            }] - 1,
+        )
+    }
+    pub fn tech_auto(self) -> bool {
+        self.party
             .settings
             .battle_controls
-            .get(self.character)
-            .is_none_or(|&control| control == 2)
+            .get(self.state.character)
+            .is_none_or(|&v| v == 2)
     }
-    pub fn tech_member_index(&self) -> usize {
-        let assisted = matches!(self.tech.focus, Focus::AssistCharacter | Focus::AssistList)
-            || self.tech.focus == Focus::Target && self.tech.return_to == Focus::AssistList;
-        let index = if assisted {
-            self.tech.assist
-        } else {
-            self.character
-        };
-        usize::from(self.party().formation[index] - 1)
+    pub fn tech_unison_available(self) -> bool {
+        self.state.character < 4
+            && self.tech_auto()
+            && !self.context.connected()[self.state.character]
     }
-    pub fn tech_columns(&self) -> usize {
-        if self.tech.unison {
+    pub fn tech_columns(self) -> usize {
+        if self.state.unison {
             return 1;
         }
-        let party = self.party();
-        let slot = party
+        let slot = self
+            .party
             .formation
             .iter()
             .position(|&id| usize::from(id - 1) == self.tech_member_index())
             .unwrap();
-        if party
+        if self
+            .party
             .settings
             .battle_controls
             .get(slot)
-            .is_none_or(|&control| control == 2)
+            .is_none_or(|&v| v == 2)
         {
             2
         } else {
             1
         }
     }
-    pub fn technique_list(&self) -> Vec<u16> {
+    pub fn technique_list(self) -> Vec<u16> {
         let index = self.tech_member_index();
-        let resources = self.resources.as_ref().unwrap();
-        let member = &self.party().members[index];
-        resources.session.characters[index]
+        let member = &self.party.members[index];
+        self.session.characters[index]
             .allowed_techniques
             .iter()
             .copied()
-            .filter(|id| {
-                let tech = &resources.data.techniques[usize::from(*id)];
-                member.techniques.contains(id)
-                    || tech.level <= u16::from(member.level)
-                        && match tech.route {
-                            0 => true,
-                            1 => member.technique_balance <= 0,
-                            2 => member.technique_balance > 0,
-                            _ => false,
-                        }
+            .filter(|&id| {
+                member.techniques.contains(&id)
+                    || self
+                        .data
+                        .techniques
+                        .get(usize::from(id))
+                        .is_some_and(|tech| {
+                            tech.level <= u16::from(member.level)
+                                && match tech.route {
+                                    0 => true,
+                                    1 => member.technique_balance <= 0,
+                                    2 => member.technique_balance > 0,
+                                    _ => false,
+                                }
+                        })
             })
             .collect()
     }
-    pub fn selected_technique(&self) -> Option<TechniqueShortcut> {
-        if self.tech.focus == Focus::Shortcuts {
-            if self.tech.slot >= 4 {
-                return self.member().assist_shortcuts[self.tech.slot - 4];
-            }
-            let id = self.member().shortcuts[self.tech.slot];
-            (id != 0).then_some(TechniqueShortcut {
-                character: self.member_index(),
-                technique: id,
-            })
+    pub fn selected_technique(self) -> Option<TechniqueShortcut> {
+        if self.state.focus == Focus::Shortcuts {
+            shortcut_selection(self.party, self.member_index(), self.state.slot)
         } else if matches!(
-            self.tech.focus,
+            self.state.focus,
             Focus::Character | Focus::Control | Focus::AssistCharacter
         ) {
             None
         } else {
             self.technique_list()
-                .get(self.tech.row)
-                .map(|id| TechniqueShortcut {
+                .get(self.state.row)
+                .map(|&technique| TechniqueShortcut {
                     character: self.tech_member_index(),
-                    technique: *id,
+                    technique,
                 })
         }
     }
-    pub(super) fn reset_tech_focus(&mut self) {
-        self.tech.unison = false;
-        self.tech.slot = 0;
-        self.tech.focus = if self.tech_auto() {
+    pub fn tech_description(self) -> Option<TechniqueShortcut> {
+        self.selected_technique()
+            .filter(|_| !self.tech_target_visible())
+    }
+    pub fn tech_targets_all(self) -> bool {
+        self.selected_technique().is_some_and(|s| {
+            matches!(
+                self.data.techniques[usize::from(s.technique)].field_use,
+                Some(
+                    TechniqueUse::Recover { party: true, .. } | TechniqueUse::Cure { party: true }
+                )
+            )
+        })
+    }
+    pub fn battle_party_target(self) -> bool {
+        self.selected_technique().is_some_and(|selected| {
+            self.context
+                .prepared(selected.character, selected.technique)
+                .is_some_and(|(_, row)| row.capabilities.target == TargetKind::Ally)
+        })
+    }
+    pub fn character_name(self, member: usize) -> &'a str {
+        self.party.members[member]
+            .name
+            .as_deref()
+            .unwrap_or(&self.data.initial_names[member])
+    }
+    pub fn technique_cost(self, member: usize, id: u16) -> Option<u32> {
+        if !self.battle() {
+            return Some(u32::from(self.party.members.get(member)?.technique_cost(
+                self.data,
+                id,
+                self.at_save_point(),
+            )));
+        }
+        let (actor, prepared) = self.context.prepared(member, id)?;
+        let Context::Battle { battle, .. } = self.context else {
+            return None;
+        };
+        battle.technique_tp_cost(actor, prepared.action)
+    }
+    pub fn ready(self, member: usize, id: u16) -> bool {
+        if let Context::Battle { battle, .. } = self.context {
+            self.context
+                .prepared(member, id)
+                .is_some_and(|(actor, prepared)| {
+                    battle
+                        .technique_queue_admitted(actor, prepared.action)
+                        .unwrap_or(false)
+                })
+        } else {
+            self.technique_cost(member, id)
+                .is_some_and(|cost| cost <= u32::from(self.party.members[member].tp))
+        }
+    }
+    pub fn available(self, member: usize, id: u16) -> bool {
+        !self.battle() || self.context.prepared(member, id).is_some()
+    }
+}
+impl Tech {
+    pub fn opening(
+        character: usize,
+        context: Context<'_>,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+    ) -> Result<Self> {
+        let mut state = Self {
+            character,
+            ..Self::default()
+        };
+        state.validate(party, context)?;
+        state.reset_focus(party, session, data, context);
+        Ok(state)
+    }
+    pub fn page<'a>(
+        &'a self,
+        party: &'a Party,
+        session: &'a SessionData,
+        data: &'a MenuData,
+        context: Context<'a>,
+    ) -> Page<'a> {
+        Page {
+            state: self,
+            party,
+            session,
+            data,
+            context,
+        }
+    }
+    fn validate(&self, party: &Party, context: Context<'_>) -> Result<()> {
+        let count = party.formation.len();
+        ensure!(
+            (1..=8).contains(&count)
+                && party.members.len() == 9
+                && self.character < count
+                && (!context.battle() || self.character < 4),
+            "invalid Tech party selection"
+        );
+        for (slot, &id) in party.formation.iter().enumerate() {
+            ensure!(
+                (1..=9).contains(&id) && !party.formation[..slot].contains(&id),
+                "invalid Tech formation"
+            );
+            ensure!(
+                slot >= 4 || party.settings.battle_controls[slot] < 3,
+                "invalid Tech control setting"
+            );
+        }
+        Ok(())
+    }
+    fn reset_focus(
+        &mut self,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) {
+        self.unison = false;
+        self.slot = 0;
+        self.row = 0;
+        self.first = 0;
+        self.focus = if self.page(party, session, data, context).tech_auto() {
             Focus::List
         } else {
             Focus::Shortcuts
         };
-        self.tech.row = 0;
-        self.tech.first = 0;
-        self.tech.scroll = 0;
     }
-    fn reveal_technique(&mut self) {
-        let columns = self.tech_columns();
-        let visible = if columns == 2 { 12 } else { 8 };
-        self.tech.first = self
-            .tech
-            .first
-            .min(self.tech.row / columns * columns)
-            .max(self.tech.row.saturating_sub(visible - 1).div_ceil(columns) * columns);
-    }
-    pub(super) fn step_techniques(
+    fn cycle_character(
         &mut self,
-        input: crate::field::FieldInput,
-        directions: [bool; 6],
-    ) -> Option<i16> {
-        self.tech.scroll = (self.tech.scroll + self.tech.scroll.signum()) % 5;
-        if self.tech.scroll != 0 {
-            return None;
-        }
-        if let Some(focus) = self.tech.banner_closing {
-            self.tech.banner_opacity = self.tech.banner_opacity.saturating_sub(32);
-            if self.tech.banner_opacity != 0 {
-                return None;
+        previous: bool,
+        skip_ko: bool,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) {
+        let count = self.page(party, session, data, context).party_count();
+        let old = self.character;
+        for _ in 0..count {
+            self.character = (self.character + if previous { count - 1 } else { 1 }) % count;
+            if !skip_ko
+                || !self
+                    .page(party, session, data, context)
+                    .member()
+                    .knocked_out()
+            {
+                break;
             }
-            self.tech.focus = focus;
-            self.tech.unison = false;
-            self.tech.banner_closing = None;
-        } else if self.tech.banner_visible() && self.tech.banner_opacity != 255 {
-            self.tech.banner_opacity = self.tech.banner_opacity.saturating_add(32);
-            if self.tech.banner_opacity != 255 {
-                return None;
-            }
         }
-        if self.tech.animating() {
-            return None;
+        if old != self.character {
+            self.reset_focus(party, session, data, context);
         }
-        if let Focus::Forget { yes } = self.tech.focus {
-            self.tech.forget_yes = yes;
+        if skip_ko {
+            self.focus = Focus::Character;
         }
-        let cue = self.dispatch_techniques(input, directions);
-        self.tech.fade_popups();
-        cue
     }
-    fn dispatch_techniques(
+    pub fn step(
         &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down, page_up, page_down]: [bool; 6],
-    ) -> Option<i16> {
-        let focus = self.tech.focus;
-        let resources = self.resources.as_ref()?.clone();
-        let member = self.member_index();
-        let selected = self.selected_technique();
-        if focus == Focus::CannotForget {
-            if input.pressed(Button::Accept) || input.pressed(Button::Cancel) {
-                self.tech.focus = self.tech.return_to;
-                return Some(1);
+        input: Input,
+        party: &mut Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) -> Result<Visit> {
+        ensure!(
+            !context.battle(),
+            "battle Tech edits require prepared core bindings"
+        );
+        match self.request_step(input, party, session, data, context)? {
+            Step::Navigate(visit) => Ok(visit),
+            Step::Edit(edit) => {
+                let result = edit.apply_field(party, data)?;
+                Ok(self.finish_edit(edit, result, party, session, data, context))
             }
-            return None;
         }
-        if let Focus::Forget { yes } = focus {
-            if input.pressed(Button::Cancel) {
-                self.tech.focus = self.tech.return_to;
-                return Some(3);
+    }
+
+    pub fn request_step(
+        &mut self,
+        input: Input,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) -> Result<Step> {
+        let (cue, edit) = self.dispatch(input, party, session, data, context)?;
+        Ok(match edit {
+            Some(edit) => Step::Edit(edit),
+            None => Step::Navigate(self.visit(cue, false, party, session, data, context)),
+        })
+    }
+
+    /// Called only after the requested edit has succeeded in the field or battle core.
+    pub fn finish_edit(
+        &mut self,
+        edit: Edit,
+        result: EditResult,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) -> Visit {
+        let cue = match edit {
+            Edit::Control { .. } => {
+                self.first = 0;
+                Some(1)
             }
-            if left || right {
-                self.tech.focus = Focus::Forget { yes: !yes };
-                return Some(1);
+            Edit::Shortcut {
+                selected: Some(_), ..
+            } => {
+                self.focus = Focus::Shortcuts;
+                Some(2)
             }
-            if input.pressed(Button::Accept) {
-                self.tech.focus = self.tech.return_to;
-                if !yes {
-                    return Some(if self.tech_auto() { 2 } else { 3 });
+            Edit::Shortcut { selected: None, .. } | Edit::Enabled { .. } => Some(1),
+            Edit::FieldForget { .. } => {
+                self.focus = self.return_to;
+                let count = self
+                    .page(party, session, data, context)
+                    .technique_list()
+                    .len();
+                self.row = self.row.min(count.saturating_sub(1));
+                self.reveal(self.page(party, session, data, context).tech_columns());
+                Some(2)
+            }
+            Edit::FieldCast {
+                member, technique, ..
+            } => {
+                if result.changed
+                    && !self
+                        .page(party, session, data, context)
+                        .ready(member, technique)
+                {
+                    self.focus = self.return_to;
                 }
-                let result = self
-                    .checkpoint
-                    .as_mut()
-                    .unwrap()
-                    .progress
-                    .party
-                    .forget_technique(&resources.data, member, selected?.technique);
-                self.tech.row = self
-                    .tech
-                    .row
-                    .min(self.technique_list().len().saturating_sub(1));
-                self.reveal_technique();
-                return self.party_result(result);
+                None
             }
-            return None;
-        }
-        if input.pressed(Button::Cancel) {
-            if focus == Focus::AssistCharacter || focus == Focus::Shortcuts && self.tech.unison {
-                self.close_tech_banner(if self.tech.unison {
-                    Focus::Character
-                } else {
-                    Focus::Shortcuts
-                });
-                return Some(3);
+        };
+        self.visit(
+            result.cue.or(cue),
+            result.changed,
+            party,
+            session,
+            data,
+            context,
+        )
+    }
+
+    fn visit(
+        &self,
+        cue: Option<u16>,
+        changed: bool,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) -> Visit {
+        let exit = if let Focus::Closed { technique } = self.focus {
+            let member = self.page(party, session, data, context).member_index();
+            Some(Exit {
+                character: self.character,
+                member,
+                technique,
+                target: self.target,
+                target_kind: technique.and_then(|technique| {
+                    context
+                        .prepared(member, technique)
+                        .map(|(_, row)| row.capabilities.target)
+                }),
+            })
+        } else {
+            None
+        };
+        Visit { cue, changed, exit }
+    }
+    fn dispatch(
+        &mut self,
+        input: Input,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) -> Result<(Option<u16>, Option<Edit>)> {
+        let Some(action) = input else {
+            return Ok((None, None));
+        };
+        let page = self.page(party, session, data, context);
+        let member = page.member_index();
+        let selected = (action != MenuAction::Cancel)
+            .then(|| page.selected_technique())
+            .flatten();
+        let battle = page.battle();
+        let at_save_point = page.at_save_point();
+        let mut cue = None;
+        let mut requested = None;
+        match self.focus {
+            Focus::Closed { .. } => {}
+            Focus::CannotForget => {
+                if matches!(action, MenuAction::Confirm | MenuAction::Cancel) {
+                    self.focus = self.return_to;
+                    cue = Some(1);
+                }
             }
-            self.tech.focus = match focus {
-                Focus::Character | Focus::Control => {
-                    self.tech.transition.page_closing = true;
-                    self.select_main(Page::Tech);
-                    focus
-                }
-                Focus::Shortcuts => {
-                    self.tech.unison = false;
-                    Focus::Character
-                }
-                Focus::List => {
-                    if self.tech_auto() && !self.tech.unison {
-                        Focus::Character
+            Focus::Forget { yes } => {
+                if action == MenuAction::Cancel {
+                    self.focus = self.return_to;
+                    cue = Some(3);
+                } else if action == MenuAction::Confirm {
+                    if yes {
+                        let selected = selected
+                            .ok_or_else(|| anyhow::anyhow!("missing Tech forget selection"))?;
+                        return Ok((
+                            None,
+                            Some(Edit::FieldForget {
+                                member,
+                                technique: selected.technique,
+                            }),
+                        ));
                     } else {
-                        Focus::Shortcuts
+                        self.focus = self.return_to;
+                        cue = Some(
+                            if self.page(party, session, data, context).tech_columns() == 2 {
+                                2
+                            } else {
+                                3
+                            },
+                        );
                     }
-                }
-                Focus::AssistCharacter => Focus::Shortcuts,
-                Focus::AssistList => Focus::AssistCharacter,
-                Focus::Target => self.tech.return_to,
-                _ => unreachable!(),
-            };
-            return Some(3);
-        }
-        let count = self.party().formation.len();
-        if matches!(focus, Focus::Character | Focus::Shortcuts | Focus::List)
-            && !self.tech.unison
-            && (input.pressed(Button::PreviousPage)
-                || input.pressed(Button::NextPage)
-                || focus == Focus::Character && (left || right))
-        {
-            let before = self.character;
-            for _ in 0..count {
-                self.character = (self.character
-                    + if input.pressed(Button::PreviousPage) || left {
-                        count - 1
-                    } else {
-                        1
-                    })
-                    % count;
-                if focus != Focus::Character || !self.member().knocked_out() {
-                    break;
+                } else if matches!(action, MenuAction::Left | MenuAction::Right) {
+                    self.focus = Focus::Forget { yes: !yes };
+                    cue = Some(1);
                 }
             }
-            if self.character == before {
-                return None;
-            }
-            self.reset_tech_focus();
-            if focus == Focus::Character {
-                self.tech.focus = Focus::Character;
-            }
-            return Some(1);
-        }
-        match focus {
             Focus::Control => {
-                if left || right {
-                    let value = &mut self
-                        .checkpoint
-                        .as_mut()
-                        .unwrap()
-                        .progress
-                        .party
-                        .settings
-                        .battle_controls[self.character];
-                    *value = (*value + if left { 2 } else { 1 }) % 3;
-                    self.tech.first = 0;
-                    self.party_changed = true;
-                    return Some(1);
-                }
-                if input.pressed(Button::Accept) || down {
-                    self.tech.focus = Focus::Character;
-                    return Some(1);
+                if action == MenuAction::Cancel {
+                    self.close(None);
+                    cue = Some(3);
+                } else if matches!(action, MenuAction::Left | MenuAction::Right) {
+                    let value = (party.settings.battle_controls[self.character]
+                        + if action == MenuAction::Left { 2 } else { 1 })
+                        % 3;
+                    return Ok((
+                        None,
+                        Some(Edit::Control {
+                            slot: self.character,
+                            value,
+                        }),
+                    ));
+                } else if action == MenuAction::Confirm || action == MenuAction::Down {
+                    self.focus = Focus::Character;
+                    cue = Some(1);
                 }
             }
             Focus::Character => {
-                if input.pressed(Button::Start) && self.character < VISIBLE_PARTY {
-                    let control = &mut self
-                        .checkpoint
-                        .as_mut()
-                        .unwrap()
-                        .progress
-                        .party
-                        .settings
-                        .battle_controls[self.character];
-                    *control = (*control + 1) % 3;
-                    self.tech.first = 0;
-                    self.party_changed = true;
-                    return Some(1);
-                }
-                if input.pressed(Button::Menu) && self.tech_unison_available() {
-                    self.tech.unison = true;
-                    self.tech.banner_opacity = 0;
-                    self.tech.focus = Focus::Shortcuts;
-                    self.tech.slot = 0;
-                    self.tech.row = 0;
-                    self.tech.first = 0;
-                    return Some(1);
-                }
-                if up && self.character < VISIBLE_PARTY {
-                    self.tech.focus = Focus::Control;
-                    return Some(1);
-                }
-                if input.pressed(Button::Accept) || down {
-                    if self.tech_auto() {
-                        self.reset_tech_focus();
-                    } else {
-                        self.tech.focus = Focus::Shortcuts;
-                        self.tech.slot = 0;
+                if action == MenuAction::Cancel {
+                    self.close(None);
+                    cue = Some(3);
+                } else if action == MenuAction::Details {
+                    if self.character < 4 {
+                        let value = (party.settings.battle_controls[self.character] + 1) % 3;
+                        return Ok((
+                            None,
+                            Some(Edit::Control {
+                                slot: self.character,
+                                value,
+                            }),
+                        ));
                     }
-                    return Some(1);
+                } else if action == MenuAction::Menu {
+                    if page.tech_unison_available() {
+                        self.unison = true;
+                        self.focus = Focus::Shortcuts;
+                        self.slot = 0;
+                        self.row = 0;
+                        self.first = 0;
+                        cue = Some(1);
+                    }
+                } else if action == MenuAction::Up {
+                    if self.character < 4 {
+                        self.focus = Focus::Control;
+                        cue = Some(1);
+                    }
+                } else if action == MenuAction::Confirm || action == MenuAction::Down {
+                    if page.tech_auto() {
+                        self.reset_focus(party, session, data, context);
+                    } else {
+                        self.focus = Focus::Shortcuts;
+                        self.slot = 0;
+                    }
+                    cue = Some(1);
+                } else if action == MenuAction::Left || action == MenuAction::PreviousTab {
+                    self.cycle_character(true, true, party, session, data, context);
+                    cue = Some(1);
+                } else if action == MenuAction::Right || action == MenuAction::NextTab {
+                    self.cycle_character(false, true, party, session, data, context);
+                    cue = Some(1);
                 }
             }
             Focus::Shortcuts => {
-                if input.pressed(Button::Ring) {
-                    selected?;
-                    self.party_changed |= self
-                        .checkpoint
-                        .as_mut()
-                        .unwrap()
-                        .progress
-                        .party
-                        .assign_technique(member, self.tech.slot, None)
-                        .expect("validated shortcut slot");
-                    return Some(1);
-                }
-                if input.pressed(Button::Accept) {
-                    self.tech.row = 0;
-                    self.tech.first = 0;
-                    self.tech.focus = if self.tech.slot >= 4 {
-                        self.tech.assist = self.character;
-                        self.tech.banner_opacity = 0;
-                        Focus::AssistCharacter
+                if action == MenuAction::Cancel {
+                    if self.unison {
+                        self.focus = Focus::Character;
+                        self.unison = false;
+                    } else if battle {
+                        self.close(None);
                     } else {
-                        Focus::List
-                    };
-                    if self.tech.focus == Focus::List {
-                        self.tech.row = selected
-                            .and_then(|s| {
-                                self.technique_list()
-                                    .iter()
-                                    .position(|&id| id == s.technique)
-                            })
-                            .unwrap_or(0);
-                        self.tech.first = self.tech.row.saturating_sub(7);
+                        self.focus = Focus::Character;
                     }
-                    return Some(2);
-                }
-                if up {
-                    if self.tech.slot == 0 {
-                        if self.tech.unison {
-                            self.tech.slot = 3;
+                    cue = Some(3);
+                } else if matches!(action, MenuAction::PreviousTab | MenuAction::NextTab) {
+                    if !self.unison && party.formation.len() > 1 {
+                        self.cycle_character(
+                            action == MenuAction::PreviousTab,
+                            false,
+                            party,
+                            session,
+                            data,
+                            context,
+                        );
+                        cue = Some(1);
+                    }
+                } else if action == MenuAction::Confirm {
+                    if self.slot < 4 {
+                        let list = self.page(party, session, data, context).technique_list();
+                        if let Some((row, first)) = shortcut_choice(&list, selected) {
+                            self.focus = Focus::List;
+                            self.row = row;
+                            self.first = first;
+                            cue = Some(2);
                         } else {
-                            self.tech.focus = Focus::Character;
+                            cue = Some(4);
                         }
                     } else {
-                        self.tech.slot -= 1;
+                        self.focus = Focus::AssistCharacter;
+                        self.assist = self.character;
+                        cue = Some(2);
                     }
-                    return Some(1);
-                }
-                if down && self.tech.unison {
-                    self.tech.slot = (self.tech.slot + 1) % 4;
-                    return Some(1);
-                }
-                if down {
-                    if self.tech.slot < 5 {
-                        self.tech.slot += 1;
+                } else if action == MenuAction::Alternate {
+                    if selected.is_some() {
+                        return Ok((
+                            None,
+                            Some(Edit::Shortcut {
+                                member,
+                                slot: self.slot,
+                                selected: None,
+                            }),
+                        ));
+                    }
+                } else if action == MenuAction::Up {
+                    if self.slot == 0 {
+                        if self.unison {
+                            self.slot = 3;
+                        } else {
+                            self.focus = Focus::Character;
+                        }
                     } else {
-                        self.tech.focus = Focus::Character;
+                        self.slot -= 1;
                     }
-                    return Some(1);
+                    cue = Some(1);
+                } else if action == MenuAction::Down {
+                    let count = if self.unison || self.character >= 4 {
+                        4
+                    } else {
+                        6
+                    };
+                    if self.slot + 1 < count {
+                        self.slot += 1;
+                    } else if self.unison {
+                        self.slot = 0;
+                    } else {
+                        self.focus = Focus::Character;
+                    }
+                    cue = Some(1);
                 }
             }
             Focus::AssistCharacter => {
-                if left
-                    || right
-                    || input.pressed(Button::PreviousPage)
-                    || input.pressed(Button::NextPage)
-                {
-                    self.tech.assist = (self.tech.assist
-                        + if left || input.pressed(Button::PreviousPage) {
-                            count - 1
-                        } else {
-                            1
-                        })
-                        % count;
-                    self.tech.row = 0;
-                    self.tech.first = 0;
-                    return Some(1);
-                }
-                if input.pressed(Button::Accept) || down {
-                    self.tech.focus = Focus::AssistList;
-                    return Some(2);
+                if action == MenuAction::Cancel {
+                    self.focus = Focus::Shortcuts;
+                    cue = Some(3);
+                } else if action == MenuAction::Left || action == MenuAction::PreviousTab {
+                    let count = party.formation.len().min(4);
+                    if party.formation.len() > 1 {
+                        self.assist = (self.assist + count - 1) % count;
+                        self.row = 0;
+                        self.first = 0;
+                        cue = Some(1);
+                    }
+                } else if action == MenuAction::Right || action == MenuAction::NextTab {
+                    let count = party.formation.len().min(4);
+                    if party.formation.len() > 1 {
+                        self.assist = (self.assist + 1) % count;
+                        self.row = 0;
+                        self.first = 0;
+                        cue = Some(1);
+                    }
+                } else if action == MenuAction::Confirm {
+                    self.focus = Focus::AssistList;
+                    self.row = 0;
+                    self.first = 0;
+                    cue = Some(2);
                 }
             }
             Focus::Target => {
-                if !self.tech_targets_all() {
-                    let old = self.tech.target;
-                    if up {
-                        self.tech.target = old.saturating_sub(1);
-                    } else if down {
-                        self.tech.target = (old + 1).min(count - 1);
-                    } else if left && old >= VISIBLE_PARTY {
-                        self.tech.target -= VISIBLE_PARTY;
-                    } else if right && old + VISIBLE_PARTY < count {
-                        self.tech.target += VISIBLE_PARTY;
+                if action == MenuAction::Cancel {
+                    self.focus = self.return_to;
+                    cue = Some(3);
+                } else if action == MenuAction::Confirm {
+                    let selected = selected
+                        .ok_or_else(|| anyhow::anyhow!("missing Tech field target selection"))?;
+                    if battle {
+                        self.close(Some(selected.technique));
+                        cue = Some(2);
+                        return Ok((cue, None));
                     }
-                    if old != self.tech.target {
-                        return Some(1);
+                    let target = usize::from(party.formation[self.target] - 1);
+                    return Ok((
+                        None,
+                        Some(Edit::FieldCast {
+                            member: selected.character,
+                            target,
+                            technique: selected.technique,
+                            at_save_point,
+                        }),
+                    ));
+                } else if !page.tech_targets_all() {
+                    let old = self.target;
+                    match action {
+                        MenuAction::Left if self.target >= 4 => self.target -= 4,
+                        MenuAction::Right if self.target + 4 < page.party_count() => {
+                            self.target += 4
+                        }
+                        MenuAction::Up if self.target != 0 => self.target -= 1,
+                        MenuAction::Down if self.target + 1 < page.party_count() => {
+                            self.target += 1
+                        }
+                        _ => {}
                     }
-                }
-                if input.pressed(Button::Accept) {
-                    let selected = selected?;
-                    let party = &mut self.checkpoint.as_mut().unwrap().progress.party;
-                    let target = usize::from(party.formation[self.tech.target] - 1);
-                    return match party.cast_technique(
-                        &resources.data,
-                        selected.character,
-                        target,
-                        selected.technique,
-                        self.at_save_point,
-                    ) {
-                        Ok(Some(cue)) => {
-                            self.party_changed = true;
-                            let caster = &party.members[selected.character];
-                            if caster.tp
-                                < caster.technique_cost(
-                                    &resources.data,
-                                    selected.technique,
-                                    self.at_save_point,
-                                )
-                            {
-                                self.tech.focus = self.tech.return_to;
-                            }
-                            Some(cue)
-                        }
-                        Ok(None) => Some(4),
-                        Err(error) => {
-                            self.notice = Some(error);
-                            Some(4)
-                        }
-                    };
+                    cue = (old != self.target).then_some(1);
                 }
             }
             Focus::List | Focus::AssistList => {
-                if self.tech.unison && (input.pressed(Button::Ring) || input.pressed(Button::Menu))
-                {
-                    return None;
-                }
-                let list = self.technique_list();
-                let owner = self.tech_member_index();
-                let id = selected.map(|s| s.technique);
-                if input.pressed(Button::Ring) && focus == Focus::List {
-                    let id = id?;
-                    if !self.member().techniques.contains(&id) {
-                        return Some(4);
-                    }
-                    self.tech.return_to = focus;
-                    self.tech.focus =
-                        if resources.data.techniques[usize::from(id)].alternatives[0] == 0 {
-                            Focus::CannotForget
-                        } else {
-                            Focus::Forget { yes: false }
-                        };
-                    return Some(if self.tech.focus == Focus::CannotForget {
-                        4
-                    } else {
-                        2
-                    });
-                }
-                if input.pressed(Button::Menu) && self.tech_auto() && focus == Focus::List {
-                    let id = id?;
-                    let target =
-                        &mut self.checkpoint.as_mut().unwrap().progress.party.members[owner];
-                    if !target.techniques.contains(&id) {
-                        return Some(4);
-                    }
-                    if !target.disabled_techniques.insert(id) {
-                        target.disabled_techniques.remove(&id);
-                    }
-                    self.party_changed = true;
-                    return Some(1);
-                }
-                let cast = input.pressed(Button::Accept)
-                    && self.tech_auto()
-                    && !self.tech.unison
-                    && focus == Focus::List
-                    || input.pressed(Button::Menu);
-                if cast {
-                    let id = id?;
-                    let target = &self.party().members[owner];
-                    if resources.data.techniques[usize::from(id)]
-                        .field_use
-                        .is_none()
-                        || !target.techniques.contains(&id)
-                        || target.conditions & 0x8000_0100 != 0
-                        || target.tp
-                            < target.technique_cost(&resources.data, id, self.at_save_point)
-                    {
-                        return Some(4);
-                    }
-                    self.tech.return_to = focus;
-                    self.tech.focus = Focus::Target;
-                    return Some(2);
-                }
-                if input.pressed(Button::Accept) {
-                    let Some(selected) = selected else {
-                        return Some(4);
-                    };
-                    if !self.party().members[owner]
-                        .techniques
-                        .contains(&selected.technique)
-                    {
-                        return Some(4);
-                    }
-                    let result = self
-                        .checkpoint
-                        .as_mut()
-                        .unwrap()
-                        .progress
-                        .party
-                        .assign_technique(member, self.tech.slot, Some(selected));
-                    if result.is_ok() {
-                        if focus == Focus::AssistList {
-                            self.close_tech_banner(Focus::Shortcuts);
-                        } else {
-                            self.tech.focus = Focus::Shortcuts;
+                let two = page.tech_columns() == 2;
+                if two && self.focus == Focus::List {
+                    if action == MenuAction::Alternate {
+                        if !battle {
+                            cue = self.begin_forget(party, session, data, context)?;
                         }
-                    }
-                    return self.party_result(result);
-                }
-                let old = self.tech.row;
-                let columns = self.tech_columns();
-                let visible = if columns == 2 { 12 } else { 8 };
-                if page_up || page_down {
-                    let before = (self.tech.row, self.tech.first);
-                    if list.is_empty() {
-                        return None;
-                    }
-                    let last = list.len() - 1;
-                    if page_up {
-                        let shift = self.tech.first.min(visible);
-                        self.tech.first -= shift;
-                        self.tech.row = if shift == 0 { 0 } else { old - shift };
-                    } else if list.len().div_ceil(columns) + usize::from(columns == 1)
-                        > (self.tech.first + visible) / columns
+                    } else if matches!(action, MenuAction::PreviousTab | MenuAction::NextTab)
+                        && party.formation.len() > 1
                     {
-                        self.tech.first += visible;
-                        self.tech.row = (old + visible).min(last);
-                        if columns == 1 && old + visible >= list.len() {
-                            self.tech.first = list.len().saturating_sub(visible);
-                        }
-                    } else {
-                        self.tech.row = last;
+                        self.cycle_character(
+                            action == MenuAction::PreviousTab,
+                            false,
+                            party,
+                            session,
+                            data,
+                            context,
+                        );
+                        cue = Some(1);
                     }
-                    return (before != (self.tech.row, self.tech.first)).then_some(38);
                 }
-                if up && columns == 2 && old < columns {
-                    if focus == Focus::List {
-                        self.tech.focus = Focus::Character;
-                    }
-                    return Some(1);
-                }
-                let delta = if up || down { columns } else { 1 };
-                if up || left {
-                    self.tech.row = self.tech.row.saturating_sub(delta);
-                }
-                if (down || right) && old + delta < list.len() {
-                    self.tech.row += delta;
-                }
-                let first = self.tech.first;
-                self.reveal_technique();
-                self.tech.scroll = match self.tech.first.cmp(&first) {
-                    std::cmp::Ordering::Less => -1,
-                    std::cmp::Ordering::Equal => 0,
-                    std::cmp::Ordering::Greater => 1,
-                };
-                return (old != self.tech.row).then_some(1);
+                let (next_cue, requested_edit) =
+                    self.list_pass((action, two), party, session, data, context)?;
+                cue = next_cue.or(cue);
+                requested = requested_edit;
             }
-            _ => unreachable!(),
         }
-        None
+        Ok((cue, requested))
+    }
+    fn close(&mut self, technique: Option<u16>) {
+        self.focus = Focus::Closed { technique };
+    }
+    fn begin_forget(
+        &mut self,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) -> Result<Option<u16>> {
+        let page = self.page(party, session, data, context);
+        let selected = page
+            .selected_technique()
+            .ok_or_else(|| anyhow::anyhow!("missing Tech forget row"))?;
+        if !party.members[selected.character]
+            .techniques
+            .contains(&selected.technique)
+        {
+            return Ok(Some(4));
+        }
+        self.return_to = self.focus;
+        self.focus = if data.techniques[usize::from(selected.technique)].alternatives[0] == 0 {
+            Focus::CannotForget
+        } else {
+            Focus::Forget { yes: false }
+        };
+        Ok(Some(if self.focus == Focus::CannotForget {
+            4
+        } else {
+            2
+        }))
+    }
+    fn list_pass(
+        &mut self,
+        (action, two): (MenuAction, bool),
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) -> Result<(Option<u16>, Option<Edit>)> {
+        let page = self.page(party, session, data, context);
+        let member = page.member_index();
+        let battle = page.battle();
+        let assist = self.focus == Focus::AssistList;
+        if action == MenuAction::Cancel {
+            if assist {
+                self.focus = Focus::AssistCharacter;
+            } else if two && battle {
+                self.close(None);
+            } else if two {
+                self.focus = Focus::Character;
+            } else {
+                self.focus = Focus::Shortcuts;
+            }
+            return Ok((Some(3), None));
+        }
+        let selected = page.selected_technique();
+        if action == MenuAction::Confirm {
+            let Some(selected) = selected else {
+                return Ok((Some(4), None));
+            };
+            if !party.members[selected.character]
+                .techniques
+                .contains(&selected.technique)
+                || !page.available(selected.character, selected.technique)
+            {
+                return Ok((Some(4), None));
+            }
+            ensure!(
+                selected.technique != 0
+                    && data
+                        .techniques
+                        .get(usize::from(selected.technique))
+                        .is_some(),
+                "selected Tech technique description is missing"
+            );
+            if assist || !two {
+                return Ok((
+                    None,
+                    Some(Edit::Shortcut {
+                        member,
+                        slot: self.slot,
+                        selected: Some(selected),
+                    }),
+                ));
+            }
+            if !battle
+                && ((party.members[selected.character].knocked_out()
+                    || party.members[selected.character].ailments.petrified
+                    || party.members[selected.character].ailments.curse)
+                    || !page.ready(selected.character, selected.technique))
+            {
+                return Ok((Some(4), None));
+            }
+            if battle {
+                if page.battle_party_target() {
+                    self.begin_target(party, session, data, context);
+                } else {
+                    self.close(Some(selected.technique));
+                }
+            } else {
+                if data.techniques[usize::from(selected.technique)]
+                    .field_use
+                    .is_none()
+                {
+                    return Ok((Some(4), None));
+                }
+                self.begin_target(party, session, data, context);
+            }
+            return Ok((Some(2), None));
+        }
+        if action == MenuAction::Menu {
+            if two {
+                if self.focus != Focus::List {
+                    return Ok((None, None));
+                }
+                let Some(selected) = selected else {
+                    return Ok((Some(4), None));
+                };
+                if !party.members[selected.character]
+                    .techniques
+                    .contains(&selected.technique)
+                    || !page.available(selected.character, selected.technique)
+                {
+                    return Ok((Some(4), None));
+                }
+                let enabled = party.members[selected.character]
+                    .disabled_techniques
+                    .contains(&selected.technique);
+                return Ok((
+                    None,
+                    Some(Edit::Enabled {
+                        member: selected.character,
+                        technique: selected.technique,
+                        enabled,
+                    }),
+                ));
+            }
+            if self.unison || battle {
+                return Ok((None, None));
+            }
+            let Some(selected) = selected else {
+                return Ok((Some(4), None));
+            };
+            if !party.members[selected.character]
+                .techniques
+                .contains(&selected.technique)
+                || (party.members[selected.character].knocked_out()
+                    || party.members[selected.character].ailments.petrified
+                    || party.members[selected.character].ailments.curse)
+                || !page.ready(selected.character, selected.technique)
+                || data.techniques[usize::from(selected.technique)]
+                    .field_use
+                    .is_none()
+            {
+                return Ok((Some(4), None));
+            }
+            self.begin_target(party, session, data, context);
+            return Ok((Some(2), None));
+        }
+        if !two && action == MenuAction::Alternate {
+            return Ok((
+                if self.focus == Focus::List && !self.unison && !battle {
+                    self.begin_forget(party, session, data, context)?
+                } else {
+                    None
+                },
+                None,
+            ));
+        }
+        let count = self
+            .page(party, session, data, context)
+            .technique_list()
+            .len();
+        Ok((
+            self.navigate_list(action, if two { 2 } else { 1 }, count),
+            None,
+        ))
+    }
+    fn begin_target(
+        &mut self,
+        party: &Party,
+        session: &SessionData,
+        data: &MenuData,
+        context: Context<'_>,
+    ) {
+        self.return_to = self.focus;
+        self.focus = Focus::Target;
+        if self.page(party, session, data, context).tech_targets_all() {
+            self.target = 0;
+        }
+    }
+    fn reveal(&mut self, columns: usize) {
+        let visible = if columns == 2 { 12 } else { 8 };
+        self.first = self
+            .first
+            .min(self.row / columns * columns)
+            .max(self.row.saturating_sub(visible - 1).div_ceil(columns) * columns);
+    }
+    fn navigate_list(&mut self, action: MenuAction, columns: usize, count: usize) -> Option<u16> {
+        if count == 0 {
+            return None;
+        }
+        let old = self.row;
+        let visible = if columns == 2 { 12 } else { 8 };
+        match action {
+            MenuAction::PageDown => self.row = (old + visible).min(count - 1),
+            MenuAction::PageUp => self.row = old.saturating_sub(visible),
+            MenuAction::Up if columns == 2 && old < 2 => {
+                if self.focus == Focus::List {
+                    self.focus = Focus::Character;
+                }
+                return Some(1);
+            }
+            MenuAction::Left => self.row = self.row.saturating_sub(1),
+            MenuAction::Right if old + 1 < count => self.row += 1,
+            MenuAction::Up => self.row = self.row.saturating_sub(columns),
+            MenuAction::Down if old + columns < count => self.row += columns,
+            _ => return None,
+        }
+        self.reveal(columns);
+        (old != self.row).then_some(
+            if matches!(action, MenuAction::PageUp | MenuAction::PageDown) {
+                38
+            } else {
+                1
+            },
+        )
+    }
+}
+
+impl super::Menu {
+    pub fn tech_page(&self) -> Page<'_> {
+        let resources = self.resources.as_ref().unwrap();
+        self.tech.page(
+            self.party(),
+            &resources.session,
+            &resources.data,
+            Context::Field {
+                at_save_point: self.at_save_point,
+                connected: &self.tech_connected,
+            },
+        )
+    }
+    pub fn tech_description(&self) -> Option<TechniqueShortcut> {
+        self.tech_page().tech_description()
+    }
+    pub fn tech_target_visible(&self) -> bool {
+        self.tech_page().tech_target_visible()
+    }
+    pub fn tech_unison_available(&self) -> bool {
+        self.tech_page().tech_unison_available()
+    }
+    pub fn tech_targets_all(&self) -> bool {
+        self.tech_page().tech_targets_all()
+    }
+    pub fn tech_auto(&self) -> bool {
+        self.tech_page().tech_auto()
+    }
+    pub fn tech_member_index(&self) -> usize {
+        self.tech_page().tech_member_index()
+    }
+    pub fn tech_columns(&self) -> usize {
+        self.tech_page().tech_columns()
+    }
+    pub fn technique_list(&self) -> Vec<u16> {
+        self.tech_page().technique_list()
+    }
+    pub fn selected_technique(&self) -> Option<TechniqueShortcut> {
+        self.tech_page().selected_technique()
+    }
+    pub(super) fn open_techniques(&mut self) -> bool {
+        let Some(resources) = self.resources.as_ref() else {
+            return false;
+        };
+        match Tech::opening(
+            self.character,
+            Context::Field {
+                at_save_point: self.at_save_point,
+                connected: &self.tech_connected,
+            },
+            self.party(),
+            &resources.session,
+            &resources.data,
+        ) {
+            Ok(state) => {
+                self.tech = state;
+                true
+            }
+            Err(error) => {
+                self.notice = Some(error.to_string());
+                false
+            }
+        }
+    }
+    pub(super) fn step_techniques(&mut self, input: Input) -> Option<i16> {
+        let resources = self.resources.as_ref()?;
+        let visit = self.tech.step(
+            input,
+            &mut self.checkpoint.as_mut()?.progress.party,
+            &resources.session,
+            &resources.data,
+            Context::Field {
+                at_save_point: self.at_save_point,
+                connected: &self.tech_connected,
+            },
+        );
+        match visit {
+            Ok(visit) => {
+                self.party_changed |= visit.changed;
+                self.character = self.tech.character;
+                if visit.exit.is_some() {
+                    self.return_to_main();
+                }
+                visit.cue.map(|v| v as i16)
+            }
+            Err(error) => {
+                self.notice = Some(error.to_string());
+                Some(4)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn navigation_reveals_rows_and_accepts_consecutive_inputs() {
+        for columns in [1, 2] {
+            let visible = if columns == 2 { 12 } else { 8 };
+            let mut state = Tech {
+                focus: Focus::List,
+                row: visible - 1,
+                ..Default::default()
+            };
+            for _ in 0..2 {
+                let before = state.row;
+                assert_eq!(state.navigate_list(MenuAction::Down, columns, 20), Some(1));
+                assert_eq!(state.row, before + columns);
+                assert!((state.first..state.first + visible).contains(&state.row));
+            }
+            assert_eq!(
+                state.navigate_list(MenuAction::PageDown, columns, 20),
+                Some(38)
+            );
+            assert_eq!(state.row, if columns == 1 { 17 } else { 19 });
+            assert!((state.first..state.first + visible).contains(&state.row));
+            if columns == 1 {
+                assert_eq!(
+                    state.navigate_list(MenuAction::PageDown, columns, 20),
+                    Some(38)
+                );
+                assert_eq!(state.row, 19);
+            }
+            assert_eq!(state.navigate_list(MenuAction::PageDown, columns, 20), None);
+            assert_eq!(
+                state.navigate_list(MenuAction::PageUp, columns, 20),
+                Some(38)
+            );
+            assert_eq!(state.row, 19 - visible);
+            assert!((state.first..state.first + visible).contains(&state.row));
+        }
+    }
+
+    #[test]
+    fn up_from_the_first_row_keeps_assist_ownership() {
+        let mut state = Tech {
+            focus: Focus::AssistList,
+            ..Default::default()
+        };
+        state.navigate_list(MenuAction::Up, 2, 20);
+        assert_eq!(state.focus, Focus::AssistList);
+        state.focus = Focus::List;
+        state.navigate_list(MenuAction::Up, 2, 20);
+        assert_eq!(state.focus, Focus::Character);
     }
 }

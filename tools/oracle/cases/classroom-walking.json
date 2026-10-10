@@ -1,81 +1,35 @@
 {
-  "trace": true,
-  "probe": {
-    "position": [
-      -52,
-      -619,
-      0
-    ],
-    "heading": 180,
-    "approach_settle_ticks": 120,
-    "settle_ticks": 120,
-    "interaction_actor": null
-  },
-  "updates": 535,
-  "renders_per_update": 2,
-  "movement": [
-    {
-      "update": 10,
-      "direction": [
-        0,
-        -1
-      ]
-    },
-    {
-      "update": 40,
-      "direction": [
-        0,
-        0
-      ]
-    },
-    {
-      "update": 90,
-      "direction": [
-        1,
-        0
-      ]
-    },
-    {
-      "update": 150,
-      "direction": [
-        0,
-        0
-      ]
-    },
-    {
-      "update": 170,
-      "direction": [
-        -1,
-        0
-      ]
-    },
-    {
-      "update": 290,
-      "direction": [
-        0,
-        0
-      ]
-    },
-    {
-      "update": 310,
-      "direction": [
-        1,
-        0
-      ]
-    },
-    {
-      "update": 430,
-      "direction": [
-        0,
-        0
-      ]
-    },
-    {
-      "update": 450,
-      "direction": [
-        -1,
-        0
-      ]
-    }
-  ]
+  "checkpoint": null,
+  "scenario": {
+    "version": 2,
+    "steps": [
+      {"do":"wait","until":{"kind":"title"},"max_updates":120},
+      {"do":"hold","keys":["interact"],"updates":1},
+      {"do":"wait","until":{"kind":"choice","slot":1},"max_updates":1800},
+      {"do":"hold","keys":["down"],"updates":1},
+      {"do":"hold","keys":[],"updates":1},
+      {"do":"hold","keys":["interact"],"updates":1},
+      {"do":"wait","until":{"kind":"movie","resource":1},"max_updates":2400},
+      {"do":"wait","until":{"kind":"field","map_id":340},"max_updates":16000},
+      {"do":"wait","until":{"kind":"dialogue","contains":"Never mind."},"keys":["interact"],"tap_every":12,"max_updates":2400},
+      {"do":"wait","until":{"kind":"field","map_id":340,"free_control":true},"keys":["interact"],"tap_every":12,"max_updates":9000},
+      {"do":"capture","name":"standing"},
+      {"do":"hold","keys":["up"],"updates":20},
+      {"do":"capture","name":"walking-0"},
+      {"do":"hold","keys":[],"updates":10},
+      {"do":"capture","name":"stopped-0"},
+      {"do":"hold","keys":["right"],"updates":20},
+      {"do":"capture","name":"walking-1"},
+      {"do":"hold","keys":[],"updates":10},
+      {"do":"capture","name":"stopped-1"},
+      {"do":"hold","keys":["down"],"updates":20},
+      {"do":"capture","name":"walking-2"},
+      {"do":"hold","keys":[],"updates":10},
+      {"do":"capture","name":"stopped-2"},
+      {"do":"hold","keys":["left"],"updates":20},
+      {"do":"capture","name":"walking-3"},
+      {"do":"hold","keys":[],"updates":10},
+      {"do":"capture","name":"stopped-3"}
+    ]
+  }
 }

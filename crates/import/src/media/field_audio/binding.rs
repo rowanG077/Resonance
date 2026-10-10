@@ -19,11 +19,12 @@ pub(super) fn voices(
         let mut archive =
             Archive::source(&workspace.output, &workspace.extracted, additional, &source)?;
         for &id in ids.range(group..=(group | 0xffff)) {
-            let mut voice = archive.voice((id & 0xffff) as usize)?;
+            let metadata = archive.voice((id & 0xffff) as usize)?;
             ensure!(
-                voice.source_name.ends_with(".ahx"),
+                metadata.source_name.ends_with(".ahx"),
                 "field voice {id:#x} is not AHX"
             );
+            let mut voice = metadata.voice;
             if voice.source_sample_rate == super::super::SAMPLE_RATE {
                 voice.sample_rate = super::super::PLAYBACK_RATE;
             }
@@ -84,7 +85,6 @@ mod tests {
                 expected.insert(
                     id,
                     (
-                        entry.name.clone(),
                         crate::digest(&bytes),
                         crate::read::u32(&bytes, 8)?,
                         crate::read::u32(&bytes, 12)?,
@@ -99,9 +99,7 @@ mod tests {
         assert_eq!(bound.len(), 26);
         for (&id, voice) in &bound {
             assert_eq!(voice.sample_rate, 32028);
-            let (name, hash, rate, frames) = &expected[&id];
-            assert_eq!(&voice.source_name, name);
-            assert_eq!(&voice.source_sha256, hash);
+            let (hash, rate, frames) = &expected[&id];
             assert_eq!(&voice.source_sample_rate, rate);
             assert_eq!(&voice.frames, frames);
             assert_eq!(voice.asset.path, format!("audio/streams/{hash}.wav"));

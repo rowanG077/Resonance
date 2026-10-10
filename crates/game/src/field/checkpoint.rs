@@ -11,11 +11,9 @@ pub struct FieldCheckpoint {
     pub map_id: u32,
     pub position: [f32; 3],
     pub heading: f32,
-    #[serde(default)]
     pub camera: Option<resonance_events::camera::CameraSettings>,
     pub progress: SavedProgress,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub played_ticks: Option<u64>,
+    pub played_ticks: u64,
 }
 impl FieldSession {
     pub(super) fn endgame_checkpoint(&self) -> Result<FieldCheckpoint> {
@@ -34,7 +32,7 @@ impl FieldSession {
             heading: 0.,
             camera: None,
             progress,
-            played_ticks: Some(self.play_time.total()),
+            played_ticks: self.play_time.total(),
         })
     }
     pub fn checkpoint(&self) -> Result<FieldCheckpoint> {
@@ -47,6 +45,10 @@ impl FieldSession {
     }
 
     pub(super) fn player_menu_checkpoint(&self) -> Result<FieldCheckpoint> {
+        ensure!(
+            !self.events.battle_pending(),
+            "quicksave unavailable during battle"
+        );
         ensure!(
             self.authored_entry.is_none(),
             "quicksave unavailable before an authored entry event"
@@ -124,16 +126,13 @@ impl FieldSession {
                 .settings(world.controlled_actor)
                 .ok(),
             progress: self.events.save_progress()?,
-            played_ticks: Some(self.play_time.total()),
+            played_ticks: self.play_time.total(),
         })
     }
 }
 impl FieldCheckpoint {
     pub fn starts_new_game_plus(&self) -> bool {
         self.map_id == 5 && self.progress.party.new_game_plus.cleared
-    }
-    pub fn played_ticks(&self) -> u64 {
-        self.played_ticks.unwrap_or(u64::from(self.progress.tick))
     }
     pub fn entry(
         self,
@@ -174,10 +173,11 @@ impl FieldCheckpoint {
             } else {
                 super::EntryKind::Restore
             },
-            play_time: crate::clock::PlayTime::resume(self.played_ticks()),
+            play_time: crate::clock::PlayTime::resume(self.played_ticks),
             persistent: self.progress.into_state(&data)?,
             data: Some(data),
             menu_data: None,
+            menu_files: Default::default(),
             skits: None,
             text: Default::default(),
             available_fields,
@@ -187,8 +187,57 @@ impl FieldCheckpoint {
             idle_animation: None,
             camera: self
                 .camera
-                .map(|camera| camera.entry(leader).map_err(anyhow::Error::msg))
-                .transpose()?,
+                .map(|camera| camera.entry(leader))
+                .transpose()
+                .map_err(anyhow::Error::msg)?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FieldCheckpoint;
+    use resonance_events::{
+        GameplayRandom,
+        camera::{CameraRig, EntryCamera},
+        party::BattleStatistics,
+    };
+
+    #[test]
+    fn checkpoint_roundtrip_requires_playtime_and_gameplay_random() {
+        let mut camera = CameraRig::default();
+        *camera.current_mut() = EntryCamera::following(1).camera;
+        let saved = serde_json::json!({
+            "map_id": 340, "position": [0., 0., 0.], "heading": 0.,
+            "camera": camera.settings(1).unwrap(), "played_ticks": 1234,
+            "progress": {
+                "script_globals": vec![0; 256], "event_flags": [], "event_records": {},
+                "random_state": 7, "gameplay_random": GameplayRandom::new(42), "tick": 12,
+                "party": {
+                    "battles": BattleStatistics::default(),
+                    "members": [], "formation": [], "items": {}, "found_items": [],
+                    "recent_items": [], "gald": 0, "spent_gald": 0,
+                    "settings": {"battle_controls": [1, 2, 2, 2]}
+                }
+            }
+        });
+        let checkpoint: FieldCheckpoint = serde_json::from_value(saved).unwrap();
+        let encoded = serde_json::to_value(&checkpoint).unwrap();
+        let restored: FieldCheckpoint = serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(serde_json::to_value(restored).unwrap(), encoded);
+        assert_eq!(checkpoint.played_ticks, 1234);
+        for (parent, field) in [("", "played_ticks"), ("/progress", "gameplay_random")] {
+            let mut missing = encoded.clone();
+            missing
+                .pointer_mut(parent)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+            assert!(
+                serde_json::from_value::<FieldCheckpoint>(missing).is_err(),
+                "{field}"
+            );
+        }
     }
 }

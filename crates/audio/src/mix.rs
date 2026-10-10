@@ -3,14 +3,14 @@ use anyhow::{Result, ensure};
 
 pub const CENTER_PAN: u8 = 64;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct Spatial {
     pub pan_scale: f32,
     #[serde(with = "crate::package::array")]
     pub left_delay: [u8; 128],
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct Tables {
     #[serde(with = "crate::package::array")]
     pub volume: [f32; 129],
@@ -153,6 +153,10 @@ impl Default for StereoDelay {
     }
 }
 impl StereoDelay {
+    pub fn has_pending(&self) -> bool {
+        self.history.iter().any(|sample| *sample != 0)
+    }
+
     pub fn next(&mut self, sample: i16) -> [i16; 2] {
         self.history[self.cursor] = sample;
         let output = self
@@ -174,56 +178,6 @@ fn interpolate(table: &[f32], value: f32) -> f32 {
 pub fn apply(sample: i16, envelope: u16, gain: u16) -> i16 {
     let enveloped = (i64::from(sample) * i64::from(envelope)) >> 15;
     ((enveloped * i64::from(gain)) >> 15).clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16
-}
-
-/// Ramp new targets over 160 samples; unchanged targets correct rounding
-/// residuals in whole 32-sample control intervals.
-pub struct GainRamp {
-    target: u16,
-    value: i32,
-    step: i32,
-    remaining: u32,
-}
-
-impl GainRamp {
-    pub fn new(value: u16) -> Self {
-        Self {
-            target: value,
-            value: i32::from(value),
-            step: 0,
-            remaining: 0,
-        }
-    }
-    pub fn set_target(&mut self, target: u16) {
-        self.set_target_changed(target, target != self.target);
-    }
-
-    /// The hardware shares a change flag across the channels of each bus.
-    pub(crate) fn set_target_changed(&mut self, target: u16, changed: bool) {
-        let difference = i32::from(target) - self.value;
-        if changed {
-            self.step = difference / 160;
-            self.remaining = 160;
-        } else if (32..160).contains(&difference.abs()) {
-            self.step = difference.signum();
-            self.remaining = (difference.unsigned_abs() / 32) * 32;
-        } else {
-            self.step = 0;
-            self.remaining = 0;
-            if target == 0 && difference > -32 {
-                self.value = 0;
-            }
-        }
-        self.target = target;
-    }
-    pub fn next_gain(&mut self) -> u16 {
-        let value = self.value as u16;
-        if self.remaining != 0 {
-            self.value += self.step;
-            self.remaining -= 1;
-        }
-        value
-    }
 }
 
 #[cfg(test)]
@@ -255,25 +209,5 @@ mod tests {
         assert_eq!(apply(-1, 32767, 32767), -1);
         assert_eq!(apply(1, 32767, 32767), 0);
         assert_eq!(apply(16384, 16384, 16384), 4096);
-    }
-
-    #[test]
-    fn gain_ramps_preserve_remainders_and_correct_only_whole_milliseconds() {
-        let mut ramp = GainRamp::new(1000);
-        ramp.set_target(801);
-        assert_eq!(ramp.next_gain(), 1000);
-        for _ in 1..160 {
-            ramp.next_gain();
-        }
-        assert_eq!(ramp.next_gain(), 840);
-        ramp.set_target(801);
-        for _ in 0..32 {
-            ramp.next_gain();
-        }
-        assert_eq!(ramp.next_gain(), 808);
-        ramp.set_target(801);
-        for _ in 0..160 {
-            assert_eq!(ramp.next_gain(), 808);
-        }
     }
 }

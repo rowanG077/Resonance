@@ -54,7 +54,11 @@ pub fn prepare_overworld_test_fixture(root: &Path, output: &Path) -> Result<()> 
         anchor_field: 330,
     });
     let header = Header {
-        identity: new_game::Session::identity(root)?,
+        identity: new_game::save_context(
+            root,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?
+        .0,
         label: "Rheaird playground".into(),
         location: "Sylvarant".into(),
         played_ticks: 0,
@@ -82,7 +86,13 @@ mod tests {
         let file = output.path().join("world.json");
         prepare_overworld_test_fixture(&root, &file)?;
         let (_, checkpoint): (_, SceneCheckpoint) =
-            resonance_persistence::decode(&fs::read(file)?, &new_game::Session::identity(&root)?)?;
+            resonance_persistence::decode(&fs::read(file)?)?.admit(
+                &new_game::save_context(
+                    &root,
+                    resonance_content::diagnostics::Diagnostics::new(true),
+                )?
+                .0,
+            )?;
         let SceneCheckpoint::World(checkpoint) = checkpoint else {
             anyhow::bail!("playground did not produce a world checkpoint");
         };

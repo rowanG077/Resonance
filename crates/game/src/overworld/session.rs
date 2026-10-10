@@ -13,6 +13,7 @@ use symphonia_script::{Program, Width};
 /// Prepared immutable dependencies. Construction performs no runtime file reads.
 #[derive(Clone)]
 pub struct Assets {
+    pub files: Arc<resonance_content::prepared::Files>,
     pub world: super::World,
     pub terrain: Arc<collision::Terrain>,
     pub rules: Arc<Rules>,
@@ -420,6 +421,7 @@ impl Session {
     fn open_menu(&mut self) -> Result<()> {
         let checkpoint = self.checkpoint()?;
         let resources = Arc::new(crate::menu::Resources {
+            files: self.assets.files.clone(),
             session: self
                 .assets
                 .resources
@@ -997,7 +999,7 @@ impl Checkpoint {
             heading: self.state.heading.to_degrees(),
             camera: None,
             progress: self.progress.clone(),
-            played_ticks: Some(self.played_ticks),
+            played_ticks: self.played_ticks,
         }
     }
 }

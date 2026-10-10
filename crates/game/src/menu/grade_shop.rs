@@ -21,18 +21,20 @@ impl Menu {
             .unwrap()
     }
 
-    pub(super) fn step_grade_shop(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down, page_up, page_down]: [bool; 6],
-    ) -> Option<i16> {
+    pub(super) fn step_grade_shop(&mut self, input: Input) -> Option<i16> {
+        let left = input == Some(MenuAction::Left);
+        let right = input == Some(MenuAction::Right);
+        let up = input == Some(MenuAction::Up);
+        let down = input == Some(MenuAction::Down);
+        let page_up = input == Some(MenuAction::PageUp);
+        let page_down = input == Some(MenuAction::PageDown);
         let shop = &self.resources.as_ref()?.data.grade_shop;
         if let Some(yes) = &mut self.grade_shop.confirmation {
-            if input.pressed(Button::Cancel) {
+            if input == Some(MenuAction::Cancel) {
                 self.grade_shop.confirmation = None;
                 return Some(3);
             }
-            if input.pressed(Button::Accept) {
+            if input == Some(MenuAction::Confirm) {
                 if *yes {
                     let party = &mut self.checkpoint.as_mut()?.progress.party;
                     if party
@@ -53,9 +55,9 @@ impl Menu {
             }
             return None;
         }
-        if input.pressed(Button::Cancel) || input.pressed(Button::Start) {
+        if input == Some(MenuAction::Cancel) || input == Some(MenuAction::Details) {
             self.grade_shop.row = shop.options.len();
-        } else if input.pressed(Button::Accept) {
+        } else if input == Some(MenuAction::Confirm) {
             if self.grade_shop.row == shop.options.len() {
                 self.grade_shop.confirmation = Some(false);
             } else {

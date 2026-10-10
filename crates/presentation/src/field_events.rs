@@ -7,7 +7,6 @@ use resonance_content::{
     field::FieldAssets,
     font::{BitmapFont, DialogueArt},
     prepared::Files,
-    session::SessionData,
 };
 use resonance_events::input::{Button, Buttons};
 use resonance_events::{PersistentState, party::Party};
@@ -41,10 +40,12 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
         &mut Default::default(),
         || false,
     )?);
-    let package = new_game::FieldPackage::load(root, files.clone(), map, &mut Default::default())?;
+    let package = new_game::FieldPackage::load(files.clone(), map, &mut Default::default())?;
     let effects: FieldEffects = files.json(&package.assets.effects)?;
     effects.validate()?;
-    let data: Arc<SessionData> = Arc::new(files.json("game/session-data.json")?);
+    let (data, menus) =
+        new_game::admit_definitions(|path| Ok(files.read(path)?.to_vec()), files.diagnostics())?;
+    let text: Arc<resonance_content::session::GameText> = Arc::new(files.json("game/text.json")?);
     let skits: Arc<resonance_content::skit::SkitCatalog> = Arc::new(files.json("game/skits.json")?);
     let art: DialogueArt = files.json("ui/dialogue.json")?;
     let font: BitmapFont = files.json(&art.font)?;
@@ -89,6 +90,8 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
             let mut field = package.enter(FieldEntry {
                 persistent,
                 data: Some(data.clone()),
+                menu_data: Some(menus.clone()),
+                text: text.clone(),
                 skits: Some(skits.clone()),
                 position,
                 available_fields: available_fields.clone(),

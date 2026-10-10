@@ -1408,7 +1408,7 @@
     },
     {
       "opcode": 148,
-      "name": "stage_command44",
+      "name": "stage_opcode_148",
       "arguments": [
         "arg0",
         "arg1",
@@ -2057,11 +2057,12 @@
         "arg10",
         "arg11"
       ],
-      "returns_value": true
+      "returns_value": true,
+      "result_type": "i32"
     },
     {
       "opcode": 206,
-      "name": "stage_command54",
+      "name": "stage_opcode_206",
       "arguments": [
         "arg1",
         "arg0",

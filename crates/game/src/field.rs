@@ -15,6 +15,8 @@ mod checkpoint;
 mod conditions;
 pub mod crafting;
 pub mod navigation;
+#[cfg(test)]
+mod optional_notices_tests;
 mod prompt;
 pub mod replay;
 mod save_point;
@@ -48,6 +50,7 @@ pub struct FieldEntry {
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
     pub menu_data: Option<Arc<resonance_content::menu_data::MenuData>>,
+    pub menu_files: Arc<resonance_content::prepared::Files>,
     pub skits: Option<Arc<resonance_content::skit::SkitCatalog>>,
     pub text: Arc<resonance_content::session::GameText>,
     pub available_fields: std::collections::BTreeSet<u32>,
@@ -86,6 +89,7 @@ pub struct FieldSession {
     pub allow_incomplete_scripts: bool,
     entered_control: bool,
     entry_wait_ticks: u32,
+    diagnostics: resonance_content::diagnostics::Diagnostics,
     pub play_time: crate::clock::PlayTime,
     /// Effect births keep their phase through menus; particle age uses field time.
     pub effect_clock: crate::clock::PresentationClock,
@@ -96,6 +100,8 @@ pub struct FieldSession {
     pub shop: Option<shop::Shop>,
     pub crafting: Option<crafting::Crafting>,
     menu_operation: Option<resonance_events::Operation>,
+    /// The Unison selection survives each temporary menu.
+    unison_character: usize,
     menu_resources: Option<Arc<crate::menu::Resources>>,
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
     choices: crate::choice::ChoicePlayer,
@@ -109,12 +115,21 @@ pub struct FieldSession {
     action_hints: prompt::ActionHints,
     skits: skit::Skits,
     pub active_skit: Option<SkitPlayback>,
-    skit_programs: BTreeMap<u16, skit::Prepared>,
-    pub voice_feedback: Option<Arc<dyn crate::dialogue::VoiceFeedback>>,
+    skit_programs: BTreeMap<u16, crate::skit::Prepared>,
+    pub voice_feedback: bool,
     /// Actor -> first update of its current continuous dialogue mouth cycle.
     pub talking: BTreeMap<i32, u32>,
 }
 impl FieldSession {
+    pub fn menu_data(&self) -> Option<&Arc<resonance_content::menu_data::MenuData>> {
+        self.menu_resources
+            .as_ref()
+            .map(|resources| &resources.data)
+    }
+
+    pub fn set_diagnostics(&mut self, diagnostics: resonance_content::diagnostics::Diagnostics) {
+        self.diagnostics = diagnostics;
+    }
     pub fn dialogue_scene(
         &self,
     ) -> (
@@ -191,12 +206,32 @@ impl FieldSession {
     /// Preserve ambient clocks across field changes, dismissing the skit title.
     /// Quickloads restart ambient services through ordinary field initialization.
     pub fn continue_ambient(&mut self, previous: &Self) {
-        self.skits = previous.skits.next_field();
+        self.unison_character = previous.unison_character();
+        self.skits.continue_from(&previous.skits);
         self.effect_clock = previous.effect_clock;
     }
-
     pub fn action_prompt(&self) -> Option<ActionPrompt> {
         self.action_hints.prompt.filter(|_| !self.menu_is_open())
+    }
+
+    /// Import app-lifetime UI scratch before a new Menu is opened. An already
+    /// active Menu continues to own its own in-progress selection.
+    pub fn set_unison_character(&mut self, character: usize) {
+        self.unison_character = character;
+    }
+
+    pub fn unison_character(&self) -> usize {
+        self.menu
+            .as_ref()
+            .map_or(self.unison_character, |menu| menu.unison.character)
+    }
+
+    /// Colette's character state, independent of main story progression.
+    pub fn colette_state(&self) -> Result<i32> {
+        Ok(self
+            .events
+            .memory()
+            .read(0x4c, symphonia_script::Width::S32)?)
     }
 
     pub fn story_progress(&self) -> Result<i32> {
@@ -218,19 +253,26 @@ impl FieldSession {
         assets: &FieldAssets,
         entry: FieldEntry,
     ) -> Result<Self> {
-        use sha2::{Digest, Sha256};
-        ensure!(
-            format!("{:x}", Sha256::digest(script)) == assets.script.sha256,
-            "field script digest mismatch"
-        );
         let skits = skit::Skits::new(entry.skits.clone());
-        let menu_resources = entry
-            .data
-            .clone()
-            .zip(entry.menu_data.clone())
-            .map(|(session, data)| Arc::new(crate::menu::Resources { session, data }));
+        let menu_resources =
+            entry
+                .data
+                .clone()
+                .zip(entry.menu_data.clone())
+                .map(|(session, data)| {
+                    Arc::new(crate::menu::Resources {
+                        session,
+                        data,
+                        files: entry.menu_files.clone(),
+                    })
+                });
         if let Some(resources) = &menu_resources {
-            resources.data.validate()?;
+            ensure!(
+                resources.session.items.len() == resources.data.items.len(),
+                "item definitions differ from the menu catalogue"
+            );
+            resources.data.validate_gameplay()?;
+            resources.data.world_map.validate_field(assets.map_id)?;
             ensure!(
                 resources
                     .session
@@ -246,6 +288,7 @@ impl FieldSession {
             allow_incomplete_scripts: entry.allow_incomplete_scripts,
             entered_control: false,
             entry_wait_ticks: 0,
+            diagnostics: Default::default(),
             menu_resources,
             skits,
             active_skit: None,
@@ -259,6 +302,7 @@ impl FieldSession {
             shop: None,
             crafting: None,
             menu_operation: None,
+            unison_character: 0,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
             conversation_facing: None,
@@ -268,7 +312,7 @@ impl FieldSession {
             },
             blocks: Default::default(),
             action_hints: Default::default(),
-            voice_feedback: None,
+            voice_feedback: false,
             talking: Default::default(),
             walkmesh: navigation::WalkMesh::new(&assets.ground)?,
             player_fall: Default::default(),
@@ -396,7 +440,7 @@ impl FieldSession {
         Ok(())
     }
     fn step_inner(&mut self, input: FieldInput) -> Result<()> {
-        if self.events.world.screen_request.is_some() {
+        if self.events.battle_pending() || self.events.world.screen_request.is_some() {
             return Ok(());
         }
         self.play_time.advance();
@@ -470,6 +514,10 @@ impl FieldSession {
         if let Some(menu) = &mut self.menu {
             menu.set_play_time(self.play_time);
             let cue = menu.step(input);
+            if let Some(error) = menu.take_failure() {
+                return Err(error);
+            }
+            self.unison_character = menu.unison.character;
             if let Some((party, gameplay_random)) = menu.take_party_changes() {
                 self.events.world.party = Some(party);
                 self.events.world.gameplay_random = gameplay_random;
@@ -690,6 +738,15 @@ impl FieldSession {
                         } else {
                             None
                         };
+                        if actor.motion.is_some()
+                            && let Some(autonomy) = &mut actor.autonomy
+                            && autonomy.behavior == resonance_events::Behavior::Player
+                        {
+                            // Retain the PAD callback owner after this one-step
+                            // motion, including when a later script disables input.
+                            autonomy.activity = resonance_events::Activity::Walk;
+                            autonomy.initialized = false;
+                        }
                         if input.pressed(Button::Accept)
                             && let Some(target) = interaction_target
                             && events.interact(target)?
@@ -908,6 +965,8 @@ impl FieldSession {
 
     fn open_menu(&mut self, page: crate::menu::Page, checkpoint: FieldCheckpoint, at_circle: bool) {
         let mut menu = crate::menu::Menu::new(page, Some(checkpoint), at_circle);
+        // Unison keeps its character selection between menu visits.
+        menu.unison.character = self.unison_character;
         menu.begin_opening();
         menu.resources = self.menu_resources.clone();
         menu.set_play_time(self.play_time);
@@ -989,7 +1048,7 @@ impl FieldSession {
             if let Some(player) = self.dialogue.get_mut(&slot) {
                 player.sync_flags(request);
             }
-            if request.opening_actor.is_none()
+            if request.opening_ready(&self.events.world.actors)
                 && request.operation.is_pending()
                 && !self.dialogue.contains_key(&slot)
             {
@@ -1004,7 +1063,7 @@ impl FieldSession {
                             .map_or(3, |p| u16::from(p.settings.preferences.message_speed)),
                     )?
                     .with_voice_durations(self.events.world.voice_durations.clone())
-                    .with_voice_feedback(self.voice_feedback.clone()),
+                    .with_voice_feedback(self.voice_feedback),
                 );
             }
         }
@@ -1016,38 +1075,48 @@ impl FieldSession {
             .find(|(_, choice)| choice.operation.is_pending())
             .map(|(&slot, _)| slot);
         for (slot, player) in &mut self.dialogue {
-            let accepts_input = choice_slot.is_none_or(|choice| choice == *slot);
+            let choosing = self
+                .events
+                .world
+                .choices
+                .get(slot)
+                .is_some_and(|choice| choice.operation.is_pending());
             let before_selection_page = player.page + 1 < player.pages.len();
-            let voices = if input.skip_dialogue && choice_slot.is_none() {
+            let voices = if input.skip_dialogue && !choosing {
                 player.skip_step()?
             } else {
                 player.step(
                     (input.pressed(Button::Accept) || input.pressed(Button::Cancel))
-                        && (choice_slot.is_none() || before_selection_page && accepts_input),
-                    input.held_buttons.contains(Button::Accept) && accepts_input,
+                        && (!choosing || before_selection_page),
+                    input.held_buttons.contains(Button::Accept),
                 )?
             };
             for voice in voices {
-                self.events.world.audio_commands.push(match voice {
-                    crate::dialogue::VoiceAction::Play(id) => {
+                match &voice {
+                    resonance_events::AudioCommand::Voice { resource, .. } => {
                         self.events.world.voice = Some(resonance_events::VoicePlayback {
-                            resource: id,
+                            resource: *resource,
                             end_tick: self.events.world.tick.saturating_add(
                                 self.events
                                     .world
                                     .voice_durations
-                                    .get(&id)
+                                    .get(resource)
                                     .copied()
                                     .unwrap_or(0),
                             ),
                         });
-                        resonance_events::AudioCommand::Voice(id)
                     }
-                    crate::dialogue::VoiceAction::Stop => {
-                        self.events.world.voice = None;
-                        resonance_events::AudioCommand::StopVoice
-                    }
-                });
+                    resonance_events::AudioCommand::StopVoice => self.events.world.voice = None,
+                    _ => {}
+                }
+                self.events.world.audio_commands.push(voice);
+            }
+        }
+        for (&slot, player) in &self.dialogue {
+            if let Some(request) = self.events.world.dialogue.get_mut(&slot)
+                && request.operation.id() == player.operation.id()
+            {
+                request.actor_activity_released = player.actor_activity_released();
             }
         }
         let speakers: std::collections::BTreeSet<_> = self
@@ -1260,7 +1329,7 @@ fn within_interaction_reach(player: &Actor, actor: &Actor) -> bool {
         && (actor.position[2] - player.position[2]).abs() <= HEIGHT
 }
 fn movement_heading([x, y]: [f32; 2]) -> f32 {
-    x.atan2(-y).to_degrees().rem_euclid(360.)
+    (y.atan2(x).to_degrees() + 90.).rem_euclid(360.)
 }
 
 pub fn start(
@@ -1305,11 +1374,11 @@ fn start_with_entry(
 ) -> Result<EventRuntime> {
     assets.validate()?;
     if let (Some(data), Some(menu)) = (&mut entry.data, &entry.menu_data) {
-        if data.ex_skills.is_none() {
-            Arc::make_mut(data).ex_skills = Some(Arc::new(menu.ex_skills.clone()));
+        if data.rules.is_none() {
+            Arc::make_mut(data).rules = Some(menu.clone());
         }
         if let Some(party) = &mut entry.persistent.party {
-            party.bind_ex_skills(data);
+            party.bind_rules(data);
         }
     }
     let mut resources = ResourceLibrary {
@@ -1585,7 +1654,7 @@ mod tests {
         words.push(0x2000 | op as u16);
     }
 
-    fn choice_session() -> FieldSession {
+    pub(super) fn choice_session() -> FieldSession {
         choice_session_with_flags(0x100)
     }
 
@@ -1683,6 +1752,7 @@ mod tests {
             allow_incomplete_scripts: false,
             entered_control: false,
             entry_wait_ticks: 0,
+            diagnostics: Default::default(),
             map_id: 0,
             authored_entry: None,
             menu_resources: None,
@@ -1692,6 +1762,7 @@ mod tests {
             shop: None,
             crafting: None,
             menu_operation: None,
+            unison_character: 0,
             conversation_facing: None,
             save_points: Default::default(),
             treasures: Default::default(),
@@ -1700,7 +1771,7 @@ mod tests {
             skits: Default::default(),
             active_skit: None,
             skit_programs: BTreeMap::new(),
-            voice_feedback: None,
+            voice_feedback: false,
             talking: Default::default(),
             events,
             dialogue: BTreeMap::new(),
@@ -2353,6 +2424,168 @@ mod tests {
         }
     }
 
+    fn player_input_owner_session(calls: &[(NativeCall, &[i32])]) -> FieldSession {
+        use resonance_events::{
+            Activity, AnimationClip, Autonomy, Behavior, GameWorld, ModelResource,
+        };
+        let mut session = choice_session();
+        let mut code = vec![4, 0, 0, 0];
+        native(&mut code, NativeCall::YieldCommand, &[0, 1]);
+        for &(call, args) in calls {
+            native(&mut code, call, args);
+        }
+        code.push(0x20ff);
+        let program = Program::decode(
+            &code
+                .into_iter()
+                .flat_map(u16::to_be_bytes)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let mut world = GameWorld::default();
+        world.input_enabled = true;
+        world.controlled_actor = 1;
+        let mut actor = Actor::new(1, [0.; 3]);
+        actor.face(90.);
+        actor.grounded = false;
+        actor.collidable = false;
+        actor.autonomy = Some(Autonomy {
+            activity: Activity::Idle,
+            initialized: true,
+            remaining: 122,
+            ..Autonomy::new(Behavior::Player, 0., actor.position)
+        });
+        world.insert_actor(1, actor);
+        let model = ModelResource {
+            clips: [12, 36, 40, 44, 48, 112, 116, 120, 124]
+                .into_iter()
+                .map(|slot| {
+                    (
+                        slot,
+                        AnimationClip {
+                            duration_ticks: 60,
+                            attachments: None,
+                        },
+                    )
+                })
+                .collect(),
+            ..Default::default()
+        };
+        session.events = EventRuntime::with_state(
+            Arc::new(program),
+            Arc::new(ResourceLibrary {
+                models: [(1, model)].into(),
+                messages: vec![Message { tokens: vec![] }],
+                ..Default::default()
+            }),
+            world,
+            Default::default(),
+        )
+        .unwrap();
+        session.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+            surface: 0,
+            vertices: vec![[-1000., -1000., 0.], [1000., -1000., 0.], [0., 1000., 0.]],
+            triangles: vec![[0, 1, 2]],
+        }])
+        .unwrap();
+        session
+    }
+
+    #[test]
+    fn keyboard_movement_stops_after_input_or_control_is_lost() {
+        use resonance_events::{Activity, animation::slot};
+        for run in [false, true] {
+            for lose_control in [false, true] {
+                let calls = if lose_control {
+                    vec![(NativeCall::DisableMappedInput, &[][..])]
+                } else {
+                    vec![]
+                };
+                let mut session = player_input_owner_session(&calls);
+                session
+                    .step(FieldInput {
+                        direction: [1., 0.],
+                        run,
+                        ..Default::default()
+                    })
+                    .unwrap();
+                let position = session.events.world.actors[&1].position;
+                assert_eq!(position, [if run { 8. } else { 4. }, 0., 0.]);
+                assert_eq!(
+                    session.events.world.actors[&1].autonomy.unwrap().activity,
+                    Activity::Walk
+                );
+                for _ in 0..8 {
+                    session.step(Default::default()).unwrap();
+                    assert_eq!(session.events.world.actors[&1].position, position);
+                }
+                let actor = &session.events.world.actors[&1];
+                assert_eq!(actor.autonomy.unwrap().activity, Activity::Idle);
+                assert!(actor.motion.is_none());
+                assert_eq!(session.events.world.input_enabled, !lose_control);
+                assert_eq!(
+                    actor.animation.as_ref().unwrap().slot,
+                    if lose_control {
+                        slot::EVENT_IDLE
+                    } else {
+                        slot::IDLE
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scripted_destination_replaces_keyboard_movement_then_returns_to_idle() {
+        use resonance_events::Activity;
+        let mut session = player_input_owner_session(&[
+            (NativeCall::DisableMappedInput, &[]),
+            (NativeCall::MoveActor, &[1, 8, 0, 0, 4]),
+        ]);
+        session
+            .step(FieldInput {
+                direction: [1., 0.],
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(session.events.world.actors[&1].motion.is_some());
+        for _ in 0..16 {
+            session.step(Default::default()).unwrap();
+        }
+        let actor = &session.events.world.actors[&1];
+        assert_eq!(actor.position, [8., 0., 0.]);
+        assert!(actor.motion.is_none());
+        assert_eq!(actor.autonomy.unwrap().activity, Activity::Idle);
+    }
+
+    #[test]
+    fn dialogue_owns_the_actor_after_keyboard_movement() {
+        let mut session = player_input_owner_session(&[
+            (NativeCall::DisableMappedInput, &[]),
+            (NativeCall::ConfigureDialogue, &[0, 64, -1, 1, 0, 0, 0, 0]),
+            (NativeCall::YieldCommand, &[2, 0]),
+        ]);
+        session
+            .step(FieldInput {
+                direction: [1., 0.],
+                ..Default::default()
+            })
+            .unwrap();
+        let position = session.events.world.actors[&1].position;
+        for _ in 0..8 {
+            session
+                .step(FieldInput {
+                    direction: [1., 0.],
+                    ..Default::default()
+                })
+                .unwrap();
+            let actor = &session.events.world.actors[&1];
+            assert_eq!(actor.position, position);
+            assert!(actor.autonomy.unwrap().conversing);
+            assert!(session.events.world.dialogue[&0].operation.is_pending());
+        }
+    }
+
     #[test]
     fn scripted_door_approach_can_leave_the_floor_while_keyboard_movement_stays_bounded() {
         let start = [-2855.4521, 1513.175, 66.4043];
@@ -2417,40 +2650,336 @@ mod tests {
     }
 
     #[test]
-    fn simultaneous_replies_close_on_the_same_confirmation() {
-        let mut code = vec![4, 0, 0, 0];
-        for slot in [0, 2] {
-            native(
-                &mut code,
-                NativeCall::ConfigureDialogue,
-                &[slot, 0, -2, 1, 0, 0, 0, 0],
-            );
-        }
-        native(&mut code, NativeCall::YieldCommand, &[3, 0]);
-        code.push(0x20ff);
-        let resources = ResourceLibrary {
-            messages: vec![Message {
-                tokens: vec![Token::Text {
-                    text: "Yeah!".into(),
-                }],
-            }],
-            ..Default::default()
-        };
-        let mut session = session(runtime(code, resources));
-        for _ in 0..60 {
+    fn attached_dialogue_waits_for_turning_then_closes_once() {
+        use resonance_events::dialogue::{DialogueAnchor, ResolvedMessage, TextToken};
+        let mut session = choice_session();
+        session.events = EventRuntime::new(
+            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
+            Arc::new(ResourceLibrary::default()),
+        )
+        .unwrap();
+        let operation = session
+            .events
+            .world
+            .show_notice(
+                ResolvedMessage {
+                    tokens: vec![TextToken::Text {
+                        text: "Ah, well...I owe it to\nthis thing, though.".into(),
+                    }],
+                },
+                0xc0,
+            )
+            .unwrap();
+        let request = session.events.world.dialogue.get_mut(&0).unwrap();
+        request.anchor = DialogueAnchor::Actor(1);
+        request.opening_actor = Some(1);
+        let mut actor = resonance_events::Actor::new(1, [0.; 3]);
+        actor.heading = 74.;
+        actor.target_heading = 55.;
+        session.events.world.insert_actor(1, actor);
+        session.step(FieldInput::default()).unwrap();
+        assert!(!session.dialogue.contains_key(&0));
+        for _ in 0..12 {
             session.step(FieldInput::default()).unwrap();
+            if session.dialogue.contains_key(&0) {
+                break;
+            }
         }
-        assert!(session.dialogue.values().all(|d| d.accepts_input()));
+        assert!(
+            session.dialogue.contains_key(&0),
+            "the window opens after turning"
+        );
+        assert_eq!(session.events.world.dialogue[&0].opening_actor, None);
+        let actor = &session.events.world.actors[&1];
+        assert!((actor.heading - actor.target_heading).abs() < 0.01);
+        for _ in 0..300 {
+            if session.dialogue[&0].accepts_input() && session.dialogue[&0].fully_revealed() {
+                break;
+            }
+            session
+                .step(FieldInput {
+                    held_buttons: [resonance_events::input::Button::Accept].into(),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        assert!(session.dialogue[&0].fully_revealed());
+        assert!(session.dialogue[&0].accepts_input());
+        assert!(operation.is_pending());
         session
             .step(FieldInput {
-                pressed_buttons: [Button::Accept].into(),
+                pressed_buttons: [resonance_events::input::Button::Accept].into(),
                 ..Default::default()
             })
             .unwrap();
-        for _ in 0..10 {
+        for _ in 0..20 {
             session.step(FieldInput::default()).unwrap();
         }
-        assert!(session.dialogue.values().all(|d| !d.window_visible()));
+        assert!(!operation.is_pending());
+        assert_eq!(
+            session
+                .events
+                .world
+                .audio_commands
+                .iter()
+                .filter(|command| matches!(command, resonance_events::AudioCommand::StopVoice))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn scripted_dialogue_holds_the_actor_and_releases_its_waiting_caller() {
+        use resonance_events::Activity;
+        let mut session = player_input_owner_session(&[
+            (NativeCall::DisableMappedInput, &[]),
+            (NativeCall::ConfigureDialogue, &[0, 64, -1, 1, 0, 0, 0, 0]),
+            (NativeCall::YieldCommand, &[2, 0]),
+        ]);
+        session.step(FieldInput::default()).unwrap();
+        let operation = session.events.world.dialogue[&0].operation.clone();
+        for _ in 0..30 {
+            session.step(FieldInput::default()).unwrap();
+            assert!(session.events.world.actors[&1].autonomy.unwrap().conversing);
+            assert!(operation.is_pending());
+            if session
+                .dialogue
+                .get(&0)
+                .is_some_and(|page| page.accepts_input())
+            {
+                break;
+            }
+        }
+        assert!(session.dialogue[&0].accepts_input());
+        assert_eq!(session.events.active_instances(), 1);
+        session
+            .step(FieldInput {
+                pressed_buttons: [resonance_events::input::Button::Accept].into(),
+                ..Default::default()
+            })
+            .unwrap();
+        for _ in 0..30 {
+            session.step(FieldInput::default()).unwrap();
+            let ai = session.events.world.actors[&1].autonomy.unwrap();
+            if !operation.is_pending()
+                && session.events.active_instances() == 0
+                && !ai.conversing
+                && ai.activity == Activity::Idle
+            {
+                break;
+            }
+        }
+        let ai = session.events.world.actors[&1].autonomy.unwrap();
+        assert!(!ai.conversing);
+        assert_eq!(ai.dialogue_slot, None);
+        assert_eq!(ai.activity, Activity::Idle);
+        assert!(!operation.is_pending());
+        assert_eq!(session.events.active_instances(), 0);
+        for _ in 0..5 {
+            session.step(FieldInput::default()).unwrap();
+            assert_eq!(
+                session.events.active_instances(),
+                0,
+                "caller must not restart"
+            );
+        }
+    }
+
+    #[test]
+    fn dialogue_turn_readiness_uses_angular_distance() {
+        use resonance_events::dialogue::ResolvedMessage;
+        let mut session = choice_session();
+        session.events.world = Default::default();
+        session
+            .events
+            .world
+            .show_notice(ResolvedMessage { tokens: vec![] }, 0)
+            .unwrap();
+        let request = session.events.world.dialogue.get_mut(&0).unwrap();
+        request.opening_actor = Some(7);
+        let mut actors = BTreeMap::new();
+        assert!(
+            request.opening_ready(&actors),
+            "a missing speaker cannot keep the window blocked"
+        );
+        let mut actor = resonance_events::Actor::new(1, [0.; 3]);
+        for (heading, target, ready) in [
+            (55.9, 55.1, false),
+            (54.9, 55.1, false),
+            (55.101, 55.1, true),
+            (-55.1, -55.1, true),
+            (359.999, 0.001, true),
+        ] {
+            actor.heading = heading;
+            actor.target_heading = target;
+            actors.insert(7, actor.clone());
+            assert_eq!(
+                request.opening_ready(&actors),
+                ready,
+                "{heading} -> {target}"
+            );
+        }
+        request.opening_actor = None;
+        actors.get_mut(&7).unwrap().heading = 100.;
+        assert!(request.opening_ready(&actors));
+    }
+
+    #[test]
+    fn shared_press_closes_both_ordinary_windows_but_keeps_persistent_text() {
+        use resonance_events::dialogue::{ResolvedMessage, TextToken, flags};
+        for cancel in [false, true] {
+            let mut session = choice_session();
+            session.events.world = Default::default();
+            let operations: Vec<_> = [flags::PERSISTENT, 0, 0]
+                .into_iter()
+                .map(|kind| {
+                    session
+                        .events
+                        .world
+                        .show_notice(
+                            ResolvedMessage {
+                                tokens: vec![TextToken::Text { text: "A".into() }],
+                            },
+                            flags::INSTANT | kind,
+                        )
+                        .unwrap()
+                })
+                .collect();
+            session.step_dialogue(FieldInput::default()).unwrap();
+            session.events.world.audio_commands.clear();
+            assert!(
+                session
+                    .step_dialogue(FieldInput {
+                        pressed_buttons: (resonance_events::input::Buttons::default())
+                            .with(resonance_events::input::Button::Accept, !cancel)
+                            .with(resonance_events::input::Button::Cancel, cancel),
+                        ..Default::default()
+                    })
+                    .unwrap()
+            );
+            assert!(session.dialogue[&0].accepts_input());
+            assert!(!session.dialogue[&1].accepts_input());
+            assert!(!session.dialogue[&2].accepts_input());
+            assert_eq!(
+                session
+                    .events
+                    .world
+                    .audio_commands
+                    .iter()
+                    .filter(|command| {
+                        matches!(command, resonance_events::AudioCommand::StopVoice)
+                    })
+                    .count(),
+                2
+            );
+            assert!(operations.iter().all(|operation| operation.is_pending()));
+            for _ in 0..4 {
+                session.step_dialogue(FieldInput::default()).unwrap();
+            }
+            assert!(operations[0].is_pending());
+            assert!(!operations[1].is_pending());
+            assert!(!operations[2].is_pending());
+        }
+    }
+
+    #[test]
+    fn shared_hold_accelerates_each_window_except_automatic_pages() {
+        use resonance_events::dialogue::{ResolvedMessage, TextToken, flags};
+        let mut session = choice_session();
+        session.events.world = Default::default();
+        for kind in [flags::PERSISTENT, 0, flags::AUTO_PAGES] {
+            session
+                .events
+                .world
+                .show_notice(
+                    ResolvedMessage {
+                        tokens: vec![
+                            TextToken::Control {
+                                opcode: 2,
+                                value: 6,
+                            },
+                            TextToken::Text {
+                                text: "ABCDEFGHIJ".into(),
+                            },
+                        ],
+                    },
+                    flags::INSTANT | kind,
+                )
+                .unwrap();
+        }
+        for _ in 0..9 {
+            session
+                .step_dialogue(FieldInput {
+                    held_buttons: [resonance_events::input::Button::Accept].into(),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        // Opcode 2 keeps delay 6 even with INSTANT. Held input changes the
+        // running delay to 1, consumed by the same visit's reveal loop, so
+        // ordinary/persistent windows reveal one glyph per held visit.
+        assert!(
+            session
+                .dialogue
+                .values()
+                .all(|player| { player.current().glyphs.iter().all(|glyph| glyph.delay == 6) })
+        );
+        assert_eq!(session.dialogue[&0].visible, 9);
+        assert_eq!(session.dialogue[&1].visible, 9);
+        assert_eq!(session.dialogue[&2].visible, 2);
+        assert!(
+            session
+                .dialogue
+                .values()
+                .all(|player| player.operation.is_pending())
+        );
+    }
+
+    #[test]
+    fn choice_confirm_also_reaches_an_independent_ordinary_window() {
+        use resonance_events::dialogue::{ResolvedMessage, TextToken, flags};
+        let mut session = choice_session();
+        reveal_choices(&mut session);
+        let ordinary = session
+            .events
+            .world
+            .show_notice(
+                ResolvedMessage {
+                    tokens: vec![TextToken::Text { text: "A".into() }],
+                },
+                flags::INSTANT,
+            )
+            .unwrap();
+        session.step_dialogue(FieldInput::default()).unwrap();
+        session.events.world.audio_commands.clear();
+        session
+            .step_dialogue(FieldInput {
+                pressed_buttons: [resonance_events::input::Button::Accept].into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(session.dialogue[&0].operation.is_pending());
+        assert!(!session.events.world.choices[&1].operation.is_pending());
+        assert!(!session.dialogue[&2].accepts_input());
+        assert!(
+            ordinary.is_pending(),
+            "window retirement still precedes VM completion"
+        );
+        assert_eq!(
+            session
+                .events
+                .world
+                .audio_commands
+                .iter()
+                .filter(|command| { matches!(command, resonance_events::AudioCommand::StopVoice) })
+                .count(),
+            2,
+            "one close per ordinary/choice window"
+        );
+        for _ in 0..4 {
+            session.step_dialogue(FieldInput::default()).unwrap();
+        }
+        assert!(!ordinary.is_pending());
     }
 
     #[test]
@@ -2736,5 +3265,94 @@ mod tests {
         let choice = fresh.events.world.choices.get_mut(&1).unwrap();
         assert_eq!(player.step(choice, up, true), (None, true));
         assert_eq!(choice.selection.lines().unwrap().selected_line, 1);
+    }
+
+    #[test]
+    #[ignore = "requires prepared session/menu data; no devices"]
+    fn unison_selection_survives_menu_and_field_owners_while_main_character_resets() {
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
+            });
+        let data: Arc<resonance_content::session::SessionData> = Arc::new(
+            serde_json::from_slice(&std::fs::read(root.join("game/session-data.json")).unwrap())
+                .unwrap(),
+        );
+        let menus: Arc<resonance_content::menu_data::MenuData> = Arc::new(
+            serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json")).unwrap())
+                .unwrap(),
+        );
+        let mut party = resonance_events::party::Party::new(&data, Default::default()).unwrap();
+        party.formation = vec![1, 2, 3, 4];
+        party.field_leader = 1;
+        let mut globals = vec![0; 256];
+        globals[16] = 1_403_000;
+        let checkpoint = FieldCheckpoint {
+            allow_incomplete_scripts: false,
+            map_id: 0,
+            position: [0.; 3],
+            heading: 0.,
+            camera: {
+                let mut rig = resonance_events::camera::CameraRig::default();
+                *rig.current_mut() = resonance_events::camera::EntryCamera::following(1).camera;
+                Some(rig.settings(1).unwrap())
+            },
+            played_ticks: 0,
+            progress: resonance_events::SavedProgress {
+                script_globals: globals,
+                script_state: Default::default(),
+                party: party.clone(),
+                event_flags: Default::default(),
+                event_records: Default::default(),
+                random_state: 0,
+                gameplay_random: Default::default(),
+                tick: 0,
+            },
+        };
+        let mut field = choice_session();
+        field.events.world.party = Some(party);
+        field.events.world.controlled_actor = 1;
+        field.menu_resources = Some(Arc::new(crate::menu::Resources {
+            session: data.clone(),
+            data: menus.clone(),
+            files: Default::default(),
+        }));
+        field.set_unison_character(3);
+        field.open_menu(crate::menu::Page::Main, checkpoint.clone(), false);
+        assert_eq!(field.menu.as_ref().unwrap().character, 0);
+        assert_eq!(field.menu.as_ref().unwrap().unison.character, 3);
+        // The active field Menu's scratch wins over a stale host import.
+        field.menu.as_mut().unwrap().unison.character = 2;
+        field.menu.as_mut().unwrap().character = 2;
+        field.set_unison_character(0);
+        assert_eq!(field.unison_character(), 2);
+        field.menu.as_mut().unwrap().closed = true;
+        field
+            .events
+            .world
+            .insert_actor(1, resonance_events::Actor::new(1, [0.; 3]));
+        field.step(Default::default()).unwrap();
+        assert!(field.menu.is_none());
+        assert_eq!(field.unison_character(), 2);
+        let mut next = choice_session();
+        next.continue_ambient(&field);
+        next.open_menu(crate::menu::Page::Main, checkpoint.clone(), false);
+        assert_eq!(next.menu.as_ref().unwrap().character, 0);
+        assert_eq!(next.unison_character(), 2);
+        let retained = crate::menu::unison::Unison::opening(
+            next.unison_character(),
+            &checkpoint.progress.party,
+        )
+        .unwrap();
+        assert_eq!(retained.character, 2);
+        let mut smaller = checkpoint.progress.party;
+        smaller.formation.truncate(1);
+        assert_eq!(
+            crate::menu::unison::Unison::opening(2, &smaller)
+                .unwrap()
+                .character,
+            0
+        );
     }
 }

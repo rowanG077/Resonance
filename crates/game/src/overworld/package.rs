@@ -30,24 +30,29 @@ impl Prepared {
     ) -> Result<Self> {
         let definition: Package = serde_json::from_slice(&std::fs::read(root.join(PACKAGE_PATH))?)?;
         definition.validate()?;
-        let files = Arc::new(Files::from_inventory(
-            root,
-            definition.files.clone(),
-            cache,
-            cancelled,
-        )?);
+        let files = Arc::new(
+            Files::load(root, &[], cache, &cancelled)?.with_dependencies(
+                root,
+                definition.files.clone(),
+                cache,
+                cancelled,
+            )?,
+        );
         let mut data: resonance_content::session::SessionData =
             files.json("game/session-data.json")?;
-        let menu: resonance_content::menu_data::MenuData = files.json("game/menu-data.json")?;
-        menu.validate()?;
-        data.ex_skills = Some(Arc::new(menu.ex_skills.clone()));
+        let menu = Arc::new(resonance_content::menu_data::MenuData::decode(
+            &files.read("game/menu-data.json")?,
+            files.diagnostics(),
+        )?);
+        menu.validate_gameplay()?;
+        data.rules = Some(menu.clone());
         data.validate()?;
         let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
         skits.validate()?;
         available_fields.insert(3000);
         let resources = Arc::new(ResourceLibrary {
             session_data: Some(Arc::new(data)),
-            menu_data: Some(Arc::new(menu)),
+            menu_data: Some(menu),
             text: Arc::new(files.json("game/text.json")?),
             skits: Some(Arc::new(skits)),
             messages: files.json(&definition.messages)?,
@@ -56,9 +61,11 @@ impl Prepared {
             ..Default::default()
         });
         let program = Arc::new(Program::decode(&files.read(&definition.script.path)?)?);
-        let skits = Arc::new(crate::skit::Prepared::load(
+        let skits = Arc::new(crate::skit::Prepared::load_with(
             resources.skits.clone().unwrap(),
             &files,
+            &resources,
+            files.diagnostics(),
         )?);
         let story_rules =
             super::scripts::Rules::prepare(&mut Default::default(), &files.script_sources()?)?;
@@ -120,6 +127,7 @@ impl Prepared {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(Arc::new(Assets {
+            files: self.files.clone(),
             world,
             terrain: Arc::new(collision::Terrain::new(
                 terrain,

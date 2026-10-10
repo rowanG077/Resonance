@@ -40,41 +40,49 @@ pub struct Resampler<'a> {
 }
 
 impl<'a> Resampler<'a> {
-    pub fn new(mode: Mode<'a>, ratio: u32) -> Result<Self> {
-        let mut result = Self {
+    pub fn new(mode: Mode<'a>, ratio: u32) -> Self {
+        Self {
             mode,
-            ratio: 0,
+            ratio,
             fraction: 0,
             history: [0; 4],
-        };
-        result.set_ratio(ratio)?;
-        Ok(result)
+        }
     }
 
-    /// The original pitch control has twelve fractional bits and clamps at
-    /// 0x3fff before shifting four places into the source's 16.16 ratio.
-    pub fn set_ratio(&mut self, ratio: u32) -> Result<()> {
-        ensure!(
-            ratio <= 0x3fff0,
-            "source ratio exceeds the original pitch range"
-        );
+    /// Any representable 16.16 increment is supported. Widening the addition
+    /// preserves the phase even at the maximum increment.
+    pub fn set_ratio(&mut self, ratio: u32) {
         self.ratio = ratio;
-        Ok(())
     }
 
-    pub fn next_sample(&mut self, mut input: impl FnMut() -> i16) -> i16 {
+    /// Whether exhausted input still has samples in the interpolation filter.
+    pub fn has_pending(&self) -> bool {
+        !matches!(self.mode, Mode::Direct) && self.history.iter().any(|&sample| sample != 0)
+    }
+
+    pub fn next_sample(&mut self, input: &mut SampleCursor<'_>) -> i16 {
         if matches!(self.mode, Mode::Direct) {
-            let sample = input();
+            let sample = input.next_sample();
             self.history.rotate_left(1);
             self.history[3] = sample;
             return sample;
         }
-        self.fraction += self.ratio;
-        let advance = self.fraction >> 16;
-        self.fraction &= 0xffff;
-        for _ in 0..advance {
+        // A zero playback rate can hold live input, but cannot hold an exhausted
+        // one-shot forever. Flush its remaining filter history at one tap/frame.
+        let ratio = if input.is_done() && self.ratio == 0 {
+            65536
+        } else {
+            self.ratio
+        };
+        let position = u64::from(self.fraction) + u64::from(ratio);
+        let advance = (position >> 16) as usize;
+        self.fraction = (position & 0xffff) as u32;
+        // Earlier input cannot affect a four-tap filter. Skip it arithmetically,
+        // including loop boundaries, before reading the remaining history.
+        input.skip(advance.saturating_sub(self.history.len()));
+        for _ in 0..advance.min(self.history.len()) {
             self.history.rotate_left(1);
-            self.history[3] = input();
+            self.history[3] = input.next_sample();
         }
         let value = match self.mode {
             Mode::Polyphase(coefficients) => {
@@ -105,6 +113,8 @@ pub struct SampleCursor<'a> {
     position: usize,
     first_end: usize,
     loop_at: usize,
+    #[cfg(test)]
+    reads: usize,
 }
 
 impl<'a> SampleCursor<'a> {
@@ -124,6 +134,8 @@ impl<'a> SampleCursor<'a> {
             position: 0,
             loop_at: 0,
             first_end,
+            #[cfg(test)]
+            reads: 0,
         })
     }
 
@@ -135,7 +147,20 @@ impl<'a> SampleCursor<'a> {
         self.position >= self.first_end && self.sample.loop_pcm.is_empty()
     }
 
+    fn skip(&mut self, frames: usize) {
+        let first = frames.min(self.first_end - self.position);
+        self.position += first;
+        if !self.sample.loop_pcm.is_empty() {
+            self.loop_at = (self.loop_at + (frames - first) % self.sample.loop_pcm.len())
+                % self.sample.loop_pcm.len();
+        }
+    }
+
     pub fn next_sample(&mut self) -> i16 {
+        #[cfg(test)]
+        {
+            self.reads += 1;
+        }
         if self.position < self.first_end {
             let sample = self.sample.pcm[self.position];
             self.position += 1;
@@ -154,21 +179,74 @@ impl<'a> SampleCursor<'a> {
 mod tests {
     use super::*;
 
+    fn sample(pcm: Vec<i16>) -> Sample {
+        Sample {
+            key: 60,
+            rate: crate::SOURCE_RATE as u16,
+            loop_start: 0,
+            loop_length: 0,
+            pcm,
+            loop_pcm: vec![],
+        }
+    }
+
     #[test]
     fn source_modes_keep_history_and_fraction_across_calls() {
-        let mut value = 0i16;
-        let mut input = || {
-            value += 100;
-            value
-        };
-        let mut linear = Resampler::new(Mode::Linear, 32768).unwrap();
+        let sample = sample((1..=20).map(|value| value * 100).collect());
+        let mut input = SampleCursor::new(&sample).unwrap();
+        let mut linear = Resampler::new(Mode::Linear, 32768);
         let samples: Vec<_> = (0..10).map(|_| linear.next_sample(&mut input)).collect();
         assert_eq!(samples, [0, 0, 0, 0, 0, 0, 50, 100, 150, 200]);
-        linear.set_ratio(65536).unwrap();
+        linear.set_ratio(65536);
         assert_eq!(linear.next_sample(&mut input), 300);
-        let mut direct = Resampler::new(Mode::Direct, 0).unwrap();
-        assert_eq!(direct.next_sample(|| -123), -123);
-        assert!(direct.set_ratio(0x40000).is_err());
+        let mut direct = Resampler::new(Mode::Direct, 0);
+        assert_eq!(direct.next_sample(&mut input), 700);
+        direct.set_ratio(u32::MAX);
+        assert_eq!(direct.next_sample(&mut input), 800);
+    }
+
+    #[test]
+    fn maximum_pitch_reads_only_filter_history_and_preserves_loop_phase() {
+        let sample = Sample {
+            loop_start: 1,
+            loop_length: 2,
+            loop_pcm: vec![4, 5],
+            ..sample(vec![1, 2, 3, 99])
+        };
+        let mut input = SampleCursor::new(&sample).unwrap();
+        let mut source = Resampler::new(Mode::Linear, u32::MAX);
+        for _ in 0..2 {
+            let before = input.reads;
+            assert_eq!(source.next_sample(&mut input), 4);
+            assert!(input.reads - before <= 4);
+            assert_eq!(source.history, [4, 5, 4, 5]);
+        }
+        assert_eq!(source.fraction, 65534);
+        assert!(!input.is_done());
+    }
+
+    #[test]
+    fn skips_match_first_pass_restored_loops_and_exhausted_input() {
+        for loop_pcm in [vec![], vec![4, 5]] {
+            let sample = Sample {
+                loop_start: 1,
+                loop_length: loop_pcm.len() as u32,
+                loop_pcm,
+                ..sample(vec![1, 2, 3, 99])
+            };
+            let mut skipped = SampleCursor::new(&sample).unwrap();
+            let mut read = SampleCursor::new(&sample).unwrap();
+            for frames in [0, 1, 2, 3, 27, 65536, 1] {
+                skipped.skip(frames);
+                for _ in 0..frames {
+                    read.next_sample();
+                }
+                assert_eq!(skipped.is_done(), read.is_done());
+                for _ in 0..5 {
+                    assert_eq!(skipped.next_sample(), read.next_sample());
+                }
+            }
+        }
     }
 
     #[test]
@@ -176,12 +254,52 @@ mod tests {
         let mut coefficients = [[0; 4]; 128];
         coefficients[64][3] = 16384;
         coefficients[0] = [32767; 4];
-        let mut source = Resampler::new(Mode::Polyphase(&coefficients), 98304).unwrap();
-        assert_eq!(source.next_sample(|| 10000), 5000);
-        assert_eq!(source.next_sample(|| 10000), 29999);
-        assert_eq!(source.next_sample(|| 10000), 5000);
-        assert_eq!(source.next_sample(|| 10000), 32767);
+        let sample = sample(vec![10000; 8]);
+        let mut input = SampleCursor::new(&sample).unwrap();
+        let mut source = Resampler::new(Mode::Polyphase(&coefficients), 98304);
+        assert_eq!(source.next_sample(&mut input), 5000);
+        assert_eq!(source.next_sample(&mut input), 29999);
+        assert_eq!(source.next_sample(&mut input), 5000);
+        assert_eq!(source.next_sample(&mut input), 32767);
         assert!(Coefficients::from_be_bytes(&[0; 4095]).is_err());
+    }
+
+    #[test]
+    fn final_input_sample_remains_audible_until_filter_history_drains() {
+        let sample = sample(vec![12000]);
+        let coefficients = [[16384; 4]; 128];
+        for (mode, expected) in [
+            (Mode::Linear, [0, 0, 0, 12000, 0]),
+            (Mode::Polyphase(&coefficients), [6000, 6000, 6000, 6000, 0]),
+        ] {
+            let mut input = SampleCursor::new(&sample).unwrap();
+            let mut source = Resampler::new(mode, 65536);
+            for (frame, expected) in expected.into_iter().enumerate() {
+                assert_eq!(source.next_sample(&mut input), expected);
+                assert!(input.is_done());
+                assert_eq!(source.has_pending(), frame < 4);
+            }
+        }
+        let mut input = SampleCursor::new(&sample).unwrap();
+        let mut direct = Resampler::new(Mode::Direct, 65536);
+        assert_eq!(direct.next_sample(&mut input), 12000);
+        assert!(!direct.has_pending());
+    }
+
+    #[test]
+    fn zero_rate_holds_live_input_but_drains_exhausted_filter_history() {
+        let sample = sample(vec![12000]);
+        let mut input = SampleCursor::new(&sample).unwrap();
+        let mut source = Resampler::new(Mode::Linear, 0);
+        assert_eq!(source.next_sample(&mut input), 0);
+        assert!(!input.is_done());
+        source.set_ratio(65536);
+        assert_eq!(source.next_sample(&mut input), 0);
+        assert!(input.is_done() && source.has_pending());
+        source.set_ratio(0);
+        let tail: Vec<_> = (0..4).map(|_| source.next_sample(&mut input)).collect();
+        assert_eq!(tail, [0, 0, 12000, 0]);
+        assert!(!source.has_pending());
     }
 
     #[test]

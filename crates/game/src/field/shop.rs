@@ -91,6 +91,9 @@ impl Shop {
             usize::from(id) < resources.data.world_map.shops.len(),
             "shop {id} is not cooked"
         );
+        resources.data.world_map.shops[usize::from(id)].validate(resources.data.items.len())?;
+        resources.data.items_text()?;
+        resources.data.shop_text(id)?;
         ensure!(!party.formation.is_empty(), "shop requires a party");
         party.travel.visited_shops.insert(id);
         if let Some(alias) = match id {
@@ -191,7 +194,7 @@ impl Shop {
                 (
                     self.category == 0 && !item.field_usable,
                     item.category,
-                    &item.name,
+                    data.item_text(id).ok().map(|text| text.name.as_str()),
                 )
             });
         }

@@ -157,7 +157,6 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
             (Bank::Plain, 0x80231720, 0x240, 1),
             (Bank::Alternate, 0x80236e80, 0x2500, 1),
             (Bank::Patterns, 0x80231960, 0x2900, 5),
-            (Bank::Cursor, 0x80249500, 0x280, 0),
         ] {
             let bytes = crate::dol::slice(&executable, address, size)?;
             let expected = crate::tpl::parse_tpl(bytes)?;
@@ -202,7 +201,7 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
                 &pixels
             );
         }
-        assert_eq!(count + portraits.len(), 50);
+        assert_eq!(count + portraits.len(), 49);
         assert!(!output.join("sources.json").exists() && !output.join("data").exists());
     }
     Ok(())
@@ -222,15 +221,17 @@ fn original_menu_sprite_atlas_preserves_frozen_pixels_and_layout() -> Result<()>
         let executable = fs::read(extracted.join("sys/main.dol"))?;
         let temporary = tempfile::tempdir()?;
         let output = temporary.path();
+        let tables = super::data::read(&executable)?;
         super::cook_art(
             &extracted,
             output,
             &executable,
-            super::data::read(&executable)?.artwork,
+            tables.artwork,
+            tables.data.items.len(),
         )?;
         let actual: resonance_content::menu::MenuArt =
             serde_json::from_slice(&fs::read(output.join("ui/menu.json"))?)?;
-        actual.validate()?;
+        actual.validate(tables.data.items.len())?;
         crate::texture::compare_images(
             &output.join("ui/menu/party.ktx2"),
             &baseline.join("ui/menu/party.ktx2"),

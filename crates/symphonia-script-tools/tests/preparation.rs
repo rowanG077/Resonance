@@ -86,7 +86,7 @@ fn failure_does_not_publish_partial_generation_or_return_stale_code() {
 fn cache_invalidates_native_signatures_and_new_source_shadowing_native_imports() {
     let mut sources = BTreeMap::from([(
         "main".into(),
-        "script field; use game; pub task main() { await game::wait(1ticks); }".into(),
+        "script field; use game; pub task main() { await game::wait(ticks(1)); }".into(),
     )]);
     let mut cache = PreparationCache::default();
     let original = cache.prepare(["main"], &sources, API).unwrap();

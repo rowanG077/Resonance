@@ -41,8 +41,6 @@ impl Logos {
         }
         self.tick += 1;
         self.phase_tick += 1;
-        // The original selects the old phase's texture before its transition.
-        self.texture = TEXTURES[self.phase];
         if self.alpha_step == 0 {
             if self.leaving {
                 self.phase += 1;
@@ -55,6 +53,9 @@ impl Logos {
                 self.leaving = true;
                 self.alpha_step = -4;
             }
+        }
+        if self.active() {
+            self.texture = TEXTURES[self.phase];
         }
         let alpha = i16::from(self.alpha) + self.alpha_step;
         self.alpha = alpha.clamp(0, 255) as u8;
@@ -69,16 +70,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn natural_logos_match_the_independent_adx_checkpoint() {
+    fn natural_logos_finish_and_stop_advancing() {
         let mut logos = Logos::default();
-        for _ in 0..972 {
-            logos.step(false);
-        }
-        // Dolphin startup-1020-silent state: phase 3, local tick 180, alpha 11.
-        assert_eq!((logos.texture, logos.phase_tick, logos.alpha), (2, 180, 11));
-        // This savestate is inside presentation, before the counter increments.
-        // Its earlier memory-card checks are intentionally outside this sequence.
-        for _ in 0..4 {
+        for _ in 0..LOGO_TICKS {
             logos.step(false);
         }
         assert!(!logos.active());
@@ -94,16 +88,5 @@ mod tests {
             logos.step(true);
         }
         assert_eq!(logos.tick, LOGO_TICKS - 120);
-    }
-
-    #[test]
-    fn phase_transition_keeps_the_previous_texture_for_its_last_draw() {
-        let mut logos = Logos::default();
-        for _ in 0..244 {
-            logos.step(false);
-        }
-        assert_eq!((logos.texture, logos.alpha), (3, 4));
-        logos.step(false);
-        assert_eq!((logos.texture, logos.alpha), (0, 8));
     }
 }

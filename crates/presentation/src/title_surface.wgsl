@@ -1,6 +1,6 @@
 #import bevy_pbr::forward_io::VertexOutput
 #import bevy_pbr::mesh_bindings::mesh
-#import resonance::surface_bindings::{surface_data, sample_primary, sample_secondary, sample_toon}
+#import resonance::surface_bindings::{surface_data, sample_primary, sample_secondary, sample_toon, tev_input}
 #ifdef CLAMP_COLOR
 #import resonance::effect_color::dithered_bytes
 #endif
@@ -27,36 +27,51 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef CONSTANT_COLOR
     var color = tint;
 #else
-    var color = vec4<f32>(1.0);
+    // Apply the channel swap to the unlit multiplier too; selector tint can be colored.
+    tint = tev_input(tint);
+    var raster = vec4<f32>(1.0);
 #ifdef VERTEX_COLORS
-    color *= in.color;
+    raster = in.color;
 #ifdef CLAMP_COLOR
-    // Expand byte opacity to a 0–256 multiplier before texture modulation.
     let opacity = round(in.color.a * 255.);
-    color.a = (opacity + floor(opacity / 128.)) / 256.;
+    raster.a = (opacity + floor(opacity / 128.)) / 256.;
 #endif
+#endif
+    raster = tev_input(raster);
+    var color = raster;
+#ifdef MULTIPLY_ALPHA_ONLY
+    let raster_alpha = color.a;
 #endif
     var texture_color = vec4<f32>(1.0);
 #ifdef VERTEX_UVS_A
-    let primary = sample_primary(slot, in.uv * material.uv_scales.xy + uv_offsets.xy);
+    let primary = tev_input(sample_primary(slot, in.uv * material.uv_scales.xy + uv_offsets.xy));
     texture_color *= primary;
     color *= primary;
 #endif
 #ifdef VERTEX_UVS_B
-    let secondary = sample_secondary(slot, in.uv_b * material.uv_scales.zw + uv_offsets.zw);
+    let secondary = tev_input(sample_secondary(slot, in.uv_b * material.uv_scales.zw + uv_offsets.zw));
+#ifdef MULTIPLY_ALPHA_ONLY
+    // Read particle alpha from the second palette independently of the color palette alpha.
+    texture_color = vec4<f32>(texture_color.rgb, secondary.a);
+    color = vec4<f32>(color.rgb, raster_alpha * secondary.a);
+#else
     texture_color *= secondary;
     color *= secondary;
+#endif
 #endif
 #ifdef FIELD_LIGHTING
 #ifdef VERTEX_NORMALS
     let weights = sample_toon(slot, in.world_normal.xy).rgb;
-    let light = weights.r * shades[0].rgb + weights.g * shades[1].rgb + weights.b;
+    let decoded_light = weights.r * shades[0].rgb + weights.g * shades[1].rgb + weights.b;
+    let light = tev_input(vec4<f32>(decoded_light, 1.0)).rgb;
     // Ambient and palette colors each have fourfold gain. Round to bytes
     // between the two color products;
     // continuous float multiplication makes the characters slightly brighter.
     var ambient = vec3<f32>(255.0);
 #ifdef VERTEX_COLORS
-    ambient = round(in.color.rgb * 255.0);
+    // Apply channel lighting before swapping raster color channels.
+    let ambient_scale = tev_input(vec4<f32>(material.ambient_scale.rgb, 1.0)).rgb;
+    ambient = round(raster.rgb * 255.0 * ambient_scale);
 #endif
     let base = min(floor(round(texture_color.rgb * 255.0)
         * (ambient + floor(ambient / 128.0)) / 64.0 + 0.5), vec3<f32>(255.0));

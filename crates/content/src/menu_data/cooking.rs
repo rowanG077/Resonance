@@ -45,7 +45,6 @@ pub enum Ingredient {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngredientGroup {
-    pub name: String,
     pub category: u8,
     pub items: Vec<u16>,
 }
@@ -62,8 +61,6 @@ pub struct RecipeCook {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recipe {
-    pub name: String,
-    pub description: String,
     pub required: Vec<Ingredient>,
     pub cooks: Vec<RecipeCook>,
 }
@@ -77,8 +74,6 @@ pub struct CookingData {
     pub recipes: Vec<Recipe>,
     pub groups: Vec<IngredientGroup>,
     pub preferences: Vec<FoodPreferences>,
-    pub effects: [String; 12],
-    pub labels: BTreeMap<String, String>,
     /// Genis's personal EX skill increases the meal's recovery.
     pub bonus_skill: u8,
 }
@@ -128,33 +123,6 @@ impl CookingData {
                 "invalid recipe {id}: {recipe:?}"
             );
         }
-        for key in [
-            "cook",
-            "required",
-            "additional",
-            "success",
-            "failure",
-            "no_effect",
-            "missing",
-            "full",
-            "unknown",
-            "locked",
-            "result_join",
-        ] {
-            ensure!(
-                self.labels.get(key).is_some_and(|s| !s.is_empty()),
-                "missing cooking label {key}"
-            );
-        }
         Ok(())
-    }
-    pub fn texts(&self) -> impl Iterator<Item = &str> {
-        self.recipes
-            .iter()
-            .flat_map(|r| [&r.name, &r.description])
-            .chain(self.groups.iter().map(|g| &g.name))
-            .chain(&self.effects)
-            .chain(self.labels.values())
-            .map(String::as_str)
     }
 }

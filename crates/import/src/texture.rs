@@ -52,8 +52,12 @@ struct Image {
 }
 
 pub(crate) fn decode(bytes: &[u8], name: &str) -> Result<Decoded> {
+    decode_with_palette_step(bytes, name, 0)
+}
+
+fn decode_with_palette_step(bytes: &[u8], name: &str, page_step: u16) -> Result<Decoded> {
     let mut images = Vec::new();
-    let catalogue = decode_pages(bytes, name, |image| images.push(image))?;
+    let catalogue = decode_pages(bytes, name, page_step, |image| images.push(image))?;
     Ok(Decoded {
         source_sha256: crate::digest(bytes),
         catalogue,
@@ -63,6 +67,11 @@ pub(crate) fn decode(bytes: &[u8], name: &str) -> Result<Decoded> {
 
 /// Original TPL banks and their CAB wrappers share the uncompressed bank identity.
 pub(crate) fn decode_source(bytes: &[u8]) -> Result<Decoded> {
+    decode_source_with_palette_step(bytes, 0)
+}
+
+/// Effect banks can select overlapping TLUT windows within a shared palette.
+pub(crate) fn decode_source_with_palette_step(bytes: &[u8], page_step: u16) -> Result<Decoded> {
     let expanded;
     let bytes = if bytes.starts_with(b"MSCF") {
         expanded = crate::compression::cabinet(bytes)?.1;
@@ -70,12 +79,21 @@ pub(crate) fn decode_source(bytes: &[u8]) -> Result<Decoded> {
     } else {
         bytes
     };
-    let decoded = decode(bytes, &format!("textures/{}", crate::digest(bytes)))?;
+    let decoded = decode_with_palette_step(
+        bytes,
+        &format!("textures/{}", crate::digest(bytes)),
+        page_step,
+    )?;
     decoded.validate()?;
     Ok(decoded)
 }
 
-fn decode_pages(bytes: &[u8], name: &str, mut emit: impl FnMut(Image)) -> Result<Catalogue> {
+fn decode_pages(
+    bytes: &[u8],
+    name: &str,
+    page_step: u16,
+    mut emit: impl FnMut(Image),
+) -> Result<Catalogue> {
     let mut catalogue = Catalogue {
         textures: Vec::new(),
     };
@@ -86,8 +104,14 @@ fn decode_pages(bytes: &[u8], name: &str, mut emit: impl FnMut(Image)) -> Result
             10 => 16384,
             _ => 0,
         };
+        let step = palette_page_step(stride, page_step);
+        let overlapping = step != stride;
         let pages = if stride == 0 {
             1
+        } else if overlapping {
+            // Publish complete windows within the declared source palette.
+            // Do not fill missing colors or alias a neighboring palette page.
+            texture.palette_entries.saturating_sub(stride) / step + 1
         } else {
             texture.palette_entries.div_ceil(stride).max(1)
         };
@@ -120,6 +144,8 @@ fn decode_pages(bytes: &[u8], name: &str, mut emit: impl FnMut(Image)) -> Result
         for page in 0..pages {
             let name = if stride == 0 {
                 format!("{name}/texture-{index}")
+            } else if overlapping {
+                format!("{name}/texture-{index}-palette-offset-{}", page * step)
             } else {
                 format!("{name}/texture-{index}-palette-{page}")
             };
@@ -128,6 +154,13 @@ fn decode_pages(bytes: &[u8], name: &str, mut emit: impl FnMut(Image)) -> Result
                 .iter()
                 .cloned()
                 .map(|mut image| {
+                    if overlapping {
+                        return Ok(crate::tpl::decode_palette_window(
+                            bytes,
+                            &image,
+                            page * step,
+                        )?);
+                    }
                     if stride != 0 {
                         image.palette_offset = Some(
                             image
@@ -153,6 +186,18 @@ fn decode_pages(bytes: &[u8], name: &str, mut emit: impl FnMut(Image)) -> Result
         catalogue.textures.push(Some(metadata));
     }
     Ok(catalogue)
+}
+
+/// A zero authored stride leaves ordinary format-sized publication unchanged.
+pub(crate) fn palette_page_step(capacity: usize, authored: u16) -> usize {
+    if capacity == 0 || authored == 0 {
+        return capacity;
+    }
+    let (mut a, mut b) = (capacity, usize::from(authored));
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 impl Decoded {

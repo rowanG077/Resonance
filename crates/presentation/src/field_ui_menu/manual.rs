@@ -2,11 +2,7 @@ use super::*;
 use resonance_content::menu_data::MenuSpan;
 
 impl Drawing<'_> {
-    pub(super) fn manual(
-        &mut self,
-        menu: &Menu,
-        cursor: &resonance_content::font::UiTexture,
-    ) -> Result<[f32; 2]> {
+    pub(super) fn manual(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         let state = &menu.manual;
         let fade = u32::from(state.page_fade);
         let left = -((fade * 240 / 256) as f32);
@@ -14,13 +10,13 @@ impl Drawing<'_> {
         let bottom = (fade * 144 / 256) as f32;
         self.opacity = 255 - state.page_fade;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.heading(&menu.resources.as_ref().unwrap().data.manual.title)?;
+        self.heading(&menu.manual_data()?.title)?;
         self.offset = [0., bottom];
-        self.framed([16., 312., 604., 116.], true);
+        self.framed([16., 312., 604., 116.], true)?;
         self.offset = [left, 0.];
-        self.frame([16., 60., 256., 242.]);
+        self.frame([16., 60., 256., 242.])?;
         self.offset = [right, 0.];
-        self.frame([282., 60., 338., 242.]);
+        self.frame([282., 60., 338., 242.])?;
         self.offset = [left, 0.];
         let chapters = menu.manual_chapters();
         let chapter_y = 66. + state.chapter as f32 * 26.;
@@ -40,7 +36,7 @@ impl Drawing<'_> {
             self.offset = [right, 0.];
             self.highlight([298., topic_y, 308., 24.], 255);
             self.offset = [left, 0.];
-            self.cursor(chapter_cursor, cursor, 127);
+            self.cursor(chapter_cursor, 127);
             self.offset = [0., bottom];
             let topic = &topics[state.topic];
             for (row, line) in topic.paragraphs[state.paragraph].lines.iter().enumerate() {
@@ -53,7 +49,7 @@ impl Drawing<'_> {
                             x += self.text_width(text, 20.)?;
                         }
                         MenuSpan::Button { sprite } => {
-                            let rect = self.spec.sprites.buttons[usize::from(*sprite)];
+                            let rect = self.spec.sprite(Sprite::Buttons, usize::from(*sprite))?;
                             self.sprite_rect(rect, [x, y, x + 24., y + 24.], [1.; 4]);
                             x += 24.;
                         }
@@ -61,10 +57,10 @@ impl Drawing<'_> {
                 }
             }
             if state.paragraph > 0 {
-                self.scroll_arrow(SCROLL_UP, [306., 304.]);
+                self.scroll_arrow(SCROLL_UP, [306., 304.])?;
             }
             if state.paragraph + 1 < topic.paragraphs.len() {
-                self.scroll_arrow(SCROLL_DOWN, [306., 420.]);
+                self.scroll_arrow(SCROLL_DOWN, [306., 420.])?;
             }
         }
         self.offset = [right, 0.];

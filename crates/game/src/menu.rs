@@ -1,6 +1,7 @@
 //! Player menus own input while the field remains at a controllable checkpoint.
 use crate::{DirectionRepeat, field::FieldCheckpoint};
-use resonance_events::input::Button;
+use anyhow::Context;
+use resonance_content::{menu_data, prepared::Files};
 use std::sync::Arc;
 pub mod collection;
 pub mod cooking;
@@ -18,6 +19,8 @@ pub mod rename;
 pub mod status;
 pub mod strategy;
 pub mod synopsis;
+/// Shared Tech command-page state. The field adapter remains in `techniques`;
+/// battle owns this borrowed page and commits through Candidate/core services.
 pub mod techniques;
 pub mod unison;
 pub mod world_map;
@@ -25,6 +28,70 @@ pub mod world_map;
 pub struct Resources {
     pub session: Arc<resonance_content::session::SessionData>,
     pub data: Arc<resonance_content::menu_data::MenuData>,
+    pub files: Arc<Files>,
+}
+
+/// One resolved menu action per update; input producers own edges and repeat clocks.
+pub type Input = Option<MenuAction>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAction {
+    Cancel,
+    Confirm,
+    Alternate,
+    Menu,
+    Details,
+    PreviousTab,
+    NextTab,
+    PreviousPosition,
+    NextPosition,
+    PageUp,
+    PageDown,
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+fn resolve_input(input: crate::field::FieldInput, directions: [bool; 6]) -> Input {
+    use MenuAction::*;
+    let [left, right, up, down, page_up, page_down] = directions;
+    // Button edges take priority over held navigation; cancel wins simultaneous presses.
+    [
+        (
+            input.pressed(resonance_events::input::Button::Cancel),
+            Cancel,
+        ),
+        (
+            input.pressed(resonance_events::input::Button::Accept),
+            Confirm,
+        ),
+        (
+            input.pressed(resonance_events::input::Button::Ring),
+            Alternate,
+        ),
+        (input.pressed(resonance_events::input::Button::Menu), Menu),
+        (
+            input.pressed(resonance_events::input::Button::Start),
+            Details,
+        ),
+        (
+            input.pressed(resonance_events::input::Button::PreviousPage),
+            PreviousTab,
+        ),
+        (
+            input.pressed(resonance_events::input::Button::NextPage),
+            NextTab,
+        ),
+        (page_up, PageUp),
+        (page_down, PageDown),
+        (up, Up),
+        (down, Down),
+        (left, Left),
+        (right, Right),
+    ]
+    .into_iter()
+    .find_map(|(active, action)| active.then_some(action))
 }
 
 pub const SLOTS_PER_BANK: usize = 127;
@@ -35,14 +102,13 @@ const MAIN_SLIDE_STEP: u8 = 25;
 const SYSTEM_SLIDE_STEP: u8 = 32;
 pub(crate) const DESCRIPTION_FADE_START: u8 = 240;
 
-/// Return the incoming text opacity before advancing the crossfade.
+/// Advance the crossfade and return its current text opacity.
 pub(crate) fn fade_description(fade: &mut u8, changed: bool) -> u8 {
     if *fade == 0 && changed {
         *fade = DESCRIPTION_FADE_START;
     }
-    let opacity = 255 - *fade;
     *fade = fade.saturating_sub(16);
-    opacity
+    255 - *fade
 }
 
 /// Move a selection and keep it visible. Page jumps move the window together.
@@ -68,20 +134,43 @@ pub(crate) fn move_list(
 }
 
 /// A submenu's slide is independent of the retained Main-menu backdrop.
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Transition {
     pub page_fade: u8,
     pub page_closing: bool,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransitionStatus {
+    Ready,
+    Animating,
+    Closed,
 }
 impl Transition {
     pub fn animating(&self) -> bool {
         self.page_fade != 0 || self.page_closing
     }
-    fn opening() -> Self {
+    pub fn opening() -> Self {
         Self {
-            page_fade: 231 - MAIN_SLIDE_STEP,
+            page_fade: u8::MAX,
             page_closing: false,
         }
+    }
+    pub fn close(&mut self) {
+        self.page_closing = true;
+    }
+    pub fn advance(&mut self) -> TransitionStatus {
+        if self.page_closing {
+            self.page_fade = self.page_fade.saturating_add(MAIN_SLIDE_STEP);
+            if self.page_fade == u8::MAX {
+                return TransitionStatus::Closed;
+            }
+        } else {
+            self.page_fade = self.page_fade.saturating_sub(MAIN_SLIDE_STEP);
+            if self.page_fade == 0 {
+                return TransitionStatus::Ready;
+            }
+        }
+        TransitionStatus::Animating
     }
 }
 
@@ -185,6 +274,12 @@ pub struct Popup {
 pub struct Menu {
     pub grade_shop: grade_shop::State,
     pub resources: Option<Arc<Resources>>,
+    manual_data: Option<menu_data::TrainingManual>,
+    figurines_data: Option<resonance_content::figurine::FigurineBook>,
+    synopsis_data: Option<menu_data::SynopsisData>,
+    customize_data: Option<menu_data::CustomizeData>,
+    rename_data: Option<menu_data::RenameData>,
+    failure: Option<anyhow::Error>,
     /// Index into the party's formation, independent of the current list row.
     pub character: usize,
     pub first_character: usize,
@@ -199,6 +294,8 @@ pub struct Menu {
     pub manual: manual::Manual,
     pub equipment: equipment::Equipment,
     pub tech: techniques::Tech,
+    /// Current input-provider connection samples for the shared page.
+    pub tech_connected: [bool; 4],
     pub ex_skills: ex_skills::ExSkills,
     pub unison: unison::Unison,
     pub strategy: strategy::Strategy,
@@ -237,6 +334,71 @@ pub struct Menu {
     repeat: [DirectionRepeat; 6],
 }
 impl Menu {
+    /// Optional pages decode their own verified bytes only when selected.
+    fn admit_page(&mut self, page: Page) -> bool {
+        let result = (|| -> anyhow::Result<()> {
+            let resources = self
+                .resources
+                .as_ref()
+                .context("menu resources are unavailable")?;
+            match page {
+                Page::Manual if self.manual_data.is_none() => {
+                    let data: menu_data::TrainingManual =
+                        resources.files.json(menu_data::MANUAL_PATH)?;
+                    data.validate()?;
+                    self.manual_data = Some(data);
+                }
+                Page::Figurines if self.figurines_data.is_none() => {
+                    let data: resonance_content::figurine::FigurineBook =
+                        resources.files.json(menu_data::FIGURINES_PATH)?;
+                    data.validate()?;
+                    self.figurines_data = Some(data);
+                }
+                Page::Synopsis if self.synopsis_data.is_none() => {
+                    let data: menu_data::SynopsisData =
+                        resources.files.json(menu_data::SYNOPSIS_PATH)?;
+                    data.validate()?;
+                    self.synopsis_data = Some(data);
+                }
+                Page::Customize if self.customize_data.is_none() => {
+                    let data: menu_data::CustomizeData =
+                        resources.files.json(menu_data::CUSTOMIZE_PATH)?;
+                    data.validate()?;
+                    self.customize_data = Some(data);
+                }
+                Page::Rename if self.rename_data.is_none() => {
+                    let data: menu_data::RenameData =
+                        resources.files.json(menu_data::RENAME_PATH)?;
+                    data.validate()?;
+                    self.rename_data = Some(data);
+                }
+                _ => {}
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => true,
+            Err(error) => {
+                self.report_failure("This page is unavailable", error);
+                false
+            }
+        }
+    }
+
+    fn report_failure(&mut self, context: &str, error: anyhow::Error) {
+        self.notice = Some(format!("{context}: {error:#}"));
+        if let Some(resources) = &self.resources
+            && let Err(error) = resources.files.diagnostics().report(context, error)
+            && self.failure.is_none()
+        {
+            self.failure = Some(error);
+        }
+    }
+
+    pub fn take_failure(&mut self) -> Option<anyhow::Error> {
+        self.failure.take()
+    }
+
     fn select_main(&mut self, page: Page) {
         self.selected = MAIN_ENTRIES
             .iter()
@@ -259,6 +421,12 @@ impl Menu {
         Self {
             grade_shop: Default::default(),
             resources: None,
+            manual_data: None,
+            figurines_data: None,
+            synopsis_data: None,
+            customize_data: None,
+            rename_data: None,
+            failure: None,
             character: 0,
             first_character: 0,
             swap_character: None,
@@ -272,6 +440,7 @@ impl Menu {
             manual: Default::default(),
             equipment: Default::default(),
             tech: Default::default(),
+            tech_connected: [true, false, false, false],
             ex_skills: Default::default(),
             unison: Default::default(),
             strategy: Default::default(),
@@ -337,38 +506,28 @@ impl Menu {
         match self.page {
             Page::Synopsis => self.synopsis.transition.page_fade,
             Page::Strategy => self.strategy.transition.page_fade,
+            Page::Items | Page::Tech | Page::Unison => 0,
             _ => self.main_fade,
         }
     }
     fn advance_submenu_slide(&mut self) -> bool {
         let transition = match self.page {
             Page::Synopsis => &mut self.synopsis.transition,
-            Page::Strategy => &mut self.strategy.transition,
-            Page::Equip => &mut self.equipment.transition,
-            Page::Tech => &mut self.tech.transition,
-            Page::Unison => &mut self.unison.transition,
             Page::Cooking => &mut self.cooking.transition,
             Page::ExSkills => &mut self.ex_skills.transition,
             Page::Customize => &mut self.customize.transition,
             _ => return false,
         };
-        let Transition {
-            page_fade: fade,
-            page_closing: closing,
-        } = transition;
-        if *closing {
-            if *fade == 255 {
-                *closing = false;
+        match transition.advance() {
+            TransitionStatus::Ready => false,
+            TransitionStatus::Animating => true,
+            TransitionStatus::Closed => {
                 self.return_to_main();
-            } else {
-                *fade = fade.saturating_add(MAIN_SLIDE_STEP);
+                true
             }
-            return true;
         }
-        *fade = fade.saturating_sub(MAIN_SLIDE_STEP);
-        *fade != 0
     }
-    fn return_to_main(&mut self) {
+    pub fn return_to_main(&mut self) {
         self.page = Page::Main;
         self.clamp_party_view();
         self.returning = true;
@@ -402,7 +561,7 @@ impl Menu {
     )> {
         std::mem::take(&mut self.party_changed).then(|| {
             let progress = &self.checkpoint.as_ref().unwrap().progress;
-            (progress.party.clone(), progress.gameplay_random.clone())
+            (progress.party.clone(), progress.gameplay_random)
         })
     }
     pub(crate) fn field_leader_changed(&self) -> bool {
@@ -414,23 +573,11 @@ impl Menu {
     pub(crate) fn set_play_time(&mut self, time: crate::clock::PlayTime) {
         self.play_time = time;
         if let Some(checkpoint) = &mut self.checkpoint {
-            checkpoint.played_ticks = Some(time.total());
+            checkpoint.played_ticks = time.total();
         }
     }
     pub fn take_command(&mut self) -> Option<Command> {
         self.command.take()
-    }
-    fn party_result(&mut self, result: Result<bool, String>) -> Option<i16> {
-        match result {
-            Ok(changed) => {
-                self.party_changed |= changed;
-                Some(2)
-            }
-            Err(error) => {
-                self.notice = Some(error);
-                Some(4)
-            }
-        }
     }
     pub fn finish(&mut self, notice: Option<String>) {
         self.busy = false;
@@ -454,10 +601,15 @@ impl Menu {
                 self.main_fade = 0;
                 match page {
                     Page::Status => self.animate_status_portrait(),
-                    Page::Items => self.fade_item_description(),
-                    Page::Equip => self.fade_equipment_description(),
-                    Page::Tech => self.fade_tech_description(),
-                    Page::Unison => self.fade_unison_description(),
+                    Page::Strategy => {
+                        self.step_strategy(None);
+                    }
+                    Page::Tech => {
+                        self.step_techniques(None);
+                    }
+                    Page::Unison => {
+                        self.step_unison(None);
+                    }
                     Page::ExSkills => {
                         self.remember_ex_description();
                         self.fade_ex_description();
@@ -489,23 +641,8 @@ impl Menu {
         let page = self.page;
         match page {
             Page::Rename => self.advance_rename(),
-            Page::Tech => {
-                self.remember_tech_description();
-                self.step_tech_preview();
-                self.fade_tech_target();
-            }
             Page::Cooking => self.remember_cooking_description(),
             Page::ExSkills => self.remember_ex_description(),
-            Page::Unison => self.remember_unison_description(),
-            Page::Equip => self.remember_equipment_description(),
-            Page::Items => {
-                self.remember_item_description();
-                self.fade_item_target();
-                if self.advance_item_page() {
-                    return None;
-                }
-            }
-            Page::Strategy => self.remember_strategy_description(),
             Page::Collection if self.advance_collection() => return None,
             Page::Manual if self.advance_manual() => return None,
             Page::WorldMap if self.advance_world_map() => return None,
@@ -516,18 +653,10 @@ impl Menu {
         let cue = self.step_input(input);
         self.step_catalogue_animation();
         match self.page {
-            Page::Items => {
-                self.step_item_preview();
-                self.fade_item_description();
-            }
             Page::Collection => self.fade_collection_description(),
             Page::WorldMap => self.fade_world_map_description(),
-            Page::Strategy => self.fade_strategy_description(),
-            Page::Equip => self.fade_equipment_description(),
-            Page::Tech => self.fade_tech_description(),
             Page::Cooking => self.fade_cooking_description(),
             Page::ExSkills => self.fade_ex_description(),
-            Page::Unison => self.fade_unison_description(),
             Page::Customize => self.step_customize_preview(),
             Page::Status | Page::Titles => self.animate_status_portrait(),
             _ => {}
@@ -567,7 +696,7 @@ impl Menu {
         }
     }
 
-    fn step_input(&mut self, mut input: crate::field::FieldInput) -> Option<i16> {
+    fn step_input(&mut self, input: crate::field::FieldInput) -> Option<i16> {
         let held = [
             input.direction[0] < -0.5,
             input.direction[0] > 0.5,
@@ -580,16 +709,12 @@ impl Menu {
             self.repeat[i].step(held[i], held[i] && !self.held[i], self.tick)
         });
         self.held = held;
-        if matches!(self.page, Page::Status | Page::Cooking) {
-            input.pressed_buttons = input.pressed_buttons.with(
-                Button::PreviousPage,
-                input.pressed(Button::PreviousPage) || page_up,
-            );
-            input.pressed_buttons = input.pressed_buttons.with(
-                Button::NextPage,
-                input.pressed(Button::NextPage) || page_down,
-            );
-        }
+        let preview_direction = input.preview_direction;
+        let input = resolve_input(input, [left, right, up, down, page_up, page_down]);
+        let left = input == Some(MenuAction::Left);
+        let right = input == Some(MenuAction::Right);
+        let up = input == Some(MenuAction::Up);
+        let down = input == Some(MenuAction::Down);
         if self.busy || self.closed {
             return None;
         }
@@ -597,12 +722,7 @@ impl Menu {
             return None;
         }
         if self.page == Page::Rename {
-            return self.step_rename(input, [left, right, up, down]);
-        }
-        if self.page == Page::Items
-            && (self.inventory.page_closing || self.inventory.page_fade != 0)
-        {
-            return None;
+            return self.step_rename(input);
         }
         if self.page == Page::Collection
             && (self.collection.page_closing || self.collection.page_fade != 0)
@@ -616,13 +736,13 @@ impl Menu {
             return None;
         }
         if self.notice.is_some() {
-            if input.pressed(Button::Accept) || input.pressed(Button::Cancel) {
+            if input == Some(MenuAction::Confirm) || input == Some(MenuAction::Cancel) {
                 self.notice = None;
                 return Some(3);
             }
             return None;
         }
-        if input.pressed(Button::Start)
+        if input == Some(MenuAction::Details)
             && matches!(
                 self.page,
                 Page::Main | Page::Party | Page::Character(_) | Page::System
@@ -632,11 +752,11 @@ impl Menu {
             return Some(1);
         }
         if let Some(yes) = &mut self.confirmation {
-            if input.pressed(Button::Cancel) {
+            if input == Some(MenuAction::Cancel) {
                 self.confirmation = None;
                 return Some(3);
             }
-            if input.pressed(Button::Accept) {
+            if input == Some(MenuAction::Confirm) {
                 let cue = if *yes { 2 } else { 3 };
                 if *yes {
                     self.command = Some(match self.page {
@@ -655,26 +775,25 @@ impl Menu {
             }
             return None;
         }
-        let directions = [left, right, up, down, page_up, page_down];
         match self.page {
             Page::GradeShop => {
-                return self.step_grade_shop(input, [left, right, up, down, page_up, page_down]);
+                return self.step_grade_shop(input);
             }
-            Page::Items => return self.step_items(input, directions),
-            Page::Collection => return self.step_collection(input, directions),
-            Page::WorldMap => return self.step_world_map(input, [up, down, page_up, page_down]),
-            Page::Monsters => return self.step_monsters(input, directions),
-            Page::Figurines => return self.step_figurines(input, [up, down, page_up, page_down]),
-            Page::Manual => return self.step_manual(input, [up, down, page_up, page_down]),
-            Page::Equip => return self.step_equipment(input, directions),
-            Page::Tech => return self.step_techniques(input, directions),
-            Page::Unison => return self.step_unison(input, directions),
-            Page::ExSkills => return self.step_ex_skills(input, directions),
-            Page::Strategy => return self.step_strategy(input, [left, right, up, down]),
-            Page::Synopsis => return self.step_synopsis(input, up, down),
-            Page::Cooking => return self.step_cooking(input, [left, right, up, down]),
-            Page::Customize => return self.step_customize(input, directions),
-            Page::Party => return self.step_party(input, up, down),
+            Page::Items => return self.step_items(input),
+            Page::Collection => return self.step_collection(input),
+            Page::WorldMap => return self.step_world_map(input),
+            Page::Monsters => return self.step_monsters(input, preview_direction),
+            Page::Figurines => return self.step_figurines(input),
+            Page::Manual => return self.step_manual(input),
+            Page::Equip => return self.step_equipment(input),
+            Page::Tech => return self.step_techniques(input),
+            Page::Unison => return self.step_unison(input),
+            Page::ExSkills => return self.step_ex_skills(input),
+            Page::Strategy => return self.step_strategy(input),
+            Page::Synopsis => return self.step_synopsis(input),
+            Page::Cooking => return self.step_cooking(input),
+            Page::Customize => return self.step_customize(input),
+            Page::Party => return self.step_party(input),
             Page::Rename => unreachable!("rename input was already dispatched"),
             Page::Main
             | Page::Character(_)
@@ -683,7 +802,7 @@ impl Menu {
             | Page::System
             | Page::Slots(_) => {}
         }
-        if input.pressed(Button::Cancel) || input.pressed(Button::Menu) {
+        if input == Some(MenuAction::Cancel) || input == Some(MenuAction::Menu) {
             match self.page {
                 Page::Main => self.closing = true,
                 Page::Character(_) => self.page = Page::Main,
@@ -710,6 +829,9 @@ impl Menu {
                 let row = self.selected / MAIN_COLUMNS;
                 let col = self.selected % MAIN_COLUMNS;
                 if down && row == 1 && self.checkpoint.is_some() {
+                    if !self.admit_page(Page::Party) {
+                        return Some(4);
+                    }
                     self.page = Page::Party;
                     self.swap_character = None;
                     return Some(1);
@@ -726,10 +848,14 @@ impl Menu {
                 } else {
                     self.selected
                 };
-                if input.pressed(Button::Accept) {
+                if input == Some(MenuAction::Confirm) {
                     let available = self.resources.is_some() && self.checkpoint.is_some();
-                    match MAIN_ENTRIES[self.selected].0 {
-                        Page::Unison if self.has_unison() => self.open_unison(),
+                    let page = MAIN_ENTRIES[self.selected].0;
+                    if page != Page::System && available && !self.admit_page(page) {
+                        return Some(4);
+                    }
+                    match page {
+                        Page::Unison if self.has_unison() => return self.open_unison(),
                         Page::Cooking if available => self.open_cooking(),
                         Page::Synopsis if self.has_synopsis() => {
                             self.entering = Some(Page::Synopsis);
@@ -742,16 +868,11 @@ impl Menu {
                         }
                         Page::Strategy if available => {
                             self.entering = Some(Page::Strategy);
-                            self.strategy = strategy::Strategy {
-                                transition: Transition::opening(),
-                                ..Default::default()
-                            };
+                            self.strategy = strategy::Strategy::opening();
                         }
                         Page::Items if available => {
-                            self.open_items();
                             self.inventory.focus = items::Focus::List;
-                            self.entering = Some(Page::Items);
-                            self.inventory.clamp(self.inventory_items().len());
+                            self.open_items();
                         }
                         page @ (Page::Tech | Page::Status | Page::ExSkills | Page::Equip)
                             if available && self.main_entry_available(page) =>
@@ -775,8 +896,8 @@ impl Menu {
                 }
             }
             Page::Character(destination) => {
-                let cue = self.move_party_cursor(input, up, down);
-                if input.pressed(Button::Accept) {
+                let cue = self.move_party_cursor(input);
+                if input == Some(MenuAction::Confirm) {
                     if matches!(destination, CharacterMenu::Tech | CharacterMenu::Equip)
                         && self.member().knocked_out()
                     {
@@ -788,8 +909,9 @@ impl Menu {
                             Page::ExSkills
                         }
                         CharacterMenu::Tech => {
-                            self.tech = techniques::Tech::opening();
-                            self.reset_tech_focus();
+                            if !self.open_techniques() {
+                                return Some(4);
+                            }
                             Page::Tech
                         }
                         CharacterMenu::Status => {
@@ -808,7 +930,7 @@ impl Menu {
                 return cue;
             }
             Page::Status | Page::Titles => {
-                return self.step_status(input, [left, right, up, down]);
+                return self.step_status(input);
             }
             Page::System => {
                 if up {
@@ -817,16 +939,19 @@ impl Menu {
                 if down {
                     self.selected = (self.selected + 1) % 3;
                 }
-                if input.pressed(Button::Accept)
+                if input == Some(MenuAction::Confirm)
                     && self.selected == 2
                     && self.resources.is_some()
                     && self.checkpoint.is_some()
                 {
+                    if !self.admit_page(Page::Customize) {
+                        return Some(4);
+                    }
                     self.open_customize();
                     self.system_closing = true;
                     return Some(2);
                 }
-                if input.pressed(Button::Accept)
+                if input == Some(MenuAction::Confirm)
                     && (self.selected == 1 || self.selected == 0 && self.at_save_point)
                 {
                     self.entering = Some(Page::Slots(if self.selected == 0 {
@@ -837,13 +962,13 @@ impl Menu {
                     self.system_closing = true;
                     return Some(2);
                 }
-                if input.pressed(Button::Accept) {
+                if input == Some(MenuAction::Confirm) {
                     return Some(4);
                 }
             }
             Page::Slots(mode) => {
                 if self.focus == SlotFocus::Bank {
-                    if input.pressed(Button::Accept) {
+                    if input == Some(MenuAction::Confirm) {
                         self.focus = SlotFocus::List;
                         return Some(2);
                     }
@@ -863,7 +988,7 @@ impl Menu {
                     .first_slot
                     .min(self.slot)
                     .max(self.slot.saturating_sub(VISIBLE_SLOTS - 1));
-                if input.pressed(Button::Accept) {
+                if input == Some(MenuAction::Confirm) {
                     if mode == Mode::Save || matches!(self.slots[self.index()], Slot::Saved { .. })
                     {
                         self.confirmation = Some(
@@ -888,6 +1013,185 @@ impl Menu {
 mod tests {
     use super::*;
     use crate::field::FieldInput;
+    use resonance_events::input::Button;
+
+    #[test]
+    #[ignore = "requires prepared menu/session data; no devices"]
+    fn optional_pages_decode_on_selection_and_preserve_the_menu_on_failure() -> anyhow::Result<()> {
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
+            });
+        let mut data: menu_data::MenuData =
+            serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json"))?)?;
+        data.validate()?;
+        let labels = data.presentation.labels.clone();
+        data.presentation = menu_data::MenuPresentation {
+            labels,
+            ..Default::default()
+        };
+        data.validate_gameplay()?;
+        assert!(data.validate().is_err());
+        let data = Arc::new(data);
+        let session: Arc<resonance_content::session::SessionData> = Arc::new(
+            serde_json::from_slice(&std::fs::read(root.join("game/session-data.json"))?)?,
+        );
+        for paranoid in [false, true] {
+            let files = Files::load_with_diagnostics(
+                &root,
+                &[],
+                &mut Default::default(),
+                || false,
+                resonance_content::diagnostics::Diagnostics::new(paranoid),
+            )?;
+            for (page, path, invalid_field) in [
+                (Page::Manual, menu_data::MANUAL_PATH, "title"),
+                (Page::Figurines, menu_data::FIGURINES_PATH, "title"),
+                (Page::Synopsis, menu_data::SYNOPSIS_PATH, "entries"),
+                (Page::Customize, menu_data::CUSTOMIZE_PATH, "options"),
+                (Page::Rename, menu_data::RENAME_PATH, "keyboard"),
+            ] {
+                let valid = files.read(path)?;
+                let mut invalid: serde_json::Value = serde_json::from_slice(&valid)?;
+                invalid[invalid_field] = if invalid[invalid_field].is_array() {
+                    serde_json::json!([])
+                } else {
+                    serde_json::json!("")
+                };
+                let invalid = serde_json::to_vec(&invalid)?;
+                for payload in [None, Some(&b"{"[..]), Some(invalid.as_slice())] {
+                    let mut snapshot = files.clone();
+                    snapshot.remove(path);
+                    if let Some(bytes) = payload {
+                        snapshot.insert(path.into(), bytes.into());
+                    }
+                    let diagnostics = snapshot.diagnostics().clone();
+                    let before = diagnostics
+                        .entries()
+                        .iter()
+                        .map(|entry| entry.occurrences)
+                        .sum::<u64>();
+                    let mut menu = Menu::new(Page::Items, None, false);
+                    menu.resources = Some(Arc::new(Resources {
+                        session: session.clone(),
+                        data: data.clone(),
+                        files: Arc::new(snapshot),
+                    }));
+                    assert!(!menu.admit_page(page));
+                    assert_eq!(menu.page, Page::Items);
+                    assert!(menu.notice.take().is_some());
+                    assert_eq!(menu.take_failure().is_some(), paranoid);
+                    assert_eq!(
+                        diagnostics
+                            .entries()
+                            .iter()
+                            .map(|entry| entry.occurrences)
+                            .sum::<u64>(),
+                        before + 1
+                    );
+                    let resources = Arc::get_mut(menu.resources.as_mut().unwrap()).unwrap();
+                    Arc::get_mut(&mut resources.files)
+                        .unwrap()
+                        .insert(path.into(), valid.clone());
+                    assert!(menu.admit_page(page), "failed admission must not be cached");
+                    let resources = Arc::get_mut(menu.resources.as_mut().unwrap()).unwrap();
+                    Arc::get_mut(&mut resources.files).unwrap().remove(path);
+                    assert!(
+                        menu.admit_page(page),
+                        "successful admission keeps its typed data"
+                    );
+                    assert!(menu.close_items(Page::Main));
+                    assert_eq!(menu.page, Page::Main);
+                }
+            }
+            let mut menu = Menu::new(Page::Items, None, false);
+            menu.resources = Some(Arc::new(Resources {
+                session: session.clone(),
+                data: data.clone(),
+                files: Arc::new(files),
+            }));
+            for page in [
+                Page::Items,
+                Page::Equip,
+                Page::Status,
+                Page::Tech,
+                Page::Strategy,
+            ] {
+                assert!(
+                    menu.admit_page(page),
+                    "captions are admitted when used, not when opening a page"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unopened_optional_pages_have_no_render_data_or_preview() {
+        let menu = Menu::new(Page::Figurines, None, false);
+        assert!(menu.manual_data().is_err());
+        assert!(menu.figurines_data().is_err());
+        assert!(menu.synopsis_data().is_err());
+        assert!(menu.customize_data().is_err());
+        assert!(menu.rename_data().is_err());
+        assert!(menu.manual_chapters().is_empty());
+        assert!(menu.figurine_records().is_empty());
+        assert!(menu.preview().is_none());
+    }
+
+    #[test]
+    fn field_menu_commits_one_action_and_repeats_only_after_a_hold() {
+        let mut main = Menu::new(Page::Main, None, false);
+        main.selected = MAIN_ENTRIES.len() - 1;
+        main.step(FieldInput {
+            pressed_buttons: [
+                resonance_events::input::Button::Accept,
+                resonance_events::input::Button::NextPage,
+            ]
+            .into(),
+            direction: [-1., 1.],
+            ..Default::default()
+        });
+        assert_eq!(main.page, Page::System);
+        let mut menu = Menu::new(Page::System, None, false);
+        let down = FieldInput {
+            direction: [0., -1.],
+            ..Default::default()
+        };
+        menu.step(down);
+        assert_eq!(menu.selected, 1);
+        for _ in 0..29 {
+            menu.step(down);
+            assert_eq!(menu.selected, 1);
+        }
+        for _ in 0..4 {
+            menu.step(down);
+        }
+        assert_eq!(menu.selected, 2);
+        menu.step(FieldInput::default());
+        menu.step(down);
+        assert_eq!(menu.selected, 0);
+        menu.step(FieldInput {
+            pressed_buttons: [
+                resonance_events::input::Button::Cancel,
+                resonance_events::input::Button::Accept,
+            ]
+            .into(),
+            ..down
+        });
+        assert!(menu.system_closing);
+        assert!(menu.entering.is_none());
+        let mut slots = Menu::new(Page::Slots(Mode::Save), None, true);
+        slots.finish(None);
+        slots.step(FieldInput {
+            pressed_buttons: [resonance_events::input::Button::Accept].into(),
+            direction: [1., 0.],
+            ..Default::default()
+        });
+        assert_eq!(slots.focus, SlotFocus::List);
+        assert_eq!(slots.bank, 0);
+    }
 
     #[test]
     fn dismissed_popup_fades_with_its_original_content_and_reopening_preserves_opacity() {

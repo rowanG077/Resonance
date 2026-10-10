@@ -5,11 +5,6 @@ use resonance_content::{
     session::SessionData,
 };
 
-pub(super) const KNOCKED_OUT: u32 = 0x8000_0000;
-const PETRIFIED: u32 = 0x100;
-pub(super) const INCAPACITATED: u32 = KNOCKED_OUT | PETRIFIED;
-pub(super) const CURABLE: u32 = 0xfe3;
-pub(super) const REVIVAL_CLEARS: u32 = KNOCKED_OUT | 0x3e0;
 pub(super) const RECOVERY_CUE: i16 = resonance_content::field_audio::ServiceCue::Recovery as i16;
 pub(super) const REMEDY_CUE: i16 = resonance_content::field_audio::ServiceCue::Remedy as i16;
 
@@ -23,10 +18,24 @@ impl EncounterModifier {
 }
 impl super::Member {
     pub fn knocked_out(&self) -> bool {
-        self.conditions & KNOCKED_OUT != 0
+        self.hp == 0
     }
+    pub fn has_curable_ailment(&self) -> bool {
+        !self.knocked_out() && !self.ailments.is_empty()
+    }
+
     pub fn can_lead_field(&self) -> bool {
-        self.conditions & INCAPACITATED == 0
+        !self.knocked_out() && !self.ailments.petrified
+    }
+
+    pub(super) fn revive(&mut self, percent: u16) -> bool {
+        let maximum = self.maximum_vitals()[0];
+        if !self.knocked_out() || maximum == 0 {
+            return false;
+        }
+        self.hp = ((u32::from(maximum) * u32::from(percent) / 100) as u16).max(1);
+        self.ailments = Default::default();
+        true
     }
 
     /// Items choose the empty accessory slot first; the Equip page chooses
@@ -67,14 +76,13 @@ impl Party {
         }
         let mut next = self.clone();
         let mut changed = false;
-        for (kind, slot) in [0, 1, 2, 5].into_iter().enumerate() {
-            let stat = if kind == 0 { usize::from(thrust) } else { 2 };
+        for slot in [0, 1, 2, 5] {
+            let stat = if slot == 0 { usize::from(thrust) } else { 2 };
             let current = next.members[member].equipment[slot];
             let mut best = current;
             for &id in next.items.keys() {
                 let item = &data.items[usize::from(id)];
-                if item.equipment_kind == Some(kind as u8)
-                    && item.allowed_characters & (1 << member) != 0
+                if item.fits_slot(member, slot)
                     && menus.items[usize::from(id)].equipment_stats[stat]
                         > menus.items[usize::from(best)].equipment_stats[stat]
                 {
@@ -106,29 +114,51 @@ impl Party {
         }
         if id != 0 {
             let item = data.items.get(usize::from(id)).ok_or("unknown item")?;
-            let category = [0, 1, 2, 4, 4, 3][slot];
-            if item.equipment_kind != Some(category)
-                || item.allowed_characters & (1 << member) == 0
-                || self.items.get(&id).copied().unwrap_or(0) == 0
-            {
+            if !item.fits_slot(member, slot) || self.items.get(&id).copied().unwrap_or(0) == 0 {
                 return Ok(false);
             }
         }
+        // Validate the currently equipped ID before touching inventory. Saved
+        // party validation normally catches this, but script/native callers
+        // can reach the setter before a checkpoint is validated. Returning a
+        // regular transaction error keeps a bad old item from becoming an
+        // indexing panic or a partially applied swap.
+        let old_item = (old != 0)
+            .then(|| data.items.get(usize::from(old)))
+            .flatten();
+        if old != 0 && old_item.is_none() {
+            return Err("unknown equipped item".into());
+        }
         if old != 0
             && self.items.get(&old).copied().unwrap_or(0)
-                >= self.item_limit(&data.items[usize::from(old)])
+                >= self.item_limit(old_item.expect("nonzero old item was validated"))
         {
             return Err("There is no room in the inventory for the equipped item.".into());
         }
-        if id != 0 {
-            self.change_item(data, id, -1)?;
+        // Stage the inventory and derived vitals on a private copy. The
+        // public Party is published only after both inventory legs succeed;
+        // this preserves the field/menu transaction boundary if a future
+        // inventory rule rejects either leg.
+        let mut next = self.clone();
+        if id != 0 && !next.change_item(data, id, -1)? {
+            return Err("equipped item is no longer in the inventory".into());
         }
-        if old != 0 {
-            self.change_item(data, old, 1)?;
+        if old != 0 && !next.change_item(data, old, 1)? {
+            return Err("equipped item cannot be returned to the inventory".into());
         }
-        let character = &mut self.members[member];
+        let character = &mut next.members[member];
         character.equipment[slot] = id;
+        if let Some(rules) = &character.rules {
+            for &item in character.equipment.iter().filter(|&&item| item != 0) {
+                if rules.data.items.get(usize::from(item)).is_none() {
+                    return Err(format!(
+                        "equipment properties were not prepared for item {item}"
+                    ));
+                }
+            }
+        }
         character.clamp_vitals();
+        *self = next;
         Ok(true)
     }
 
@@ -209,15 +239,13 @@ impl Party {
                     changed |= recover(&mut member.hp, stats.hp, hp.into());
                     changed |= recover(&mut member.tp, stats.tp, tp.into());
                 }
-                ItemUse::Revive if dead => {
-                    member.conditions &= !REVIVAL_CLEARS;
-                    recover(&mut member.hp, stats.hp, 30);
+                ItemUse::Revive if member.revive(30) => {
                     recover(&mut member.tp, stats.tp, 15);
                     changed = true;
                     cue = REMEDY_CUE;
                 }
-                ItemUse::Cure if !dead && member.conditions & CURABLE != 0 => {
-                    member.conditions &= !CURABLE;
+                ItemUse::Cure if member.has_curable_ailment() => {
+                    member.ailments = Default::default();
                     changed = true;
                     cue = REMEDY_CUE;
                 }

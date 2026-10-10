@@ -1,6 +1,5 @@
 use super::*;
 use resonance_content::menu_data::RENAME_GEM;
-use resonance_events::input::Button;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
@@ -33,22 +32,38 @@ pub struct Rename {
 }
 
 impl Menu {
+    pub fn rename_data(&self) -> anyhow::Result<&menu_data::RenameData> {
+        self.rename_data
+            .as_ref()
+            .context("name editor page has not been prepared")
+    }
+
     pub fn character_name(&self, member: usize) -> &str {
         self.party().members[member]
             .name
             .as_deref()
-            .unwrap_or(&self.resources.as_ref().unwrap().data.rename.initial_names[member])
+            .unwrap_or(&self.resources.as_ref().unwrap().data.initial_names[member])
     }
-    pub fn full_name(&self, member: usize) -> String {
-        self.resources.as_ref().unwrap().data.full_names[member]
-            .replace("{name}", self.character_name(member))
+    pub fn full_name(&self, member: usize) -> anyhow::Result<String> {
+        Ok(self
+            .resources
+            .as_ref()
+            .context("menu resources are unavailable")?
+            .data
+            .full_names()?
+            .get(member)
+            .context("unknown character full name")?
+            .replace("{name}", self.character_name(member)))
     }
     pub fn can_rename(&self) -> bool {
         self.checkpoint
             .as_ref()
             .is_some_and(|c| c.progress.party.items.contains_key(&RENAME_GEM))
     }
-    pub(super) fn open_rename(&mut self, origin: Origin, character: usize) {
+    pub(super) fn open_rename(&mut self, origin: Origin, character: usize) -> bool {
+        if !self.admit_page(Page::Rename) {
+            return false;
+        }
         self.rename = Rename {
             origin,
             character,
@@ -60,9 +75,9 @@ impl Menu {
         if origin == Origin::Status {
             self.status.closing = true;
         } else {
-            self.inventory.target_closing = true;
             self.close_items(Page::Rename);
         }
+        true
     }
     pub(super) fn advance_rename(&mut self) {
         let state = &mut self.rename;
@@ -86,25 +101,34 @@ impl Menu {
             };
         }
     }
-    pub(super) fn step_rename(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down]: [bool; 4],
-    ) -> Option<i16> {
+    pub(super) fn step_rename(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [left, right, up, down] = [Left, Right, Up, Down].map(|action| input == Some(action));
         let original = self.character_name(self.rename.character).to_owned();
-        let data = &self.resources.as_ref()?.data.rename;
+        let data = match self
+            .rename_data
+            .as_ref()
+            .context("name editor page has not been prepared")
+        {
+            Ok(data) => data,
+            Err(error) => {
+                self.report_failure("Name editor is unavailable", error);
+                return Some(4);
+            }
+        };
+        let names = &self.resources.as_ref()?.data.initial_names;
         let state = &mut self.rename;
         if state.pending || state.fade != 0 || state.closing {
             return None;
         }
         match state.focus {
             Focus::Name => {
-                if input.pressed(Button::Cancel) || up {
+                if input == Some(Cancel) || up {
                     state.focus = Focus::Commands;
                     state.command = 0;
                     return Some(1);
                 }
-                if input.pressed(Button::Accept) || down {
+                if input == Some(Confirm) || down {
                     state.focus = Focus::Keyboard;
                     let key = state
                         .value
@@ -114,14 +138,14 @@ impl Menu {
                         .unwrap_or(0);
                     state.column = key % 13;
                     state.row = key / 13;
-                    return Some(if input.pressed(Button::Accept) { 2 } else { 1 });
+                    return Some(if input == Some(Confirm) { 2 } else { 1 });
                 }
-                if input.pressed(Button::Menu) {
+                if input == Some(Menu) {
                     state.value.clone_from(&data.defaults[state.character]);
                     state.position = 0;
                     return Some(2);
                 }
-                if input.pressed(Button::Ring) {
+                if input == Some(Alternate) {
                     if state.position < state.value.len() {
                         state.value.remove(state.position);
                     } else if state.position > 0 {
@@ -142,11 +166,11 @@ impl Menu {
                 }
             }
             Focus::Keyboard => {
-                if input.pressed(Button::Cancel) {
+                if input == Some(Cancel) {
                     state.focus = Focus::Name;
                     return Some(3);
                 }
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     if state.position < state.value.len() {
                         state.value.remove(state.position);
                     }
@@ -172,11 +196,11 @@ impl Menu {
                 return (left || right || up || down).then_some(1);
             }
             Focus::Commands => {
-                if input.pressed(Button::Cancel) || down {
+                if input == Some(Cancel) || down {
                     state.focus = Focus::Name;
                     return Some(1);
                 }
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     match state.command {
                         0 => {
                             if state.value.is_empty() {
@@ -185,7 +209,7 @@ impl Menu {
                             let member = &mut self.checkpoint.as_mut()?.progress.party.members
                                 [state.character];
                             self.party_changed |= state.value != original;
-                            member.name = (state.value != data.initial_names[state.character])
+                            member.name = (state.value != names[state.character])
                                 .then(|| state.value.clone());
                             state.closing = true;
                             return Some(2);

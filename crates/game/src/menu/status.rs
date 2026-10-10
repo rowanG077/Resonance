@@ -1,5 +1,4 @@
 use super::*;
-use resonance_events::input::Button;
 use resonance_events::party::Member;
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -92,18 +91,16 @@ impl Menu {
     pub fn titles(&self) -> Vec<u8> {
         self.member().titles.iter().copied().collect()
     }
-    pub(super) fn step_status(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down]: [bool; 4],
-    ) -> Option<i16> {
+    pub(super) fn step_status(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [left, right, up, down] = [Left, Right, Up, Down].map(|action| input == Some(action));
         let length = self.checkpoint.as_ref()?.progress.party.formation.len();
         match self.page {
             Page::Status => {
-                if input.pressed(Button::NextPage) && !self.status.details
-                    || input.pressed(Button::PreviousPage) && self.status.details
+                if matches!(input, Some(NextTab | PageDown)) && !self.status.details
+                    || matches!(input, Some(PreviousTab | PageUp)) && self.status.details
                 {
-                    self.status.details = input.pressed(Button::NextPage);
+                    self.status.details = matches!(input, Some(NextTab | PageDown));
                     return Some(0x26);
                 }
                 if left || right {
@@ -114,7 +111,10 @@ impl Menu {
                     self.status.title_focus = down;
                     return Some(1);
                 }
-                if input.pressed(Button::Accept) && self.status.title_focus {
+                if input == Some(Confirm) && self.status.title_focus {
+                    if !self.admit_page(Page::Titles) {
+                        return Some(4);
+                    }
                     self.status.row = self
                         .titles()
                         .iter()
@@ -124,9 +124,14 @@ impl Menu {
                     self.status.title_closing = false;
                     return Some(2);
                 }
-                if input.pressed(Button::Accept) && self.can_rename() {
-                    self.open_rename(rename::Origin::Status, self.member_index());
-                    return Some(2);
+                if input == Some(Confirm) && self.can_rename() {
+                    return Some(
+                        if self.open_rename(rename::Origin::Status, self.member_index()) {
+                            2
+                        } else {
+                            4
+                        },
+                    );
                 }
                 None
             }
@@ -139,7 +144,7 @@ impl Menu {
                 if down {
                     self.status.row = (self.status.row + 1).min(titles.len() - 1);
                 }
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     let member = self.member_index();
                     self.checkpoint.as_mut().unwrap().progress.party.members[member].title =
                         titles[self.status.row];

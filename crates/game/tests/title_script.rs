@@ -1,4 +1,4 @@
-//! Opt-in title playback using locally cooked assets.
+//! Long-running title scene smoke test using cooked assets.
 mod common;
 use common::{asset_root, cooked};
 use resonance_content::TitleAssets;

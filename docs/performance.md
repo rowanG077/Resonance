@@ -7,14 +7,17 @@ cargo run --release -p resonance -- --silent --resolution 1920x1080 \
 
 Use a fresh output filename. F3 toggles the overlay; F4 saves recent samples.
 JSONL records frame timings, phase, gameplay tick, fixed render/actual window
-sizes, asset counts, sampler-cache activity and late reads. Summaries are flushed
+sizes, asset counts, sampler-cache activity, memory reads and `unprepared_reads`.
+Summaries are flushed
 each second and on normal exit. Keep generated measurements under `local/`.
 
 Compare release runs at the same physical resolution, device/backend and workload,
 without concurrent builds or captures. Development builds optimize all crates at
 level 2 and retain assertions. Record loading holds separately from field-time
-hitches. Any late read or unprepared pipeline after activation is a preparation
-failure. See [field preparation](field-preloading.md).
+hitches. Once a verified snapshot is installed, undeclared asset reads fail;
+selected menu pages may decode its resident bytes while waiting for their own
+images and GPU draws. Field pipelines still prepare before activation.
+See [field preparation](field-preloading.md).
 
 Frame time measures main-loop wall-clock intervals. APP measures the main Bevy
 schedule, excluding separate render/GPU work. Neither measures display scanout.
@@ -33,10 +36,10 @@ Movies wake at audio-clock deadlines; extra input/window events can cause update
 All commands below are silent or device-free. Use a new output directory per run.
 
 ```sh
-# Full New Game, classroom interaction, doorway event and restart.
-cargo run -p resonance-presentation --example new_game_capture -- local/checks/new-game
-# High-resolution capture; independent of native-resolution oracle APIs.
-cargo run -p resonance-presentation --example display_capture -- local/checks/1080 1920x1080 raine-question-oracle
+# New Game through its setup choice, story movie, classroom dialogue and free control.
+cargo run -p resonance-presentation --example new_game_capture -- crates/presentation/examples/scenarios/new-game.json local/checks/new-game local/all-assets --paranoid
+# The same scenario at a higher rendering resolution; --gamepad tests controller input.
+cargo run -p resonance-presentation --example new_game_capture -- crates/presentation/examples/scenarios/new-game.json local/checks/1080 local/all-assets 1920x1080 --paranoid
 # Real window, field preparation and forced window-size changes.
 cargo run --release -p resonance-presentation --example window_probe -- local/checks/window 1920x1080
 # Five-minute classroom throughput run at a fixed physical window size.

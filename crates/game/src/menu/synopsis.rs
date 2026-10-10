@@ -2,7 +2,6 @@ use super::*;
 use resonance_content::menu_data::{
     SYNOPSIS_COUNT, SYNOPSIS_LIST_ROWS, SYNOPSIS_TEXT_ROWS, SynopsisEntry,
 };
-use resonance_events::input::Button;
 
 #[derive(Debug, Default, serde::Serialize)]
 pub struct Synopsis {
@@ -18,6 +17,12 @@ pub struct Synopsis {
     pub text_closing: bool,
 }
 impl Menu {
+    pub fn synopsis_data(&self) -> anyhow::Result<&menu_data::SynopsisData> {
+        self.synopsis_data
+            .as_ref()
+            .context("synopsis page has not been prepared")
+    }
+
     pub fn synopsis_records(&self) -> Vec<u8> {
         self.checkpoint
             .as_ref()
@@ -36,19 +41,27 @@ impl Menu {
     pub fn has_synopsis(&self) -> bool {
         self.resources.is_some() && !self.synopsis_records().is_empty()
     }
-    pub fn synopsis_entry(&self) -> (&SynopsisEntry, &resonance_events::EventRecord) {
-        let id = self.synopsis_records()[self.synopsis.row];
-        (
-            &self.resources.as_ref().unwrap().data.synopsis.entries[usize::from(id)],
-            &self.checkpoint.as_ref().unwrap().progress.event_records[&id],
-        )
+    pub fn synopsis_entry(
+        &self,
+    ) -> anyhow::Result<(&SynopsisEntry, &resonance_events::EventRecord)> {
+        let id = *self
+            .synopsis_records()
+            .get(self.synopsis.row)
+            .context("missing synopsis selection")?;
+        let entry = self
+            .synopsis_data()?
+            .entries
+            .get(usize::from(id))
+            .context("missing synopsis entry")?;
+        let record = self
+            .checkpoint
+            .as_ref()
+            .and_then(|checkpoint| checkpoint.progress.event_records.get(&id))
+            .context("missing synopsis event record")?;
+        Ok((entry, record))
     }
-    pub(super) fn step_synopsis(
-        &mut self,
-        input: crate::field::FieldInput,
-        up: bool,
-        down: bool,
-    ) -> Option<i16> {
+    pub(super) fn step_synopsis(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
         for scroll in [
             &mut self.synopsis.list_scroll,
             &mut self.synopsis.text_scroll,
@@ -72,7 +85,7 @@ impl Menu {
                 return None;
             }
         }
-        if input.pressed(Button::Cancel) {
+        if input == Some(Cancel) {
             if self.synopsis.reading {
                 self.synopsis.text_closing = true;
             } else {
@@ -81,8 +94,14 @@ impl Menu {
             }
             return Some(3);
         }
-        if input.pressed(Button::Accept) && !self.synopsis.reading {
-            let (entry, record) = self.synopsis_entry();
+        if input == Some(Confirm) && !self.synopsis.reading {
+            let (entry, record) = match self.synopsis_entry() {
+                Ok(entry) => entry,
+                Err(error) => {
+                    self.report_failure("Synopsis is unavailable", error);
+                    return Some(4);
+                }
+            };
             if entry.lines(record.value).is_empty() {
                 return Some(4);
             }
@@ -91,14 +110,20 @@ impl Menu {
             self.synopsis.line = 0;
             return Some(2);
         }
-        let page = input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage);
-        let up = up || input.pressed(Button::PreviousPage);
-        let down = down || input.pressed(Button::NextPage);
+        let page = matches!(input, Some(PreviousTab | NextTab));
+        let up = matches!(input, Some(Up | PreviousTab));
+        let down = matches!(input, Some(Down | NextTab));
         if !up && !down {
             return None;
         }
         if self.synopsis.reading {
-            let (entry, record) = self.synopsis_entry();
+            let (entry, record) = match self.synopsis_entry() {
+                Ok(entry) => entry,
+                Err(error) => {
+                    self.report_failure("Synopsis is unavailable", error);
+                    return Some(4);
+                }
+            };
             let count = entry.lines(record.value).len();
             let old = self.synopsis.line;
             let step = if page { SYNOPSIS_TEXT_ROWS } else { 1 };

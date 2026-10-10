@@ -6,6 +6,7 @@ use resonance_content::field_audio::{Asset, FieldAudio, Voice};
 use std::{
     collections::BTreeMap,
     fs,
+    io::Read,
     path::{Path, PathBuf},
 };
 mod binding;
@@ -15,11 +16,6 @@ mod resources;
 /// The runtime consumes amplitudes, without executable addresses or codec tables.
 pub(crate) fn voice_gains(executable: &[u8]) -> Result<Vec<f32>> {
     crate::stream_mixer::Tables::read(executable)?.gains(&super::sound_buses::tables(executable)?)
-}
-
-#[cfg(test)]
-pub(crate) fn voice_pan(executable: &[u8]) -> Result<Vec<[f32; 2]>> {
-    crate::stream_mixer::Tables::read(executable)?.pan(&super::sound_buses::tables(executable)?)
 }
 
 /// A source environment shared by every field. Banks and arrangements are
@@ -96,7 +92,7 @@ impl FieldAudioCooker {
                 VoiceFormat::Ahx,
             )?;
             let id = 0xe01a3 + index as u32;
-            self.voices.insert(id, voice);
+            self.voices.insert(id, voice.voice);
             resources.voices.insert(id);
         }
         self.cook_resources("worlds/audio.json", resources)
@@ -138,7 +134,8 @@ impl FieldAudioCooker {
                 let key = (source.clone(), id);
                 if !self.sounds.contains_key(&key) {
                     let bank = self.pools.bank(self.catalogue.bank(&source))?;
-                    let (resources, score) = super::sound_library::sound(&bank, id)?;
+                    let (resources, score) =
+                        super::sound_library::sound(&bank, id, &self.pools.sustains)?;
                     let package = super::sound_library::package(
                         &self.workspace.output,
                         &resources,
@@ -153,6 +150,7 @@ impl FieldAudioCooker {
         }
         let manifest = FieldAudio {
             version: FieldAudio::VERSION,
+            music_reverbs: super::music::music_reverbs(&self.executable)?,
             music,
             sounds,
             voices: resources
@@ -169,7 +167,7 @@ impl FieldAudioCooker {
     fn publish(&self, package: &Package) -> Result<Asset> {
         let hash = crate::digest(&serde_json::to_vec(package)?);
         write_package(
-            &self.workspace,
+            &self.workspace.output,
             &format!("audio/programs/{hash}.json"),
             package,
         )
@@ -187,7 +185,7 @@ pub(crate) fn decode_voice_to(
     path: &str,
     member: &crate::afs::Member<'_>,
     format: VoiceFormat,
-) -> Result<Voice> {
+) -> Result<super::voice_library::LibraryVoice> {
     resonance_content::validate_asset_path(path)?;
     let target = workspace.output.join(path);
     fs::create_dir_all(target.parent().context("voice target has no parent")?)?;
@@ -231,15 +229,17 @@ pub(crate) fn decode_voice_to(
     drop(wave);
     let sha256 = hash_file(&temporary)?;
     crate::publication::install(&temporary, &target, &sha256)?;
-    Ok(Voice {
-        asset: Asset {
-            path: path.into(),
-            sha256,
+    Ok(super::voice_library::LibraryVoice {
+        voice: Voice {
+            asset: Asset {
+                path: path.into(),
+                sha256,
+            },
+            frames,
+            sample_rate: source_rate,
+            source_sample_rate: source_rate,
+            channels,
         },
-        frames,
-        sample_rate: source_rate,
-        source_sample_rate: source_rate,
-        channels,
         source_name: member.name.into(),
         source_sha256: crate::digest(member.data),
     })
@@ -261,16 +261,28 @@ fn voice_writer(
     )?)
 }
 
-pub(crate) fn write_package(workspace: &Workspace, path: &str, package: &Package) -> Result<Asset> {
+pub(crate) fn write_package(output: &Path, path: &str, package: &Package) -> Result<Asset> {
     resonance_content::validate_asset_path(path)?;
-    write_json(
-        &workspace.output.join(path),
-        &serde_json::to_value(package)?,
+    let bytes = serde_json::to_vec(package)?;
+    // Validate the candidate and its complete sample closure before replacing
+    // a published package. Loading uses the same immutable playback boundary.
+    Package::load_with(
+        path,
+        &mut |requested, limit| {
+            if requested == path {
+                return Ok(bytes.clone());
+            }
+            let mut sample = Vec::new();
+            fs::File::open(output.join(requested))?
+                .take(limit as u64 + 1)
+                .read_to_end(&mut sample)?;
+            Ok(sample)
+        },
+        &mut Default::default(),
     )?;
-    Package::load(&workspace.output, path)?;
+    crate::write_atomic(&output.join(path), &bytes)?;
     Ok(Asset {
-        sha256: hash_file(&workspace.output.join(path))
-            .with_context(|| format!("hash cooked audio {path}"))?,
+        sha256: crate::digest(&bytes),
         path: path.into(),
     })
 }
@@ -287,8 +299,7 @@ pub(crate) fn sound_score(
         origin: resonance_audio::data::ScoreOrigin::SoundEffect,
         initial_bpm_1024: 120 * 1024,
         loop_start_tick: 0,
-        end_tick: 65535,
-        has_master_track: false,
+        end_tick: 0,
         tempos: Vec::new(),
         controls: [Controls::default(); 16],
         first_events: notes
@@ -299,7 +310,7 @@ pub(crate) fn sound_score(
                 kind: EventKind::Notes {
                     source: resonance_audio::data::VoiceSource::SoundEffect { id },
                     voices,
-                    length: 65535,
+                    length: 0,
                 },
             })
             .collect(),
@@ -319,8 +330,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn invalid_audio_package_never_creates_or_replaces_a_publication() -> Result<()> {
+        use resonance_audio::{data::Command, dls};
+        let root = tempfile::tempdir()?;
+        let mut package = Package {
+            version: resonance_audio::package::VERSION,
+            programs: [(1, vec![Command::End])].into(),
+            samples: BTreeMap::new(),
+            score: sound_score(1, None),
+            tables: super::super::tests::audio_tables(),
+            reverbs: [[0., 0., 1., 0., 0.]; 2],
+        };
+        let invalid_envelope = Command::Envelope {
+            envelope: resonance_audio::data::Envelope::Dls(dls::Definition {
+                sustain: 194,
+                timing: dls::Timing {
+                    attack_timecents: 0,
+                    decay_timecents: 0,
+                    release_ms: 0,
+                    attack_velocity_scale: 0,
+                    decay_key_scale: 0,
+                },
+            }),
+        };
+        package.programs.insert(1, vec![invalid_envelope]);
+        assert!(write_package(root.path(), "cue.json", &package).is_err());
+        assert!(!root.path().join("cue.json").exists());
+
+        package.programs.insert(1, vec![Command::End]);
+        let asset = write_package(root.path(), "cue.json", &package)?;
+        let published = fs::read(root.path().join("cue.json"))?;
+        assert_eq!(asset.sha256, crate::digest(&published));
+        Package::load(root.path(), "cue.json")?;
+        for command in [invalid_envelope, Command::StartSample { sample: 99 }] {
+            package.programs.insert(1, vec![command]);
+            assert!(write_package(root.path(), "cue.json", &package).is_err());
+            assert_eq!(fs::read(root.path().join("cue.json"))?, published);
+        }
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires both original discs; compares derived controls without audio playback"]
-    fn original_stream_voice_gains_and_pan_preserve_derived_bits() -> Result<()> {
+    fn original_stream_voice_gains_preserve_derived_bits() -> Result<()> {
         for disc in [1, 2] {
             let executable = fs::read(
                 Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -336,21 +388,6 @@ mod tests {
                 voice_gains(&executable)?
                     .into_iter()
                     .map(f32::to_bits)
-                    .collect::<Vec<_>>(),
-                expected
-            );
-            let expected: Vec<_> = crate::dol::slice(&executable, 0x802b4a68, 31 * 4)?
-                .chunks_exact(4)
-                .map(|word| {
-                    let pan = u32::from_be_bytes(word.try_into().unwrap()) as u8;
-                    mix.gains(127 << 16, 16383, pan, [0; 2])[0]
-                        .map(|gain| (f32::from(gain) / 32768.).to_bits())
-                })
-                .collect();
-            assert_eq!(
-                voice_pan(&executable)?
-                    .into_iter()
-                    .map(|gains| gains.map(f32::to_bits))
                     .collect::<Vec<_>>(),
                 expected
             );

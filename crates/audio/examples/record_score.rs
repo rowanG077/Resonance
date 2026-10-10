@@ -1,7 +1,7 @@
 //! Record a cooked score through the shared synthesizer without an audio device.
 use anyhow::{Context, Result, ensure};
 use resonance_audio::{package::Package, sequence};
-use std::{fs, path::Path};
+use std::{fs, path::Path, sync::Arc};
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -17,15 +17,11 @@ fn main() -> Result<()> {
         "invalid volume or extra arguments"
     );
     ensure!(!Path::new(&output).exists(), "recording already exists");
-    let data = Package::load(Path::new(&root), &package)?;
-    let preview = sequence::render_preview_with_volume(
-        &data.resources,
-        &data.score,
-        &data.tables,
-        data.reverbs,
-        frames,
-        |_| f32::from(volume) / 127.,
-    )?;
+    let data = Arc::new(Package::load(Path::new(&root), &package)?);
+    let preview =
+        sequence::render_preview_with_volume(data.clone(), data.reverbs(), frames, |_| {
+            f32::from(volume) / 127.
+        })?;
     if let Some(parent) = Path::new(&output).parent() {
         fs::create_dir_all(parent)?;
     }

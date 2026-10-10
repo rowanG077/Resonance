@@ -2,7 +2,7 @@
 use super::{Assets, AudioCommand, RATE};
 use anyhow::{Context, Result, ensure};
 use resonance_playback::Decodable;
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 /// Schedule ordinary audio requests at PCM frame boundaries, without an audio
 /// device, window, script clock, or a second implementation of the mixer.
@@ -30,7 +30,7 @@ pub fn record_field_audio(
         "audio request is outside the recording"
     );
     ensure!(!output.exists(), "audio recording already exists");
-    let (source, mut control) = Assets::load(root, map)?.session();
+    let (source, mut control) = Arc::new(Assets::load(root, map)?).session();
     control.stereo(stereo)?;
     control.levels(levels)?;
     let mut stream = source.decoder();

@@ -1,6 +1,5 @@
 use super::*;
 use resonance_content::menu_data::{MapLocation, Shop};
-use resonance_events::input::Button;
 
 pub const LOCATION_ROWS: usize = 9;
 pub const ITEM_ROWS: usize = 8;
@@ -51,9 +50,7 @@ impl Menu {
         }
         let map = &mut self.world_map;
         if map.page_fade == 255 {
-            self.page = Page::Items;
             self.open_items();
-            self.fade_item_description();
             return true;
         }
         map.page_fade = if map.page_closing {
@@ -86,16 +83,15 @@ impl Menu {
 
     pub fn map_locations(&self) -> Vec<(u16, &MapLocation)> {
         let travel = &self.party().travel;
-        self.resources
-            .as_ref()
-            .unwrap()
-            .data
-            .world_map
+        let data = &self.resources.as_ref().unwrap().data;
+        data.world_map
             .locations
             .iter()
-            .filter(|&(id, location)| {
+            .filter(|&(id, _)| {
                 id / 256 == u16::from(self.world_map.world)
-                    && location.listed
+                    && data.presentation.world_map.as_ref().is_some_and(|text| {
+                        text.locations.get(id).is_some_and(|caption| caption.listed)
+                    })
                     && travel.visited_locations.contains(id)
             })
             .map(|(&id, location)| (id, location))
@@ -118,11 +114,10 @@ impl Menu {
         ))
     }
 
-    pub(super) fn step_world_map(
-        &mut self,
-        input: crate::field::FieldInput,
-        [up, down, page_up, page_down]: [bool; 4],
-    ) -> Option<i16> {
+    pub(super) fn step_world_map(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [up, down, page_up, page_down] =
+            [Up, Down, PageUp, PageDown].map(|action| input == Some(action));
         let map = &mut self.world_map;
         if map.page_closing || map.page_fade != 0 {
             return None;
@@ -146,7 +141,7 @@ impl Menu {
         {
             return None;
         }
-        if input.pressed(Button::Cancel) {
+        if input == Some(Cancel) {
             match self.world_map.focus {
                 Focus::Locations => self.world_map.page_closing = true,
                 Focus::Shops => self.world_map.focus = Focus::Locations,
@@ -154,7 +149,7 @@ impl Menu {
             }
             return Some(3);
         }
-        if input.pressed(Button::Accept) {
+        if input == Some(Confirm) {
             match self.world_map.focus {
                 Focus::Locations => {
                     if self.map_shops().is_empty() {

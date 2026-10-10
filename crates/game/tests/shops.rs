@@ -14,8 +14,9 @@ use std::sync::Arc;
 fn resources() -> Arc<Resources> {
     let data: MenuData = common::cooked("game/menu-data.json");
     let mut session: SessionData = common::cooked("game/session-data.json");
-    session.ex_skills = Some(Arc::new(data.ex_skills.clone()));
+    session.rules = Some(Arc::new(data.clone()));
     Arc::new(Resources {
+        files: Arc::new(resonance_content::prepared::Files::default()),
         session: Arc::new(session),
         data: Arc::new(data),
     })

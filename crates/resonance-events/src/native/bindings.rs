@@ -130,6 +130,7 @@ impl Host for NativeHost<'_> {
         ShowChoice(5) -> i32 = dispatch;
         ShowNumberInput(5) -> i32 = dispatch;
         OpenMenu(1) -> i32 = request_menu;
+        StartBattle(12) -> i32 = request_battle;
         SetEventBit(1) -> () = field;
         ClearEventBit(1) -> () = field;
         TestEventBit(1) -> i32 = field;
@@ -197,7 +198,6 @@ impl Host for NativeHost<'_> {
         ReadCoordinateRegister(1) -> i32 = dispatch;
         ReadActorLocalOffset(9) -> () = dispatch;
         ReadActorOffset(5) -> () = dispatch;
-        StartBattle(12) -> i32 = request_battle;
         Unknown37(3) -> i32 = request_battle;
         StartEnemyBattle(2) -> i32 = request_enemy_battle;
         GetCurrentField(0) -> i32 = field;

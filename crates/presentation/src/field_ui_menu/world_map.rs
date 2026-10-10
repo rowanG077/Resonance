@@ -2,24 +2,26 @@ use super::*;
 use resonance_game::menu::world_map::{Focus, ITEM_ROWS, LOCATION_ROWS};
 
 impl Drawing<'_> {
-    pub(super) fn world_map(
-        &mut self,
-        menu: &Menu,
-        cursor: &resonance_content::font::UiTexture,
-    ) -> Result<[f32; 2]> {
+    pub(super) fn world_map(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         let state = &menu.world_map;
         let data = &menu.resources.as_ref().unwrap().data;
         let travel = &menu.party().travel;
+        let map_text = data.world_map_text()?;
         let fade = u32::from(state.page_fade);
         let opacity = 255 - state.page_fade;
         let left = -((fade * 224 / 256) as f32);
         self.opacity = opacity;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.heading(&data.world_map.names[usize::from(state.world)])?;
+        self.heading(
+            map_text
+                .names
+                .get(usize::from(state.world))
+                .context("world map caption was not prepared")?,
+        )?;
         self.offset = [left, 0.];
-        self.frame([16., 60., 212., 266.]);
+        self.frame([16., 60., 212., 266.])?;
         self.offset = [0., (fade * 120 / 256) as f32];
-        self.frame_detail([16., 336., 604., 92.], true, self.menu_color(), true);
+        self.frame_detail([16., 336., 604., 92.], true, self.menu_color(), true)?;
         let current = menu.map_description();
         for (id, alpha) in [
             (state.description_previous, 255 - state.description_opacity),
@@ -36,10 +38,11 @@ impl Drawing<'_> {
         self.opacity = opacity;
         self.offset = [(fade * 404 / 256) as f32, 0.];
         let index = WORLD_MAPS + usize::from(state.world);
-        let texture = &self.spec.textures[index - 1];
+        let texture = self.spec.texture(index)?;
         self.plane = 0;
-        self.quad(
-            index,
+        self.quad_role(
+            DrawRole::Content,
+            MaterialKey::Texture(index),
             [236., 40., 620., 328.],
             [0., 0., texture.width as f32, texture.height as f32],
             [1.; 4],
@@ -66,14 +69,18 @@ impl Drawing<'_> {
             travel
                 .current_location
                 .filter(|id| id / 256 == u16::from(state.world))
-                .and_then(|id| data.world_map.locations.get(&id))
+                .and_then(|id| map_text.locations.get(&id))
                 .map(|location| location.point)
         };
         if let Some(point) = current {
-            self.map_crosshair(point, [1., 128. / 255., 128. / 255., 1. - alpha]);
+            self.map_crosshair(point, [1., 128. / 255., 128. / 255., 1. - alpha])?;
         }
-        if let Some((_, location)) = locations.get(state.location) {
-            self.map_crosshair(location.point, [1., 1., 1., alpha]);
+        if let Some((id, _)) = locations.get(state.location) {
+            let location = map_text
+                .locations
+                .get(id)
+                .context("missing selected map location drawing")?;
+            self.map_crosshair(location.point, [1., 1., 1., alpha])?;
         }
         self.offset = [left, 0.];
         self.opacity = opacity;
@@ -95,14 +102,18 @@ impl Drawing<'_> {
         let starts = self.vertex_counts();
         let first = state.first_location - usize::from(state.location_scroll > 0);
         let scroll = scroll_offset(state.location_scroll, 26);
-        for (row, (_, location)) in locations
+        for (row, (id, _)) in locations
             .iter()
             .skip(first)
             .take(LOCATION_ROWS + usize::from(state.location_scroll != 0))
             .enumerate()
         {
             self.text(
-                &location.name,
+                &map_text
+                    .locations
+                    .get(id)
+                    .context("missing map location caption")?
+                    .name,
                 [24., 86. + row as f32 * 26. - scroll as f32],
                 16.,
                 WHITE,
@@ -110,14 +121,14 @@ impl Drawing<'_> {
         }
         self.clip_rows(starts, [84., 318.]);
         if state.first_location > 0 {
-            self.scroll_arrow(SCROLL_UP, [108., 68.]);
+            self.scroll_arrow(SCROLL_UP, [108., 68.])?;
         }
         if state.first_location + LOCATION_ROWS < locations.len() {
-            self.scroll_arrow(SCROLL_DOWN, [108., 310.]);
+            self.scroll_arrow(SCROLL_DOWN, [108., 310.])?;
         }
         let mut anchor = [24. + left, y + 8.];
         if state.focus != Focus::Locations {
-            self.cursor([24., y + 8.], cursor, 127);
+            self.cursor([24., y + 8.], 127);
         }
         if state.focus != Focus::Locations || state.shops_opacity != 0 {
             let shops = menu.map_shops();
@@ -125,7 +136,7 @@ impl Drawing<'_> {
             self.opacity = state.shops_opacity;
             self.shade([80., 76., 288., 76. + height]);
             self.plane = 2;
-            self.frame([80., 76., 208., height]);
+            self.frame([80., 76., 208., height])?;
             let y = 102. + state.shop as f32 * 26.;
             self.highlight(
                 [88., y, 192., 24.],
@@ -143,7 +154,7 @@ impl Drawing<'_> {
             )?;
             for (row, &id) in shops.iter().enumerate() {
                 self.text(
-                    &data.world_map.shops[usize::from(id)].name,
+                    data.shop_text(id)?,
                     [88., 102. + row as f32 * 26.],
                     16.,
                     if travel.visited_shops.contains(&id) {
@@ -156,13 +167,13 @@ impl Drawing<'_> {
             if state.focus == Focus::Shops {
                 anchor = [88. + left, y + 8.];
             } else {
-                self.cursor([88., y + 8.], cursor, 127);
+                self.cursor([88., y + 8.], 127);
             }
             if state.focus == Focus::Items || state.items_opacity != 0 {
                 self.opacity = state.items_opacity;
                 self.shade([144., 92., 352., 328.]);
                 self.plane = 3;
-                self.frame([144., 92., 208., 236.]);
+                self.frame([144., 92., 208., 236.])?;
                 let (_, shop) = menu.map_shop().context("missing selected map shop")?;
                 let y = 118. + (state.item - state.first_item) as f32 * 26.;
                 self.highlight([152., y, 184., 24.], 255);
@@ -183,25 +194,27 @@ impl Drawing<'_> {
                     .enumerate()
                 {
                     let item = &data.items[usize::from(id)];
+                    let item_text = data.item_text(id)?;
                     let y = 118. + row as f32 * 26. - scroll as f32;
                     self.sprite_rect(
-                        self.spec.sprites.items[usize::from(item.category - 1)],
+                        self.spec
+                            .sprite(Sprite::Items, usize::from(item.category - 1))?,
                         [152., y, 176., y + 24.],
                         [1.; 4],
                     );
-                    self.text(&item.name, [176., y], 16., WHITE)?;
+                    self.text(&item_text.name, [176., y], 16., WHITE)?;
                 }
                 self.clip_rows(starts, [116., 324.]);
                 if state.first_item > 0 {
-                    self.scroll_arrow(SCROLL_UP, [236., 100.]);
+                    self.scroll_arrow(SCROLL_UP, [236., 100.])?;
                 }
                 if state.first_item + ITEM_ROWS < shop.items.len() {
-                    self.scroll_arrow(SCROLL_DOWN, [236., 316.]);
+                    self.scroll_arrow(SCROLL_DOWN, [236., 316.])?;
                 }
                 if state.focus == Focus::Items {
                     anchor = [152. + left, y + 8.];
                 } else {
-                    self.cursor([152., y + 8.], cursor, 255);
+                    self.cursor([152., y + 8.], 255);
                 }
             }
         }
@@ -210,9 +223,14 @@ impl Drawing<'_> {
         Ok(anchor)
     }
 
-    fn map_crosshair(&mut self, [x, y]: [i16; 2], color: [f32; 4]) {
+    fn map_crosshair(&mut self, [x, y]: [i16; 2], color: [f32; 4]) -> Result<()> {
+        anyhow::ensure!(
+            (0..384).contains(&x) && (0..288).contains(&y),
+            "invalid selected map position"
+        );
         let [x, y] = [236. + f32::from(x), 40. + f32::from(y)];
         self.quad(FONT, [x - 1., 40., x + 1., 328.], [0.5; 4], color);
         self.quad(FONT, [236., y - 1., 620., y + 1.], [0.5; 4], color);
+        Ok(())
     }
 }

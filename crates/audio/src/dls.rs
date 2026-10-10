@@ -1,88 +1,127 @@
 //! DLS volume envelopes using cooked logarithmic conversion tables.
+use crate::volume::{Ramp, frames_from_millis};
 use anyhow::{Result, ensure};
+
+const LOG_MAXIMUM: i32 = 193 << 16;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Tables {
     #[serde(with = "crate::package::array")]
     pub attenuation: [u16; 194],
-    #[serde(with = "crate::package::array")]
-    pub inverse: [u8; 1024],
-    #[serde(with = "crate::package::array")]
-    pub sustain: [f32; 128],
 }
 
 impl Tables {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.attenuation.iter().all(|v| *v <= 32767)
-                && self.inverse.iter().all(|v| *v <= 193)
-                && self
-                    .sustain
-                    .iter()
-                    .all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
+            self.attenuation.iter().all(|v| *v <= 32767),
             "invalid DLS envelope tables"
         );
         Ok(())
     }
 
     fn level(&self, logarithmic: i32) -> i32 {
-        let index = (193 - ((logarithmic + 32768) >> 16)).clamp(0, 193);
-        i32::from(self.attenuation[index as usize]) << 16
+        let position = LOG_MAXIMUM - logarithmic.clamp(0, LOG_MAXIMUM);
+        let index = (position >> 16) as usize;
+        let initial = i32::from(self.attenuation[index]);
+        let target = i32::from(
+            *self
+                .attenuation
+                .get(index + 1)
+                .unwrap_or(&self.attenuation[index]),
+        );
+        (initial << 16) + (target - initial) * (position & 65535)
+    }
+
+    fn logarithmic(&self, value: i32) -> i32 {
+        for (index, pair) in self.attenuation.windows(2).enumerate() {
+            let initial = i32::from(pair[0]) << 16;
+            let target = i32::from(pair[1]) << 16;
+            if initial > target && (target..=initial).contains(&value) {
+                let fraction = (u64::from((initial - value) as u32) * 65536)
+                    .div_ceil((initial - target) as u64);
+                return LOG_MAXIMUM - ((index as i32) << 16) - fraction as i32;
+            }
+        }
+        if value >= i32::from(self.attenuation[0]) << 16 {
+            LOG_MAXIMUM
+        } else {
+            0
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Parameters {
-    pub attack_ms: u16,
-    pub decay_ms: u16,
+    pub attack_frames: u64,
+    pub decay_frames: u64,
     /// Logarithmic level, 0 (silent) through 193 (full scale).
     pub sustain: u16,
-    pub release_ms: u16,
+    pub release_frames: u64,
 }
 
 /// Typed instrument envelope, before note-dependent time scaling.
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Definition {
+    #[serde(flatten)]
+    pub timing: Timing,
+    /// Cooked logarithmic level, independent of note timing.
+    pub sustain: u16,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Timing {
     pub attack_timecents: i32,
     pub decay_timecents: i32,
-    pub sustain_index: u16,
     pub release_ms: u16,
     pub attack_velocity_scale: i32,
     pub decay_key_scale: i32,
 }
 
 impl Definition {
-    pub fn resolve(&self, tables: &Tables, velocity: u8, key: u8) -> Result<Parameters> {
+    pub fn resolve(&self, velocity: u8, key: u8) -> Result<Parameters> {
+        self.timing.resolve(self.sustain, velocity, key)
+    }
+}
+
+impl Timing {
+    pub fn validate(&self) -> Result<()> {
+        // Each phase is monotonic in its note-dependent scale, so both ends
+        // cover every valid velocity and key without enumerating all notes.
+        for endpoint in [0, 127] {
+            self.resolve(0, endpoint, endpoint)?;
+        }
+        Ok(())
+    }
+
+    pub fn resolve(&self, sustain: u16, velocity: u8, key: u8) -> Result<Parameters> {
         ensure!(velocity < 128 && key < 128, "invalid DLS note parameters");
-        let scaled_time = |time: i32, scale: i32, factor: f32| {
-            let time = if scale == i32::MIN {
-                time
+        let scaled_frames = |time: i32, scale: i32, factor: u8| -> Result<u64> {
+            // The minimum authored time denotes an immediate phase.
+            if time == i32::MIN {
+                return Ok(0);
+            }
+            let adjustment = if scale == i32::MIN {
+                0.
             } else {
-                time.wrapping_add((factor * scale as f32) as i32)
+                f64::from(factor) * f64::from(scale) / 128.
             };
-            // Round to single precision around the double-precision power calculation.
-            let exponent = 1.271_565_8e-8_f32 * time as f32;
-            (1000.0_f32 * (2.0_f64.powf(f64::from(exponent)) as f32)) as u32 as u16
+            let timecents = (f64::from(time) + adjustment) / 65536.;
+            let frames = (timecents / 1200.).exp2() * f64::from(crate::SOURCE_RATE);
+            ensure!(
+                frames.is_finite() && frames < u64::MAX as f64,
+                "DLS duration exceeds the source clock"
+            );
+            Ok(frames.ceil() as u64)
         };
-        let index = usize::from(self.sustain_index);
-        // The sustain curve has 128 points plus an implicit unity endpoint.
-        ensure!(index <= tables.sustain.len(), "invalid DLS sustain index");
-        let value = tables.sustain.get(index).copied().unwrap_or(1.0);
-        let linear = (4096.0 * value) as u16;
-        let sustain = 193 - u16::from(tables.inverse[usize::from((linear >> 2).min(1023))]);
         Ok(Parameters {
-            attack_ms: scaled_time(
+            attack_frames: scaled_frames(
                 self.attack_timecents,
                 self.attack_velocity_scale,
-                f32::from(velocity) / 128.0,
-            ),
-            decay_ms: scaled_time(
-                self.decay_timecents,
-                self.decay_key_scale,
-                f32::from(key) / 128.0,
-            ),
+                velocity,
+            )?,
+            decay_frames: scaled_frames(self.decay_timecents, self.decay_key_scale, key)?,
             sustain,
-            release_ms: self.release_ms,
+            release_frames: frames_from_millis(u64::from(self.release_ms))?,
         })
     }
 }
@@ -100,84 +139,76 @@ pub struct Envelope<'a> {
     tables: &'a Tables,
     parameters: Parameters,
     phase: Phase,
-    remaining: u32,
+    ramp: Ramp,
     value: i32,
-    logarithmic: i32,
-    step: i32,
-    sample: u32,
-    gain: i32,
-    delta: i32,
+}
+
+fn scaled_duration(frames: u64, distance: i32) -> u64 {
+    (u128::from(frames) * distance as u128).div_ceil(LOG_MAXIMUM as u128) as u64
 }
 
 impl<'a> Envelope<'a> {
-    const MAXIMUM: i32 = 0x7fff0000;
+    const MAXIMUM: i32 = 32767 << 16;
 
     pub fn new(parameters: Parameters, tables: &'a Tables) -> Result<Self> {
         ensure!(parameters.sustain <= 193, "invalid DLS logarithmic sustain");
-        let mut result = Self {
+        let mut envelope = Self {
             tables,
             parameters,
             phase: Phase::Attack,
-            remaining: u32::from(parameters.attack_ms),
+            ramp: Ramp::new(0, Self::MAXIMUM, parameters.attack_frames),
             value: 0,
-            logarithmic: 0,
-            step: 0,
-            sample: 0,
-            gain: 0,
-            delta: 0,
         };
-        if result.remaining != 0 {
-            result.step = Self::MAXIMUM / result.remaining as i32;
-        } else {
-            result.advance_phase();
-        }
-        Ok(result)
+        envelope.settle();
+        Ok(envelope)
     }
 
-    fn advance_phase(&mut self) {
-        if self.phase == Phase::Attack {
-            self.phase = Phase::Decay;
-            let distance = (193 - u32::from(self.parameters.sustain)) << 16;
-            self.remaining = (u32::from(self.parameters.decay_ms) * (distance / 193)) >> 16;
-            if let Some(step) = distance.checked_div(self.remaining) {
-                self.value = Self::MAXIMUM;
-                self.logarithmic = 193 << 16;
-                self.step = -(step as i32);
-                return;
+    fn settle(&mut self) {
+        while self.ramp.finished() {
+            match self.phase {
+                Phase::Attack => {
+                    self.phase = Phase::Decay;
+                    let target = i32::from(self.parameters.sustain) << 16;
+                    self.ramp = Ramp::new(
+                        LOG_MAXIMUM,
+                        target,
+                        scaled_duration(self.parameters.decay_frames, LOG_MAXIMUM - target),
+                    );
+                    self.value = Self::MAXIMUM;
+                }
+                Phase::Decay => {
+                    self.phase = if self.parameters.sustain == 0 {
+                        Phase::Done
+                    } else {
+                        Phase::Sustain
+                    };
+                    self.value = if self.parameters.sustain == 0 {
+                        0
+                    } else {
+                        self.tables.level(self.ramp.value())
+                    };
+                }
+                Phase::Release => {
+                    self.phase = Phase::Done;
+                    self.value = 0;
+                }
+                Phase::Sustain | Phase::Done => break,
             }
         }
-        if self.phase == Phase::Decay && self.parameters.sustain != 0 {
-            self.phase = Phase::Sustain;
-            self.logarithmic = i32::from(self.parameters.sustain) << 16;
-            self.value = self.tables.level(self.logarithmic);
-        } else {
-            self.phase = Phase::Done;
-            self.value = 0;
-        }
-        self.step = 0;
     }
 
     pub fn release(&mut self) {
-        if self.phase == Phase::Done {
+        if matches!(self.phase, Phase::Release | Phase::Done) {
             return;
         }
-        if self.phase == Phase::Attack {
-            self.logarithmic =
-                (193 - i32::from(self.tables.inverse[(self.value >> 21) as usize])) << 16;
-        }
-        self.remaining = ((0.000_323_834_2_f32 * self.logarithmic as f32)
-            * f32::from(self.parameters.release_ms)) as u32
-            >> 12;
+        let logarithmic = self.tables.logarithmic(self.value);
         self.phase = Phase::Release;
-        if self.remaining == 0 {
-            self.phase = Phase::Done;
-            self.value = 0;
-            self.step = 0;
-            self.gain = 0;
-            self.delta = 0;
-        } else {
-            self.step = -self.logarithmic / self.remaining as i32;
-        }
+        self.ramp = Ramp::new(
+            logarithmic,
+            0,
+            scaled_duration(self.parameters.release_frames, logarithmic),
+        );
+        self.settle();
     }
 
     pub fn is_done(&self) -> bool {
@@ -185,52 +216,14 @@ impl<'a> Envelope<'a> {
     }
 
     pub fn next_gain(&mut self) -> u16 {
-        self.next_gain_at(self.sample.is_multiple_of(160))
-    }
-
-    fn advance_millisecond(&mut self) -> (i32, i32) {
-        let old = self.value;
-        if !matches!(self.phase, Phase::Sustain | Phase::Done) {
-            if self.phase == Phase::Attack {
-                self.value += self.step;
-            } else {
-                self.logarithmic += self.step;
-                self.value = self.tables.level(self.logarithmic);
-            }
-        }
-        let delta = (self.value - old) / (1 << 21);
-        if !matches!(self.phase, Phase::Sustain | Phase::Done) {
-            self.remaining -= 1;
-            if self.remaining == 0 {
-                self.advance_phase();
-            }
-        }
-        (old >> 16, delta)
-    }
-
-    pub(crate) fn advance_pitch(&mut self) -> u16 {
-        for _ in 0..15 {
-            if self.is_done() {
-                break;
-            }
-            self.advance_millisecond();
-        }
-        (self.value >> 16) as u16
-    }
-
-    pub(crate) fn next_gain_at(&mut self, block_start: bool) -> u16 {
-        if self.sample.is_multiple_of(32) {
-            let step = self.step;
-            let done = self.is_done();
-            let (gain, delta) = self.advance_millisecond();
-            if block_start || self.sample == 0 || step != 0 || self.delta != delta || done {
-                self.gain = gain;
-                self.delta = delta;
-            }
-        }
-        let gain = self.gain.clamp(0, 32767) as u16;
-        self.gain += self.delta;
-        self.sample += 1;
+        let gain = (self.value >> 16) as u16;
+        self.ramp.advance(1);
+        self.value = match self.phase {
+            Phase::Attack => self.ramp.value(),
+            Phase::Decay | Phase::Release => self.tables.level(self.ramp.value()),
+            Phase::Sustain | Phase::Done => self.value,
+        };
+        self.settle();
         gain
     }
 }
@@ -241,118 +234,120 @@ mod tests {
     fn tables() -> Tables {
         Tables {
             attenuation: std::array::from_fn(|i| ((193 - i) * 32767 / 193) as u16),
-            inverse: std::array::from_fn(|i| (193 - i * 193 / 1023) as u8),
-            sustain: std::array::from_fn(|i| i as f32 / 127.0),
         }
     }
 
     #[test]
-    fn converts_timecents_and_note_dependent_scales() {
-        let tables = tables();
-        tables.validate().unwrap();
-        let definition = Definition {
-            attack_timecents: 0,
+    fn note_scaling_uses_wide_frame_durations_and_rejects_overflow() {
+        let timing = Timing {
+            attack_timecents: 8 * 1200 * 65536,
             decay_timecents: 0,
-            sustain_index: 127,
             release_ms: 493,
             attack_velocity_scale: -1200 * 65536,
             decay_key_scale: i32::MIN,
         };
-        let p = definition.resolve(&tables, 64, 99).unwrap();
-        assert_eq!(
-            (p.attack_ms, p.decay_ms, p.sustain, p.release_ms),
-            (707, 1000, 193, 493)
-        );
-        assert!(definition.resolve(&tables, 128, 99).is_err());
-        let full = Definition {
-            sustain_index: 128,
-            ..definition
+        let slow = timing.resolve(193, 0, 99).unwrap();
+        let faster = timing.resolve(193, 64, 99).unwrap();
+        assert_eq!(slow.attack_frames, u64::from(crate::SOURCE_RATE) * 256);
+        assert!(faster.attack_frames < slow.attack_frames);
+        assert_eq!(slow.decay_frames, u64::from(crate::SOURCE_RATE));
+        assert_eq!(slow.release_frames, frames_from_millis(493).unwrap());
+        assert!(timing.resolve(193, 128, 99).is_err());
+        let wide = Timing {
+            attack_timecents: 1_600_000_000,
+            attack_velocity_scale: 1_600_000_000,
+            ..timing
         };
-        assert_eq!(full.resolve(&tables, 64, 99).unwrap().sustain, 193);
         assert!(
-            Definition {
-                sustain_index: 129,
-                ..definition
+            wide.resolve(193, 127, 0).unwrap().attack_frames
+                > wide.resolve(193, 0, 0).unwrap().attack_frames
+        );
+        assert!(
+            Timing {
+                attack_timecents: i32::MAX,
+                attack_velocity_scale: i32::MAX,
+                ..timing
             }
-            .resolve(&tables, 64, 99)
+            .resolve(193, 127, 0)
             .is_err()
         );
+        assert_eq!(
+            Timing {
+                attack_timecents: i32::MIN,
+                ..timing
+            }
+            .resolve(193, 127, 0)
+            .unwrap()
+            .attack_frames,
+            0
+        );
     }
 
     #[test]
-    fn pitch_jobs_use_the_completed_fifteen_millisecond_level() {
-        let tables = tables();
+    fn logarithmic_decay_and_release_follow_the_authored_curve() {
+        let mut tables = tables();
+        tables.attenuation =
+            std::array::from_fn(|i| ((193 - i).pow(2) * 32767 / 193usize.pow(2)) as u16);
+        tables.validate().unwrap();
         let mut env = Envelope::new(
             Parameters {
-                attack_ms: 30,
-                decay_ms: 40,
-                sustain: 0,
-                release_ms: 30,
-            },
-            &tables,
-        )
-        .unwrap();
-        assert_eq!(env.advance_pitch(), 16383);
-        assert_eq!(env.advance_pitch(), 32767);
-        assert_eq!(env.advance_pitch(), tables.attenuation[72]);
-        env.release();
-        assert!(env.advance_pitch() < tables.attenuation[72]);
-        assert_eq!(env.advance_pitch(), 0);
-        assert_eq!(env.advance_pitch(), 0);
-    }
-
-    #[test]
-    fn decay_uses_logarithmic_distance_and_release_stops() {
-        let tables = tables();
-        let mut env = Envelope::new(
-            Parameters {
-                attack_ms: 0,
-                decay_ms: 4,
+                attack_frames: 0,
+                decay_frames: 386,
                 sustain: 96,
-                release_ms: 4,
+                release_frames: 386,
             },
             &tables,
         )
         .unwrap();
-        assert_eq!(env.next_gain(), 32767);
-        for _ in 1..64 {
-            env.next_gain();
+        let mut previous = 32767;
+        for frame in 0..194 {
+            let gain = env.next_gain();
+            assert!(gain <= previous);
+            if frame == 97 {
+                let midpoint = 32767. * ((193. + 96.) / 2. / 193_f64).powi(2);
+                assert!((f64::from(gain) - midpoint).abs() < 2.);
+            }
+            previous = gain;
         }
         assert_eq!(env.next_gain(), tables.attenuation[97]);
-        for _ in 1..32 {
-            env.next_gain();
-        }
         env.release();
-        assert!(!env.is_done());
-        for _ in 0..64 {
+        for _ in 0..191 {
             env.next_gain();
         }
+        assert!(!env.is_done());
+        env.next_gain();
         assert!(env.is_done());
         assert_eq!(env.next_gain(), 0);
     }
 
     #[test]
-    fn keyoff_during_linear_attack_converts_current_level() {
+    fn release_during_attack_preserves_current_gain_between_control_boundaries() {
         let tables = tables();
-        let mut env = Envelope::new(
-            Parameters {
-                attack_ms: 4,
-                decay_ms: 0,
-                sustain: 193,
-                release_ms: 8,
-            },
-            &tables,
-        )
-        .unwrap();
-        for _ in 0..64 {
-            env.next_gain();
+        for elapsed in [1, 31, 33, 80] {
+            let mut env = Envelope::new(
+                Parameters {
+                    attack_frames: frames_from_millis(4).unwrap(),
+                    decay_frames: 0,
+                    sustain: 193,
+                    release_frames: frames_from_millis(8).unwrap(),
+                },
+                &tables,
+            )
+            .unwrap();
+            for _ in 0..elapsed {
+                env.next_gain();
+            }
+            let current = (env.value >> 16) as u16;
+            env.release();
+            assert_eq!(env.next_gain(), current);
+            let mut previous = current;
+            for _ in 1..frames_from_millis(8).unwrap() {
+                let gain = env.next_gain();
+                assert!(gain <= previous);
+                previous = gain;
+            }
+            assert!(env.is_done());
+            assert_eq!(env.next_gain(), 0);
         }
-        env.release();
-        assert_eq!(env.next_gain(), 16383);
-        for _ in 1..256 {
-            env.next_gain();
-        }
-        assert!(env.is_done());
-        assert_eq!(env.next_gain(), 0);
     }
 }

@@ -3,10 +3,7 @@ use super::*;
 use std::{
     fs,
     path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, atomic::Ordering},
 };
 
 const SAMPLE_COUNT: usize = 100;
@@ -20,23 +17,55 @@ pub fn run_quicksave_probe(
     transitions: bool,
 ) -> Result<()> {
     let mut app = app(root, checkpoint, output, crate::Resolution::default())?;
-    let completed = Arc::new(AtomicBool::new(false));
+    let outcome = Arc::new(Mutex::new(None));
     app.insert_resource(Probe {
         started: Instant::now(),
         loaded: None,
         baseline: None,
-        written: false,
         samples: Vec::new(),
         captures: Vec::new(),
         output: output.into(),
-        completed: completed.clone(),
-        route: transitions.then(Route::default),
+        outcome: outcome.clone(),
     })
     .add_systems(Update, drive.before(update));
+    let exit = app.run();
+    outcome
+        .lock()
+        .unwrap()
+        .take()
+        .context("quicksave probe did not complete")??;
     ensure!(
-        app.run() == AppExit::Success && completed.load(Ordering::Acquire),
-        "quicksave probe did not complete"
+        exit == AppExit::Success,
+        "quicksave probe exited with an error"
     );
+    if transitions {
+        // Navigation has its own ordinary-input scenario; benchmark samples
+        // above retain the uncapped live clock and real wall-time measurements.
+        drop(app);
+        let scenario =
+            serde_json::from_str(include_str!("../../examples/scenarios/field-route.json"))?;
+        let route_output = output.join("route");
+        replay::record_checkpoint(
+            root,
+            checkpoint,
+            &route_output,
+            &scenario,
+            replay::CheckpointRecordingOptions {
+                resolution: crate::Resolution::default(),
+                paranoid: true,
+                gamepad: false,
+                save_directory: None,
+            },
+        )?;
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(route_output.join("recording.json"))?)?;
+        let village = replay::capture_from(&report, "village")?;
+        let returned = replay::capture_from(&report, "school-returned")?;
+        ensure!(
+            village["asset_reads"] == returned["asset_reads"],
+            "revisited field reloaded its prepared assets"
+        );
+    }
     Ok(())
 }
 
@@ -63,6 +92,16 @@ pub(super) fn app_with_saves(
     saves: SaveOptions,
     resolution: crate::Resolution,
 ) -> Result<App> {
+    app_with_saves_mode(root, output, saves, resolution, true)
+}
+
+pub(super) fn app_with_saves_mode(
+    root: &Path,
+    output: &Path,
+    saves: SaveOptions,
+    resolution: crate::Resolution,
+    paranoid: bool,
+) -> Result<App> {
     ensure!(!output.exists(), "probe output must be a fresh directory");
     fs::create_dir_all(output)?;
     let (mut app, _) = crate::build_app_with_display(
@@ -71,28 +110,19 @@ pub(super) fn app_with_saves(
             assets: root.into(),
             reveal: saves.load.is_none(),
             saves,
+            capture_at: None,
             capture: Some(output.join("unused.png")),
             silent: true,
+            paranoid,
             skip_intro: true,
-            skip_battles: false,
-            allow_incomplete_scripts: false,
-            tick: None,
-            presentation_start: None,
             selected: 0,
-            replay: None,
-            movie_frame: None,
-            boot_frame: None,
             record_playthrough: None,
             record_title_ticks: 0,
+            skip_battles: false,
+            allow_incomplete_scripts: false,
         },
         resolution,
     )?;
-    // The application was built without a window/device; run its normal updates.
-    // Setup must choose an offscreen target before automatic capture is disabled.
-    app.add_systems(
-        Startup,
-        (|mut options: ResMut<crate::RunOptions>| options.capture = None).after(crate::setup),
-    );
     bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO).build(&mut app);
     Ok(app)
 }
@@ -102,79 +132,21 @@ struct Probe {
     started: Instant,
     loaded: Option<Instant>,
     baseline: Option<FieldCheckpoint>,
-    written: bool,
     samples: Vec<f64>,
     captures: Vec<f64>,
     output: PathBuf,
-    completed: Arc<AtomicBool>,
-    route: Option<Route>,
+    outcome: Arc<Mutex<Option<Result<()>>>>,
 }
 
-/// Registered-trigger coverage for the live loader, distinct from walking and
-/// oracle comparison. Start from free control in the school grounds after Frank.
-#[derive(Default)]
-struct Route {
-    started: Option<(Instant, u64)>,
-    records: Vec<serde_json::Value>,
-}
-impl Route {
-    fn step(&mut self, world: &mut World, state: &FieldCheckpoint) -> Result<bool> {
-        const STEPS: [(u32, u32, bool, u32); 4] = [
-            (332, 1001, false, 330),
-            (330, 1002, false, 332),
-            (332, 1011, true, 340),
-            (340, 1000, true, 332),
-        ];
-        let step = STEPS[self.records.len()];
-        if let Some((started, reads)) = self.started.take() {
-            ensure!(state.map_id == step.3, "route reached the wrong field");
-            let reads = world
-                .resource::<loading::Resident>()
-                .memory_reads
-                .load(Ordering::Acquire)
-                - reads;
-            ensure!(
-                step.3 != 332 || reads == 0,
-                "revisited field reloaded its prepared assets"
-            );
-            self.records.push(serde_json::json!({
-                "from":step.0, "trigger":step.1, "confirmed":step.2, "to":step.3,
-                "milliseconds":started.elapsed().as_secs_f64()*1000.,
-                "asset_reads":reads, "checkpoint":state,
-            }));
-            return Ok(self.records.len() == STEPS.len());
-        }
-        ensure!(
-            state.map_id == step.0,
-            "transition probe requires the post-Frank school-grounds checkpoint"
-        );
-        let mut session = world.resource_mut::<new_game::Session>();
-        ensure!(
-            session.field.story_progress()? == 2500,
-            "transition probe requires story 2500"
-        );
-        ensure!(
-            session.field.events.trigger(step.1, step.2)?,
-            "route trigger is unavailable"
-        );
-        self.started = Some((
-            Instant::now(),
-            world
-                .resource::<loading::Resident>()
-                .memory_reads
-                .load(Ordering::Acquire),
-        ));
-        Ok(false)
-    }
-}
 fn drive(world: &mut World) {
     let mut probe = world.remove_resource::<Probe>().unwrap();
     let result = probe.step(world);
-    world.insert_resource(probe);
     if let Err(error) = result {
         error!("Quicksave probe failed: {error:#}");
+        *probe.outcome.lock().unwrap() = Some(Err(error));
         world.write_message(AppExit::error());
     }
+    world.insert_resource(probe);
 }
 impl Probe {
     fn step(&mut self, world: &mut World) -> Result<()> {
@@ -186,14 +158,6 @@ impl Probe {
             return Ok(());
         };
         if self.baseline.is_none() {
-            // A request during a transition must not create a pending save.
-            world.resource_mut::<new_game::Session>().ready_for_field = false;
-            ensure!(save(world).is_err(), "saved during scene preparation");
-            world.resource_mut::<new_game::Session>().ready_for_field = true;
-            ensure!(
-                !world.resource::<Persistence>().is_writing(),
-                "unavailable save was queued"
-            );
             self.baseline = Some(state);
             let started = Instant::now();
             save(world)?;
@@ -210,14 +174,22 @@ impl Probe {
                 "restored field image was not released"
             );
             self.samples.push(started.elapsed().as_secs_f64() * 1000.);
+            if self.samples.len() == 1 {
+                fs::write(
+                    self.output.join("restored.json"),
+                    serde_json::to_vec_pretty(&serde_json::json!({
+                        "saved": baseline,
+                        "restored": world.resource::<new_game::Session>().restored_checkpoint,
+                    }))?,
+                )?;
+            }
             ensure!(
-                state.position == baseline.position
-                    && state.heading == baseline.heading
-                    && state.progress.script_globals == baseline.progress.script_globals
-                    && state.progress.party.gald == baseline.progress.party.gald,
-                "restore changed player pose, script globals or gald"
+                state.progress.tick >= baseline.progress.tick
+                    && state.played_ticks >= baseline.played_ticks,
+                "restored field did not resume its clocks"
             );
             if self.samples.len() < SAMPLE_COUNT {
+                self.baseline = Some(state);
                 let started = Instant::now();
                 save(world)?;
                 self.captures.push(started.elapsed().as_secs_f64() * 1000.);
@@ -225,53 +197,28 @@ impl Probe {
             }
         }
         if self.samples.len() == SAMPLE_COUNT {
-            if let Some(route) = &mut self.route
-                && !route.step(world, &state)?
-            {
-                return Ok(());
-            }
-            let mut sorted = self.samples.clone();
-            sorted.sort_by(f64::total_cmp);
-            let mut captures = self.captures.clone();
-            captures.sort_by(f64::total_cmp);
-            let late_reads = world
-                .resource::<loading::Resident>()
-                .late_reads
-                .load(Ordering::Acquire);
-            ensure!(late_reads == 0, "warm loads read unprepared resources");
-            fs::write(
-                self.output.join("timings.json"),
-                serde_json::to_vec_pretty(&serde_json::json!({
-                    "version": 1, "resolution": [640, 480], "audio_device": false,
-                    "presentation": "uncapped, like the live player; gameplay uses its normal fixed tick",
-                    "metric": "quicksave read + field initialization to first render update with prepared actors and free control; excludes display scanout",
-                    "samples_ms": self.samples, "p95_ms": sorted[P95_INDEX], "max_ms": sorted[SAMPLE_COUNT - 1],
-                    "capture_samples_ms": self.captures, "capture_p95_ms": captures[P95_INDEX],
-                    "warm_target_ms": TARGET_MS as u32, "capture_target_ms": TARGET_MS as u32,
-                    "target_met": sorted[P95_INDEX] < TARGET_MS && captures[P95_INDEX] < TARGET_MS, "late_asset_reads": late_reads,
-                    "elapsed_seconds": self.started.elapsed().as_secs_f64(),
-                    "registered_trigger_route": self.route.as_ref().map(|r| &r.records),
-                }))?,
+            finish_timings(
+                &self.output,
+                &self.samples,
+                &self.captures,
+                world
+                    .resource::<loading::Resident>()
+                    .unprepared_reads
+                    .load(Ordering::Acquire),
+                self.started.elapsed().as_secs_f64(),
             )?;
-            info!(
-                "{SAMPLE_COUNT} quicksaves/loads: capture p95={:.2} ms; warm load p95={:.2} ms, max={:.2} ms",
-                captures[P95_INDEX],
-                sorted[P95_INDEX],
-                sorted[SAMPLE_COUNT - 1]
-            );
-            self.completed.store(true, Ordering::Release);
+            *self.outcome.lock().unwrap() = Some(Ok(()));
             world.write_message(AppExit::Success);
             return Ok(());
         }
-        if !self.written {
-            let persistence = world.resource::<Persistence>();
-            let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-            resonance_persistence::decode::<FieldCheckpoint>(
-                &bytes,
-                &world.resource::<new_game::Session>().identity,
-            )?;
-            self.written = true;
-        }
+        let persistence = world.resource::<Persistence>();
+        let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
+        let (_, saved): (_, FieldCheckpoint) = resonance_persistence::decode(&bytes)?
+            .admit(&world.resource::<new_game::Session>().identity)?;
+        ensure!(
+            serde_json::to_value(&saved)? == serde_json::to_value(baseline)?,
+            "quicksave changed the captured payload"
+        );
         // Change live state so a no-op restore cannot pass this probe.
         let mut session = world.resource_mut::<new_game::Session>();
         session.field.step(resonance_game::field::FieldInput {
@@ -281,22 +228,97 @@ impl Probe {
         session.field.events.world.party.as_mut().unwrap().gald = baseline.progress.party.gald ^ 1;
         self.loaded = Some(Instant::now());
         load(world)?;
+        let restored = world.resource::<new_game::Session>().field.checkpoint()?;
+        replay::assert_checkpoint(&restored, &saved)?;
         Ok(())
     }
 }
 
-pub(super) fn capture(world: &mut World, path: PathBuf, done: &Arc<AtomicBool>) {
-    use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
-    let done = done.clone();
-    done.store(false, Ordering::Release);
-    let target = world.resource::<crate::Framebuffer>().0.clone();
-    world.spawn(Screenshot(target)).observe(
-        move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            if let Err(error) = crate::screenshot::write(&event.image, &path, None) {
-                error!("Probe capture failed: {error:#}");
-                exit.write(AppExit::error());
-            }
-            done.store(true, Ordering::Release);
-        },
+/// Publish measurements even when the declared target fails, then return the
+/// failure to the caller so a successful process cannot hide a missed gate.
+fn finish_timings(
+    output: &Path,
+    samples: &[f64],
+    captures: &[f64],
+    unprepared_reads: u64,
+    elapsed_seconds: f64,
+) -> Result<()> {
+    ensure!(
+        samples.len() == SAMPLE_COUNT && captures.len() == SAMPLE_COUNT,
+        "quicksave probe has incomplete timing samples"
     );
+    let mut sorted = samples.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let mut sorted_captures = captures.to_vec();
+    sorted_captures.sort_by(f64::total_cmp);
+    let load_p95 = sorted[P95_INDEX];
+    let capture_p95 = sorted_captures[P95_INDEX];
+    let target_met = load_p95 < TARGET_MS && capture_p95 < TARGET_MS;
+    fs::write(
+        output.join("timings.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 1, "resolution": [640, 480], "audio_device": false,
+            "presentation": "uncapped, like the live player; gameplay uses its normal fixed tick",
+            "metric": "quicksave read + field initialization to first render update with prepared actors and free control; excludes display scanout",
+            "samples_ms":samples, "p95_ms":load_p95, "max_ms":sorted[SAMPLE_COUNT - 1],
+            "capture_samples_ms":captures, "capture_p95_ms":capture_p95,
+            "warm_target_ms":TARGET_MS as u32, "capture_target_ms":TARGET_MS as u32,
+            "target_met":target_met, "unprepared_reads":unprepared_reads, "elapsed_seconds":elapsed_seconds,
+        }))?,
+    )?;
+    info!(
+        "{SAMPLE_COUNT} quicksaves/loads: capture p95={capture_p95:.2} ms; warm load p95={load_p95:.2} ms"
+    );
+    ensure!(
+        unprepared_reads == 0,
+        "warm loads read unprepared resources"
+    );
+    ensure!(
+        target_met,
+        "quicksave performance target missed: capture p95={capture_p95:.2} ms, warm load p95={load_p95:.2} ms; both must be below {TARGET_MS:.2} ms (metrics: {})",
+        output.join("timings.json").display()
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quicksave_target_failure_preserves_metrics_and_identifies_the_slow_operation() {
+        let output = std::env::temp_dir().join(format!(
+            "resonance-quicksave-target-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&output).unwrap();
+        for (load, capture, succeeds) in
+            [(249., 249., true), (250., 249., false), (249., 251., false)]
+        {
+            let result = finish_timings(
+                &output,
+                &[load; SAMPLE_COUNT],
+                &[capture; SAMPLE_COUNT],
+                0,
+                1.,
+            );
+            let metrics: serde_json::Value =
+                serde_json::from_slice(&fs::read(output.join("timings.json")).unwrap()).unwrap();
+            assert_eq!(metrics["target_met"], succeeds);
+            assert_eq!(metrics["p95_ms"], load);
+            assert_eq!(metrics["capture_p95_ms"], capture);
+            assert_eq!(result.is_ok(), succeeds);
+            if let Err(error) = result {
+                let message = error.to_string();
+                assert!(message.contains("quicksave performance target missed"));
+                assert!(message.contains(&format!("capture p95={capture:.2}")));
+                assert!(message.contains(&format!("warm load p95={load:.2}")));
+            }
+        }
+        fs::remove_dir_all(output).unwrap();
+    }
 }

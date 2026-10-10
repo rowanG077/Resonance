@@ -1,5 +1,5 @@
 use super::*;
-use resonance_events::input::Button;
+use anyhow::{Context, ensure};
 
 pub const VISIBLE_EQUIPMENT: usize = 9;
 /// Display order; saved parties store the arm slot after both accessories.
@@ -23,7 +23,7 @@ pub enum Focus {
         thrust: bool,
     },
 }
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Equipment {
     #[serde(flatten)]
     pub transition: super::Transition,
@@ -54,7 +54,7 @@ impl Default for Equipment {
     }
 }
 impl Equipment {
-    pub(super) fn opening() -> Self {
+    pub fn opening() -> Self {
         Self {
             transition: super::Transition::opening(),
             description_fade: DESCRIPTION_FADE_START,
@@ -67,35 +67,352 @@ impl Equipment {
         self.first = 0;
         self.scroll = 0;
     }
+
+    /// Update the shared page and commit accepted edits to its party.
+    pub fn step_shared(
+        &mut self,
+        input: Input,
+        party: &mut resonance_events::party::Party,
+        session: &resonance_content::session::SessionData,
+        data: &resonance_content::menu_data::MenuData,
+        member: &mut usize,
+    ) -> anyhow::Result<Visit> {
+        if self.description_fade == 0 {
+            self.description_previous = self.selected_item(party, session, data, *member);
+        }
+        let visit = self.advance(input, party, session, data, member)?;
+        let selected = self.selected_item(party, session, data, *member);
+        self.description_opacity = fade_description(
+            &mut self.description_fade,
+            self.description_previous != selected,
+        );
+        Ok(visit)
+    }
+
+    fn selected_item(
+        &self,
+        party: &resonance_events::party::Party,
+        session: &resonance_content::session::SessionData,
+        data: &resonance_content::menu_data::MenuData,
+        character: usize,
+    ) -> Option<u16> {
+        let member = selected_member(party, character).ok()?;
+        match self.focus {
+            Focus::Slots => {
+                Some(party.members[member].equipment[SLOTS[self.slot]]).filter(|id| *id != 0)
+            }
+            Focus::List => equipment_items_for(party, session, data, member, self)
+                .get(self.row)
+                .copied(),
+            _ => None,
+        }
+    }
+
+    fn advance(
+        &mut self,
+        input: Input,
+        party: &mut resonance_events::party::Party,
+        session: &resonance_content::session::SessionData,
+        data: &resonance_content::menu_data::MenuData,
+        member: &mut usize,
+    ) -> anyhow::Result<Visit> {
+        let action = input;
+        let left = action == Some(MenuAction::Left);
+        let right = action == Some(MenuAction::Right);
+        let up = action == Some(MenuAction::Up);
+        let down = action == Some(MenuAction::Down);
+        let page_up = matches!(action, Some(MenuAction::PageUp | MenuAction::PreviousTab));
+        let page_down = matches!(action, Some(MenuAction::PageDown | MenuAction::NextTab));
+        let old_character = *member;
+        let old_member = selected_member(party, *member)?;
+        let old_equipment = party.members[old_member].equipment;
+        let old_item = party
+            .members
+            .get(old_member)
+            .and_then(|row| row.equipment.get(SLOTS[self.slot]).copied())
+            .context("equipment page member is absent")?;
+
+        let transition = self.transition.advance();
+        if self.transition.page_closing {
+            return Ok(Visit {
+                closed: transition == TransitionStatus::Closed,
+                ..Default::default()
+            });
+        }
+        self.scroll = (self.scroll + self.scroll.signum()) % 5;
+
+        if action == Some(MenuAction::Cancel) {
+            match self.focus {
+                Focus::Character => self.transition.close(),
+                Focus::Slots | Focus::Optimal { .. } => self.focus = Focus::Character,
+                Focus::List => {
+                    self.focus = Focus::Slots;
+                    self.reset_list();
+                }
+            }
+            return Ok(Visit {
+                cue: Some(3),
+                ..Default::default()
+            });
+        }
+
+        if matches!(self.focus, Focus::Character | Focus::Slots)
+            && (page_up || page_down || self.focus == Focus::Character && (left || right))
+        {
+            let count = party.formation.len().min(VISIBLE_PARTY);
+            ensure!(count != 0, "equipment page has no active party");
+            let back = page_up || self.focus == Focus::Character && left;
+            for _ in 0..count {
+                *member = (*member + if back { count.saturating_sub(1) } else { 1 }) % count;
+                let selected = selected_member(party, *member)?;
+                if !party.members[selected].knocked_out() {
+                    break;
+                }
+            }
+            self.reset_list();
+            let changed = old_character != *member;
+            return Ok(Visit {
+                cue: changed.then_some(1),
+                ..Default::default()
+            });
+        }
+
+        let mut cue = None;
+        match self.focus {
+            Focus::Character => {
+                if action == Some(MenuAction::Menu) {
+                    if old_member == 0 {
+                        self.focus = Focus::Optimal { thrust: false };
+                        cue = Some(1);
+                    } else {
+                        let before = party.members[old_member].equipment;
+                        party
+                            .optimize_equipment(session, data, old_member, false)
+                            .map_err(anyhow::Error::msg)?;
+                        cue = (party.members[old_member].equipment != before).then_some(1);
+                    }
+                } else if action == Some(MenuAction::Confirm) || up || down {
+                    self.focus = Focus::Slots;
+                    self.slot = if up { SLOTS.len() - 1 } else { 0 };
+                    self.reset_list();
+                    cue = Some(if action == Some(MenuAction::Confirm) {
+                        2
+                    } else {
+                        1
+                    });
+                }
+            }
+            Focus::Optimal { thrust } => {
+                if up || down {
+                    self.focus = Focus::Optimal { thrust: !thrust };
+                    cue = Some(1);
+                } else if action == Some(MenuAction::Confirm) {
+                    let before = party.members[old_member].equipment;
+                    party
+                        .optimize_equipment(session, data, old_member, thrust)
+                        .map_err(anyhow::Error::msg)?;
+                    cue = (party.members[old_member].equipment != before).then_some(1);
+                }
+            }
+            Focus::Slots | Focus::List => {
+                if action == Some(MenuAction::Menu) {
+                    self.by_parameter = !self.by_parameter;
+                    cue = Some(1);
+                } else if self.focus == Focus::Slots {
+                    if action == Some(MenuAction::Alternate) {
+                        if self.slot == 0
+                            || old_item == 0
+                            || party.members[old_member].knocked_out()
+                        {
+                            cue = Some(4);
+                        } else {
+                            party
+                                .equip_slot(session, old_member, SLOTS[self.slot], 0)
+                                .map_err(anyhow::Error::msg)?;
+                            self.reset_list();
+                            cue = Some(1);
+                        }
+                    } else if action == Some(MenuAction::Confirm) {
+                        let items = equipment_items_for(party, session, data, old_member, self);
+                        if items.is_empty() || party.members[old_member].knocked_out() {
+                            cue = Some(4);
+                        } else {
+                            self.focus = Focus::List;
+                            self.reset_list();
+                            cue = Some(2);
+                        }
+                    } else if up || down {
+                        if up && self.slot == 0 || down && self.slot == SLOTS.len() - 1 {
+                            self.focus = Focus::Character;
+                        } else if up {
+                            self.slot -= 1;
+                        } else {
+                            self.slot += 1;
+                        }
+                        self.reset_list();
+                        cue = Some(1);
+                    }
+                } else {
+                    let items = equipment_items_for(party, session, data, old_member, self);
+                    if action == Some(MenuAction::Confirm) {
+                        if let Some(&id) = items.get(self.row) {
+                            party
+                                .equip_slot(session, old_member, SLOTS[self.slot], id)
+                                .map_err(anyhow::Error::msg)?;
+                            self.focus = Focus::Slots;
+                            self.reset_list();
+                            cue = Some(2);
+                        } else {
+                            cue = Some(4);
+                        }
+                    } else {
+                        let old = self.row;
+                        let first = self.first;
+                        if up {
+                            self.row = self.row.saturating_sub(1);
+                        } else if down {
+                            self.row = (self.row + 1).min(items.len().saturating_sub(1));
+                        } else if page_up && first > 0 {
+                            self.first = first.saturating_sub(VISIBLE_EQUIPMENT);
+                            self.row -= first - self.first;
+                            cue = Some(38);
+                        } else if page_down && first + VISIBLE_EQUIPMENT < items.len() {
+                            self.first += VISIBLE_EQUIPMENT;
+                            self.row = (self.row + VISIBLE_EQUIPMENT).min(items.len() - 1);
+                            cue = Some(38);
+                        }
+                        self.first = self
+                            .first
+                            .min(self.row)
+                            .max(self.row.saturating_sub(VISIBLE_EQUIPMENT - 1));
+                        if cue.is_none() && self.first != first {
+                            self.scroll = (self.first as isize - first as isize).signum() as i8;
+                        }
+                        if cue.is_none() && old != self.row {
+                            cue = Some(1);
+                        }
+                    }
+                }
+            }
+        }
+        let changed = old_equipment != party.members[old_member].equipment;
+        Ok(Visit {
+            cue,
+            changed,
+            closed: false,
+        })
+    }
+}
+
+fn selected_member(
+    party: &resonance_events::party::Party,
+    character: usize,
+) -> anyhow::Result<usize> {
+    let id = *party
+        .formation
+        .get(character)
+        .context("equipment page character is absent")?;
+    let index = usize::from(id.checked_sub(1).context("invalid equipment character")?);
+    ensure!(
+        index < party.members.len(),
+        "equipment page member is absent"
+    );
+    Ok(index)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Visit {
+    pub cue: Option<u16>,
+    pub changed: bool,
+    pub closed: bool,
+}
+
+/// Borrowed data used by the field and battle renderers.  Keeping the page
+/// view here makes both owners consume the same cursor/equipment projection.
+#[derive(Clone, Copy)]
+pub struct Page<'a> {
+    pub state: &'a Equipment,
+    pub party: &'a resonance_events::party::Party,
+    pub session: &'a resonance_content::session::SessionData,
+    pub data: &'a resonance_content::menu_data::MenuData,
+    /// Initial names are owned by MenuData's rename resource rather than the
+    /// persistent party.  Keep that fallback in the borrowed page so field
+    /// and battle artwork display the same name for an untouched member.
+    pub names: &'a [String; 9],
+    pub character: usize,
+}
+impl<'a> Page<'a> {
+    pub fn member_index(self) -> anyhow::Result<usize> {
+        selected_member(self.party, self.character)
+    }
+    pub fn items(self) -> Vec<u16> {
+        self.member_index().map_or_else(
+            |_| Vec::new(),
+            |member| equipment_items_for(self.party, self.session, self.data, member, self.state),
+        )
+    }
+
+    pub fn character_name(self) -> &'a str {
+        let Ok(index) = self.member_index() else {
+            return "";
+        };
+        let Some(member) = self.party.members.get(index) else {
+            return "";
+        };
+        member
+            .name
+            .as_deref()
+            .or_else(|| self.names.get(index).map(String::as_str))
+            .unwrap_or("")
+    }
+}
+
+pub fn equipment_items_for(
+    party: &resonance_events::party::Party,
+    session: &resonance_content::session::SessionData,
+    data: &resonance_content::menu_data::MenuData,
+    member: usize,
+    state: &Equipment,
+) -> Vec<u16> {
+    let mut items: Vec<_> = party
+        .items
+        .keys()
+        .copied()
+        .filter(|id| {
+            session.items.get(usize::from(*id)).is_some_and(|item| {
+                SLOTS
+                    .get(state.slot)
+                    .is_some_and(|&slot| item.fits_slot(member, slot))
+            })
+        })
+        .filter(|id| data.items.get(usize::from(*id)).is_some())
+        .collect();
+    let name = |id: u16| data.item_text(id).ok().map(|text| text.name.as_str());
+    items.sort_by(|a_id, b_id| {
+        let a = &data.items[usize::from(*a_id)];
+        let b = &data.items[usize::from(*b_id)];
+        if state.by_parameter {
+            let stat = if state.slot == 0 { 0 } else { 2 };
+            b.equipment_stats[stat].cmp(&a.equipment_stats[stat])
+        } else {
+            a.category.cmp(&b.category)
+        }
+        .then_with(|| name(*a_id).cmp(&name(*b_id)))
+    });
+    items
 }
 
 impl Menu {
     pub fn equipment_items(&self) -> Vec<u16> {
         let resources = self.resources.as_ref().unwrap();
         let member = self.member_index();
-        let kind = self.equipment.slot.min(4) as u8;
-        let mut items: Vec<_> = self
-            .party()
-            .items
-            .keys()
-            .copied()
-            .filter(|id| {
-                let item = &resources.session.items[usize::from(*id)];
-                item.equipment_kind == Some(kind) && item.allowed_characters & (1 << member) != 0
-            })
-            .collect();
-        items.sort_by(|a, b| {
-            let a = &resources.data.items[usize::from(*a)];
-            let b = &resources.data.items[usize::from(*b)];
-            if self.equipment.by_parameter {
-                let stat = if kind == 0 { 0 } else { 2 };
-                b.equipment_stats[stat].cmp(&a.equipment_stats[stat])
-            } else {
-                a.category.cmp(&b.category)
-            }
-            .then_with(|| a.name.cmp(&b.name))
-        });
-        items
+        equipment_items_for(
+            self.party(),
+            &resources.session,
+            &resources.data,
+            member,
+            &self.equipment,
+        )
     }
 
     pub fn equipment_item(&self) -> Option<u16> {
@@ -108,191 +425,30 @@ impl Menu {
         }
     }
 
-    pub(super) fn remember_equipment_description(&mut self) {
-        if self.equipment.description_fade == 0 {
-            self.equipment.description_previous = self.equipment_item();
-        }
-    }
-
-    pub(super) fn fade_equipment_description(&mut self) {
-        let selected = self.equipment_item();
-        let state = &mut self.equipment;
-        state.description_opacity = fade_description(
-            &mut state.description_fade,
-            state.description_previous != selected,
+    pub(super) fn step_equipment(&mut self, input: Input) -> Option<i16> {
+        let resources = self.resources.as_ref()?;
+        let result = self.equipment.step_shared(
+            input,
+            &mut self.checkpoint.as_mut()?.progress.party,
+            &resources.session,
+            &resources.data,
+            &mut self.character,
         );
-    }
-
-    pub(super) fn step_equipment(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down, page_up, page_down]: [bool; 6],
-    ) -> Option<i16> {
-        let state = &mut self.equipment;
-        state.scroll = (state.scroll + state.scroll.signum()) % 5;
-        if state.scroll != 0 {
-            return None;
-        }
-        let focus = self.equipment.focus;
-        if input.pressed(Button::Cancel) {
-            self.equipment.focus = match focus {
-                Focus::Character => {
-                    self.equipment.transition.page_closing = true;
-                    self.select_main(Page::Equip);
-                    Focus::Character
+        match result {
+            Ok(visit) => {
+                self.party_changed |= visit.changed;
+                if self.equipment.transition.page_closing {
+                    self.select_main(super::Page::Equip);
                 }
-                Focus::Slots | Focus::Optimal { .. } => Focus::Character,
-                Focus::List => Focus::Slots,
-            };
-            return Some(3);
-        }
-        if matches!(focus, Focus::Character | Focus::Slots)
-            && (input.pressed(Button::PreviousPage)
-                || input.pressed(Button::NextPage)
-                || focus == Focus::Character && (left || right))
-        {
-            let party = &self.checkpoint.as_ref().unwrap().progress.party;
-            let old = self.character;
-            let back = input.pressed(Button::PreviousPage) || left;
-            for _ in 0..party.formation.len() {
-                self.character = (self.character
-                    + if back { party.formation.len() - 1 } else { 1 })
-                    % party.formation.len();
-                if !self.member().knocked_out() {
-                    break;
+                if visit.closed {
+                    self.return_to_main();
                 }
+                visit.cue.map(|cue| cue as i16)
             }
-            self.equipment.reset_list();
-            return (old != self.character).then_some(1);
-        }
-        let member = self.member_index();
-        let resources = self.resources.as_ref().unwrap().clone();
-        match focus {
-            Focus::Character => {
-                if input.pressed(Button::Menu) {
-                    if member == 0 {
-                        self.equipment.focus = Focus::Optimal { thrust: false };
-                        return Some(1);
-                    }
-                    let result = self
-                        .checkpoint
-                        .as_mut()
-                        .unwrap()
-                        .progress
-                        .party
-                        .optimize_equipment(&resources.session, &resources.data, member, false);
-                    return self.party_result(result);
-                }
-                if up || down || input.pressed(Button::Accept) {
-                    self.equipment.focus = Focus::Slots;
-                    self.equipment.slot = if up { SLOTS.len() - 1 } else { 0 };
-                    self.equipment.reset_list();
-                    return Some(if input.pressed(Button::Accept) { 2 } else { 1 });
-                }
-            }
-            Focus::Optimal { thrust } => {
-                if up || down {
-                    self.equipment.focus = Focus::Optimal { thrust: !thrust };
-                    return Some(1);
-                }
-                if input.pressed(Button::Accept) {
-                    let result = self
-                        .checkpoint
-                        .as_mut()
-                        .unwrap()
-                        .progress
-                        .party
-                        .optimize_equipment(&resources.session, &resources.data, member, thrust);
-                    return self.party_result(result);
-                }
-            }
-            Focus::Slots | Focus::List => {
-                if input.pressed(Button::Menu) {
-                    self.equipment.by_parameter = !self.equipment.by_parameter;
-                    return Some(1);
-                }
-                let items = self.equipment_items();
-                if focus == Focus::Slots {
-                    if input.pressed(Button::Ring) {
-                        if self.equipment.slot == 0
-                            || self.equipment_item().is_none()
-                            || self.member().knocked_out()
-                        {
-                            return Some(4);
-                        }
-                        let result = self.checkpoint.as_mut().unwrap().progress.party.equip_slot(
-                            &resources.session,
-                            member,
-                            SLOTS[self.equipment.slot],
-                            0,
-                        );
-                        self.equipment.reset_list();
-                        return self.party_result(result);
-                    }
-                    if input.pressed(Button::Accept) {
-                        if items.is_empty() || self.member().knocked_out() {
-                            return Some(4);
-                        }
-                        self.equipment.focus = Focus::List;
-                        self.equipment.reset_list();
-                        return Some(2);
-                    }
-                    if up || down {
-                        if up && self.equipment.slot == 0
-                            || down && self.equipment.slot == SLOTS.len() - 1
-                        {
-                            self.equipment.focus = Focus::Character;
-                        } else if up {
-                            self.equipment.slot -= 1;
-                        } else {
-                            self.equipment.slot += 1;
-                        }
-                        self.equipment.reset_list();
-                        return Some(1);
-                    }
-                } else {
-                    if input.pressed(Button::Accept) {
-                        let id = *items.get(self.equipment.row)?;
-                        let result = self.checkpoint.as_mut().unwrap().progress.party.equip_slot(
-                            &resources.session,
-                            member,
-                            SLOTS[self.equipment.slot],
-                            id,
-                        );
-                        if result.is_ok() {
-                            self.equipment.focus = Focus::Slots;
-                            self.equipment.reset_list();
-                        }
-                        return self.party_result(result);
-                    }
-                    let state = &mut self.equipment;
-                    let old = state.row;
-                    let first = state.first;
-                    let mut cue = 1;
-                    if up {
-                        state.row = state.row.saturating_sub(1);
-                    } else if down {
-                        state.row = (state.row + 1).min(items.len().saturating_sub(1));
-                    } else if page_up && first > 0 {
-                        state.first = first.saturating_sub(VISIBLE_EQUIPMENT);
-                        state.row -= first - state.first;
-                        cue = 38;
-                    } else if page_down && first + VISIBLE_EQUIPMENT < items.len() {
-                        state.first += VISIBLE_EQUIPMENT;
-                        state.row = (state.row + VISIBLE_EQUIPMENT).min(items.len() - 1);
-                        cue = 38;
-                    }
-                    state.first = state
-                        .first
-                        .min(state.row)
-                        .max(state.row.saturating_sub(VISIBLE_EQUIPMENT - 1));
-                    if cue == 1 && state.first != first {
-                        state.scroll = (state.first as isize - first as isize).signum() as i8;
-                    }
-                    return (old != state.row).then_some(cue);
-                }
+            Err(error) => {
+                self.notice = Some(error.to_string());
+                Some(4)
             }
         }
-        None
     }
 }

@@ -23,7 +23,6 @@ struct Script {
     binding: ScriptBinding,
 }
 
-#[derive(Clone)]
 struct ScriptBinding {
     paths: SkitResourcePaths,
     requested_media: BTreeSet<u32>,
@@ -49,89 +48,127 @@ fn read_script(path: &Path) -> Result<Script> {
 }
 
 impl Script {
-    fn publish(&self, output: &Path) -> Result<ScriptBinding> {
+    fn publish(&self, output: &Path) -> Result<()> {
         write_atomic(&output.join(&self.binding.paths.script), &self.bytes)?;
         write_atomic(
             &output.join(&self.binding.paths.messages),
             &serde_json::to_vec(&self.messages)?,
         )?;
-        Ok(self.binding.clone())
+        Ok(())
     }
 }
 
-pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
-    let _publications = crate::publication::Session::start_if_needed(output)?;
-    crate::disc_number(extracted)?;
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let physical = Catalog::read(extracted, &executable)?;
-    let mut catalog = SkitCatalog {
-        version: 2,
-        skits: physical.definitions()?,
-        preview_order: physical.preview_order.clone(),
-        resources: BTreeMap::new(),
-        portraits: BTreeMap::new(),
-        portrait_recipes: physical
-            .portrait_recipes
-            .iter()
-            .map(recipe::Recipe::prepared)
-            .collect(),
-        media: BTreeMap::new(),
-    };
-    let files = extracted.join("files");
-    let mut sources = BTreeMap::<String, Vec<u16>>::new();
-    for skit in &catalog.skits {
-        let source = crate::field_resources::resolve_path(&files, physical.script(skit.id)?)?;
-        sources.entry(source).or_default().push(skit.id);
-    }
-    let direct: BTreeMap<_, _> = physical
-        .event_resources()?
-        .into_iter()
-        .filter(|(id, _)| !catalog.skits.iter().any(|skit| skit.id == *id))
-        .collect();
-    for &id in direct.keys() {
-        // The executable retains named, disabled rows whose script was removed
-        // from the disc. They are not playable resources on this edition.
-        if let Some(source) = crate::field_resources::find_path(&files, physical.script(id)?)? {
-            sources.entry(source).or_default().push(id);
-        }
-    }
-    let mut requested = BTreeSet::new();
-    for (source, ids) in sources {
-        let path = files.join(source);
-        let binding = read_script(&path)
-            .with_context(|| path.display().to_string())?
-            .publish(output)?;
-        requested.extend(binding.requested_media);
-        for id in ids {
-            let mut paths = binding.paths.clone();
-            paths.title = direct.get(&id).cloned().flatten();
-            catalog.resources.insert(id, paths);
-        }
-    }
-    let archive = fs::read(files.join(&physical.portrait_archive))?;
-    let directory = format!("assets/{}", crate::digest(&archive));
-    for portrait in physical
-        .portraits
-        .iter()
-        .filter(|portrait| !portrait.images.is_empty())
-    {
-        let (id, asset) = portraits::decode(&archive, portrait, &directory)?.publish(output)?;
-        ensure!(
-            catalog.portraits.insert(id, asset).is_none(),
-            "duplicate portrait"
-        );
-    }
-    catalog.media = media::bind(
-        output,
-        extracted,
-        &crate::voice_directory::Directory::read(&executable)?,
-        requested,
-    )?;
-    catalog.validate()?;
-    let path = "game/skits.json";
-    write_atomic(&output.join(path), &serde_json::to_vec_pretty(&catalog)?)?;
-    Ok(path.into())
+/// Scripts are decoded once so scheduling and publication use the same media requests.
+pub(crate) struct Source {
+    physical: Catalog,
+    catalog: SkitCatalog,
+    scripts: Vec<Script>,
+    voices: crate::voice_directory::Directory,
+    requested: BTreeSet<u32>,
 }
+
+impl Source {
+    pub(crate) fn read(extracted: &Path, executable: &[u8]) -> Result<Self> {
+        let physical = Catalog::read(extracted, executable)?;
+        let mut catalog = SkitCatalog {
+            version: 2,
+            skits: physical.definitions()?,
+            preview_order: physical.preview_order.clone(),
+            resources: BTreeMap::new(),
+            portraits: BTreeMap::new(),
+            portrait_recipes: physical
+                .portrait_recipes
+                .iter()
+                .map(recipe::Recipe::prepared)
+                .collect(),
+            media: BTreeMap::new(),
+        };
+        let files = extracted.join("files");
+        let mut sources = BTreeMap::<String, Vec<u16>>::new();
+        for skit in &catalog.skits {
+            let source = crate::field_resources::resolve_path(&files, physical.script(skit.id)?)?;
+            sources.entry(source).or_default().push(skit.id);
+        }
+        let direct: BTreeMap<_, _> = physical
+            .event_resources()?
+            .into_iter()
+            .filter(|(id, _)| !catalog.skits.iter().any(|skit| skit.id == *id))
+            .collect();
+        for &id in direct.keys() {
+            // The executable retains named, disabled rows whose script was removed
+            // from the disc. They are not playable resources on this edition.
+            if let Some(source) = crate::field_resources::find_path(&files, physical.script(id)?)? {
+                sources.entry(source).or_default().push(id);
+            }
+        }
+        let mut scripts = Vec::new();
+        let mut requested = BTreeSet::new();
+        for (source, ids) in sources {
+            let path = files.join(source);
+            let script = read_script(&path).with_context(|| path.display().to_string())?;
+            requested.extend(&script.binding.requested_media);
+            for id in ids {
+                let mut paths = script.binding.paths.clone();
+                paths.title = direct.get(&id).cloned().flatten();
+                catalog.resources.insert(id, paths);
+            }
+            scripts.push(script);
+        }
+        Ok(Self {
+            physical,
+            catalog,
+            scripts,
+            voices: crate::voice_directory::Directory::read(executable)?,
+            requested,
+        })
+    }
+
+    pub(crate) fn voice_members(&self, extracted: &Path) -> Result<BTreeSet<(String, usize)>> {
+        self.requested
+            .iter()
+            .map(|&id| {
+                ensure!(
+                    id & 0xf0000000 != 0x80000000,
+                    "skit direct movie/stream request {id:#x} is not supported"
+                );
+                let path = self.voices.path(id & 0xffff0000)?;
+                let path = crate::field_resources::resolve_path(&extracted.join("files"), &path)?;
+                Ok((path, usize::from(id as u16)))
+            })
+            .collect()
+    }
+
+    pub(crate) fn publish(&self, extracted: &Path, output: &Path) -> Result<String> {
+        let mut catalog = self.catalog.clone();
+        for script in &self.scripts {
+            script.publish(output)?;
+        }
+        let archive = fs::read(
+            extracted
+                .join("files")
+                .join(&self.physical.portrait_archive),
+        )?;
+        let directory = format!("assets/{}", crate::digest(&archive));
+        for portrait in self
+            .physical
+            .portraits
+            .iter()
+            .filter(|portrait| !portrait.images.is_empty())
+        {
+            let (id, asset) = portraits::decode(&archive, portrait, &directory)?.publish(output)?;
+            ensure!(
+                catalog.portraits.insert(id, asset).is_none(),
+                "duplicate portrait"
+            );
+        }
+        catalog.media = media::bind(output, extracted, &self.voices, self.requested.clone())?;
+        catalog.validate()?;
+        let path = "game/skits.json";
+        write_atomic(&output.join(path), &serde_json::to_vec_pretty(&catalog)?)?;
+        Ok(path.into())
+    }
+}
+
 #[test]
 #[cfg(unix)]
 #[ignore = "requires both original discs, RESONANCE_COOKED audio and frozen skit catalogues; no playback"]
@@ -158,7 +195,9 @@ fn original_skit_preparation_matches_both_disc_catalogues_without_intermediate_a
         }
         let extracted =
             Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../local/extracted/disc{disc}"));
-        cook(&extracted, work.path())?;
+        let _publications = crate::publication::Session::start_if_needed(work.path())?;
+        let executable = fs::read(extracted.join("sys/main.dol"))?;
+        Source::read(&extracted, &executable)?.publish(&extracted, work.path())?;
         let actual: Value =
             serde_json::from_slice(&fs::read(work.path().join("game/skits.json"))?)?;
         let resources = expected["resources"]
@@ -251,7 +290,8 @@ fn original_world_skit_resources_are_prepared_alongside_notifications() -> Resul
         }
     }
     let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
-    cook(&extracted, &output)?;
+    Source::read(&extracted, &fs::read(extracted.join("sys/main.dol"))?)?
+        .publish(&extracted, &output)?;
     let catalog: SkitCatalog = serde_json::from_slice(&fs::read(output.join("game/skits.json"))?)?;
     catalog.validate()?;
     assert_eq!(catalog.resources.range(450..544).count(), 94);

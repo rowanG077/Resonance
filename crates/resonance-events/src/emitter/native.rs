@@ -1110,6 +1110,20 @@ pub(super) fn nonnegative(v: i32) -> Result<i32, String> {
     bounded(v, 0, i32::MAX)
 }
 
+// Launch coordinates become per-update displacement while an effect is in flight.
+fn displacement(
+    target: &mut [f32; 3],
+    velocity: Option<&mut [f32; 3]>,
+    axis: usize,
+    value: Option<i32>,
+) -> Result<i32, String> {
+    if let Some(velocity) = velocity {
+        setting!(velocity[axis], value)
+    } else {
+        setting!(target[axis], value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1199,19 +1213,5 @@ mod tests {
             assert!(emitter.property(113, Some(count)).is_err());
             assert_eq!(emitter.property(113, None).unwrap(), 4);
         }
-    }
-}
-
-// Launch coordinates become per-update displacement while an effect is in flight.
-fn displacement(
-    target: &mut [f32; 3],
-    velocity: Option<&mut [f32; 3]>,
-    axis: usize,
-    value: Option<i32>,
-) -> Result<i32, String> {
-    if let Some(velocity) = velocity {
-        setting!(velocity[axis], value)
-    } else {
-        setting!(target[axis], value)
     }
 }

@@ -501,7 +501,7 @@ if __name__ == '__main__':
     parser.add_argument('--case', type=Path, help='Run one stage; defaults to all effect stages')
     parser.add_argument('--disc', type=Path, required=True)
     parser.add_argument('--cooked', type=Path, default=Path('local/all-assets'))
-    parser.add_argument('--native', type=Path, default=Path('target/debug/examples/field_sequence'))
+    parser.add_argument('--native', type=Path, default=Path('target/debug/examples/effect_sequence'))
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--reference', type=Path)
     parser.add_argument('--resume', action='store_true', help='Reuse completed Dolphin captures from an interrupted run')

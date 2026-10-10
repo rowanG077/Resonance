@@ -155,15 +155,8 @@ impl SavePoints {
                 world.event_flags.contains(&TUTORIAL_SEEN) && within_reach(player, point.position);
             let entered = active && !point.active;
             point.active = active;
-            point.glow_scale = if active {
-                if point.glow_scale < 1. {
-                    point.glow_scale + 0.02
-                } else {
-                    1.
-                }
-            } else {
-                (point.glow_scale - 0.01).max(IDLE_GLOW)
-            };
+            point.glow_scale =
+                (point.glow_scale + if active { 0.02 } else { -0.01 }).clamp(IDLE_GLOW, 1.);
             if let Some(animation) = world
                 .actors
                 .get_mut(&point.actor)
@@ -339,6 +332,51 @@ mod tests {
             assert!((animation.sample(events.world.tick, 0, 120.) - expected).abs() < 0.00001);
         }
         assert!(!events.world.save_points[0].active);
+    }
+
+    #[test]
+    fn circle_glow_approaches_and_stays_at_active_and_idle_bounds() {
+        let mut world = GameWorld::default();
+        world.controlled_actor = 1;
+        world.event_flags.insert(TUTORIAL_SEEN);
+        world.actors.insert(1, Actor::new(0, [81., 0., 0.]));
+        world.save_points.push(SavePoint {
+            actor: 0,
+            position: [0.; 3],
+            resource: 0,
+            born: 0,
+            active: true,
+            unlock_flag: None,
+            glow_scale: 1.,
+        });
+        let points = SavePoints::default();
+        let program = Arc::new(
+            symphonia_script::Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap(),
+        );
+        let mut events =
+            EventRuntime::with_state(program, Default::default(), world, Default::default())
+                .unwrap();
+        for active in [false, true] {
+            events.world.actors.get_mut(&1).unwrap().position =
+                if active { [0.; 3] } else { [81., 0., 0.] };
+            for _ in 0..120 {
+                let before = events.world.save_points[0].glow_scale;
+                events.world.tick += 1;
+                let tick = events.world.tick;
+                points.step_effects(&mut events, tick).unwrap();
+                let glow = events.world.save_points[0].glow_scale;
+                assert!((IDLE_GLOW..=1.).contains(&glow));
+                assert!(if active {
+                    glow >= before
+                } else {
+                    glow <= before
+                });
+            }
+            assert_eq!(
+                events.world.save_points[0].glow_scale,
+                if active { 1. } else { IDLE_GLOW }
+            );
+        }
     }
 
     #[test]

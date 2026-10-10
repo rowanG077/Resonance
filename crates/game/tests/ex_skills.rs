@@ -10,7 +10,7 @@ use std::sync::Arc;
 fn gems_stats_compounds_and_save_restore() {
     let menu: MenuData = cooked("game/menu-data.json");
     let mut data: SessionData = cooked("game/session-data.json");
-    data.ex_skills = Some(Arc::new(menu.ex_skills.clone()));
+    data.rules = Some(Arc::new(menu.clone()));
     let mut party = Party::new(&data, Default::default()).unwrap();
     let baseline = serde_json::to_value(&party).unwrap();
     assert!(!party.set_ex_gem(&data, 0, 0, 1).unwrap());
@@ -69,7 +69,7 @@ fn gems_stats_compounds_and_save_restore() {
         tick: 0,
     };
     let json = serde_json::to_value(&progress).unwrap();
-    assert!(json["party"]["members"][0].get("ex_rules").is_none());
+    assert!(json["party"]["members"][0].get("rules").is_none());
     let restored: SavedProgress = serde_json::from_value(json).unwrap();
     let mut party = restored.into_state(&data).unwrap().party.unwrap();
     assert_eq!(party.members[0].recent_compound_ex_skills, [0].into());
@@ -84,4 +84,43 @@ fn gems_stats_compounds_and_save_restore() {
         party.validate(&data).is_err(),
         "invalid saved selection must fail"
     );
+
+    // Runtime rules use actual references and byte-sized saved recipe indices.
+    let mut rules = menu.clone();
+    let recipe = rules.ex_skills.characters[0].compounds[0].clone();
+    rules.ex_skills.characters[0].compounds.clear();
+    rules.ex_skills.validate_rules(menu.items.len()).unwrap();
+    rules.ex_skills.characters[0]
+        .compounds
+        .resize(256, recipe.clone());
+    rules.ex_skills.skills.get_mut(&1).unwrap().stat_bonuses = vec![
+        resonance_content::menu_data::ExStatBonus {
+            stat: resonance_content::menu_data::ExStat::Strength,
+            percent: 1,
+        };
+        3
+    ];
+    rules.ex_skills.validate_rules(menu.items.len()).unwrap();
+    data.rules = Some(Arc::new(rules.clone()));
+    data.characters[0].compound_ex_skills = vec![255];
+    data.characters[0].recent_compound_ex_skills = vec![255];
+    data.validate().unwrap();
+    let mut expanded = Party::new(&data, Default::default()).unwrap();
+    expanded.members[0].ex_gems = [1, 1, 0, 0];
+    expanded.members[0].ex_skills = [1, 2, 0, 0];
+    expanded.validate(&data).unwrap();
+    assert_eq!(
+        expanded.members[0].active_compound_ex(&rules.ex_skills, 0),
+        [255]
+    );
+
+    rules.ex_skills.characters[0].compounds.pop();
+    data.rules = Some(Arc::new(rules.clone()));
+    assert!(data.validate().is_err());
+    assert!(expanded.validate(&data).is_err());
+    rules.ex_skills.characters[0].compounds.resize(257, recipe);
+    assert!(rules.ex_skills.validate_rules(menu.items.len()).is_err());
+    rules.ex_skills.characters[0].compounds.truncate(1);
+    rules.ex_skills.characters[0].compounds[0].required[0] = 0;
+    assert!(rules.ex_skills.validate_rules(menu.items.len()).is_err());
 }

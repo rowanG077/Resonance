@@ -1,7 +1,11 @@
 //! Retain the last field image on the GPU while a menu owns the screen.
 use super::{field_view::State, materials::TitleOutput};
 use bevy::{
-    core_pipeline::{Core3dSystems, schedule::Core3d},
+    core_pipeline::{
+        Core3dSystems,
+        schedule::{Core2d, Core3d},
+        upscaling::upscaling,
+    },
     image::ImageSampler,
     prelude::*,
     render::{
@@ -18,7 +22,7 @@ use bevy::{
 use std::sync::atomic::Ordering;
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-struct Material {
+pub(super) struct Material {
     #[texture(0)]
     #[sampler(1)]
     image: Handle<Image>,
@@ -59,6 +63,126 @@ struct Backdrop {
     field: Option<(u32, u32)>,
 }
 
+/// One prepared battle menu capture, using the same GPU copy and material as
+/// field menus. Its quad participates in the encounter's ordinary warmup.
+pub(super) struct BattleBackdrop {
+    entity: Entity,
+    capture: Capture,
+    material: Handle<Material>,
+    pending_draw: bool,
+}
+impl BattleBackdrop {
+    pub fn new(world: &mut World) -> anyhow::Result<Self> {
+        use anyhow::Context;
+        let source = world
+            .resource::<Assets<TitleOutput>>()
+            .iter()
+            .next()
+            .context("battle menu lost its composed output")?
+            .1
+            .source
+            .clone();
+        Self::from_source(world, source)
+    }
+
+    pub fn from_source(world: &mut World, source: Handle<Image>) -> anyhow::Result<Self> {
+        use anyhow::Context;
+        let size = world
+            .resource::<Assets<Image>>()
+            .get(&source)
+            .context("battle composed output image is absent")?
+            .texture_descriptor
+            .size;
+        let mut image =
+            Image::new_target_texture(size.width, size.height, TextureFormat::Bgra8Unorm, None);
+        image.sampler = ImageSampler::linear();
+        let target = world.resource_mut::<Assets<Image>>().add(image);
+        let material = world.resource_mut::<Assets<Material>>().add(Material {
+            image: target.clone(),
+            enabled: 0,
+        });
+        let mesh = world
+            .resource_mut::<Assets<Mesh>>()
+            .add(Rectangle::new(640., 480.));
+        let entity = world
+            .spawn((
+                Mesh2d(mesh),
+                MeshMaterial2d(material.clone()),
+                Transform::from_xyz(0., 0., 90.),
+                bevy::camera::visibility::RenderLayers::layer(super::battle_view::WARM_LAYER),
+                Visibility::Hidden,
+            ))
+            .id();
+        Ok(Self {
+            entity,
+            capture: Capture {
+                source,
+                target,
+                generation: 0,
+            },
+            material,
+            pending_draw: false,
+        })
+    }
+
+    pub fn entity(&self) -> Entity {
+        self.entity
+    }
+
+    /// Capture after the final command strip and portrait cursor draw. Retain that frame
+    /// until PostUpdate even when several fixed updates precede rendering.
+    pub fn request_capture(&mut self) {
+        if !self.pending_draw {
+            self.capture.generation = self.capture.generation.wrapping_add(1);
+            self.pending_draw = true;
+        }
+    }
+
+    pub fn awaiting_draw(&self) -> bool {
+        self.pending_draw
+    }
+
+    pub fn show(
+        &mut self,
+        held: bool,
+        camera: Option<Entity>,
+        commands: &mut Commands,
+        materials: &mut Assets<Material>,
+    ) -> anyhow::Result<()> {
+        use anyhow::Context;
+        let capture = self.pending_draw;
+        // PostUpdate is the publication boundary. Commands are applied before
+        // extraction, and the next extracted frame follows this ordered copy.
+        // A recoverable missing dependency must not leave simulation held.
+        self.pending_draw = false;
+        let result = (|| -> anyhow::Result<()> {
+            let camera = camera.context("battle menu HUD camera is absent")?;
+            materials
+                .get_mut(&self.material)
+                .context("battle menu capture material was removed")?
+                .enabled = u32::from(held);
+            commands.entity(self.entity).insert(if held {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            });
+            if capture {
+                commands.entity(camera).insert(self.capture.clone());
+            } else {
+                commands.entity(camera).remove::<Capture>();
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            commands.entity(self.entity).insert(Visibility::Hidden);
+            if let Some(camera) = camera {
+                commands.entity(camera).remove::<Capture>();
+            }
+        }
+        result
+    }
+}
+
 pub(super) fn install(app: &mut App) {
     bevy::asset::embedded_asset!(app, "menu_backdrop.wgsl");
     app.add_plugins((
@@ -67,10 +191,14 @@ pub(super) fn install(app: &mut App) {
     ))
     .add_systems(
         PostUpdate,
-        sync.before(bevy::transform::TransformSystems::Propagate),
+        sync.before(bevy::transform::TransformSystems::Propagate)
+            .run_if(super::battle::field_presenting),
     );
     app.sub_app_mut(RenderApp)
-        .add_systems(Core3d, capture.before(Core3dSystems::Prepass));
+        .add_systems(Core3d, capture.before(Core3dSystems::Prepass))
+        // Battle requests attach to the warmed HUD camera. Its upscaling pass
+        // has just composed this visit's HUD into the retained source image.
+        .add_systems(Core2d, capture.after(upscaling));
 }
 
 #[allow(clippy::too_many_arguments)] // Allocate once, then only update the held-frame request.
@@ -120,11 +248,7 @@ fn sync(
             field: None,
         }
     });
-    let field = state
-        .checkpoint
-        .as_ref()
-        .map(|s| &s.0)
-        .or_else(|| state.live.as_ref().map(|s| &s.field));
+    let field = state.live.as_ref().map(|s| &s.field);
     let identity = field.map(|f| (f.map_id, f.events.tick()));
     // Closing has one fully transparent pose before field simulation resumes.
     let held = field.is_some_and(|f| f.menu_is_open())
@@ -156,11 +280,12 @@ fn sync(
 fn capture(
     view: ViewQuery<&Capture>,
     images: Res<RenderAssets<GpuImage>>,
-    mut copied: Local<u64>,
+    mut copied: Local<Option<(AssetId<Image>, u64)>>,
     mut context: RenderContext,
 ) {
     let request = view.into_inner();
-    if *copied == request.generation {
+    let identity = (request.target.id(), request.generation);
+    if *copied == Some(identity) {
         return;
     }
     let (Some(source), Some(target)) = (images.get(&request.source), images.get(&request.target))
@@ -172,5 +297,124 @@ fn capture(
         target.texture.as_image_copy(),
         source.texture_descriptor.size,
     );
-    *copied = request.generation;
+    *copied = Some(identity);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn prepared() -> (World, BattleBackdrop, Entity, Assets<Material>) {
+        let mut world = World::new();
+        world.init_resource::<Assets<Image>>();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<Assets<Material>>();
+        let source = world.resource_mut::<Assets<Image>>().add(Image::default());
+        let backdrop = BattleBackdrop::from_source(&mut world, source).unwrap();
+        let camera = world.spawn_empty().id();
+        let materials = world.remove_resource::<Assets<Material>>().unwrap();
+        (world, backdrop, camera, materials)
+    }
+
+    fn publish(
+        world: &mut World,
+        backdrop: &mut BattleBackdrop,
+        held: bool,
+        camera: Option<Entity>,
+        materials: &mut Assets<Material>,
+    ) -> anyhow::Result<()> {
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let result = backdrop.show(
+            held,
+            camera,
+            &mut Commands::new(&mut queue, world),
+            materials,
+        );
+        queue.apply(world);
+        result
+    }
+
+    #[test]
+    fn battle_capture_holds_the_frame_until_hud_publication() {
+        let (mut world, mut backdrop, camera, mut materials) = prepared();
+        backdrop.request_capture();
+        // No intervening fixed visit can replace the outgoing strip. Repeating
+        // the same pending request also cannot manufacture another copy.
+        for _ in 0..4 {
+            assert!(backdrop.awaiting_draw());
+            backdrop.request_capture();
+        }
+        assert_eq!(backdrop.capture.generation, 1);
+        publish(
+            &mut world,
+            &mut backdrop,
+            false,
+            Some(camera),
+            &mut materials,
+        )
+        .unwrap();
+        assert!(!backdrop.awaiting_draw());
+        assert_eq!(world.get::<Capture>(camera).unwrap().generation, 1);
+        assert_eq!(
+            world.get::<Visibility>(backdrop.entity()),
+            Some(&Visibility::Hidden)
+        );
+
+        // The next extracted frame can draw the inventory. It consumes the
+        // completed preceding HUD copy and must not recapture inventory layers.
+        publish(
+            &mut world,
+            &mut backdrop,
+            true,
+            Some(camera),
+            &mut materials,
+        )
+        .unwrap();
+        assert!(world.get::<Capture>(camera).is_none());
+        assert_eq!(
+            world.get::<Visibility>(backdrop.entity()),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(materials.get(&backdrop.material).unwrap().enabled, 1);
+
+        backdrop.request_capture();
+        publish(
+            &mut world,
+            &mut backdrop,
+            false,
+            Some(camera),
+            &mut materials,
+        )
+        .unwrap();
+        assert_eq!(world.get::<Capture>(camera).unwrap().generation, 2);
+        assert_eq!(materials.get(&backdrop.material).unwrap().enabled, 0);
+    }
+
+    #[test]
+    fn a_missing_battle_backdrop_releases_the_draw_hold_and_obeys_diagnostics() {
+        for paranoid in [false, true] {
+            let (mut world, mut backdrop, camera, mut materials) = prepared();
+            let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
+            materials.remove(backdrop.material.id());
+            backdrop.request_capture();
+            let result = diagnostics.attempt(
+                "battle menu backdrop",
+                publish(
+                    &mut world,
+                    &mut backdrop,
+                    false,
+                    Some(camera),
+                    &mut materials,
+                ),
+            );
+            assert_eq!(result.is_err(), paranoid);
+            assert!(diagnostics.has_errors());
+            assert!(!backdrop.awaiting_draw());
+            assert!(world.get::<Capture>(camera).is_none());
+            assert_eq!(
+                world.get::<Visibility>(backdrop.entity()),
+                Some(&Visibility::Hidden)
+            );
+        }
+    }
 }

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "steps": [
+    {"do":"wait","until":{"kind":"field","map_id":332,"free_control":true,"story":2500},"max_updates":120},
+    {"do":"wait","until":{"kind":"save_point"},"max_updates":120},
+    {"do":"capture","name":"save-circle-start"},
+    {"do":"hold","keys":[],"updates":30},
+    {"do":"capture","name":"save-circle-middle"},
+    {"do":"hold","keys":[],"updates":45},
+    {"do":"capture","name":"save-circle-later"}
+  ]
+}

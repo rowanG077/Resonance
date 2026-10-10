@@ -4,12 +4,11 @@ use crate::{
     dialogue::{ResolvedMessage, TextToken},
     operation::{OperationScope, Wait},
 };
-use std::collections::{BTreeMap, BTreeSet};
 use symphonia_script::{
     Program,
     authored::{MessagePart, NativeDeclaration, TextReferenceKind, Type},
 };
-use symphonia_script_vm::{Host, NativeBindings, NativeResult};
+use symphonia_script_vm::{Host, NativeBindings, NativeResult, Tasks};
 mod actors;
 mod exploration;
 mod memory;
@@ -20,87 +19,6 @@ const fn variant(
     payload: &'static [Type],
 ) -> symphonia_script::authored::NativeVariant {
     symphonia_script::authored::NativeVariant { name, tag, payload }
-}
-
-const RETAINED_TASK_LIMIT: usize = 256;
-
-struct Child {
-    parent: i32,
-    result: Option<Vec<i32>>,
-}
-
-/// Ownership/results only: execution remains in EventRuntime's existing slot loop.
-#[derive(Default)]
-pub(crate) struct Tasks {
-    children: BTreeMap<i32, Child>,
-    released: BTreeSet<i32>,
-}
-
-impl Tasks {
-    fn register(&mut self, parent: i32, handle: i32) -> Result<(), String> {
-        if self.children.len() >= RETAINED_TASK_LIMIT {
-            return Err("too many unjoined child tasks".into());
-        }
-        if self.children.contains_key(&handle) {
-            return Err("duplicate child task handle".into());
-        }
-        self.children.insert(
-            handle,
-            Child {
-                parent,
-                result: None,
-            },
-        );
-        Ok(())
-    }
-    pub fn join(&mut self, parent: i32, handle: i32) -> Result<Option<Vec<i32>>, String> {
-        let child = self
-            .children
-            .get(&handle)
-            .ok_or("child task handle is stale or already joined")?;
-        if child.parent != parent {
-            return Err("task belongs to a different parent".into());
-        }
-        if child.result.is_none() {
-            return Ok(None);
-        }
-        Ok(self.children.remove(&handle).unwrap().result)
-    }
-    pub fn children(&self, parent: i32) -> Vec<i32> {
-        self.children
-            .iter()
-            .filter_map(|(&handle, child)| (child.parent == parent).then_some(handle))
-            .collect()
-    }
-    pub fn finish(&mut self, handle: i32, result: Vec<i32>) {
-        self.released.remove(&handle);
-        if let Some(child) = self.children.get_mut(&handle) {
-            child.result = Some(result);
-        }
-    }
-    pub fn root(&self, mut handle: i32) -> i32 {
-        while let Some(child) = self.children.get(&handle) {
-            handle = child.parent;
-        }
-        handle
-    }
-    pub fn contains(&self, handle: i32) -> bool {
-        self.children.contains_key(&handle)
-    }
-    pub fn remove(&mut self, handle: i32) {
-        self.released.remove(&handle);
-        self.children.remove(&handle);
-    }
-    pub fn release_control(&mut self, handle: i32) {
-        self.released.insert(self.root(handle));
-    }
-    pub fn control_released(&self, handle: i32) -> bool {
-        self.released.contains(&self.root(handle))
-    }
-    pub fn clear(&mut self) {
-        self.children.clear();
-        self.released.clear();
-    }
 }
 
 pub(crate) struct Spawn {
@@ -148,7 +66,7 @@ impl Host for FieldHost<'_> {
     }
     const AUTHORED_NATIVES: NativeBindings<Self> = {
         let bindings = NativeBindings::<Self>::new()
-            .function(
+            .register_authored(
                 "game::field::release_control",
                 &[],
                 None,
@@ -158,17 +76,17 @@ impl Host for FieldHost<'_> {
                     Ok(NativeResult::Continue(None))
                 },
             )
-            .function(
+            .register_authored(
                 "game::field::wait_ticks",
                 &[Type::Ticks],
                 None,
                 true,
                 |host, args, _| host.wait_ticks(args[0] as u32),
             )
-            .function("game::field::next_update", &[], None, true, |host, _, _| {
+            .register_authored("game::field::next_update", &[], None, true, |host, _, _| {
                 host.wait_ticks(1)
             })
-            .function(
+            .register_authored(
                 "game::story::flag",
                 &[Type::I32],
                 Some(Type::Bool),
@@ -179,7 +97,7 @@ impl Host for FieldHost<'_> {
                     ))))
                 },
             )
-            .function(
+            .register_authored(
                 "game::story::set_flag",
                 &[Type::I32, Type::Bool],
                 None,
@@ -194,14 +112,14 @@ impl Host for FieldHost<'_> {
                     Ok(NativeResult::Continue(None))
                 },
             )
-            .function(
+            .register_authored(
                 "game::field::notice",
                 &[Type::Message],
                 None,
                 true,
                 |host, args, _| host.notice(args, 0),
             )
-            .function(
+            .register_authored(
                 "game::text::character",
                 &[Type::I32],
                 Some(Type::TextReference {
@@ -219,7 +137,7 @@ impl Host for FieldHost<'_> {
                     Ok(NativeResult::Continue(Some(id)))
                 },
             )
-            .function(
+            .register_authored(
                 "game::text::item",
                 &[Type::I32],
                 Some(Type::TextReference {

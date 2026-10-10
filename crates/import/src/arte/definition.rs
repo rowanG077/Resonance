@@ -1,186 +1,253 @@
-//! Complete authored arte records; gameplay bindings interpret their flags and references.
-use super::Definition;
+//! Decode technique parameters and casting behavior at the input boundary.
+use super::{Definition, MenuDefinition};
 use crate::{dol, read::u32 as word};
 use anyhow::{Context, Result};
+use resonance_content::arte::{
+    AdmissionFlash, ArteFamily, LearningPrerequisite, LearningRoute, LearningRules,
+    RegalArteFamily, TechniqueCapabilities, TechniqueTarget,
+};
 
 const ADDRESS: u32 = 0x80202f90;
 const COUNT: usize = 253;
 const BYTES: usize = 88;
 
-pub(crate) fn decode(executable: &[u8], row: &[u8]) -> Result<Definition> {
+pub(crate) struct Row {
+    pub gameplay: Definition,
+    pub menu: MenuDefinition,
+}
+
+fn decode(executable: &[u8], row: &[u8], table: &[u8]) -> Result<Row> {
     let row = row.get(..BYTES).context("truncated arte definition")?;
     let signed = |at| i16::from_be_bytes([row[at], row[at + 1]]);
     let text = |at| dol::optional_text(executable, word(row, at)?);
-    Ok(Definition {
-        native_id: signed(0),
-        storage02: signed(2) as u16,
-        auxiliary_text: text(4)?,
+    let flags = word(row, 0x34)?;
+    let range = word(row, 0x38)? as i32;
+    let action_range = if flags & 2 != 0 && range >= 1000 {
+        8000.
+    } else {
+        range as f32
+    };
+    let optional_id = |id: i16| -> Result<Option<u16>> {
+        Ok(match id {
+            0 => None,
+            _ => Some(id.try_into().context("negative learning reference")?),
+        })
+    };
+    let required: [i16; 4] = std::array::from_fn(|i| signed(0x26 + i * 2));
+    let successor_alternatives = required[0] == -1;
+    let mut prerequisites = Vec::new();
+    for &id in required.iter().skip(usize::from(successor_alternatives)) {
+        if id == 0 {
+            continue;
+        }
+        let id: u16 = id.try_into().context("negative learning prerequisite")?;
+        let any_of = if successor_alternatives {
+            let start = usize::from(id) * BYTES;
+            let parent = table
+                .get(start..start + BYTES)
+                .context("learning prerequisite outside table")?;
+            [0x1a, 0x1c]
+                .into_iter()
+                .filter_map(|at| {
+                    let successor = i16::from_be_bytes([parent[at], parent[at + 1]]);
+                    optional_id(successor).transpose()
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            vec![id]
+        };
+        prerequisites.push(LearningPrerequisite {
+            any_of,
+            minimum_uses: if successor_alternatives {
+                signed(0x3c) as u16
+            } else {
+                0
+            },
+        });
+    }
+    let gameplay = Definition {
         tp_cost: row[8],
-        storage09: row[9..12].try_into()?,
-        description: text(12)?,
-        name: text(16)?,
-        menu_category: row[0x14],
         element: row[0x15],
-        target_preference: row[0x16],
-        learning_route: row[0x17],
-        learning_parent: signed(0x18),
-        technical_successor: signed(0x1a),
-        strike_successor: signed(0x1c),
-        mutually_exclusive: std::array::from_fn(|i| signed(0x1e + i * 2)),
-        required_learned: std::array::from_fn(|i| signed(0x26 + i * 2)),
-        forbidden_learned: std::array::from_fn(|i| signed(0x2e + i * 2)),
-        storage32: signed(0x32) as u16,
-        flags: word(row, 0x34)?,
+        learning: LearningRules {
+            route: match row[0x17] {
+                1 => Some(LearningRoute::Technical),
+                2 => Some(LearningRoute::Strike),
+                _ => None,
+            },
+            parent: optional_id(signed(0x18))?,
+            technical_successor: optional_id(signed(0x1a))?,
+            strike_successor: optional_id(signed(0x1c))?,
+            parent_uses: signed(0x3c) as u16,
+            prerequisites,
+            excludes: [signed(0x2e), signed(0x30)]
+                .into_iter()
+                .filter_map(|id| optional_id(id).transpose())
+                .collect::<Result<_>>()?,
+            requires_story_unlock: false,
+        },
+        capabilities: capabilities(flags),
+        admission_flash: if flags & 0x80 != 0 {
+            None
+        } else if flags & 0x08000010 != 0 {
+            Some(AdmissionFlash::Arcane)
+        } else if flags & 0x04000008 != 0 {
+            Some(AdmissionFlash::Advanced)
+        } else if flags & 0x02000004 != 0 {
+            Some(AdmissionFlash::Basic)
+        } else {
+            None
+        },
+        learn_on_level_up: flags & 0x80000000 != 0,
+        casting: resonance_content::arte::Casting {
+            support_target: row[0x16] != 0,
+            effects: if flags & 0x00400000 != 0 {
+                resonance_content::arte::CastingEffects::Offensive
+            } else if flags & 0x00800000 != 0 {
+                resonance_content::arte::CastingEffects::Healing
+            } else {
+                resonance_content::arte::CastingEffects::Standard
+            },
+        },
+        action_range,
         cast_time_adjustment: signed(0x38),
         recovery_ticks: signed(0x3a),
-        required_uses: signed(0x3c) as u16,
         required_level: signed(0x3e) as u16,
-        target_condition_mask: u64::from(word(row, 0x40)?) << 32 | u64::from(word(row, 0x44)?),
-        storage48: row[0x48..0x4b].try_into()?,
-        unison_altitude: row[0x4b],
-        unison_distance: signed(0x4c),
-        unison_duration: signed(0x4e),
-        skill_archive_index: word(row, 0x50)?,
-        storage54: word(row, 0x54)?,
+    };
+    Ok(Row {
+        gameplay,
+        menu: MenuDefinition {
+            tp_percent: signed(0) == 34,
+            text: resonance_content::menu_data::NamedText {
+                name: text(16)?.unwrap_or_default(),
+                description: text(12)?.unwrap_or_default(),
+            },
+            rank: row[0x14],
+            route: row[0x17],
+            alternatives: std::array::from_fn(|i| signed(0x1e + i * 2) as u16),
+        },
     })
 }
 
-pub(crate) fn definitions(executable: &[u8]) -> Result<Vec<Definition>> {
-    dol::slice(executable, ADDRESS, COUNT * BYTES)?
+fn capabilities(flags: u32) -> TechniqueCapabilities {
+    TechniqueCapabilities {
+        family: if flags & 0x20 != 0 {
+            Some(ArteFamily::Finisher)
+        } else if flags & 0x10 != 0 {
+            Some(ArteFamily::Arcane)
+        } else if flags & 8 != 0 {
+            Some(ArteFamily::Advanced)
+        } else if flags & 4 != 0 {
+            Some(ArteFamily::Basic)
+        } else {
+            None
+        },
+        regal_family: if flags & 0x08000000 != 0 {
+            Some(RegalArteFamily::Aerial)
+        } else if flags & 0x04000000 != 0 {
+            Some(RegalArteFamily::AntiAir)
+        } else if flags & 0x02000000 != 0 {
+            Some(RegalArteFamily::Ground)
+        } else {
+            None
+        },
+        spell: flags & 0x80 != 0,
+        aerial: flags & 0x40 != 0,
+        uses_weapon_reach: flags & 2 == 0,
+        chains_without_contact: flags & 0x1000 != 0,
+        target: match flags & 0x001c0000 {
+            0x00040000 => TechniqueTarget::Enemy,
+            0x00080000 => TechniqueTarget::Ally,
+            0x00100000 => TechniqueTarget::SelfTarget,
+            _ => TechniqueTarget::Unavailable,
+        },
+        offensive: flags & 0x100 != 0,
+        revives: flags & 0x10000 != 0,
+        healing: flags & 0x8000 != 0,
+    }
+}
+
+pub(crate) fn definitions(executable: &[u8]) -> Result<Vec<Row>> {
+    let table = dol::slice(executable, ADDRESS, COUNT * BYTES)?;
+    table
         .chunks_exact(BYTES)
         .enumerate()
-        .map(|(index, row)| decode(executable, row).with_context(|| format!("arte {index}")))
+        .map(|(index, row)| decode(executable, row, table).with_context(|| format!("arte {index}")))
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::Path};
-
-    /// Reconstruct physical scalars in order; text pointers are provenance, not cooked data.
-    fn reconstruct(value: &Definition, source: &[u8]) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(BYTES);
-        bytes.extend(value.native_id.to_be_bytes());
-        bytes.extend(value.storage02.to_be_bytes());
-        bytes.extend(&source[4..8]);
-        bytes.push(value.tp_cost);
-        bytes.extend(value.storage09);
-        bytes.extend(&source[12..20]);
-        bytes.extend([
-            value.menu_category,
-            value.element,
-            value.target_preference,
-            value.learning_route,
-        ]);
-        for word in [
-            value.learning_parent,
-            value.technical_successor,
-            value.strike_successor,
-        ]
-        .into_iter()
-        .chain(value.mutually_exclusive)
-        .chain(value.required_learned)
-        .chain(value.forbidden_learned)
-        {
-            bytes.extend(word.to_be_bytes());
-        }
-        bytes.extend(value.storage32.to_be_bytes());
-        bytes.extend(value.flags.to_be_bytes());
-        bytes.extend(value.cast_time_adjustment.to_be_bytes());
-        bytes.extend(value.recovery_ticks.to_be_bytes());
-        bytes.extend(value.required_uses.to_be_bytes());
-        bytes.extend(value.required_level.to_be_bytes());
-        bytes.extend(value.target_condition_mask.to_be_bytes());
-        bytes.extend(value.storage48);
-        bytes.push(value.unison_altitude);
-        bytes.extend(value.unison_distance.to_be_bytes());
-        bytes.extend(value.unison_duration.to_be_bytes());
-        bytes.extend(value.skill_archive_index.to_be_bytes());
-        bytes.extend(value.storage54.to_be_bytes());
-        bytes
-    }
 
     #[test]
-    fn arte_definition_retains_every_scalar_and_nullable_text() -> Result<()> {
-        let mut executable = vec![0; 0x108];
-        executable[..4].copy_from_slice(&0x100_u32.to_be_bytes());
-        executable[0x48..0x4c].copy_from_slice(&0x80000000_u32.to_be_bytes());
-        executable[0x90..0x94].copy_from_slice(&8_u32.to_be_bytes());
-        executable[0x100..].copy_from_slice(&[0, 0x83, 0x65, 0x83, 0x58, 0x83, 0x67, 0]);
-        let mut row: [u8; BYTES] = std::array::from_fn(|i| i as u8 ^ 0x9b);
-        row[4..8].copy_from_slice(&0x80000000_u32.to_be_bytes());
-        row[12..16].fill(0);
-        row[16..20].copy_from_slice(&0x80000001_u32.to_be_bytes());
-        let value = decode(&executable, &row)?;
-        assert_eq!(value.auxiliary_text.as_deref(), Some(""));
-        assert_eq!(value.description, None);
-        assert_eq!(value.name.as_deref(), Some("テスト"));
-        assert_eq!(reconstruct(&value, &row), row);
-        let restored: Definition = serde_json::from_slice(&serde_json::to_vec(&value)?)?;
+    fn decodes_technique_parameters_and_rejects_bad_input() -> Result<()> {
+        let mut row = [0; BYTES];
+        row[8] = 4;
+        row[0x38..0x3c].copy_from_slice(&800_u32.to_be_bytes());
+        let value = decode(&[], &row, &[])?;
         assert_eq!(
-            serde_json::to_value(restored)?,
-            serde_json::to_value(value)?
+            (value.gameplay.tp_cost, value.gameplay.action_range),
+            (4, 800.)
         );
-        assert!(decode(&executable, &row[..BYTES - 1]).is_err());
-        row[16..20].copy_from_slice(&0x80000008_u32.to_be_bytes());
-        assert!(decode(&executable, &row).is_err());
-        row[16..20].copy_from_slice(&0x80000001_u32.to_be_bytes());
-        executable[0x107] = 0x83;
-        assert!(decode(&executable, &row).is_err(), "unterminated text");
-        executable[0x102] = 0;
-        assert!(
-            decode(&executable, &row).is_err(),
-            "incomplete Shift-JIS character"
-        );
+        assert!(value.menu.text.name.is_empty());
+        assert!(decode(&[], &row[..BYTES - 1], &[]).is_err());
+        row[16..20].copy_from_slice(&1_u32.to_be_bytes());
+        assert!(decode(&[], &row, &[]).is_err());
+        row[16..20].fill(0);
+        row[0x26..0x28].copy_from_slice(&(-1_i16).to_be_bytes());
+        row[0x28..0x2a].copy_from_slice(&1_i16.to_be_bytes());
+        row[0x3c..0x3e].copy_from_slice(&50_i16.to_be_bytes());
+        let mut table = vec![0; BYTES * 2];
+        table[BYTES + 0x1a..BYTES + 0x1e].copy_from_slice(&[0, 2, 0, 3]);
+        let value = decode(&[], &row, &table)?;
+        let group = &value.gameplay.learning.prerequisites[0];
+        assert_eq!((&group.any_of, group.minimum_uses), (&vec![2, 3], 50));
+        assert!(decode(&[], &row, &[]).is_err());
         Ok(())
     }
 
     #[test]
-    #[ignore = "requires both original extracted discs; reads only the arte catalogue"]
-    fn original_arte_definitions_reconstruct_every_record_on_both_discs() -> Result<()> {
-        let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
-        let mut previous = None;
-        for disc in ["disc1", "disc2"] {
-            let executable = fs::read(extracted.join(disc).join("sys/main.dol"))?;
-            let records = definitions(&executable)?;
-            assert_eq!(records.len(), COUNT);
-            for (record, row) in records
-                .iter()
-                .zip(dol::slice(&executable, ADDRESS, COUNT * BYTES)?.chunks_exact(BYTES))
-            {
-                assert_eq!(reconstruct(record, row), row);
-                for (offset, text) in [
-                    (4, &record.auxiliary_text),
-                    (12, &record.description),
-                    (16, &record.name),
-                ] {
-                    let pointer = word(row, offset)?;
-                    assert_ne!(pointer, 0);
-                    let text = text.as_ref().context("missing original arte text")?;
-                    let (encoded, _, invalid) = encoding_rs::SHIFT_JIS.encode(text);
-                    assert!(!invalid);
-                    assert_eq!(
-                        encoded.as_ref(),
-                        dol::slice(&executable, pointer, encoded.len())?
-                    );
-                    assert_eq!(
-                        dol::slice(&executable, pointer + encoded.len() as u32, 1)?,
-                        [0]
-                    );
-                }
-            }
-            assert_eq!(records[1].name.as_deref(), Some("Demon Fang"));
-            assert!(
-                records
-                    .iter()
-                    .any(|record| record.required_learned[0] == -1)
-            );
-            let value = serde_json::to_value(records)?;
-            if let Some(previous) = previous {
-                assert_eq!(value, previous);
-            }
-            previous = Some(value);
+    fn technique_policy_is_decoded_before_runtime_admission() -> Result<()> {
+        let mut row = [0; BYTES];
+        row[0x34..0x38].copy_from_slice(&0x80444186_u32.to_be_bytes());
+        row[0x16] = 1;
+        let value = decode(&[], &row, &[])?;
+        assert_eq!(value.gameplay.capabilities.family, Some(ArteFamily::Basic));
+        assert!(value.gameplay.capabilities.spell && value.gameplay.capabilities.offensive);
+        assert_eq!(value.gameplay.capabilities.target, TechniqueTarget::Enemy);
+        assert!(!value.gameplay.capabilities.uses_weapon_reach);
+        assert!(value.gameplay.learn_on_level_up && value.gameplay.casting.support_target);
+        assert_eq!(value.gameplay.admission_flash, None);
+        row[0x34..0x38].copy_from_slice(&0x0800000c_u32.to_be_bytes());
+        let value = decode(&[], &row, &[])?;
+        assert_eq!(
+            value.gameplay.capabilities.regal_family,
+            Some(RegalArteFamily::Aerial)
+        );
+        assert_eq!(
+            value.gameplay.capabilities.target,
+            TechniqueTarget::Unavailable
+        );
+        assert_eq!(value.gameplay.admission_flash, Some(AdmissionFlash::Arcane));
+        for (raw, target) in [
+            (0x40000_u32, TechniqueTarget::Enemy),
+            (0x80000, TechniqueTarget::Ally),
+            (0x100000, TechniqueTarget::SelfTarget),
+            (0xc0000, TechniqueTarget::Unavailable),
+        ] {
+            row[0x34..0x38].copy_from_slice(&raw.to_be_bytes());
+            assert_eq!(decode(&[], &row, &[])?.gameplay.capabilities.target, target);
+        }
+        for (flags, effects) in [
+            (0_u32, [5, 7]),
+            (0x400000, [3, 7]),
+            (0x800000, [4, 8]),
+            (0xc00000, [3, 7]),
+        ] {
+            let mut row = [0; BYTES];
+            row[0x34..0x38].copy_from_slice(&(flags | 0x101).to_be_bytes());
+            let casting = decode(&[], &row, &[])?.gameplay.casting;
+            assert_eq!(casting.effects.members(), effects);
         }
         Ok(())
     }

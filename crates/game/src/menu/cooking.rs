@@ -1,6 +1,5 @@
 use super::*;
-use resonance_content::menu_data::{RECIPE_COUNT, RECIPE_ROWS};
-use resonance_events::input::Button;
+use resonance_content::menu_data::{MealEffect, MenuData, RECIPE_COUNT, RECIPE_ROWS};
 use resonance_events::party::{CookingError, Meal};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -14,6 +13,39 @@ pub enum Focus {
 pub enum Content {
     Meal(Meal),
     Notice(Notice),
+}
+impl Content {
+    pub fn text(&self, data: &MenuData, recipe: u8) -> anyhow::Result<(String, Vec<String>)> {
+        let captions = data.cooking_text()?;
+        match self {
+            Self::Notice(notice) => Ok((captions.label(notice.label())?.into(), vec![])),
+            Self::Meal(meal) => {
+                let name = &captions.recipe(usize::from(recipe))?.name;
+                let title = format!(
+                    "{}{}{}",
+                    captions.label("result_join")?,
+                    name,
+                    captions.label(if meal.success { "success" } else { "failure" })?
+                );
+                let mut effects: Vec<_> = meal
+                    .effects
+                    .iter()
+                    .map(|(&effect, amount)| {
+                        let label = captions.effect(effect)?;
+                        if matches!(effect, MealEffect::HpRecovery | MealEffect::TpRecovery) {
+                            Ok(format!("{label} {amount}%"))
+                        } else {
+                            Ok(label.to_owned())
+                        }
+                    })
+                    .collect::<anyhow::Result<_>>()?;
+                if effects.is_empty() {
+                    effects.push(captions.label("no_effect")?.into());
+                }
+                Ok((title, effects))
+            }
+        }
+    }
 }
 #[derive(Debug, serde::Serialize)]
 pub enum Notice {
@@ -132,38 +164,54 @@ impl Menu {
         self.cooking.description_opacity =
             255 - fade_description(&mut self.cooking.description_fade, changed);
     }
-    pub(super) fn step_cooking(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down]: [bool; 4],
-    ) -> Option<i16> {
+    pub(super) fn step_cooking(&mut self, input: Input) -> Option<i16> {
         let state = &mut self.cooking;
         state.scroll = (state.scroll + state.scroll.signum()) % 5;
         if state.transition.animating() || state.scroll != 0 {
             return None;
         }
-        let cue = self.cooking_input(input, [left, right, up, down]);
+        let cue = self.cooking_input(input);
         self.cooking.fade();
         cue
     }
-    fn cooking_input(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down]: [bool; 4],
-    ) -> Option<i16> {
+    fn cooking_input(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [left, right, up, down] = [Left, Right, Up, Down].map(|action| input == Some(action));
         if let Some(popup) = &mut self.cooking.popup
             && popup.active
         {
-            if input.pressed(Button::Accept) || input.pressed(Button::Cancel) {
+            if matches!(input, Some(Confirm | Cancel)) {
                 popup.active = false;
                 return Some(2);
             }
             return None;
         }
+        if input == Some(Alternate) && self.cooking.focus == Focus::Header {
+            let progress = &mut self.checkpoint.as_mut().unwrap().progress;
+            let data = &self.resources.as_ref().unwrap().data;
+            let (content, cue) = match progress.cook(data) {
+                Ok(meal) => {
+                    self.party_changed = true;
+                    (Content::Meal(meal), 2)
+                }
+                Err(CookingError::UnavailableCook) => return Some(4),
+                Err(error) => (
+                    Content::Notice(match error {
+                        CookingError::Full => Notice::Full,
+                        CookingError::MissingIngredients => Notice::MissingIngredients,
+                        CookingError::UnknownRecipe => Notice::UnknownRecipe,
+                        CookingError::UnavailableCook => unreachable!(),
+                    }),
+                    4,
+                ),
+            };
+            self.cooking.show(content);
+            return Some(cue);
+        }
         let state = &mut self.cooking;
         let progress = &mut self.checkpoint.as_mut().unwrap().progress;
         let party = &mut progress.party;
-        if input.pressed(Button::Cancel) {
+        if input == Some(Cancel) {
             if state.focus == Focus::Header {
                 state.transition.page_closing = true;
                 self.select_main(Page::Cooking);
@@ -174,7 +222,7 @@ impl Menu {
         }
         match state.focus {
             Focus::Header => {
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     state.focus = if state.choose_recipe {
                         Focus::Recipes
                     } else {
@@ -192,34 +240,13 @@ impl Menu {
                         .unwrap();
                     return Some(2);
                 }
-                if input.pressed(Button::Ring) {
-                    let (content, cue) = match progress.cook(&self.resources.as_ref().unwrap().data)
-                    {
-                        Ok(meal) => {
-                            self.party_changed = true;
-                            (Content::Meal(meal), 2)
-                        }
-                        Err(CookingError::UnavailableCook) => return Some(4),
-                        Err(error) => (
-                            Content::Notice(match error {
-                                CookingError::Full => Notice::Full,
-                                CookingError::MissingIngredients => Notice::MissingIngredients,
-                                CookingError::UnknownRecipe => Notice::UnknownRecipe,
-                                CookingError::UnavailableCook => unreachable!(),
-                            }),
-                            4,
-                        ),
-                    };
-                    state.show(content);
-                    return Some(cue);
-                }
                 if up || down {
                     state.choose_recipe = !state.choose_recipe;
                     return Some(1);
                 }
             }
             Focus::Cooks => {
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     party.cooking.chef = party.formation[state.chef_slot] - 1;
                     self.party_changed = true;
                     state.focus = Focus::Header;
@@ -235,7 +262,7 @@ impl Menu {
                 return (state.chef_slot != old).then_some(1);
             }
             Focus::Recipes => {
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     if !party.cooking.knows(state.recipe as u8) {
                         state.show(Content::Notice(Notice::UnknownRecipe));
                         return Some(4);
@@ -246,11 +273,11 @@ impl Menu {
                     return Some(2);
                 }
                 let old = state.recipe;
-                if input.pressed(Button::PreviousPage) {
+                if matches!(input, Some(PreviousTab | PageUp)) {
                     let step = state.first.min(RECIPE_ROWS);
                     state.first -= step;
                     state.recipe -= step;
-                } else if input.pressed(Button::NextPage) {
+                } else if matches!(input, Some(NextTab | PageDown)) {
                     if state.first + RECIPE_ROWS < RECIPE_COUNT {
                         state.first += RECIPE_ROWS;
                         state.recipe = (old + RECIPE_ROWS).min(RECIPE_COUNT - 1);
@@ -270,7 +297,7 @@ impl Menu {
                     state.scroll = (state.first as i32 - first as i32).signum() as i8;
                 }
                 return (state.recipe != old).then_some(
-                    if input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage) {
+                    if matches!(input, Some(PreviousTab | NextTab | PageUp | PageDown)) {
                         38
                     } else {
                         1

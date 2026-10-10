@@ -19,6 +19,10 @@ pub(super) fn title_reverbs(executable: &[u8]) -> Result<[[f32; 5]; 2]> {
     song_reverbs(executable, 1)
 }
 
+pub(crate) fn battle_reverbs(executable: &[u8]) -> Result<[[f32; 5]; 2]> {
+    preset_parameters(executable, 2)
+}
+
 pub(crate) fn song_reverbs(executable: &[u8], song: u16) -> Result<[[f32; 5]; 2]> {
     match song_reverb_change(executable, song)? {
         ReverbChange::Set { parameters } => Ok(parameters),
@@ -33,6 +37,16 @@ pub(crate) fn song_reverb_change(executable: &[u8], song: u16) -> Result<ReverbC
     if preset == 0 {
         return Ok(ReverbChange::Keep);
     }
+    Ok(ReverbChange::Set {
+        parameters: preset_parameters(executable, preset)?,
+    })
+}
+
+fn preset_parameters(executable: &[u8], preset: u8) -> Result<[[f32; 5]; 2]> {
+    ensure!(
+        (1..=2).contains(&preset),
+        "invalid selected music reverb preset"
+    );
     let addresses = [
         if preset == 1 {
             [
@@ -74,13 +88,54 @@ pub(crate) fn song_reverb_change(executable: &[u8], song: u16) -> Result<ReverbC
             );
         }
     }
-    Ok(ReverbChange::Set { parameters: result })
+    Ok(result)
+}
+
+/// Small inline descriptor metadata; scores and sample packages are unchanged.
+pub fn music_reverbs(executable: &[u8]) -> Result<resonance_content::field_audio::MusicReverbs> {
+    let result = resonance_content::field_audio::MusicReverbs {
+        presets: [
+            preset_parameters(executable, 1)?[0],
+            preset_parameters(executable, 2)?[0],
+        ],
+        selectors: crate::dol::slice(executable, 0x8021_08b0, usize::from(SONG_COUNT))?.to_vec(),
+    };
+    result.validate()?;
+    Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::{collections::BTreeSet, fs, path::Path};
+
+    #[test]
+    #[ignore = "requires both original discs; extracts only small descriptor metadata"]
+    fn both_disc_music_reverb_catalogs_round_trip_exact_source_selections() -> Result<()> {
+        let mut prior = None;
+        for disc in [1, 2] {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../local/extracted/disc{disc}/sys/main.dol"));
+            let executable = fs::read(path)?;
+            let catalog = music_reverbs(&executable)?;
+            let decoded: resonance_content::field_audio::MusicReverbs =
+                serde_json::from_slice(&serde_json::to_vec(&catalog)?)?;
+            assert_eq!(catalog, decoded);
+            for song in 0..SONG_COUNT {
+                match song_reverb_change(&executable, song)? {
+                    ReverbChange::Keep => assert_eq!(catalog.for_song(song as i16)?, None),
+                    ReverbChange::Set { parameters } => {
+                        assert_eq!(catalog.for_song(song as i16)?, Some(parameters[0]));
+                    }
+                }
+            }
+            if let Some(prior) = &prior {
+                assert_eq!(&catalog, prior);
+            }
+            prior = Some(catalog);
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires both extracted discs; checks original tables without audio playback"]

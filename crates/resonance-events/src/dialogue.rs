@@ -109,6 +109,7 @@ impl crate::GameWorld {
                 anchor: DialogueAnchor::Screen([0., 0.]),
                 speaker_actor: None,
                 opening_actor: None,
+                actor_activity_released: false,
                 flags,
                 dimensions: None,
                 height_offset: 0,
@@ -215,6 +216,8 @@ pub struct Dialogue {
     /// Wait for the speaker’s current turn before opening. Clear once;
     /// a later turn must not close and reopen the same window.
     pub opening_actor: Option<i32>,
+    /// Release the speaker before completing the dialogue operation.
+    pub actor_activity_released: bool,
     pub flags: u16,
     /// Explicit body dimensions, or measure every page using the bitmap font.
     pub dimensions: Option<[u16; 2]>,
@@ -236,6 +239,16 @@ pub enum DialogueStatus {
 }
 
 impl Dialogue {
+    pub(crate) fn holds_actor_activity(&self) -> bool {
+        !self.actor_activity_released && self.operation.is_pending()
+    }
+
+    /// Turning releases the linked window before the same visit's dialogue update.
+    pub fn opening_ready(&self, actors: &BTreeMap<i32, crate::Actor>) -> bool {
+        self.opening_actor
+            .is_none_or(|id| actors.get(&id).is_none_or(crate::Actor::facing_target))
+    }
+
     /// Labels and descriptions stay open until the owning script closes them.
     pub fn persistent(&self) -> bool {
         self.flags & (flags::PERSISTENT | flags::AUTO_PAGES) != 0

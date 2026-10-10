@@ -77,6 +77,8 @@ struct Background {
     require_control: bool,
 }
 
+/// Stable slot order and one shared script data region for up to 32 instances.
+/// Scheduling is independent of render frame rate.
 pub struct EventRuntime {
     pub world: GameWorld,
     /// Diagnostic retained when the temporary playground abandons field scripts.
@@ -88,7 +90,7 @@ pub struct EventRuntime {
     next_handle: i32,
     failed: bool,
     interaction: Option<i32>,
-    tasks: crate::authored::Tasks,
+    tasks: symphonia_script_vm::Tasks,
 }
 impl EventRuntime {
     pub fn resources(&self) -> &ResourceLibrary {
@@ -176,6 +178,40 @@ impl EventRuntime {
     pub fn tick(&self) -> u32 {
         self.world.tick
     }
+    /// Read active VM owners without running or polling any event or service.
+    pub fn observed_instances(&self) -> Vec<crate::EventInstanceObservation> {
+        self.instances
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, instance)| {
+                let instance = instance.as_ref()?;
+                Some(crate::EventInstanceObservation {
+                    slot,
+                    handle: instance.handle,
+                    key: instance.key,
+                    program_entry: instance.program.entry(),
+                    legacy_program: instance.program.authored().is_none(),
+                    pc: instance.vm.pc(),
+                    legacy_return_stack: instance.vm.legacy_return_stack().to_vec(),
+                    value_depth: instance.vm.value_depth(),
+                    argument_depth: instance.vm.argument_depth(),
+                    expression: instance.vm.expression(),
+                    join: instance.join,
+                    registers: instance.registers,
+                    background: instance.background.as_ref().map(|b| {
+                        crate::diagnostic::BackgroundObservation {
+                            paused: b.paused,
+                            require_control: b.require_control,
+                        }
+                    }),
+                    wait: instance
+                        .wait
+                        .as_ref()
+                        .map(|wait| crate::diagnostic::wait(wait, &self.world)),
+                })
+            })
+            .collect()
+    }
     pub fn active_instances(&self) -> usize {
         self.instances.iter().filter(|i| i.is_some()).count()
     }
@@ -254,6 +290,14 @@ impl EventRuntime {
             && self.interaction.is_none()
             && self.world.field_exit.is_none()
     }
+    /// Taking a request does not release the suspended field. Only completing
+    /// its operation allows the next field update to resume the caller.
+    pub fn battle_pending(&self) -> bool {
+        self.world.battle_request.as_ref().is_some_and(|r| r.is_pending())
+            || self.instances.iter().flatten().any(|instance| {
+                matches!(&instance.wait, Some(Wait::Battle(operation)) if operation.is_pending())
+            })
+    }
     pub fn save_progress(&self) -> Result<crate::SavedProgress> {
         ensure!(!self.failed, "cannot save a failed event runtime");
         Ok(crate::SavedProgress {
@@ -276,7 +320,7 @@ impl EventRuntime {
             script_state: self.world.script_state.clone(),
             event_records: self.world.event_records.clone(),
             random_state: self.world.random_state,
-            gameplay_random: self.world.gameplay_random.clone(),
+            gameplay_random: self.world.gameplay_random,
             tick: self.world.tick,
         })
     }
@@ -288,7 +332,7 @@ impl EventRuntime {
         memory.copy_from(&self.memory, 0..crate::persistent::GLOBAL_BYTES)?;
         Ok(crate::PersistentState {
             memory,
-            gameplay_random: self.world.gameplay_random.clone(),
+            gameplay_random: self.world.gameplay_random,
             party: self.world.party.clone(),
             event_flags: self.world.event_flags.clone(),
             script_state: self.world.script_state.clone(),
@@ -435,7 +479,7 @@ impl EventRuntime {
         if self.exploration_error.is_some() {
             return Ok(false);
         }
-        if !self.world.input_enabled || self.interaction.is_some() {
+        if !self.world.input_enabled || self.interaction.is_some() || self.battle_pending() {
             return Ok(false);
         }
         if kind != 0
@@ -680,7 +724,10 @@ impl EventRuntime {
     ) -> Result<()> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
         self.world.reap_authored_resources();
-        if self.world.blocked_by_movie() || self.world.screen_request.is_some() {
+        if self.world.blocked_by_movie()
+            || self.battle_pending()
+            || self.world.screen_request.is_some()
+        {
             return Ok(());
         }
         self.world.actors.retain(|_, actor| !actor.retiring);
@@ -720,13 +767,7 @@ impl EventRuntime {
             )?;
         }
         for dialogue in self.world.dialogue.values_mut() {
-            if let Some(id) = dialogue.opening_actor
-                && self
-                    .world
-                    .actors
-                    .get(&id)
-                    .is_none_or(|a| a.heading == a.target_heading)
-            {
+            if dialogue.opening_ready(&self.world.actors) {
                 dialogue.opening_actor = None;
             }
         }
@@ -799,6 +840,15 @@ impl EventRuntime {
                 .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
+            let actor_conversation = actor.autonomy.and_then(|ai| ai.dialogue_slot).map_or(
+                conversation_active,
+                |slot| {
+                    self.world
+                        .dialogue
+                        .get(&slot)
+                        .is_some_and(crate::dialogue::Dialogue::holds_actor_activity)
+                },
+            );
             let ambient = if actor.motion.is_none()
                 && actor
                     .enemy
@@ -817,7 +867,7 @@ impl EventRuntime {
             } else {
                 actor.step_autonomy(
                     self.world.input_enabled,
-                    conversation_active,
+                    actor_conversation,
                     player_position,
                     &mut || crate::world::random(&mut self.world.random_state),
                 )
@@ -838,22 +888,24 @@ impl EventRuntime {
                 && !ambient.selecting
                 && let Some(model) = self.resources.model(actor.resource)
             {
-                let dialogue = self.world.dialogue.values().any(|d| d.operation.is_pending()
+                let dialogue = actor.autonomy.is_some_and(|ai| {
+                    ai.conversing && ai.dialogue_slot.is_some()
+                }) || self.world.dialogue.values().any(|d| d.operation.is_pending()
                     && matches!(d.anchor, crate::dialogue::DialogueAnchor::Actor(speaker) if speaker == *id));
-                actor.select_automatic_animation(
+                actor.select_ordinary_animation(
                     model,
                     self.world.tick,
-                    crate::animation::Locomotion {
+                    crate::animation::OrdinaryAnimation {
                         movement_speed,
-                        walking: ambient.walking,
                         turn,
-                        dialogue,
+                        walking: ambient.walking,
                         event_controlled: !self.world.input_enabled
                             && *id == self.world.controlled_actor,
-                        player_controlled: self.world.input_enabled
+                        player_locomotion: self.world.input_enabled
                             && *id == self.world.controlled_actor,
-                        release: None,
+                        dialogue,
                     },
+                    None,
                 );
             }
             actor.animation_culled = actor.cull_outside_view
@@ -868,6 +920,8 @@ impl EventRuntime {
                     self.world.tick,
                 );
             }
+            // Capture draw placement before the later field VM update.
+            actor.draw_position = Some(actor.position);
         }
         self.world.update_collision_attachments(&self.resources)?;
         self.world.step_enemy_sources();
@@ -1017,6 +1071,7 @@ impl EventRuntime {
                     || self.world.field_transition.is_some()
                     || self.world.world_transition.is_some()
                     || self.world.field_exit.is_some()
+                    || self.battle_pending()
             }) {
                 if let Some(Wait::Tick(wake)) = &mut instance.wait {
                     *wake = wake.checked_add(1).context("paused event clock overflow")?;
@@ -1053,6 +1108,7 @@ impl EventRuntime {
                 continue;
             }
             if let Some(wait) = instance.wait.take() {
+                let battle_completed = matches!(&wait, Wait::Battle(_));
                 if matches!(wait, Wait::ControlHandoff(_)) {
                     self.world.input_enabled = true;
                 }
@@ -1120,6 +1176,12 @@ impl EventRuntime {
                     None
                 };
                 instance.vm.complete(result, &mut self.memory)?;
+                if battle_completed && !self.world.restore_battle_music {
+                    // Live combat publishes its result before resuming the caller.
+                    // A debug bypass has no scene handoff and resumes immediately.
+                    self.instances[slot] = Some(instance);
+                    continue;
+                }
             }
             let mut commands = Vec::new();
             let mut spawns = Vec::new();

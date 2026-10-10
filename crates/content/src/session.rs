@@ -1,5 +1,5 @@
 //! Cooked definitions used by fresh-game initialization and party script calls.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 pub struct SessionData {
     /// Shared gameplay rules bound from menu-data after loading; never saved twice.
     #[serde(skip)]
-    pub ex_skills: Option<std::sync::Arc<crate::menu_data::ExSkillData>>,
+    pub rules: Option<std::sync::Arc<crate::menu_data::MenuData>>,
     pub version: u32,
     pub executable_sha256: String,
     pub items: Vec<ItemDefinition>,
@@ -35,6 +35,18 @@ pub struct ItemDefinition {
 }
 
 pub const DEFAULT_ITEM_STACK_LIMIT: u8 = 20;
+impl ItemDefinition {
+    pub fn fits_slot(&self, character: usize, slot: usize) -> bool {
+        // Persistent order: weapon, body, head, two accessories, arm.
+        const SLOT_KINDS: [u8; 6] = [0, 1, 2, 4, 4, 3];
+        SLOT_KINDS
+            .get(slot)
+            .is_some_and(|&kind| self.equipment_kind == Some(kind))
+            && character < u16::BITS as usize
+            && self.allowed_characters & (1 << character) != 0
+    }
+}
+
 /// Key items are unique; ordinary inventory uses the base-game twenty-item cap.
 pub const fn item_stack_limit(category: u8) -> u8 {
     if category == 45 {
@@ -120,7 +132,11 @@ impl SessionData {
                 "invalid item definition"
             );
         }
-        for character in &self.characters {
+        for (index, character) in self.characters.iter().enumerate() {
+            ensure!(
+                character.overlimit <= 100,
+                "initial Over Limit percentage exceeds 100"
+            );
             ensure!(
                 character.ex_gems.iter().all(|&level| level <= 5)
                     && character
@@ -128,13 +144,36 @@ impl SessionData {
                         .iter()
                         .zip(character.ex_skills)
                         .all(|(&level, skill)| level != 0 || skill == 0)
-                    && character.compound_ex_skills.iter().all(|&id| id < 24)
                     && character
                         .recent_compound_ex_skills
                         .iter()
                         .all(|id| character.compound_ex_skills.contains(id)),
                 "invalid initial EX skill state"
             );
+            if character.ex_skills.iter().any(|&id| id != 0)
+                || !character.compound_ex_skills.is_empty()
+            {
+                let rules = &self
+                    .rules
+                    .as_ref()
+                    .context("initial EX skills require prepared rules")?
+                    .ex_skills;
+                let choices = rules
+                    .characters
+                    .get(index)
+                    .context("missing initial character EX rules")?;
+                ensure!(
+                    character
+                        .ex_skills
+                        .iter()
+                        .all(|&id| id == 0 || rules.skills.contains_key(&id))
+                        && character
+                            .compound_ex_skills
+                            .iter()
+                            .all(|&id| usize::from(id) < choices.compounds.len()),
+                    "invalid initial EX skill reference"
+                );
+            }
             ensure!(
                 character.cooking.iter().all(|&v| v <= 8),
                 "invalid cooking experience"
@@ -151,27 +190,25 @@ impl SessionData {
                 character
                     .equipment
                     .iter()
-                    .all(|id| usize::from(*id) < self.items.len()),
-                "initial equipment item is missing"
+                    .enumerate()
+                    .all(|(slot, &id)| id == 0
+                        || self
+                            .items
+                            .get(usize::from(id))
+                            .is_some_and(|item| item.fits_slot(index, slot))
+                            && self
+                                .rules
+                                .as_ref()
+                                .is_none_or(|rules| rules.items.get(usize::from(id)).is_some())),
+                "initial equipment is missing, unprepared or ineligible"
             );
             ensure!(
-                character.techniques.len() <= 64
-                    && character.allowed_techniques.len() <= 64
-                    && character
-                        .allowed_techniques
-                        .iter()
-                        .all(|id| usize::from(*id) < crate::menu_data::TECHNIQUE_COUNT)
-                    && character
-                        .techniques
-                        .iter()
-                        .all(|id| character.allowed_techniques.contains(id))
-                    && character
-                        .level_techniques
-                        .values()
-                        .map(Vec::len)
-                        .sum::<usize>()
-                        <= 64,
-                "too many character techniques"
+                character
+                    .techniques
+                    .iter()
+                    .chain(character.level_techniques.values().flatten())
+                    .all(|id| character.allowed_techniques.contains(id)),
+                "character technique is outside its catalogue"
             );
             ensure!(
                 character
@@ -189,4 +226,26 @@ impl SessionData {
         }
         Ok(())
     }
+}
+
+#[test]
+fn character_techniques_use_their_allowed_catalogue() -> Result<()> {
+    use serde_json::json;
+    let mut session: SessionData = serde_json::from_value(json!({
+        "version":1, "executable_sha256":"0".repeat(64), "experience":[0,0],
+        "items":[{"equipment_kind":null,"allowed_characters":0,"stack_limit":1}],
+        "characters":vec![json!({
+            "affinity":0,"level":1,"experience":0,"base_stats":[1,0,0,0,0,0,0],
+            "luck":0,"overlimit":0,"equipment":vec![0;6],"shortcuts":vec![0;4],
+            "techniques":[300],"allowed_techniques":[300],"level_techniques":{"1":[300]},
+            "growth":vec![json!({"base":0,"random":0,"title_bonus":0});7]
+        });9]
+    }))?;
+    session.validate()?;
+    session.characters[0].techniques.push(301);
+    assert!(session.validate().is_err());
+    session.characters[0].techniques.clear();
+    session.characters[0].level_techniques.insert(1, vec![301]);
+    assert!(session.validate().is_err());
+    Ok(())
 }

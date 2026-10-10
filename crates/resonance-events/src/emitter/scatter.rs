@@ -20,6 +20,10 @@ pub(crate) struct Scatter {
     pub lifetime: [u32; 2],
 }
 impl Scatter {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Emission borrows actor state, clocks, randomness and its output batch."
+    )]
     pub(super) fn emit(
         &self,
         center: [f32; 3],

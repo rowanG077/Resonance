@@ -45,8 +45,8 @@ pub fn encoded_size(sample_count: u32) -> usize {
 ///
 /// `coefficients[predictor]` contains the two signed predictor coefficients.
 /// `history` is the `(yn1, yn2)` state before the first frame; ordinary `MusyX`
-/// samples use `[0, 0]`. Decoding rounds with a `+1024` bias and clamps
-/// each sample to the signed 16-bit range.
+/// samples use `[0, 0]`. Decode with a `+1024` rounding term
+/// and saturation to ±32767.
 ///
 /// # Errors
 ///
@@ -133,7 +133,7 @@ pub fn decode_range(
             sample += 1024;
             sample += coefficient_a * previous + coefficient_b * previous_previous;
             sample >>= 11;
-            sample = sample.clamp(i64::from(i16::MIN), i64::from(i16::MAX));
+            sample = sample.clamp(-i64::from(i16::MAX), i64::from(i16::MAX));
             output.push(sample as i16);
             previous_previous = previous;
             previous = sample;
@@ -197,6 +197,30 @@ mod tests {
         assert_eq!(
             decode(&[], u32::MAX, [[0; 2]; 8], [0; 2]),
             Err(DspError::SampleCount(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn negative_saturation_updates_predictor_history_for_initial_and_loop_decode() {
+        // The DSP accelerator saturates -32768 to -32767 before storing yn1.
+        // A half-strength predictor carries that difference into later samples.
+        let coefficients = [[1024, 0]; 8];
+        assert_eq!(
+            decode(&[0x0c, 0x80, 0], 3, coefficients, [0; 2]).unwrap(),
+            [-32767, -16383, -8191]
+        );
+        assert_eq!(
+            decode_range(
+                &[0x0c, 0x08, 0],
+                1..4,
+                coefficients,
+                State {
+                    predictor_scale: 0x0c,
+                    history: [0; 2],
+                }
+            )
+            .unwrap(),
+            [-32767, -16383, -8191]
         );
     }
 

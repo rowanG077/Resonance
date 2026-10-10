@@ -5,10 +5,19 @@ mod menu_probe;
 mod overworld_test;
 mod probe;
 mod replay;
+#[cfg(test)]
+use crate::test_support::field_checkpoint;
 pub use fixture::prepare_checkpoint_fixture;
 pub use overworld_test::{prepare_overworld_test_fixture, run_overworld_field_probe};
-pub(crate) use replay::record_live;
-pub use replay::{CheckpointReplay, record_checkpoint, record_checkpoint_with_display};
+#[cfg(test)]
+pub(crate) use replay::assert_checkpoint;
+pub use replay::{
+    CheckpointRecordingOptions, CheckpointReplay, record_checkpoint, record_new_game,
+};
+pub(crate) use replay::{
+    Event as ScenarioEvent, ScenarioInput, Step as ScenarioStep, capture_image,
+    install_scenario_input, record_app, recording_scene, scenario_consumed,
+};
 pub(super) mod title;
 mod title_probe;
 use super::{field_view, loading, new_game};
@@ -68,7 +77,7 @@ impl SceneCheckpoint {
     }
     fn played_ticks(&self) -> u64 {
         match self {
-            Self::Field(c) => c.played_ticks(),
+            Self::Field(c) => c.played_ticks,
             Self::World(c) => c.overworld.played_ticks,
         }
     }
@@ -113,12 +122,6 @@ impl Persistence {
 }
 
 #[derive(Resource)]
-struct Capture {
-    started: Instant,
-    frames: u32,
-    requested: bool,
-}
-#[derive(Resource)]
 struct RetainedFrame(Vec<(Entity, bool)>);
 impl Drop for Persistence {
     fn drop(&mut self) {
@@ -140,11 +143,6 @@ pub(super) fn install(app: &mut App, options: &SaveOptions) -> Result<()> {
         app.insert_resource(new_game::Request(Some(
             resonance_persistence::read_bounded(path)?,
         )));
-        app.insert_resource(Capture {
-            started: Instant::now(),
-            frames: 0,
-            requested: false,
-        });
     }
     app.insert_resource(Persistence {
         store: Store::new(directory),
@@ -153,52 +151,6 @@ pub(super) fn install(app: &mut App, options: &SaveOptions) -> Result<()> {
     });
     title::install(app);
     Ok(())
-}
-
-pub(super) fn capture(world: &mut World) {
-    let options = world.resource::<super::RunOptions>();
-    let Some(path) = options
-        .capture
-        .clone()
-        .filter(|_| options.saves.load.is_some())
-    else {
-        return;
-    };
-    let state = world.resource::<Capture>();
-    if state.requested {
-        return;
-    }
-    if state.started.elapsed().as_secs() > 60 {
-        error!("Saved-field capture timed out");
-        world.write_message(AppExit::error());
-        return;
-    }
-    let Ok(checkpoint) = scene_checkpoint(world) else {
-        return;
-    };
-    let mut state = world.resource_mut::<Capture>();
-    state.frames += 1;
-    if state.frames < 30 {
-        return;
-    }
-    state.requested = true;
-    let metadata = serde_json::json!({
-        "checkpoint": checkpoint, "audio_device": false,
-        "width": resonance_content::WIDTH, "height": resonance_content::HEIGHT,
-        "identity": world.resource::<new_game::Session>().identity,
-    });
-    let target = world.resource::<super::Framebuffer>().0.clone();
-    use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
-    world.spawn(Screenshot(target)).observe(
-        move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            if let Err(error) = crate::screenshot::write(&event.image, &path, Some(&metadata)) {
-                error!("Saved-field capture failed: {error:#}");
-                exit.write(AppExit::error());
-            } else {
-                exit.write(AppExit::Success);
-            }
-        },
-    );
 }
 
 /// Only the live, prepared field can supply a checkpoint. Other modes have no
@@ -309,8 +261,8 @@ fn load(world: &mut World) -> Result<String> {
         "quicksave is still being written"
     );
     let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-    let (_, checkpoint): (_, SceneCheckpoint) =
-        resonance_persistence::decode(&bytes, &world.resource::<new_game::Session>().identity)?;
+    let (_, checkpoint): (_, SceneCheckpoint) = resonance_persistence::decode(&bytes)?
+        .admit(&world.resource::<new_game::Session>().identity)?;
     if matches!(checkpoint, SceneCheckpoint::World(_))
         || world.resource::<new_game::Session>().overworld.is_some()
         || recovering
@@ -319,6 +271,7 @@ fn load(world: &mut World) -> Result<String> {
             world.resource::<super::RunOptions>().assets.clone(),
             world.resource::<super::RunOptions>().script_root.clone(),
             Some(bytes),
+            None,
             world.resource::<loading::Resident>(),
         )?;
         world.insert_resource(WorldLoad(pending));
@@ -428,6 +381,12 @@ pub(super) fn update(world: &mut World) {
     if let Some(result) = world.resource::<Persistence>().poll_write() {
         report(world, result.map(|()| "Quicksave written".into()));
     }
+    if !world.contains_resource::<ScenarioInput>() {
+        shortcuts(world);
+    }
+}
+
+pub(super) fn shortcuts(world: &mut World) {
     let input = world.resource::<ButtonInput<KeyCode>>();
     let save_pressed = input.just_pressed(KeyCode::F5);
     let load_pressed = input.just_pressed(KeyCode::F9);
@@ -464,11 +423,13 @@ mod tests {
     #[test]
     fn field_and_world_save_shapes_preserve_numeric_inventory_and_event_keys() -> Result<()> {
         let field: FieldCheckpoint = serde_json::from_value(serde_json::json!({
-            "map_id": 330, "position": [0, 0, 0], "heading": 0,
+            "map_id": 330, "position": [0, 0, 0], "heading": 0, "played_ticks": 100,
             "progress": {
                 "script_globals": [], "event_flags": [22], "random_state": 0, "tick": 100,
+                "gameplay_random": resonance_events::GameplayRandom::default(),
                 "event_records": {"12": {"value": 1, "extra": 0, "tick": 50}},
                 "party": {
+                    "battles": resonance_events::party::BattleStatistics::default(),
                     "members": [], "formation": [], "items": {"58": 1},
                     "found_items": [58], "recent_items": [58], "gald": 0, "spent_gald": 0,
                     "settings": resonance_events::party::Settings::default()
@@ -505,7 +466,25 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires cooked school grounds; no window or audio device"]
+    fn unavailable_quicksave_does_not_queue_a_write() {
+        let mut world = World::new();
+        world.init_resource::<Time<Virtual>>();
+        world.init_resource::<loading::Resident>();
+        world.insert_resource(Persistence {
+            store: Store::new(std::env::temp_dir()),
+            slot: SlotId::new("unused").unwrap(),
+            writing: Mutex::default(),
+        });
+        world.resource_mut::<Time<Virtual>>().pause();
+        assert!(save(&mut world).is_err());
+        world.resource_mut::<Time<Virtual>>().unpause();
+        assert!(save(&mut world).is_err());
+        assert!(!world.resource::<Persistence>().is_writing());
+        assert!(world.resource::<Persistence>().poll_write().is_none());
+    }
+
+    #[test]
+    #[ignore = "requires current prepared fields; no window or audio device"]
     fn restored_frame_releases_during_authored_notice_without_enabling_saves() {
         use std::{fs, path::Path, sync::atomic::Ordering};
         let scripts = tempfile::tempdir().unwrap();
@@ -520,27 +499,34 @@ mod tests {
         )
         .unwrap();
         let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
-            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
             PathBuf::from,
         );
-        let saved = new_game::tests::school_checkpoint(&root);
         let mut cache = loading::Cache {
             scripts: Some(resonance_game::authored::FieldScripts::new(
                 scripts.path().to_path_buf(),
             )),
             ..default()
         };
-        let package =
-            new_game::FieldPackage::prepare(&root, saved.map_id, &mut cache, || false).unwrap();
+        let package = new_game::FieldPackage::prepare(&root, 332, &mut cache, || false).unwrap();
+        let saved = field_checkpoint(&package.files).unwrap();
         let mut session =
-            new_game::Session::load_prepared(&root, package.files, Some(saved), &mut cache)
+            new_game::Session::load_prepared(&root, package.files, Some(saved), None, &mut cache)
                 .unwrap();
         session.audio = None;
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<Image>()
             .init_resource::<loading::Resident>()
-            .init_resource::<super::super::movie::Playback>();
+            .init_resource::<super::super::movie::Playback>()
+            .insert_resource(crate::diagnostics::Diagnostics(
+                resonance_content::diagnostics::Diagnostics::new(true),
+            ))
+            .insert_resource(Persistence {
+                store: Store::new(scripts.path().join("slots")),
+                slot: SlotId::new("unused").unwrap(),
+                writing: Mutex::default(),
+            });
         let art =
             field_view::prepared_test_art(&session.assets, app.world().resource::<AssetServer>());
         app.insert_resource(art).insert_resource(session);
@@ -575,6 +561,33 @@ mod tests {
         assert!(world.get::<Camera>(visible).unwrap().is_active);
         assert!(!world.get::<Camera>(hidden).unwrap().is_active);
         assert!(checkpoint(world).is_err());
+
+        let published = world
+            .resource::<new_game::Session>()
+            .restored_checkpoint
+            .clone()
+            .unwrap();
+        let tick = world.resource::<new_game::Session>().field.events.tick();
+        let mut timed_out = false;
+        replay::wait_ready(&mut app, &mut timed_out).unwrap();
+        assert!(
+            !timed_out,
+            "a queued Restore event must not block replay admission"
+        );
+        let world = app.world_mut();
+        assert_eq!(
+            world.resource::<new_game::Session>().field.events.tick(),
+            tick
+        );
+        assert_checkpoint(
+            world
+                .resource::<new_game::Session>()
+                .restored_checkpoint
+                .as_ref()
+                .unwrap(),
+            &published,
+        )
+        .unwrap();
 
         world
             .resource_mut::<new_game::Session>()

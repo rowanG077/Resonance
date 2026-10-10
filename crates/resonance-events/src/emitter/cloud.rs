@@ -18,6 +18,10 @@ pub(super) struct Cloud {
 }
 
 impl Cloud {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Emission borrows actor state, clocks, randomness and its output batch."
+    )]
     pub fn emit(
         &mut self,
         (owner, center): (i32, [f32; 3]),

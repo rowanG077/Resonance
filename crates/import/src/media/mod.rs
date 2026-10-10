@@ -1,14 +1,16 @@
 //! Offline media conversion. Rust owns parsing, validation, and conversion;
 //! pure Rust codecs run without opening an audio output device.
 mod cooked_music;
-mod field_audio;
+pub(crate) mod field_audio;
 pub(crate) mod voice_library;
 pub(crate) use field_audio::FieldAudioCooker;
 mod adx;
 pub(crate) mod library;
 mod movie;
-mod music;
-mod music_library;
+pub(crate) mod music;
+/// Original inline metadata for bounded descriptor-only preparation.
+pub use music::music_reverbs;
+pub(crate) mod music_library;
 mod music_score;
 mod music_voice;
 mod pitched_sample;
@@ -27,7 +29,7 @@ pub(crate) use movie::cook_directory as cook_movie_directory;
 pub(crate) use movie::cook_movie_file;
 pub(crate) use movie::is_movie;
 pub use music_score::inspect_title_audio;
-pub use music_voice::{MusicVoiceOptions, render_music_voice, render_title_audio_preview};
+pub use music_voice::{MusicVoiceOptions, render_music_voice};
 pub use pitched_sample::{PitchedSampleOptions, render_pitched_sample};
 pub use sound_buses::{render_sound_buses, render_sound_sequence};
 pub(crate) use sounds::prepare_title_sounds;
@@ -165,44 +167,32 @@ pub(crate) fn write_shared_sample(
     })
 }
 
-fn wav_frames(path: &Path, rate: u32, maximum: u32) -> Result<u32> {
-    validate_wave(path, rate, maximum, false)
-}
-
-fn validate_wave(path: &Path, rate: u32, maximum: u32, allow_float: bool) -> Result<u32> {
-    let mut wave = hound::WavReader::open(path)?;
-    let spec = wave.spec();
-    let frames = wave.duration();
-    ensure!(
-        spec.channels == 2
-            && spec.sample_rate == rate
-            && ((spec.bits_per_sample == 16 && spec.sample_format == hound::SampleFormat::Int)
-                || (allow_float
-                    && spec.bits_per_sample == 32
-                    && spec.sample_format == hound::SampleFormat::Float))
-            && (1..=maximum).contains(&frames),
-        "unexpected PCM format or duration in {}",
-        path.display()
-    );
-    let mut audible = false;
-    if spec.sample_format == hound::SampleFormat::Float {
-        for sample in wave.samples::<f32>() {
-            let sample = sample?;
-            ensure!(sample.is_finite(), "nonfinite rendered audio sample");
-            audible |= sample != 0.0;
-        }
-    } else {
-        for sample in wave.samples::<i16>() {
-            audible |= sample? != 0;
-        }
-    }
-    ensure!(audible, "rendered audio is silent: {}", path.display());
-    Ok(frames)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    pub(super) fn audio_tables() -> resonance_audio::music_voice::Tables {
+        use resonance_audio::{dls, mix, modulation, music_voice, resample};
+        music_voice::Tables {
+            mix: mix::Tables {
+                volume: [1.; 129],
+                alternate_volume: [1.; 129],
+                pan: [1.; 4],
+                volume_16_scale: 1.,
+                controller_14_scale: 1.,
+                pan_16_scale: 1.,
+                spatial: None,
+            },
+            dls: dls::Tables {
+                attenuation: [0; 194],
+            },
+            modulation: modulation::Tables {
+                sine: [0; 1024],
+                tremolo: [1.; 5],
+            },
+            coefficients: resample::Coefficients([[[0; 4]; 128]; 4]),
+        }
+    }
 
     #[test]
     fn generated_interpolation_coefficients_are_stable() {

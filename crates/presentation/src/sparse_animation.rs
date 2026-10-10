@@ -122,16 +122,13 @@ impl Binding {
             seconds.is_finite() && seconds >= 0.,
             "invalid animation time"
         );
-        for &(entity, rest) in &self.0 {
-            affine.set(entity, &mut *nodes.get_mut(entity)?, rest.into());
-        }
-        sample(
+        let poses = sample(
             &self.0,
             motion,
             (seconds * FRAME_HZ).min(motion.duration_frames),
-            nodes,
-            affine,
-        )
+            None,
+        )?;
+        publish(&self.0, &poses, nodes, affine)
     }
 }
 
@@ -139,41 +136,48 @@ pub(super) fn sample(
     bones: &[(Entity, Transform)],
     motion: &Motion,
     frame: f32,
+    previous: Option<&[affine::Pose]>,
+) -> Result<Vec<affine::Pose>> {
+    use resonance_content::animation::pose::{BonePose, sample_bone};
+    ensure!(
+        motion
+            .tracks
+            .iter()
+            .all(|track| usize::from(track.bone) < bones.len()),
+        "animation bone outside bound model"
+    );
+    bones
+        .iter()
+        .enumerate()
+        .map(|(index, &(_, rest))| {
+            let bind = PoseTransform {
+                translation: rest.translation.to_array(),
+                rotation: rest.rotation.to_array(),
+                scale: rest.scale.to_array(),
+            };
+            let track = motion
+                .tracks
+                .iter()
+                .find(|track| usize::from(track.bone) == index);
+            let mut sampled = sample_bone(bind, track, frame)?;
+            if let Some(previous) = previous.and_then(|rows| rows.get(index)) {
+                sampled.retain_unwritten(BonePose::complete(previous.native()));
+            }
+            Ok(sampled.value().into())
+        })
+        .collect()
+}
+
+pub(super) fn publish(
+    bones: &[(Entity, Transform)],
+    poses: &[affine::Pose],
     nodes: &mut Query<&mut Transform>,
     affine: &mut affine::Locals,
 ) -> Result<()> {
-    for track in &motion.tracks {
-        let &(entity, rest) = bones
-            .get(usize::from(track.bone))
-            .context("animation bone outside bound model")?;
-        let pose = sample_track(track, frame, rest)?;
+    for (&(entity, _), &pose) in bones.iter().zip(poses) {
         affine.set(entity, &mut *nodes.get_mut(entity)?, pose);
     }
     Ok(())
-}
-
-pub(super) fn sample_track(
-    track: &resonance_content::animation::Track,
-    frame: f32,
-    rest: Transform,
-) -> Result<affine::Pose> {
-    let bind = PoseTransform {
-        translation: rest.translation.to_array(),
-        rotation: rest.rotation.to_array(),
-        scale: rest.scale.to_array(),
-    };
-    Ok(if track.matrices.is_some() {
-        affine::Pose::Affine(bevy::math::Affine3A::from_mat4(Mat4::from_cols_array_2d(
-            &track.sample_matrix(frame, bind)?,
-        )))
-    } else {
-        let pose = track.sample(frame, bind)?;
-        affine::Pose::Trs(Transform {
-            translation: Vec3::from_array(pose.translation),
-            rotation: Quat::from_array(pose.rotation),
-            scale: Vec3::from_array(pose.scale),
-        })
-    })
 }
 
 #[cfg(test)]

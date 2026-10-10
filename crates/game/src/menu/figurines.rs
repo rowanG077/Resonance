@@ -1,6 +1,5 @@
 use super::*;
 use resonance_content::figurine::Figurine;
-use resonance_events::input::Button;
 
 pub const VISIBLE: usize = 12;
 
@@ -13,22 +12,34 @@ pub struct Figurines {
     pub view: preview::View,
 }
 impl Menu {
+    pub fn figurines_data(&self) -> anyhow::Result<&resonance_content::figurine::FigurineBook> {
+        self.figurines_data
+            .as_ref()
+            .context("figurines page has not been prepared")
+    }
+
     pub fn figurine_records(&self) -> Vec<&Figurine> {
-        let records = &self.resources.as_ref().unwrap().data.figurines.records;
-        self.party()
+        let Some(data) = &self.figurines_data else {
+            return Vec::new();
+        };
+        let Some(checkpoint) = &self.checkpoint else {
+            return Vec::new();
+        };
+        checkpoint
+            .progress
+            .party
             .figurines
             .iter()
-            .map(|&id| &records[usize::from(id)])
+            .filter_map(|&id| data.records.get(usize::from(id)))
             .collect()
     }
     pub fn figurine(&self) -> Option<&Figurine> {
         self.figurine_records().get(self.figurines.row).copied()
     }
-    pub(super) fn step_figurines(
-        &mut self,
-        input: crate::field::FieldInput,
-        [up, down, page_up, page_down]: [bool; 4],
-    ) -> Option<i16> {
+    pub(super) fn step_figurines(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [up, down, page_up, page_down] =
+            [Up, Down, PageUp, PageDown].map(|action| input == Some(action));
         let state = &mut self.figurines;
         state.scroll = (state.scroll + state.scroll.signum()) % 5;
         if state.view.page_fade != 0 || state.view.page_closing || state.scroll != 0 {
@@ -37,7 +48,7 @@ impl Menu {
         if state.view.advance_model(state.row) {
             return None;
         }
-        if input.pressed(Button::Cancel) {
+        if input == Some(Cancel) {
             state.view.page_closing = true;
             return Some(3);
         }

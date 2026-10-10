@@ -388,7 +388,7 @@ impl NativeHost<'_> {
                                 .as_ref()
                                 .ok_or("party is not initialized")?
                                 .battles
-                                .last_duration_ticks as i32,
+                                .combat_ticks as i32,
                         );
                     }
                     FieldSystemCommand::SetSkitPrompts => {
@@ -412,7 +412,8 @@ impl NativeHost<'_> {
                             .as_ref()
                             .ok_or("monster catalogue is missing")?;
                         value = Some(
-                            menu.monsters
+                            menu.monsters()
+                                .map_err(|error| error.to_string())?
                                 .records
                                 .iter()
                                 .filter(|monster| {
@@ -806,6 +807,9 @@ impl NativeHost<'_> {
                     require(speed > 0. || distance < 1., "actor movement has zero speed")?;
                     actor.motion = Some(crate::world::ActorMotion { target, speed });
                     actor.set_movement_speed(speed);
+                    if let Some(autonomy) = &mut actor.autonomy {
+                        autonomy.begin_scripted_motion();
+                    }
                 }
             }
             NativeCall::SetActorOrientation => {
@@ -1273,6 +1277,8 @@ impl NativeHost<'_> {
             NativeCall::MeasureActorGeometry => {
                 // Arguments are operation, first actor, second actor.
                 require((0..=3).contains(&a[0]), "unknown actor geometry query")?;
+                let first = self.world.resolve_actor_id(a[1]);
+                let second = self.world.resolve_actor_id(a[2]);
                 let actor = |id| {
                     self.world.actors.get(&match id {
                         crate::CONTROLLED_ACTOR => self.world.controlled_actor,
@@ -1280,7 +1286,7 @@ impl NativeHost<'_> {
                         _ => id,
                     })
                 };
-                value = Some(match (actor(a[1]), actor(a[2])) {
+                value = Some(match (actor(first), actor(second)) {
                     (Some(first), Some(second)) => {
                         let d: [f32; 3] =
                             std::array::from_fn(|i| second.position[i] - first.position[i]);

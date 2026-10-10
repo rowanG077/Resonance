@@ -8,7 +8,8 @@ use crate::all_assets::{
 #[cfg(test)]
 use crate::dol;
 use resonance_content::menu_data::{
-    Item, ItemAttention, ItemUse, ItemView, MenuData, Technique, TechniqueUse, Title,
+    Item, ItemAttention, ItemCaptions, ItemText, ItemUse, ItemView, MenuData, MenuPresentation,
+    NamedText, Technique, TechniqueUse, Title,
 };
 #[cfg(test)]
 use std::fs;
@@ -29,8 +30,8 @@ pub(super) fn read(executable: &[u8]) -> Result<Tables> {
     assemble(&Source::read(executable)?, &Inputs::read(executable)?)
 }
 
-#[cfg(test)]
-pub(super) fn items(executable: &[u8]) -> Result<Vec<Item>> {
+/// Decode the shared item publication without preparing menu artwork or models.
+pub fn items(executable: &[u8]) -> Result<Vec<Item>> {
     menu_items(&crate::item::read(executable)?)
 }
 
@@ -46,9 +47,12 @@ fn menu_items(definitions: &[crate::item::Definition]) -> Result<Vec<Item>> {
                     5..=7 => Some(ItemAttention::LowVitals),
                     10 => Some(ItemAttention::Ailment),
                     11 => Some(ItemAttention::Knockout),
+                    12 => Some(ItemAttention::AllAilments),
+                    13 => Some(ItemAttention::MagicalAilment),
                     _ => None,
                 },
                 field_usable: row.usage_flags & 1 != 0,
+                battle_usable: row.usage_flags & 2 != 0,
                 view: match id {
                     68 => Some(ItemView::TetheallaMap),
                     69 => Some(ItemView::SylvarantMap),
@@ -58,7 +62,7 @@ fn menu_items(definitions: &[crate::item::Definition]) -> Result<Vec<Item>> {
                     73 => Some(ItemView::TrainingManual),
                     _ => None,
                 },
-                properties: status::properties(row)?,
+                properties: status::properties(id, row)?,
                 price: row.price.try_into().context("negative item price")?,
                 transforms_to: row.transforms_to,
                 field_use: if row.usage_flags & 1 == 0 {
@@ -103,9 +107,6 @@ fn menu_items(definitions: &[crate::item::Definition]) -> Result<Vec<Item>> {
                         _ => None,
                     }
                 },
-                name: row.name.clone().unwrap_or_default(),
-                description: row.description.clone().unwrap_or_default(),
-                details: row.details.clone().unwrap_or_default(),
                 category: row.category,
                 equipment_stats: [
                     row.slash,
@@ -140,6 +141,7 @@ impl Source {
 pub(crate) struct Inputs {
     pub grade_shop: resonance_content::grade::Shop,
     pub arte: crate::arte::Catalogue,
+    pub arte_menu: Vec<crate::arte::MenuDefinition>,
     pub items: Vec<crate::item::Definition>,
     pub characters: crate::character_data::Catalogue,
     pub inventory: inventory_ui::Catalogue,
@@ -161,9 +163,11 @@ pub(crate) struct Inputs {
 
 impl Inputs {
     pub(crate) fn read(executable: &[u8]) -> Result<Self> {
+        let arte = crate::arte::read(executable)?;
         Ok(Self {
             grade_shop: crate::all_assets::grade_shop::read(executable)?,
-            arte: crate::arte::read(executable)?,
+            arte: arte.catalogue,
+            arte_menu: arte.menu,
             items: crate::item::read(executable)?,
             characters: crate::character_data::read(executable)?,
             inventory: inventory_ui::read(executable)?,
@@ -189,6 +193,11 @@ impl Inputs {
 pub(crate) struct Tables {
     pub(super) data: MenuData,
     pub(super) artwork: super::recipe::Recipe,
+    pub(super) manual: resonance_content::menu_data::TrainingManual,
+    pub(super) figurines: resonance_content::figurine::FigurineBook,
+    pub(super) synopsis: resonance_content::menu_data::SynopsisData,
+    pub(super) customize: resonance_content::menu_data::CustomizeData,
+    pub(super) rename: resonance_content::menu_data::RenameData,
 }
 
 pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
@@ -204,8 +213,9 @@ pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
         .arte
         .definitions
         .iter()
+        .zip(&inputs.arte_menu)
         .enumerate()
-        .map(|(id, row)| {
+        .map(|(id, (row, menu))| {
             let (hp, party) = match id {
                 98 | 221 => (30, false),
                 99 | 117 => (45, true),
@@ -220,20 +230,15 @@ pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
                 _ => (0, false),
             };
             Ok(Technique {
-                name: row.name.clone().unwrap_or_default(),
-                description: row.description.clone().unwrap_or_default(),
                 tp: row.tp_cost,
-                tp_percent: row.native_id == 34,
-                unison_usable: row.flags & 0x100 != 0,
-                rank: row.menu_category,
+                tp_percent: menu.tp_percent,
+                unison_usable: row.capabilities.offensive,
+                rank: menu.rank,
                 element: row.element,
-                route: row.learning_route,
+                route: menu.route,
                 level: row.required_level,
-                prerequisite: row
-                    .learning_parent
-                    .try_into()
-                    .context("negative menu prerequisite")?,
-                alternatives: row.mutually_exclusive.map(|id| id as u16),
+                prerequisite: row.learning.parent.unwrap_or_default(),
+                alternatives: menu.alternatives,
                 field_use: if hp != 0 {
                     Some(TechniqueUse::Recover { hp, party })
                 } else {
@@ -394,7 +399,66 @@ pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
     }
     let world = &inputs.world;
     let phases = &source.phases;
+    let names = inputs
+        .characters
+        .definitions
+        .get(..9)
+        .context("missing initial character names")?;
+    let (ex_skills, ex_text) = ex_skills::cook(&inputs.ex_skills)?;
+    let (world_map, map_text, shop_text) = world_map::cook(world, phases, ui)?;
+    let (status, status_text) = status::cook(status_ui, &items)?;
+    let (strategy, strategy_text) = strategy::cook(strategy_ui)?;
+    let (cooking, cooking_text) = cooking::cook(cooking_ui)?;
+    let item_text = ItemCaptions {
+        items: inputs
+            .items
+            .iter()
+            .map(|row| {
+                Some(ItemText {
+                    name: row.name.clone().unwrap_or_default(),
+                    description: row.description.clone().unwrap_or_default(),
+                    details: row.details.clone().unwrap_or_default(),
+                })
+            })
+            .collect(),
+        item_categories: categories(&ui.item_categories)?,
+        inventory_categories: categories(&ui.inventory_categories)?,
+        item_group_prompt: Some(text::decode(ui.text(inventory.actions.use_hint), 9)?),
+        item_bottle_count: Some(text::decode(
+            ui.text(inventory.actions.remaining_format),
+            8,
+        )?),
+    };
+    let technique_text = inputs
+        .arte_menu
+        .iter()
+        .map(|row| Some(row.text.clone()))
+        .collect();
+    let title_text = (1..=inputs.titles.character_starts.len())
+        .map(|character| {
+            inputs
+                .titles
+                .for_character(character as u8)?
+                .iter()
+                .map(|row| {
+                    Ok(Some(NamedText {
+                        name: inputs.titles.required_text(row.name)?.to_owned(),
+                        description: inputs.titles.required_text(row.description)?.to_owned(),
+                    }))
+                })
+                .collect::<Result<Vec<_>>>()
+        })
+        .collect::<Result<_>>()?;
+
     Ok(Tables {
+        manual: manual::cook(synopsis_catalogue)?,
+        figurines: resonance_content::figurine::FigurineBook {
+            title: String::new(),
+            records: Vec::new(),
+        },
+        synopsis: synopsis::cook(&source.font, synopsis_catalogue, world)?,
+        customize: customize::cook(options_ui)?,
+        rename: rename::cook(&inputs.rename)?,
         artwork: super::recipe::assemble(
             &source.artwork,
             &inputs.characters,
@@ -407,32 +471,32 @@ pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
         data: MenuData {
             grade_shop: inputs.grade_shop.clone(),
             version: MenuData::VERSION,
-            item_group_prompt: text::decode(ui.text(inventory.actions.use_hint), 9)?,
-            item_bottle_count: text::decode(ui.text(inventory.actions.remaining_format), 8)?,
-            ex_skills: ex_skills::cook(&inputs.ex_skills)?,
-            manual: manual::cook(synopsis_catalogue)?,
-            world_map: world_map::cook(world, phases, ui)?,
-            status: status::cook(status_ui, &items)?,
-            strategy: strategy::cook(strategy_ui)?,
-            synopsis: synopsis::cook(&source.font, synopsis_catalogue, world)?,
-            cooking: cooking::cook(cooking_ui)?,
-            customize: customize::cook(options_ui)?,
             crafting: inputs.crafting.prepare()?,
-            techniques,
             items,
             titles,
-            full_names,
-            rename: rename::cook(&inputs.rename, &inputs.characters)?,
-            labels,
-            item_categories: categories(&ui.item_categories)?,
-            inventory_categories: categories(&ui.inventory_categories)?,
-            figurines: resonance_content::figurine::FigurineBook {
-                title: String::new(),
-                records: Vec::new(),
-            },
-            monsters: resonance_content::monster::MonsterBook {
-                labels: Default::default(),
-                records: Vec::new(),
+            techniques,
+            ex_skills,
+            world_map,
+            status,
+            strategy,
+            cooking,
+            initial_names: std::array::from_fn(|i| names[i].name.clone()),
+            presentation: MenuPresentation {
+                labels,
+                items: Some(item_text),
+                titles: Some(title_text),
+                techniques: Some(technique_text),
+                names: Some(full_names),
+                strategy: Some(strategy_text),
+                cooking: Some(cooking_text),
+                status: Some(status_text),
+                world_map: Some(map_text),
+                shops: Some(shop_text),
+                ex_skills: Some(ex_text),
+                monsters: Some(resonance_content::monster::MonsterBook {
+                    labels: Default::default(),
+                    records: Vec::new(),
+                }),
             },
         },
     })
@@ -448,8 +512,6 @@ fn menu_titles(
                 .iter()
                 .map(|row| {
                     Ok(Title {
-                        name: catalogue.required_text(row.name)?.to_owned(),
-                        description: catalogue.required_text(row.description)?.to_owned(),
                         growth: row.growth,
                         costume: None,
                     })
@@ -472,9 +534,10 @@ fn cooked_catalogues_preserve_prepared_menu() -> Result<()> {
         serde_json::from_slice(&fs::read(output.join("game/menu-data.json"))?)?;
     // Preview bindings have their own source/animation regressions. Compare every
     // menu table independently of the frozen preview format.
-    for key in ["figurines", "monsters"] {
-        expected.as_object_mut().unwrap().remove(key);
-    }
+    expected["presentation"]
+        .as_object_mut()
+        .unwrap()
+        .remove("monsters");
     for disc in [1, 2] {
         let temporary = tempfile::tempdir()?;
         let staging = temporary.path();
@@ -494,10 +557,60 @@ fn cooked_catalogues_preserve_prepared_menu() -> Result<()> {
             },
         )?;
         ensure!(failures.is_empty(), "{failures:#?}");
-        let mut actual = serde_json::to_value(catalogues.menu()?.data)?;
-        for key in ["figurines", "monsters"] {
-            actual.as_object_mut().unwrap().remove(key);
+        let tables = catalogues.menu()?;
+        for (path, actual) in [
+            (
+                resonance_content::menu_data::MANUAL_PATH,
+                serde_json::to_value(&tables.manual)?,
+            ),
+            (
+                resonance_content::menu_data::SYNOPSIS_PATH,
+                serde_json::to_value(&tables.synopsis)?,
+            ),
+            (
+                resonance_content::menu_data::CUSTOMIZE_PATH,
+                serde_json::to_value(&tables.customize)?,
+            ),
+            (
+                resonance_content::menu_data::RENAME_PATH,
+                serde_json::to_value(&tables.rename)?,
+            ),
+        ] {
+            let expected: serde_json::Value =
+                serde_json::from_slice(&fs::read(output.join(path))?)?;
+            assert_eq!(actual, expected, "disc {disc}: {path}");
         }
+        super::cook_art(
+            &local.join(format!("extracted/disc{disc}")),
+            staging,
+            &executable,
+            tables.artwork,
+            tables.data.items.len(),
+        )?;
+        let fresh = fs::read(staging.join("ui/menu.json"))?;
+        let art = resonance_content::menu::MenuArt::decode(
+            &fresh,
+            &resonance_content::diagnostics::Diagnostics::new(true),
+        )?;
+        art.validate(tables.data.items.len())?;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&fresh)?,
+            serde_json::from_slice::<serde_json::Value>(&fs::read(output.join("ui/menu.json"))?)?,
+            "disc {disc}: menu artwork"
+        );
+        for texture in art.textures.values() {
+            assert_eq!(
+                fs::read(staging.join(&texture.path))?,
+                fs::read(output.join(&texture.path))?,
+                "disc {disc}: {}",
+                texture.path
+            );
+        }
+        let mut actual = serde_json::to_value(tables.data)?;
+        actual["presentation"]
+            .as_object_mut()
+            .unwrap()
+            .remove("monsters");
         assert_eq!(actual, expected, "disc {disc}");
     }
     Ok(())

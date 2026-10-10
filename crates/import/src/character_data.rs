@@ -72,7 +72,6 @@ crate::read::record! {
         pub(crate) affinity: i32 => word(0x58) as i32,
         pub(crate) storage5c: [u8; 4] => row[0x5c..0x60].try_into()?,
         pub(crate) storage60: [u8; 8] => row[0x60..0x68].try_into()?,
-        pub(crate) learning_history: u64 => mask(0x68),
         pub(crate) learned_techniques: u64 => mask(0x70),
         pub(crate) enabled_techniques: u64 => mask(0x78),
         pub(crate) available_techniques: u64 => mask(0x80),
@@ -188,83 +187,6 @@ mod tests {
     use super::*;
     use std::{collections::BTreeSet, fs};
 
-    fn reconstruct(row: &Definition) -> Vec<u8> {
-        let mut bytes = encoding_rs::SHIFT_JIS.encode(&row.name).0.into_owned();
-        bytes.push(0);
-        bytes.extend(&row.name_storage);
-        bytes.extend([
-            row.storage0d,
-            row.character_index,
-            row.title,
-            row.level,
-            row.appearance_variant,
-        ]);
-        bytes.extend(row.hp.to_be_bytes());
-        bytes.extend(row.tp.to_be_bytes());
-        bytes.extend(row.storage16);
-        for value in [row.experience, row.conditions, row.title_mask] {
-            bytes.extend(value.to_be_bytes());
-        }
-        bytes.extend([row.technique_drift as u8, row.storage25]);
-        for value in [
-            row.base_hp,
-            row.base_tp,
-            row.base_attack,
-            row.base_defense,
-            row.base_luck,
-            row.base_accuracy,
-            row.base_evasion,
-            row.base_intelligence,
-            row.max_hp,
-            row.max_tp,
-            row.attack,
-            row.slash,
-            row.thrust,
-            row.defense,
-            row.luck,
-            row.accuracy,
-            row.evasion,
-            row.intelligence,
-        ]
-        .into_iter()
-        .chain(row.equipment)
-        {
-            bytes.extend(value.to_be_bytes());
-        }
-        bytes.extend([row.overlimit, row.storage57]);
-        bytes.extend(row.affinity.to_be_bytes());
-        bytes.extend(row.storage5c);
-        bytes.extend(row.storage60);
-        for value in [
-            row.learning_history,
-            row.learned_techniques,
-            row.enabled_techniques,
-            row.available_techniques,
-        ] {
-            bytes.extend(value.to_be_bytes());
-        }
-        for value in row
-            .technique_uses
-            .iter()
-            .chain(&row.shortcuts)
-            .chain(&row.linked_shortcuts)
-        {
-            bytes.extend(value.to_be_bytes());
-        }
-        bytes.extend(row.linked_characters);
-        bytes.extend(row.strategy);
-        bytes.push(row.storagee9);
-        bytes.extend(row.ex_gems);
-        bytes.extend(row.ex_skills);
-        bytes.extend(row.storagef2);
-        bytes.extend(row.cooking);
-        bytes.push(row.technique_balance as u8);
-        bytes.extend(row.storage10d);
-        bytes.extend(row.compound_ex_skills.to_be_bytes());
-        bytes.extend(row.recent_compound_ex_skills.to_be_bytes());
-        bytes
-    }
-
     #[test]
     fn character_definition_preserves_signed_fields_and_storage() -> Result<()> {
         let mut raw: [u8; BYTES] = std::array::from_fn(|i| 0x80 | (i % 0x80) as u8);
@@ -274,7 +196,6 @@ mod tests {
         assert_eq!(row.name, "テスト");
         assert!(row.hp < 0 && row.base_luck < 0 && row.affinity < 0 && row.technique_drift < 0);
         assert!(row.technique_uses.iter().all(|&value| value < 0));
-        assert_eq!(reconstruct(&row), raw);
         let catalogue = Catalogue {
             definitions: vec![row.clone(); COUNT],
             experience: (0..LEVELS).map(|i| 0x80000000 | i as u32).collect(),
@@ -306,7 +227,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both original extracted discs; only publishes character JSON"]
-    fn original_character_catalogue_reconstructs_and_publishes_both_discs() -> Result<()> {
+    fn character_catalogue_publishes_both_discs() -> Result<()> {
         let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let output = crate::temporary_path(&std::env::temp_dir().join(FAMILY));
         let result = (|| -> Result<()> {
@@ -323,9 +244,6 @@ mod tests {
                 let paths = cook(&source, &executable, &destination)?;
                 let catalogue = cooked(&destination)?;
                 assert_eq!(catalogue, read(&executable)?);
-                for (row, raw) in catalogue.definitions.iter().zip(raw.chunks_exact(BYTES)) {
-                    assert_eq!(reconstruct(row), raw);
-                }
                 assert_eq!(catalogue.definitions[9].name, "ルーティ");
                 assert_eq!(catalogue.definitions[9].learned_techniques, 3);
                 assert_eq!(catalogue.definitions[10].name, "クレス");

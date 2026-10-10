@@ -148,7 +148,10 @@ impl Playback {
                     volume: 32,
                 });
             }
-            audio.push(AudioCommand::Voice(line.voice));
+            audio.push(AudioCommand::Voice {
+                resource: line.voice,
+                completion: None,
+            });
         }
         let sounds: &[(u32, i16)] = match self.id {
             516 => &[(1, 26), (1, 443), (40, 443), (74, 443), (130, 443)],

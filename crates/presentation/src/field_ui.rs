@@ -1,4 +1,6 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
+#[path = "battle_ui.rs"]
+mod battle_ui;
 #[path = "field_ui_coverage.rs"]
 mod coverage;
 #[path = "credits.rs"]
@@ -10,8 +12,17 @@ mod failure;
 #[path = "session_screen.rs"]
 pub(crate) mod session_screen;
 pub(super) use failure::update as transition_failure;
+#[path = "field_ui_fade.rs"]
+mod fade;
+pub(super) use battle_ui::{Artwork as BattleHud, EnemyHud as BattleEnemyHud, PartyHudInput};
+#[path = "game_over_ui.rs"]
+mod game_over_ui;
+pub(super) use game_over_ui::Artwork as GameOverArt;
 #[path = "field_ui_menu.rs"]
 mod menu;
+#[cfg(test)]
+pub(super) use menu::MenuDraws;
+pub(super) use menu::install as install_menu_draws;
 #[path = "field_ui_overlay.rs"]
 mod overlay;
 pub(super) fn model_preview_depth() -> f32 {
@@ -29,7 +40,9 @@ use bevy::{
     image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
-    render::render_resource::AsBindGroup,
+    render::render_resource::{
+        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState,
+    },
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d},
 };
@@ -39,6 +52,55 @@ use resonance_events::dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, TextT
 use resonance_game::{dialogue::DialoguePlayer, field::FieldSession};
 use std::{collections::BTreeMap, fs, path::Path};
 pub(super) use world::Artwork as WorldArtwork;
+
+/// Decode before activation. Callers decide whether failure is fatal or optional.
+fn ui_image(
+    path: &str,
+    size: [u32; 2],
+    repeat: bool,
+    read: &impl Fn(&str) -> Result<Vec<u8>>,
+) -> Result<Image> {
+    use bevy::image::{CompressedImageFormats, ImageType};
+    let extension = path
+        .rsplit_once('.')
+        .context("UI image has no extension")?
+        .1;
+    let address = if repeat {
+        ImageAddressMode::Repeat
+    } else {
+        ImageAddressMode::ClampToEdge
+    };
+    let image = Image::from_buffer(
+        &read(path)?,
+        ImageType::Extension(extension),
+        CompressedImageFormats::NONE,
+        false,
+        ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: address,
+            address_mode_v: address,
+            ..ImageSamplerDescriptor::linear()
+        }),
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_context(|| format!("UI image {path}"))?;
+    anyhow::ensure!(
+        [image.width(), image.height()] == size,
+        "UI image dimensions differ from its descriptor: {path}"
+    );
+    Ok(image)
+}
+
+/// Retained dialogue text may outlive its visible window or request owner.
+pub(super) fn displayed_dialogue<'a>(
+    player: &DialoguePlayer,
+    request: Option<&'a Dialogue>,
+) -> Option<&'a Dialogue> {
+    request.filter(|request| {
+        request.operation.id() == player.operation.id()
+            && player.operation.is_pending()
+            && player.window_visible()
+    })
+}
 
 // Explicit compositing order keeps text underneath the cursor and its shadow.
 mod layer {
@@ -51,9 +113,8 @@ mod layer {
     pub const SPEAKER_FILL: usize = 6;
     pub const SPEAKER: usize = 7;
     pub const FONT: usize = 8;
-    pub const CURSOR: usize = 9;
     // Cooked atlas indices: fill, frame, color overlay, font and cursor.
-    pub const TEXTURES: [usize; 10] = [7, 7, 0, 1, 0, 0, 1, 0, 9, 10];
+    pub const TEXTURES: [usize; 9] = [7, 7, 0, 1, 0, 0, 1, 0, 9];
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -74,15 +135,33 @@ pub(super) struct Surface {
     #[uniform(6)]
     coverage: Coverage,
     opaque: bool,
+    additive: bool,
+    /// Channel swap: both texture and raster become [R,R,R,A].
+    red_channel: bool,
+}
+impl Surface {
+    pub(super) fn images_ready(&self, images: &Assets<Image>) -> bool {
+        [
+            &self.source,
+            &self.sampling,
+            &self.frame_mask,
+            &self.color_mask,
+        ]
+        .into_iter()
+        .all(|image| images.contains(image.id()))
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) struct SurfaceKey(bool);
+pub(super) struct SurfaceKey(bool, bool, bool);
 impl From<&Surface> for SurfaceKey {
     fn from(surface: &Surface) -> Self {
-        Self(surface.opaque)
+        Self(surface.opaque, surface.additive, surface.red_channel)
     }
 }
 impl Material2d for Surface {
+    fn vertex_shader() -> ShaderRef {
+        "embedded://resonance_presentation/field_ui.wgsl".into()
+    }
     fn fragment_shader() -> ShaderRef {
         "embedded://resonance_presentation/field_ui.wgsl".into()
     }
@@ -91,10 +170,31 @@ impl Material2d for Surface {
     }
     fn specialize(
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        _: &bevy::mesh::MeshVertexBufferLayoutRef,
+        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         key: bevy::sprite_render::Material2dKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/field-ui".into());
+        if key.bind_group_data.2
+            && let Some(fragment) = &mut descriptor.fragment
+        {
+            fragment.shader_defs.push("RED_CHANNEL".into());
+        }
+        if key.bind_group_data.1
+            && let Some(fragment) = &mut descriptor.fragment
+        {
+            // Radar halo uses source-alpha additive blending.
+            let component = BlendComponent {
+                src_factor: BlendFactor::SrcAlpha,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            };
+            for target in fragment.targets.iter_mut().flatten() {
+                target.blend = Some(BlendState {
+                    color: component,
+                    alpha: component,
+                });
+            }
+        }
         if key.bind_group_data.0
             && let Some(fragment) = &mut descriptor.fragment
         {
@@ -114,9 +214,10 @@ pub(super) struct Artwork {
     surfaces: Vec<Handle<Surface>>,
     layers: BTreeMap<(u8, usize), Layer>,
     head_heights: BTreeMap<u64, f32>,
-    choice_trail: super::choice_cursor::Trail,
-    subtitles: Option<resonance_content::font::MovieSubtitles>,
+    subtitles: Vec<resonance_content::font::SubtitleCue>,
     subtitle_layer: Option<Layer>,
+    fade_surface: Handle<Surface>,
+    fade_layer: Option<Layer>,
     overlays: overlay::Artwork,
     menu: menu::MenuArtwork,
     prompt_layers: Vec<Layer>,
@@ -137,7 +238,6 @@ struct Layer {
 pub(super) struct MenuOverlay {
     font: BitmapFont,
     dialogue: DialogueArt,
-    images: Vec<Handle<Image>>,
     artwork: menu::MenuArtwork,
 }
 impl MenuOverlay {
@@ -145,58 +245,71 @@ impl MenuOverlay {
         root: &Path,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
+        diagnostics: &resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
-        let read = |path: &str| -> Result<Vec<u8>> { Ok(fs::read(root.join(path))?) };
+        Self::load_with(
+            |path| Ok(fs::read(root.join(path))?),
+            server,
+            materials,
+            diagnostics,
+        )
+    }
+    pub fn load_with(
+        read: impl Fn(&str) -> Result<Vec<u8>>,
+        server: &AssetServer,
+        materials: &mut Assets<Surface>,
+        diagnostics: &resonance_content::diagnostics::Diagnostics,
+    ) -> Result<Self> {
         let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
         dialogue.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&dialogue.font)?)?;
         font.validate()?;
-        let images: Vec<_> = [&font.texture, &dialogue.cursor.path]
-            .into_iter()
-            .map(|path| {
-                server
-                    .load_builder()
-                    .with_settings(|s: &mut ImageLoaderSettings| {
-                        s.is_srgb = false;
-                        s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                            address_mode_u: ImageAddressMode::Repeat,
-                            address_mode_v: ImageAddressMode::Repeat,
-                            ..ImageSamplerDescriptor::linear()
-                        });
-                    })
-                    .load(path.clone())
-            })
-            .collect();
-        let surfaces: Vec<_> = images
-            .iter()
-            .map(|source| {
-                materials.add(Surface {
-                    source: source.clone(),
-                    sampling: source.clone(),
-                    frame_mask: source.clone(),
-                    color_mask: source.clone(),
-                    coverage: Coverage::default(),
-                    opaque: false,
-                })
-            })
-            .collect();
-        let artwork = menu::MenuArtwork::load(read, server, materials, &surfaces[0], &surfaces[1])?;
+        let image = menu::menu_image(server, font.texture.clone(), true);
+        let surface = materials.add(Surface {
+            source: image.clone(),
+            sampling: image.clone(),
+            frame_mask: image.clone(),
+            color_mask: image,
+            coverage: Coverage::default(),
+            additive: false,
+            red_channel: false,
+            opaque: false,
+        });
+        let artwork = menu::MenuArtwork::load(
+            read,
+            Default::default(),
+            server,
+            materials,
+            (&surface, [font.width, font.height]),
+            diagnostics,
+        )?;
         Ok(Self {
             font,
             dialogue,
-            images,
             artwork,
         })
     }
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
-        self.artwork.prepare(commands, meshes);
+    #[cfg(test)]
+    pub fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
+        self.artwork.images()
     }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
-        self.images.iter().all(|image| images.contains(image.id())) && self.artwork.ready(images)
+        self.artwork.ready(images)
+    }
+    #[cfg(test)]
+    pub fn drawn_images(&self) -> impl Iterator<Item = &Handle<Image>> {
+        self.artwork.drawn_images()
+    }
+    pub fn drawn_images_ready(&self, images: &Assets<Image>, server: &AssetServer) -> Result<bool> {
+        self.artwork.drawn_images_ready(images, server)
+    }
+    pub fn menu_settled(&self, menu: &resonance_game::menu::Menu, tick: u32) -> bool {
+        self.artwork.visually_settled(menu, tick)
     }
     pub fn render(
         &mut self,
         menu: Option<&resonance_game::menu::Menu>,
+        presentation_tick: u32,
         resolution: super::Resolution,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
@@ -205,16 +318,19 @@ impl MenuOverlay {
             menu::Source::Title(menu),
             &self.font,
             &self.dialogue,
-            0,
+            presentation_tick,
             resolution,
             commands,
             meshes,
         )
     }
     pub fn despawn(self, world: &mut World) {
-        for layer in self.artwork.layers {
+        for layer in self.artwork.layers.into_values() {
             world.despawn(layer.entity);
         }
+    }
+    pub fn hide(&mut self, commands: &mut Commands) {
+        self.artwork.clear_page(commands);
     }
 }
 impl Layer {
@@ -224,6 +340,16 @@ impl Layer {
         size: [u32; 2],
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
+        if batch.indices.is_empty() {
+            // Hidden layers retain valid warm/previous geometry. Bevy's mesh
+            // allocator skips zero-vertex allocations but still tries to upload
+            // them; publishing an empty mesh therefore reports use-after-free.
+            meshes
+                .get(&self.mesh)
+                .context("retained UI mesh was removed")?;
+            self.uploaded = Some((batch, size));
+            return Ok(());
+        }
         if self
             .uploaded
             .as_ref()
@@ -237,6 +363,11 @@ impl Layer {
         Ok(())
     }
     fn show(&mut self, visible: bool, commands: &mut Commands) {
+        let visible = visible
+            && self
+                .uploaded
+                .as_ref()
+                .is_none_or(|(batch, _)| !batch.indices.is_empty());
         if self.visible != visible {
             self.visible = visible;
             commands.entity(self.entity).insert(if visible {
@@ -247,12 +378,27 @@ impl Layer {
         }
     }
 }
+fn subtitle_cues(
+    files: &resonance_content::prepared::Files,
+) -> Result<Vec<resonance_content::font::SubtitleCue>> {
+    let result = (|| {
+        let subtitles: resonance_content::font::MovieSubtitles =
+            files.json("ui/story-subtitles.json")?;
+        subtitles.validate()?;
+        Ok(subtitles.cues)
+    })();
+    Ok(files
+        .diagnostics()
+        .attempt("movie subtitle cues", result)?
+        .unwrap_or_default())
+}
+
 impl Artwork {
     pub fn despawn(&mut self, world: &mut World) {
         self.overlays.despawn(world);
         for layer in std::mem::take(&mut self.layers)
             .into_values()
-            .chain(self.menu.layers.drain(..))
+            .chain(std::mem::take(&mut self.menu.layers).into_values())
             .chain(self.prompt_layers.drain(..))
             .chain(self.damage_layer.take())
             .chain(self.skits.layers.drain(..))
@@ -265,44 +411,33 @@ impl Artwork {
         {
             world.despawn(layer.entity);
         }
+        if let Some(layer) = self.fade_layer.take() {
+            world.despawn(layer.entity);
+        }
         if let Some(layer) = self.subtitle_layer.take() {
             world.despawn(layer.entity);
         }
         self.head_heights.clear();
         self.attached_positions.clear();
-        self.choice_trail = Default::default();
-    }
-    pub fn load(
-        root: &Path,
-        field: &resonance_content::field::FieldAssets,
-        server: &AssetServer,
-        materials: &mut Assets<Surface>,
-        images: &mut Assets<Image>,
-    ) -> Result<Self> {
-        Self::load_with(root, field, server, materials, images, None)
     }
     pub fn load_with(
-        root: &Path,
         field: &resonance_content::field::FieldAssets,
+        session: std::sync::Arc<resonance_content::session::SessionData>,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         image_assets: &mut Assets<Image>,
-        files: Option<&resonance_content::prepared::Files>,
+        files: &resonance_content::prepared::Files,
     ) -> Result<Self> {
-        let read = |path: &str| -> Result<Vec<u8>> {
-            files.map_or_else(
-                || Ok(fs::read(root.join(path))?),
-                |files| Ok(files.read(path)?.to_vec()),
-            )
-        };
-        let subtitles: resonance_content::font::MovieSubtitles =
-            serde_json::from_slice(&read("ui/story-subtitles.json")?)?;
-        subtitles.validate()?;
-        let mut art = Self::load_shared(&read, &field.overlays, server, materials, image_assets)?;
-        art.subtitles = Some(subtitles);
-        if let Some(files) =
-            files.filter(|files| files.bytes.contains_key(resonance_content::credits::PATH))
-        {
+        let mut art = Self::load_shared(
+            files,
+            session.experience.clone().into(),
+            &field.overlays,
+            server,
+            materials,
+            image_assets,
+        )?;
+        art.subtitles = subtitle_cues(files)?;
+        if files.contains_key(resonance_content::credits::PATH) {
             art.credits = Some(credits::Artwork::load(
                 files,
                 &art.font,
@@ -314,23 +449,25 @@ impl Artwork {
         Ok(art)
     }
     fn load_shared(
-        read: impl Fn(&str) -> Result<Vec<u8>>,
+        files: &resonance_content::prepared::Files,
+        experience: std::sync::Arc<[u32]>,
         overlays: &BTreeMap<i32, String>,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         image_assets: &mut Assets<Image>,
     ) -> Result<Self> {
+        let read = |path: &str| -> Result<Vec<u8>> { Ok(files.read(path)?.to_vec()) };
         let spec: DialogueArt = serde_json::from_slice(
             &read("ui/dialogue.json").context("classroom dialogue art is missing; run cook-all")?,
         )?;
         spec.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&spec.font)?)?;
         font.validate()?;
-        let images: Vec<Handle<Image>> = spec
+        let mut images: Vec<Handle<Image>> = spec
             .textures
             .iter()
             .map(|t| t.path.clone())
-            .chain([font.texture.clone(), spec.cursor.path.clone()])
+            .chain([font.texture.clone()])
             .enumerate()
             .map(|(index, path)| {
                 server
@@ -360,12 +497,23 @@ impl Artwork {
                     frame_mask: images[0].clone(),
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
+                    additive: false,
+                    red_channel: false,
                     opaque: false,
                 })
             })
             .collect();
-        let menu = menu::MenuArtwork::load(&read, server, materials, &surfaces[9], &surfaces[10])?;
-        let skits = skit::Artwork::load(&read, server, materials, &surfaces[9], image_assets)?;
+        let menu = menu::MenuArtwork::load(
+            read,
+            experience,
+            server,
+            materials,
+            (&surfaces[9], [font.width, font.height]),
+            files.diagnostics(),
+        )?;
+        let skits = skit::Artwork::load(read, server, materials, &surfaces[9], image_assets)?;
+        let (fade_image, fade_surface) = fade::surface(materials, image_assets);
+        images.push(fade_image);
         Ok(Self {
             skits,
             credits: None,
@@ -377,9 +525,10 @@ impl Artwork {
             surfaces,
             layers: BTreeMap::new(),
             head_heights: BTreeMap::new(),
-            choice_trail: Default::default(),
-            subtitles: None,
+            subtitles: Vec::new(),
             subtitle_layer: None,
+            fade_surface,
+            fade_layer: None,
             overlays: overlay::Artwork::load(overlays, read, server, materials, image_assets)?,
             menu,
             prompt_layers: Vec::new(),
@@ -389,12 +538,93 @@ impl Artwork {
     pub fn ready(&self, images: &Assets<Image>) -> bool {
         self.images.iter().all(|image| images.contains(image.id()))
             && self.overlays.ready(images)
-            && self.menu.ready(images)
-            && self.skits.ready(images)
             && self
                 .credits
                 .as_ref()
                 .is_none_or(|credits| credits.ready(images))
+    }
+    pub(super) fn essential_ready(
+        &self,
+        images: &Assets<Image>,
+        server: &AssetServer,
+    ) -> Result<bool> {
+        let mut ready = true;
+        for image in self.images.iter().chain(self.overlays.images()) {
+            ready &= crate::field_view::image_ready(server, images, image)?;
+        }
+        Ok(ready)
+    }
+    pub(super) fn menu_published(&self, session: &FieldSession) -> bool {
+        self.menu.published(session)
+    }
+    pub(super) fn skit_ready(
+        &self,
+        session: &FieldSession,
+        images: &Assets<Image>,
+        server: &AssetServer,
+    ) -> Result<bool> {
+        self.skits
+            .ready(session.active_skit.as_ref(), images, server)
+    }
+    pub(super) fn clear_skit(&mut self, commands: &mut Commands) {
+        self.skits.clear(commands);
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_menu(
+        &mut self,
+        session: &FieldSession,
+        tick: u32,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        images: &Assets<Image>,
+        server: &AssetServer,
+    ) -> Result<bool> {
+        let result = self
+            .menu
+            .render(
+                menu::Source::Field(session),
+                &self.font,
+                &self.spec,
+                tick,
+                self.resolution,
+                commands,
+                meshes,
+            )
+            .and_then(|()| self.menu.drawn_images_ready(images, server));
+        if result.is_err() {
+            self.menu.clear_page(commands);
+        }
+        result
+    }
+    pub(super) fn render_skit(
+        &mut self,
+        session: &FieldSession,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        images: &mut Assets<Image>,
+        server: &AssetServer,
+    ) -> Result<bool> {
+        let result = self.skit_ready(session, images, server).and_then(|ready| {
+            if !ready {
+                return Ok(false);
+            }
+            self.skits.render(
+                session.active_skit.as_ref(),
+                &self.font,
+                self.resolution,
+                commands,
+                meshes,
+                images,
+            )?;
+            Ok(true)
+        });
+        if !matches!(result, Ok(true)) {
+            self.clear_skit(commands);
+        }
+        result
+    }
+    pub fn menu_settled(&self, menu: &resonance_game::menu::Menu, tick: u32) -> bool {
+        self.menu.visually_settled(menu, tick)
     }
     /// Allocate every supported dialogue slot/layer before its first request.
     pub(super) fn prepare(
@@ -403,7 +633,6 @@ impl Artwork {
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) {
-        self.menu.prepare(commands, meshes);
         self.skits.prepare(commands, meshes);
         if let Some(credits) = &mut self.credits {
             credits.prepare(commands, meshes);
@@ -411,6 +640,7 @@ impl Artwork {
         self.prepare_prompt(commands, meshes, materials);
         self.prepare_damage(commands, meshes);
         self.overlays.prepare(commands, meshes);
+        self.prepare_fade(commands, meshes);
         for slot in 0..DIALOGUE_SLOTS {
             for (index, texture) in layer::TEXTURES.into_iter().enumerate() {
                 if self.layers.contains_key(&(slot, index)) {
@@ -467,20 +697,27 @@ impl Artwork {
     }
     pub(super) fn prepared_layers(
         &self,
-    ) -> impl Iterator<Item = (&Handle<Mesh>, &Handle<Surface>)> {
+    ) -> impl Iterator<Item = (&Handle<Mesh>, &Handle<Surface>, bool)> {
         self.layers
             .values()
             .chain(self.subtitle_layer.iter())
+            .chain(self.fade_layer.iter())
             .chain(&self.overlays.layers)
             .chain(&self.overlays.warm)
-            .chain(&self.menu.layers)
             .chain(&self.prompt_layers)
             .chain(self.damage_layer.iter())
-            .chain(&self.skits.layers)
-            .chain(&self.skits.warm)
             .chain(self.credits.iter().flat_map(|credits| &credits.layers))
-            .map(|layer| (&layer.mesh, &layer.material))
+            .map(|layer| (&layer.mesh, &layer.material, true))
+            .chain(
+                self.menu
+                    .layers
+                    .values()
+                    .chain(&self.skits.layers)
+                    .chain(&self.skits.warm)
+                    .map(|layer| (&layer.mesh, &layer.material, false)),
+            )
     }
+
     pub fn diagnostic_layouts(&self, session: &FieldSession) -> Vec<serde_json::Value> {
         session
             .events
@@ -523,45 +760,26 @@ impl Artwork {
     ) -> Result<Vec<i32>> {
         self.overlays.render(world, commands, meshes)
     }
-    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         session: &FieldSession,
-        presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
-        images: &mut Assets<Image>,
     ) -> Result<()> {
         if let Some(credits) = &mut self.credits {
             credits.render(session.events.world.screen_request.as_ref(), commands);
         }
+        self.render_fade(&session.events.world, commands, meshes)?;
         self.render_prompt(session, commands, meshes)?;
         self.render_damage(session, commands, meshes)?;
-        self.skits.render(
-            session.active_skit.as_ref(),
-            &self.font,
-            self.resolution,
-            commands,
-            meshes,
-            images,
-        )?;
-        self.menu.render(
-            menu::Source::Field(session),
-            &self.font,
-            &self.spec,
-            presentation_tick,
-            self.resolution,
-            commands,
-            meshes,
-        )?;
         let (world, dialogue) = session.dialogue_scene();
         self.render_dialogue(
             world,
             dialogue,
             &session.events.world,
-            presentation_tick,
+            world.tick,
             heads,
             commands,
             meshes,
@@ -600,14 +818,7 @@ impl Artwork {
             }
         }
         for (&slot, player) in dialogue {
-            if !player.window_visible() || player.operation.progress().outcome.is_some() {
-                continue;
-            }
-            let Some(request) = world
-                .dialogue
-                .get(&slot)
-                .filter(|r| r.operation.id() == player.operation.id())
-            else {
+            let Some(request) = displayed_dialogue(player, world.dialogue.get(&slot)) else {
                 continue;
             };
             let (rect, pointer) = layout(
@@ -647,10 +858,6 @@ impl Artwork {
                 .collect();
             let preferences = world.party.as_ref().map(|p| &p.settings.preferences);
             let window = preferences.map_or(self.spec.selection.mode, |p| p.window);
-            let (cursor_image, cursor_size) = self.menu.choice_cursor(window).unwrap_or((
-                &self.images[layer::TEXTURES[layer::CURSOR]],
-                [self.spec.cursor.width, self.spec.cursor.height],
-            ));
             if request.flags & flags::FRAMELESS == 0 {
                 frame(
                     &mut batches,
@@ -700,11 +907,11 @@ impl Artwork {
                 && player.fully_revealed()
                 && (player.accepts_input() || !choice.operation.is_pending())
             {
-                let y = super::choice_cursor::drawing_y(top + f32::from(lines.selected_line) * 25.);
-                let overlay = super::choice_cursor::overlay_rect;
+                let y =
+                    super::ui_coordinates::drawing_y(top + f32::from(lines.selected_line) * 25.);
+                let overlay = super::ui_coordinates::overlay_rect;
                 let mut style = self.spec.selection.clone();
                 style.mode = window;
-                [style.bob_amplitude, style.bob_step] = self.menu.cursor_motion(window);
                 style.color = preferences.map_or(style.color, |p| p.colors.selection);
                 let mut color = style.color.map(|v| f32::from(v) / 255.);
                 color[3] = f32::from(u16::from(style.color[3]) * 128 / 255) / 255.;
@@ -722,31 +929,7 @@ impl Artwork {
                         );
                     }
                 }
-                let [w, h] = cursor_size.map(|v| v as f32);
-                let bob = super::choice_cursor::bob(&style, presentation_tick);
-                let x = left + bob;
-                let y = y - bob;
-                for ([tx, ty], alpha) in self
-                    .choice_trail
-                    .sample(presentation_tick, [x as i32, y as i32])
-                {
-                    let [tx, ty] = [tx as f32, ty as f32];
-                    batches[layer::CURSOR].quad(
-                        overlay([tx + 4. - w, ty + 8., tx + 4., ty + 8. + h]),
-                        [0., 0., w, h],
-                        [1., 1., 1., f32::from(alpha) / 255.],
-                    );
-                }
-                batches[layer::CURSOR].quad(
-                    overlay([x + 8. - w, y + 12., x + 8., y + 12. + h]),
-                    [0., 0., w, h],
-                    [0., 0., 0., 127. / 255.],
-                );
-                batches[layer::CURSOR].quad(
-                    overlay([x + 4. - w, y + 8., x + 4., y + 8. + h]),
-                    [0., 0., w, h],
-                    [1.; 4],
-                );
+                highlight.cursor([left, y], 1.);
             }
             let mut x = left;
             let mut y = top;
@@ -809,8 +992,7 @@ impl Artwork {
             }
             batches[layer::FONT].append(highlight);
             if !player.persistent
-                && player.accepts_input()
-                && player.fully_revealed()
+                && player.continue_marker_visible()
                 && request.flags & flags::FRAMELESS == 0
                 && (player.page + 1 < player.pages.len()
                     || !world
@@ -865,7 +1047,6 @@ impl Artwork {
                 };
                 let size = match index {
                     layer::FONT => [self.font.width, self.font.height],
-                    layer::CURSOR => cursor_size,
                     _ => [
                         self.spec.textures[texture_index].width,
                         self.spec.textures[texture_index].height,
@@ -878,11 +1059,7 @@ impl Artwork {
                 let material = materials
                     .get(&layer.material)
                     .context("dialogue layer material was removed")?;
-                let source = if index == layer::CURSOR {
-                    cursor_image
-                } else {
-                    &self.images[texture_index]
-                };
+                let source = &self.images[texture_index];
                 if material.coverage != coverage || material.source != *source {
                     let mut material = materials.get_mut(&layer.material).unwrap();
                     material.coverage = coverage;
@@ -912,7 +1089,7 @@ pub(super) fn subtitles(
     mut art: Option<ResMut<Artwork>>,
     images: Res<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: super::field_view::Failures,
 ) {
     let (movie, session) = playback;
     let Some(art) = &mut art else {
@@ -927,28 +1104,47 @@ pub(super) fn subtitles(
         .as_ref()
         .and_then(|s| s.field.events.world.party.as_ref())
         .is_none_or(|p| p.settings.preferences.movie_subtitles);
+    let ready = art.ready(&images);
+    let Artwork {
+        font,
+        subtitles,
+        subtitle_layer,
+        ..
+    } = &mut **art;
     let cue = frame.filter(|_| story && enabled).and_then(|frame| {
         // Subtitle cue frames are one-based; the decoded movie frame is zero-based.
-        art.subtitles
-            .as_ref()?
-            .cues
-            .iter()
-            .rev()
-            .find(|cue| cue.frame <= frame + 1)
+        subtitles.iter().rev().find(|cue| cue.frame <= frame + 1)
     });
-    if cue.is_none() || !art.ready(&images) {
-        if let Some(layer) = &mut art.subtitle_layer {
+    if cue.is_none() || !ready {
+        if let Some(layer) = subtitle_layer {
             layer.show(false, &mut commands);
         }
         return;
     }
-    let result = (|| -> Result<Batch> {
+    draw_subtitle(
+        cue.unwrap(),
+        font,
+        subtitle_layer,
+        &mut commands,
+        &mut meshes,
+        &mut failures,
+    );
+}
+
+fn draw_subtitle(
+    cue: &resonance_content::font::SubtitleCue,
+    font: &BitmapFont,
+    layer: &mut Option<Layer>,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    failures: &mut super::field_view::Failures,
+) {
+    let result = (|| -> Result<()> {
         let mut batch = Batch::default();
-        for line in &cue.unwrap().lines {
+        for line in &cue.lines {
             let [mut x, y] = line.position;
             for character in line.text.chars() {
-                let glyph = art
-                    .font
+                let glyph = font
                     .glyphs
                     .get(&character)
                     .with_context(|| format!("uncooked subtitle glyph {character:?}"))?;
@@ -961,34 +1157,31 @@ pub(super) fn subtitles(
                 x += (glyph.advance as f32 * scale).trunc() - 1.;
             }
         }
-        Ok(batch)
-    })();
-    match result {
-        Ok(batch) => {
-            if batch.positions.is_empty() {
-                if let Some(layer) = &mut art.subtitle_layer {
-                    layer.show(false, &mut commands);
-                }
-                return;
+        if batch.positions.is_empty() {
+            if let Some(layer) = layer {
+                layer.show(false, commands);
             }
-            let size = [art.font.width, art.font.height];
-            let layer = art
-                .subtitle_layer
-                .as_mut()
-                .expect("subtitle layer was not prepared");
-            layer
-                .update_mesh(batch, size, &mut meshes)
-                .expect("subtitle mesh is retained");
-            layer.show(true, &mut commands);
+            return Ok(());
         }
-        Err(error) => {
-            error!("Movie subtitle rendering failed: {error:#}");
-            exit.write(AppExit::error());
+        let layer = layer.as_mut().context("subtitle layer was not prepared")?;
+        layer.update_mesh(batch, [font.width, font.height], meshes)?;
+        layer.show(true, commands);
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if let Some(layer) = layer {
+            layer.show(false, commands);
         }
+        failures.skip("movie subtitle rendering", error);
     }
 }
 fn glyph_uv([x, y, width, height]: [u32; 4]) -> [f32; 4] {
-    [x as f32, y as f32, (x + width) as f32, (y + height) as f32]
+    [
+        x as f32,
+        y as f32,
+        x as f32 + width as f32,
+        y as f32 + height as f32,
+    ]
 }
 fn frame_top(top: f32, height: f32) -> f32 {
     if height < 48. {
@@ -1422,6 +1615,19 @@ impl Batch {
         self.indices
             .extend([start, start + 2, start + 1, start, start + 3, start + 2]);
     }
+    fn cursor(&mut self, [x, y]: [f32; 2], alpha: f32) {
+        for (offset, color) in [(2., [0., 0., 0., alpha * 0.6]), (0., [1., 1., 1., alpha])] {
+            let start = self.positions.len() as u32;
+            for [dx, dy] in [[-14., 7.], [-4., 14.], [-14., 21.]] {
+                let [x, y, _, _] =
+                    super::ui_coordinates::overlay_rect([x + dx + offset, y + dy + offset, 0., 0.]);
+                self.positions.push([x - 320., 240. - y, 0.]);
+            }
+            self.uv.extend([[0.5; 2]; 3]);
+            self.colors.extend([color; 3]);
+            self.indices.extend([start, start + 2, start + 1]);
+        }
+    }
     fn mesh(mut self, [width, height]: [u32; 2]) -> Mesh {
         for uv in &mut self.uv {
             uv[0] /= width as f32;
@@ -1439,8 +1645,683 @@ impl Batch {
 }
 
 #[cfg(test)]
+use crate::test_support::field_checkpoint;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires locally cooked field/menu assets; CPU field advancement and image failure only"]
+    fn optional_images_do_not_freeze_field_and_failed_page_recovers_by_policy() -> Result<()> {
+        use crate::{
+            field_view::{Controls, advance_live},
+            new_game::Session,
+        };
+        use bevy::ecs::system::RunSystemOnce;
+        use resonance_content::{diagnostics::Diagnostics, prepared::Files};
+        use resonance_game::menu::Page;
+        use std::sync::{Arc, atomic::Ordering};
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+            || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
+            Into::into,
+        );
+        for paranoid in [false, true] {
+            let mut files = Files::load_with_diagnostics(
+                &root,
+                &["fields/map-332.preload.json"],
+                &mut Default::default(),
+                || false,
+                Diagnostics::new(paranoid),
+            )?;
+            let checkpoint = field_checkpoint(&files)?;
+            let mut session = Session::load_prepared(
+                &root,
+                Arc::new(files.clone()),
+                Some(checkpoint.clone()),
+                None,
+                &mut Default::default(),
+            )?;
+            session.audio = None;
+            let mut skit_catalog: resonance_content::skit::SkitCatalog =
+                files.json("game/skits.json")?;
+            // Obtain a real completion token from a script-owned preview request.
+            let program = symphonia_script::Program::decode(
+                &[
+                    4u16, 0, 0, 0, 0x0200, 600, 0, 0x3000, 0x4000, 0x20ee, 0x20ff,
+                ]
+                .into_iter()
+                .flat_map(u16::to_be_bytes)
+                .collect::<Vec<_>>(),
+            )?;
+            let mut caller = resonance_events::EventRuntime::new(
+                Arc::new(program),
+                Arc::new(resonance_events::ResourceLibrary {
+                    skits: Some(Arc::new(skit_catalog.clone())),
+                    ..Default::default()
+                }),
+            )?;
+            let request = caller
+                .world
+                .skit_request
+                .take()
+                .context("preview did not request skit")?;
+            let completion = request.operation.clone();
+            session.field.events.world.skit_request = Some(request);
+            for _ in 0..300 {
+                session.field.step(Default::default())?;
+                if session.field.active_skit.as_ref().is_some_and(|playback| {
+                    playback
+                        .events
+                        .world
+                        .skit
+                        .as_ref()
+                        .is_some_and(|scene| !scene.portraits.is_empty())
+                }) {
+                    break;
+                }
+            }
+            let portrait = session
+                .field
+                .active_skit
+                .as_ref()
+                .and_then(|playback| playback.events.world.skit.as_ref())
+                .and_then(|scene| scene.portraits.values().next())
+                .context("skit did not publish a portrait")?
+                .resource;
+            let mut active_skit = session.field.active_skit.take();
+            session.restore(checkpoint)?;
+            session.audio = None;
+            skit_catalog.portraits.get_mut(&portrait).unwrap().images[0].texture =
+                "missing-active-skit.ktx2".into();
+            files.insert(
+                "game/skits.json".into(),
+                serde_json::to_vec(&skit_catalog)?.into(),
+            );
+            let mut menu_spec: resonance_content::menu::MenuArt = files.json("ui/menu.json")?;
+            let missing = resonance_content::menu::MenuArt::WORLD_MAP_TEXTURES.start;
+            menu_spec.textures.get_mut(&missing).unwrap().width = 0;
+            let unused = resonance_content::menu::MenuArt::PORTRAIT_TEXTURES.end - 1;
+            menu_spec.textures.get_mut(&unused).unwrap().path =
+                "missing-unused-menu-portrait.ktx2".into();
+            files.insert(
+                "ui/menu.json".into(),
+                serde_json::to_vec(&menu_spec)?.into(),
+            );
+            let mut dialogue_spec: DialogueArt = files.json("ui/dialogue.json")?;
+            dialogue_spec.textures[0].path = "missing-essential-dialogue.ktx2".into();
+            files.insert(
+                "ui/dialogue.json".into(),
+                serde_json::to_vec(&dialogue_spec)?.into(),
+            );
+            let mut app = App::new();
+            app.add_plugins((
+                MinimalPlugins,
+                AssetPlugin {
+                    file_path: root.to_string_lossy().into_owned(),
+                    ..Default::default()
+                },
+            ))
+            .init_asset::<Image>()
+            .init_asset::<Mesh>()
+            .init_asset::<Surface>()
+            .init_asset::<bevy::gltf::Gltf>()
+            .init_asset::<crate::sparse_animation::Clip>()
+            .init_asset::<crate::materials::TitleSurface>()
+            .register_asset_loader(bevy::image::ImageLoader::new(
+                bevy::image::CompressedImageFormats::NONE,
+            ))
+            .init_resource::<Controls>()
+            .init_resource::<crate::scene::SampledImages>()
+            .init_resource::<crate::field_warm::Shared>()
+            .add_message::<AppExit>();
+            let diagnostics = Diagnostics::new(paranoid);
+            app.insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()));
+            let resident = crate::loading::Resident::default();
+            app.insert_resource(resident);
+            app.world_mut().spawn(crate::menu_backdrop::Quad);
+            let server = app.world().resource::<AssetServer>().clone();
+            let field_art = crate::field_view::prepared_test_art(&session.assets, &server);
+            let mut images = app.world_mut().remove_resource::<Assets<Image>>().unwrap();
+            let mut materials = app
+                .world_mut()
+                .remove_resource::<Assets<Surface>>()
+                .unwrap();
+            let mut meshes = app.world_mut().remove_resource::<Assets<Mesh>>().unwrap();
+            let mut art = Artwork::load_with(
+                &session.assets,
+                session.data.clone(),
+                &server,
+                &mut materials,
+                &mut images,
+                &files,
+            )?;
+            let unused_image: Handle<Image> = server.load(menu_spec.textures[&unused].path.clone());
+            let skit_image: Handle<Image> = server.load("missing-active-skit.ktx2");
+            let essential_image = art.images[0].clone();
+            // Only completed image publication is injected; the missing path uses
+            // the real AssetServer failure. No GPU fidelity is claimed here.
+            for image in art
+                .images
+                .iter()
+                .chain(art.overlays.images())
+                .chain(art.menu.images())
+                .filter(|image| {
+                    ![&unused_image, &essential_image]
+                        .iter()
+                        .any(|missing| image.id() == missing.id())
+                })
+            {
+                images.insert(image.id(), Image::default())?;
+            }
+            art.prepare(&mut app.world_mut().commands(), &mut meshes, &mut materials);
+            app.world_mut().flush();
+            app.insert_resource(images)
+                .insert_resource(materials)
+                .insert_resource(meshes)
+                .insert_resource(art)
+                .insert_resource(field_art)
+                .insert_resource(session);
+            let start = std::time::Instant::now();
+            while [&unused_image, &skit_image, &essential_image]
+                .iter()
+                .any(|image| {
+                    !matches!(
+                        server.get_load_state(image.id()),
+                        Some(bevy::asset::LoadState::Failed(_))
+                    )
+                })
+            {
+                anyhow::ensure!(
+                    start.elapsed().as_secs() < 10,
+                    "missing image did not finish failing"
+                );
+                app.update();
+                std::thread::yield_now();
+            }
+            let world = app.world_mut();
+            // A cold start must diagnose failed essential artwork before it
+            // creates a GPU wait. Observe the recovery request, then restore
+            // the input to exercise a successful start in the same fixture.
+            assert!(!crate::field_warm::begin_test_startup(world));
+            assert!(
+                !world
+                    .resource::<crate::loading::Resident>()
+                    .active
+                    .load(Ordering::Acquire)
+            );
+            assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
+            assert_eq!(
+                world
+                    .remove_resource::<crate::field_view::RecoverField>()
+                    .is_some(),
+                !paranoid
+            );
+            assert_eq!(diagnostics.entries().len(), 1);
+            assert_eq!(diagnostics.entries()[0].scope, "field essential artwork");
+            world.resource_mut::<Messages<AppExit>>().clear();
+            world
+                .resource_mut::<Assets<Image>>()
+                .insert(essential_image.id(), Image::default())?;
+            let diagnostics = Diagnostics::new(paranoid);
+            world.insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()));
+            assert!(
+                !world
+                    .resource::<Artwork>()
+                    .menu
+                    .ready(world.resource::<Assets<Image>>()),
+                "fixture must fail the old global menu image gate"
+            );
+            assert!(crate::field_warm::begin_test_startup(world));
+            let essential_materials: Vec<_> = world
+                .resource::<Artwork>()
+                .prepared_layers()
+                .filter(|(_, _, essential)| *essential)
+                .map(|(_, material, _)| material.clone())
+                .collect();
+            let draws: Vec<_> = world
+                .query::<(
+                    &MeshMaterial2d<Surface>,
+                    &bevy::camera::visibility::RenderLayers,
+                )>()
+                .iter(world)
+                .filter(|(_, layers)| {
+                    layers.intersects(&bevy::camera::visibility::RenderLayers::layer(30))
+                })
+                .map(|(material, _)| material.0.clone())
+                .collect();
+            assert!(!draws.is_empty(), "startup must prepare actual UI draws");
+            assert!(
+                essential_materials
+                    .iter()
+                    .all(|material| draws.contains(material)),
+                "startup must retain every essential UI material"
+            );
+            for material in draws {
+                let surface = world.resource::<Assets<Surface>>().get(&material).unwrap();
+                assert_ne!(surface.source.id(), unused_image.id());
+                assert!(surface.images_ready(world.resource::<Assets<Image>>()));
+            }
+            assert!(
+                !world
+                    .resource::<crate::loading::Resident>()
+                    .active
+                    .load(Ordering::Acquire)
+            );
+            crate::field_warm::complete_test_startup(world);
+            assert!(
+                world
+                    .resource::<crate::loading::Resident>()
+                    .active
+                    .load(Ordering::Acquire)
+            );
+            let before = world.resource::<Session>().field.events.tick();
+            world.run_system_once(advance_live).unwrap();
+            assert!(world.resource::<Session>().field.events.tick() > before);
+            assert!(
+                diagnostics.entries().is_empty(),
+                "unused optional image was diagnosed"
+            );
+            world
+                .resource_mut::<Session>()
+                .field
+                .step(resonance_game::field::FieldInput {
+                    pressed_buttons: [resonance_events::input::Button::Menu].into(),
+                    ..Default::default()
+                })?;
+            let draw = |mut commands: Commands,
+                        mut art: ResMut<Artwork>,
+                        mut live: ResMut<Session>,
+                        mut meshes: ResMut<Assets<Mesh>>,
+                        images: Res<Assets<Image>>,
+                        server: Res<AssetServer>,
+                        mut failures: crate::field_view::Failures| {
+                if let Err(error) = art.render_menu(
+                    &live.field,
+                    100,
+                    &mut commands,
+                    &mut meshes,
+                    &images,
+                    &server,
+                ) {
+                    failures.menu_page(&mut live.field, error);
+                }
+            };
+            world.run_system_once(draw).unwrap();
+            world.flush();
+            assert!(!world.resource::<Artwork>().menu.drawn_images_ready(
+                world.resource::<Assets<Image>>(),
+                world.resource::<AssetServer>()
+            )?);
+            // This CPU fixture completes only the images selected by the drawing.
+            let drawn: Vec<_> = world
+                .resource::<Artwork>()
+                .menu
+                .drawn_images()
+                .cloned()
+                .collect();
+            for image in drawn {
+                world
+                    .resource_mut::<Assets<Image>>()
+                    .insert(image.id(), Image::default())?;
+            }
+            world
+                .resource::<MenuDraws>()
+                .0
+                .lock()
+                .unwrap()
+                .completed
+                .store(true, std::sync::atomic::Ordering::Release);
+            assert!(world.resource::<Artwork>().menu.drawn_images_ready(
+                world.resource::<Assets<Image>>(),
+                world.resource::<AssetServer>()
+            )?);
+            assert!(
+                world
+                    .resource::<Artwork>()
+                    .menu
+                    .layers
+                    .values()
+                    .any(|layer| layer.visible)
+            );
+            let retained = serde_json::to_value(
+                world
+                    .resource::<Session>()
+                    .field
+                    .menu
+                    .as_ref()
+                    .unwrap()
+                    .party(),
+            )?;
+            world
+                .resource_mut::<Session>()
+                .field
+                .menu
+                .as_mut()
+                .unwrap()
+                .page = Page::WorldMap;
+            world.run_system_once(advance_live).unwrap();
+            world.run_system_once(draw).unwrap();
+            world.flush();
+            assert!(
+                world
+                    .resource::<Artwork>()
+                    .menu
+                    .layers
+                    .values()
+                    .all(|layer| !layer.visible
+                        && world.get::<Visibility>(layer.entity) == Some(&Visibility::Hidden))
+            );
+            assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
+            let menu = world.resource::<Session>().field.menu.as_ref().unwrap();
+            assert_eq!(
+                menu.page,
+                if paranoid { Page::WorldMap } else { Page::Main }
+            );
+            assert_eq!(serde_json::to_value(menu.party())?, retained);
+            assert_eq!(diagnostics.entries().len(), 1);
+            assert!(
+                diagnostics.entries()[0]
+                    .message
+                    .contains("empty menu texture")
+            );
+            if !paranoid {
+                world.run_system_once(draw).unwrap();
+                world.flush();
+                world
+                    .resource_mut::<Session>()
+                    .field
+                    .menu
+                    .as_mut()
+                    .unwrap()
+                    .closed = true;
+                world.run_system_once(advance_live).unwrap();
+                assert!(world.resource::<Session>().field.menu.is_none());
+                world.run_system_once(draw).unwrap();
+                world.run_system_once(advance_live).unwrap();
+                assert!(world.resource::<Session>().field.events.tick() > before + 1);
+            }
+            world.resource_mut::<Messages<AppExit>>().clear();
+            {
+                let mut live = world.resource_mut::<Session>();
+                live.field.menu = None;
+                live.field.active_skit = active_skit.take();
+            }
+            let stale = {
+                let mut art = world.resource_mut::<Artwork>();
+                art.skits.layers[0].visible = true;
+                art.skits.layers[0].entity
+            };
+            world.entity_mut(stale).insert(Visibility::Visible);
+            let before_skit = world.resource::<Session>().field.events.tick();
+            world.run_system_once(advance_live).unwrap();
+            world.flush();
+            assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
+            assert_eq!(completion.is_pending(), paranoid);
+            assert_eq!(world.get::<Visibility>(stale), Some(&Visibility::Hidden));
+            assert_eq!(
+                world.resource::<Session>().field.active_skit.is_some(),
+                paranoid
+            );
+            assert!(
+                world
+                    .resource::<Artwork>()
+                    .skits
+                    .layers
+                    .iter()
+                    .all(|layer| !layer.visible)
+            );
+            if !paranoid {
+                caller.step()?;
+                assert!(
+                    caller.main_finished(),
+                    "skit failure stranded its script caller"
+                );
+                world.run_system_once(draw).unwrap();
+                world.run_system_once(advance_live).unwrap();
+                assert!(world.resource::<Session>().field.events.tick() > before_skit);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn optional_subtitle_loading_keeps_missing_and_corrupt_cues_local_to_error_policy() -> Result<()>
+    {
+        use resonance_content::{
+            diagnostics::Diagnostics,
+            field_preload::{SHARED_PATH, Shared, VERSION},
+            prepared::Files,
+        };
+        let root =
+            std::env::temp_dir().join(format!("resonance-subtitle-loading-{}", std::process::id()));
+        fs::create_dir_all(&root)?;
+        fs::write(
+            root.join(SHARED_PATH),
+            serde_json::to_vec(&Shared::<resonance_content::field_preload::File> {
+                version: VERSION,
+                files: BTreeMap::new(),
+            })?,
+        )?;
+        for paranoid in [false, true] {
+            let diagnostics = Diagnostics::new(paranoid);
+            let mut files = Files::load_with_diagnostics(
+                &root,
+                &[],
+                &mut Default::default(),
+                || false,
+                diagnostics.clone(),
+            )?;
+            for bytes in [
+                None,
+                Some(b"{".as_slice()),
+                Some(br#"{"version":0,"movie":1,"cues":[]}"#.as_slice()),
+            ] {
+                files.remove("ui/story-subtitles.json");
+                if let Some(bytes) = bytes {
+                    files.insert("ui/story-subtitles.json".into(), bytes.into());
+                }
+                let result = subtitle_cues(&files);
+                if paranoid {
+                    assert!(result.is_err());
+                } else {
+                    assert!(result?.is_empty());
+                }
+            }
+            assert_eq!(diagnostics.entries().len(), 3);
+            assert!(
+                diagnostics
+                    .entries()
+                    .iter()
+                    .all(|entry| entry.scope == "movie subtitle cues")
+            );
+            files.insert("ui/story-subtitles.json".into(), br#"{"version":1,"movie":1,"cues":[{"frame":1,"lines":[{"position":[0,0],"text":"Ready"}]}]}"#.as_slice().into());
+            let cues = subtitle_cues(&files)?;
+            assert_eq!(cues.len(), 1);
+            assert_eq!(cues[0].lines[0].text, "Ready");
+        }
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_subtitles_hide_stale_text_and_honor_error_policy() {
+        use bevy::ecs::system::RunSystemOnce;
+        use resonance_content::font::{Glyph, SubtitleCue, SubtitleLine};
+        for paranoid in [false, true] {
+            for missing_mesh in [false, true] {
+                let mut world = World::new();
+                let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
+                world.insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()));
+                world.init_resource::<Messages<AppExit>>();
+                world.init_resource::<Assets<Mesh>>();
+                let entity = world.spawn(Visibility::Inherited).id();
+                world
+                    .run_system_once(
+                        move |mut commands: Commands,
+                              mut meshes: ResMut<Assets<Mesh>>,
+                              mut failures: crate::field_view::Failures| {
+                            let font = BitmapFont {
+                                version: 1,
+                                texture: "font.png".into(),
+                                width: 1,
+                                height: 1,
+                                line_height: 1,
+                                source_sha256: String::new(),
+                                executable_sha256: String::new(),
+                                glyphs: if missing_mesh {
+                                    [(
+                                        'A',
+                                        Glyph {
+                                            rect: [0, 0, 1, 1],
+                                            advance: 1,
+                                        },
+                                    )]
+                                    .into()
+                                } else {
+                                    Default::default()
+                                },
+                            };
+                            let cue = SubtitleCue {
+                                frame: 1,
+                                lines: vec![SubtitleLine {
+                                    position: [0.; 2],
+                                    text: "A".into(),
+                                }],
+                            };
+                            let mut layer = Some(Layer {
+                                entity,
+                                mesh: Handle::default(),
+                                material: Handle::default(),
+                                uploaded: None,
+                                visible: true,
+                            });
+                            draw_subtitle(
+                                &cue,
+                                &font,
+                                &mut layer,
+                                &mut commands,
+                                &mut meshes,
+                                &mut failures,
+                            );
+                        },
+                    )
+                    .unwrap();
+                world.flush();
+                assert_eq!(world.get::<Visibility>(entity), Some(&Visibility::Hidden));
+                assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
+                assert!(diagnostics.entries()[0].message.contains(if missing_mesh {
+                    "retained UI mesh was removed"
+                } else {
+                    "uncooked subtitle glyph"
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn empty_layer_hides_without_uploading_empty_geometry_and_can_show_again() {
+        let mut world = World::new();
+        let entity = world.spawn(Visibility::Hidden).id();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut warm = Batch::default();
+        warm.quad([0., 0., 1., 1.], [0.; 4], [1.; 4]);
+        let mesh = meshes.add(warm.clone().mesh([1, 1]));
+        let mut layer = Layer {
+            entity,
+            mesh: mesh.clone(),
+            material: Handle::default(),
+            uploaded: None,
+            visible: false,
+        };
+        for previous in [None, Some(warm.clone())] {
+            if let Some(batch) = previous {
+                layer.update_mesh(batch, [1, 1], &mut meshes).unwrap();
+                layer.show(true, &mut world.commands());
+                world.flush();
+                assert_eq!(
+                    world.get::<Visibility>(entity),
+                    Some(&Visibility::Inherited)
+                );
+            }
+            let packed = meshes
+                .get(&mesh)
+                .unwrap()
+                .create_packed_vertex_buffer_data();
+            layer
+                .update_mesh(Batch::default(), [1, 1], &mut meshes)
+                .unwrap();
+            // Some callers, such as a skit's text panel, request visibility
+            // even when their logical batch is empty.
+            layer.show(true, &mut world.commands());
+            world.flush();
+            assert_eq!(world.get::<Visibility>(entity), Some(&Visibility::Hidden));
+            assert_eq!(
+                meshes
+                    .get(&mesh)
+                    .unwrap()
+                    .create_packed_vertex_buffer_data(),
+                packed
+            );
+            assert_eq!(meshes.get(&mesh).unwrap().indices().unwrap().len(), 6);
+        }
+        let mut visible = Batch::default();
+        visible.quad([20., 30., 60., 90.], [0., 0., 8., 16.], [0.5; 4]);
+        let expected = visible
+            .clone()
+            .mesh([8, 16])
+            .create_packed_vertex_buffer_data();
+        layer.update_mesh(visible, [8, 16], &mut meshes).unwrap();
+        layer.show(true, &mut world.commands());
+        world.flush();
+        assert_eq!(
+            world.get::<Visibility>(entity),
+            Some(&Visibility::Inherited)
+        );
+        assert_eq!(
+            meshes
+                .get(&mesh)
+                .unwrap()
+                .create_packed_vertex_buffer_data(),
+            expected
+        );
+        meshes.remove(mesh.id());
+        assert!(
+            layer
+                .update_mesh(Batch::default(), [1, 1], &mut meshes)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn ordinary_surface_keeps_vertices_without_secondary_stream() {
+        let mut batch = Batch::default();
+        batch.quad(
+            [10., 20., 30., 40.],
+            [2., 4., 6., 8.],
+            [0.25, 0.5, 0.75, 1.],
+        );
+        let mesh = batch.mesh([8, 16]);
+        assert!(mesh.attribute(Mesh::ATTRIBUTE_UV_1).is_none());
+        let bevy::mesh::VertexAttributeValues::Float32x2(uv) =
+            mesh.attribute(Mesh::ATTRIBUTE_UV_0).unwrap()
+        else {
+            panic!("wrong UV format")
+        };
+        assert_eq!(uv, &[[0.25, 0.25], [0.75, 0.25], [0.75, 0.5], [0.25, 0.5]]);
+        let image = Handle::<Image>::default();
+        let surface = Surface {
+            source: image.clone(),
+            sampling: image.clone(),
+            frame_mask: image.clone(),
+            color_mask: image,
+            coverage: Coverage::default(),
+            opaque: false,
+            additive: false,
+            red_channel: false,
+        };
+        assert_eq!(SurfaceKey::from(&surface), SurfaceKey(false, false, false));
+    }
 
     #[test]
     fn distant_speaker_gets_an_outlined_pointer_above_the_box() {

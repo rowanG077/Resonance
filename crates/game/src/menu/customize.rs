@@ -1,6 +1,5 @@
 use super::*;
 use resonance_content::menu_data::{CUSTOMIZE_OPTIONS, CustomizeSettings};
-use resonance_events::input::Button;
 
 pub const VISIBLE_OPTIONS: usize = 9;
 
@@ -52,6 +51,12 @@ impl Customize {
     }
 }
 impl Menu {
+    pub fn customize_data(&self) -> anyhow::Result<&menu_data::CustomizeData> {
+        self.customize_data
+            .as_ref()
+            .context("customization page has not been prepared")
+    }
+
     pub fn preferences(&self) -> Option<&CustomizeSettings> {
         if self.page == Page::Customize {
             Some(&self.customize.draft)
@@ -71,6 +76,9 @@ impl Menu {
         self.entering = Some(Page::Customize);
     }
     pub(super) fn step_customize_preview(&mut self) {
+        let Some(data) = &self.customize_data else {
+            return;
+        };
         let state = &mut self.customize;
         if state.row != 0 {
             return;
@@ -80,7 +88,7 @@ impl Menu {
         if speed == 0 {
             return;
         }
-        let count = self.resources.as_ref().unwrap().data.customize.options[0]
+        let count = data.options[0]
             .description
             .chars()
             .filter(|c| !c.is_control())
@@ -104,18 +112,28 @@ impl Menu {
             }
         }
     }
-    pub(super) fn step_customize(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down, page_up, page_down]: [bool; 6],
-    ) -> Option<i16> {
+    pub(super) fn step_customize(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [left, right, up, down, page_up, page_down] =
+            [Left, Right, Up, Down, PageUp, PageDown].map(|action| input == Some(action));
+        let data = match self
+            .customize_data
+            .as_ref()
+            .context("customization page has not been prepared")
+        {
+            Ok(data) => data,
+            Err(error) => {
+                self.report_failure("Customization is unavailable", error);
+                return Some(4);
+            }
+        };
         let state = &mut self.customize;
         state.scroll = (state.scroll + state.scroll.signum()) % 5;
         state.color_scroll = (state.color_scroll + state.color_scroll.signum()) % 20;
         if state.transition.animating() || state.scroll != 0 || state.color_scroll != 0 {
             return None;
         }
-        if input.pressed(Button::Cancel) {
+        if input == Some(Cancel) {
             if state.focus == Focus::Options {
                 self.checkpoint
                     .as_mut()
@@ -179,15 +197,9 @@ impl Menu {
                         state.defaults = !state.defaults;
                         return Some(1);
                     }
-                    if input.pressed(Button::Accept) {
+                    if input == Some(Confirm) {
                         state.draft = if state.defaults {
-                            self.resources
-                                .as_ref()
-                                .unwrap()
-                                .data
-                                .customize
-                                .defaults
-                                .clone()
+                            data.defaults.clone()
                         } else {
                             self.checkpoint
                                 .as_ref()
@@ -200,7 +212,7 @@ impl Menu {
                         };
                         return Some(2);
                     }
-                } else if input.pressed(Button::Accept) {
+                } else if input == Some(Confirm) {
                     state.focus = match state.row {
                         4 => {
                             state.component = 0;
@@ -229,9 +241,7 @@ impl Menu {
                         2 => {
                             draft.window = cycle(usize::from(draft.window), left, 3) as u8;
                             draft.background = 5;
-                            draft.colors = self.resources.as_ref().unwrap().data.customize.themes
-                                [usize::from(draft.window)]
-                            .clone();
+                            draft.colors = data.themes[usize::from(draft.window)].clone();
                         }
                         3 => draft.background = cycle(usize::from(draft.background), left, 6) as u8,
                         7 => draft.battle_voiceover = left,
@@ -246,7 +256,7 @@ impl Menu {
                 }
             }
             Focus::Colors => {
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     state.component = usize::from(state.component == 0);
                     return Some(2);
                 }
@@ -254,11 +264,11 @@ impl Menu {
                     state.component = cycle(state.component, up, 5);
                     return Some(1);
                 }
-                if input.pressed(Button::PreviousPage)
-                    || input.pressed(Button::NextPage)
+                if input == Some(PreviousTab)
+                    || input == Some(NextTab)
                     || horizontal && state.component == 0
                 {
-                    let previous = left || input.pressed(Button::PreviousPage);
+                    let previous = left || input == Some(PreviousTab);
                     state.color_group = cycle(state.color_group, previous, 7);
                     state.color_scroll = if previous { -1 } else { 1 };
                     return Some(1);
@@ -315,7 +325,7 @@ impl Menu {
             Focus::Position => {
                 let old = state.draft.screen_position;
                 let [x, y] = &mut state.draft.screen_position;
-                if input.pressed(Button::Menu) || input.pressed(Button::Start) {
+                if matches!(input, Some(Menu | Details)) {
                     *x = 0;
                     *y = 0;
                 } else if horizontal {

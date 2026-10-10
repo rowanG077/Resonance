@@ -36,6 +36,7 @@ struct Monitor {
     history: History,
     shown: bool,
     file: Option<BufWriter<File>>,
+    recording_error: Option<String>,
     dump_directory: PathBuf,
     last_flush: Instant,
     notice: &'static str,
@@ -109,6 +110,7 @@ pub(super) fn install(app: &mut App, options: PerformanceOptions, headless: bool
         history: History::default(),
         shown: options.overlay && !headless,
         file,
+        recording_error: None,
         dump_directory: options
             .dump
             .as_deref()
@@ -177,7 +179,7 @@ fn begin_frame(
                     "resources": {"images":images.as_ref().map(|a| a.len()), "meshes":meshes.as_ref().map(|a| a.len()), "surfaces":surfaces.as_ref().map(|a| a.len()),
                         "sampler_hits":sampled.as_ref().map(|s| s.hits), "sampler_misses":sampled.as_ref().map(|s| s.misses),
                         "memory_reads":resident.as_ref().map(|r| r.memory_reads.load(std::sync::atomic::Ordering::Relaxed)),
-                        "late_reads":resident.as_ref().map(|r| r.late_reads.load(std::sync::atomic::Ordering::Relaxed))}}),
+                        "unprepared_reads":resident.as_ref().map(|r| r.unprepared_reads.load(std::sync::atomic::Ordering::Relaxed))}}),
             )?;
             if let Some(summary) = summary {
                 line(
@@ -202,26 +204,38 @@ fn end_frame(mut monitor: ResMut<Monitor>, mut exit: MessageReader<AppExit>) {
         monitor.app_ms = start.elapsed().as_secs_f64() * 1000.;
     }
     if exit.read().next().is_some() {
-        let summary = monitor.history.summary();
-        if let Some(writer) = &mut monitor.file {
-            let result = line(
-                writer,
-                &serde_json::json!({"kind":"summary", "final":true, "summary":summary}),
-            )
-            .and_then(|()| writer.flush().map_err(Into::into));
-            if let Err(error) = result {
-                monitor.recording_failed(error);
-            }
-        }
+        let _ = monitor.finish_recording();
     }
 }
 
 impl Monitor {
     fn recording_failed(&mut self, error: anyhow::Error) {
         error!("Performance recording stopped: {error:#}");
+        self.recording_error = Some(format!("{error:#}"));
         self.file = None;
         self.notice = "DUMP ERROR - SEE LOG";
         self.notice_until = Some(Instant::now() + std::time::Duration::from_secs(10));
+    }
+
+    /// Strict probes finalize their timing evidence before publishing acceptance.
+    fn finish_recording(&mut self) -> Result<()> {
+        if let Some(error) = &self.recording_error {
+            anyhow::bail!("performance recording failed: {error}");
+        }
+        let Some(mut writer) = self.file.take() else {
+            return Ok(());
+        };
+        if let Err(error) = line(
+            &mut writer,
+            &serde_json::json!({"kind":"summary", "final":true, "summary":self.history.summary()}),
+        )
+        .and_then(|()| writer.flush().map_err(Into::into))
+        {
+            let message = format!("performance recording failed: {error:#}");
+            self.recording_failed(error);
+            anyhow::bail!(message);
+        }
+        Ok(())
     }
 
     fn snapshot(&self) -> Result<PathBuf> {

@@ -161,12 +161,17 @@ pub(crate) fn secondary_motion(
     struct Model {
         name: Option<String>,
     }
-    let mut definition = crate::secondary_motion::bind("", &glb.json, &part.bone_names)?;
-    if !definition.chains.is_empty() {
+    let model = if part
+        .bone_names
+        .iter()
+        .any(|name| name.starts_with("AB_ROOT"))
+    {
         let model: Model = read(root, &format!("{directory}/model.json"))?;
-        definition.model = model.name.context("missing secondary-motion model name")?;
-    }
-    Ok(definition)
+        model.name.context("missing secondary-motion model name")?
+    } else {
+        String::new()
+    };
+    crate::secondary_motion::bind(&model, &glb.json, &part.bone_names)
 }
 
 #[cfg(test)]

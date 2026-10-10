@@ -2,14 +2,17 @@
 use super::{Workspace, hash_file, write_json};
 use anyhow::{Result, ensure};
 use resonance_asset_writer::wav::write_pcm16;
+use resonance_audio::{
+    BLOCK_FRAMES, CONTROL_FRAMES, SOURCE_RATE,
+    package::Loaded,
+    sequence::{LiveControls, stream::Stream},
+    volume::frames_from_millis,
+};
 use resonance_audio_cook::{
-    bank::Bank,
-    dls, instrument, modulation, music_voice,
-    render::{PLAYBACK_RATE, SYNTHESIS_RATE},
-    resample, reverb,
+    bank::Bank, dls, instrument, modulation, music_voice, resample, reverb,
 };
 use serde_json::json;
-use std::{fs, path::Path};
+use std::{fs, path::Path, sync::Arc};
 
 pub(crate) fn tables(executable: &[u8]) -> Result<music_voice::Tables> {
     let bytes = |address, size| crate::dol::slice(executable, address, size);
@@ -18,15 +21,6 @@ pub(crate) fn tables(executable: &[u8]) -> Result<music_voice::Tables> {
     for (i, value) in attenuation.iter_mut().enumerate() {
         *value = u16::from_be_bytes(bytes(0x802a_88a0 + i as u32 * 2, 2)?.try_into()?);
     }
-    let inverse = bytes(0x802a_8a24, 1024)?.try_into()?;
-    let mut sustain = [0.; 128];
-    for (i, value) in sustain.iter_mut().enumerate() {
-        *value = float(0x802a_8e24 + i as u32 * 4)?;
-    }
-    ensure!(
-        float(0x802a_8e24 + 128 * 4)? == 1.0,
-        "unexpected full-scale DLS sustain endpoint"
-    );
     let mut sine = [0; 1024];
     for (i, value) in sine.iter_mut().enumerate() {
         *value = i16::from_be_bytes(bytes(0x802a_ad50 + i as u32 * 2, 2)?.try_into()?);
@@ -37,12 +31,7 @@ pub(crate) fn tables(executable: &[u8]) -> Result<music_voice::Tables> {
     }
     let tables = music_voice::Tables {
         mix: super::sound_buses::tables(executable)?,
-        pitch: super::pitched_sample::pitch_tables(executable)?,
-        dls: dls::Tables {
-            attenuation,
-            inverse,
-            sustain,
-        },
+        dls: dls::Tables { attenuation },
         modulation: modulation::Tables { sine, tremolo },
         coefficients: resample::Coefficients::from_be_bytes(
             &resonance_audio_cook::interpolation::coefficients(),
@@ -50,6 +39,17 @@ pub(crate) fn tables(executable: &[u8]) -> Result<music_voice::Tables> {
     };
     tables.validate()?;
     Ok(tables)
+}
+
+pub(crate) fn sustains(executable: &[u8]) -> Result<resonance_audio_cook::parameters::Sustains> {
+    let inverse = crate::dol::slice(executable, 0x802a_8a24, 1024)?.try_into()?;
+    let mut curve = [0.; 129];
+    for (i, value) in curve.iter_mut().enumerate() {
+        *value = f32::from_be_bytes(
+            crate::dol::slice(executable, 0x802a_8e24 + i as u32 * 4, 4)?.try_into()?,
+        );
+    }
+    resonance_audio_cook::parameters::Sustains::new(inverse, curve)
 }
 
 pub struct MusicVoiceOptions<'a> {
@@ -74,58 +74,47 @@ pub fn render_music_voice(options: MusicVoiceOptions<'_>) -> Result<()> {
     let coefficient_bytes = resonance_audio_cook::interpolation::coefficients();
     let tables = tables(&executable_bytes)?;
     let bank = Bank::parse(&bank_bytes)?;
-    let resources = resonance_audio_cook::compile::programs(&bank, [options.macro_id])?;
-    let mut voice = music_voice::Voice::new(
-        &resources,
-        &tables,
-        instrument::Voice {
-            macro_id: options.macro_id,
-            key: options.key,
-            velocity: options.velocity,
-            pan: 64,
-            priority: 64,
-            max_voices: 255,
-        },
+    let resources = resonance_audio_cook::compile::programs(
+        &bank,
+        [options.macro_id],
+        &sustains(&executable_bytes)?,
     )?;
-    let mut buses: [Vec<i16>; 3] = Default::default();
-    let mut frame = 0;
-    while !voice.is_done() {
-        let mut block = [[[0; 2]; 3]; 160];
-        let mut count = 0;
-        for _ in 0..160 {
-            ensure!(
-                frame < options.max_ms * 32,
-                "music voice exceeded its render limit"
-            );
-            if frame == options.hold_ms * 32 {
-                voice.key_off()?;
-            }
-            voice.prepare_frame(music_voice::Controls::default())?;
-            if voice.is_done() {
-                break;
-            }
-            count += 1;
-            frame += 1;
-        }
-        voice.mix_block(&mut block)?;
-        for output in &block[..count] {
-            for (bus, samples) in buses.iter_mut().zip(output) {
-                bus.extend(samples.map(|s| s as i16));
-            }
-        }
-    }
+    let note = instrument::Voice {
+        macro_id: options.macro_id,
+        key: options.key,
+        velocity: options.velocity,
+        pan: 64,
+        priority: 64,
+        max_voices: 255,
+    };
     let parameters = super::music::title_reverbs(&executable_bytes)?;
+    let loaded = Arc::new(Loaded::new(
+        resources,
+        super::sound_score(note.macro_id, Some(vec![note])),
+        tables,
+        parameters,
+    )?);
+    let buses = render_instrument(
+        loaded,
+        frames_from_millis(u64::from(options.hold_ms))?,
+        frames_from_millis(u64::from(options.max_ms))?,
+    )?;
+    let frame = buses[0].len() / 2;
     let studio = reverb::mix_studio(&buses, parameters)?;
     let mut assets = serde_json::Map::new();
     for (name, samples) in ["direct", "aux-a", "aux-b"]
         .into_iter()
-        .zip(&buses)
-        .chain(std::iter::once(("studio", &studio)))
+        .zip(buses.iter().map(|bus| {
+            bus.iter()
+                .map(|sample| (*sample).clamp(i16::MIN as i32, i16::MAX as i32) as i16)
+                .collect::<Vec<_>>()
+        }))
+        .chain(std::iter::once(("studio", studio)))
     {
         let name = format!("macro-{}-key-{}-{name}.wav", options.macro_id, options.key);
         let path = workspace.output.join(&name);
         let temporary = crate::temporary_path(&path);
-        write_pcm16(&temporary, 2, PLAYBACK_RATE, samples.iter().copied())?;
+        write_pcm16(&temporary, 2, SOURCE_RATE, samples.iter().copied())?;
         crate::publication::install(&temporary, &path, &hash_file(&temporary)?)?;
         assets.insert(
             name,
@@ -142,8 +131,8 @@ pub fn render_music_voice(options: MusicVoiceOptions<'_>) -> Result<()> {
             "bank_sha256":crate::digest(&bank_bytes),"executable_sha256":crate::digest(&executable_bytes),
             "coefficients_sha256":crate::digest(&coefficient_bytes),
             "macro_id":options.macro_id,"key":options.key,"velocity":options.velocity,
-            "hold_ms":options.hold_ms,"macro_frames":frame,"synthesis_rate":SYNTHESIS_RATE,
-            "sample_rate":PLAYBACK_RATE,"channels":2,"assets":assets,
+            "hold_ms":options.hold_ms,"macro_frames":frame,"synthesis_rate":SOURCE_RATE,
+            "sample_rate":SOURCE_RATE,"channels":2,"assets":assets,
         }),
     )?;
     println!(
@@ -153,91 +142,146 @@ pub fn render_music_voice(options: MusicVoiceOptions<'_>) -> Result<()> {
     Ok(())
 }
 
-pub fn render_title_audio_preview(
-    extracted: &Path,
-    output: &Path,
-    frames: u32,
-    master_fade_lead_ms: Option<u16>,
-) -> Result<()> {
-    let workspace = Workspace::open(extracted, output)?;
-    let _publications = crate::publication::Session::start_if_needed(output)?;
-    let executable_bytes = fs::read(workspace.extracted.join("sys/main.dol"))?;
-    let bank_bytes = fs::read(workspace.extracted.join("files/S/inst.snd"))?;
-    let song_bytes = fs::read(workspace.extracted.join("files/S/bgm_etc000.song"))?;
-    let coefficient_bytes = resonance_audio_cook::interpolation::coefficients();
-    let tables = tables(&executable_bytes)?;
-    let bank = Bank::parse(&bank_bytes)?;
-    let song = resonance_audio_cook::song::Song::parse(&song_bytes)?;
-    let parameters = super::music::title_reverbs(&executable_bytes)?;
-    let setup = bank.music_setup(0, 1)?;
-    let (resources, score) = resonance_audio_cook::compile::music(&bank, &song, &setup)?;
-    let preview = if let Some(lead) = master_fade_lead_ms {
-        ensure!(
-            lead.is_multiple_of(5),
-            "master fade lead must align to a five-ms block"
-        );
-        let mut master = resonance_audio_cook::volume::Fade::new(0.0, 1.0, 2000)?;
-        let mut sequence = resonance_audio_cook::volume::Fade::new(0.0, 1.0, 100)?;
-        for _ in 0..lead / 5 {
-            master.advance_block();
-        }
-        resonance_audio_cook::sequence::render_preview_with_volume(
-            &resources,
-            &score,
-            &tables,
-            parameters,
-            frames,
-            |frame| {
-                let volume = sequence.value() * master.value();
-                if frame.is_multiple_of(160) {
-                    master.advance_block();
-                    sequence.advance_block();
-                }
-                volume
-            },
-        )?
-    } else {
-        resonance_audio_cook::sequence::render_preview(
-            &resources, &score, &tables, parameters, frames,
-        )?
-    };
-    let path = workspace.output.join("title-preview.wav");
-    let temporary = crate::temporary_path(&path);
-    write_pcm16(&temporary, 2, PLAYBACK_RATE, preview.pcm)?;
-    crate::publication::install(&temporary, &path, &hash_file(&temporary)?)?;
-    write_json(
-        &path.with_extension("json"),
-        &json!({
-        "version":1,"renderer":"resonance-audio-cook","audio_device":false,
-        "renderer_sha256":hash_file(&std::env::current_exe()?)?,
-            "bank_sha256":crate::digest(&bank_bytes),"song_sha256":crate::digest(&song_bytes),
-            "executable_sha256":crate::digest(&executable_bytes),"coefficients_sha256":crate::digest(&coefficient_bytes),
-            "notes_started":preview.notes,"maximum_voices":preview.maximum_voices,"final_tick":preview.final_tick,
-            "voice_pool":{"free":preview.free_voices,"lfo_counters":preview.lfo_counters.as_slice()},
-            "voice_lifetimes":preview.voice_lifetimes.iter().map(|v| json!({
-                "slot":v.slot,"start_frame":v.start_frame,"end_frame":v.end_frame,
-                "macro":v.macro_id,"key":v.key,
-            })).collect::<Vec<_>>(),
-            "auxiliary_reverbs":parameters,"synthesis_rate":SYNTHESIS_RATE,
-            "loop_restart_implemented":true,"loop_start_frames":preview.loop_starts,"oracle_accepted":false,
-            "startup_fades":master_fade_lead_ms.map(|lead| json!({
-                "master_ms":2000,"sequence_ms":100,"master_lead_ms":lead,
-            })),
-            "asset":{"path":"title-preview.wav","sha256":hash_file(&path)?,"frames":frames,
-                "channels":2,"sample_rate":PLAYBACK_RATE},
-        }),
-    )?;
-    println!(
-        "Rendered {} score notes to {frames} diagnostic frames without playback",
-        preview.notes
+/// Use live note-off scheduling and completion, including the final queued block.
+fn render_instrument(
+    loaded: Arc<Loaded>,
+    hold_frames: u64,
+    max_frames: u64,
+) -> Result<[Vec<i32>; 3]> {
+    ensure!(
+        hold_frames < max_frames,
+        "voice hold must be shorter than its render limit"
     );
-    Ok(())
+    let mut stream = Stream::new(loaded, false)?;
+    let mut buses: [Vec<i32>; 3] = Default::default();
+    // Commands run on the native control grid; output is submitted in whole blocks.
+    let note_off = hold_frames.div_ceil(CONTROL_FRAMES as u64) * CONTROL_FRAMES as u64;
+    let limit = max_frames.div_ceil(BLOCK_FRAMES as u64) * BLOCK_FRAMES as u64;
+    let mut start = 0;
+    loop {
+        let controls = std::array::from_fn(|quantum| LiveControls {
+            release: start + quantum as u64 * CONTROL_FRAMES as u64 == note_off,
+            ..Default::default()
+        });
+        let Some(block) = stream.block_envelope(controls)? else {
+            return Ok(buses);
+        };
+        ensure!(start < limit, "music voice exceeded its render limit");
+        for output in block {
+            for (bus, samples) in buses.iter_mut().zip(output) {
+                bus.extend(samples);
+            }
+        }
+        start += BLOCK_FRAMES as u64;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use resonance_audio_cook::{bank::ObjectKind, mix};
+
+    #[test]
+    fn instrument_diagnostic_keeps_final_pcm_and_uses_native_note_off() -> Result<()> {
+        use resonance_audio::{
+            data::{Command, Interpolation, Note, Resources},
+            sample::Sample,
+        };
+        use std::collections::BTreeMap;
+        for looping in [false, true] {
+            let mut pcm = vec![0; 160];
+            if looping {
+                pcm.fill(8192);
+            } else {
+                pcm[159] = 8192;
+            }
+            let mut commands = vec![
+                Command::Interpolation {
+                    mode: Interpolation::Direct,
+                    coefficients: 0,
+                },
+                Command::VolumeControl { value: 16383 },
+                // This operation requires the same shared scheduler as live playback.
+                Command::RandomWait {
+                    upper_ms: 1,
+                    key_off: false,
+                    sample_end: false,
+                },
+                Command::StartSample { sample: 1 },
+            ];
+            if looping {
+                commands.extend([
+                    Command::Wait {
+                        milliseconds: None,
+                        from_start: false,
+                        key_off: true,
+                        sample_end: false,
+                    },
+                    Command::StopSample,
+                ]);
+            }
+            commands.push(Command::End);
+            let loaded = Arc::new(Loaded::new(
+                Resources {
+                    programs: BTreeMap::from([(1, commands)]),
+                    samples: BTreeMap::from([(
+                        1,
+                        Arc::new(Sample {
+                            key: 60,
+                            rate: 32000,
+                            loop_start: 0,
+                            loop_length: if looping { 160 } else { 0 },
+                            loop_pcm: if looping { pcm.clone() } else { vec![] },
+                            pcm,
+                        }),
+                    )]),
+                },
+                super::super::sound_score(
+                    1,
+                    Some(vec![Note {
+                        macro_id: 1,
+                        key: 60,
+                        velocity: 127,
+                        pan: 64,
+                        priority: 1,
+                        max_voices: 1,
+                    }]),
+                ),
+                super::super::tests::audio_tables(),
+                [[0., 0., 1., 0., 0.]; 2],
+            )?);
+            // A request just after frame32 takes effect at the next control boundary64.
+            let buses = render_instrument(loaded.clone(), 33, 3200)?;
+            let dry = buses[0]
+                .chunks_exact(2)
+                .map(|frame| frame[0])
+                .collect::<Vec<_>>();
+            let end = if looping { 64 } else { 160 };
+            assert!(dry[end - 1] > 0, "last source sample was discarded");
+            assert!(dry[end] > 0, "native release tail was discarded");
+            assert!(dry[end + 1] < dry[end]);
+            assert!(
+                dry[end + resonance_audio::RELEASE_FRAMES as usize..]
+                    .iter()
+                    .all(|&sample| sample == 0)
+            );
+            if looping {
+                let immediate = render_instrument(loaded.clone(), 0, 160)?;
+                assert!(immediate.iter().flatten().all(|&sample| sample == 0));
+                assert!(immediate[0].len() <= 160 * 2);
+                assert!(dry[..end].iter().all(|&sample| sample == dry[0]));
+                assert!(
+                    render_instrument(loaded, 33, 64)
+                        .unwrap_err()
+                        .to_string()
+                        .contains("render limit")
+                );
+            } else {
+                assert!(dry[..end - 1].iter().all(|&sample| sample == 0));
+            }
+        }
+        Ok(())
+    }
 
     fn extracted() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1")
@@ -290,25 +334,34 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires local extracted instruments"]
+    #[ignore = "requires local extracted instruments and RESONANCE_DSP_COEFFICIENTS"]
     fn title_macros_release_before_and_after_their_delayed_modulation() {
         let executable = fs::read(extracted().join("sys/main.dol")).unwrap();
-        let tables = tables(&executable).unwrap();
         let bytes = fs::read(extracted().join("files/S/inst.snd")).unwrap();
         let bank = Bank::parse(&bytes).unwrap();
-        let parameters =
-            resonance_audio_cook::parameters::dls(bank.object(ObjectKind::Table, 168).unwrap())
-                .unwrap()
-                .resolve(&tables.dls, 104, 78)
-                .unwrap();
+        let parameters = resonance_audio_cook::parameters::dls(
+            bank.object(ObjectKind::Table, 168).unwrap(),
+            &sustains(&executable).unwrap(),
+        )
+        .unwrap()
+        .resolve(104, 78)
+        .unwrap();
         assert_eq!(
             (
-                parameters.attack_ms,
-                parameters.decay_ms,
+                parameters.attack_frames,
                 parameters.sustain,
-                parameters.release_ms
+                parameters.release_frames
             ),
-            (0, 2745, 193, 110)
+            (
+                0,
+                193,
+                resonance_audio::volume::frames_from_millis(110).unwrap()
+            )
+        );
+        assert!(
+            (resonance_audio::volume::frames_from_millis(2745).unwrap()
+                ..=resonance_audio::volume::frames_from_millis(2746).unwrap())
+                .contains(&parameters.decay_frames)
         );
         for (macro_id, key) in [
             (379, 55),
@@ -325,46 +378,39 @@ mod tests {
             (792, 48),
         ] {
             for hold_ms in [100, 1500] {
-                let resources = resonance_audio_cook::compile::programs(&bank, [macro_id]).unwrap();
-                let mut voice = music_voice::Voice::new(
-                    &resources,
-                    &tables,
-                    instrument::Voice {
-                        macro_id,
-                        key,
-                        velocity: 104,
-                        pan: 64,
-                        priority: 64,
-                        max_voices: 255,
-                    },
+                let resources = resonance_audio_cook::compile::programs(
+                    &bank,
+                    [macro_id],
+                    &sustains(&executable).unwrap(),
                 )
                 .unwrap();
-                let mut nonzero = 0;
-                let mut finished_at = None;
-                for start in (0..32000 * 5).step_by(160) {
-                    let mut block = [[[0; 2]; 3]; 160];
-                    for frame in start..start + 160 {
-                        if frame == hold_ms * 32 {
-                            voice.key_off().unwrap();
-                        }
-                        voice
-                            .prepare_frame(music_voice::Controls::default())
-                            .unwrap();
-                        if voice.is_done() {
-                            finished_at = Some(frame);
-                            break;
-                        }
-                    }
-                    voice.mix_block(&mut block).unwrap();
-                    nonzero += block.iter().filter(|pcm| pcm[0] != [0; 2]).count();
-                    if voice.is_done() {
-                        break;
-                    }
-                }
-                assert!(
-                    voice.is_done(),
-                    "macro {macro_id} did not finish after note-off at {hold_ms} ms"
+                let note = instrument::Voice {
+                    macro_id,
+                    key,
+                    velocity: 104,
+                    pan: 64,
+                    priority: 64,
+                    max_voices: 255,
+                };
+                let loaded = Arc::new(
+                    Loaded::new(
+                        resources,
+                        super::super::sound_score(macro_id, Some(vec![note])),
+                        super::tables(&executable).unwrap(),
+                        [[0., 0., 1., 0., 0.]; 2],
+                    )
+                    .unwrap(),
                 );
+                let buses = render_instrument(
+                    loaded,
+                    frames_from_millis(hold_ms).unwrap(),
+                    u64::from(SOURCE_RATE) * 5,
+                )
+                .unwrap_or_else(|error| panic!("macro {macro_id} at {hold_ms}ms: {error:#}"));
+                let nonzero = buses[0]
+                    .chunks_exact(2)
+                    .filter(|frame| *frame != [0, 0])
+                    .count();
                 assert!(
                     nonzero > 100,
                     "macro {macro_id} did not render instrument PCM"
@@ -372,14 +418,24 @@ mod tests {
                 if macro_id == 744 && hold_ms == 100 {
                     // Table 157 starts a 250-ms release at 100 ms. The second
                     // KeyOff after its absolute 333-ms wait must not extend it.
-                    assert_eq!(finished_at, Some(350 * 32));
+                    let release_end = frames_from_millis(350)
+                        .unwrap()
+                        .div_ceil(CONTROL_FRAMES as u64)
+                        * CONTROL_FRAMES as u64;
+                    let complete = (release_end + u64::from(resonance_audio::RELEASE_FRAMES))
+                        .div_ceil(BLOCK_FRAMES as u64)
+                        * BLOCK_FRAMES as u64;
+                    assert!(
+                        buses[0].len() as u64 / 2 <= complete,
+                        "repeated release extended the native completion boundary"
+                    );
                 }
             }
         }
     }
 
     #[test]
-    #[ignore = "requires original sound banks; silent in-memory synthesis"]
+    #[ignore = "requires original sound banks and RESONANCE_DSP_COEFFICIENTS; silent in-memory synthesis"]
     fn original_layered_random_cues_share_music_clock_and_finish_after_release() -> Result<()> {
         use anyhow::Context;
         use resonance_audio::{
@@ -398,8 +454,10 @@ mod tests {
             source: VoiceSource,
             notes: Vec<Note>,
             tables: music_voice::Tables,
+            sustains: &resonance_audio_cook::parameters::Sustains,
         ) -> Result<Arc<Loaded>> {
-            let resources = decode::programs(bank, notes.iter().map(|note| note.macro_id))?;
+            let resources =
+                decode::programs(bank, notes.iter().map(|note| note.macro_id), sustains)?;
             let mut files = BTreeMap::new();
             let mut samples = BTreeMap::new();
             for (id, sample) in resources.samples {
@@ -442,13 +500,14 @@ mod tests {
                 unreachable!()
             };
             *allocation = source;
-            let package = super::super::sound_library::Resources {
-                version: 1,
+            let package = Package {
+                version: resonance_audio::package::VERSION,
                 programs: resources.programs,
                 samples,
-                score: Some(score),
-            }
-            .package(tables, [[0., 0., 1., 0., 0.]; 2])?;
+                score,
+                tables,
+                reverbs: [[0., 0., 1., 0., 0.]; 2],
+            };
             files.insert("cue.json".into(), serde_json::to_vec(&package)?);
             Ok(Arc::new(Package::load_with(
                 "cue.json",
@@ -500,12 +559,13 @@ mod tests {
                 VoiceSource::SoundEffect { id },
                 notes,
                 tables(&executable)?,
+                &sustains(&executable)?,
             )?);
         }
         // These are the actual layered routes that previously failed admission:
         // two random roots and callback loops, plus a timer/key-off/sample wait.
         for (id, upper_ms) in [(487, 3000), (488, 2000)] {
-            let program = &loaded[0].resources.programs[&id];
+            let program = &loaded[0].resources().programs[&id];
             assert!(
                 matches!(program[6], Command::RandomWait { upper_ms: bound, key_off: true, sample_end: false } if bound == upper_ms)
             );
@@ -529,7 +589,7 @@ mod tests {
             ));
         }
         assert!(matches!(
-            loaded[1].resources.programs[&69][7],
+            loaded[1].resources().programs[&69][7],
             Command::Wait {
                 milliseconds: Some(1000),
                 key_off: true,
@@ -554,6 +614,7 @@ mod tests {
                 max_voices: 255,
             }],
             tables(&executable)?,
+            &sustains(&executable)?,
         )?);
 
         for hold_ms in [100, 6000] {
@@ -564,29 +625,25 @@ mod tests {
                     .iter()
                     .map(|loaded| Stream::in_synthesizer(loaded.clone(), false, &synth))
                     .collect::<Result<Vec<_>>>()?;
-                assert!(streams.iter().all(Stream::is_shared));
                 let mut hashes: [Sha256; 3] = Default::default();
                 let mut nonzero = [0; 3];
                 let mut ends = [None; 3];
-                let release_frame = hold_ms * (SYNTHESIS_RATE / 1000);
-                for frame in 0..release_frame + 5 * SYNTHESIS_RATE {
+                let release_frame = u32::try_from(frames_from_millis(hold_ms)?)?;
+                for frame in 0..release_frame + 5 * SOURCE_RATE {
                     if frame == release_frame {
-                        if hold_ms == 100 {
-                            // Only cue490 has drawn yet; cue416 is in its initial waits.
-                            assert_eq!(synth.random_state().1, 1);
-                        }
                         for stream in &streams {
                             stream.set_shared_controls(
                                 [LiveControls {
                                     release: true,
                                     ..Default::default()
-                                }; 5],
+                                };
+                                    resonance_audio::CONTROLS_PER_BLOCK],
                             )?;
                         }
                     }
                     synth.advance()?;
                     for (i, stream) in streams.iter().enumerate() {
-                        if let Some(pcm) = stream.shared_frame()? {
+                        if let Some(pcm) = stream.shared_frame() {
                             assert!(ends[i].is_none(), "cue {i} resumed after finishing");
                             nonzero[i] +=
                                 usize::from(pcm.iter().flatten().any(|&sample| sample != 0));

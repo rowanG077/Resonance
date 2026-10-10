@@ -104,7 +104,7 @@ pub(crate) enum MaterialOperation {
 }
 
 impl MaterialRecipe {
-    /// Decode the ordinary material path of a freshly constructed GPL object.
+    /// Decode the packed ordinary-material operations, starting at the low nibble.
     pub(crate) fn parse(modes: &[u32], texture_count: usize) -> Result<Self, GeometryError> {
         let &[source_mode] = modes else {
             return Err(Gpl("material needs one authored recipe".into()));
@@ -122,25 +122,22 @@ impl MaterialRecipe {
                     stage += 1;
                     break;
                 }
-                1 => Some(MultiplyTexture { texture: stage }),
-                2 => Some(DecalTexture { texture: stage }),
-                3 => Some(BlendTexture { texture: stage }),
-                4 => Some(ReplaceTexture { texture: stage }),
-                6 => Some(AddTexture { texture: stage }),
-                7 => Some(SubtractTexture { texture: stage }),
-                8 => Some(DefaultViewTexture { texture: stage }),
+                1 => MultiplyTexture { texture: stage },
+                2 => DecalTexture { texture: stage },
+                3 => BlendTexture { texture: stage },
+                4 => ReplaceTexture { texture: stage },
+                6 => AddTexture { texture: stage },
+                7 => SubtractTexture { texture: stage },
+                8 => DefaultViewTexture { texture: stage },
                 15 => {
                     operations.push(DecalTexture { texture: stage });
                     stage += 1;
-                    Some(MultiplyVertexColor)
+                    MultiplyVertexColor
                 }
-                // The default callback only reports kinds 9..14; neither counter advances.
-                _ => None,
+                kind => return Err(Gpl(format!("unsupported material operation {kind}"))),
             };
-            if let Some(operation) = operation {
-                operations.push(operation);
-                stage += 1;
-            }
+            operations.push(operation);
+            stage += 1;
             if usize::from(stage) >= texture_count {
                 break;
             }
@@ -491,7 +488,7 @@ pub(crate) fn decode_section_with_alpha(
     decode_geometry(&parse_geometry(gpl)?, model.as_ref(), alpha, textures)
 }
 
-/// The native loader copies exactly size bytes from the resource-relative start.
+/// The resource header declares a skeleton offset and byte length.
 pub(crate) fn skeleton_range(resource: &[u8]) -> Result<std::ops::Range<usize>, GeometryError> {
     let start =
         read_u32(resource, 4).ok_or_else(|| Gpl("missing skeleton offset".into()))? as usize;
@@ -909,8 +906,8 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
         return Err(Gpl("missing geometry-palette header".into()));
     }
     let auxiliary = [read_u32(data, 4).unwrap(), read_u32(data, 8).unwrap()];
-    // The loader relocates the second word when both are nonzero; its payload
-    // layout is not known. Do not silently skip a potential resource reference.
+    // Nonzero auxiliary fields declare an unsupported payload. Do not silently
+    // skip a potential resource reference.
     if auxiliary != [0, 0] {
         return Err(Gpl(format!("unresolved GPL header fields {auxiliary:x?}")));
     }
@@ -1230,8 +1227,8 @@ fn decode_vectors<const N: usize>(
         )));
     }
     let width = format.component.width();
-    // The loader always binds XYZ/ST; descriptor components specify stride,
-    // which the array register stores in one byte.
+    // Position/texture defaults are XYZ/ST. Descriptor components specify the
+    // source stride, encoded in a one-byte array register.
     let stride = (usize::from(desc.components) * width) & 0xff;
     validate_array(object, desc, stride, N * width)?;
     (0..desc.count)
@@ -1301,7 +1298,7 @@ impl ColorFormat {
             Self::Rgb8 | Self::Rgbx8 => [data[at], data[at + 1], data[at + 2], 255],
             Self::Rgba8 => data[at..at + 4].try_into().unwrap(),
             Self::Rgba6 if constant => {
-                // The material-constant loader reads only a 16-bit word here.
+                // Packed material constants use a 16-bit value in this format.
                 let v = u32::from(read_u16(data, at).unwrap());
                 [v >> 16, v >> 10, v >> 4, v << 2].map(|c| (c & 252) as u8)
             }
@@ -1324,7 +1321,6 @@ impl ColorFormat {
 }
 
 enum RenderCommand {
-    Unchanged,
     Texture(u32),
     VertexFormat(u32),
     Material(u32),
@@ -1333,7 +1329,8 @@ enum RenderCommand {
 
 impl RenderCommand {
     fn decode(kind: u8, value: u32, modern: bool) -> Result<Self, GeometryError> {
-        // The GPL revision selects vertex/material/matrix numbering.
+        // Both revisions declare these four state operations. Unknown records
+        // cannot be treated as draw-only records.
         Ok(match (modern, kind) {
             (_, 1) => Self::Texture(value),
             (true, 2) | (false, 3) => Self::VertexFormat(value),
@@ -1344,14 +1341,13 @@ impl RenderCommand {
                 _ => return Err(Gpl(format!("unsupported old material {value}"))),
             }),
             (true, 4) | (false, 5) => Self::Matrix(value),
-            // Unhandled state opcodes still submit their optional draw.
-            _ => Self::Unchanged,
+            _ => return Err(Gpl(format!("unsupported GPL render command {kind}"))),
         })
     }
 }
 
-/// Every counted record may issue a draw, including commands that leave state
-/// unchanged. Skinned objects issue draws after loading their joint palettes.
+/// Each supported state record may also submit a draw. Matrix records bind joint
+/// palette slots before their associated draw.
 fn parse_render_commands(
     object: &[u8],
     start: usize,
@@ -1366,7 +1362,6 @@ fn parse_render_commands(
     let mut draws = Vec::new();
     for command in commands.chunks_exact(16) {
         match RenderCommand::decode(command[0], read_u32(command, 4).unwrap(), modern)? {
-            RenderCommand::Unchanged => {}
             RenderCommand::Texture(value) => {
                 let stage = (value >> 13) & 7;
                 state.texture_commands.retain(|v| ((v >> 13) & 7) != stage);
@@ -1421,39 +1416,11 @@ fn decode_display_list_with_formats(
 ) -> Result<Vec<GeometryMesh>, GeometryError> {
     use vertex::Format;
     let colors = arrays.colors.map(|array| array.values);
-    let specs = if let Some(vcd) = state.vcd {
-        vertex_specs(vcd)?
-    } else {
-        // Older synthetic GPLs and actor projections do not expose a VCD. Keep
-        // a conservative compatibility path for those resources only.
-        let mut specs = vec![VertexAttributeSpec {
-            attr: 9,
-            kind: if arrays.positions.values.len() > 255 {
-                3
-            } else {
-                2
-            },
-        }];
-        // A single color is a material constant; larger palettes use an index
-        // between the position and UV indices.
-        if let Some(colors) = colors.filter(|values| values.len() > 1) {
-            specs.push(VertexAttributeSpec {
-                attr: 11,
-                kind: if colors.len() > 255 { 3 } else { 2 },
-            });
-        }
-        if let Some(texcoords) = arrays
-            .texcoords
-            .first()
-            .filter(|array| !array.values.is_empty())
-        {
-            specs.push(VertexAttributeSpec {
-                attr: 13,
-                kind: if texcoords.values.len() > 255 { 3 } else { 2 },
-            });
-        }
-        specs
-    };
+    let specs = vertex_specs(
+        state
+            .vcd
+            .ok_or_else(|| Gpl("draw has no declared vertex layout".into()))?,
+    )?;
     formats.bind(state, specs);
     let mut schema = None;
     let mut meshes = Vec::new();
@@ -2263,18 +2230,14 @@ mod tests {
                     .contains("scene shader")
             );
         }
-        for callback in 9..=14 {
-            for mode in [callback, callback | 1 << 4] {
-                let recipe = MaterialRecipe::parse(&[mode], 0).unwrap();
-                assert_eq!(recipe.stage_count, 0);
-                assert!(recipe.operations.is_empty());
-            }
-            for mode in [callback | 1 << 4, callback << 4 | 1] {
-                let recipe = MaterialRecipe::parse(&[mode], 2).unwrap();
-                assert_eq!(recipe.source_mode, mode);
-                assert_eq!(recipe.stage_count, 1);
-                assert_eq!(recipe.operations, [MultiplyTexture { texture: 0 }]);
-                assert_eq!(recipe.combination().unwrap(), VertexColorTexture);
+        for unsupported in 9..=14 {
+            for mode in [unsupported, unsupported | 1 << 4, unsupported << 4 | 1] {
+                assert!(
+                    MaterialRecipe::parse(&[mode], 2)
+                        .unwrap_err()
+                        .to_string()
+                        .contains("unsupported material operation")
+                );
             }
         }
         for mode in [0, 0x10] {
@@ -2344,18 +2307,18 @@ mod tests {
         bytes[88..92].fill(0);
         assert!(parse_geometry(&bytes).unwrap().is_empty());
         bytes[88..92].copy_from_slice(&64_u32.to_be_bytes());
-        // An unhandled state opcode cannot hide an unsupported draw payload.
+        // Unsupported state records fail even when their draw payload is invalid too.
         bytes[80] = 0xff;
         bytes[96] = 0x7f;
         assert!(
             parse_geometry(&bytes)
                 .unwrap_err()
                 .to_string()
-                .contains("unsupported GX command")
+                .contains("unsupported GPL render command")
         );
         bytes[80] = 2;
         bytes[96] = 0x90;
-        // A raw zero becomes the GPL base in the native pointer fixup.
+        // Label offsets are relative to the GPL header, including zero.
         bytes[24..28].fill(0);
         assert_eq!(parse_geometry(&bytes).unwrap()[0].name, "");
         bytes[24..28].copy_from_slice(&99_u32.to_be_bytes());
@@ -2664,78 +2627,62 @@ mod tests {
     }
 
     #[test]
-    fn draws_follow_commands_beyond_the_first_three_records() {
-        let mut object = commands(
-            &[
-                [1, 0x11110002, 0, 0],
-                [1, 0x11112000, 0, 0],
-                [3, 17, 0, 0],
-                [2, 0x2888, 112, 8],
-                [4, 0x70002, 120, 12],
-                [0, 99, 132, 12],
-                [3, 18, 144, 16],
-            ],
-            160,
-        );
-        let draws = parse_render_commands(&object, 0, 7, true).unwrap();
-        assert_eq!(draws.len(), 4);
-        assert_eq!((draws[0].1, draws[0].2), (112, 8));
-        assert_eq!(draws[0].0.texture_commands, [0x11110002, 0x11112000]);
-        assert_eq!(draws[1].0.matrix_commands, [0x00070002]);
-        assert_eq!(draws[2].0, draws[1].0);
-        assert_eq!(draws[3].0.tev_modes, [18]);
-        for kind in (0..=u8::MAX).filter(|kind| !(1..=4).contains(kind)) {
-            object[5 * 16] = kind;
-            assert_eq!(parse_render_commands(&object, 0, 7, true).unwrap(), draws);
-        }
-        assert!(
-            parse_render_commands(&object, 0, 3, true)
-                .unwrap()
-                .is_empty()
-        );
-        assert!(parse_render_commands(&object[..159], 0, 7, true).is_err());
-        assert!(
-            parse_render_commands(&object, object.len(), 0, true)
-                .unwrap()
-                .is_empty()
-        );
-        assert!(parse_render_commands(&object, object.len() + 1, 0, true).is_err());
-        assert!(parse_render_commands(&object, object.len(), 1, true).is_err());
-        assert!(parse_render_commands(&object, 0, usize::MAX, true).is_err());
-        assert!(
-            parse_render_commands(&[0; 16], 0, 1, true)
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn old_commands_preserve_layout_material_and_draws_without_state_changes() {
-        let mut object = commands(
-            &[
-                [4, 4, 0, 0],
-                [3, 8, 96, 4],
-                [2, 99, 100, 4],
-                [0, 99, 104, 4],
-                [5, 0x70002, 108, 4],
-                [0, 0, 0, u32::MAX],
-            ],
-            112,
-        );
-        let draws = parse_render_commands(&object, 0, 6, false).unwrap();
-        assert_eq!(draws.len(), 4);
-        assert_eq!(draws[0].0.vcd, Some(8));
-        assert_eq!(draws[0].0.tev_modes, [5]);
-        assert!(draws[0].0.matrix_commands.is_empty());
-        for (index, (state, offset, size)) in draws.iter().enumerate() {
-            assert_eq!((*offset, *size), (96 + index * 4, 4));
-            assert_eq!(state.vcd, Some(8));
-            assert_eq!(state.tev_modes, [5]);
-        }
-        assert_eq!(draws[3].0.matrix_commands, [0x70002]);
-        for kind in (0..=u8::MAX).filter(|kind| ![1, 3, 4, 5].contains(kind)) {
-            object[2 * 16] = kind;
-            assert_eq!(parse_render_commands(&object, 0, 6, false).unwrap(), draws);
+    fn render_records_apply_state_and_reject_unknown_operations() {
+        for modern in [false, true] {
+            let (layout, material, matrix) = if modern { (2, 3, 4) } else { (3, 4, 5) };
+            let mut object = commands(
+                &[
+                    [1, 0x11110002, 0, 0],
+                    [1, 0x11112000, 0, 0],
+                    [material, if modern { 5 } else { 4 }, 0, 0],
+                    [layout, 0x2888, 112, 8],
+                    [matrix, 0x70002, 120, 12],
+                    [matrix, 0x70002, 132, 12],
+                    [material, if modern { 1 } else { 0 }, 144, 16],
+                ],
+                160,
+            );
+            let draws = parse_render_commands(&object, 0, 7, modern).unwrap();
+            assert_eq!(draws.len(), 4);
+            assert_eq!((draws[0].1, draws[0].2), (112, 8));
+            assert_eq!(draws[0].0.vcd, Some(0x2888));
+            assert_eq!(draws[0].0.texture_commands, [0x11110002, 0x11112000]);
+            assert_eq!(draws[0].0.tev_modes, [5]);
+            assert_eq!(draws[1].0.matrix_commands, [0x00070002]);
+            assert_eq!(draws[2].0, draws[1].0);
+            assert_eq!(draws[3].0.tev_modes, [1]);
+            for kind in [0, if modern { 5 } else { 2 }, u8::MAX] {
+                object[5 * 16] = kind;
+                assert!(
+                    parse_render_commands(&object, 0, 7, modern)
+                        .unwrap_err()
+                        .to_string()
+                        .contains("unsupported GPL render command")
+                );
+            }
+            object[5 * 16] = matrix as u8;
+            assert!(
+                parse_render_commands(&object, 0, 3, modern)
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(parse_render_commands(&object[..159], 0, 7, modern).is_err());
+            assert!(
+                parse_render_commands(&object, object.len(), 0, modern)
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(parse_render_commands(&object, object.len() + 1, 0, modern).is_err());
+            assert!(parse_render_commands(&object, object.len(), 1, modern).is_err());
+            assert!(parse_render_commands(&object, 0, usize::MAX, modern).is_err());
+            assert!(parse_render_commands(&[0; 16], 0, 1, modern).is_err());
+            // A state-only record has no draw, even if its unused size is nonzero.
+            object[6 * 16 + 8..6 * 16 + 12].fill(0);
+            object[6 * 16 + 12..7 * 16].fill(0xff);
+            assert_eq!(
+                parse_render_commands(&object, 0, 7, modern).unwrap().len(),
+                3
+            );
         }
     }
 
@@ -2749,7 +2696,10 @@ mod tests {
                 &[],
                 None,
                 None,
-                &RenderStateInfo::default(),
+                &RenderStateInfo {
+                    vcd: Some(2 << 2),
+                    ..Default::default()
+                },
             )
         };
         let triangle = [0x90, 0, 3, 0, 1, 2];
@@ -2801,6 +2751,24 @@ mod tests {
         // Incomplete polygon packets likewise submit no complete primitive.
         for opcode in [0x80, 0x88, 0x90, 0x98, 0xa0] {
             assert!(decode(&[opcode, 0, 2, 0, 1]).unwrap().indices.is_empty());
+        }
+    }
+
+    #[test]
+    fn draws_require_declared_layouts_independently_of_array_length() {
+        let point = [0xb8, 0, 1, 0];
+        for count in [3, 256] {
+            let positions = vec![[1., 2., 3.]; count];
+            let mut state = RenderStateInfo::default();
+            assert!(
+                decode_indexed(&point, &positions, &[], None, None, &state)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("no declared vertex layout")
+            );
+            state.vcd = Some(2 << 2);
+            let mesh = decode_indexed(&point, &positions, &[], None, None, &state).unwrap();
+            assert_eq!(mesh.positions, [[1., 2., 3.]]);
         }
     }
 
@@ -2959,8 +2927,8 @@ mod tests {
     }
 
     #[test]
-    fn inline_attributes_use_loader_formats_with_independent_indexed_uvs() {
-        // Source-derived packets: the loader binds XYZ/ST, irrespective of array stride.
+    fn inline_attributes_use_format_defaults_with_independent_indexed_uvs() {
+        // Inline defaults are XYZ/ST, independently of an indexed array's stride.
         let numbers = [
             (
                 0x01,
@@ -3114,8 +3082,8 @@ mod tests {
     }
 
     #[test]
-    fn authored_vertex_formats_convert_raw_arrays_with_the_original_binding_stride() {
-        // Source-derived CP packets: changing VAT conversion does not rebind arrays.
+    fn authored_vertex_formats_preserve_the_declared_array_stride() {
+        // Changing VAT conversion does not rebind an indexed source array.
         let bytes = [0, 0, 0, 0, 0, 0, 99, 99, 6, 10, 0, 0, 0, 0];
         let values = [[0.; 3]; 2];
         let arrays = VertexArrays {
@@ -3404,7 +3372,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires both original extracted discs; model metadata only"]
+    #[ignore = "requires both current extracted discs; geometry and model metadata"]
     fn original_party_models_preserve_names_ids_parents_and_draw_order() -> anyhow::Result<()> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let mut checked = 0;
@@ -3415,8 +3383,12 @@ mod tests {
             ] {
                 let package = fs::read(root.join(disc).join(format!("files/{name}000.bin")))?;
                 let parts = crate::field::sections(&package)?;
+                let primary = &package[parts[0].clone().unwrap()];
                 for part in parts.iter().take(2).flatten() {
                     let part = &package[part.clone()];
+                    let normalized = crate::character::texture_palette(primary, part)?;
+                    let source = section_source(&normalized)?;
+                    assert!(!parse_geometry(source.gpl)?.is_empty());
                     let bytes = &part[skeleton_range(part)?];
                     let model = Model::parse(bytes)?;
                     let bindings = crate::animation::ModelBindings::read(bytes)?;

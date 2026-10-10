@@ -21,7 +21,7 @@ fn shared_voice_loader_preserves_native_pcm_and_uses_the_playback_clock() -> Res
         writer.finalize()?;
         Ok(bytes.into_inner())
     };
-    let bytes = wave(32000)?;
+    let bytes: Arc<[u8]> = wave(32000)?.into();
     let mut voice = Voice {
         asset: Asset {
             path: "audio/streams/test.wav".into(),
@@ -31,20 +31,29 @@ fn shared_voice_loader_preserves_native_pcm_and_uses_the_playback_clock() -> Res
         channels: 1,
         sample_rate: 32028,
         source_sample_rate: 32000,
-        source_name: "test.ahx".into(),
-        source_sha256: "a".repeat(64),
     };
     voice.validate()?;
-    let clip = Clip::decode(bytes.clone(), &voice)?;
-    assert_eq!(clip.pcm, pcm);
+    let clip = Clip::prepare(bytes.clone(), &voice)?;
+    assert!(
+        Arc::ptr_eq(&clip.bytes, &bytes),
+        "PCM should share its verified WAV storage"
+    );
+    assert_eq!(
+        (0..clip.sample_count())
+            .map(|i| clip.value(i))
+            .collect::<Vec<_>>(),
+        pcm
+    );
     assert_eq!(clip.rate, 32028);
     assert_eq!(clip.channels, 1);
     assert!(
-        Clip::decode(wave(32028)?, &voice).is_err(),
+        Clip::prepare(wave(32028)?.into(), &voice).is_err(),
         "relabelled WAVs must be recooked"
     );
     voice.source_sample_rate = 22050;
-    assert!(Clip::decode(bytes, &voice).is_err());
+    assert!(Clip::prepare(bytes.clone(), &voice).is_err());
+    voice.source_sample_rate = 32000;
+    assert!(Clip::prepare(bytes[..bytes.len() - 1].into(), &voice).is_err());
     Ok(())
 }
 
@@ -86,12 +95,12 @@ fn saved_dialogue_volume_matches_dolphin_attenuation() {
     let reference_full = isolated("full_volume");
     let cooked = std::env::var_os("RESONANCE_TEST_ASSETS")
         .map_or_else(|| root.join("local/cooked"), Into::into);
-    let assets = Assets::load(&cooked, 340).unwrap();
+    let assets = Arc::new(Assets::load(&cooked, 340).unwrap());
     let render = |volume| {
         let (source, mut control) = assets.clone().session();
         control.levels([127, 127, volume]).unwrap();
         control
-            .send(AudioCommand::Voice(number("voice") as u32))
+            .send(AudioCommand::voice(number("voice") as u32))
             .unwrap();
         let mut frames = source.decoder();
         let samples = (0..count)

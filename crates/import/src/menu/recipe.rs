@@ -14,7 +14,6 @@ pub(super) enum Bank {
     Plain,
     Alternate,
     Patterns,
-    Cursor,
     Symbols,
     WorldMaps,
     Portraits,
@@ -29,12 +28,11 @@ pub(super) enum Bank {
     Conditions,
 }
 
-const BANKS: [(Bank, u32, usize); 17] = [
+const BANKS: [(Bank, u32, usize); 16] = [
     (Bank::Frames, 0x80234260, 0x2c20),
     (Bank::Plain, 0x80231720, 0x240),
     (Bank::Alternate, 0x80236e80, 0x2500),
     (Bank::Patterns, 0x80231960, 0x2900),
-    (Bank::Cursor, 0x80249500, 0x280),
     (Bank::Symbols, 0x80249780, 0x16a0),
     (Bank::WorldMaps, 0x8024e2a0, 0x1b0e0),
     (Bank::Portraits, 0x8023d3e0, 0x49a0),
@@ -64,7 +62,6 @@ pub(super) struct Recipe {
     pub(super) shade: [[u8; 4]; 2],
     pub(super) palette: Vec<[u8; 4]>,
     pub(super) labels: BTreeMap<String, String>,
-    pub(super) cursor_motion: [[f32; 2]; 2],
     pub(super) number_colors: [[[u8; 4]; 2]; 18],
     pub(super) bar_colors: [[[u8; 4]; 4]; 3],
     pub(super) names: [String; 9],
@@ -91,6 +88,7 @@ impl Source {
             labels: [
                 ("go_in", 0x8035af14),
                 ("talk", 0x8035af1c),
+                ("to_field", 0x8017a268),
                 ("shop", 0x8035af24),
                 ("examine", 0x8035af2c),
                 ("open", 0x8035af34),
@@ -120,8 +118,6 @@ pub(super) fn assemble(
     style: &ui_style::Catalogue,
 ) -> Result<Recipe> {
     let colors = &options.defaults.colors;
-    let cursor = &style.cursor;
-    let cursor_step = cursor.phase_scale.finite()? / cursor.phase_divisor.finite()?;
     let equipped = style.text(style.symbols.equipped);
     ensure!(equipped.len() == 1, "equipped marker is not a single glyph");
     let mut recipe = Recipe {
@@ -132,10 +128,6 @@ pub(super) fn assemble(
         shade: [colors.shade_top, colors.shade_bottom],
         palette: style.palette.to_vec(),
         labels: source.labels.clone(),
-        cursor_motion: [
-            [cursor.amplitudes[0].finite()?, cursor_step * 2.],
-            [cursor.amplitudes[1].finite()?, cursor_step],
-        ],
         number_colors: style.number_colors,
         bar_colors: style.bar_colors,
         names: characters

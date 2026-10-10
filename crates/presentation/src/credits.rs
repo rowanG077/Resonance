@@ -38,8 +38,8 @@ impl Artwork {
         let manifest: Manifest = files.json(resonance_content::credits::PATH)?;
         manifest.validate()?;
         let audio = Audio {
-            clip: Arc::new(crate::field_audio::Clip::decode(
-                files.read(&manifest.music.asset.path)?.to_vec(),
+            clip: Arc::new(crate::field_audio::Clip::prepare(
+                files.read(&manifest.music.asset.path)?,
                 &manifest.music,
             )?),
             rate: manifest.music.sample_rate,
@@ -63,6 +63,8 @@ impl Artwork {
                 color_mask: image.clone(),
                 coverage: default(),
                 opaque: false,
+                additive: false,
+                red_channel: false,
             }));
             images.push(image);
         }

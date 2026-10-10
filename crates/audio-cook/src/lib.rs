@@ -3,8 +3,6 @@
 //! This crate compiles resources directly in Rust. Its outputs are typed
 //! musical data and decoded PCM for the importer. Playback shares
 //! resonance-audio's synthesis core and reads only the cooked package.
-//! The renderer exposes voice buses and a standard-reverb studio mix for oracle
-//! diagnosis; it rejects unsupported macro commands instead of dropping them.
 pub mod bank;
 pub use resonance_audio::{
     control, dls, envelope, mix, modulation, music_voice, pitch, resample, reverb, sequence, volume,
@@ -16,7 +14,6 @@ pub mod instrument;
 pub mod interpolation;
 pub mod parameters;
 pub mod pool;
-pub mod render;
 pub mod song;
 
 mod read {

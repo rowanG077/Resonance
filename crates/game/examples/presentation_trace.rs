@@ -56,7 +56,7 @@ fn main() -> Result<()> {
         }
     };
     let mut session = FieldSession::enter(
-        &fs::read(root.join(&assets.script.path))?,
+        &fs::read(root.join(&assets.script))?,
         messages,
         &assets,
         entry,
@@ -244,7 +244,7 @@ fn main() -> Result<()> {
                 root.join(resonance_content::field::metadata_path(transition.map)),
             )?)?;
             let next = FieldSession::enter(
-                &fs::read(root.join(&assets.script.path))?,
+                &fs::read(root.join(&assets.script))?,
                 serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?,
                 &assets,
                 FieldEntry {

@@ -38,7 +38,7 @@ pub(super) const fn register(
     bindings: NativeBindings<FieldHost<'_>>,
 ) -> NativeBindings<FieldHost<'_>> {
     bindings
-        .function(
+        .register_authored(
             "game::actors::controlled",
             &[],
             Some(ACTOR),
@@ -49,7 +49,7 @@ pub(super) const fn register(
                 )))
             },
         )
-        .function(
+        .register_authored(
             "game::effects::station_transfer",
             &[ACTOR, ACTOR],
             None,
@@ -72,7 +72,7 @@ pub(super) const fn register(
                 Ok(NativeResult::Suspend)
             },
         )
-        .function("game::actors::interact", &[ACTOR], None, true, |h, a, _| {
+        .register_authored("game::actors::interact", &[ACTOR], None, true, |h, a, _| {
             let id = h.actor_id(a[0])?;
             h.call_event(0, id as u32, id as i16)
         })

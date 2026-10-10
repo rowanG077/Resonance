@@ -4379,10 +4379,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "resonance-battle"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glam",
+ "resonance-content",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "resonance-content"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "glam",
  "serde",
  "serde_json",
  "sha2",
@@ -4406,6 +4418,7 @@ name = "resonance-game"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "resonance-battle",
  "resonance-content",
  "resonance-events",
  "serde",
@@ -4501,7 +4514,6 @@ dependencies = [
  "clap",
  "hound",
  "image",
- "libloading",
  "resonance-content",
  "resonance-media",
  "serde",
@@ -4514,6 +4526,7 @@ name = "resonance-persistence"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "resonance-content",
  "serde",
  "serde_json",
  "tempfile",
@@ -4536,6 +4549,7 @@ dependencies = [
  "hound",
  "resonance-audio",
  "resonance-audio-device",
+ "resonance-battle",
  "resonance-content",
  "resonance-events",
  "resonance-game",

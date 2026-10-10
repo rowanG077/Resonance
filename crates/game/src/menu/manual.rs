@@ -1,6 +1,5 @@
 use super::*;
 use resonance_content::menu_data::{ManualChapter, ManualTopic};
-use resonance_events::input::Button;
 
 #[derive(Default, serde::Serialize)]
 pub struct Manual {
@@ -12,12 +11,16 @@ pub struct Manual {
     pub reading: bool,
 }
 impl Menu {
+    pub fn manual_data(&self) -> anyhow::Result<&menu_data::TrainingManual> {
+        self.manual_data
+            .as_ref()
+            .context("manual page has not been prepared")
+    }
+
     pub(super) fn advance_manual(&mut self) -> bool {
         let state = &mut self.manual;
         if state.page_fade == 255 {
-            self.page = Page::Items;
             self.open_items();
-            self.fade_item_description();
             return true;
         }
         state.page_fade = if state.page_closing {
@@ -32,13 +35,14 @@ impl Menu {
     }
 
     pub fn manual_chapters(&self) -> Vec<(&ManualChapter, Vec<&ManualTopic>)> {
-        let flags = &self.checkpoint.as_ref().unwrap().progress.event_flags;
-        self.resources
-            .as_ref()
-            .unwrap()
-            .data
-            .manual
-            .chapters
+        let Some(data) = &self.manual_data else {
+            return Vec::new();
+        };
+        let Some(checkpoint) = &self.checkpoint else {
+            return Vec::new();
+        };
+        let flags = &checkpoint.progress.event_flags;
+        data.chapters
             .iter()
             .filter_map(|chapter| {
                 let topics: Vec<_> = chapter
@@ -50,12 +54,11 @@ impl Menu {
             })
             .collect()
     }
-    pub(super) fn step_manual(
-        &mut self,
-        input: crate::field::FieldInput,
-        [up, down, page_up, page_down]: [bool; 4],
-    ) -> Option<i16> {
-        if input.pressed(Button::Cancel) {
+    pub(super) fn step_manual(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [up, down, page_up, page_down] =
+            [Up, Down, PageUp, PageDown].map(|action| input == Some(action));
+        if input == Some(Cancel) {
             if self.manual.reading {
                 self.manual.reading = false;
             } else {
@@ -74,7 +77,7 @@ impl Menu {
             .get(self.manual.topic)
             .map_or(0, |t| t.paragraphs.len());
         let state = &mut self.manual;
-        if input.pressed(Button::Accept) {
+        if input == Some(Confirm) {
             if state.reading {
                 return None;
             }

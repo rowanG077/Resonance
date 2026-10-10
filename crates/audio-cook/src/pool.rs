@@ -120,8 +120,7 @@ pub struct Consumer {
 
 pub type TableUses = BTreeMap<u16, BTreeMap<TableKind, Vec<Consumer>>>;
 
-/// Table rows have no type tag. Native macro consumers select their layout;
-/// a single physical row may legitimately have more than one semantic view.
+/// Table rows have no type tag; each consuming command determines their layout.
 pub fn table_uses(bank: &Bank<'_>) -> Result<TableUses> {
     let mut uses = TableUses::new();
     for program in bank.object_ids(ObjectKind::Macro) {
@@ -175,12 +174,12 @@ pub enum TableView<'a> {
     },
     DlsEnvelope {
         consumers: &'a [Consumer],
-        parameters: resonance_audio::dls::Definition,
+        parameters: resonance_audio::dls::Timing,
         sustain_source: u16,
     },
     PitchEnvelope {
         consumers: &'a [Consumer],
-        parameters: resonance_audio::dls::Definition,
+        parameters: resonance_audio::dls::Timing,
         sustain_source: u16,
     },
     VolumeCurve {
@@ -223,14 +222,14 @@ pub fn table<'a>(bank: &Bank<'_>, id: u16, uses: &'a TableUses) -> Result<Table<
             },
             TableKind::DlsEnvelope => TableView::DlsEnvelope {
                 consumers,
-                parameters: parameters::dls(bytes)?,
+                parameters: parameters::timing(bytes)?,
                 sustain_source: u16::from_le_bytes(read::slice(bytes, 8, 2)?.try_into()?),
             },
             TableKind::PitchEnvelope => {
                 let bytes = bank.pitch_envelope(id)?;
                 TableView::PitchEnvelope {
                     consumers,
-                    parameters: parameters::dls(bytes)?,
+                    parameters: parameters::timing(bytes)?,
                     sustain_source: u16::from_le_bytes(bytes[8..10].try_into()?),
                 }
             }

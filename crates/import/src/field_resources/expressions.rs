@@ -67,7 +67,7 @@ impl Value {
             0x36 => a & b,
             0x37 => a | b,
             0x38 => a ^ b,
-            // PowerPC shifts use six count bits and saturate beyond 31.
+            // Asset expressions mask shift counts to six bits; larger counts saturate.
             0x39 => a.checked_shl(b as u32 & 63).unwrap_or(0),
             0x3a => a.checked_shr(b as u32 & 63).unwrap_or(a >> 31),
             _ => unreachable!(),

@@ -12,11 +12,11 @@ pub(crate) fn prepare_title_audio(workspace: Workspace) -> Result<()> {
     let package = super::music_library::package(&workspace, &executable, &pools, 1, None)?;
     let metadata = workspace.output.join("title-audio.json");
     let path = workspace.output.join("audio/title-music.json");
-    super::field_audio::write_package(&workspace, "audio/title-music.json", &package)?;
+    super::field_audio::write_package(&workspace.output, "audio/title-music.json", &package)?;
     write_json(
         &metadata,
         &json!({"version":3,"path":"audio/title-music.json",
-        "sha256":hash_file(&path)?,"sample_rate":PLAYBACK_RATE,"channels":2}),
+        "sha256":hash_file(&path)?}),
     )?;
     println!(
         "Bound {} instrument programs and {} shared samples, without playback",
@@ -26,26 +26,20 @@ pub(crate) fn prepare_title_audio(workspace: Workspace) -> Result<()> {
     Ok(())
 }
 
-pub fn render_cooked_title_audio(
-    assets: &Path,
-    output: &Path,
-    frames: u32,
-    lead: u16,
-) -> Result<()> {
+pub fn render_cooked_title_audio(assets: &Path, output: &Path, frames: u32) -> Result<()> {
     let _publications = crate::publication::Session::start_if_needed(output)?;
     let info: resonance_content::TitleAudio =
         serde_json::from_slice(&fs::read(assets.join("title-audio.json"))?)?;
     info.validate()?;
-    let loaded = Package::load(assets, &info.path)?;
-    let mut fade = volume::Startup::new(2000, 100, lead)?;
-    let preview = sequence::render_preview_with_volume(
-        &loaded.resources,
-        &loaded.score,
-        &loaded.tables,
-        loaded.reverbs,
-        frames,
-        |frame| fade.value_at(u64::from(frame)),
-    )?;
+    let loaded = Package::load_verified(assets, &info.path, &info.sha256, &mut Default::default())?;
+    let reverbs = loaded.reverbs();
+    let mut preview = sequence::render_preview(loaded.into(), reverbs, frames)?;
+    let fade = volume::Fade::new(0., 1., volume::TITLE_STARTUP_MS)?;
+    for (frame, stereo) in preview.pcm.chunks_exact_mut(2).enumerate() {
+        for sample in stereo {
+            *sample = (f32::from(*sample) * fade.value_at(frame as u64)) as i16;
+        }
+    }
     fs::create_dir_all(output)?;
     let path = output.join("title-preview.wav");
     let temporary = crate::temporary_path(&path);
@@ -56,9 +50,39 @@ pub fn render_cooked_title_audio(
         &json!({"version":1,"renderer":"resonance-audio",
         "audio_device":false,"inputs":"cooked_package_only","package_sha256":hash_file(&assets.join(info.path))?,
         "renderer_sha256":hash_file(&std::env::current_exe()?)?,"oracle_accepted":false,
-        "master_fade_lead_ms":lead,"notes_started":preview.notes,"loop_start_frames":preview.loop_starts,
+        "startup_fade_ms":volume::TITLE_STARTUP_MS,"notes_started":preview.notes,"loop_start_frames":preview.loop_starts,
         "asset":{"path":"title-preview.wav","sha256":hash_file(&path)?,"frames":frames,"channels":2,"sample_rate":PLAYBACK_RATE}}),
     )?;
     println!("Recorded {frames} frames from cooked music data, without playback");
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires prepared title music; renders to temporary files without a device"]
+fn title_preview_requires_the_published_music_digest() -> Result<()> {
+    let assets = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
+        std::path::PathBuf::from,
+    );
+    let output = tempfile::tempdir()?;
+    let frames = resonance_audio::SOURCE_RATE;
+    render_cooked_title_audio(&assets, output.path(), frames)?;
+    let mut wave = hound::WavReader::open(output.path().join("title-preview.wav"))?;
+    assert_eq!(wave.duration(), frames);
+    assert!(wave.samples::<i16>().any(|sample| sample.unwrap() != 0));
+
+    let input = tempfile::tempdir()?;
+    let metadata = fs::read(assets.join("title-audio.json"))?;
+    let info: resonance_content::TitleAudio = serde_json::from_slice(&metadata)?;
+    let mut package = fs::read(assets.join(&info.path))?;
+    package.push(b'\n'); // Valid JSON still has to match its published digest.
+    let path = input.path().join(&info.path);
+    fs::create_dir_all(path.parent().unwrap())?;
+    fs::write(path, package)?;
+    fs::write(input.path().join("title-audio.json"), metadata)?;
+    let rejected = output.path().join("rejected");
+    let error = render_cooked_title_audio(input.path(), &rejected, frames).unwrap_err();
+    assert!(error.to_string().contains("digest differs"), "{error:#}");
+    assert!(!rejected.join("title-preview.wav").exists());
     Ok(())
 }

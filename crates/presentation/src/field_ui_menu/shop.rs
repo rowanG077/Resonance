@@ -7,12 +7,7 @@ use resonance_game::{
 };
 
 impl Drawing<'_> {
-    pub(super) fn shop(
-        &mut self,
-        shop: &Shop,
-        party: &Party,
-        cursor: &resonance_content::font::UiTexture,
-    ) -> Result<[f32; 2]> {
+    pub(super) fn shop(&mut self, shop: &Shop, party: &Party) -> Result<[f32; 2]> {
         let data = &shop.resources.data;
         let fade = u32::from(shop.fade);
         let opacity = 255 - shop.fade;
@@ -20,14 +15,24 @@ impl Drawing<'_> {
         let right = (fade * 220 / 256) as f32;
         self.opacity = opacity;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.shop_heading(&data.world_map.shops[usize::from(shop.id)].name)?;
+        self.shop_heading(data.shop_text(shop.id)?)?;
         self.offset = [left, 0.];
-        self.frame([16., 60., 402., 226.]);
-        self.frame([16., 296., 402., 30.]);
-        self.text(&self.spec.labels["shop_gald"], [24., 298.], 14., GOLD)?;
+        self.frame([16., 60., 402., 226.])?;
+        self.frame([16., 296., 402., 30.])?;
+        self.text(
+            menu_label(&self.spec.labels, "shop_gald")?,
+            [24., 298.],
+            14.,
+            GOLD,
+        )?;
         self.currency(party.gald, [192., 298.], [14., 24.])?;
         if shop.focus != Focus::Root {
-            self.text(&self.spec.labels["shop_total"], [214., 298.], 14., GOLD)?;
+            self.text(
+                menu_label(&self.spec.labels, "shop_total")?,
+                [214., 298.],
+                14.,
+                GOLD,
+            )?;
             self.currency(shop.total(party), [396., 298.], [14., 24.])?;
         }
         let mut anchor = if shop.focus == Focus::Root {
@@ -38,7 +43,7 @@ impl Drawing<'_> {
                     .into_iter()
                     .zip(["shop_buy", "shop_sell", "shop_equip", "shop_exit"])
             {
-                let label = &self.spec.labels[key];
+                let label = menu_label(&self.spec.labels, key)?;
                 let width = self.text_width(label, 24.)?;
                 if choice == shop.choice {
                     self.highlight([x, 64., width, 24.], 255);
@@ -59,19 +64,19 @@ impl Drawing<'_> {
             .enumerate()
             {
                 let y = 100. + row as f32 * 30.;
-                self.button(button, [48., y]);
+                self.button(button, [48., y])?;
                 if row == 0 {
-                    self.button(34, [72., y]);
+                    self.button(34, [72., y])?;
                 }
-                self.text(&self.spec.labels[key], [168., y], 24., WHITE)?;
+                self.text(menu_label(&self.spec.labels, key)?, [168., y], 24., WHITE)?;
             }
             selected
         } else {
             self.offset = [0.; 2];
-            self.shop_rows(shop, party, cursor)?
+            self.shop_rows(shop, party)?
         };
         self.offset = [right, 0.];
-        self.frame([428., 60., 192., 266.]);
+        self.frame([428., 60., 192., 266.])?;
         if shop.focus == Focus::Equipment {
             anchor = self.shop_equipment(shop, party)?;
             anchor[0] += right;
@@ -92,7 +97,7 @@ impl Drawing<'_> {
                     anchor = [x + 8. + right, y + 48.];
                 }
                 self.text(&(slot + 1).to_string(), [x, y + 20.], 16., WHITE)?;
-                self.portrait(member, character.conditions, [x + 16., y]);
+                self.portrait(member, character, [x + 16., y])?;
                 if matches!(
                     shop.focus,
                     Focus::Items | Focus::Characters | Focus::Confirm { .. }
@@ -104,12 +109,12 @@ impl Drawing<'_> {
                         member,
                         item,
                         [x + 56., y + 40.],
-                    );
+                    )?;
                 }
             }
         }
         self.offset = [0., (fade * 120 / 256) as f32];
-        self.frame_detail([16., 336., 604., 92.], true, self.menu_color(), true);
+        self.frame_detail([16., 336., 604., 92.], true, self.menu_color(), true)?;
         match shop.focus {
             Focus::Root => {}
             Focus::Confirm { yes } => {
@@ -123,7 +128,7 @@ impl Drawing<'_> {
                 )?;
             }
             Focus::Empty => {
-                let label = &self.spec.labels["shop_empty"];
+                let label = menu_label(&self.spec.labels, "shop_empty")?;
                 self.text(
                     label,
                     [
@@ -179,7 +184,7 @@ impl Drawing<'_> {
             match description {
                 Description::None => {}
                 Description::Category(category) => {
-                    let label = &data.inventory_categories[category];
+                    let label = &data.items_text()?.inventory_categories[category];
                     self.text(
                         label,
                         [(306. - self.text_width(label, 24.)? / 2.).trunc(), 368.],
@@ -203,8 +208,9 @@ impl Drawing<'_> {
 
     pub(super) fn shop_heading(&mut self, text: &str) -> Result<()> {
         let x = if let Some(index) = self.window().heading {
-            self.quad(
-                texture_layer(index),
+            self.quad_role(
+                DrawRole::Frame(0),
+                MaterialKey::Texture(index),
                 [16., 16., 48., 48.],
                 [0., 0., 32., 32.],
                 [1.; 4],
@@ -233,12 +239,7 @@ impl Drawing<'_> {
         self.text_size(text, [x, 16.], [24., 32.], WHITE)
     }
 
-    fn shop_rows(
-        &mut self,
-        shop: &Shop,
-        party: &Party,
-        cursor: &resonance_content::font::UiTexture,
-    ) -> Result<[f32; 2]> {
+    fn shop_rows(&mut self, shop: &Shop, party: &Party) -> Result<[f32; 2]> {
         let category = matches!(shop.focus, Focus::Categories | Focus::Empty);
         let y = 88. + (shop.row - shop.first) as f32 * 28.;
         let mut anchor = [32., y + 8.];
@@ -248,7 +249,7 @@ impl Drawing<'_> {
                 if shop.focus == Focus::Items { 255 } else { 127 },
             );
             if shop.focus != Focus::Items {
-                self.cursor(anchor, cursor, 127);
+                self.cursor(anchor, 127);
             }
         }
         let starts = self.vertex_counts();
@@ -264,11 +265,17 @@ impl Drawing<'_> {
             let data = &shop.resources.data.items[usize::from(item.id)];
             let y = 88. + row as f32 * 28. - offset as f32;
             self.sprite_rect(
-                self.spec.sprites.items[usize::from(data.category - 1)],
+                self.spec
+                    .sprite(Sprite::Items, usize::from(data.category - 1))?,
                 [32., y, 56., y + 24.],
                 [1.; 4],
             );
-            self.text(&data.name, [56., y], 14., WHITE)?;
+            self.text(
+                &shop.resources.data.item_text(item.id)?.name,
+                [56., y],
+                14.,
+                WHITE,
+            )?;
             let mut price = shop.unit_price(item.id, party).to_string();
             for at in (1..price.len())
                 .rev()
@@ -297,18 +304,21 @@ impl Drawing<'_> {
         }
         self.clip_rows(starts, [88., 284.]);
         if shop.first > 0 {
-            self.scroll_arrow(SCROLL_UP, [160., 72.]);
+            self.scroll_arrow(SCROLL_UP, [160., 72.])?;
         }
         if shop.first + VISIBLE_ITEMS < shop.rows.len() {
-            self.scroll_arrow(SCROLL_DOWN, [160., 276.]);
+            self.scroll_arrow(SCROLL_DOWN, [160., 276.])?;
         }
-        self.frame([564., 18., 56., 32.]);
+        self.frame([564., 18., 56., 32.])?;
         self.text(
-            &self.spec.labels[if shop.choice == Choice::Buy {
-                "shop_buy"
-            } else {
-                "shop_sell"
-            }],
+            menu_label(
+                &self.spec.labels,
+                if shop.choice == Choice::Buy {
+                    "shop_buy"
+                } else {
+                    "shop_sell"
+                },
+            )?,
             [568., 22.],
             20.,
             WHITE,
@@ -324,10 +334,10 @@ impl Drawing<'_> {
             WHITE,
         )?;
         if shop.focus == Focus::Items {
-            let label = &self.spec.labels["shop_status"];
+            let label = menu_label(&self.spec.labels, "shop_status")?;
             let x = 548. - self.text_width(label, 16.)?;
             self.text(label, [x, 24.], 16., WHITE)?;
-            self.button(12, [x - 24., 24.]);
+            self.button(12, [x - 24., 24.])?;
         }
         if shop.choice == Choice::Sell {
             for tab in 0..7 {
@@ -336,7 +346,7 @@ impl Drawing<'_> {
                 let y = if selected { 52. } else { 56. };
                 let tint = if selected { 1. } else { 192. / 255. };
                 self.sprite_rect(
-                    self.spec.sprites.item_tabs[tab + 1],
+                    self.spec.sprite(Sprite::ItemTabs, tab + 1)?,
                     [x, y, x + 32., y + 32.],
                     [tint, tint, tint, 1.],
                 );
@@ -357,13 +367,13 @@ impl Drawing<'_> {
         let item = shop
             .selected_item()
             .context("shop status has no selected item")?;
-        self.portrait(member, character.conditions, [428., 60.]);
-        self.equipment_marker_data(resources, party, member, item, [468., 100.]);
+        self.portrait(member, character, [428., 60.])?;
+        self.equipment_marker_data(resources, party, member, item, [468., 100.])?;
         self.text(
             character
                 .name
                 .as_deref()
-                .unwrap_or(&data.rename.initial_names[member]),
+                .unwrap_or(&data.initial_names[member]),
             [500., 60.],
             16.,
             WHITE,
@@ -415,7 +425,7 @@ impl Drawing<'_> {
                     continue;
                 }
                 let y = 140. + row as f32 * 26.;
-                self.text(&self.spec.labels[key], [436., y], 16., GOLD)?;
+                self.text(menu_label(&self.spec.labels, key)?, [436., y], 16., GOLD)?;
                 let value = format!("{old:4}");
                 self.text(&value, [470., y], 16., WHITE)?;
                 self.text(
@@ -436,7 +446,7 @@ impl Drawing<'_> {
                 )?;
             }
         } else {
-            let label = &self.spec.labels["shop_cannot_equip"];
+            let label = menu_label(&self.spec.labels, "shop_cannot_equip")?;
             self.text(
                 label,
                 [
@@ -478,7 +488,12 @@ impl Drawing<'_> {
             } else {
                 continue;
             };
-            self.text(&recipe.name, [436., y], 16., color)?;
+            self.text(
+                &shop.resources.data.cooking_text()?.recipe(id)?.name,
+                [436., y],
+                16.,
+                color,
+            )?;
             y += 26.;
             if y >= 322. {
                 break;
@@ -496,7 +511,7 @@ impl Drawing<'_> {
         let lloyd_swords = resources.session.items[usize::from(id)].equipment_kind == Some(0)
             && resources.session.items[usize::from(id)].allowed_characters & 1 != 0;
         self.sprite_rect(
-            self.spec.sprites.item_images[usize::from(id)],
+            self.spec.sprite(Sprite::ItemImages, usize::from(id))?,
             [36., 348., 100., 412.],
             [1.; 4],
         );
@@ -533,7 +548,7 @@ impl Drawing<'_> {
             if key == "shop_thrust" && !lloyd_swords {
                 continue;
             }
-            self.text(&self.spec.labels[key], [x, y], 16., GOLD)?;
+            self.text(menu_label(&self.spec.labels, key)?, [x, y], 16., GOLD)?;
             if let Some(value) = value {
                 for (column, digit) in value.to_string().chars().rev().enumerate() {
                     self.text(
@@ -546,13 +561,16 @@ impl Drawing<'_> {
             }
         }
         if let Some(element) = item.properties.attack_element {
-            self.sprite(self.spec.sprites.elements[element as usize], [532., 398.]);
+            self.sprite(
+                self.spec.sprite(Sprite::Elements, element as usize)?,
+                [532., 398.],
+            );
         }
         let opacity = self.opacity;
         for (slot, (element, &amount)) in item.properties.resistance.iter().enumerate() {
             let x = 426. + slot as f32 * 23.;
             let index = Element::ALL.iter().position(|e| e == element).unwrap();
-            self.sprite(self.spec.sprites.elements[index], [x, 372.]);
+            self.sprite(self.spec.sprite(Sprite::Elements, index)?, [x, 372.]);
             self.opacity = (f32::from(opacity) * blink_opacity(self.tick, 40, 15)) as u8;
             self.text_size(
                 if amount > 0 { "+" } else { "-" },
@@ -562,7 +580,12 @@ impl Drawing<'_> {
             )?;
             self.opacity = opacity;
         }
-        let category = &resources.data.item_categories[usize::from(item.category)];
+        let category = resources
+            .data
+            .items_text()?
+            .item_categories
+            .get(usize::from(item.category))
+            .context("unknown item category caption")?;
         self.text(
             category,
             [612. - self.text_width(category, 20.)?, 344.],

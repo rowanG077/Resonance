@@ -1,0 +1,12 @@
+{
+  "checkpoint": null,
+  "scenario": {
+    "version": 2,
+    "steps": [
+      {"do":"wait","until":{"kind":"title"},"max_updates":120},
+      {"do":"hold","keys":["interact"],"updates":1},
+      {"do":"wait","until":{"kind":"choice","slot":1},"max_updates":1800},
+      {"do":"capture","name":"setup"}
+    ]
+  }
+}

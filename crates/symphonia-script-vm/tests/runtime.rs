@@ -168,7 +168,7 @@ fn branch_uses_popped_expression_and_call_returns() {
     assert_eq!(vm.expression(), Some(7));
 }
 #[test]
-fn wide_shifts_follow_powerpc_count_semantics() {
+fn wide_shifts_handle_out_of_range_counts() {
     let mut vm = vm(&[1, 32, 0x3039, 0x3000, 0x20ff]);
     vm.run(&mut TestHost::default(), &mut Memory::default(), 16)
         .unwrap();

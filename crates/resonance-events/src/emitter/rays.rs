@@ -119,6 +119,10 @@ pub(super) struct ChargedRay {
     pub growth: f32,
 }
 impl ChargedRay {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Emission borrows actor state, clocks, randomness and its output batch."
+    )]
     pub fn emit(
         &mut self,
         phase: &mut u8,

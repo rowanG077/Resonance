@@ -137,7 +137,7 @@ fn main() -> Result<()> {
         match option.as_str() {
             "--map-id" => checkpoint.map_id = value()?.parse()?,
             "--camera-settings" => {
-                checkpoint.camera = Some(serde_json::from_slice(&fs::read(value()?)?)?);
+                checkpoint.camera = serde_json::from_slice(&fs::read(value()?)?)?;
                 camera_supplied = true;
             }
             "--story" => {
@@ -151,6 +151,12 @@ fn main() -> Result<()> {
                 checkpoint.position = [value()?.parse()?, value()?.parse()?, value()?.parse()?]
             }
             "--heading" => checkpoint.heading = value()?.parse()?,
+            "--preferences" => {
+                let preferences: resonance_content::menu_data::CustomizeSettings =
+                    serde_json::from_slice(&fs::read(value()?)?)?;
+                preferences.validate()?;
+                checkpoint.progress.party.settings.preferences = preferences;
+            }
             "--party-stats" => {
                 let observation = value()?;
                 let source_state = value()?;

@@ -1,69 +1,29 @@
 //! Prepare original sound programs for the scene's mixer environment.
-use anyhow::{Context, Result, ensure};
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::Result;
 use resonance_audio::{
     data::{Command, Score},
     package::{Package, SampleAsset},
 };
 use resonance_audio_cook::{
     bank::{Bank, Page},
-    decode::{self, Instruction},
-    instrument,
+    decode, instrument,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 #[cfg(test)]
 use std::fs;
 use std::{collections::BTreeMap, path::Path};
 
-#[derive(Serialize, Deserialize)]
+pub(crate) const VERSION: u32 = 4;
+
+/// Compiled program export, before binding a scene's synthesis tables.
+#[derive(Serialize)]
 pub(crate) struct Resources {
     pub version: u32,
-    pub programs: BTreeMap<u16, Vec<Instruction>>,
+    pub programs: BTreeMap<u16, Vec<Command>>,
     pub samples: BTreeMap<u16, SampleAsset>,
     pub score: Option<Score>,
-}
-
-impl Resources {
-    pub(super) fn package(
-        self,
-        tables: resonance_audio::music_voice::Tables,
-        reverbs: [[f32; 5]; 2],
-    ) -> Result<Package> {
-        ensure!(
-            self.version == 1,
-            "unsupported cooked sound version; rerun cook-all"
-        );
-        let programs = self
-            .programs
-            .into_iter()
-            .map(|(id, instructions)| {
-                let commands = instructions
-                    .into_iter()
-                    .enumerate()
-                    .map(|(pc, instruction)| {
-                        instruction
-                            .mixer()
-                            .with_context(|| format!("instrument {id}:{pc}"))
-                    })
-                    .collect::<Result<Vec<Command>>>()?;
-                Ok((id, commands))
-            })
-            .collect::<Result<_>>()?;
-        let resources = resonance_audio::data::Resources {
-            programs,
-            samples: BTreeMap::new(),
-        };
-        let score = self.score.context("cooked audio has no score")?;
-        // Score validation needs program identities, without loading instrument PCM.
-        score.validate(&resources)?;
-        Ok(Package {
-            version: resonance_audio::package::VERSION,
-            programs: resources.programs,
-            samples: self.samples,
-            score,
-            tables,
-            reverbs,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -77,7 +37,11 @@ pub(super) fn source_index(root: &Path) -> Result<BTreeMap<String, Vec<String>>>
     .context("read cooked source index")
 }
 
-pub(crate) fn sound(bank: &Bank<'_>, id: u16) -> Result<(decode::Resources, Score)> {
+pub(crate) fn sound(
+    bank: &Bank<'_>,
+    id: u16,
+    sustains: &resonance_audio_cook::parameters::Sustains,
+) -> Result<(decode::Resources, Score)> {
     let sound = bank.sound(id)?;
     let notes = instrument::resolve(
         bank,
@@ -90,67 +54,38 @@ pub(crate) fn sound(bank: &Bank<'_>, id: u16) -> Result<(decode::Resources, Scor
         sound.volume,
         sound.pan,
     )?;
-    let resources = decode::programs(bank, notes.iter().map(|note| note.macro_id))?;
+    let resources = decode::programs(bank, notes.iter().map(|note| note.macro_id), sustains)?;
     Ok((resources, super::sound_score(id, Some(notes))))
 }
 
-pub(super) fn package(
+pub(crate) fn package(
     output: &Path,
     resources: &decode::Resources,
     score: Score,
     tables: resonance_audio::music_voice::Tables,
     reverbs: [[f32; 5]; 2],
 ) -> Result<Package> {
-    Resources {
-        version: 1,
+    Ok(Package {
+        version: resonance_audio::package::VERSION,
         programs: resources.programs.clone(),
         samples: resources
             .samples
             .iter()
             .map(|(&id, sample)| Ok((id, super::write_shared_sample(output, sample)?)))
             .collect::<Result<_>>()?,
-        score: Some(score),
-    }
-    .package(tables, reverbs)
+        score,
+        tables,
+        reverbs,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_audio_cook::decode::{Native, SampleOffset};
-
     #[test]
-    fn native_operands_cannot_deserialize_as_a_simpler_mixer_command() -> Result<()> {
-        let operation = Instruction::Native(Native::StartSample {
-            sample: 4,
-            format: 1,
-            offset: 80,
-            offset_mode: SampleOffset::InverseVolume,
-        });
-        let value = serde_json::to_value(operation)?;
-        let restored: Instruction = serde_json::from_value(value.clone())?;
-        assert!(matches!(
-            restored,
-            Instruction::Native(Native::StartSample {
-                sample: 4,
-                format: 1,
-                offset: 80,
-                offset_mode: SampleOffset::InverseVolume,
-            })
-        ));
-        assert!(restored.mixer().is_err());
-        assert!(serde_json::from_value::<Command>(value).is_err());
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires both original discs and frozen audio; no playback"]
-    fn original_sound_preparation_matches_frozen_packages_and_pcm() -> Result<()> {
+    #[ignore = "requires both extracted discs; CPU package and PCM validation"]
+    fn sound_packages_close_instrument_dependencies_and_preserve_sample_data() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let baseline = std::env::var_os("RESONANCE_AUDIO_BASELINE")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| local.join("worktrees/generic-cooking/local/all-assets"));
-        let sources = source_index(&baseline)?;
         let banks = [("S/se.snd", vec![1, 2, 3, 4]), ("S/se_ev00.snd", vec![425])];
         for disc in [1, 2] {
             let extracted = local.join(format!("extracted/disc{disc}"));
@@ -159,19 +94,10 @@ mod tests {
             let reverbs = super::super::music::title_reverbs(&executable)?;
             let pools = crate::media::library::Pools::read(&extracted)?;
             for (source, ids) in &banks {
-                let paths = &sources[&format!("disc{disc}/{source}")];
                 let bytes = fs::read(extracted.join("files").join(source))?;
                 let bank = pools.bank(&bytes)?;
                 for &id in ids {
-                    let frozen = paths
-                        .iter()
-                        .find(|path| path.ends_with(&format!("/sound-{id}.json")))
-                        .context("missing frozen sound")?;
-                    let expected: Resources =
-                        serde_json::from_slice(&fs::read(baseline.join(frozen))?)?;
-                    let expected =
-                        expected.package(super::super::synthesis_tables(&executable)?, reverbs)?;
-                    let (resources, score) = sound(&bank, id)?;
+                    let (resources, score) = sound(&bank, id, &pools.sustains)?;
                     let actual = package(
                         output.path(),
                         &resources,
@@ -179,20 +105,44 @@ mod tests {
                         super::super::synthesis_tables(&executable)?,
                         reverbs,
                     )?;
-                    assert_eq!(
-                        serde_json::to_vec(&actual)?,
-                        serde_json::to_vec(&expected)?,
-                        "disc{disc} {source} sound {id}"
-                    );
-                    for sample in actual.samples.values() {
+                    let loaded = Package::load_with(
+                        "cue.json",
+                        &mut |path, _| {
+                            if path == "cue.json" {
+                                Ok(serde_json::to_vec(&actual)?)
+                            } else {
+                                Ok(fs::read(output.path().join(path))?)
+                            }
+                        },
+                        &mut Default::default(),
+                    )?;
+                    assert_eq!(loaded.reverbs(), reverbs);
+                    let native = loaded.resources();
+                    assert!(native.programs.keys().eq(resources.programs.keys()));
+                    assert!(native.samples.keys().eq(resources.samples.keys()));
+                    assert!(!native.samples.is_empty());
+                    for (&sample_id, sample) in &native.samples {
+                        let decoded = bank.sample(sample_id)?;
+                        assert_eq!(sample.key, decoded.key);
+                        assert_eq!(sample.rate, decoded.rate);
+                        assert_eq!(sample.loop_start, decoded.loop_start);
+                        assert_eq!(sample.loop_length, decoded.loop_length);
                         assert_eq!(
-                            fs::read(output.path().join(&sample.path))?,
-                            fs::read(baseline.join(&sample.path))?,
-                            "sound {id} shared PCM"
+                            sample.pcm, decoded.pcm,
+                            "disc{disc} {source} sound {id} sample {sample_id}"
                         );
+                        assert_eq!(sample.loop_pcm, decoded.loop_pcm);
                     }
                 }
             }
+            super::super::sound_buses::render_sound_buses(
+                &extracted,
+                &extracted.join("files/S/se_ev00.snd"),
+                425,
+                output.path(),
+            )?;
+            let mut wave = hound::WavReader::open(output.path().join("sound-425-direct.wav"))?;
+            assert!(wave.samples::<i16>().any(|s| s.is_ok_and(|s| s != 0)));
         }
         Ok(())
     }

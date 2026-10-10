@@ -1,18 +1,15 @@
 //! Stream settings map through attenuation and pan curves before the stereo mixer.
-use crate::{dol, embedded};
+use crate::dol;
 use anyhow::{Result, ensure};
-use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
 
 const SETTING_ADDRESS: u32 = 0x801f_9bc4;
 const VOLUME_ADDRESS: u32 = 0x802b_4680;
 const PAN_ADDRESS: u32 = 0x802b_4a68;
-const FAMILY: &str = "stream-mixer";
 const SETTING_COUNT: usize = 128;
 const VOLUME_COUNT: usize = 1000;
 const PAN_COUNT: usize = 31;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct Tables {
     /// Settings 0..127 select attenuation; multiply by ten for the volume curve.
     pub setting_attenuation: Vec<u8>,
@@ -68,25 +65,6 @@ impl Tables {
                 mix.volume[usize::from(self.volume_by_attenuation[index])]
             })
             .collect())
-    }
-
-    #[cfg(test)]
-    pub fn pan(&self, mix: &resonance_audio::mix::Tables) -> Result<Vec<[f32; 2]>> {
-        self.validate()?;
-        mix.validate()?;
-        Ok(self
-            .pan_controls
-            .iter()
-            .map(|&pan| {
-                mix.gains(127 << 16, 16383, pan as u8, [0; 2])[0]
-                    .map(|gain| f32::from(gain) / 32768.)
-            })
-            .collect())
-    }
-
-    pub fn cook(extracted: &Path, output: &Path) -> Result<Vec<String>> {
-        let file = extracted.join("sys/main.dol");
-        embedded::write(&file, output, FAMILY, &Self::read(&fs::read(&file)?)?)
     }
 }
 
@@ -152,55 +130,5 @@ mod tests {
             );
         }
         Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires both original extracted discs; no synthesis or playback"]
-    fn original_stream_mixer_tables_reconstruct_every_physical_value() -> Result<()> {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
-        let output = crate::temporary_path(&std::env::temp_dir().join("stream-mixer"));
-        let result = (|| -> Result<()> {
-            for disc in 1..=2 {
-                let extracted = root.join(format!("disc{disc}"));
-                let executable = fs::read(extracted.join("sys/main.dol"))?;
-                let tables = Tables::read(&executable)?;
-                let mut settings = tables.setting_attenuation.clone();
-                settings.extend(tables.setting_storage);
-                let pan: Vec<_> = tables
-                    .pan_controls
-                    .iter()
-                    .copied()
-                    .chain([tables.pan_storage])
-                    .flat_map(u32::to_be_bytes)
-                    .collect();
-                for (address, values) in [
-                    (SETTING_ADDRESS, &settings),
-                    (VOLUME_ADDRESS, &tables.volume_by_attenuation),
-                    (PAN_ADDRESS, &pan),
-                ] {
-                    ensure!(
-                        values == dol::slice(&executable, address, values.len())?,
-                        "disc{disc}: stream table {address:#x} changed"
-                    );
-                }
-                let paths = Tables::cook(&extracted, &output)?;
-                ensure!(
-                    embedded::read::<Tables>(&output, FAMILY, "main.dol")? == tables,
-                    "stream mixer publication changed"
-                );
-                let source: serde_json::Value =
-                    serde_json::from_slice(&fs::read(output.join(&paths[1]))?)?;
-                ensure!(
-                    source["source_sha256"] == crate::digest(&executable),
-                    "stream mixer source digest changed"
-                );
-                eprintln!("disc{disc}: 1159 stream lookups and eight storage bytes reconstructed");
-            }
-            Ok(())
-        })();
-        if output.exists() {
-            fs::remove_dir_all(output)?;
-        }
-        result
     }
 }

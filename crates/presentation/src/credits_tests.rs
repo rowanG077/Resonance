@@ -22,8 +22,8 @@ fn credits_finish_the_music_and_hold_before_resuming_and_cancel_cleanly() -> Res
             .all(|v| v.is_finite())
     );
     let audio = Audio {
-        clip: Arc::new(crate::field_audio::Clip::decode(
-            fs::read(root.join(&manifest.music.asset.path))?,
+        clip: Arc::new(crate::field_audio::Clip::prepare(
+            Arc::from(fs::read(root.join(&manifest.music.asset.path))?),
             &manifest.music,
         )?),
         rate: manifest.music.sample_rate,

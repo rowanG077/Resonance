@@ -33,40 +33,30 @@ impl Tables {
 
 #[derive(Default)]
 pub struct Oscillator {
-    period_ms: u32,
-    counter_ticks: u32,
+    period_frames: u64,
+    phase_frames: u64,
+    reverse: bool,
     pub value: i16,
 }
 
 impl Oscillator {
     pub fn set(&mut self, period_ms: u16, reverse: bool) {
-        self.period_ms = u32::from(period_ms);
-        self.counter_ticks = if reverse { self.period_ms * 128 } else { 0 };
+        self.period_frames = crate::volume::frames_from_millis(u64::from(period_ms))
+            .expect("u16 period fits the source clock");
+        self.phase_frames = 0;
+        self.reverse = reverse;
         self.value = 0;
     }
 
-    /// Voice allocation resets the LFO period while retaining phase.
-    /// Re-enabling an already active LFO resets its phase.
-    pub(crate) fn set_lfo(&mut self, period_ms: u16) {
-        if self.period_ms != 0 {
-            self.counter_ticks = 0;
-        }
-        self.period_ms = u32::from(period_ms);
-    }
-
-    pub(crate) fn counter(&self) -> u32 {
-        self.counter_ticks
-    }
-
-    pub(crate) fn restore_counter(&mut self, counter: u32) {
-        self.counter_ticks = counter;
-    }
-
-    pub fn advance(&mut self, delta_ms: u32, tables: &Tables) {
-        if let Some(period) = std::num::NonZeroU32::new(self.period_ms) {
-            self.counter_ticks = self.counter_ticks.wrapping_add(delta_ms.wrapping_mul(256));
-            let phase = ((self.counter_ticks % (period.get() * 256)) * 16) / period.get();
-            self.value = tables.sine(phase);
+    pub fn advance(&mut self, frames: u64, tables: &Tables) {
+        if self.period_frames != 0 {
+            self.phase_frames = ((u128::from(self.phase_frames) + u128::from(frames))
+                % u128::from(self.period_frames)) as u64;
+            let phase = self.phase_frames * 4096 / self.period_frames;
+            self.value = tables.sine(phase as u32);
+            if self.reverse {
+                self.value = -self.value;
+            }
         }
     }
 }
@@ -117,12 +107,12 @@ impl Tremolo {
         }
     }
 
-    pub fn gain(&mut self, lfo: i16, modulation: u16, tables: &Tables) -> f32 {
+    pub fn gain(&mut self, input: u16, modulation: u16, tables: &Tables) -> Result<f32> {
         if self.scale == 0 && self.modulation_scale == 0 {
-            return 1.0;
+            return Ok(1.0);
         }
         let [wave_scale, depth_scale, one, modulation_scale, slew] = tables.tremolo;
-        let wave = wave_scale * (8192 - ((8192 - i32::from(lfo) * 2) >> 1)) as f32;
+        let wave = wave_scale * f32::from(input / 2);
         let target = depth_scale
             * (f32::from(self.scale)
                 * (one
@@ -134,40 +124,65 @@ impl Tremolo {
         } else if self.amount > target {
             self.amount = (self.amount - slew).max(target);
         }
-        one - wave * (one - self.amount)
+        let gain = one - wave * (one - self.amount);
+        ensure!(gain.is_finite(), "nonfinite tremolo gain");
+        Ok(gain)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn quadrant_reflection_and_periodic_phase_preserve_endpoints() {
-        let tables = Tables {
-            sine: std::array::from_fn(|i| i as i16 * 4),
+    fn tables() -> Tables {
+        Tables {
+            sine: std::array::from_fn(|i| {
+                (4096. * (i as f64 / 1023. * std::f64::consts::FRAC_PI_2).sin()) as i16
+            }),
             tremolo: [1.; 5],
-        };
-        assert_eq!(
-            [0, 1023, 1024, 2047, 2048, 3071, 3072, 4095, 4096].map(|a| tables.sine(a)),
-            [0, 4092, 4092, 0, 0, -4092, -4092, 0, 0]
-        );
-        let mut oscillator = Oscillator::default();
-        oscillator.set(100, false);
-        oscillator.advance(25, &tables);
-        assert_eq!(oscillator.value, 4092);
-        oscillator.advance(50, &tables);
-        assert_eq!(oscillator.value, -4092);
-        oscillator.advance(25, &tables);
-        assert_eq!(oscillator.value, 0);
-        oscillator.advance(25, &tables);
-        assert_eq!(oscillator.value, 4092);
-        oscillator.set(0, false);
-        oscillator.advance(100, &tables);
-        assert_eq!(
-            oscillator.value, 0,
-            "disabled vibrato must discard its audible value"
-        );
+        }
     }
+
+    #[test]
+    fn oscillators_follow_native_periods_and_reverse_phase() {
+        let tables = tables();
+        let mut forward = Oscillator::default();
+        let mut reversed = Oscillator::default();
+        forward.set(100, false);
+        reversed.set(100, true);
+        let quarter = forward.period_frames / 4;
+        forward.advance(quarter, &tables);
+        reversed.advance(quarter, &tables);
+        assert!(forward.value >= 4092);
+        assert_eq!(forward.value, -reversed.value);
+        forward.advance(2 * quarter, &tables);
+        assert!(forward.value <= -4092);
+        forward.advance(forward.period_frames - 3 * quarter, &tables);
+        assert_eq!(forward.value, 0);
+        forward.set(0, false);
+        forward.advance(u64::MAX, &tables);
+        assert_eq!(forward.value, 0);
+    }
+
+    #[test]
+    fn long_running_phase_is_bounded_and_independent_of_update_chunks() {
+        let tables = tables();
+        let mut together = Oscillator::default();
+        let mut split = Oscillator::default();
+        together.set(17, false);
+        split.set(17, false);
+        together.advance(u64::MAX, &tables);
+        split.advance(u64::MAX / 2, &tables);
+        split.advance(u64::MAX - u64::MAX / 2, &tables);
+        assert_eq!(together.phase_frames, split.phase_frames);
+        assert_eq!(together.value, split.value);
+        assert!(together.phase_frames < together.period_frames);
+        let phase = together.phase_frames;
+        let value = together.value;
+        together.advance(together.period_frames, &tables);
+        assert_eq!((together.phase_frames, together.value), (phase, value));
+        assert!(together.value.abs() <= 4096);
+    }
+
     #[test]
     fn vibrato_combines_fixed_and_modulation_depth_with_integer_rounding() {
         let mut vibrato = Vibrato {
@@ -184,20 +199,17 @@ mod tests {
     }
 
     #[test]
-    fn lfo_activation_retains_full_phase_but_reconfiguration_resets_it() {
-        let tables = Tables {
-            sine: std::array::from_fn(|i| i as i16 * 4),
-            tremolo: [1.; 5],
-        };
+    fn restarting_a_modulator_starts_a_new_phase() {
+        let tables = tables();
         let mut oscillator = Oscillator::default();
-        oscillator.restore_counter(200 * 256);
-        oscillator.set_lfo(172);
-        oscillator.advance(10, &tables);
-        assert_eq!(oscillator.counter(), 210 * 256);
-        assert_eq!(oscillator.value, tables.sine(38 * 4096 / 172));
-        oscillator.set_lfo(166);
-        oscillator.advance(10, &tables);
-        assert_eq!(oscillator.counter(), 10 * 256);
-        assert_eq!(oscillator.value, tables.sine(10 * 4096 / 166));
+        oscillator.set(100, false);
+        let quarter = oscillator.period_frames / 4;
+        oscillator.advance(quarter, &tables);
+        let previous = oscillator.value;
+        assert!(previous > 0);
+        oscillator.set(100, false);
+        assert_eq!(oscillator.value, 0);
+        oscillator.advance(quarter, &tables);
+        assert_eq!(oscillator.value, previous);
     }
 }

@@ -20,7 +20,11 @@ impl Artwork {
         images: &mut Assets<Image>,
     ) -> Result<Self> {
         let mut common = super::Artwork::load_shared(
-            |path| Ok(files.read(path)?.to_vec()),
+            files,
+            files
+                .json::<resonance_content::session::SessionData>("game/session-data.json")?
+                .experience
+                .into(),
             &BTreeMap::new(),
             server,
             materials,

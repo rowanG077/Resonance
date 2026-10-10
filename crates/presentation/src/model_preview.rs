@@ -1,5 +1,5 @@
 //! Prepared, animated catalogue models. Loading belongs to the paused menu.
-mod gpu;
+pub(super) mod gpu;
 mod material;
 mod motion;
 mod source;
@@ -130,11 +130,17 @@ struct Viewer {
     retired: Vec<Part>,
     sampled: crate::scene::SampledImages,
     started: Instant,
-    ready: bool,
+    status: PreviewStatus,
     behaviors: PreparationCache,
     behavior: Option<PreparedBehavior>,
     behavior_tick: Option<u32>,
     overrides: PoseOverrides,
+}
+#[derive(Debug, PartialEq, Eq)]
+enum PreviewStatus {
+    Loading,
+    Ready,
+    Unavailable,
 }
 #[derive(Clone)]
 struct Record {
@@ -143,20 +149,15 @@ struct Record {
 }
 #[derive(SystemParam)]
 pub(super) struct State<'w> {
-    checkpoint: Option<ResMut<'w, crate::field_view::Session>>,
     live: Option<ResMut<'w, crate::new_game::Session>>,
 }
 impl State<'_> {
     fn menu(&mut self) -> Option<&mut resonance_game::menu::Menu> {
-        if let Some(session) = &mut self.checkpoint {
-            session.0.menu.as_mut()
+        let session = &mut **self.live.as_mut()?;
+        if let Some(scene) = &mut session.overworld {
+            scene.session.menu.as_mut()
         } else {
-            let session = &mut **self.live.as_mut()?;
-            if let Some(scene) = &mut session.overworld {
-                scene.session.menu.as_mut()
-            } else {
-                session.field.menu.as_mut()
-            }
+            session.field.menu.as_mut()
         }
     }
 }
@@ -247,7 +248,7 @@ fn setup(
         retired: Vec::new(),
         sampled: Default::default(),
         started: Instant::now(),
-        ready: false,
+        status: PreviewStatus::Loading,
         behaviors: PreparationCache::default(),
         behavior: None,
         behavior_tick: None,
@@ -262,7 +263,7 @@ fn prepare(
     mut assets: AssetsForPreview,
     context: PreviewContext,
     entities: PreviewEntities,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: crate::field_view::Failures,
 ) {
     let server = &context.server;
     let source = &context.source;
@@ -279,20 +280,27 @@ fn prepare(
                 .and_modify(|mut c| c.is_active = false);
             return Ok(());
         };
+        let selected = menu.preview().unwrap();
+        let same_selection = viewer.record.as_ref().is_some_and(|r| r.id == selected.id);
+        if same_selection && viewer.status == PreviewStatus::Unavailable {
+            menu.busy = false;
+            return Ok(());
+        }
         commands.entity(viewer.quad).insert(Visibility::Inherited);
         commands
             .entity(viewer.camera)
             .entry::<Camera>()
             .and_modify(|mut c| c.is_active = true);
-        let selected = menu.preview().unwrap();
-        if viewer.ready && viewer.record.as_ref().is_some_and(|r| r.id == selected.id) {
+        if same_selection && viewer.status == PreviewStatus::Ready {
             return Ok(());
         }
-        if viewer.record.as_ref().is_none_or(|r| r.id != selected.id) {
+        if !same_selection {
             let record = Record {
                 id: selected.id,
                 preview: Arc::new(selected.model.clone()),
             };
+            viewer.record = Some(record.clone());
+            viewer.status = PreviewStatus::Loading;
             menu.busy = true;
             record.preview.validate()?;
             let behavior = record
@@ -334,9 +342,7 @@ fn prepare(
             }
             viewer.retired = std::mem::take(&mut viewer.parts);
             viewer.job = Some(source.prepare(&record.preview)?);
-            viewer.record = Some(record);
             viewer.started = Instant::now();
-            viewer.ready = false;
             *shared.0.lock().unwrap() = Default::default();
             assets
                 .composites
@@ -395,6 +401,11 @@ fn prepare(
                 if let Some(bevy::asset::LoadState::Failed(error)) = server.get_load_state(id) {
                     anyhow::bail!("preview asset failed: {error}");
                 }
+                if let Some(bevy::asset::RecursiveDependencyLoadState::Failed(error)) =
+                    server.get_recursive_dependency_load_state(id)
+                {
+                    anyhow::bail!("preview dependency failed: {error}");
+                }
             }
             if !assets.gltfs.contains(&part.gltf) {
                 continue;
@@ -434,7 +445,7 @@ fn prepare(
                 anyhow::bail!("preview pipeline failed: {error}");
             }
             if report.completed.load(Ordering::Acquire) {
-                viewer.ready = true;
+                viewer.status = PreviewStatus::Ready;
                 viewer.retired.clear();
                 menu.busy = false;
                 assets
@@ -445,7 +456,7 @@ fn prepare(
             }
         }
         ensure!(
-            viewer.ready || viewer.started.elapsed().as_secs() < 60,
+            viewer.status == PreviewStatus::Ready || viewer.started.elapsed().as_secs() < 60,
             "model preview preparation timed out for {:?}: parts {:?}; pending draws {:?}",
             record.id,
             viewer
@@ -480,7 +491,14 @@ fn prepare(
         Ok(())
     })();
     if let Err(error) = result {
-        fail(error, &mut exit);
+        fail(
+            error,
+            state.menu(),
+            &mut viewer,
+            &mut commands,
+            shared,
+            &mut failures,
+        );
     }
 }
 
@@ -525,8 +543,18 @@ impl Part {
                 tint: scene.outline_color_for(spec).map_or(Vec4::ONE, |c| {
                     Vec4::from_array(c.map(|c| f32::from(c) / 255.))
                 }),
-                toon_ramp: (scene.outline_color.is_none() && spec.color.is_some())
-                    .then(|| context.art.as_ref().unwrap().toon_ramp.clone()),
+                toon_ramp: if scene.outline_color.is_none() && spec.color.is_some() {
+                    Some(
+                        context
+                            .art
+                            .as_ref()
+                            .context("missing prepared field artwork")?
+                            .toon_ramp
+                            .clone(),
+                    )
+                } else {
+                    None
+                },
                 field_light: preview_light(Vec3::new(0., 0., record.preview.elevation)),
                 shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
                 // Fade each surface so overlapping triangles remain visible.
@@ -584,7 +612,7 @@ impl Part {
             &entities.meshes,
         );
         if !scene.secondary_motion.is_empty() {
-            let rig = crate::secondary_motion::Rig::new(root, scene, &names)
+            let rig = crate::secondary_motion::Rig::new(scene, &names)?
                 .context("preview secondary-motion rig is incomplete")?;
             commands.entity(root).insert(rig);
         }
@@ -615,7 +643,11 @@ impl Part {
                     });
                 commands.entity(entity).insert((
                     MeshMaterial3d(self.materials[i].clone()),
-                    crate::draw_order::DrawOrder(scene.materials[i].draw_order, 0),
+                    crate::draw_order::DrawOrder(
+                        crate::draw_order::Layer::Scene(scene.materials[i].draw_order),
+                        0,
+                        0,
+                    ),
                     if hidden {
                         Visibility::Hidden
                     } else {
@@ -639,14 +671,17 @@ impl Part {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Animation stores and the optional-preview failure boundary.
 fn animate(
+    mut commands: Commands,
     mut state: State,
     mut viewer: ResMut<Viewer>,
     clips: Res<Assets<crate::sparse_animation::Clip>>,
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<crate::sparse_animation::affine::Locals>,
     mut surfaces: ResMut<Assets<Surface>>,
-    mut exit: MessageWriter<AppExit>,
+    shared: Res<gpu::Shared>,
+    mut failures: crate::field_view::Failures,
 ) {
     let Some(menu) = state.menu() else {
         return;
@@ -684,7 +719,7 @@ fn animate(
                 let tick = preview.sample(duration);
                 let clip = &clips
                     .get(&part.clips[index])
-                    .expect("prepared preview clip")
+                    .context("prepared preview clip is missing")?
                     .0;
                 part.binding.sample(
                     clip,
@@ -699,16 +734,25 @@ fn animate(
         Ok(())
     })();
     if let Err(error) = result {
-        fail(error, &mut exit);
+        fail(
+            error,
+            Some(menu),
+            &mut viewer,
+            &mut commands,
+            &shared,
+            &mut failures,
+        );
     }
 }
 
 fn pose(
+    mut commands: Commands,
     mut state: State,
-    viewer: Res<Viewer>,
+    mut viewer: ResMut<Viewer>,
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<crate::sparse_animation::affine::Locals>,
-    mut exit: MessageWriter<AppExit>,
+    shared: Res<gpu::Shared>,
+    mut failures: crate::field_view::Failures,
 ) {
     let Some(menu) = state.menu().filter(|m| m.preview().is_some()) else {
         return;
@@ -732,7 +776,9 @@ fn pose(
                 -distance * 15_f32.to_radians().cos(),
                 distance * 15_f32.to_radians().sin(),
             );
-        *transforms.get_mut(viewer.camera).unwrap() =
+        *transforms
+            .get_mut(viewer.camera)
+            .context("preview camera is missing")? =
             Transform::from_translation(eye).looking_at(target, Vec3::Z);
         ensure!(
             viewer
@@ -772,7 +818,14 @@ fn pose(
         Ok(())
     })();
     if let Err(error) = result {
-        fail(error, &mut exit);
+        fail(
+            error,
+            Some(menu),
+            &mut viewer,
+            &mut commands,
+            &shared,
+            &mut failures,
+        );
     }
 }
 
@@ -830,10 +883,37 @@ fn scale_nodes(
     Ok(())
 }
 
-fn fail(error: anyhow::Error, exit: &mut MessageWriter<AppExit>) {
-    error!("Model preview failed: {error:#}");
-    debug_assert!(false, "Model preview failed: {error:#}");
-    exit.write(AppExit::error());
+fn fail(
+    error: anyhow::Error,
+    menu: Option<&mut resonance_game::menu::Menu>,
+    viewer: &mut Viewer,
+    commands: &mut Commands,
+    shared: &gpu::Shared,
+    failures: &mut crate::field_view::Failures,
+) {
+    if !failures.skip("model preview", error) {
+        return;
+    }
+    if let Some(menu) = menu {
+        menu.busy = false;
+    }
+    viewer.status = PreviewStatus::Unavailable;
+    viewer.job = None;
+    viewer.behavior = None;
+    viewer.behavior_tick = None;
+    viewer.overrides = PoseOverrides::default();
+    for part in viewer.parts.drain(..) {
+        if let Some(root) = part.root {
+            commands.entity(root).try_despawn();
+        }
+    }
+    viewer.retired.clear();
+    commands.entity(viewer.quad).insert(Visibility::Hidden);
+    commands
+        .entity(viewer.camera)
+        .entry::<Camera>()
+        .and_modify(|mut camera| camera.is_active = false);
+    *shared.0.lock().unwrap() = Default::default();
 }
 
 #[cfg(test)]
@@ -844,6 +924,91 @@ mod tests {
         affine::{Locals, Pose},
     };
     use bevy::{ecs::system::RunSystemOnce, math::Affine3A};
+
+    #[test]
+    fn failed_preview_releases_the_menu_and_hides_its_view_unless_paranoid() {
+        #[derive(Resource)]
+        struct Menu(resonance_game::menu::Menu);
+
+        for paranoid in [false, true] {
+            let mut world = World::new();
+            world.init_resource::<Assets<Image>>();
+            world.init_resource::<Assets<Mesh>>();
+            world.init_resource::<Assets<Composite>>();
+            world.init_resource::<Messages<AppExit>>();
+            world.init_resource::<gpu::Shared>();
+            let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
+            world.insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()));
+            world.run_system_once(setup).unwrap();
+            world.resource_mut::<Viewer>().record = Some(Record {
+                id: PreviewId::Monster(1),
+                preview: Arc::new(ModelPreview {
+                    scale: 1.,
+                    elevation: 0.,
+                    parts: Vec::new(),
+                    hidden_geometry: Vec::new(),
+                    behavior: None,
+                }),
+            });
+            let mut menu =
+                resonance_game::menu::Menu::new(resonance_game::menu::Page::Monsters, None, false);
+            menu.busy = true;
+            world.insert_resource(Menu(menu));
+            let (camera, quad) = {
+                let viewer = world.resource::<Viewer>();
+                (viewer.camera, viewer.quad)
+            };
+            world.get_mut::<Camera>(camera).unwrap().is_active = true;
+            *world.get_mut::<Visibility>(quad).unwrap() = Visibility::Inherited;
+            world.resource::<gpu::Shared>().0.lock().unwrap().armed = true;
+            world
+                .run_system_once(
+                    |mut commands: Commands,
+                     mut viewer: ResMut<Viewer>,
+                     mut menu: ResMut<Menu>,
+                     shared: Res<gpu::Shared>,
+                     mut failures: crate::field_view::Failures| {
+                        fail(
+                            anyhow::anyhow!("preview texture failed to load"),
+                            Some(&mut menu.0),
+                            &mut viewer,
+                            &mut commands,
+                            &shared,
+                            &mut failures,
+                        );
+                    },
+                )
+                .unwrap();
+            assert_eq!(!world.resource::<Messages<AppExit>>().is_empty(), paranoid);
+            assert_eq!(world.resource::<Menu>().0.busy, paranoid);
+            assert_eq!(world.get::<Camera>(camera).unwrap().is_active, paranoid);
+            assert_eq!(
+                *world.get::<Visibility>(quad).unwrap(),
+                if paranoid {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                }
+            );
+            assert_eq!(
+                world.resource::<gpu::Shared>().0.lock().unwrap().armed,
+                paranoid
+            );
+            assert_eq!(
+                world.resource::<Viewer>().status == PreviewStatus::Unavailable,
+                !paranoid
+            );
+            assert_eq!(
+                world.resource::<Viewer>().record.as_ref().unwrap().id,
+                PreviewId::Monster(1)
+            );
+            assert!(
+                diagnostics.entries()[0]
+                    .message
+                    .contains("preview texture failed")
+            );
+        }
+    }
 
     #[test]
     fn indexed_behavior_scales_reset_body_and_outline_without_an_animation() {
@@ -861,7 +1026,7 @@ mod tests {
                             let binding = Binding(nodes.map(|entity| (entity, rest)).into());
                             restore_pose(&binding, &mut transforms, &mut affine).unwrap();
                             if hidden {
-                                // Hiding geometry preserves its bone origin.
+                                // Hiding an affine node preserves its translation.
                                 affine.set(
                                     nodes[0],
                                     &mut transforms.get_mut(nodes[0]).unwrap(),
@@ -889,17 +1054,21 @@ mod tests {
                 )
                 .unwrap();
             for nodes in entities {
-                let pose = world
-                    .resource::<Locals>()
-                    .get(nodes[0], *world.get::<Transform>(nodes[0]).unwrap())
-                    .global()
-                    .affine();
-                if hidden {
-                    assert_eq!(pose.translation, Vec3::splat(20.).into());
-                    assert_eq!(pose.matrix3, bevy::math::Mat3A::ZERO);
-                } else {
-                    assert_eq!(pose, rest.compute_affine());
-                }
+                assert_eq!(
+                    world
+                        .resource::<Locals>()
+                        .get(nodes[0], *world.get::<Transform>(nodes[0]).unwrap())
+                        .global(),
+                    if hidden {
+                        GlobalTransform::from(Transform {
+                            translation: Vec3::splat(20.),
+                            scale: Vec3::ZERO,
+                            ..Default::default()
+                        })
+                    } else {
+                        GlobalTransform::from(rest)
+                    }
+                );
                 assert_eq!(*world.get::<Transform>(nodes[1]).unwrap(), rest);
             }
         }

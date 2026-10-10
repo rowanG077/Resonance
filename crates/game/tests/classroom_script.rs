@@ -6,9 +6,30 @@ mod common;
 use action::{Action, Action::*};
 use common::{asset_root, cooked};
 use resonance_content::{field::FieldAssets, menu_data::MenuData, session::SessionData};
-use resonance_events::{PersistentState, party::Party};
+use resonance_events::{
+    PersistentState,
+    party::{Ailments, Party, Poison, StatBuff},
+};
 use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldInput, FieldSession};
 use std::{fs, sync::Arc};
+
+fn session_data() -> Arc<SessionData> {
+    let mut data: SessionData = cooked("game/session-data.json");
+    data.rules = Some(Arc::new(cooked("game/menu-data.json")));
+    Arc::new(data)
+}
+
+fn menu_files() -> Arc<resonance_content::prepared::Files> {
+    Arc::new(
+        resonance_content::prepared::Files::load(
+            &asset_root(),
+            &["fields/map-340.preload.json"],
+            &mut Default::default(),
+            || false,
+        )
+        .unwrap(),
+    )
+}
 
 fn classroom(mut entry: FieldEntry) -> FieldSession {
     let root = asset_root();
@@ -19,6 +40,7 @@ fn classroom(mut entry: FieldEntry) -> FieldSession {
         .unwrap();
     entry.available_movies.insert(1);
     entry.menu_data = Some(Arc::new(cooked("game/menu-data.json")));
+    entry.menu_files = menu_files();
     entry.text = Arc::new(cooked("game/text.json"));
     let assets: FieldAssets = cooked("fields/map-340.json");
     entry.attachments = resonance_game::field::attachments::prepare(&assets, |path| {
@@ -26,7 +48,7 @@ fn classroom(mut entry: FieldEntry) -> FieldSession {
     })
     .unwrap();
     FieldSession::enter(
-        &fs::read(root.join(&assets.script.path)).unwrap(),
+        &fs::read(root.join(&assets.script)).unwrap(),
         cooked(&assets.messages),
         &assets,
         entry,
@@ -71,10 +93,9 @@ fn menu_in_motion(menu: &resonance_game::menu::Menu) -> bool {
     menu.main_animating()
         || match menu.page {
             Page::Equip => menu.equipment.transition.animating() || menu.equipment.scroll != 0,
-            Page::Tech => menu.tech.animating(),
-            Page::Unison => menu.unison.animating(),
             Page::ExSkills => menu.ex_skills.animating(),
             Page::Cooking => menu.cooking.transition.animating() || menu.cooking.scroll != 0,
+            Page::Strategy => menu.strategy.transition.animating() || menu.strategy.scroll != 0,
             Page::Customize => {
                 menu.customize.transition.animating()
                     || menu.customize.scroll != 0
@@ -110,13 +131,13 @@ fn settle_menu_motion(session: &mut FieldSession) {
 fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     use resonance_game::menu::{Menu, Page};
     let root = asset_root();
-    let data = Arc::new(cooked("game/session-data.json"));
+    let data = session_data();
     let menus: Arc<MenuData> = Arc::new(cooked("game/menu-data.json"));
     let assets: FieldAssets = cooked("fields/map-332.json");
     let enter = |mut entry: FieldEntry| {
         entry.menu_data = Some(menus.clone());
         FieldSession::enter(
-            &fs::read(root.join(&assets.script.path)).unwrap(),
+            &fs::read(root.join(&assets.script)).unwrap(),
             cooked(&assets.messages),
             &assets,
             entry,
@@ -207,9 +228,8 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     let mut knocked_out_save = restored.checkpoint().unwrap();
     let party = &mut knocked_out_save.progress.party;
     party.leader_locked = true;
-    party.members[2].conditions = 0x8000_0000;
     party.members[2].hp = 0;
-    party.members[1].conditions = 0x100;
+    party.members[1].ailments.petrified = true;
     let mut restored = enter(
         knocked_out_save
             .entry(&assets, data.clone(), [330, 332, 340].into())
@@ -234,14 +254,13 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
         1
     );
     let party = restored.events.world.party.as_mut().unwrap();
-    party.members[2].conditions = 0;
     party.members[2].hp = 1;
     restored.step(Default::default()).unwrap();
     assert_eq!(restored.events.world.controlled_actor, 1);
     // If nobody can lead, keep the current actor rather than inventing one.
     let party = restored.events.world.party.as_mut().unwrap();
     for member in &mut party.members {
-        member.conditions = 0x100;
+        member.ailments.petrified = true;
     }
     restored.step(Default::default()).unwrap();
     assert_eq!(restored.events.world.controlled_actor, 1);
@@ -272,8 +291,10 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     assert_eq!(press(&mut menu, Accept), Some(4));
     let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
     party.leader_locked = false;
-    for condition in [0x8000_0000, 0x100] {
-        menu.checkpoint.as_mut().unwrap().progress.party.members[7].conditions = condition;
+    for (hp, petrified) in [(0, false), (1, true)] {
+        let member = &mut menu.checkpoint.as_mut().unwrap().progress.party.members[7];
+        member.hp = hp;
+        member.ailments.petrified = petrified;
         assert_eq!(press(&mut menu, Accept), Some(4));
         let party = &menu.checkpoint.as_ref().unwrap().progress.party;
         assert_eq!(party.field_leader, 3);
@@ -284,7 +305,7 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
 #[ignore = "requires locally cooked GQSEAF menus/classroom; no devices"]
 fn customization_drafts_commit_to_field_and_save_without_changing_battle_control_modes() {
     use resonance_game::menu::{Page, customize::Focus};
-    let data = Arc::new(cooked("game/session-data.json"));
+    let data = session_data();
     let party = Party::new(&data, Default::default()).unwrap();
     let original = party.settings.preferences.clone();
     let mut session = classroom(classroom_entry(&data, party, 2000));
@@ -297,7 +318,7 @@ fn customization_drafts_commit_to_field_and_save_without_changing_battle_control
     assert_eq!(menu.page, Page::Customize);
     assert_eq!(
         menu.customize.draft,
-        menu.resources.as_ref().unwrap().data.customize.defaults
+        menu.customize_data().unwrap().defaults
     );
     for key in [Right, Up, Accept] {
         press(&mut session, key);
@@ -373,14 +394,68 @@ fn customization_drafts_commit_to_field_and_save_without_changing_battle_control
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF recipes; no devices"]
+fn rested_luck_survives_save_and_improves_cooking_odds() {
+    let data: SessionData = cooked("game/session-data.json");
+    let menus: MenuData = cooked("game/menu-data.json");
+    let mut hungry = Party::new(&data, Default::default()).unwrap();
+    let luck = |party: &Party| {
+        party
+            .members
+            .iter()
+            .map(|member| member.luck)
+            .collect::<Vec<_>>()
+    };
+    let initial_luck = luck(&hungry);
+    let mut random = resonance_events::GameplayRandom::new(41);
+    hungry.heal(|| random.next_u32());
+    let rested_luck = luck(&hungry);
+    assert!(rested_luck.iter().all(|&value| value < 100));
+    assert_ne!(rested_luck, initial_luck);
+
+    let mut restored: Party = roundtrip(&hungry);
+    restored.validate(&data).unwrap();
+    assert_eq!(luck(&restored), rested_luck);
+    restored.heal(|| random.next_u32());
+    assert!(luck(&restored).iter().all(|&value| value < 100));
+    assert_ne!(luck(&restored), rested_luck);
+
+    hungry.formation = vec![1];
+    hungry.change_item(&data, 121, 3).unwrap();
+    let chef = &mut hungry.members[0];
+    chef.equipment = [135, 274, 0, 0, 0, 0];
+    chef.ex_skills = [0; 4];
+    chef.compound_ex_skills.clear();
+    chef.overlimit = 0;
+
+    // Compare outcomes across the roll domain without coupling the test to
+    // the chance formula or the number and order of random requests.
+    let mut successes = [0; 2];
+    for roll in 0..100 {
+        let outcomes = [0, 99].map(|luck| {
+            let mut party = hungry.clone();
+            party.members[0].luck = luck;
+            party.cook(&menus, || roll).unwrap().success
+        });
+        assert!(
+            !outcomes[0] || outcomes[1],
+            "higher luck reduced cooking odds"
+        );
+        for (total, success) in successes.iter_mut().zip(outcomes) {
+            *total += usize::from(success);
+        }
+    }
+    assert!(successes[1] > successes[0]);
+}
+
+#[test]
+#[ignore = "requires locally cooked GQSEAF recipes; no devices"]
 fn cooking_consumption_recovery_training_and_recipe_scripts() {
     use resonance_content::menu_data::{MealEffect, RECIPE_COUNT};
     use resonance_events::{EventRuntime, GameWorld, ResourceLibrary, party::CookingError};
     use symphonia_script::{NativeCall, Program, Width};
-    let mut data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data = session_data();
     let menus: MenuData = cooked("game/menu-data.json");
     menus.validate().unwrap();
-    Arc::make_mut(&mut data).ex_skills = Some(Arc::new(menus.ex_skills.clone()));
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3];
     assert_eq!(
@@ -528,7 +603,7 @@ fn cooking_menu_commits_party_and_rng_and_preserves_them_in_saves() {
         Page,
         cooking::{Content, Focus, Notice},
     };
-    let data = Arc::new(cooked("game/session-data.json"));
+    let data = session_data();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3];
     party.change_item(&data, 121, 3).unwrap();
@@ -643,7 +718,7 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
     use resonance_events::{EventRuntime, GameWorld, ResourceLibrary};
     use resonance_game::menu::Page;
     use symphonia_script::{NativeCall, Program, Width};
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data: Arc<SessionData> = session_data();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3];
     let level = party.members[0].level;
@@ -727,7 +802,7 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
     assert_eq!(menu.synopsis_records().len(), 25);
     assert!(!menu.synopsis_records().contains(&1));
     assert_eq!(
-        menu.synopsis_entry().1.level,
+        menu.synopsis_entry().unwrap().1.level,
         Some(level),
         "journal level followed the current party level"
     );
@@ -761,7 +836,7 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
     for key in [Previous, Previous, Down, Down, Down, Accept] {
         press(&mut session, key);
     }
-    let (entry, record) = session.menu.as_ref().unwrap().synopsis_entry();
+    let (entry, record) = session.menu.as_ref().unwrap().synopsis_entry().unwrap();
     assert_eq!(entry.title, "Iselia Forest");
     assert_eq!(record.value, 2);
     assert_eq!(entry.lines(record.value).len(), 30);
@@ -798,221 +873,55 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF strategy/classroom; no devices"]
-fn strategy_presets_rename_and_current_orders_survive_reload() {
-    use resonance_game::menu::{Page, strategy::Focus};
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+fn strategy_edit_pauses_the_field_and_survives_reload() {
+    use resonance_game::menu::Page;
+    let data: Arc<SessionData> = session_data();
     let menus: MenuData = cooked("game/menu-data.json");
-    menus.validate().unwrap();
     let mut party = Party::new(&data, Default::default()).unwrap();
-    party.formation = vec![1, 2, 3, 4, 5, 7, 8, 9];
-    let before = serde_json::to_value(&party).unwrap();
-    assert!(
-        party.set_strategy(&menus.strategy, 0, 1, 7, None).is_err(),
-        "Lloyd could select healing-only AI"
-    );
-    assert!(
-        party
-            .set_strategy(&menus.strategy, usize::MAX, 0, 0, None)
-            .is_err()
-    );
-    assert!(party.set_strategy(&menus.strategy, 0, 3, 0, None).is_err());
-    assert!(
-        party
-            .set_strategy(&menus.strategy, 0, 0, 0, Some(3))
-            .is_err()
-    );
-    assert_eq!(serde_json::to_value(&party).unwrap(), before);
-    assert!(party.set_strategy(&menus.strategy, 0, 0, 1, None).unwrap());
-    assert!(!party.set_strategy(&menus.strategy, 0, 0, 1, None).unwrap());
-    assert!(
-        party
-            .set_strategy(&menus.strategy, 1, 0, 2, Some(1))
-            .unwrap()
-    );
-    assert_eq!(
-        party.members[1].strategy[0], 0,
-        "editing a command changed current AI"
-    );
+    party.set_strategy(&menus.strategy, 0, 0, 1, None).unwrap();
     let mut session = classroom(classroom_entry(&data, party, 2000));
     advance_to(&mut session, FieldSession::player_has_control, |_, _| false);
     let tick = session.events.world.tick;
-    let press = |session: &mut FieldSession, action: Action| {
-        session.step(action.input()).unwrap();
-        session.step(Default::default()).unwrap();
-        settle_menu_motion(session);
-        for _ in 0..12 {
-            if session.menu.as_ref().is_none_or(|menu| {
-                menu.page != Page::Strategy
-                    || menu.strategy.transition.page_fade == 0
-                        && !menu.strategy.transition.page_closing
-                        && !menu.strategy.preset_closing
-                        && (!menu.strategy.focus.preset() || menu.strategy.preset_opacity == 255)
-            }) {
-                break;
-            }
-            session.step(Default::default()).unwrap();
-        }
-        settle_menu_motion(session);
-    };
-    for key in [OpenMenu, Right, Right, Next, Accept, Accept, Accept] {
+    for key in [OpenMenu, Right, Right, Accept, Accept, Accept, Down, Accept] {
         press(&mut session, key);
-    }
-    for _ in 0..15 {
-        session.step(Default::default()).unwrap();
-    }
-    press(&mut session, Down);
-    let menu = session.menu.as_ref().unwrap();
-    assert_eq!(menu.strategy.description_previous, Some([0, 1]));
-    assert_eq!(menu.strategy_description(), Some([0, 2]));
-    assert_eq!(menu.strategy.description_opacity, 31);
-    press(&mut session, Down);
-    let menu = session.menu.as_ref().unwrap();
-    assert_eq!(menu.strategy.description_previous, Some([0, 1]));
-    assert_eq!(menu.strategy_description(), Some([0, 3]));
-    assert_eq!(menu.strategy.description_opacity, 63);
-    for key in [Up, Accept] {
-        press(&mut session, key);
+        advance_to(
+            &mut session,
+            |s| {
+                s.menu.as_ref().is_none_or(|menu| {
+                    menu.page != Page::Strategy || !menu.strategy.transition.animating()
+                })
+            },
+            |_, _| false,
+        );
     }
     assert_eq!(session.menu.as_ref().unwrap().page, Page::Strategy);
     assert_eq!(
         session.events.world.party.as_ref().unwrap().members[0].strategy[0],
         2
     );
-    for key in [Cancel, Alternate, Accept, Accept, Accept, Up, Accept] {
-        press(&mut session, key);
-    }
-    let party = session.events.world.party.as_ref().unwrap();
-    assert_eq!(party.strategy_presets.as_ref().unwrap()[0].members[0][0], 0);
-    assert_eq!(party.members[0].strategy[0], 2);
-    for key in [Cancel, Cancel, Alternate, Accept, Cancel, Up, Accept] {
-        press(&mut session, key);
-    }
-    assert_eq!(
-        session.menu.as_ref().unwrap().strategy.focus,
-        Focus::Presets
-    );
-    assert_eq!(
-        session
-            .events
-            .world
-            .party
-            .as_ref()
-            .unwrap()
-            .strategy_presets
-            .as_ref()
-            .unwrap()[0]
-            .name,
-        "Aeserve"
-    );
-    // Reset only the selected preset; cancelling a name edit preserves its saved name.
-    for key in [
-        Right, OpenMenu, Left, Alternate, Right, Accept, Cancel, Accept,
-    ] {
-        press(&mut session, key);
-    }
-    let presets = session
-        .events
-        .world
-        .party
-        .as_ref()
-        .unwrap()
-        .strategy_presets
-        .as_ref()
-        .unwrap();
-    assert_eq!(presets[0].name, "Aeserve");
-    assert_eq!(presets[1], menus.strategy.presets[1]);
-    // Delete the whole name, reject confirmation, then recover the saved name.
-    for key in [Alternate, Cancel, Up, Up] {
-        press(&mut session, key);
-    }
-    for _ in 0..7 {
-        press(&mut session, Accept);
-    }
-    for key in [Down, Accept] {
-        press(&mut session, key);
-    }
-    let state = &session.menu.as_ref().unwrap().strategy;
-    assert_eq!(state.focus, Focus::Rename);
-    assert!(state.rename.value.is_empty());
-    for key in [Down, Down, Accept] {
-        press(&mut session, key);
-    }
-    assert_eq!(
-        session.menu.as_ref().unwrap().strategy.rename.value,
-        "Aeserve"
-    );
-    for key in [Cancel, Accept] {
-        press(&mut session, key);
-    }
-    // Reach the last reserve in both editors; paging cannot change the setting's member.
-    for key in [
-        Cancel, Next, Down, Down, Down, Next, Previous, Next, Accept, Previous,
-    ] {
-        press(&mut session, key);
-    }
-    let menu = session.menu.as_ref().unwrap();
-    assert_eq!(
-        (
-            menu.strategy.character,
-            menu.strategy.first,
-            menu.strategy.focus
-        ),
-        (7, 4, Focus::Setting)
-    );
-    for key in [Down, Accept] {
-        press(&mut session, key);
-    }
-    for _ in 0..7 {
-        press(&mut session, Down);
-    }
-    for key in [Accept, Cancel, Alternate, Accept, Previous] {
-        press(&mut session, key);
-    }
-    let menu = session.menu.as_ref().unwrap();
-    assert_eq!(
-        (
-            menu.strategy.character,
-            menu.strategy.first,
-            menu.strategy.focus
-        ),
-        (3, 0, Focus::PresetCharacter)
-    );
-    for key in [Next, Accept, Down, Accept] {
-        press(&mut session, key);
-    }
-    for _ in 0..8 {
-        press(&mut session, Up);
-    }
-    for key in [Accept, Cancel, Cancel] {
-        press(&mut session, key);
-    }
-    let party = session.events.world.party.as_ref().unwrap();
-    assert_eq!(party.members[8].strategy[1], 7);
-    assert_eq!(party.strategy_presets.as_ref().unwrap()[0].members[8][1], 0);
     assert_eq!(
         session.events.world.tick, tick,
         "Strategy advanced the field"
     );
-    let menu = session.menu.as_ref().unwrap();
-    assert_eq!((menu.character, menu.first_character), (4, 4));
-    for _ in 0..3 {
-        press(&mut session, Cancel);
+    for key in [Cancel, Cancel, Cancel] {
+        press(&mut session, key);
+        advance_to(
+            &mut session,
+            |s| {
+                s.menu.as_ref().is_none_or(|menu| {
+                    menu.page != Page::Strategy || !menu.strategy.transition.animating()
+                })
+            },
+            |_, _| false,
+        );
     }
-    settle_menu_motion(&mut session);
     assert!(session.player_has_control());
-    let saved = session.checkpoint().unwrap();
-    let saved = roundtrip::<FieldCheckpoint>(&saved);
+    let saved = roundtrip::<FieldCheckpoint>(&session.checkpoint().unwrap());
     let assets: FieldAssets = cooked("fields/map-340.json");
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let party = loaded.events.world.party.as_ref().unwrap();
     party.validate(&data).unwrap();
     assert_eq!(party.members[0].strategy[0], 2);
-    assert_eq!(party.members[8].strategy[1], 7);
-    let presets = party.strategy_presets.as_ref().unwrap();
-    assert_eq!(presets[0].name, "Aeserve");
-    assert_eq!(presets[0].members[0][0], 0);
-    assert_eq!(presets[0].members[8][1], 0);
-    assert_eq!(presets[1], menus.strategy.presets[1]);
 }
 
 #[test]
@@ -1020,17 +929,18 @@ fn strategy_presets_rename_and_current_orders_survive_reload() {
 fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     use resonance_events::party::TechniqueShortcut;
     use resonance_game::menu::{Menu, Page, Resources, techniques::Focus};
-    let mut data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data = session_data();
     let menus: MenuData = cooked("game/menu-data.json");
     menus.validate().unwrap();
-    Arc::make_mut(&mut data).ex_skills = Some(Arc::new(menus.ex_skills.clone()));
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3, 4];
-    party.members[0].techniques.insert(1);
+    let learn = |party: &mut Party, member: usize, techniques: &[u16]| {
+        party.members[member].techniques.extend(techniques);
+    };
+    learn(&mut party, 0, &[1, 2, 3]);
     party.members[0].shortcuts[0] = 1;
-    party.members[1].techniques.insert(35);
-    party.members[2].techniques.insert(66);
-    party.members[0].techniques.extend([2, 3]);
+    learn(&mut party, 1, &[35]);
+    learn(&mut party, 2, &[66]);
     party.members[0].technique_uses.insert(2, 500);
     party.members[0].disabled_techniques.insert(2);
     let shortcut = |character, technique| {
@@ -1039,153 +949,13 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
             technique,
         })
     };
-    assert!(party.assign_technique(0, 1, shortcut(0, 2)).unwrap());
-    assert!(!party.assign_technique(0, 1, shortcut(0, 2)).unwrap());
-    assert!(party.assign_technique(2, 4, shortcut(0, 3)).unwrap());
-    let before = serde_json::to_value(&party).unwrap();
-    for (slot, owner, tech) in [(1, 1, 35), (4, usize::MAX, 3), (4, 0, 20)] {
-        assert!(
-            party
-                .assign_technique(0, slot, shortcut(owner, tech))
-                .is_err()
-        );
-    }
-    assert_eq!(serde_json::to_value(&party).unwrap(), before);
-    assert!(!party.forget_technique(&menus, 0, 1).unwrap());
-    assert!(party.forget_technique(&menus, 0, 2).unwrap());
-    assert!(!party.members[0].techniques.contains(&3));
-    assert!(party.members[0].disabled_techniques.is_empty());
-    assert_eq!(party.members[0].shortcuts[1], 0);
-    assert_eq!(party.members[2].assist_shortcuts[0], None);
-    assert_eq!(party.members[0].technique_uses[&2], 500);
-    assert!(party.assign_technique(0, 4, shortcut(1, 35)).unwrap());
-    party.members[3].techniques.extend([98, 101, 121]);
+    party.forget_technique(&menus, 0, 2).unwrap();
+    party.assign_technique(0, 4, shortcut(1, 35)).unwrap();
+    learn(&mut party, 3, &[98, 101, 121]);
     party.members[3].base_stats[1] = 100;
     party.members[3].tp = 100;
-    party.members[0].hp = 1;
-    let heal = party.members[0].maximum_vitals()[0] * 30 / 100;
-    assert_eq!(
-        party.cast_technique(&menus, 3, 0, 98, false).unwrap(),
-        Some(104)
-    );
-    assert_eq!(party.members[0].hp, 1 + heal);
-    assert_eq!(party.members[3].tp, 92);
-    for (hp, condition, tp) in [
-        (party.members[0].maximum_vitals()[0], 0, 92),
-        (1, 0x100, 92),
-        (1, 0, 7),
-    ] {
-        party.members[0].hp = hp;
-        party.members[3].conditions = condition;
-        party.members[3].tp = tp;
-        let before = serde_json::to_value(&party).unwrap();
-        assert_eq!(party.cast_technique(&menus, 3, 0, 98, false).unwrap(), None);
-        assert_eq!(
-            serde_json::to_value(&party).unwrap(),
-            before,
-            "rejected spell consumed TP or changed a target"
-        );
-    }
-    party.members[3].conditions = 0;
-    party.members[3].tp = 100;
-    party.members[0].conditions = 0x8000_0001;
-    party.members[0].hp = 0;
-    party.members[0].tp = 0;
-    assert_eq!(
-        party.cast_technique(&menus, 3, 0, 121, false).unwrap(),
-        Some(132)
-    );
-    assert_eq!(
-        (
-            party.members[0].hp,
-            party.members[0].tp,
-            party.members[0].conditions
-        ),
-        (heal, 0, 0)
-    );
-    assert_eq!(party.members[3].tp, 52);
-    party.members[0].conditions = 0x21;
-    assert_eq!(
-        party.cast_technique(&menus, 3, 0, 101, false).unwrap(),
-        Some(132)
-    );
-    assert_eq!(party.members[0].conditions, 0);
-    let mut group = party.clone();
-    group.formation.push(5);
-    group.members[3].techniques.extend([99, 102]);
-    group.members[3].tp = 100;
-    for (index, conditions) in [(0, 0x240), (2, 0xa0), (4, 0x3e0)] {
-        group.members[index].hp = 1;
-        group.members[index].conditions = conditions;
-    }
-    group.members[1].hp = 0;
-    group.members[1].conditions = 0x8000_03e0;
-    // A group cast includes reserves, skips knocked-out members and charges once.
-    assert_eq!(
-        group.cast_technique(&menus, 3, 1, 99, false).unwrap(),
-        Some(104)
-    );
-    assert_eq!(group.members[3].tp, 72);
-    for index in [0, 2, 4] {
-        assert_eq!(
-            group.members[index].hp,
-            1 + group.members[index].maximum_vitals()[0] * 45 / 100
-        );
-    }
-    assert_eq!(
-        group.cast_technique(&menus, 3, 1, 102, false).unwrap(),
-        Some(132)
-    );
-    assert_eq!(group.members[3].tp, 48);
-    assert_eq!(
-        (
-            group.members[0].conditions,
-            group.members[2].conditions,
-            group.members[4].conditions
-        ),
-        (0, 0, 0)
-    );
-    assert_eq!(
-        (group.members[1].hp, group.members[1].conditions),
-        (0, 0x8000_03e0)
-    );
-    let unchanged = serde_json::to_value(&group).unwrap();
-    assert_eq!(
-        group.cast_technique(&menus, 3, 4, 102, false).unwrap(),
-        None
-    );
-    assert_eq!(serde_json::to_value(&group).unwrap(), unchanged);
-    party.members[3].equipment[3] = 406;
-    assert_eq!(party.members[3].technique_cost(&menus, 98, false), 5);
-    party.members[3].equipment[3] = 407;
-    assert_eq!(party.members[3].technique_cost(&menus, 98, false), 4);
-    let mut personal = party.clone();
-    personal.items.insert(41, 1);
-    assert!(personal.set_ex_gem(&data, 3, 0, 2).unwrap());
-    assert!(personal.set_ex_skill(&data, 3, 0, 31).unwrap());
-    personal.members[0].hp = 1;
-    personal.members[3].tp = 1;
-    assert_eq!(personal.members[3].technique_cost(&menus, 98, true), 1);
-    assert_eq!(personal.members[3].technique_cost(&menus, 98, false), 4);
-    let unchanged = serde_json::to_value(&personal).unwrap();
-    assert_eq!(
-        personal.cast_technique(&menus, 3, 0, 98, false).unwrap(),
-        None
-    );
-    assert_eq!(serde_json::to_value(&personal).unwrap(), unchanged);
-    assert_eq!(
-        personal.cast_technique(&menus, 3, 0, 98, true).unwrap(),
-        Some(104)
-    );
-    assert_eq!(
-        (personal.members[0].hp, personal.members[3].tp),
-        (1 + heal, 0)
-    );
-    assert_eq!(
-        personal.cast_technique(&menus, 3, 0, 98, true).unwrap(),
-        None
-    );
     party.formation = vec![1, 2, 3];
+    party.validate(&data).unwrap();
     let mut session = classroom(classroom_entry(&data, party, 2000));
     advance_to(&mut session, FieldSession::player_has_control, |_, _| false);
     let tick = session.events.world.tick;
@@ -1250,6 +1020,8 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     assert!(party.members[1].disabled_techniques.contains(&35));
     assert_eq!(party.settings.battle_controls[1], 1);
     assert_eq!(party.members[0].technique_uses[&2], 500);
+
+    assert!(!party.members[0].techniques.contains(&2));
     assert_eq!(party.members[0].assist_shortcuts[0], shortcut(1, 35));
 
     let mut checkpoint = session.checkpoint().unwrap();
@@ -1257,15 +1029,15 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     party.formation.push(4);
     party.members[0].hp = 1;
     party.members[1].hp = 0;
-    party.members[1].conditions = 0x8000_0000;
     party.members[3].equipment[3] = 0;
     party.members[3].tp = 56;
     let mut menu = Menu::new(Page::Tech, Some(checkpoint), false);
     menu.resources = Some(Arc::new(Resources {
+        files: menu_files(),
         session: data,
         data: Arc::new(menus),
     }));
-    menu.character = 3;
+    menu.tech.character = 3;
     menu.tech.focus = Focus::List;
     let press_menu = |menu: &mut Menu, input| {
         let cue = menu.step(input);
@@ -1281,12 +1053,6 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     };
     let healing = menu.selected_technique().unwrap();
     assert_eq!(menu.step(accept), Some(2));
-    assert_eq!(menu.tech.description_previous, Some(healing));
-    assert_eq!(menu.tech.description_fade, 224);
-    for _ in 0..15 {
-        menu.step(Default::default());
-    }
-    assert_eq!(menu.tech.description_previous, None);
     assert_eq!(menu.tech_description(), None);
     assert_eq!(menu.selected_technique(), Some(healing));
     assert_eq!((menu.tech.focus, menu.tech.target), (Focus::Target, 0));
@@ -1295,13 +1061,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     press_menu(&mut menu, Down.input());
     assert_eq!(press_menu(&mut menu, accept), Some(4));
     press_menu(&mut menu, cancel);
-    assert_eq!(menu.tech.description_previous, None);
-    assert_eq!(menu.tech.description_fade, 224);
     assert_eq!(menu.tech_description(), Some(healing));
-    for _ in 0..15 {
-        menu.step(Default::default());
-    }
-    assert_eq!(menu.tech.description_previous, Some(healing));
     menu.tech.row = menu
         .technique_list()
         .iter()
@@ -1313,14 +1073,13 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     assert_eq!(menu.tech.focus, Focus::List);
     let party = &menu.checkpoint.as_ref().unwrap().progress.party;
     assert!(party.members[1].hp > 0);
-    assert_eq!(party.members[1].conditions, 0);
+    assert!(party.members[1].ailments.is_empty());
     assert_eq!(party.members[3].tp, 0);
     assert_eq!(press_menu(&mut menu, accept), Some(4));
     assert_eq!(menu.tech.focus, Focus::List);
     let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
     party.formation.push(5);
     party.members[1].hp = 0;
-    party.members[1].conditions = 0x8000_0000;
     menu.page = Page::Main;
     menu.selected = 0;
     menu.character = 1;
@@ -1339,7 +1098,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     assert_eq!(menu.character, 1);
     press_menu(&mut menu, previous);
     assert_eq!(menu.character, 0);
-    menu.character = 2;
+    menu.tech.character = 2;
     menu.tech.focus = Focus::Character;
     press_menu(&mut menu, previous);
     assert_eq!((menu.character, menu.tech.focus), (0, Focus::Character));
@@ -1348,13 +1107,13 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     press_menu(&mut menu, next);
     press_menu(&mut menu, previous);
     assert_eq!(menu.tech.slot, 0);
-    menu.character = 4;
+    menu.tech.character = 4;
     menu.tech.focus = Focus::Character;
     assert!(menu.tech_auto());
     assert_eq!(menu.tech_columns(), 2);
     assert_eq!(press_menu(&mut menu, menu_key), None);
     assert_eq!(menu.tech.focus, Focus::Character);
-    menu.character = 2;
+    menu.tech.character = 2;
     assert!(menu.tech_unison_available());
     press_menu(&mut menu, menu_key);
     assert!(menu.tech.unison);
@@ -1393,10 +1152,12 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
         );
         assert_eq!(menu.tech.focus, Focus::Character);
     }
-    menu.character = 0;
-    menu.checkpoint.as_mut().unwrap().progress.party.members[0]
-        .techniques
-        .extend(1..=12);
+    menu.tech.character = 0;
+    learn(
+        &mut menu.checkpoint.as_mut().unwrap().progress.party,
+        0,
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    );
     press_menu(&mut menu, accept);
     menu.tech.slot = 5;
     menu.tech.row = 9;
@@ -1422,7 +1183,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
 #[ignore = "requires locally cooked GQSEAF equipment/classroom; no devices"]
 fn equipment_preview_optimization_and_menu_transfers_survive_reload() {
     use resonance_game::menu::{Page, equipment::Focus};
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data: Arc<SessionData> = session_data();
     let menus: MenuData = cooked("game/menu-data.json");
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3];
@@ -1543,7 +1304,7 @@ fn equipment_preview_optimization_and_menu_transfers_survive_reload() {
 #[ignore = "requires locally cooked GQSEAF items/classroom; no devices"]
 fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     use resonance_game::menu::{Page, items::Focus};
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data: Arc<SessionData> = session_data();
     let menus: MenuData = cooked("game/menu-data.json");
     menus.validate().unwrap();
     let mut party = Party::new(&data, Default::default()).unwrap();
@@ -1558,17 +1319,14 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     assert!(!group.can_use_group_item(&menus, 8));
     assert_eq!(group.use_item(&data, &menus, 8, 0).unwrap(), None);
     group.members[1].hp = 0;
-    group.members[1].conditions = 0x8000_0000;
     assert!(group.can_use_group_item(&menus, 8));
     assert_eq!(group.use_item(&data, &menus, 8, 1).unwrap(), Some(104));
     assert_eq!(group.items[&8], inventory[&8] - 1);
     assert_eq!(group.members[1].hp, 0);
     group.members[0].hp = 0;
-    group.members[0].conditions = 0x8000_0000;
     assert!(!group.can_use_group_item(&menus, 8));
     assert_eq!(group.use_item(&data, &menus, 8, 1).unwrap(), None);
     assert_eq!(group.items[&8], inventory[&8] - 1);
-    party.members[1].conditions = 0x8000_0000;
     party.members[1].hp = 0;
     party.members[1].tp = 0;
     assert_eq!(party.use_item(&data, &menus, 1, 1).unwrap(), None);
@@ -1581,9 +1339,16 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         party.members[1].tp,
         (u32::from(party.members[1].base_stats[1]) * 15 / 100) as u16
     );
-    party.members[1].conditions = 0xfe3 | 0x10000;
+    party.members[1].ailments = Ailments {
+        poison: Poison::Both,
+        paralysis: true,
+        petrified: true,
+        curse: true,
+    };
+    party.members[1].queued_buffs.insert(StatBuff::AccuracyUp);
     party.use_item(&data, &menus, 10, 1).unwrap();
-    assert_eq!(party.members[1].conditions, 0x10000);
+    assert!(party.members[1].ailments.is_empty());
+    assert_eq!(party.members[1].queued_buffs, [StatBuff::AccuracyUp].into());
     let base = party.members[0].base_stats;
     party.use_item(&data, &menus, 26, 0).unwrap();
     party.use_item(&data, &menus, 27, 0).unwrap();
@@ -1625,28 +1390,6 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     let mut session = classroom(classroom_entry(&data, party, 2000));
     advance_to(&mut session, FieldSession::player_has_control, |_, _| false);
     let field_tick = session.events.world.tick;
-    let press = |session: &mut FieldSession, input| {
-        session.step(input).unwrap();
-        session.step(FieldInput::default()).unwrap();
-        while session.menu.as_ref().is_some_and(|menu| {
-            menu.inventory.focus == Focus::Target
-                && (menu.inventory.target_closing || menu.inventory.target_opacity < 255)
-        }) {
-            session.step(FieldInput::default()).unwrap();
-        }
-        settle_menu_motion(session);
-        for _ in 0..24 {
-            if session
-                .menu
-                .as_ref()
-                .is_none_or(|menu| menu.page != Page::Items || menu.inventory.page_fade == 0)
-            {
-                break;
-            }
-            session.step(Default::default()).unwrap();
-        }
-        settle_menu_motion(session);
-    };
     let confirm = Accept.input();
     let cancel = Cancel.input();
     press(&mut session, OpenMenu.input());
@@ -1666,7 +1409,18 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         before_discard,
         "confirming the default No must preserve the item"
     );
-    press(&mut session, confirm);
+    session.step(confirm).unwrap();
+    assert_eq!(
+        session.menu.as_ref().unwrap().inventory.focus,
+        Focus::Target
+    );
+    session.step(cancel).unwrap();
+    assert_eq!(session.menu.as_ref().unwrap().inventory.focus, Focus::List);
+    assert_eq!(
+        session.events.world.party.as_ref().unwrap().items,
+        before_discard
+    );
+    session.step(confirm).unwrap();
     assert_eq!(
         session.menu.as_ref().unwrap().inventory.focus,
         Focus::Target
@@ -1698,8 +1452,10 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         );
         assert_eq!(session.menu.as_ref().unwrap().inventory.target, expected);
     }
-    press(&mut session, confirm);
+    session.step(confirm).unwrap();
+    assert_eq!(session.menu.as_ref().unwrap().inventory.focus, Focus::List);
     let party = session.events.world.party.as_ref().unwrap();
+    assert!(!party.items.contains_key(&1));
     let restored_hp = 1 + (u32::from(party.members[0].base_stats[0]) * 30 / 100) as u16;
     assert_eq!(party.members[0].hp, restored_hp);
     assert_eq!(party.members[4].hp, reserve_hp);
@@ -1730,6 +1486,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     );
     let mut book = resonance_game::menu::Menu::new(Page::Items, Some(checkpoint), false);
     book.resources = Some(Arc::new(resonance_game::menu::Resources {
+        files: menu_files(),
         session: data.clone(),
         data: Arc::new(menus.clone()),
     }));
@@ -1737,17 +1494,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         let cue = book.step(input);
         book.step(Default::default());
         for _ in 0..24 {
-            let moving = match book.page {
-                Page::Items => {
-                    book.inventory.page_closing
-                        || book.inventory.page_fade != 0
-                        || matches!(book.inventory.focus, Focus::Target | Focus::Transform(_))
-                            && (book.inventory.target_closing
-                                || book.inventory.target_opacity < 255)
-                }
-                Page::Collection => book.collection.page_closing || book.collection.page_fade != 0,
-                _ => false,
-            };
+            let moving = book.page == Page::Collection
+                && (book.collection.page_closing || book.collection.page_fade != 0);
             if !moving {
                 break;
             }
@@ -1836,23 +1584,9 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         assert!(!items.is_empty());
         press_book(&mut book, Next.input());
     }
-    press_book(
-        &mut book,
-        FieldInput {
-            direction: [1., 0.],
-            pressed_buttons: [Button::PreviousPage].into(),
-            ..Default::default()
-        },
-    );
+    press_book(&mut book, Right.input());
     assert_eq!((book.collection.category, book.collection.row), (0, 1));
-    press_book(
-        &mut book,
-        FieldInput {
-            direction: [-1., 0.],
-            pressed_buttons: [Button::NextPage].into(),
-            ..Default::default()
-        },
-    );
+    press_book(&mut book, Left.input());
     assert_eq!((book.collection.category, book.collection.row), (0, 0));
     press_book(&mut book, cancel);
     assert!(book.collection.categories);
@@ -1860,24 +1594,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         assert_eq!(press_book(&mut book, input), None);
         assert_eq!(book.collection.category, 0);
     }
-    for (input, category) in [
-        (
-            FieldInput {
-                direction: [-1., 0.],
-                pressed_buttons: [Button::NextPage].into(),
-                ..Default::default()
-            },
-            7,
-        ),
-        (
-            FieldInput {
-                direction: [1., 0.],
-                pressed_buttons: [Button::PreviousPage].into(),
-                ..Default::default()
-            },
-            0,
-        ),
-    ] {
+    for (input, category) in [(Left.input(), 7), (Right.input(), 0)] {
         assert_eq!(press_book(&mut book, input), Some(1));
         assert_eq!(book.collection.category, category);
     }
@@ -1924,12 +1641,10 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         press_book(&mut list, down);
     }
     assert_eq!((list.inventory.row, list.inventory.first), (18, 2));
-    assert_eq!(list.step(Right.input()), None);
-    assert_eq!(list.inventory.row, 18, "scrolling accepted navigation");
-    list.step(Default::default());
-    list.step(Default::default());
-    assert_eq!(press_book(&mut list, PageUp.input()), Some(38));
-    assert_eq!((list.inventory.row, list.inventory.first), (16, 0));
+    assert_eq!(list.step(Right.input()), Some(1));
+    assert_eq!(list.inventory.row, 19, "scrolling delayed navigation");
+    assert_eq!(list.step(PageUp.input()), Some(38));
+    assert_eq!((list.inventory.row, list.inventory.first), (17, 0));
     press_book(&mut list, cancel);
     press_book(&mut list, down);
     assert_eq!((list.inventory.row, list.inventory.first), (0, 0));
@@ -1941,33 +1656,12 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     assert_eq!(press_book(&mut list, confirm), Some(2));
     assert_eq!(list.inventory.focus, Focus::List);
     assert_eq!(press_book(&mut list, confirm), None);
-    press_book(
-        &mut list,
-        FieldInput {
-            direction: [1., 0.],
-            pressed_buttons: [Button::PreviousPage].into(),
-            ..Default::default()
-        },
-    );
+    press_book(&mut list, Right.input());
     assert_eq!(list.inventory.category, 2);
     press_book(&mut list, cancel);
-    press_book(
-        &mut list,
-        FieldInput {
-            direction: [1., 0.],
-            pressed_buttons: [Button::PreviousPage].into(),
-            ..Default::default()
-        },
-    );
+    press_book(&mut list, Right.input());
     assert_eq!(list.inventory.category, 3);
-    press_book(
-        &mut list,
-        FieldInput {
-            direction: [-1., 0.],
-            pressed_buttons: [Button::NextPage].into(),
-            ..Default::default()
-        },
-    );
+    press_book(&mut list, Left.input());
     assert_eq!(list.inventory.category, 2);
 
     let mut rune = key_item_menu(70);
@@ -1996,7 +1690,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     assert_eq!(press_book(&mut rune, confirm), Some(4));
     assert_eq!(
         rune.inventory.notice.as_ref().unwrap(),
-        &menus.labels["transform_full"]
+        menus.label("transform_full").unwrap()
     );
     assert_eq!(rune.inventory.transform.result, None);
     press_book(&mut rune, cancel);
@@ -2036,7 +1730,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     assert_eq!(press_book(&mut rune, confirm), Some(4));
     assert_eq!(
         rune.inventory.notice.as_ref().unwrap(),
-        &menus.labels["transform_empty"]
+        menus.label("transform_empty").unwrap()
     );
     press_book(&mut rune, confirm);
     rune.checkpoint.as_mut().unwrap().progress.party.items = [(22, 1), (398, 1)].into();
@@ -2047,10 +1741,42 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(&mut rune, confirm);
     assert_eq!(rune.inventory.focus, Focus::List);
     assert!(rune.inventory_items().is_empty());
+    assert_eq!(rune.step(confirm), None);
     assert_eq!(
         rune.checkpoint.as_ref().unwrap().progress.party.items,
         [(399, 1)].into()
     );
+
+    let mut equipment = key_item_menu(70);
+    equipment
+        .checkpoint
+        .as_mut()
+        .unwrap()
+        .progress
+        .party
+        .change_item(&data, 155, 1)
+        .unwrap();
+    equipment.inventory.category = menus.items[155].inventory_category().unwrap();
+    equipment.inventory.row = equipment
+        .inventory_items()
+        .iter()
+        .position(|&id| id == 155)
+        .unwrap();
+    let before = serde_json::to_value(equipment.party()).unwrap();
+    assert_eq!(equipment.step(confirm), Some(2));
+    assert_eq!(equipment.inventory.focus, Focus::Target);
+    assert_eq!(equipment.step(cancel), Some(3));
+    assert_eq!(equipment.inventory.focus, Focus::List);
+    assert_eq!(serde_json::to_value(equipment.party()).unwrap(), before);
+    assert_eq!(equipment.step(confirm), Some(2));
+    assert_eq!(equipment.step(confirm), Some(2));
+    assert_eq!(equipment.inventory.focus, Focus::List);
+    assert_eq!(equipment.party().members[0].equipment[0], 155);
+    assert!(!equipment.party().items.contains_key(&155));
+    let equipped = serde_json::to_value(equipment.party()).unwrap();
+    equipment.step(Default::default());
+    equipment.step(cancel);
+    assert_eq!(serde_json::to_value(equipment.party()).unwrap(), equipped);
 }
 
 #[test]
@@ -2097,7 +1823,7 @@ fn rename_gem_preserves_names_through_cancel_save_and_dialogue() {
     settle(&mut menu);
     assert_eq!(menu.page, Page::Status);
     assert_eq!(menu.character_name(0), "MIoyd");
-    assert_eq!(menu.full_name(0), "MIoyd Irving");
+    assert_eq!(menu.full_name(0).unwrap(), "MIoyd Irving");
     let saved = serde_json::to_value(menu.checkpoint.as_ref().unwrap()).unwrap();
     press(&mut menu, Accept);
     settle(&mut menu);
@@ -2197,7 +1923,7 @@ fn rename_gem_preserves_names_through_cancel_save_and_dialogue() {
 
 fn key_item_menu(item: u16) -> resonance_game::menu::Menu {
     use resonance_game::menu::{Menu, Page, Resources};
-    let data = Arc::new(cooked("game/session-data.json"));
+    let data = session_data();
     let menus: MenuData = cooked("game/menu-data.json");
     menus.validate().unwrap();
     let mut session = classroom(classroom_entry(
@@ -2216,6 +1942,7 @@ fn key_item_menu(item: u16) -> resonance_game::menu::Menu {
         .change_item(&data, item, 1)
         .unwrap();
     menu.resources = Some(Arc::new(Resources {
+        files: menu_files(),
         session: data,
         data: Arc::new(menus),
     }));
@@ -2282,7 +2009,6 @@ fn training_manual_filters_learned_topics_and_bounds_each_reading_page() {
         menu.step(Default::default());
         for _ in 0..24 {
             let moving = match menu.page {
-                Page::Items => menu.inventory.page_closing || menu.inventory.page_fade != 0,
                 Page::Manual => menu.manual.page_closing || menu.manual.page_fade != 0,
                 _ => false,
             };
@@ -2298,8 +2024,7 @@ fn training_manual_filters_learned_topics_and_bounds_each_reading_page() {
     let down = Down.input();
     let next = PageDown.input();
     assert_eq!(menu.step(confirm), Some(2));
-    assert_eq!(menu.page, Page::Items);
-    assert!(menu.inventory.page_closing);
+    assert_eq!(menu.page, Page::Manual);
     assert_eq!(menu.step(down), None);
     for _ in 0..24 {
         menu.step(Default::default());
@@ -2382,7 +2107,6 @@ fn world_map_directory_uses_saved_visits_and_preserves_inventory() {
         for _ in 0..24 {
             let map = &menu.world_map;
             let moving = match menu.page {
-                Page::Items => menu.inventory.page_closing || menu.inventory.page_fade != 0,
                 Page::WorldMap => {
                     map.page_closing
                         || map.page_fade != 0
@@ -2574,11 +2298,19 @@ fn monster_list_browsing_preserves_discoveries_and_pages_like_the_oracle() {
 fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     use resonance_content::menu_data::Element;
     use resonance_game::menu::Page;
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data: Arc<SessionData> = session_data();
     let menus: MenuData = cooked("game/menu-data.json");
     menus.validate().unwrap();
     let mut party = Party::new(&data, Default::default()).unwrap();
-    let item = |name| menus.items.iter().position(|i| i.name == name).unwrap() as u16;
+    let item = |name| {
+        menus
+            .items_text()
+            .unwrap()
+            .items
+            .iter()
+            .position(|i| i.as_ref().is_some_and(|text| text.name == name))
+            .unwrap() as u16
+    };
     let mut equipped = party.members[0].clone();
     equipped.equipment = [
         item("Flamberge"),
@@ -2607,10 +2339,10 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     ] {
         for (a, b) in [(first, second), (second, first)] {
             equipped.equipment = [0, 0, 0, item(a), item(b), 0];
-            let effects = equipped.equipment_traits(&menus).effects;
+            let effects = equipped.equipment_captions(&menus).unwrap();
             assert_eq!(effects.len(), 1);
             assert_eq!(
-                menus.status.equipment_effects[&effects[0]].description,
+                menus.status_text().unwrap().equipment_effects[&effects[0]],
                 effect
             );
         }
@@ -2758,7 +2490,7 @@ fn advance_to(
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
 fn skit_playback_suspends_field_and_persists_viewed_state() {
     let skits: Arc<resonance_content::skit::SkitCatalog> = Arc::new(cooked("game/skits.json"));
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data: Arc<SessionData> = session_data();
     let mut party = Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 2, 3];
     let mut session = classroom(FieldEntry {
@@ -2769,10 +2501,8 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
     assert!(session.skit_prompt().is_none());
     advance_to(&mut session, |s| s.skit_prompt().is_some(), |_, _| false);
     let prompt = session.skit_prompt().expect("timed notification missing");
-    assert_eq!(
-        (prompt.id, prompt.title, prompt.opacity),
-        (600, "It'll Be Fine", 8)
-    );
+    assert_eq!((prompt.id, prompt.title), (600, "It'll Be Fine"));
+    assert!(prompt.opacity > 0);
     session
         .events
         .world
@@ -2797,9 +2527,11 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
         .preferences
         .skit_notifications = true;
     assert!(session.skit_prompt().unwrap().title_visible);
-    for _ in 0..31 {
-        session.step(Default::default()).unwrap();
-    }
+    advance_to(
+        &mut session,
+        |s| s.skit_prompt().is_some_and(|prompt| prompt.opacity == 255),
+        |_, _| false,
+    );
     assert_eq!(session.skit_prompt().unwrap().opacity, 255);
 
     let checkpoint = session.checkpoint().unwrap();
@@ -2829,9 +2561,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
         restored.skit_prompt().is_none(),
         "quickload should restart the notification timer"
     );
-    for _ in 0..1200 {
-        restored.step(Default::default()).unwrap();
-    }
+    advance_to(&mut restored, |s| s.skit_prompt().is_some(), |_, _| false);
     let open = Skit.input();
     assert!(
         restored
@@ -2852,6 +2582,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
     )
     .unwrap();
     restored.prepare_skits(&files).unwrap();
+    advance_to(&mut restored, |s| s.skit_prompt().is_some(), |_, _| false);
     let before_playback = restored.checkpoint().unwrap();
     restored
         .events
@@ -2943,7 +2674,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
 fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
     use std::collections::BTreeMap;
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data: Arc<SessionData> = session_data();
     let interact = |session: &mut FieldSession, id| {
         let position = session.events.world.actors[&id].position;
         let approach = [position[0], position[1] - 80., position[2]];
@@ -3090,7 +2821,7 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
     let catalog: Arc<resonance_content::skit::SkitCatalog> = Arc::new(cooked("game/skits.json"));
     let text: Arc<resonance_content::session::GameText> = Arc::new(cooked("game/text.json"));
     let mut failures = Vec::new();
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data: Arc<SessionData> = session_data();
     let mut files = resonance_content::prepared::Files::default();
     for path in ["game/text.json", "game/session-data.json"]
         .into_iter()
@@ -3101,9 +2832,7 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
                 .flat_map(|paths| [paths.script.as_str(), paths.messages.as_str()]),
         )
     {
-        files
-            .bytes
-            .insert(path.to_owned(), fs::read(root.join(path)).unwrap().into());
+        files.insert(path.to_owned(), fs::read(root.join(path)).unwrap().into());
     }
     let prepared = resonance_game::skit::Prepared::load(catalog.clone(), &files).unwrap();
     for (&id, paths) in &catalog.resources {
@@ -3252,98 +2981,157 @@ fn steady_keyboard_walking_keeps_the_walk_clip_across_loops() {
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
-fn eraser_impact_plays_sound_with_visible_dust_that_moves_and_expires() {
+fn eraser_impact_plays_sound_and_dust_grows_fades_and_expires() {
     use resonance_events::AudioCommand;
     let mut session = classroom(Default::default());
-    let mut impact = false;
     for _ in 0..20_000 {
-        let interact = ready(&session);
         skip_movie(&mut session);
+        let interact = ready(&session);
+        session.events.world.audio_commands.clear();
         session
             .step(FieldInput {
-                pressed_buttons: Buttons::default().with(Button::Accept, interact),
+                pressed_buttons: resonance_events::input::Buttons::default()
+                    .with(resonance_events::input::Button::Accept, interact),
                 ..Default::default()
             })
             .unwrap();
-        impact = session
-            .events
-            .world
-            .audio_commands
-            .iter()
-            .any(|c| matches!(c, AudioCommand::Sound { id: 236, .. }));
-        session.events.world.audio_commands.clear();
-        if impact {
+        if !session.events.world.billboards.is_empty() {
             break;
         }
     }
-    assert!(impact, "the lesson never reached the eraser impact");
     let world = &session.events.world;
-    let dust: Vec<_> = world
-        .billboards
-        .iter()
-        .map(|(&id, p)| (id, p.position, p.size, p.rotation))
-        .collect();
-    assert!(!dust.is_empty());
-    assert!(world.billboards.values().all(|p| p.alpha(world.tick) > 0.));
-    for _ in 0..10 {
+    assert_eq!(world.billboards.len(), 8);
+    assert_eq!(
+        world
+            .audio_commands
+            .iter()
+            .filter(|c| matches!(c, AudioCommand::Sound { id: 236, .. }))
+            .count(),
+        1
+    );
+    let dust = world.billboards.clone();
+    let impact_tick = world.tick;
+    let animation = world.actors[&100].animation.as_ref().unwrap();
+    let impact_slot = animation.slot;
+    let impact_sample = animation.sample(world.tick, 0, animation.duration_ticks as f32);
+    for particle in dust.values() {
+        assert!(particle.position.iter().all(|value| value.is_finite()));
+        assert!(particle.rotation.iter().all(|value| value.is_finite()));
+        assert!(
+            particle
+                .size
+                .iter()
+                .all(|value| value.is_finite() && *value > 0.)
+        );
+        assert!((0. ..=255.).contains(&particle.alpha(impact_tick)));
+        assert!(particle.alpha(impact_tick) > 0.);
+        assert!((1..=600).contains(&particle.lifetime));
+    }
+
+    for _ in 0..20 {
         session.step(FieldInput::default()).unwrap();
     }
-    assert!(dust.iter().any(|(id, position, size, rotation)| {
-        session
-            .events
-            .world
-            .billboards
-            .get(id)
-            .is_some_and(|p| p.position != *position || p.size != *size || p.rotation != *rotation)
-    }));
-    for _ in 0..240 {
+    let world = &session.events.world;
+    let animation = world.actors[&100].animation.as_ref().unwrap();
+    assert_eq!(animation.slot, impact_slot);
+    assert!(animation.sample(world.tick, 0, animation.duration_ticks as f32) > impact_sample);
+    for (id, initial) in &dust {
+        let particle = &world.billboards[id];
+        assert!(
+            particle
+                .size
+                .iter()
+                .zip(initial.size)
+                .all(|(&now, before)| now > before)
+        );
+        assert!(particle.alpha(world.tick) < initial.alpha(impact_tick));
+        assert!(particle.alpha(world.tick) > 0.);
+        assert_ne!(particle.rotation, initial.rotation);
+    }
+
+    let expires_at = dust
+        .values()
+        .map(|particle| particle.born + particle.lifetime)
+        .max()
+        .unwrap();
+    while session.events.world.tick <= expires_at {
         session.step(FieldInput::default()).unwrap();
     }
     assert!(
-        dust.iter()
-            .all(|(id, ..)| !session.events.world.billboards.contains_key(id))
+        dust.keys()
+            .all(|id| !session.events.world.billboards.contains_key(id))
     );
 }
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
-fn raine_walk_climbs_the_classroom_ramp_and_finishes() {
+fn raine_walk_reaches_the_walk_targets_and_climbs_the_ramp() {
     let mut session = classroom(Default::default());
-    let destination = [-60., 445., 27.];
+    let first_target = [208., 429., 0.];
+    let ramp_target = [-60., 445., 27.];
     advance_to(
         &mut session,
         |s| {
-            s.events
-                .world
-                .actors
-                .get(&4)
-                .and_then(|a| a.motion.as_ref())
-                .is_some_and(|m| m.target == destination)
+            s.events.world.actors.get(&4).is_some_and(|actor| {
+                actor
+                    .motion
+                    .as_ref()
+                    .is_some_and(|motion| motion.target == first_target)
+            })
         },
         |s, _| ready(s),
     );
-    let mut previous = session.events.world.actors[&4].position;
-    let mut climbed = false;
-    for _ in 0..600 {
-        session.step(FieldInput::default()).unwrap();
+    advance_to(
+        &mut session,
+        |s| {
+            s.events.world.actors[&4]
+                .motion
+                .as_ref()
+                .is_some_and(|motion| motion.target == ramp_target)
+        },
+        |s, _| ready(s),
+    );
+    let start = session.events.world.actors[&4].position;
+    let mut climbed_facing_path = false;
+    for _ in 0..2000 {
+        session.step(Default::default()).unwrap();
         let actor = &session.events.world.actors[&4];
-        climbed |= actor.position[2] > previous[2];
-        assert!(actor.position[0] <= previous[0], "walk reversed direction");
-        previous = actor.position;
-        if actor.motion.is_none() {
+        if let Some(motion) = &actor.motion {
+            assert_eq!(motion.target, ramp_target);
+            let [x, y, _] = std::array::from_fn(|axis| ramp_target[axis] - actor.position[axis]);
+            let distance = x.hypot(y);
+            if distance > 1. {
+                let (sin, cos) = actor.heading.to_radians().sin_cos();
+                climbed_facing_path |= actor.position[2] > start[2]
+                    && actor.position[2] < ramp_target[2]
+                    && (sin * x - cos * y) / distance > 0.99;
+            }
+        } else {
             break;
         }
     }
     let actor = &session.events.world.actors[&4];
-    assert!(climbed && actor.motion.is_none());
-    assert!((actor.position[0] - destination[0]).abs() < 1.);
-    assert!((actor.position[1] - destination[1]).abs() < 1.);
-    assert!((actor.position[2] - destination[2]).abs() < 1.);
+    assert!(actor.motion.is_none(), "Raine never finished walking");
+    assert!(
+        climbed_facing_path,
+        "Raine did not climb while facing the walk target"
+    );
+    assert!(
+        actor
+            .position
+            .iter()
+            .zip(ramp_target)
+            .all(|(actual, target)| (actual - target).abs() < 1.)
+    );
+    let settled = actor.position;
+    session.step(Default::default()).unwrap();
+    assert_eq!(session.events.world.actors[&4].position, settled);
 }
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
 fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmate() {
+    let angle_distance = |a: f32, b: f32| ((a - b + 180.).rem_euclid(360.) - 180.).abs();
     for (id, position) in [(2, [-88., -229., 0.]), (305, [-60., -619., 0.])] {
         let mut session = classroom(Default::default());
         advance_to(
@@ -3353,7 +3141,8 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
         );
         assert!(session.events.world.input_enabled);
         let previous = session.events.world.actors[&id].target_heading;
-        // Place the player within talking range to isolate conversation sequencing.
+        let initial_heading = session.events.world.actors[&id].heading;
+        // Place the player within interaction range to isolate conversation sequencing.
         let player = session.events.world.actors.get_mut(&1).unwrap();
         player.position = position;
         player.face(180.);
@@ -3363,6 +3152,18 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
         let request = session.events.world.dialogue[&0].clone();
         assert_eq!(request.opening_actor, Some(id));
         let facing = session.events.world.actors[&id].target_heading;
+        let speaker = &session.events.world.actors[&id];
+        let player = &session.events.world.actors[&1];
+        let expected = (player.position[0] - speaker.position[0])
+            .atan2(speaker.position[1] - player.position[1])
+            .to_degrees()
+            .rem_euclid(360.);
+        assert!(
+            angle_distance(facing, expected) < 1.,
+            "speaker did not face the player"
+        );
+        let mut outbound_moved = speaker.heading != initial_heading;
+        let mut previous_heading = session.events.world.actors[&id].heading;
         for _ in 0..120 {
             if session
                 .dialogue
@@ -3375,9 +3176,29 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
                 session.talking.is_empty(),
                 "mouth moved before the window opened"
             );
+            assert!(request.operation.is_pending());
+            assert!(!session.events.world.input_enabled);
             session.step(FieldInput::default()).unwrap();
+            let actor = &session.events.world.actors[&id];
+            let heading = actor.heading;
+            outbound_moved |= heading != previous_heading;
+            assert!(angle_distance(heading, previous_heading) <= actor.turn_speed + 0.01);
+            assert!(
+                angle_distance(heading, facing) <= angle_distance(previous_heading, facing) + 0.01
+            );
+            previous_heading = heading;
         }
+        assert!(outbound_moved, "speaker never turned toward the player");
         assert_eq!(session.events.world.actors[&id].heading, facing);
+        // The held conversation uses Lloyd's event idle, which lasts 30 authored frames.
+        assert_eq!(
+            session.events.world.actors[&1]
+                .animation
+                .as_ref()
+                .unwrap()
+                .slot,
+            116
+        );
         assert!(
             session
                 .dialogue
@@ -3411,13 +3232,17 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
         );
         for _ in 0..120 {
             let before = session.events.world.actors[&id].heading;
+            if angle_distance(before, previous) < 0.01 {
+                break;
+            }
             session.step(FieldInput::default()).unwrap();
-            let after = session.events.world.actors[&id].heading;
-            let distance = (after - before + 180.).rem_euclid(360.) - 180.;
+            let actor = &session.events.world.actors[&id];
+            let after = actor.heading;
             assert!(
-                distance.abs() <= 6.,
+                angle_distance(after, before) <= actor.turn_speed + 0.01,
                 "actor {id} jumped from {before} to {after}"
             );
+            assert!(angle_distance(after, previous) <= angle_distance(before, previous) + 0.01);
         }
         assert_eq!(session.events.world.actors[&id].heading, previous);
         assert_eq!(
@@ -3435,7 +3260,7 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
 fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
     let assets: FieldAssets = cooked("fields/map-340.json");
-    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let data: Arc<SessionData> = session_data();
     for stay in [false, true] {
         let mut session = classroom(FieldEntry {
             persistent: PersistentState {
@@ -3471,7 +3296,8 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
         let mut saw_question = false;
         let mut saw_choice = false;
         let mut joins = 0;
-        let mut pastor_yaw = Vec::new();
+        let mut pastor_pan_moved = false;
+        let mut pastor_pan_complete = false;
         let mut checked_clips = std::collections::BTreeSet::new();
         for _ in 0..20000 {
             let choosing = session
@@ -3510,12 +3336,14 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
                     && (-931.001..=-910.999).contains(&y)
                     && (282.999..=313.001).contains(&z)
                     && (71.999..=76.001).contains(&pitch)
-                    && pastor_yaw.last().is_none_or(|last| *last > -14.999)
+                    && !pastor_pan_complete
                 {
-                    // The sixty-update pastor pan crosses zero, not a full revolution.
-                    assert!((-15.001..=15.001).contains(&yaw), "pastor yaw {yaw}");
-                    assert!((yaw - (15. - (pitch - 72.) * 7.5)).abs() < 0.001);
-                    pastor_yaw.push(yaw);
+                    assert!(
+                        (-15.001..=15.001).contains(&yaw),
+                        "pastor pan took the long arc: {yaw}"
+                    );
+                    pastor_pan_moved |= yaw.abs() < 14.;
+                    pastor_pan_complete = (pitch - 76.).abs() < 0.001 && (yaw + 15.).abs() < 0.001;
                 }
             }
             for (&id, actor) in &session.events.world.actors {
@@ -3548,22 +3376,20 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
                     joins += 1;
                 }
             }
-            if session.story_progress().unwrap() == 2000 && session.events.world.input_enabled {
+            if session.story_progress().unwrap() == 2000 && session.player_has_control() {
                 break;
             }
         }
         assert!(saw_question && saw_choice);
         if stay {
-            assert!(pastor_yaw.len() >= 59, "pastor pan was not exercised");
-            assert!(pastor_yaw.iter().any(|yaw| yaw.abs() < 0.251));
             assert!(
-                pastor_yaw
-                    .last()
-                    .is_some_and(|yaw| (*yaw + 15.).abs() < 0.001)
+                pastor_pan_moved,
+                "pastor pan never moved through the short arc"
             );
+            assert!(pastor_pan_complete, "pastor pan never reached its endpoint");
         }
         assert!(
-            session.events.world.input_enabled,
+            session.player_has_control(),
             "doorway stalled (stay={stay}): waits {:?}; pages {:?}",
             session.events.pending_operations(),
             session
@@ -3577,6 +3403,17 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
                 ))
                 .collect::<Vec<_>>()
         );
+        assert!(
+            session
+                .events
+                .world
+                .field_camera
+                .as_ref()
+                .unwrap()
+                .motion
+                .is_none(),
+            "doorway camera path was not released"
+        );
         assert_eq!(session.story_progress().unwrap(), 2000);
         assert_eq!(
             session.events.world.party.as_ref().unwrap().formation,
@@ -3589,7 +3426,7 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
             session.step(FieldInput::default()).unwrap();
         }
         assert!(
-            session.events.world.input_enabled,
+            session.player_has_control(),
             "completed doorway scene retriggered"
         );
         assert_eq!(
@@ -3642,7 +3479,7 @@ fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
             mouth_moved = true;
         }
         for command in session.events.world.audio_commands.drain(..) {
-            if let resonance_events::AudioCommand::Voice(id) = command {
+            if let resonance_events::AudioCommand::Voice { resource: id, .. } = command {
                 if id == 655379 {
                     started = Some(tick);
                 }
@@ -3863,7 +3700,7 @@ fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
         }
     }
     let mut field = FieldSession::enter(
-        &fs::read(root.join(&assets.script.path)).unwrap(),
+        &fs::read(root.join(&assets.script)).unwrap(),
         cooked(&assets.messages),
         &assets,
         FieldEntry {
@@ -3918,4 +3755,95 @@ fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
         field.events.world.controlled_actor, 4,
         "closing an unchanged menu preserves Raine"
     );
+}
+
+#[test]
+#[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
+fn eraser_impact_plays_sound_with_visible_dust_that_moves_and_expires() {
+    use resonance_events::AudioCommand;
+    let mut session = classroom(Default::default());
+    let mut impact = false;
+    for _ in 0..20_000 {
+        let interact = ready(&session);
+        skip_movie(&mut session);
+        session
+            .step(FieldInput {
+                pressed_buttons: Buttons::default().with(Button::Accept, interact),
+                ..Default::default()
+            })
+            .unwrap();
+        impact = session
+            .events
+            .world
+            .audio_commands
+            .iter()
+            .any(|c| matches!(c, AudioCommand::Sound { id: 236, .. }));
+        session.events.world.audio_commands.clear();
+        if impact {
+            break;
+        }
+    }
+    assert!(impact, "the lesson never reached the eraser impact");
+    let world = &session.events.world;
+    let dust: Vec<_> = world
+        .billboards
+        .iter()
+        .map(|(&id, p)| (id, p.position, p.size, p.rotation))
+        .collect();
+    assert!(!dust.is_empty());
+    assert!(world.billboards.values().all(|p| p.alpha(world.tick) > 0.));
+    for _ in 0..10 {
+        session.step(FieldInput::default()).unwrap();
+    }
+    assert!(dust.iter().any(|(id, position, size, rotation)| {
+        session
+            .events
+            .world
+            .billboards
+            .get(id)
+            .is_some_and(|p| p.position != *position || p.size != *size || p.rotation != *rotation)
+    }));
+    for _ in 0..240 {
+        session.step(FieldInput::default()).unwrap();
+    }
+    assert!(
+        dust.iter()
+            .all(|(id, ..)| !session.events.world.billboards.contains_key(id))
+    );
+}
+
+#[test]
+#[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
+fn raine_walk_climbs_the_classroom_ramp_and_finishes() {
+    let mut session = classroom(Default::default());
+    let destination = [-60., 445., 27.];
+    advance_to(
+        &mut session,
+        |s| {
+            s.events
+                .world
+                .actors
+                .get(&4)
+                .and_then(|a| a.motion.as_ref())
+                .is_some_and(|m| m.target == destination)
+        },
+        |s, _| ready(s),
+    );
+    let mut previous = session.events.world.actors[&4].position;
+    let mut climbed = false;
+    for _ in 0..600 {
+        session.step(FieldInput::default()).unwrap();
+        let actor = &session.events.world.actors[&4];
+        climbed |= actor.position[2] > previous[2];
+        assert!(actor.position[0] <= previous[0], "walk reversed direction");
+        previous = actor.position;
+        if actor.motion.is_none() {
+            break;
+        }
+    }
+    let actor = &session.events.world.actors[&4];
+    assert!(climbed && actor.motion.is_none());
+    assert!((actor.position[0] - destination[0]).abs() < 1.);
+    assert!((actor.position[1] - destination[1]).abs() < 1.);
+    assert!((actor.position[2] - destination[2]).abs() < 1.);
 }

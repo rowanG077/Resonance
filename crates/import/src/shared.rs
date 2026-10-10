@@ -1,7 +1,10 @@
 //! Shared field dependencies prepared once before any field is assembled.
-use anyhow::Result;
+use anyhow::{Context, Result};
 use resonance_content::font::{BitmapFont, TextSpan};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 pub(crate) struct Prepared {
     pub catalogue: crate::resource::Catalogue,
@@ -13,21 +16,40 @@ pub(crate) struct Prepared {
     pub save_point_tutorial: Vec<TextSpan>,
     pub save_point_unlock: Vec<TextSpan>,
     pub save_point_no_gem: Vec<TextSpan>,
-    pub files: BTreeMap<String, String>,
+    pub files: BTreeSet<String>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Preparation borrows independently owned content and runtime resources."
+)]
 pub(crate) fn prepare(
     extracted: &Path,
     output: &Path,
     sources: &BTreeMap<String, String>,
     executable: &[u8],
     catalogues: &crate::all_assets::Catalogues,
+    battle_sources: &crate::source_assets::Sources,
+    usual: &[u8],
+    skits: &crate::skit::Source,
 ) -> Result<Prepared> {
     let crate::font::PreparedDialogue { font, art } = crate::font::prepare(extracted, output)?;
-    crate::menu::cook(extracted, output, executable, catalogues)?;
+    let game_over_path = crate::game_over::publish(extracted, output)?;
+    let game_over: resonance_content::game_over::Art =
+        serde_json::from_slice(&std::fs::read(output.join(&game_over_path))?)?;
+    crate::menu::cook(
+        extracted,
+        output,
+        executable,
+        catalogues,
+        battle_sources,
+        usual,
+    )?;
+    let weapons = crate::battle_model::weapon::publish_source(extracted, battle_sources, output)?;
+    let techniques = crate::arte::publish(&catalogues.menu.arte, output)?;
     let session = crate::session::cook(executable, &catalogues.menu, output)?;
     let text = crate::session::cook_text(executable, &catalogues.menu, output)?;
-    let skits = crate::skit::cook(extracted, output)?;
+    let skits = skits.publish(extracted, output)?;
     crate::all_assets::credits::prepare(output, executable, sources)?;
     let effects = crate::field_effects::cook(extracted, output)?;
     let toon_ramp = crate::field_lighting::cook(extracted, output)?;
@@ -46,14 +68,43 @@ pub(crate) fn prepare(
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("Memory Gem name is missing"))?,
     )?;
+    let battle_ui: resonance_content::battle_ui::Art = serde_json::from_slice(&std::fs::read(
+        output.join(resonance_content::battle_ui::PATH),
+    )?)?;
+    battle_ui.validate()?;
+    let effect_bank: resonance_content::battle_effect::SourceBank = serde_json::from_slice(
+        &std::fs::read(output.join(resonance_content::battle_effect::COMMON_PATH))?,
+    )?;
+    let effect_files = effect_bank
+        .art
+        .context("missing ordinary effect artwork")?
+        .files;
     let files = [
         resource_catalogue.clone(),
         "ui/dialogue.json".into(),
         "ui/story-subtitles.json".into(),
         "ui/menu.json".into(),
         "game/menu-data.json".into(),
+        resonance_content::menu_data::MANUAL_PATH.into(),
+        resonance_content::menu_data::FIGURINES_PATH.into(),
+        resonance_content::menu_data::SYNOPSIS_PATH.into(),
+        resonance_content::menu_data::CUSTOMIZE_PATH.into(),
+        resonance_content::menu_data::RENAME_PATH.into(),
+        game_over_path,
+        resonance_content::battle_formation::PATH.into(),
+        resonance_content::battle_ui::PATH.into(),
+        resonance_content::battle_victory::PATH.into(),
+        resonance_content::battle_effect::COMMON_PATH.into(),
+        resonance_content::battle_effect::TECHNIQUES_PATH.into(),
+        resonance_content::battle_effect::TINTS_PATH.into(),
+        resonance_content::battle_projectile::PATH.into(),
+        resonance_content::battle_recoil::PATH.into(),
+        resonance_content::battle_profile::PARTY_PATH.into(),
+        weapons,
+        resonance_content::battle_scene::path(237),
+        resonance_content::battle_stage::path(13),
+        techniques,
         art.font,
-        art.cursor.path,
         font.texture.clone(),
         effects.path.clone(),
         toon_ramp.clone(),
@@ -62,7 +113,18 @@ pub(crate) fn prepare(
         skits,
     ]
     .into_iter()
+    .chain(
+        (0..resonance_content::monster::MONSTER_COUNT).flat_map(|id| {
+            [
+                resonance_content::battle_model::enemy_path(id as u8),
+                resonance_content::battle_enemy::path(id as u8),
+            ]
+        }),
+    )
     .chain(art.textures.into_iter().map(|texture| texture.path))
+    .chain(battle_ui.files().map(str::to_owned))
+    .chain(game_over.files.into_keys())
+    .chain(effect_files.into_keys())
     .chain(effects.files.iter().cloned())
     .chain(
         resonance_script_content::FILES
@@ -70,8 +132,7 @@ pub(crate) fn prepare(
             .filter(|(path, _)| path.ends_with(".sym"))
             .map(|(path, _)| format!("scripts/{path}")),
     )
-    .map(|path| Ok((path.clone(), crate::media::hash_file(&output.join(path))?)))
-    .collect::<Result<_>>()?;
+    .collect();
     Ok(Prepared {
         catalogue: catalogue.clone(),
         texture_animations: crate::texture_animation::field::profiles(),

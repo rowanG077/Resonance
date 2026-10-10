@@ -1,13 +1,12 @@
 //! Field scene instances: shared cooked assets, independent actor state.
 #[path = "field_backdrop.rs"]
 mod backdrop;
-#[path = "field_sequence.rs"]
-mod sequence;
 #[path = "field_shadow.rs"]
 mod shadows;
+use super::draw_order::DrawOrderPlugin;
 use super::{
     camera::TitleProjection,
-    draw_order::{DrawOrder, DrawOrderPlugin},
+    draw_order::{DrawOrder, Layer},
     field_audit::{self as audit, Applied, Request},
     materials::{TitleOutput, TitleSurface},
 };
@@ -15,15 +14,17 @@ use anyhow::{Context, Result, ensure};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
     core_pipeline::tonemapping::Tonemapping,
-    ecs::system::SystemParam,
-    image::{ImageLoaderSettings, ImageSampler},
-    prelude::*,
     render::{
         render_resource::{TextureFormat, TextureUsages},
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
-    sprite_render::Material2dPlugin,
     window::ExitCondition,
+};
+use bevy::{
+    ecs::system::SystemParam,
+    image::{ImageLoaderSettings, ImageSampler},
+    prelude::*,
+    sprite_render::Material2dPlugin,
     world_serialization::WorldInstanceReady,
 };
 use resonance_content::{
@@ -41,9 +42,71 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
-
+#[path = "field_sequence.rs"]
+mod sequence;
 #[derive(Resource)]
 pub(super) struct Session(pub FieldSession);
+
+#[derive(Resource)]
+pub(super) struct RecoverField;
+
+#[derive(SystemParam)]
+pub(super) struct Failures<'w, 's> {
+    diagnostics: Option<Res<'w, super::diagnostics::Diagnostics>>,
+    exit: MessageWriter<'w, AppExit>,
+    commands: Commands<'w, 's>,
+}
+impl Failures<'_, '_> {
+    pub(super) fn skip(&mut self, scope: &str, error: anyhow::Error) -> bool {
+        if let Some(diagnostics) = &self.diagnostics {
+            if diagnostics.0.report(scope, error).is_ok() {
+                return true;
+            }
+        } else {
+            error!("{scope}: {error:#}");
+        }
+        self.exit.write(AppExit::error());
+        false
+    }
+
+    pub(super) fn menu_page(&mut self, field: &mut FieldSession, error: anyhow::Error) -> bool {
+        if !self.skip("field menu rendering", error) {
+            return false;
+        }
+        if let Some(menu) = &mut field.menu {
+            if menu.page != resonance_game::menu::Page::Main {
+                menu.return_to_main();
+            } else {
+                menu.closed = true;
+            }
+        } else if let Some(shop) = &mut field.shop {
+            shop.closed = true;
+        }
+        true
+    }
+
+    pub(super) fn fatal(&mut self, scope: &str, error: anyhow::Error) {
+        if self.skip(scope, error) {
+            self.commands.insert_resource(RecoverField);
+        }
+    }
+}
+
+fn recover(world: &mut World) {
+    if world.remove_resource::<RecoverField>().is_none() {
+        return;
+    }
+    if let Err(error) = super::game_over::return_to_title(world) {
+        let diagnostics = world.resource::<super::diagnostics::Diagnostics>();
+        if diagnostics.0.report("field recovery", error).is_err() {
+            world.write_message(AppExit::error());
+        }
+    }
+}
+
+fn has_session(state: State, recovery: Option<Res<RecoverField>>) -> bool {
+    recovery.is_none() && (state.live.is_some() || state.checkpoint.is_some())
+}
 #[derive(SystemParam)]
 pub(super) struct State<'w> {
     pub(super) checkpoint: Option<Res<'w, Session>>,
@@ -52,14 +115,13 @@ pub(super) struct State<'w> {
 impl State<'_> {
     pub(super) fn get(&self) -> &FieldSession {
         if let Some(session) = &self.checkpoint {
-            &session.0
-        } else {
-            &self
-                .live
-                .as_ref()
-                .expect("field renderer needs a session")
-                .field
+            return &session.0;
         }
+        &self
+            .live
+            .as_ref()
+            .expect("field renderer needs a session")
+            .field
     }
 }
 
@@ -75,13 +137,27 @@ impl Plugin for FieldPlugin {
                 Update,
                 super::field_ui::subtitles
                     .after(super::movie::update)
-                    .after(load_live),
+                    .after(load_live)
+                    .run_if(super::battle::field_presenting),
             )
-            .add_systems(PreUpdate, gather_controls.after(bevy::input::InputSystems))
+            .add_systems(
+                PreUpdate,
+                gather_controls
+                    .after(bevy::input::InputSystems)
+                    .run_if(not(resource_exists::<super::saves::ScenarioInput>)),
+            )
+            .add_systems(
+                FixedPreUpdate,
+                gather_controls
+                    .after(bevy::input::InputSystems)
+                    .run_if(resource_exists::<super::saves::ScenarioInput>),
+            )
             .add_systems(
                 FixedUpdate,
-                advance_live
+                (advance_live, recover)
+                    .chain()
                     .before(super::new_game::advance)
+                    .run_if(super::battle::field_running)
                     .run_if(super::dungeons::running),
             )
             .add_systems(
@@ -91,16 +167,22 @@ impl Plugin for FieldPlugin {
             .add_systems(
                 Update,
                 (
-                    retire_live,
-                    load_live,
-                    scene_systems().run_if(resource_exists::<Art>),
+                    (retire_live, load_live, recover)
+                        .chain()
+                        .run_if(super::battle::field_running)
+                        .run_if(super::dungeons::running),
+                    scene_systems()
+                        .run_if(resource_exists::<Art>)
+                        .run_if(has_session)
+                        .run_if(super::battle::field_presenting),
                 )
                     .chain()
                     .after(super::new_game::movie_handoff)
                     .after(super::new_game::transition)
                     .in_set(FieldPreparation)
                     .after(super::layout),
-            );
+            )
+            .add_systems(Last, recover);
     }
 }
 
@@ -108,6 +190,7 @@ impl Plugin for FieldPlugin {
 struct FieldRendering;
 impl Plugin for FieldRendering {
     fn build(&self, app: &mut App) {
+        super::field_ui::install_menu_draws(app);
         super::materials::install(app);
         super::sparse_animation::install(app);
         super::field_refraction::install(app);
@@ -122,17 +205,15 @@ impl Plugin for FieldRendering {
                 (
                     super::field_pose::restore,
                     super::secondary_motion::restore,
-                    super::field_animation::restore,
                     super::field_animation::sample.run_if(resource_exists::<Art>),
                 )
                     .chain()
-                    .before(super::field_animation::blend),
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
                 (
-                    super::field_animation::blend,
-                    super::field_animation::face_camera,
                     super::field_pose::bones,
                     super::secondary_motion::apply,
                     super::field_pose::attachments,
@@ -148,13 +229,17 @@ impl Plugin for FieldRendering {
                     // extraction sees their newly visible entities.
                     .before(bevy::asset::AssetEventSystems)
                     .before(bevy::transform::TransformSystems::Propagate)
-                    .run_if(resource_exists::<Art>),
+                    .run_if(resource_exists::<Art>)
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
                 audit::check
                     .after(bevy::transform::TransformSystems::Propagate)
-                    .run_if(resource_exists::<Art>),
+                    .run_if(resource_exists::<Art>)
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             );
         bevy::asset::embedded_asset!(app, "field_ui.wgsl");
     }
@@ -180,7 +265,7 @@ pub(super) struct Controls {
     input: FieldInput,
 }
 impl Controls {
-    fn clear_actions(&mut self) {
+    pub(super) fn clear_actions(&mut self) {
         self.input.pressed_buttons = Buttons::default();
     }
 
@@ -206,6 +291,8 @@ pub(super) struct Art {
     loading_since: Instant,
     shadows: shadows::Artwork,
     pub(super) toon_ramp: Handle<Image>,
+    unlit: bool,
+    disabled_shadows: bool,
 }
 pub(super) struct Part {
     pub(super) spec: ScenePart,
@@ -358,6 +445,7 @@ impl Part {
 
 #[derive(Component)]
 pub(super) struct ActorPart {
+    pub(super) creation: Option<resonance_events::ActorCreation>,
     pub(super) actor: i32,
     instance: u64,
     pub(super) resource: u32,
@@ -365,10 +453,18 @@ pub(super) struct ActorPart {
     pub(super) pass: u8,
     materials: Vec<Handle<TitleSurface>>,
     pub(super) prepared: bool,
+    pub(super) disabled: bool,
     instantiated: bool,
     geometry: Vec<(usize, Entity)>,
     pub(super) active_clip: Option<usize>,
     shadow_anchor: Option<Entity>,
+}
+impl ActorPart {
+    pub(super) fn disable(&mut self) {
+        self.disabled = true;
+        self.prepared = true;
+        self.active_clip = None;
+    }
 }
 impl Art {
     /// Warmup and live actors must use the same textures and shader features.
@@ -392,7 +488,9 @@ impl Art {
                         images,
                         sampled,
                     ),
-                    toon_ramp: self.toon_ramp_for(resource, index, spec, None),
+                    toon_ramp: (!self.unlit)
+                        .then(|| self.toon_ramp_for(resource, index, spec, None))
+                        .flatten(),
                     constant_color: part.spec.outline_color_for(spec).is_some(),
                     blend: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
                         Some(Blend::Additive)
@@ -462,33 +560,49 @@ impl Art {
             .is_some_and(|a| a.eyes.is_some())
     }
 }
-#[derive(Resource)]
-struct Checkpoint {
-    output: PathBuf,
-    since: Instant,
-    settled: u32,
-    requested: bool,
-    probe: Option<super::ClassroomProbe>,
-    dialogue_hold_ticks: u32,
-}
-#[derive(Resource)]
-struct Manifest(FieldAssets);
-#[derive(Resource)]
-struct Root {
-    assets: PathBuf,
-    behavior_sources: BTreeMap<String, String>,
-}
-
-pub(super) fn has_live_shadows(world: &mut World) -> bool {
-    world
-        .query_filtered::<Entity, With<shadows::Shadow>>()
-        .iter(world)
-        .next()
-        .is_some()
-}
 
 pub(super) fn shadow_diagnostic(world: &mut World) -> serde_json::Value {
     shadows::diagnostic(world)
+}
+
+pub(super) fn save_point_drawn(world: &World, actor: i32) -> bool {
+    world
+        .get_resource::<Art>()
+        .and_then(|art| art.instances.get(&actor))
+        .is_some_and(|parts| {
+            !parts.is_empty()
+                && parts.iter().all(|&entity| {
+                    world.get::<ActorPart>(entity).is_some_and(|part| {
+                        part.prepared && !part.disabled && !part.geometry.is_empty()
+                    }) && world
+                        .get::<Visibility>(entity)
+                        .is_some_and(|visibility| *visibility != Visibility::Hidden)
+                })
+        })
+}
+
+pub(super) fn save_point_diagnostic(world: &World) -> serde_json::Value {
+    let Some(session) = world.get_resource::<super::new_game::Session>() else {
+        return serde_json::json!([]);
+    };
+    let art = world.get_resource::<Art>();
+    let surfaces = world.get_resource::<Assets<TitleSurface>>();
+    serde_json::json!(session.field.events.world.save_points.iter().map(|point| {
+        let passes: Vec<_> = art.and_then(|art| art.instances.get(&point.actor)).into_iter().flatten().filter_map(|&entity| {
+            let part = world.get::<ActorPart>(entity)?;
+            Some(serde_json::json!({
+                "pass":part.pass, "clip":part.active_clip,
+                "meshes":part.geometry.iter().filter_map(|(_, entity)| world.get::<GlobalTransform>(*entity))
+                    .map(|transform| transform.to_matrix().to_cols_array()).collect::<Vec<_>>(),
+                "materials":part.materials.iter().filter_map(|handle| surfaces.and_then(|surfaces| surfaces.get(handle)))
+                    .map(|material| serde_json::json!({"uv_offsets":material.uv_offsets.to_array(),
+                        "uv_scales":material.uv_scales.to_array(),"tint":material.tint.to_array()})).collect::<Vec<_>>()
+            }))
+        }).collect();
+        serde_json::json!({"actor":point.actor,"resource":point.resource,"active":point.active,
+            "born":point.born,"age":session.field.events.tick().saturating_sub(point.born),
+            "glow_scale":point.glow_scale,"drawn":save_point_drawn(world, point.actor),"passes":passes})
+    }).collect::<Vec<_>>())
 }
 
 /// A warm restart keeps meshes, clips, textures and compiled materials alive.
@@ -546,10 +660,7 @@ pub(super) fn ready(world: &mut World) -> bool {
             == particle_parts
 }
 
-fn retire_live(world: &mut World) {
-    if world.contains_resource::<Session>() {
-        return;
-    }
+pub(super) fn retire_live(world: &mut World) {
     if let Some(session) = world.get_resource::<super::new_game::Session>()
         && session.overworld.is_none()
         && world
@@ -581,7 +692,6 @@ fn load_live(
     mut commands: Commands,
     session: Option<Res<super::new_game::Session>>,
     art: Option<Res<Art>>,
-    root: Res<super::RunOptions>,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
     mut images: ResMut<Assets<Image>>,
@@ -590,7 +700,7 @@ fn load_live(
     resident: Res<super::loading::Resident>,
     mut controls: ResMut<Controls>,
     mut retained: ResMut<RetainedFields>,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: Failures,
 ) {
     let Some(session) = session else {
         return;
@@ -606,47 +716,46 @@ fn load_live(
         controls.input = Default::default();
         return;
     }
-    let files = resident.files.read().unwrap().clone();
-    let behavior_sources = match files
-        .as_deref()
-        .context("missing verified field files")
-        .and_then(resonance_content::prepared::Files::script_sources)
-    {
+    let Some(files) = resident.files.read().unwrap().clone() else {
+        failures.fatal(
+            "field model behavior preparation",
+            anyhow::anyhow!("missing verified field files"),
+        );
+        return;
+    };
+    let behavior_sources = match files.script_sources() {
         Ok(sources) => sources,
         Err(error) => {
-            error!("Could not prepare model behaviors: {error:#}");
-            exit.write(AppExit::error());
+            failures.fatal("field model behavior preparation", error);
             return;
         }
     };
     let mut ui = match super::field_ui::Artwork::load_with(
-        &root.assets,
         &session.assets,
+        session.data.clone(),
         &server,
         &mut materials,
         &mut images,
-        files.as_deref(),
+        &files,
     ) {
         Ok(ui) => ui,
         Err(error) => {
-            error!("Could not prepare field presentation: {error:#}");
-            exit.write(AppExit::error());
+            failures.fatal("field artwork preparation", error);
             return;
         }
     };
     ui.prepare(&mut commands, &mut meshes, &mut materials);
     let effects = match super::field_effects::Artwork::load_with(
-        &root.assets,
+        &std::path::PathBuf::new(),
         &session.assets,
         &server,
         &mut meshes,
         &mut surfaces,
-        files.as_deref(),
+        Some(&files),
     ) {
         Ok(effects) => effects,
         Err(error) => {
-            error!("Could not prepare field effects: {error:#}");
-            exit.write(AppExit::error());
+            failures.fatal("field effect preparation", error);
             return;
         }
     };
@@ -804,13 +913,15 @@ pub(super) fn advance_live(
     mut session: Option<ResMut<super::new_game::Session>>,
     display: Res<super::display::Display>,
     art: Option<Res<Art>>,
-    ui: Option<Res<super::field_ui::Artwork>>,
+    mut ui: Option<ResMut<super::field_ui::Artwork>>,
     images: Res<Assets<Image>>,
+    server: Res<AssetServer>,
     parts: Query<&ActorPart>,
     mut controls: ResMut<Controls>,
-    mut exit: MessageWriter<AppExit>,
+    mut menu_memory: Option<ResMut<super::battle::MenuMemory>>,
+    mut failures: Failures,
     resident: Res<super::loading::Resident>,
-    options: Res<super::RunOptions>,
+    scenario: Option<ResMut<super::saves::ScenarioInput>>,
     testing: Option<Res<super::testing::Controls>>,
 ) {
     if testing.is_some_and(|c| c.skipping) {
@@ -820,14 +931,12 @@ pub(super) fn advance_live(
         controls.clear_actions();
         return;
     };
-    if options.saves.load.is_some() && options.capture.is_some() {
-        return;
-    }
     if !resident.active.load(std::sync::atomic::Ordering::Acquire)
         || session.overworld.is_some()
         || !session.ready_for_field
         || session.audio.is_some()
         || session.field.events.world.field_transition.is_some()
+        || session.field.events.battle_pending()
     {
         controls.clear_actions();
         return;
@@ -835,22 +944,66 @@ pub(super) fn advance_live(
     let Some(art) = art.filter(|a| a.ready && a.map == session.assets.map_id) else {
         return;
     };
-    if ui.is_none_or(|ui| !ui.ready(&images))
+    let Some(ui) = &mut ui else {
+        return;
+    };
+    match ui.essential_ready(&images, &server) {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            session.ready_for_field = false;
+            controls.clear_actions();
+            failures.fatal("field essential artwork", error);
+            return;
+        }
+    }
+    match ui.skit_ready(&session.field, &images, &server) {
+        Ok(true) => {}
+        Ok(false) => {
+            controls.clear_actions();
+            return;
+        }
+        Err(error) => {
+            ui.clear_skit(&mut failures.commands);
+            controls.clear_actions();
+            if failures.skip("field skit artwork", error)
+                && let Err(error) = session.field.cancel_skit()
+            {
+                failures.fatal("field skit recovery", error);
+            }
+            return;
+        }
+    }
+    if !ui.menu_published(&session.field)
         || parts.iter().any(|part| !part.prepared)
         || session.field.events.world.actors.iter().any(|(id, actor)| {
             art.models.contains_key(&actor.model_resource()) && !art.instances.contains_key(id)
         })
     {
+        controls.clear_actions();
         return;
     }
     let input = controls.consume();
     if let Some(camera) = &mut session.field.events.world.field_camera {
         camera.view_aspect_ratio = display.0.aspect();
     }
+    if let Some(mut scenario) = scenario {
+        scenario.acknowledge_input();
+    }
+    if let Some(memory) = &menu_memory {
+        session.field.set_unison_character(memory.unison_character);
+    }
     if let Err(error) = session.field.step(input) {
-        error!("Field update failed: {error:#}");
+        // The VM may already have changed state. Cancel this lifetime and
+        // return to title; never retry a partially applied field update.
         session.field.events.cancel();
-        exit.write(AppExit::error());
+        session.ready_for_field = false;
+        failures.fatal("field update", error);
+    } else if let Some(memory) = &mut menu_memory {
+        memory.unison_character = session.field.unison_character();
+        if let Some(menu) = &session.field.menu {
+            memory.character = menu.character;
+        }
     }
 }
 
@@ -873,6 +1026,10 @@ pub(super) fn fog(state: State, mut views: Query<&mut DistanceFog, With<super::F
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Camera publication joins the active scene, output and render acknowledgement."
+)]
 fn camera(
     state: State,
     display: Option<Res<super::display::Display>>,
@@ -919,8 +1076,7 @@ fn camera(
         }));
         applied.ack(Request::Camera);
     }
-    // Field fades affect the room/actors. Speech remains readable while the
-    // script deliberately holds the scene black at the beginning of the lesson.
+    // Field UI composites the fade after scene saturation and before dialogue.
     TitleOutput::update(&mut outputs, |b| {
         if let Some(credits) = &credits {
             b.x = credits.brightness();
@@ -928,16 +1084,7 @@ fn camera(
             return;
         }
         b.x = 1.;
-        b.y = state
-            .get()
-            .events
-            .world
-            .fade
-            .as_ref()
-            .filter(|fade| fade.white)
-            .map_or(0., |fade| {
-                fade.alpha(state.get().events.tick()) as u8 as f32 / 255.
-            });
+        b.y = 0.;
     });
     applied.ack(Request::Fade);
 }
@@ -945,45 +1092,49 @@ fn camera(
 #[allow(clippy::too_many_arguments)] // Dialogue state, glyph meshes, and projected actor attachments.
 fn ui(
     mut commands: Commands,
-    state: State,
+    mut live: Option<ResMut<super::new_game::Session>>,
+    mut checkpoint: Option<ResMut<Session>>,
+    server: Res<AssetServer>,
     mut art: ResMut<super::field_ui::Artwork>,
     display: Option<Res<super::display::Display>>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
-    roots: Query<(
-        Entity,
-        &ActorPart,
-        &super::field_animation::Rig,
-        Option<&super::secondary_motion::Rig>,
-    )>,
+    roots: Query<(Entity, &ActorPart, &super::field_animation::Rig)>,
     children: Query<&Children>,
     names: Query<&Name>,
     transforms: super::sparse_animation::affine::Helper,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: Failures,
     mut applied: ResMut<Applied>,
     clock: Option<Res<super::Clock>>,
 ) {
     art.resolution = display.map_or(super::Resolution::default(), |d| d.0);
-    if state.live.as_ref().is_some_and(|s| !s.ready_for_field) {
+    if live
+        .as_ref()
+        .is_some_and(|session| !session.ready_for_field)
+    {
         return;
     }
+    let field = checkpoint
+        .as_mut()
+        .map(|session| &mut session.0)
+        .or_else(|| live.as_mut().map(|session| &mut session.field))
+        .expect("field UI session");
     if !art.ready(&images) {
-        if state
-            .get()
+        if field
             .events
             .world
             .damage_numbers
-            .samples(state.get().events.tick())
+            .samples(field.events.tick())
             .next()
             .is_some()
         {
             applied.loading(Request::FieldDamage);
         }
-        if state.get().menu_is_open() {
+        if field.menu_is_open() {
             applied.loading(Request::Menu);
         }
-        for &slot in state.get().events.world.dialogue.keys() {
+        for &slot in field.events.world.dialogue.keys() {
             applied.loading(Request::Dialogue(slot));
             applied.loading(Request::Choice(slot));
         }
@@ -991,17 +1142,16 @@ fn ui(
     }
     art.attached_positions = roots
         .iter()
-        .filter(|(_, part, _, _)| {
+        .filter(|(_, part, _)| {
             part.part == 0
-                && state
-                    .get()
+                && field
                     .events
                     .world
                     .actors
                     .get(&part.actor)
                     .is_some_and(|actor| actor.attachment.is_some())
         })
-        .filter_map(|(root, part, _, _)| {
+        .filter_map(|(root, part, _)| {
             transforms
                 .compute_global_transform(root)
                 .ok()
@@ -1012,8 +1162,8 @@ fn ui(
         .iter()
         // A streamed actor's bind pose is not the dialogue attachment pose.
         // Sample this tick's animation before retaining the attachment height.
-        .filter(|(_, part, rig, _)| part.part == 0 && rig.sampled)
-        .filter_map(|(root, part, _, _)| {
+        .filter(|(_, part, rig)| part.part == 0 && rig.sampled)
+        .filter_map(|(root, part, _)| {
             children
                 .iter_descendants(root)
                 .find(|&entity| {
@@ -1030,7 +1180,7 @@ fn ui(
                 .map(|position| (part.actor, position))
         })
         .collect();
-    match art.render_overlays(&state.get().events.world, &mut commands, &mut meshes) {
+    match art.render_overlays(&field.events.world, &mut commands, &mut meshes) {
         Ok(handled) => {
             for id in handled {
                 applied.ack(Request::Overlay(id));
@@ -1038,575 +1188,77 @@ fn ui(
             }
         }
         Err(error) => {
-            error!("Field overlay rendering failed: {error:#}");
-            exit.write(AppExit::error());
+            if !failures.skip("field overlay rendering", error) {
+                return;
+            }
         }
     }
-    if let Err(error) = art.render(
-        state.get(),
-        // Standalone captures advance or freeze their checkpoint explicitly.
-        // Live play keeps UI time independent of paused field scripts.
-        if state.checkpoint.is_some() {
-            state.get().events.tick()
-        } else {
-            clock
-                .expect("live field needs a presentation clock")
-                .0
-                .tick()
-        },
-        &heads,
+    match art.render_menu(
+        field,
+        clock
+            .as_ref()
+            .map_or(field.events.tick(), |clock| clock.0.tick()),
         &mut commands,
         &mut meshes,
-        &mut materials,
-        &mut images,
+        &images,
+        &server,
     ) {
-        error!("Field dialogue rendering failed: {error:#}");
-        exit.write(AppExit::error());
-    } else {
-        applied.ack(Request::FieldDamage);
-        if state.get().menu_is_open() {
-            applied.ack(Request::Menu);
+        Ok(true) => {
+            if field.menu.is_some() || field.shop.is_some() {
+                applied.ack(Request::Menu);
+            }
         }
-        if state.get().active_skit.is_some() {
-            applied.ack(Request::Skit);
+        Ok(false) => applied.loading(Request::Menu),
+        Err(error) => {
+            if !failures.menu_page(field, error) {
+                return;
+            }
         }
-        let (world, dialogue) = state.get().dialogue_scene();
-        for (&slot, request) in &world.dialogue {
-            if request.operation.is_pending() {
+    }
+    match art.render_skit(field, &mut commands, &mut meshes, &mut images, &server) {
+        Ok(true) => {}
+        Ok(false) => {
+            applied.loading(Request::Skit);
+            return;
+        }
+        Err(error) => {
+            if !failures.skip("field skit rendering", error) {
+                return;
+            }
+            if let Err(error) = field.cancel_skit() {
+                failures.fatal("field skit recovery", error);
+                return;
+            }
+        }
+    }
+    match art.render(field, &heads, &mut commands, &mut meshes, &mut materials) {
+        Err(error) => {
+            failures.skip("field dialogue rendering", error);
+        }
+        Ok(()) => {
+            if field.active_skit.is_some() {
+                applied.ack(Request::Skit);
+            }
+            let (world, dialogue) = field.dialogue_scene();
+            for (&slot, request) in &world.dialogue {
+                if !request.operation.is_pending() {
+                    continue;
+                }
                 if request.opening_actor.is_some() {
-                    // The attached window stays hidden
-                    // until its speaker finishes turning. Text/voice playback
-                    // is deferred by the same request, not dropped by the UI.
                     applied.ack(Request::Dialogue(slot));
                 } else if dialogue
                     .get(&slot)
                     .is_some_and(|p| !p.closed && p.operation.id() == request.operation.id())
                 {
                     applied.ack(Request::Dialogue(slot));
-                    // Artwork renders the choice after text reveal; before
-                    // that it explicitly suppresses the highlight and cursor.
                     applied.ack(Request::Choice(slot));
                 } else {
-                    // The page player is created at the following fixed update.
                     applied.loading(Request::Dialogue(slot));
                     applied.loading(Request::Choice(slot));
                 }
             }
         }
     }
-}
-
-/// Development-only capture of an equivalent script state. No audio, window,
-/// controller, movie decoder, or original asset parser is constructed here.
-pub fn capture_classroom(root: &Path, output: &Path, tick: Option<u32>) -> Result<()> {
-    capture_field(
-        root,
-        output,
-        CaptureTarget {
-            at: tick.map_or(CaptureMoment::Control, |update| CaptureMoment::Tick {
-                update,
-            }),
-            ..Default::default()
-        },
-    )
-}
-/// Isolate registered observer positions and authored clip phases for diagnosis.
-pub fn capture_classroom_probe(
-    root: &Path,
-    output: &Path,
-    probe: &super::ClassroomProbe,
-) -> Result<()> {
-    capture_field(
-        root,
-        output,
-        CaptureTarget {
-            probe: Some(probe),
-            ..Default::default()
-        },
-    )
-}
-/// Consecutive frames from real scripts; no audio device or movie decoder.
-pub fn capture_field_sequence(root: &Path, output: &Path, sequence: &FieldSequence) -> Result<()> {
-    FieldSequenceRenderer::new(root)?.capture(output, sequence)
-}
-
-/// Reuse prepared field data while giving each comparison a fresh simulation and renderer.
-pub struct FieldSequenceRenderer {
-    root: PathBuf,
-    packages: BTreeMap<u32, super::new_game::FieldPackage>,
-}
-impl FieldSequenceRenderer {
-    pub fn new(root: &Path) -> Result<Self> {
-        Ok(Self {
-            root: fs::canonicalize(root)?,
-            packages: BTreeMap::new(),
-        })
-    }
-    pub fn capture(&mut self, output: &Path, sequence: &FieldSequence) -> Result<()> {
-        sequence.validate()?;
-        capture_field_cached(
-            &self.root,
-            output,
-            CaptureTarget {
-                scene: sequence.scene.clone(),
-                at: sequence.at.clone(),
-                probe: sequence.probe.as_ref(),
-                sequence: Some(sequence),
-                ..Default::default()
-            },
-            &mut self.packages,
-        )
-    }
-}
-/// Setup prompt checkpoint, using the normal fresh-game entry.
-pub fn capture_setup(
-    root: &Path,
-    output: &Path,
-    tick: u32,
-    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
-) -> Result<()> {
-    capture_field(
-        root,
-        output,
-        CaptureTarget {
-            scene: FieldScene::NewGame,
-            at: CaptureMoment::Tick { update: tick },
-            preferences,
-            ..Default::default()
-        },
-    )
-}
-pub fn capture_dialogue(
-    root: &Path,
-    output: &Path,
-    prefix: &str,
-    hold_ticks: u32,
-    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
-) -> Result<()> {
-    capture_field(
-        root,
-        output,
-        CaptureTarget {
-            at: CaptureMoment::Dialogue {
-                prefix: prefix.into(),
-                hold_updates: hold_ticks,
-            },
-            preferences,
-            ..Default::default()
-        },
-    )
-}
-#[derive(Default)]
-struct CaptureTarget<'a> {
-    scene: FieldScene,
-    at: CaptureMoment,
-    probe: Option<&'a super::ClassroomProbe>,
-    preferences: Option<&'a resonance_content::menu_data::CustomizeSettings>,
-    sequence: Option<&'a FieldSequence>,
-}
-fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Result<()> {
-    capture_field_cached(root, output, target, &mut BTreeMap::new())
-}
-fn capture_field_cached(
-    root: &Path,
-    output: &Path,
-    target: CaptureTarget<'_>,
-    packages: &mut BTreeMap<u32, super::new_game::FieldPackage>,
-) -> Result<()> {
-    let resolution = target.sequence.map_or(Default::default(), |s| s.resolution);
-    let setup_prompt = matches!(target.scene, FieldScene::NewGame);
-    let (dialogue_prefix, dialogue_hold_ticks) = match &target.at {
-        CaptureMoment::Dialogue {
-            prefix,
-            hold_updates,
-        } => {
-            ensure!(
-                !prefix.is_empty() && *hold_updates <= 3600,
-                "invalid dialogue checkpoint"
-            );
-            (Some(prefix.as_str()), *hold_updates)
-        }
-        _ => (None, 0),
-    };
-    let probe = target.probe;
-    let root = fs::canonicalize(root)?;
-    let checkpoint = target.scene.checkpoint();
-    let scene_entry = matches!(target.scene, FieldScene::Arrival { .. });
-    let (assets, mut session) = if setup_prompt {
-        let entry = super::new_game::Session::load(&root)?;
-        (entry.assets, entry.field)
-    } else {
-        let map = checkpoint.map_or(340, |c| c.map_id);
-        if let std::collections::btree_map::Entry::Vacant(entry) = packages.entry(map) {
-            entry.insert(super::new_game::FieldPackage::prepare(
-                &root,
-                map,
-                &mut Default::default(),
-                || false,
-            )?);
-        }
-        let mut package = packages[&map].clone();
-        if let Some(script) = target.scene.script() {
-            use sha2::{Digest, Sha256};
-            package.script = script
-                .iter()
-                .flat_map(|v| v.to_be_bytes())
-                .collect::<Vec<_>>()
-                .into();
-            package.assets.script.sha256 = format!("{:x}", Sha256::digest(&package.script));
-            package.assets.files.insert(
-                package.assets.script.path.clone(),
-                package.assets.script.sha256.clone(),
-            );
-        }
-        let assets = package.assets.clone();
-        let entry = if let Some(checkpoint) = checkpoint {
-            let data = std::sync::Arc::new(serde_json::from_slice(&fs::read(
-                root.join("game/session-data.json"),
-            )?)?);
-            let available_fields = super::new_game::available_fields(&root)?;
-            if scene_entry {
-                ensure!(
-                    checkpoint.position.iter().all(|v| v.is_finite())
-                        && checkpoint.heading.is_finite()
-                        && (0.0..360.0).contains(&checkpoint.heading),
-                    "invalid scene entry location"
-                );
-                // Scripted arrivals can start above the floor; they are not saves.
-                resonance_game::field::FieldEntry {
-                    allow_incomplete_scripts: checkpoint.allow_incomplete_scripts,
-                    play_time: resonance_game::clock::PlayTime::resume(checkpoint.played_ticks()),
-                    persistent: checkpoint.progress.clone().into_state(&data)?,
-                    data: Some(data),
-                    available_fields,
-                    position: checkpoint.position,
-                    heading: checkpoint.heading,
-                    camera: checkpoint
-                        .camera
-                        .clone()
-                        .map(|camera| {
-                            camera
-                                .entry(i32::from(checkpoint.progress.party.field_leader))
-                                .map_err(anyhow::Error::msg)
-                        })
-                        .transpose()?,
-                    ..Default::default()
-                }
-            } else {
-                checkpoint.clone().entry(&assets, data, available_fields)?
-            }
-        } else {
-            Default::default()
-        };
-        let mut session = package.enter(entry)?;
-        if let Some(checkpoint) = checkpoint.filter(|_| !scene_entry) {
-            super::new_game::initialize_checkpoint(&mut session, checkpoint)?;
-        }
-        (assets, session)
-    };
-    session.events.world.voice_durations = if let Some(package) = packages.get(&assets.map_id) {
-        package.audio.voice_durations()
-    } else {
-        super::field_audio::Assets::load(&root, assets.map_id)?.voice_durations()
-    };
-    let target_dialogue = |player: &resonance_game::dialogue::DialoguePlayer| {
-        dialogue_prefix.is_some_and(|prefix| {
-            !player.closed
-                && player.operation.is_pending()
-                && player.current().text().starts_with(prefix)
-        })
-    };
-    let reached = |session: &FieldSession| match &target.at {
-        CaptureMoment::Control => session.events.world.input_enabled,
-        CaptureMoment::Tick { update } => session.events.tick() >= *update,
-        CaptureMoment::Dialogue { .. } => session
-            .dialogue
-            .values()
-            .any(|p| target_dialogue(p) && p.fully_revealed() && p.accepts_input()),
-    };
-    let mut ready_since = BTreeMap::new();
-    for update in 0..20000 {
-        if reached(&session) {
-            break;
-        }
-        if let Some(movie) = &session.events.world.movie
-            && movie.operation.is_pending()
-        {
-            movie.operation.complete(None).map_err(anyhow::Error::msg)?;
-        }
-        let interact = !setup_prompt
-            && session.dialogue.values().any(|player| {
-                if player.closed
-                    || player.persistent
-                    || target_dialogue(player)
-                    || !player.voice_finished()
-                    || !player.fully_revealed()
-                {
-                    return false;
-                }
-                let since = ready_since
-                    .entry((player.operation.id(), player.page))
-                    .or_insert(update);
-                update - *since >= 120
-            });
-        if let Some(camera) = &mut session.events.world.field_camera {
-            camera.view_aspect_ratio = resolution.aspect();
-        }
-        session.events.world.audio_commands.clear();
-        session.step(FieldInput {
-            pressed_buttons: Buttons::default().with(Button::Accept, interact),
-            ..Default::default()
-        })?;
-    }
-    ensure!(reached(&session), "classroom checkpoint was not reached");
-    for _ in 0..dialogue_hold_ticks {
-        session.step(FieldInput::default())?;
-        session.events.world.audio_commands.clear();
-    }
-    if let Some(probe) = probe {
-        probe.apply(&mut session)?;
-    }
-    let preferences = target
-        .preferences
-        .or_else(|| probe.and_then(|p| p.preferences.as_ref()));
-    if let Some(preferences) = preferences {
-        preferences.validate()?;
-        let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
-        let party = session
-            .events
-            .world
-            .party
-            .get_or_insert(resonance_events::party::Party::new(
-                &data,
-                Default::default(),
-            )?);
-        party.settings.preferences = preferences.clone();
-    }
-    let behavior_sources = resonance_content::prepared::Files::load(
-        &root,
-        &[&resonance_content::field::preload_path(assets.map_id)],
-        &mut Default::default(),
-        || false,
-    )?
-    .script_sources()?;
-    let mut app = App::new();
-    super::model_preview::register(&mut app, &root);
-    app.add_plugins(
-        DefaultPlugins
-            .set(bevy::pbr::PbrPlugin {
-                gltf_enable_standard_materials: false,
-                ..default()
-            })
-            .set(AssetPlugin {
-                file_path: root.to_string_lossy().into_owned(),
-                ..default()
-            })
-            .set(WindowPlugin {
-                primary_window: None,
-                exit_condition: ExitCondition::DontExit,
-                ..default()
-            })
-            // Capture readiness must observe the completed preceding render.
-            .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
-            .disable::<bevy::winit::WinitPlugin>()
-            .disable::<bevy::gilrs::GilrsPlugin>(),
-    )
-    .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
-        std::time::Duration::ZERO,
-    ))
-    .add_plugins(MaterialPlugin::<TitleSurface>::default())
-    .add_plugins(Material2dPlugin::<TitleOutput>::default())
-    .add_plugins(FieldRendering)
-    .add_plugins(DrawOrderPlugin)
-    .init_resource::<super::scene::SampledImages>()
-    .insert_resource(Session(session))
-    .insert_resource(Manifest(assets))
-    .insert_resource(Root {
-        assets: root,
-        behavior_sources,
-    })
-    .insert_resource(super::display::OutputStage::Framebuffer)
-    .insert_resource(super::display::Display(resolution))
-    .insert_resource(Checkpoint {
-        output: output.into(),
-        since: Instant::now(),
-        settled: 0,
-        requested: false,
-        probe: probe.cloned(),
-        dialogue_hold_ticks,
-    })
-    .insert_resource(ClearColor(Color::BLACK))
-    .add_systems(Startup, (setup, super::display::initialize).chain())
-    .add_systems(
-        Update,
-        (
-            scene_systems(),
-            super::skin_bounds,
-            capture.run_if(not(resource_exists::<sequence::Recording>)),
-        )
-            .chain(),
-    );
-    super::materials::embed_shaders(&mut app);
-    super::renderer::configure(&mut app);
-    bevy::asset::embedded_asset!(app, "title_output.wgsl");
-    let ready = super::RenderReady::default();
-    app.insert_resource(ready.clone());
-    app.get_sub_app_mut(bevy::render::RenderApp)
-        .context("render application unavailable")?
-        .insert_resource(ready)
-        .add_systems(
-            bevy::render::Render,
-            super::check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
-        );
-    let failure = target
-        .sequence
-        .map(|s| sequence::install(&mut app, output, s))
-        .transpose()?;
-    let exit = app.run();
-    if let Some(failure) = failure {
-        failure.result()?;
-    }
-    ensure!(exit == AppExit::Success, "field capture failed");
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)] // Device-free capture's asset and render-target setup.
-fn setup(
-    mut commands: Commands,
-    server: Res<AssetServer>,
-    manifest: Res<Manifest>,
-    session: Res<Session>,
-    mut images: ResMut<Assets<Image>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut outputs: ResMut<Assets<TitleOutput>>,
-    root: Res<Root>,
-    mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
-    mut surfaces: ResMut<Assets<TitleSurface>>,
-    display: Res<super::display::Display>,
-    device: Res<bevy::render::renderer::RenderDevice>,
-    mut exit: MessageWriter<AppExit>,
-) {
-    let size = match display.0.validate(device.limits().max_texture_dimension_2d) {
-        Ok(()) => display.0,
-        Err(error) => {
-            error!("{error:#}");
-            exit.write(AppExit::error());
-            super::Resolution::default()
-        }
-    };
-    let effects = super::field_effects::Artwork::load(
-        &root.assets,
-        &manifest.0,
-        &server,
-        &mut meshes,
-        &mut surfaces,
-    )
-    .expect("validated cooked field effects");
-    commands.insert_resource(effects);
-    let mut ui = super::field_ui::Artwork::load(
-        &root.assets,
-        &manifest.0,
-        &server,
-        &mut ui_materials,
-        &mut images,
-    )
-    .expect("validated cooked dialogue artwork");
-    ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
-    commands.insert_resource(ui);
-    let mut final_image =
-        Image::new_target_texture(size.width, size.height, TextureFormat::Bgra8UnormSrgb, None);
-    final_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
-    let final_image = images.add(final_image);
-    commands.insert_resource(super::Framebuffer(RenderTarget::Image(
-        final_image.clone().into(),
-    )));
-    let mut source = Image::new_target_texture(
-        size.width,
-        size.scene_height(),
-        TextureFormat::Bgra8Unorm,
-        None,
-    );
-    source.sampler = ImageSampler::linear();
-    source.texture_descriptor.usage |= TextureUsages::COPY_SRC;
-    let source = images.add(source);
-    commands.spawn((
-        Camera2d,
-        Tonemapping::None,
-        Msaa::Off,
-        Camera {
-            order: 0,
-            clear_color: ClearColorConfig::None,
-            ..default()
-        },
-        RenderTarget::Image(source.clone().into()),
-        super::camera::overlay_alignment(),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: WIDTH as f32,
-                height: HEIGHT as f32,
-            },
-            ..OrthographicProjection::default_2d()
-        }),
-    ));
-    commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(WIDTH as f32, HEIGHT as f32))),
-        MeshMaterial2d(outputs.add(TitleOutput {
-            source: source.clone(),
-            brightness: Vec4::new(1., 0., 0., 0.),
-            screen_offset: Vec2::ZERO,
-        })),
-        RenderLayers::layer(2),
-        super::display::OutputQuad,
-        Transform::default(),
-    ));
-    commands.spawn((
-        Camera2d,
-        Tonemapping::None,
-        Msaa::Off,
-        RenderLayers::layer(2),
-        Camera {
-            order: 1,
-            ..default()
-        },
-        RenderTarget::Image(final_image.into()),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: WIDTH as f32,
-                height: HEIGHT as f32,
-            },
-            ..OrthographicProjection::default_2d()
-        }),
-    ));
-    let camera = session.0.events.world.field_camera.as_ref().unwrap();
-    commands.spawn((
-        Camera3d {
-            depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT
-                | TextureUsages::TEXTURE_BINDING)
-                .into(),
-            ..default()
-        },
-        Tonemapping::None,
-        Msaa::Off,
-        RenderTarget::Image(source.into()),
-        super::FieldCamera,
-        Camera {
-            order: -1,
-            ..default()
-        },
-        camera_transform(camera),
-        Projection::custom(TitleProjection(PerspectiveProjection {
-            fov: camera.fov_degrees().to_radians(),
-            aspect_ratio: 4. / 3.,
-            near: super::camera::FIELD_NEAR,
-            far: super::camera::FIELD_FAR,
-            ..default()
-        })),
-    ));
-    commands.insert_resource(load_art(
-        &manifest.0,
-        &server,
-        root.behavior_sources.clone(),
-    ));
 }
 
 fn load_art(
@@ -1645,6 +1297,8 @@ fn load_art(
         instances: BTreeMap::new(),
         ready: false,
         loading_since: Instant::now(),
+        unlit: false,
+        disabled_shadows: false,
         shadows: shadows::Artwork::load(&manifest.contact_shadow, server),
         toon_ramp: server
             .load_builder()
@@ -1668,135 +1322,155 @@ pub(super) fn prepared_test_art(manifest: &FieldAssets, server: &AssetServer) ->
     art
 }
 
+fn asset_ready(server: &AssetServer, id: bevy::asset::UntypedAssetId) -> Result<bool> {
+    if let Some((bevy::asset::LoadState::Failed(error), _, _)) = server.get_load_states(id) {
+        anyhow::bail!("asset {:?} failed to load: {error}", server.get_path(id));
+    }
+    if let Some(bevy::asset::RecursiveDependencyLoadState::Failed(error)) =
+        server.get_recursive_dependency_load_state(id)
+    {
+        anyhow::bail!("asset {:?} dependency failed: {error}", server.get_path(id));
+    }
+    Ok(server.is_loaded_with_dependencies(id))
+}
+
+pub(super) fn image_ready(
+    server: &AssetServer,
+    images: &Assets<Image>,
+    image: &Handle<Image>,
+) -> Result<bool> {
+    if images.contains(image.id()) {
+        return Ok(true);
+    }
+    asset_ready(server, image.id().untyped())?;
+    match server.get_load_state(image.id()) {
+        Some(bevy::asset::LoadState::Loading | bevy::asset::LoadState::NotLoaded) => Ok(false),
+        _ => anyhow::bail!("image {:?} is unavailable", server.get_path(image.id())),
+    }
+}
+
+fn prepare_part(
+    part: &mut Part,
+    server: &AssetServer,
+    gltfs: &Assets<bevy::gltf::Gltf>,
+    clips: &Assets<super::sparse_animation::Clip>,
+    images: &Assets<Image>,
+) -> Result<bool> {
+    let mut ready = asset_ready(server, part.gltf.id().untyped())?;
+    for handle in &part.clips {
+        ready &= asset_ready(server, handle.id().untyped())? && clips.contains(handle);
+    }
+    for (handle, _) in part
+        .materials
+        .iter()
+        .flat_map(|m| m.color.iter().chain(&m.multiply))
+    {
+        ready &= asset_ready(server, handle.id().untyped())? && images.contains(handle);
+    }
+    if !ready {
+        return Ok(false);
+    }
+    let gltf = gltfs
+        .get(&part.gltf)
+        .context("loaded field model is missing")?;
+    if !part.resolved {
+        let scene = gltf.scenes.first().context("field model has no scene")?;
+        ensure!(
+            gltf.meshes.len() == part.materials.len(),
+            "field material count differs from its recipe"
+        );
+        for handle in &part.clips {
+            clips
+                .get(handle)
+                .context("loaded field clip is missing")?
+                .0
+                .validate_bones(part.spec.bone_names.len())?;
+        }
+        part.scene = scene.clone();
+        part.resolved = true;
+    }
+    asset_ready(server, part.scene.id().untyped())
+}
+
 fn prepare(
     mut art: ResMut<Art>,
     server: Res<AssetServer>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
-    scenes: Res<Assets<WorldAsset>>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
     images: Res<Assets<Image>>,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: Failures,
 ) {
-    // A field owns these handles until teardown. Once its load jobs and
-    // dependencies have finished, do not lock the asset server for every clip
-    // on every rendered frame. A field change creates a new Art and gate.
     if art.ready {
         return;
     }
-    if art.loads.complete() {
-        for part in art.models.values_mut().flatten().filter(|p| !p.resolved) {
-            let Some(gltf) = gltfs.get(&part.gltf) else {
-                continue;
-            };
-            if !server.is_loaded_with_dependencies(part.gltf.id()) {
-                continue;
+    let timed_out = art.loading_since.elapsed().as_secs() >= 30;
+    let mut ready = true;
+    let mut stopped = false;
+    // A model's parts share a skeleton. Omit that model together, keeping all
+    // other model resources available and preventing an impossible ready gate.
+    art.models.retain(|resource, parts| {
+        let result = parts.iter_mut().try_fold(true, |ready, part| {
+            let loaded = prepare_part(part, &server, &gltfs, &clips, &images)
+                .with_context(|| format!("model {resource}, {}", part.spec.mesh))?;
+            ensure!(
+                loaded || !timed_out,
+                "model {resource} did not load within 30 seconds"
+            );
+            Ok::<_, anyhow::Error>(ready && loaded)
+        });
+        match result {
+            Ok(loaded) => {
+                ready &= loaded;
+                true
             }
-            let Some(scene) = gltf.scenes.first() else {
-                error!("Field model has no scene: {}", part.spec.mesh);
-                exit.write(AppExit::error());
-                return;
-            };
-            let Some(instanced) = scenes.get(scene) else {
-                continue;
-            };
-            if !part.clips.iter().all(|handle| clips.contains(handle)) {
-                continue;
-            }
-            for handle in &part.clips {
-                if let Err(error) = clips
-                    .get(handle)
-                    .unwrap()
-                    .0
-                    .validate_bones(part.spec.bone_names.len())
-                {
-                    error!("Field animation binding failed: {error:#}");
-                    exit.write(AppExit::error());
-                    return;
+            Err(error) => {
+                if failures.skip("field model preparation", error) {
+                    false
+                } else {
+                    stopped = true;
+                    true
                 }
             }
-            part.scene = scene.clone();
-            part.scene_materials =
-                super::materials::MaterialSlot::scene_slots(&instanced.world, part.materials.len())
-                    .expect("prepared scene meshes must have declared material slots");
-            if gltf.meshes.len() != part.materials.len() {
-                error!(
-                    "Field material count differs from its recipe: {}",
-                    part.spec.mesh
-                );
-                exit.write(AppExit::error());
-                return;
-            }
-            part.resolved = true;
         }
+    });
+    if stopped {
+        return;
     }
-    art.ready = art.loads.complete()
-        && images.contains(&art.toon_ramp)
-        && images.contains(&art.shadows.texture)
-        && art.models.values().flatten().all(|part| {
-            part.resolved
-                && server.is_loaded_with_dependencies(part.gltf.id())
-                && server.is_loaded_with_dependencies(part.scene.id())
-                && part
-                    .clips
-                    .iter()
-                    .all(|clip| server.is_loaded_with_dependencies(clip.id()))
-                && part.materials.iter().all(|m| {
-                    m.color
-                        .iter()
-                        .chain(&m.multiply)
-                        .all(|(h, _)| images.contains(h.id()))
-                })
-        });
-    if !art.ready {
-        let assets = art
-            .models
-            .values()
-            .flatten()
-            .flat_map(|p| {
-                [p.gltf.id().untyped(), p.scene.id().untyped()]
-                    .into_iter()
-                    .chain(p.clips.iter().map(|c| c.id().untyped()))
-                    .chain(p.materials.iter().flat_map(|m| {
-                        m.color
-                            .iter()
-                            .chain(&m.multiply)
-                            .map(|(h, _)| h.id().untyped())
-                    }))
-            })
-            .chain([
-                art.toon_ramp.id().untyped(),
-                art.shadows.texture.id().untyped(),
-            ]);
-        for id in assets {
-            if let Some((bevy::asset::LoadState::Failed(error), _, _)) = server.get_load_states(id)
-            {
-                error!(
-                    "Field asset failed to load: {:?}: {error}",
-                    server.get_path(id)
-                );
-                exit.write(AppExit::error());
-                return;
-            }
-            if let Some(bevy::asset::RecursiveDependencyLoadState::Failed(error)) =
-                server.get_recursive_dependency_load_state(id)
-            {
-                error!(
-                    "Field asset dependency failed: {:?}: {error}",
-                    server.get_path(id)
-                );
-                exit.write(AppExit::error());
-                return;
-            }
+    for (index, (handle, disabled)) in [
+        (art.toon_ramp.clone(), art.unlit),
+        (art.shadows.texture.clone(), art.disabled_shadows),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if disabled {
+            continue;
         }
-        if art.loading_since.elapsed().as_secs() >= 30 {
-            error!(
-                "Field {} presentation assets did not become ready within 30 seconds",
-                art.map
+        let result = asset_ready(&server, handle.id().untyped()).and_then(|loaded| {
+            let loaded = loaded && images.contains(&handle);
+            ensure!(
+                loaded || !timed_out,
+                "shared field image did not load within 30 seconds"
             );
-            exit.write(AppExit::error());
+            Ok(loaded)
+        });
+        match result {
+            Ok(loaded) => ready &= loaded,
+            Err(error) => {
+                if !failures.skip("field shared image", error) {
+                    return;
+                }
+                if index == 0 {
+                    art.unlit = true;
+                } else {
+                    art.disabled_shadows = true;
+                }
+            }
         }
     }
+    art.ready = ready && (art.loads.complete() || timed_out);
 }
+
 fn instances(
     mut commands: Commands,
     mut art: ResMut<Art>,
@@ -1850,6 +1524,9 @@ fn instances(
                         WorldAssetRoot(part.scene.clone()),
                         Transform::default(),
                         ActorPart {
+                            creation: actor
+                                .creation
+                                .filter(|p| p.tick == session.get().events.tick()),
                             actor: id,
                             instance: actor.instance,
                             resource: actor.model_resource(),
@@ -1857,6 +1534,7 @@ fn instances(
                             pass,
                             materials,
                             prepared: false,
+                            disabled: false,
                             instantiated: false,
                             geometry: Vec::new(),
                             active_clip: None,
@@ -1921,11 +1599,16 @@ fn pose(
     mut draw_orders: Query<&mut DrawOrder>,
     mut applied: ResMut<Applied>,
     effects: Res<super::field_effects::Artwork>,
+    mut failures: Failures,
 ) {
     let session = session.get();
     let world = &session.events.world;
     let tick = session.events.tick();
     for (root, mut instance, mut transform, mut visibility) in &mut roots {
+        if instance.disabled {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
         if !instance.instantiated {
             if let Some(index) = world
                 .save_points
@@ -1950,22 +1633,48 @@ fn pose(
         let Some(actor) = world.actors.get(&instance.actor) else {
             continue;
         };
-        let actor_order = world
+        let Some(actor_order) = world
             .actor_order()
             .iter()
             .position(|id| *id == instance.actor)
-            .expect("rendered actor has a submission order");
-        debug_assert_eq!(
-            instance.resource,
-            actor.model_resource(),
-            "VM actor {} changed its model without replacing the scene instance at tick {}",
-            instance.actor,
-            tick
-        );
-        let part = &art.models[&instance.resource][instance.part];
+        else {
+            failures.skip(
+                "field actor rendering",
+                anyhow::anyhow!("actor {} has no submission order", instance.actor),
+            );
+            instance.disable();
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let part = art
+            .models
+            .get(&instance.resource)
+            .and_then(|parts| parts.get(instance.part));
+        let Some(part) = part.filter(|_| instance.resource == actor.model_resource()) else {
+            failures.skip(
+                "field actor rendering",
+                anyhow::anyhow!("actor {} has an unavailable model binding", instance.actor),
+            );
+            instance.disable();
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        if instance.materials.len() != part.spec.materials.len()
+            || instance
+                .materials
+                .iter()
+                .any(|material| !surfaces.contains(material))
+        {
+            failures.skip(
+                "field actor rendering",
+                anyhow::anyhow!("actor {} has an unavailable material", instance.actor),
+            );
+            instance.disable();
+            *visibility = Visibility::Hidden;
+            continue;
+        }
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
         let sealed = save_point.is_some_and(|p| !p.is_open(&world.event_flags));
-        let brightness = world.brightness();
         let wing_layer = actor
             .wings
             .as_ref()
@@ -1984,7 +1693,6 @@ fn pose(
                 )
             });
         let tint = reaction_tint
-            * Vec4::new(brightness, brightness, brightness, 1.)
             * Vec4::new(
                 1.,
                 1.,
@@ -2023,7 +1731,9 @@ fn pose(
             Vec4::new(64., 64., 64., 0.)
         };
         let light_position = match light.position {
-            LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
+            LightPosition::Relative(p) => {
+                Vec3::from_array(p) + Vec3::from_array(actor.presented_position())
+            }
             LightPosition::World(p) => Vec3::from_array(p),
             LightPosition::Actor { id, height } => world.actors.get(&id).map_or(Vec3::ZERO, |a| {
                 Vec3::from_array(a.position) + Vec3::Z * height
@@ -2227,28 +1937,46 @@ fn pose(
                     instance.shadow_anchor = Some(entity);
                 }
                 if let Ok(slot) = meshes.get(entity) {
-                    let index = slot
-                        .index(instance.materials.len())
-                        .expect("field mesh must have a declared material slot");
+                    let index = match slot.index(instance.materials.len()) {
+                        Ok(index) => index,
+                        Err(error) => {
+                            commands.entity(entity).insert(Visibility::Hidden);
+                            if !failures.skip(
+                                "field mesh rendering",
+                                error.context(format!("actor {}", instance.actor)),
+                            ) {
+                                return;
+                            }
+                            continue;
+                        }
+                    };
                     instance.geometry.push((index, entity));
                     commands.entity(entity).insert((
                         MeshMaterial3d(instance.materials[index].clone()),
                         // Translucent circle passes follow scenery and actors;
                         // drawing them among opaque model parts clips the glow.
                         DrawOrder(
-                            part.spec.materials[index].draw_order
-                                + u32::from(instance.pass) * MODEL_DRAW_SPAN
-                                + if save_point.is_some() {
-                                    super::draw_order::FIELD_TRANSLUCENCY
-                                } else if (SCENERY_RESOURCE_BASE
-                                    ..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
-                                    .contains(&actor.resource)
-                                {
-                                    0
-                                } else {
-                                    DrawStage::Actors.offset()
-                                },
+                            if save_point.is_some() {
+                                Layer::FieldOverlay(
+                                    part.spec.materials[index].draw_order
+                                        + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                                )
+                            } else {
+                                Layer::Scene(
+                                    part.spec.materials[index].draw_order
+                                        + u32::from(instance.pass) * MODEL_DRAW_SPAN
+                                        + if (SCENERY_RESOURCE_BASE
+                                            ..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
+                                            .contains(&actor.resource)
+                                        {
+                                            0
+                                        } else {
+                                            DrawStage::Actors.offset()
+                                        },
+                                )
+                            },
                             actor_order,
+                            0,
                         ),
                     ));
                 }
@@ -2256,27 +1984,43 @@ fn pose(
             instance.prepared = descendants > 0;
         }
         let draw_stage = if save_point.is_some() {
-            super::draw_order::FIELD_TRANSLUCENCY
+            Layer::FieldOverlay(0)
         } else if (SCENERY_RESOURCE_BASE..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
             .contains(&actor.resource)
         {
-            0
+            Layer::Scene(0)
         } else {
             match actor.draw_layer {
-                -1 => DrawStage::LateActors.offset(),
-                -4 => DrawStage::TranslucentScenery.offset() + 2 * MODEL_DRAW_SPAN,
-                -3 => super::draw_order::EFFECTS + MODEL_DRAW_SPAN,
-                -2 => super::draw_order::EFFECTS + 2 * MODEL_DRAW_SPAN,
-                _ => DrawStage::Actors.offset(),
+                -1 => Layer::Scene(DrawStage::LateActors.offset()),
+                -4 => Layer::Scene(DrawStage::TranslucentScenery.offset() + 2 * MODEL_DRAW_SPAN),
+                -3 => Layer::ModelEffects(MODEL_DRAW_SPAN),
+                -2 => Layer::ModelEffects(2 * MODEL_DRAW_SPAN),
+                _ => Layer::Scene(DrawStage::Actors.offset()),
             }
         };
         for &(material, entity) in &instance.geometry {
             if let Ok(mut order) = draw_orders.get_mut(entity) {
                 let next = DrawOrder(
-                    part.spec.materials[material].draw_order
-                        + u32::from(instance.pass) * MODEL_DRAW_SPAN
-                        + draw_stage,
+                    match draw_stage {
+                        Layer::Scene(stage) => Layer::Scene(
+                            stage
+                                + part.spec.materials[material].draw_order
+                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                        ),
+                        Layer::FieldOverlay(stage) => Layer::FieldOverlay(
+                            stage
+                                + part.spec.materials[material].draw_order
+                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                        ),
+                        Layer::ModelEffects(stage) => Layer::ModelEffects(
+                            stage
+                                + part.spec.materials[material].draw_order
+                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
+                        ),
+                        _ => unreachable!(),
+                    },
                     actor_order,
+                    0,
                 );
                 if *order != next {
                     *order = next;
@@ -2320,6 +2064,474 @@ fn pose(
         }
     }
 }
+#[cfg(test)]
+#[path = "field_view/input_tests.rs"]
+mod input_tests;
+
+/// Consecutive frames from real scripts; no audio device or movie decoder.
+pub fn capture_field_sequence(root: &Path, output: &Path, sequence: &FieldSequence) -> Result<()> {
+    FieldSequenceRenderer::new(root)?.capture(output, sequence)
+}
+
+/// Reuse prepared field data while giving each comparison a fresh simulation and renderer.
+pub struct FieldSequenceRenderer {
+    root: PathBuf,
+    packages: BTreeMap<u32, super::new_game::FieldPackage>,
+}
+impl FieldSequenceRenderer {
+    pub fn new(root: &Path) -> Result<Self> {
+        Ok(Self {
+            root: fs::canonicalize(root)?,
+            packages: BTreeMap::new(),
+        })
+    }
+    pub fn capture(&mut self, output: &Path, sequence: &FieldSequence) -> Result<()> {
+        sequence.validate()?;
+        capture_field_cached(
+            &self.root,
+            output,
+            CaptureTarget {
+                scene: sequence.scene.clone(),
+                at: sequence.at.clone(),
+                probe: sequence.probe.as_ref(),
+                sequence: Some(sequence),
+                ..Default::default()
+            },
+            &mut self.packages,
+        )
+    }
+}
+#[derive(Default)]
+struct CaptureTarget<'a> {
+    scene: FieldScene,
+    at: CaptureMoment,
+    probe: Option<&'a super::ClassroomProbe>,
+    preferences: Option<&'a resonance_content::menu_data::CustomizeSettings>,
+    sequence: Option<&'a FieldSequence>,
+}
+fn capture_field_cached(
+    root: &Path,
+    output: &Path,
+    target: CaptureTarget<'_>,
+    packages: &mut BTreeMap<u32, super::new_game::FieldPackage>,
+) -> Result<()> {
+    let resolution = target.sequence.map_or(Default::default(), |s| s.resolution);
+    let setup_prompt = matches!(target.scene, FieldScene::NewGame);
+    let (dialogue_prefix, dialogue_hold_ticks) = match &target.at {
+        CaptureMoment::Dialogue {
+            prefix,
+            hold_updates,
+        } => {
+            ensure!(
+                !prefix.is_empty() && *hold_updates <= 3600,
+                "invalid dialogue checkpoint"
+            );
+            (Some(prefix.as_str()), *hold_updates)
+        }
+        _ => (None, 0),
+    };
+    let probe = target.probe;
+    let root = fs::canonicalize(root)?;
+    let checkpoint = target.scene.checkpoint();
+    let scene_entry = matches!(target.scene, FieldScene::Arrival { .. });
+    let (assets, mut session) = if setup_prompt {
+        let entry = super::new_game::Session::load(&root)?;
+        (entry.assets, entry.field)
+    } else {
+        let map = checkpoint.map_or(340, |c| c.map_id);
+        if let std::collections::btree_map::Entry::Vacant(entry) = packages.entry(map) {
+            entry.insert(super::new_game::FieldPackage::prepare(
+                &root,
+                map,
+                &mut Default::default(),
+                || false,
+            )?);
+        }
+        let mut package = packages[&map].clone();
+        if let Some(script) = target.scene.script() {
+            package.script = script
+                .iter()
+                .flat_map(|v| v.to_be_bytes())
+                .collect::<Vec<_>>()
+                .into();
+        }
+        let assets = package.assets.clone();
+        let entry = if let Some(checkpoint) = checkpoint {
+            let (data, _) = super::new_game::admit_definitions(
+                |path| Ok(package.files.read(path)?.to_vec()),
+                package.files.diagnostics(),
+            )?;
+            let available_fields = super::new_game::available_fields(&root)?;
+            if scene_entry {
+                ensure!(
+                    checkpoint.position.iter().all(|v| v.is_finite())
+                        && checkpoint.heading.is_finite()
+                        && (0.0..360.0).contains(&checkpoint.heading),
+                    "invalid scene entry location"
+                );
+                // Scripted arrivals can start above the floor; they are not saves.
+                resonance_game::field::FieldEntry {
+                    allow_incomplete_scripts: checkpoint.allow_incomplete_scripts,
+                    play_time: resonance_game::clock::PlayTime::resume(checkpoint.played_ticks),
+                    persistent: checkpoint.progress.clone().into_state(&data)?,
+                    data: Some(data),
+                    available_fields,
+                    position: checkpoint.position,
+                    heading: checkpoint.heading,
+                    camera: checkpoint
+                        .camera
+                        .clone()
+                        .map(|camera| {
+                            camera
+                                .entry(i32::from(checkpoint.progress.party.field_leader))
+                                .map_err(anyhow::Error::msg)
+                        })
+                        .transpose()?,
+                    ..Default::default()
+                }
+            } else {
+                checkpoint.clone().entry(&assets, data, available_fields)?
+            }
+        } else {
+            Default::default()
+        };
+        let mut session = package.enter(entry)?;
+        if let Some(checkpoint) = checkpoint.filter(|_| !scene_entry) {
+            let data = session
+                .events
+                .resources()
+                .session_data
+                .clone()
+                .context("capture session data missing")?;
+            super::new_game::initialize_checkpoint(&mut session, checkpoint, &data)?;
+        }
+        (assets, session)
+    };
+    session.events.world.voice_durations = if let Some(package) = packages.get(&assets.map_id) {
+        package.audio.voice_durations()
+    } else {
+        super::field_audio::Assets::load(&root, assets.map_id)?.voice_durations()
+    };
+    let target_dialogue = |player: &resonance_game::dialogue::DialoguePlayer| {
+        dialogue_prefix.is_some_and(|prefix| {
+            !player.closed
+                && player.operation.is_pending()
+                && player.current().text().starts_with(prefix)
+        })
+    };
+    let reached = |session: &FieldSession| match &target.at {
+        CaptureMoment::Control => session.events.world.input_enabled,
+        CaptureMoment::Tick { update } => session.events.tick() >= *update,
+        CaptureMoment::Dialogue { .. } => session
+            .dialogue
+            .values()
+            .any(|p| target_dialogue(p) && p.fully_revealed() && p.accepts_input()),
+    };
+    let mut ready_since = BTreeMap::new();
+    for update in 0..20000 {
+        if reached(&session) {
+            break;
+        }
+        if let Some(movie) = &session.events.world.movie
+            && movie.operation.is_pending()
+        {
+            movie.operation.complete(None).map_err(anyhow::Error::msg)?;
+        }
+        let interact = !setup_prompt
+            && session.dialogue.values().any(|player| {
+                if player.closed
+                    || player.persistent
+                    || target_dialogue(player)
+                    || !player.voice_finished()
+                    || !player.fully_revealed()
+                {
+                    return false;
+                }
+                let since = ready_since
+                    .entry((player.operation.id(), player.page))
+                    .or_insert(update);
+                update - *since >= 120
+            });
+        if let Some(camera) = &mut session.events.world.field_camera {
+            camera.view_aspect_ratio = resolution.aspect();
+        }
+        session.events.world.audio_commands.clear();
+        session.step(FieldInput {
+            pressed_buttons: Buttons::default().with(Button::Accept, interact),
+            ..Default::default()
+        })?;
+    }
+    ensure!(reached(&session), "classroom checkpoint was not reached");
+    for _ in 0..dialogue_hold_ticks {
+        session.step(FieldInput::default())?;
+        session.events.world.audio_commands.clear();
+    }
+    if let Some(probe) = probe {
+        probe.apply(&mut session)?;
+    }
+    let preferences = target
+        .preferences
+        .or_else(|| probe.and_then(|p| p.preferences.as_ref()));
+    if let Some(preferences) = preferences {
+        preferences.validate()?;
+        let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
+        let party = session
+            .events
+            .world
+            .party
+            .get_or_insert(resonance_events::party::Party::new(
+                &data,
+                Default::default(),
+            )?);
+        party.settings.preferences = preferences.clone();
+    }
+    let behavior_sources = resonance_content::prepared::Files::load(
+        &root,
+        &[&resonance_content::field::preload_path(assets.map_id)],
+        &mut Default::default(),
+        || false,
+    )?
+    .script_sources()?;
+    let mut app = App::new();
+    super::model_preview::register(&mut app, &root);
+    app.add_plugins(
+        DefaultPlugins
+            .set(bevy::pbr::PbrPlugin {
+                gltf_enable_standard_materials: false,
+                ..default()
+            })
+            .set(AssetPlugin {
+                file_path: root.to_string_lossy().into_owned(),
+                ..default()
+            })
+            .set(WindowPlugin {
+                primary_window: None,
+                exit_condition: ExitCondition::DontExit,
+                ..default()
+            })
+            // Capture readiness must observe the completed preceding render.
+            .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
+            .disable::<bevy::winit::WinitPlugin>()
+            .disable::<bevy::gilrs::GilrsPlugin>(),
+    )
+    .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
+        std::time::Duration::ZERO,
+    ))
+    .add_plugins(MaterialPlugin::<TitleSurface>::default())
+    .add_plugins(Material2dPlugin::<TitleOutput>::default())
+    .add_plugins(FieldRendering)
+    .add_plugins(DrawOrderPlugin)
+    .init_resource::<super::scene::SampledImages>()
+    .insert_resource(Session(session))
+    .insert_resource(Manifest(assets))
+    .insert_resource(Root {
+        assets: root,
+        behavior_sources,
+    })
+    .insert_resource(super::display::OutputStage::Framebuffer)
+    .insert_resource(super::display::Display(resolution))
+    .insert_resource(Checkpoint {
+        output: output.into(),
+        since: Instant::now(),
+        settled: 0,
+        requested: false,
+        probe: probe.cloned(),
+        dialogue_hold_ticks,
+    })
+    .insert_resource(ClearColor(Color::BLACK))
+    .add_systems(Startup, (setup, super::display::initialize).chain())
+    .add_systems(
+        Update,
+        (
+            scene_systems(),
+            super::skin_bounds,
+            capture.run_if(not(resource_exists::<sequence::Recording>)),
+        )
+            .chain(),
+    );
+    super::materials::embed_shaders(&mut app);
+    super::renderer::configure(&mut app);
+    bevy::asset::embedded_asset!(app, "title_output.wgsl");
+    let ready = super::RenderReady::default();
+    app.insert_resource(ready.clone());
+    app.add_systems(
+        PostUpdate,
+        crate::timing::prepare_draws
+            .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+    );
+    app.get_sub_app_mut(bevy::render::RenderApp)
+        .context("render application unavailable")?
+        .insert_resource(ready)
+        .add_systems(
+            bevy::render::Render,
+            super::timing::rendered.in_set(bevy::render::RenderSystems::Cleanup),
+        );
+    let failure = target
+        .sequence
+        .map(|s| sequence::install(&mut app, output, s))
+        .transpose()?;
+    let exit = app.run();
+    if let Some(failure) = failure {
+        failure.result()?;
+    }
+    ensure!(exit == AppExit::Success, "field capture failed");
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)] // Device-free capture's asset and render-target setup.
+fn setup(
+    mut commands: Commands,
+    server: Res<AssetServer>,
+    manifest: Res<Manifest>,
+    session: Res<Session>,
+    mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut outputs: ResMut<Assets<TitleOutput>>,
+    root: Res<Root>,
+    mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
+    mut surfaces: ResMut<Assets<TitleSurface>>,
+    display: Res<super::display::Display>,
+    device: Res<bevy::render::renderer::RenderDevice>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let size = match display.0.validate(device.limits().max_texture_dimension_2d) {
+        Ok(()) => display.0,
+        Err(error) => {
+            error!("{error:#}");
+            exit.write(AppExit::error());
+            super::Resolution::default()
+        }
+    };
+    let effects = super::field_effects::Artwork::load(
+        &root.assets,
+        &manifest.0,
+        &server,
+        &mut meshes,
+        &mut surfaces,
+    )
+    .expect("validated cooked field effects");
+    commands.insert_resource(effects);
+    let files = resonance_content::prepared::Files::load(
+        &root.assets,
+        &[&super::new_game::manifest_path(manifest.0.map_id)],
+        &mut Default::default(),
+        || false,
+    )
+    .expect("capture UI files");
+    let data = session
+        .0
+        .events
+        .resources()
+        .session_data
+        .clone()
+        .expect("capture session data");
+    let mut ui = super::field_ui::Artwork::load_with(
+        &manifest.0,
+        data,
+        &server,
+        &mut ui_materials,
+        &mut images,
+        &files,
+    )
+    .expect("validated cooked dialogue artwork");
+    ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
+    commands.insert_resource(ui);
+    let mut final_image =
+        Image::new_target_texture(size.width, size.height, TextureFormat::Bgra8UnormSrgb, None);
+    final_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+    let final_image = images.add(final_image);
+    commands.insert_resource(super::Framebuffer(RenderTarget::Image(
+        final_image.clone().into(),
+    )));
+    let mut source = Image::new_target_texture(
+        size.width,
+        size.scene_height(),
+        TextureFormat::Bgra8Unorm,
+        None,
+    );
+    source.sampler = ImageSampler::linear();
+    source.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+    let source = images.add(source);
+    commands.spawn((
+        Camera2d,
+        Tonemapping::None,
+        Msaa::Off,
+        Camera {
+            order: 0,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        RenderTarget::Image(source.clone().into()),
+        super::camera::overlay_alignment(),
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::Fixed {
+                width: WIDTH as f32,
+                height: HEIGHT as f32,
+            },
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(WIDTH as f32, HEIGHT as f32))),
+        MeshMaterial2d(outputs.add(TitleOutput {
+            source: source.clone(),
+            brightness: Vec4::new(1., 0., 0., 0.),
+            screen_offset: Vec2::ZERO,
+        })),
+        RenderLayers::layer(2),
+        super::display::OutputQuad,
+        Transform::default(),
+    ));
+    commands.spawn((
+        Camera2d,
+        Tonemapping::None,
+        Msaa::Off,
+        RenderLayers::layer(2),
+        Camera {
+            order: 1,
+            ..default()
+        },
+        RenderTarget::Image(final_image.into()),
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::Fixed {
+                width: WIDTH as f32,
+                height: HEIGHT as f32,
+            },
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
+    let camera = session.0.events.world.field_camera.as_ref().unwrap();
+    commands.spawn((
+        Camera3d {
+            depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::TEXTURE_BINDING)
+                .into(),
+            ..default()
+        },
+        Tonemapping::None,
+        Msaa::Off,
+        RenderTarget::Image(source.into()),
+        super::FieldCamera,
+        Camera {
+            order: -1,
+            ..default()
+        },
+        camera_transform(camera),
+        Projection::custom(TitleProjection(PerspectiveProjection {
+            fov: camera.fov_degrees().to_radians(),
+            aspect_ratio: 4. / 3.,
+            near: super::camera::FIELD_NEAR,
+            far: super::camera::FIELD_FAR,
+            ..default()
+        })),
+    ));
+    commands.insert_resource(load_art(
+        &manifest.0,
+        &server,
+        root.behavior_sources.clone(),
+    ));
+}
+
 #[allow(clippy::too_many_arguments)] // Snapshot readiness, actor evidence, and GPU readback.
 fn capture(
     mut commands: Commands,
@@ -2347,7 +2559,12 @@ fn capture(
     if !art.ready
         || parts.is_empty()
         || parts.iter().any(|p| !p.prepared)
-        || !ready.0.load(std::sync::atomic::Ordering::Relaxed)
+        || !ready
+            .0
+            .lock()
+            .unwrap()
+            .completed
+            .load(std::sync::atomic::Ordering::Acquire)
         || !refraction.get()
     {
         checkpoint.settled = 0;
@@ -2400,4 +2617,21 @@ fn capture(
             }
         },
     );
+}
+
+#[derive(Resource)]
+struct Checkpoint {
+    output: PathBuf,
+    since: Instant,
+    settled: u32,
+    requested: bool,
+    probe: Option<super::ClassroomProbe>,
+    dialogue_hold_ticks: u32,
+}
+#[derive(Resource)]
+struct Manifest(FieldAssets);
+#[derive(Resource)]
+struct Root {
+    assets: PathBuf,
+    behavior_sources: BTreeMap<String, String>,
 }

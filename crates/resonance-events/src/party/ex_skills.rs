@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(super) struct Rules {
-    pub data: Arc<ExSkillData>,
+    pub data: Arc<resonance_content::menu_data::MenuData>,
     pub character: usize,
 }
 
@@ -19,13 +19,11 @@ fn skill_allowed(choices: &[[u8; 4]; 4], level: u8, skill: u8) -> bool {
 impl Member {
     pub fn active_compound_ex(&self, data: &ExSkillData, character: usize) -> Vec<u8> {
         data.characters[character]
-            .compounds
-            .iter()
-            .enumerate()
-            .filter_map(|(i, c)| {
-                (self.compound_ex_skills.contains(&(i as u8))
-                    && c.required.iter().all(|s| self.ex_skills.contains(s)))
-                .then_some(i as u8)
+            .equipped_compounds(&self.ex_skills)
+            .filter_map(|(i, _)| {
+                self.compound_ex_skills
+                    .contains(&(i as u8))
+                    .then_some(i as u8)
             })
             .collect()
     }
@@ -90,12 +88,9 @@ impl Member {
 }
 
 impl Party {
-    pub fn bind_ex_skills(&mut self, session: &SessionData) {
+    pub fn bind_rules(&mut self, session: &SessionData) {
         for (character, member) in self.members.iter_mut().enumerate() {
-            member.ex_rules = session
-                .ex_skills
-                .clone()
-                .map(|data| Rules { data, character });
+            member.rules = session.rules.clone().map(|data| Rules { data, character });
         }
     }
 
@@ -107,10 +102,11 @@ impl Party {
         slot: usize,
         level: u8,
     ) -> Result<bool, String> {
-        let rules = session
-            .ex_skills
+        let rules = &session
+            .rules
             .as_ref()
-            .ok_or("EX skill rules were not prepared")?;
+            .ok_or("EX skill rules were not prepared")?
+            .ex_skills;
         let target = self.members.get(member).ok_or("unknown party member")?;
         let old = *target.ex_gems.get(slot).ok_or("unknown EX gem slot")?;
         if !(1..=5).contains(&level) || old == level {
@@ -121,7 +117,7 @@ impl Party {
             return Ok(false);
         }
         self.change_item(session, item, -1)?;
-        self.bind_ex_skills(session);
+        self.bind_rules(session);
         let target = &mut self.members[member];
         target.ex_gems[slot] = level;
         target.ex_skills[slot] = 0;
@@ -136,10 +132,11 @@ impl Party {
         slot: usize,
         skill: u8,
     ) -> Result<bool, String> {
-        let data = session
-            .ex_skills
+        let data = &session
+            .rules
             .as_ref()
-            .ok_or("EX skill rules were not prepared")?;
+            .ok_or("EX skill rules were not prepared")?
+            .ex_skills;
         let target = self.members.get(member).ok_or("unknown party member")?;
         let level = *target.ex_gems.get(slot).ok_or("unknown EX skill slot")?;
         let choices = &data.characters[member].levels;
@@ -147,7 +144,7 @@ impl Party {
         {
             return Ok(false);
         }
-        self.bind_ex_skills(session);
+        self.bind_rules(session);
         let target = &mut self.members[member];
         target.ex_skills[slot] = skill;
         target.clamp_vitals();

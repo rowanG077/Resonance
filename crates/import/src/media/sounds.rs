@@ -1,9 +1,8 @@
-use super::{PLAYBACK_RATE, SAMPLE_RATE, Workspace, hash_file, wav_frames, write_json};
+use super::{PLAYBACK_RATE, Workspace, hash_file, write_json};
 use anyhow::Result;
-use resonance_asset_writer::wav::write_pcm16;
-use resonance_audio::cue::package::{Asset, Manifest, Sample};
+use resonance_audio::cue::package::{Asset, Manifest, Program};
 use serde_json::json;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, fs};
 
 /// Prepare menu cues in Rust, without an audio output device.
 pub(crate) fn prepare_title_sounds(workspace: Workspace) -> Result<()> {
@@ -19,13 +18,9 @@ pub(crate) fn prepare_title_sounds(workspace: Workspace) -> Result<()> {
     let metadata = workspace.output.join("title-sounds.json");
     let bytes = fs::read(&bank_path)?;
     let bank = pools.bank(&bytes)?;
-    let tables = super::sound_buses::tables(&executable_bytes)?;
-    let mut previews = serde_json::Map::new();
     let mut cues = BTreeMap::new();
     for (name, id) in ids {
-        let path = format!("audio/menu-{name}.wav");
-        let destination = workspace.output.join(&path);
-        let (resources, score) = super::sound_library::sound(&bank, id)?;
+        let (resources, score) = super::sound_library::sound(&bank, id, &pools.sustains)?;
         let package = super::sound_library::package(
             &workspace.output,
             &resources,
@@ -34,61 +29,24 @@ pub(crate) fn prepare_title_sounds(workspace: Workspace) -> Result<()> {
             auxiliary_reverbs,
         )?;
         let program = super::field_audio::write_package(
-            &workspace,
+            &workspace.output,
             &format!("audio/menu-sound-{id}.json"),
             &package,
         )?;
-        let package = resonance_audio::package::Loaded {
-            resources: resonance_audio::data::Resources {
-                programs: package.programs,
-                samples: resources.samples,
-            },
-            score: package.score,
-            tables: package.tables,
-            reverbs: package.reverbs,
-        };
-        let mut stream =
-            resonance_audio::sequence::stream::Stream::new(std::sync::Arc::new(package), false)?;
-        let mut buses = [Vec::new(), Vec::new(), Vec::new()];
-        while let Some(block) = stream.block(resonance_audio::sequence::LiveControls {
-            pan: Some(64),
-            ..Default::default()
-        })? {
-            anyhow::ensure!(
-                buses[0].len() / 2 + block.len() <= (SAMPLE_RATE * 10) as usize,
-                "menu cue exceeds ten seconds"
-            );
-            for frame in block {
-                for (bus, samples) in buses.iter_mut().zip(frame) {
-                    bus.extend(samples);
-                }
-            }
-        }
-        let samples = resonance_audio::reverb::mix_studio(&buses, auxiliary_reverbs)?;
-        let frames = write_pcm(&destination, &samples)?;
         cues.insert(
             name.into(),
             Asset {
-                frames,
-                sample: None,
-                program: Some(Sample {
+                program: Program {
                     path: program.path,
                     sha256: program.sha256,
-                }),
-                controls: Vec::new(),
+                },
             },
-        );
-        previews.insert(
-            name.into(),
-            json!({"path": path, "sha256": hash_file(&destination)?,
-            "frames": frames, "sample_rate": PLAYBACK_RATE, "channels": 2}),
         );
     }
     let package = Manifest {
         version: resonance_audio::cue::package::VERSION,
         sample_rate: PLAYBACK_RATE,
         reverbs: auxiliary_reverbs,
-        tables,
         cues,
     };
     let path = "audio/menu-cues.json";
@@ -97,28 +55,11 @@ pub(crate) fn prepare_title_sounds(workspace: Workspace) -> Result<()> {
         &serde_json::to_value(package)?,
     )?;
     let sha256 = hash_file(&workspace.output.join(path))?;
-    Manifest::load(&workspace.output, path, &sha256)?;
+    Manifest::load(&workspace.output, path, &sha256, |_, error| Err(error))?;
     write_json(
         &metadata,
-        &json!({"version": 3, "path": path, "sha256":sha256, "previews": previews}),
+        &json!({"version": 3, "path": path, "sha256":sha256}),
     )?;
-    println!(
-        "Cooked {} menu cues with live controls and isolated previews",
-        ids.len()
-    );
+    println!("Cooked {} menu cues for live synthesis", ids.len());
     Ok(())
-}
-
-fn write_pcm(path: &Path, samples: &[i16]) -> Result<u32> {
-    anyhow::ensure!(
-        !samples.is_empty()
-            && samples.len().is_multiple_of(2)
-            && samples.len() <= SAMPLE_RATE as usize * 10 * 2,
-        "invalid cue length"
-    );
-    let temporary = crate::temporary_path(path);
-    write_pcm16(&temporary, 2, PLAYBACK_RATE, samples.iter().copied())?;
-    let frames = wav_frames(&temporary, PLAYBACK_RATE, PLAYBACK_RATE * 10)?;
-    crate::publication::install(&temporary, path, &hash_file(&temporary)?)?;
-    Ok(frames)
 }

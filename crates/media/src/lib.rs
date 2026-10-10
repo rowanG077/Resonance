@@ -108,36 +108,6 @@ impl<T> Drop for Track<T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cancelling_a_busy_decoder_returns_before_the_decode_finishes() {
-        let (started, started_rx) = mpsc::channel();
-        let (release, release_rx) = mpsc::channel();
-        let (finished, finished_rx) = mpsc::channel();
-        let track = Track::<()>::start("cancel-test", 1, move |cancelled, _| {
-            started.send(())?;
-            release_rx.recv()?;
-            finished.send(cancelled.load(Ordering::Acquire))?;
-            Ok(())
-        })
-        .unwrap();
-        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        let (dropped, dropped_rx) = mpsc::channel();
-        let caller = thread::spawn(move || {
-            drop(track);
-            dropped.send(()).unwrap();
-        });
-        let returned = dropped_rx.recv_timeout(Duration::from_secs(1));
-        release.send(()).unwrap();
-        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
-        caller.join().unwrap();
-        assert!(returned.is_ok(), "cancellation waited for the decoder");
-    }
-}
-
 /// Independent local-file audio/video workers with bounded queues. Video runs
 /// ten decoded frames ahead; neither decoding nor video backpressure holds up
 /// audio. Dropping a track cancels its worker without waiting for a decode or read.
@@ -206,5 +176,35 @@ impl MovieDecoder {
                 return Ok(frame);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancelling_a_busy_decoder_returns_before_the_decode_finishes() {
+        let (started, started_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let (finished, finished_rx) = mpsc::channel();
+        let track = Track::<()>::start("cancel-test", 1, move |cancelled, _| {
+            started.send(())?;
+            release_rx.recv()?;
+            finished.send(cancelled.load(Ordering::Acquire))?;
+            Ok(())
+        })
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (dropped, dropped_rx) = mpsc::channel();
+        let caller = thread::spawn(move || {
+            drop(track);
+            dropped.send(()).unwrap();
+        });
+        let returned = dropped_rx.recv_timeout(Duration::from_secs(1));
+        release.send(()).unwrap();
+        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        caller.join().unwrap();
+        assert!(returned.is_ok(), "cancellation waited for the decoder");
     }
 }

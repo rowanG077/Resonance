@@ -37,9 +37,14 @@ pub(crate) fn camera(track: crate::all_assets::CameraTrack) -> Result<Vec<Camera
 }
 
 pub(crate) fn title_source(extracted: &Path, executable: &[u8]) -> Result<String> {
-    const TITLE_FIELD: usize = 474;
     let phases = crate::field_catalogue::read(executable)?;
-    let resource = phases.records[TITLE_FIELD]
+    let mut title = phases
+        .records
+        .iter()
+        .filter(|phase| phase.scene_role == crate::field_catalogue::SceneRole::Title);
+    let resource = title
+        .next()
+        .context("missing title field declaration")?
         .resource
         .as_deref()
         .context("title field has no resource")?;

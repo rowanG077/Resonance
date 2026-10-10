@@ -124,6 +124,7 @@ impl NativeHost<'_> {
             .map(Ok)
             .unwrap_or_else(|| self.resources.resolve(script_id, kind))
     }
+    /// Query the authored clip curves at the playback clock, independent of render blending.
     fn attachment(&self, id: i32, node: i32) -> Result<[i32; 3], String> {
         let Some(actor) = self.world.actors.get(&id) else {
             return Ok([0; 3]);
@@ -355,14 +356,26 @@ impl NativeHost<'_> {
                             .world
                             .actors
                             .get(&a[3])
-                            .is_some_and(|actor| actor.heading != actor.target_heading))
+                            .is_some_and(|actor| !actor.facing_target()))
                     .then_some(a[3]),
+                    actor_activity_released: false,
                     flags,
                     dimensions,
                     height_offset: if dimensions.is_none() { a[5] as i16 } else { 0 },
                 };
                 if let Some(old) = self.world.dialogue.insert(a[0] as u8, dialogue) {
                     old.operation.cancel();
+                }
+                // Link concrete field actors to the dialogue window.
+                if a[2] == -1
+                    && a[3] != crate::CONTROLLED_ACTOR
+                    && let Some(actor) = self.world.actors.get_mut(&a[3])
+                    // Keep the existing moving-speaker behavior outside the
+                    // proved stationary field request path.
+                    && actor.motion.is_none()
+                    && let Some(autonomy) = &mut actor.autonomy
+                {
+                    autonomy.begin_dialogue(a[0] as u8);
                 }
             }
             NativeCall::GetEventActor => value = Some(i32::from(self.event_actor)),
@@ -481,13 +494,13 @@ impl NativeHost<'_> {
                             .ok()
                             .and_then(|id| party.members.get_mut(id))
                     });
-                    let previous = member.map_or(0, |member| {
-                        let previous = member.conditions as i32;
+                    let previous = member.map_or(Ok(0), |member| -> Result<i32, String> {
+                        let previous = party::script_conditions(member) as i32;
                         if op == NativeCall::SetActorProperty {
-                            member.conditions = a[2] as u32;
+                            party::set_script_conditions(member, a[2] as u32)?;
                         }
-                        previous
-                    });
+                        Ok(previous)
+                    })?;
                     return Ok(NativeResult::Continue(Some(previous)));
                 }
                 if matches!(a[1], 102 | 104) {
@@ -960,9 +973,10 @@ impl NativeHost<'_> {
                         resource,
                         end_tick: self.world.tick.saturating_add(*duration),
                     });
-                    self.world
-                        .audio_commands
-                        .push(crate::AudioCommand::Voice(resource));
+                    self.world.audio_commands.push(crate::AudioCommand::Voice {
+                        resource,
+                        completion: None,
+                    });
                     return self.yield_update();
                 }
             }
@@ -1136,28 +1150,39 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(None));
                 }
                 if a[1] == 0 {
-                    if let Some(actor) = self.world.actors.get_mut(&a[0]) {
-                        actor.scripted_animation = false;
-                    }
-                    let actor = self.world.actors.get_mut(&a[0]).unwrap();
+                    let Some(actor) = self.world.actors.get_mut(&a[0]) else {
+                        return Ok(NativeResult::Continue(None));
+                    };
+                    actor.scripted_animation = false;
                     if let Some(model) = self.resources.model(actor.resource) {
-                        let dialogue = self.world.dialogue.values().any(|d| d.operation.is_pending()
-                            && matches!(d.anchor, crate::dialogue::DialogueAnchor::Actor(speaker) if speaker == a[0]));
-                        actor.select_automatic_animation(
+                        let walking = actor
+                            .autonomy
+                            .is_some_and(|ai| ai.activity == crate::Activity::Walk);
+                        let movement_speed = actor
+                            .motion
+                            .as_ref()
+                            .map(|motion| motion.speed)
+                            .or_else(|| walking.then(|| actor.autonomy.unwrap().speed));
+                        let dialogue = self.world.dialogue.values().any(|dialogue| {
+                            dialogue.operation.is_pending() && dialogue.speaker_actor == Some(a[0])
+                        });
+                        actor.select_ordinary_animation(
                             model,
                             self.world.tick,
-                            crate::animation::Locomotion {
-                                movement_speed: actor.motion.as_ref().map(|m| m.speed),
-                                walking: false,
+                            crate::animation::OrdinaryAnimation {
+                                movement_speed,
                                 turn: actor.turn_direction(),
-                                dialogue,
+                                walking,
                                 event_controlled: !self.world.input_enabled
                                     && a[0] == self.world.controlled_actor,
-                                player_controlled: self.world.input_enabled
+                                player_locomotion: self.world.input_enabled
                                     && a[0] == self.world.controlled_actor,
-                                release: Some(a[3]),
+                                dialogue,
                             },
+                            Some(a[3].max(0) as u32),
                         );
+                    } else {
+                        actor.animation = None;
                     }
                     return Ok(NativeResult::Continue(None));
                 }
@@ -1543,7 +1568,7 @@ impl NativeHost<'_> {
                     | NativeCall::ReadActorAttachment
             ) {
             adapted = arguments.to_vec();
-            adapted[0] = self.world.controlled_actor;
+            adapted[0] = self.world.resolve_actor_id(adapted[0]);
             adapted.as_slice()
         } else {
             arguments

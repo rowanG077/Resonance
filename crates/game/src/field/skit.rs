@@ -41,6 +41,15 @@ impl Skits {
         }
     }
 
+    pub fn continue_from(&mut self, previous: &Self) {
+        *self = Self {
+            data: self.data.clone(),
+            control_ticks: previous.control_ticks,
+            ..Default::default()
+        };
+    }
+
+    #[cfg(test)]
     pub fn next_field(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -181,7 +190,20 @@ impl FieldSession {
     /// Decode scenarios while preparing the field. Z never reads the filesystem.
     pub fn prepare_skits(&mut self, files: &resonance_content::prepared::Files) -> Result<()> {
         if let Some(catalog) = self.skits.data.clone() {
-            self.skit_programs = Prepared::load(catalog, files)?;
+            self.skit_programs = Prepared::load_with(
+                catalog.clone(),
+                files,
+                self.events.resources(),
+                &self.diagnostics,
+            )?;
+            let mut available = (*catalog).clone();
+            available
+                .skits
+                .retain(|skit| self.skit_programs.contains_key(&skit.id));
+            available
+                .resources
+                .retain(|id, _| self.skit_programs.contains_key(id));
+            self.skits = Skits::new(Some(Arc::new(available)));
         }
         Ok(())
     }
@@ -203,6 +225,14 @@ impl FieldSession {
             preview,
             completion,
         )?);
+        Ok(())
+    }
+    pub fn cancel_skit(&mut self) -> Result<()> {
+        if let Some(skit) = &mut self.active_skit {
+            skit.cancel(&mut self.events)?;
+        }
+        self.active_skit = None;
+        self.skits.reset();
         Ok(())
     }
     pub(super) fn step_skit(&mut self, input: FieldInput) -> Result<()> {

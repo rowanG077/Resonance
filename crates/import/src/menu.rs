@@ -2,33 +2,91 @@
 use crate::write_atomic;
 use anyhow::{Context, Result, ensure};
 use recipe::Bank;
-use resonance_content::menu::{MenuArt, MenuSprites, MenuTexture, WindowArt};
+use resonance_content::menu::{MenuArt, MenuSprites, MenuTexture, Sprite, WindowArt};
 use std::path::Path;
 mod data;
+pub use data::items;
 pub(crate) use data::text::source as source_text;
-pub(crate) use data::world_map::cook as world_map;
+pub(crate) fn world_map(
+    source: &crate::all_assets::world_map::Catalogue,
+    phases: &crate::field_catalogue::Phases,
+    ui: &crate::all_assets::inventory_ui::Catalogue,
+) -> anyhow::Result<resonance_content::menu_data::WorldMapData> {
+    Ok(data::world_map::cook(source, phases, ui)?.0)
+}
 pub(crate) use data::{Inputs, Source, Tables, assemble};
 mod artwork;
 mod recipe;
 mod shops;
 pub use shops::{ShopInventoryCheck, ShopInventoryValidation, ShopItemCheck, validate_shops};
 
+/// Republish menu artwork, rules and labels while reusing converted monster previews.
+/// Every gameplay record is rebuilt from the source tables; no old rule schema is read.
+pub fn publish_metadata(
+    extracted: &Path,
+    prepared: &Path,
+    output: &Path,
+) -> Result<(resonance_content::menu_data::MenuData, Vec<String>)> {
+    let executable = std::fs::read(extracted.join("sys/main.dol"))?;
+    let catalogues = crate::all_assets::Catalogues::read(&executable)?;
+    let mut tables = catalogues.menu()?;
+    tables.data.presentation.monsters = Some(crate::monsters::publish_metadata(
+        extracted, prepared, output,
+    )?);
+    tables.data.validate()?;
+    let path = "game/menu-data.json";
+    write_atomic(
+        &output.join(path),
+        &serde_json::to_vec_pretty(&tables.data)?,
+    )?;
+    let mut paths = vec![
+        path.into(),
+        crate::session::cook(&executable, &catalogues.menu, output)?,
+        crate::session::cook_text(&executable, &catalogues.menu, output)?,
+        crate::arte::publish(&catalogues.menu.arte, output)?,
+    ];
+    let crate::font::PreparedDialogue { font, art } = crate::font::prepare(extracted, output)?;
+    paths.extend([
+        "ui/dialogue.json".into(),
+        "ui/story-subtitles.json".into(),
+        art.font,
+        font.texture,
+    ]);
+    paths.extend(art.textures.into_iter().map(|texture| texture.path));
+    paths.extend(cook_art(
+        extracted,
+        output,
+        &executable,
+        tables.artwork,
+        tables.data.items.len(),
+    )?);
+    Ok((tables.data, paths))
+}
+
 pub(crate) fn cook(
     extracted: &Path,
     output: &Path,
     executable: &[u8],
     catalogues: &crate::all_assets::Catalogues,
+    battle_sources: &crate::source_assets::Sources,
+    usual: &[u8],
 ) -> Result<()> {
     let mut tables = catalogues.menu()?;
-    tables.data.monsters = crate::monsters::prepare(
+    tables.data.presentation.monsters = Some(crate::monsters::prepare(
         extracted,
         output,
-        executable,
+        battle_sources,
+        usual,
         &catalogues.monsters,
         &catalogues.menu.inventory,
-    )?;
-    tables.data.figurines = crate::figurines::prepare(extracted, output, &catalogues.figurines)?;
+    )?);
+    tables.figurines = crate::figurines::prepare(extracted, output, &catalogues.figurines)?;
     tables.data.validate()?;
+    tables.manual.validate()?;
+    tables.figurines.validate()?;
+    tables.synopsis.validate()?;
+    tables.customize.validate()?;
+    tables.rename.validate()?;
     let sources: std::collections::BTreeMap<_, _> = resonance_script_content::MODULES
         .iter()
         .map(|&(module, source)| (module.to_owned(), source.to_owned()))
@@ -36,11 +94,11 @@ pub(crate) fn cook(
     let mut preparation = symphonia_script_tools::PreparationCache::default();
     for preview in tables
         .data
-        .monsters
+        .monsters()?
         .records
         .iter()
         .map(|row| &row.preview)
-        .chain(tables.data.figurines.records.iter().map(|row| &row.preview))
+        .chain(tables.figurines.records.iter().map(|row| &row.preview))
     {
         if let Some(binding) = &preview.behavior {
             resonance_model_behavior::PreparedBehavior::prepare(
@@ -56,7 +114,38 @@ pub(crate) fn cook(
         &output.join("game/menu-data.json"),
         &serde_json::to_vec_pretty(&tables.data)?,
     )?;
-    cook_art(extracted, output, executable, tables.artwork)
+    for (path, payload) in [
+        (
+            resonance_content::menu_data::MANUAL_PATH,
+            serde_json::to_vec_pretty(&tables.manual)?,
+        ),
+        (
+            resonance_content::menu_data::FIGURINES_PATH,
+            serde_json::to_vec_pretty(&tables.figurines)?,
+        ),
+        (
+            resonance_content::menu_data::SYNOPSIS_PATH,
+            serde_json::to_vec_pretty(&tables.synopsis)?,
+        ),
+        (
+            resonance_content::menu_data::CUSTOMIZE_PATH,
+            serde_json::to_vec_pretty(&tables.customize)?,
+        ),
+        (
+            resonance_content::menu_data::RENAME_PATH,
+            serde_json::to_vec_pretty(&tables.rename)?,
+        ),
+    ] {
+        write_atomic(&output.join(path), &payload)?;
+    }
+    cook_art(
+        extracted,
+        output,
+        executable,
+        tables.artwork,
+        tables.data.items.len(),
+    )?;
+    Ok(())
 }
 
 fn cook_art(
@@ -64,7 +153,8 @@ fn cook_art(
     output: &Path,
     executable: &[u8],
     recipe: recipe::Recipe,
-) -> Result<()> {
+    item_count: usize,
+) -> Result<Vec<String>> {
     let library = artwork::Library::open(extracted, output, executable, recipe)?;
     let mut textures = library.bank(Bank::Frames, 1)?;
     let symbols = library.decode(Bank::Symbols)?;
@@ -92,8 +182,8 @@ fn cook_art(
     let windows = cook_windows(&library, &mut textures)?;
     let art = MenuArt {
         version: MenuArt::VERSION,
-        windows,
-        textures,
+        windows: windows.into_iter().enumerate().collect(),
+        textures: textures.into_iter().enumerate().collect(),
         sprites,
         fill: library.recipe.fill,
         popup_fill: library.recipe.popup_fill,
@@ -101,11 +191,14 @@ fn cook_art(
         palette: library.recipe.palette,
         labels: library.recipe.labels,
     };
-    art.validate()?;
+    art.validate(item_count)?;
     write_atomic(
         &output.join("ui/menu.json"),
         &serde_json::to_vec_pretty(&art)?,
-    )
+    )?;
+    Ok(std::iter::once("ui/menu.json".to_owned())
+        .chain(art.textures.values().map(|texture| texture.path.clone()))
+        .collect())
 }
 
 fn cook_windows(
@@ -116,6 +209,11 @@ fn cook_windows(
         Ok(library
             .bank(address, opaque_images)?
             .into_iter()
+            .take(if address == Bank::Alternate {
+                13
+            } else {
+                usize::MAX
+            })
             .map(|texture| {
                 let index = textures.len();
                 textures.push(texture);
@@ -124,11 +222,11 @@ fn cook_windows(
             .collect())
     };
     let plain = bank(Bank::Plain, 1)?;
+    // The last alternate-window image is an unused selection sprite.
     let alternate = bank(Bank::Alternate, 1)?;
     let patterns = bank(Bank::Patterns, 5)?;
-    let cursor = bank(Bank::Cursor, 0)?;
     ensure!(
-        plain.len() == 1 && alternate.len() == 14 && patterns.len() == 5 && cursor.len() == 1,
+        plain.len() == 1 && alternate.len() == 13 && patterns.len() == 5,
         "unsupported menu window banks"
     );
     let patterns = |last| std::array::from_fn(|i| if i == 5 { last } else { patterns[i] });
@@ -136,8 +234,6 @@ fn cook_windows(
         WindowArt {
             patterns: patterns(plain[0]),
             heading: None,
-            cursor: Some(cursor[0]),
-            cursor_motion: library.recipe.cursor_motion[0],
             slices: None,
             outset: 4,
             flourish_outset: [0; 2],
@@ -148,8 +244,6 @@ fn cook_windows(
         WindowArt {
             patterns: patterns(0),
             heading: Some(12),
-            cursor: None,
-            cursor_motion: library.recipe.cursor_motion[1],
             slices: Some(std::array::from_fn(|i| i)),
             outset: 3,
             flourish_outset: [7, 17],
@@ -160,8 +254,6 @@ fn cook_windows(
         WindowArt {
             patterns: patterns(alternate[0]),
             heading: Some(alternate[12]),
-            cursor: Some(alternate[13]),
-            cursor_motion: library.recipe.cursor_motion[1],
             slices: Some(alternate[..12].try_into()?),
             outset: 4,
             flourish_outset: [8, 4],
@@ -202,23 +294,17 @@ fn cook_sprites(
         .take(9)
         .cloned()
         .map(&mut add)
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("missing party portraits"))?;
+        .collect::<Result<Vec<_>>>()?;
     let technique = library
         .images(Bank::Technique)?
         .into_iter()
         .map(&mut add)
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("unexpected technique gauge atlas"))?;
+        .collect::<Result<Vec<_>>>()?;
     let strategy_characters = library
         .images(Bank::Strategy)?
         .into_iter()
         .map(&mut add)
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("missing strategy characters"))?;
+        .collect::<Result<Vec<_>>>()?;
     let tech_ranks = symbols
         .iter()
         .take(2)
@@ -267,25 +353,19 @@ fn cook_sprites(
         .images(Bank::Recipes)?
         .into_iter()
         .map(&mut add)
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("unexpected recipe artwork count"))?;
+        .collect::<Result<Vec<_>>>()?;
     let cooking_stars = symbols
         .iter()
         .skip(11)
         .take(2)
         .cloned()
         .map(&mut add)
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .unwrap();
+        .collect::<Result<Vec<_>>>()?;
     let condition_icons = library
         .images(Bank::Conditions)?
         .into_iter()
         .map(&mut add)
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("unexpected portrait condition icons"))?;
+        .collect::<Result<Vec<_>>>()?;
     let petrified_portraits = portrait_images
         .into_iter()
         .take(9)
@@ -297,18 +377,14 @@ fn cook_sprites(
             }
             add(pixels)
         })
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("missing petrified portraits"))?;
+        .collect::<Result<Vec<_>>>()?;
     let equipment_markers = symbols
         .into_iter()
         .skip(4)
         .take(7)
         .chain([library.glyph(library.recipe.equipped)?])
         .map(&mut add)
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("missing equipment comparison markers"))?;
+        .collect::<Result<Vec<_>>>()?;
     let path = "ui/menu/party.ktx2";
     crate::texture::cook(
         atlas.width(),
@@ -325,25 +401,28 @@ fn cook_sprites(
             opaque: false,
         },
         MenuSprites {
-            strategy_characters,
-            tech_ranks,
-            elements,
-            buttons,
-            item_images,
-            recipes,
-            cooking_stars,
-            item_tabs,
-            items,
-            portraits,
-            petrified_portraits,
-            condition_icons,
-            equipment_markers,
-            technique,
-            numbers,
-            leader,
-            number_colors: library.recipe.number_colors,
-            bar_colors: library.recipe.bar_colors,
-            names: library.recipe.names.clone(),
+            rects: [
+                (Sprite::StrategyCharacters, strategy_characters),
+                (Sprite::TechRanks, tech_ranks),
+                (Sprite::Elements, elements),
+                (Sprite::Buttons, buttons),
+                (Sprite::ItemImages, item_images),
+                (Sprite::Recipes, recipes),
+                (Sprite::CookingStars, cooking_stars),
+                (Sprite::ItemTabs, item_tabs),
+                (Sprite::Items, items),
+                (Sprite::Portraits, portraits),
+                (Sprite::PetrifiedPortraits, petrified_portraits),
+                (Sprite::ConditionIcons, condition_icons),
+                (Sprite::EquipmentMarkers, equipment_markers),
+                (Sprite::Technique, technique),
+                (Sprite::Numbers, vec![numbers]),
+                (Sprite::Leader, vec![leader]),
+            ]
+            .into(),
+            number_colors: library.recipe.number_colors.to_vec(),
+            bar_colors: library.recipe.bar_colors.to_vec(),
+            names: library.recipe.names.to_vec(),
         },
     ))
 }

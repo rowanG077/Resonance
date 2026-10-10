@@ -64,8 +64,6 @@ fn decode(bytes: &[u8]) -> Result<Compressor> {
             .collect()
     };
     let (attack, release) = bytes.split_at(ATTACK_RAMPS * SAMPLES_PER_BLOCK * 2);
-    // The DSP's unsigned gain interpretation and ramp order are confirmed by
-    // AXUCode::RunCompressor in Dolphin's Core/HW/DSPHLE/UCodes/AX.cpp.
     Ok(Compressor {
         version: 1,
         nominal_sample_rate_hz: 32_000,

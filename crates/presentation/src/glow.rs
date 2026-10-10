@@ -9,7 +9,7 @@ use bevy::{
 pub(super) struct GlowMaterial {
     #[texture(0)]
     #[sampler(1)]
-    texture: Handle<Image>,
+    pub(super) texture: Handle<Image>,
 }
 impl Material for GlowMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -64,7 +64,7 @@ pub(super) fn setup(
     commands.spawn((
         GlowMesh,
         // Draw scene effects after models and lights.
-        super::draw_order::DrawOrder((1 << 24) - 1, 0),
+        super::draw_order::DrawOrder(super::draw_order::Layer::Overlay, 0, 0),
         MeshMaterial3d(materials.add(GlowMaterial { texture })),
         Transform::default(),
         Visibility::Hidden,

@@ -77,7 +77,7 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
         assets.join(&part.clips[0].motion),
     )?)?);
     let mut field = resonance_game::field::FieldSession::new(
-        &std::fs::read(assets.join(&manifest.script.path))?,
+        &std::fs::read(assets.join(&manifest.script))?,
         Vec::new(),
         &manifest,
     )?;
@@ -124,25 +124,22 @@ fn mana_flames_stand_at_the_lamps_and_follow_camera_changes() -> anyhow::Result<
     app.world_mut().entity_mut(root).insert(rig);
     app.add_systems(
         Update,
-        (
-            restore,
-            move |rigs: Query<&Rig>,
-                  mut nodes: Query<&mut Transform>,
-                  mut affine: ResMut<Locals>| {
-                for rig in &rigs {
-                    crate::sparse_animation::sample(
-                        &rig.bones,
-                        &motion,
-                        0.,
-                        &mut nodes,
-                        &mut affine,
-                    )
+        move |state: State,
+              mut rigs: Query<&mut Rig>,
+              mut nodes: Query<&mut Transform>,
+              mut affine: ResMut<Locals>| {
+            let camera = state.get().events.world.field_camera.as_ref().unwrap();
+            for mut rig in &mut rigs {
+                rig.sample(&motion, 0., 1., &mut nodes, &mut affine)
                     .unwrap();
-                }
-            },
-            face_camera,
-        )
-            .chain(),
+                rig.face_camera(
+                    crate::field_view::camera_transform(camera).rotation,
+                    &mut nodes,
+                    &mut affine,
+                )
+                .unwrap();
+            }
+        },
     );
     let flame = entities[flame_bone as usize];
     for position in [[0., -1000., 0.], [1000., 0., 0.], [0., -1000., 0.]] {

@@ -1,10 +1,11 @@
-//! Field resources, placement, and framebuffer settings.
+//! Field resources, placement and scene roles.
 use crate::dol;
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use std::{collections::BTreeSet, fs, path::Path};
 
 const TABLE: u32 = 0x801e4060;
+// The table occupies 547 fixed-width rows.
 const COUNT: usize = 547;
 const STRIDE: usize = 24;
 
@@ -55,20 +56,41 @@ pub(crate) struct Phase {
     pub resource: Option<String>,
     /// 0, 0x100 and 0x200 do not register a visited world-map location.
     pub location: u16,
+    /// Signed default position, before transient X bias.
     pub default_position: [i16; 3],
     pub framebuffer_passes: FramebufferPasses,
+    /// Item Finder pool indices in selection order.
+    /// Empty disables Item Finder; one entry needs no pool-selection draw.
     pub item_finder_choices: Vec<usize>,
+    pub scene_role: SceneRole,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SceneRole {
+    Field,
+    Title,
+}
+
+impl SceneRole {
+    fn for_resource(resource: Option<&str>) -> Self {
+        match resource {
+            Some(name) if name.eq_ignore_ascii_case("tit_t00.bin") => Self::Title,
+            _ => Self::Field,
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
 pub(crate) struct FramebufferPasses {
+    /// Draw the copied framebuffer with a less-equal depth test.
     pub less_equal: bool,
     /// Its second quad uses GX_GEQUAL. Neither pass writes depth.
     pub greater_equal: bool,
 }
 
 pub(crate) fn read(executable: &[u8]) -> Result<Phases> {
-    // Exact original arrays, including their independent alignment gaps.
+    // Pool tables have independent alignment gaps.
     let item_finder_pools = [
         (0x801f9f40, 5),
         (0x801f9f4c, 6),
@@ -119,13 +141,16 @@ pub(crate) fn read(executable: &[u8]) -> Result<Phases> {
                 13 => &[0, 3, 2],
                 other => anyhow::bail!("unknown phase {id} Item Finder selector {other}"),
             };
+            let resource = (word(0) != 0)
+                .then(|| dol::text(executable, word(0)))
+                .transpose()?;
             Ok(Phase {
                 id,
-                resource: (word(0) != 0)
-                    .then(|| dol::text(executable, word(0)))
-                    .transpose()?,
+                scene_role: SceneRole::for_resource(resource.as_deref()),
+                resource,
                 location: half(6),
                 default_position: [half(8) as i16, half(10) as i16, half(12) as i16],
+                // Bits 2 and 1 select the two framebuffer passes.
                 framebuffer_passes: FramebufferPasses {
                     less_equal: row[4] & 2 == 0,
                     greater_equal: row[4] & 1 == 0,

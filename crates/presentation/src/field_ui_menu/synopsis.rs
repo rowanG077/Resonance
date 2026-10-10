@@ -4,13 +4,13 @@ use resonance_content::menu_data::{SYNOPSIS_LIST_ROWS, SYNOPSIS_TEXT_ROWS};
 impl Drawing<'_> {
     pub(super) fn synopsis(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         let state = &menu.synopsis;
-        let (entry, record) = menu.synopsis_entry();
-        let catalog = &menu.resources.as_ref().unwrap().data.synopsis;
+        let (entry, record) = menu.synopsis_entry()?;
+        let catalog = menu.synopsis_data()?;
         let fade = i32::from(state.transition.page_fade);
         self.offset = [0., -(fade * 76 / 256) as f32];
-        self.heading(&self.spec.labels["synopsis"])?;
+        self.heading(menu_label(&self.spec.labels, "synopsis")?)?;
         self.offset = [0., -(fade * 132 / 256) as f32];
-        self.frame([304., 60., 316., 60.]);
+        self.frame([304., 60., 316., 60.])?;
         self.text(&entry.heading, [312., 64.], 16., WHITE)?;
         self.text("Lv", [312., 92.], 16., GOLD)?;
         let level = record
@@ -43,9 +43,10 @@ impl Drawing<'_> {
             self.quad(FONT, [328., 148., 600., 356.], [0.5; 4], [0., 0., 0., 1.]);
             self.opacity = 255 - state.transition.page_fade;
             let index = WORLD_MAPS + usize::from(location.world);
-            let texture = &self.spec.textures[index - 1];
-            self.quad(
-                index,
+            let texture = self.spec.texture(index)?;
+            self.quad_role(
+                DrawRole::Content,
+                MaterialKey::Texture(index),
                 [336., 156., 592., 348.],
                 [0., 0., texture.width as f32, texture.height as f32],
                 [1.; 4],
@@ -53,7 +54,7 @@ impl Drawing<'_> {
         }
         let list_offset = -(fade * 280 / 256) as f32;
         self.offset = [list_offset, 0.];
-        self.frame([16., 60., 276., 368.]);
+        self.frame([16., 60., 276., 368.])?;
         let records = menu.synopsis_records();
         self.text_size(
             &format!("{}/{}", state.row + 1, records.len()),
@@ -82,10 +83,10 @@ impl Drawing<'_> {
         }
         self.clip_rows(starts, [84., 420.]);
         if state.first > 0 {
-            self.scroll_arrow(SCROLL_UP, [142., 68.]);
+            self.scroll_arrow(SCROLL_UP, [142., 68.])?;
         }
         if state.first + SYNOPSIS_LIST_ROWS < records.len() {
-            self.scroll_arrow(SCROLL_DOWN, [142., 416.]);
+            self.scroll_arrow(SCROLL_DOWN, [142., 416.])?;
         }
         self.plane = 2;
         self.offset = [(fade * 344 / 256) as f32, 0.];
@@ -116,7 +117,7 @@ impl Drawing<'_> {
         if !menu.synopsis.reading {
             return Ok(());
         }
-        let (entry, record) = menu.synopsis_entry();
+        let (entry, record) = menu.synopsis_entry()?;
         let lines = entry.lines(record.value);
         let height = lines.len().min(SYNOPSIS_TEXT_ROWS) as f32 * 27. + 17.;
         let top = 428. - height;
@@ -124,11 +125,17 @@ impl Drawing<'_> {
         let top = top + ((456. - top) * f32::from(255 - state.text_opacity) / 256.).trunc();
         self.opacity = state.text_opacity / 2;
         self.plane = 2;
-        self.quad(FONT, self.screen, [0.5; 4], [0., 0., 0., 1.]);
+        self.quad_role(
+            DrawRole::Background,
+            FONT,
+            self.screen,
+            [0.5; 4],
+            [0., 0., 0., 1.],
+        );
         self.opacity = state.text_opacity;
         self.shade([16., top, 620., top + height]);
         self.plane = 3;
-        self.frame([16., top, 604., height]);
+        self.frame([16., top, 604., height])?;
         let starts = self.vertex_counts();
         let first = state.line - usize::from(state.text_scroll > 0);
         let offset = scroll_offset(state.text_scroll, 27);
@@ -158,10 +165,10 @@ impl Drawing<'_> {
             state.line
         };
         if arrow_line > 0 {
-            self.scroll_arrow(SCROLL_UP, [306., top - 12.]);
+            self.scroll_arrow(SCROLL_UP, [306., top - 12.])?;
         }
         if first + visible < lines.len() {
-            self.scroll_arrow(SCROLL_DOWN, [306., top + height - 8.]);
+            self.scroll_arrow(SCROLL_DOWN, [306., top + height - 8.])?;
         }
         self.opacity = 255;
         Ok(())

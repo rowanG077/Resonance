@@ -13,9 +13,13 @@ use std::{
 };
 
 pub(crate) struct Sources {
+    pub module: String,
     pub usual: String,
     pub enemy: String,
-    archives: [String; 4],
+    pub weapons: String,
+    pub magic: String,
+    pub stages: String,
+    archive: String,
 }
 
 impl Sources {
@@ -25,25 +29,26 @@ impl Sources {
 
     pub(crate) fn read_with(extracted: &Path, executable: &[u8]) -> Result<Self> {
         let files = extracted.join("files");
-        let module = Rel::read(&files.join(resolve_path(&files, "US_r_Top2Btl.rel")?))?;
+        let module_path = resolve_path(&files, "US_r_Top2Btl.rel")?;
+        let module = Rel::read(&files.join(&module_path))?;
         let declaration = |offset| declared_path(&files, &module.text((4, offset))?);
         Ok(Self {
+            module: module_path,
             usual: declared_path(&files, &dol::text(executable, 0x8017e53c)?)?,
             enemy: declaration(0x2404)?,
-            archives: [
-                declaration(0x1f34)?,
-                declaration(0x1f4c)?,
-                declaration(0x24b4)?,
-                declaration(0xdfc)?,
-            ],
+            weapons: declaration(0xdfc)?,
+            magic: declaration(0x1f34)?,
+            stages: declaration(0x24b4)?,
+            archive: declaration(0x1f4c)?,
         })
     }
 
-    /// These mixed archives have general consumers, but complete battle preparation is deferred.
+    /// These mixed archives have shared consumers; remaining battle members are
+    /// tracked separately until the complete dependency set is prepared.
     pub(crate) fn deferred_paths(&self) -> BTreeSet<String> {
-        [&self.usual, &self.enemy]
+        [&self.usual, &self.enemy, &self.weapons, &self.magic]
             .into_iter()
-            .chain(&self.archives)
+            .chain([&self.archive, &self.stages])
             .cloned()
             .collect()
     }

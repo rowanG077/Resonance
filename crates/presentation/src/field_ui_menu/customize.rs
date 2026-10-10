@@ -6,7 +6,7 @@ impl Drawing<'_> {
     pub(super) fn customize(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         let state = &menu.customize;
         let settings = &state.draft;
-        let data = &menu.resources.as_ref().unwrap().data.customize;
+        let data = menu.customize_data()?;
         let fade = u32::from(state.transition.page_fade);
         let opacity = 255 - state.transition.page_fade;
         let left = -((fade * 612 / 256) as f32);
@@ -14,18 +14,18 @@ impl Drawing<'_> {
         let bottom = (fade * 140 / 256) as f32;
         self.opacity = opacity;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.heading(&self.spec.labels["customize"])?;
+        self.heading(menu_label(&self.spec.labels, "customize")?)?;
         self.offset = [right, 0.];
-        self.frame([396., 16., 224., 32.]);
+        self.frame([396., 16., 224., 32.])?;
         for (index, key) in ["cancel", "default"].into_iter().enumerate() {
             let x = 408. + index as f32 * 100.;
             if state.row == CUSTOMIZE_OPTIONS && state.defaults == (index == 1) {
                 self.highlight([x, 20., if index == 0 { 80. } else { 100. }, 24.], 255);
             }
-            self.text(&data.labels[key], [x, 20.], 20., WHITE)?;
+            self.text(menu_label(&data.labels, key)?, [x, 20.], 20., WHITE)?;
         }
         self.offset = [left, 0.];
-        self.framed([16., 60., 604., 238.], true);
+        self.framed([16., 60., 604., 238.], true)?;
         if state.row != CUSTOMIZE_OPTIONS {
             let y = 62. + (state.row - state.first) as f32 * 26.;
             self.highlight(
@@ -81,11 +81,14 @@ impl Drawing<'_> {
                     let pulse = 255 - if fade >= 256 { 511 - fade } else { fade };
                     self.opacity = (u32::from(opacity) * pulse / 255) as u8;
                     self.text(
-                        &data.labels[match row {
-                            4 => "color",
-                            5 => "volume",
-                            _ => "position",
-                        }],
+                        menu_label(
+                            &data.labels,
+                            match row {
+                                4 => "color",
+                                5 => "volume",
+                                _ => "position",
+                            },
+                        )?,
                         [x, y],
                         24.,
                         6,
@@ -96,7 +99,7 @@ impl Drawing<'_> {
                         self.text(&format!("X:{sx:3} Y:{sy:3}"), [x + 20., y], 20., WHITE)?;
                     }
                 }
-                6 => self.sprite(self.spec.sprites.buttons[6], [x, y]),
+                6 => self.sprite(self.spec.sprite(Sprite::Buttons, 6)?, [x, y]),
                 7..=12 => {
                     let on = [
                         settings.battle_voiceover,
@@ -108,7 +111,7 @@ impl Drawing<'_> {
                     ][row - 7];
                     for (index, key) in ["on", "off"].into_iter().enumerate() {
                         self.text(
-                            &data.labels[key],
+                            menu_label(&data.labels, key)?,
                             [x + index as f32 * 60., y],
                             20.,
                             if on == (index == 0) { WHITE } else { DISABLED },
@@ -120,10 +123,10 @@ impl Drawing<'_> {
         }
         self.clip_rows(starts, [60., 294.]);
         if state.first > 0 {
-            self.scroll_arrow(SCROLL_UP, [296., 52.]);
+            self.scroll_arrow(SCROLL_UP, [296., 52.])?;
         }
         if state.first + VISIBLE_OPTIONS < CUSTOMIZE_OPTIONS {
-            self.scroll_arrow(SCROLL_DOWN, [296., 282.]);
+            self.scroll_arrow(SCROLL_DOWN, [296., 282.])?;
         }
 
         self.offset = [0., bottom];
@@ -153,7 +156,7 @@ impl Drawing<'_> {
                     } else {
                         settings.colors.menu
                     },
-                );
+                )?;
                 let title = &data.color_groups[index];
                 let width = self.text_width(title, 16.)?;
                 let title_x = x + 8. + ((304. - width) / 2.).trunc();
@@ -204,7 +207,7 @@ impl Drawing<'_> {
                 } else {
                     settings.colors.menu
                 },
-            );
+            )?;
             match state.row {
                 0 => {
                     let text = &data.options[0].description;
@@ -297,7 +300,7 @@ impl Drawing<'_> {
                                 ("mono", 480., !settings.stereo),
                             ] {
                                 self.text_size(
-                                    &data.labels[key],
+                                    menu_label(&data.labels, key)?,
                                     [x, y],
                                     [16., 18.],
                                     if active { WHITE } else { DISABLED },
@@ -324,25 +327,36 @@ impl Drawing<'_> {
                             }
                         }
                         self.sprite(
-                            self.spec.sprites.buttons[usize::from(data.control_buttons[button])],
+                            self.spec.sprite(
+                                Sprite::Buttons,
+                                usize::from(data.control_buttons[button]),
+                            )?,
                             [x, y],
                         );
                         self.text(&data.actions[usize::from(action)], [x + 48., y], 20., WHITE)?;
                     }
                 }
                 13 if state.focus == Focus::Position => {
-                    self.text(&data.labels["position_help"], [24., 316.], 20., WHITE)?;
+                    self.text(
+                        menu_label(&data.labels, "position_help")?,
+                        [24., 316.],
+                        20.,
+                        WHITE,
+                    )?;
                     self.text_size("^", [310., 356.], [16.; 2], WHITE)?;
                     self.text_size("v", [310., 372.], [16.; 2], WHITE)?;
                     self.text_size("<", [302., 364.], [16.; 2], WHITE)?;
                     self.text_size(">", [318., 364.], [16.; 2], WHITE)?;
                 }
                 CUSTOMIZE_OPTIONS => self.text(
-                    &data.labels[if state.defaults {
-                        "default_help"
-                    } else {
-                        "cancel_help"
-                    }],
+                    menu_label(
+                        &data.labels,
+                        if state.defaults {
+                            "default_help"
+                        } else {
+                            "cancel_help"
+                        },
+                    )?,
                     [32., 316.],
                     20.,
                     WHITE,

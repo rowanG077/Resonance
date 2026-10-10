@@ -73,6 +73,8 @@ impl Artwork {
                     frame_mask: source.clone(),
                     color_mask: source,
                     coverage: Coverage::default(),
+                    additive: false,
+                    red_channel: false,
                     opaque: false,
                 }));
                 loaded.extend(pages);
@@ -86,6 +88,10 @@ impl Artwork {
             warm: Vec::new(),
             prepared: false,
         })
+    }
+
+    pub fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
+        self.images.iter()
     }
 
     pub fn ready(&self, images: &Assets<Image>) -> bool {

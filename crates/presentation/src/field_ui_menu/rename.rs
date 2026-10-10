@@ -2,21 +2,12 @@ use super::*;
 use resonance_game::menu::rename::Focus;
 
 impl Drawing<'_> {
-    pub(super) fn rename(
-        &mut self,
-        menu: &Menu,
-        cursor: &resonance_content::font::UiTexture,
-    ) -> Result<[f32; 2]> {
+    pub(super) fn rename(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         let state = &menu.rename;
         if state.pending {
             return Ok([0.; 2]);
         }
-        let data = &menu
-            .resources
-            .as_ref()
-            .context("name editor data")?
-            .data
-            .rename;
+        let data = menu.rename_data()?;
         let fade = u32::from(state.fade);
         self.opacity = 255 - state.fade;
         self.offset = [0., -((fade * 76 / 256) as f32)];
@@ -25,12 +16,12 @@ impl Drawing<'_> {
         if state.focus == Focus::Name {
             let x = 416. + (fade * 224 / 256) as f32;
             for (label, button, y) in [(&data.delete, 10, 58.), (&data.default, 12, 84.)] {
-                self.sprite(self.spec.sprites.buttons[button], [x, y]);
+                self.sprite(self.spec.sprite(Sprite::Buttons, button)?, [x, y]);
                 self.text(label, [x + 24., y], 24., WHITE)?;
             }
         }
         let y = 148. + (fade * 308 / 256) as f32;
-        self.framed([140., y - 4., 344., 232.], false);
+        self.framed([140., y - 4., 344., 232.], false)?;
         let key_position = |col: usize, row: usize| {
             [
                 156. + col as f32 * 24. + (col / 5) as f32 * 4. + (col / 10) as f32 * 8.,
@@ -45,7 +36,7 @@ impl Drawing<'_> {
             self.text(&c.to_string(), key_position(i % 13, i / 13), 20., WHITE)?;
         }
         let x = 64. - (fade * 304 / 256) as f32;
-        self.framed([x - 16., 64., 272., 38.], false);
+        self.framed([x - 16., 64., 272., 38.], false)?;
         let alpha = if state.focus == Focus::Name { 255 } else { 127 };
         let nx = x + state.position as f32 * 40.;
         self.highlight([nx, 68., 32., 32.], alpha);
@@ -58,10 +49,10 @@ impl Drawing<'_> {
             [nx, 84.]
         };
         if state.focus != Focus::Name {
-            self.cursor([nx, 84.], cursor, alpha);
+            self.cursor([nx, 84.], alpha);
         }
         let mut x = 320. + (fade * 320 / 256) as f32;
-        self.framed([x - 8., 20., 324., 32.], false);
+        self.framed([x - 8., 20., 324., 32.], false)?;
         for (i, command) in data.commands.iter().enumerate() {
             let width = self.text_width(command, 24.)?;
             if state.focus == Focus::Commands && state.command == i {

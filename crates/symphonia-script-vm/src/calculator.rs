@@ -57,8 +57,8 @@ impl Vm {
             0x16 | 0x36 => a & right,
             0x17 | 0x37 => a | right,
             0x18 | 0x38 => a ^ right,
-            // PowerPC variable shifts use six count bits, with >=32 shifting
-            // out the full word (Rust wrapping_shl would incorrectly mask to 5).
+            // Bytecode shift counts use their low six bits. Counts 32..63
+            // produce zero on left shift and sign-fill on right shift.
             0x19 | 0x39 => a.checked_shl((right as u32) & 63).unwrap_or(0),
             0x1a | 0x3a => a
                 .checked_shr((right as u32) & 63)

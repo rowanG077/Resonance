@@ -20,7 +20,7 @@ impl NativeHost<'_> {
             .party
             .as_mut()
             .ok_or("party is not initialized")?;
-        let random = &mut self.world.random_state;
+        let random = &mut self.world.gameplay_random;
         let controlled_actor = self.world.controlled_actor;
         let mut value = None;
         let member = || -> Result<usize, String> {
@@ -37,7 +37,12 @@ impl NativeHost<'_> {
                 use std::mem::replace;
                 let rules = &mut party.battle_rules;
                 value = Some(match a[0] {
-                    0 => i32::from(replace(&mut rules.modifiers, a[1] as u16)),
+                    0 => {
+                        let previous = party
+                            .exchange_battle_flags(a[1])
+                            .map_err(|error| error.to_string())?;
+                        i32::from(previous)
+                    }
                     1 => i32::from(replace(&mut rules.disabled_commands, a[1] as u8)),
                     2 => i32::from(replace(&mut rules.coliseum, a[1] != 0)),
                     3 => i32::from(replace(&mut rules.attack_adjustment, a[1] as i8)),
@@ -372,7 +377,10 @@ impl NativeHost<'_> {
                 )?;
                 match op {
                     NativeCall::LearnTechnique => {
-                        party.members[index].techniques.insert(id);
+                        let target = &mut party.members[index];
+                        if target.techniques.insert(id) {
+                            target.disabled_techniques.remove(&id);
+                        }
                     }
                     NativeCall::HasTechnique => {
                         value = Some(i32::from(party.members[index].techniques.contains(&id)))
@@ -383,7 +391,7 @@ impl NativeHost<'_> {
             NativeCall::HealParty => {
                 const PERCENT: [i16; 5] = [100, 50, 10, 5, 1];
                 match a[0] {
-                    0 => party.heal(|| crate::world::random(random)),
+                    0 => party.heal(|| random.next_u32()),
                     23 => party.revive_incapacitated(),
                     mode @ 2..=22 => {
                         let change = match mode {
@@ -441,7 +449,7 @@ impl NativeHost<'_> {
                     title == 0 || growth.is_some(),
                     "equipped title growth is not cooked",
                 )?;
-                party.raise_level(data, index, level, growth, || crate::world::random(random))?;
+                party.raise_level(data, index, level, growth, || random.next_u32())?;
             }
             NativeCall::ConfigureSession => {
                 if matches!(a[0], 13 | 14 | 18) {
@@ -526,4 +534,48 @@ impl NativeHost<'_> {
         }
         Ok(NativeResult::Continue(value))
     }
+}
+
+// Encoded condition operands belong to the script boundary, not saved party state.
+const MILD_POISON: u32 = 1;
+const SEVERE_POISON: u32 = 2;
+const PARALYSIS: u32 = 0x20;
+const PETRIFIED: u32 = 0x100;
+const CURSE: u32 = 0x200;
+const KNOCKED_OUT: u32 = 0x8000_0000;
+pub(super) fn script_conditions(member: &crate::party::Member) -> u32 {
+    let ailments = member.ailments;
+    (u32::from(ailments.poison.has_mild()) * MILD_POISON)
+        | (u32::from(ailments.poison.has_severe()) * SEVERE_POISON)
+        | (u32::from(ailments.paralysis) * PARALYSIS)
+        | (u32::from(ailments.petrified) * PETRIFIED)
+        | (u32::from(ailments.curse) * CURSE)
+        | (u32::from(member.knocked_out()) * KNOCKED_OUT)
+}
+pub(super) fn set_script_conditions(
+    member: &mut crate::party::Member,
+    bits: u32,
+) -> Result<(), String> {
+    use crate::party::{Ailments, Poison};
+    require(
+        bits & !(MILD_POISON | SEVERE_POISON | PARALYSIS | PETRIFIED | CURSE | KNOCKED_OUT) == 0,
+        "unsupported script condition",
+    )?;
+    member.ailments = Ailments {
+        poison: match (bits & MILD_POISON != 0, bits & SEVERE_POISON != 0) {
+            (false, false) => Poison::None,
+            (true, false) => Poison::Mild,
+            (false, true) => Poison::Severe,
+            (true, true) => Poison::Both,
+        },
+        paralysis: bits & PARALYSIS != 0,
+        petrified: bits & PETRIFIED != 0,
+        curse: bits & CURSE != 0,
+    };
+    if bits & KNOCKED_OUT != 0 {
+        member.hp = 0;
+    } else if member.hp == 0 {
+        member.hp = 1;
+    }
+    Ok(())
 }

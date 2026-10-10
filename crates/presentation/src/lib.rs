@@ -1,4 +1,7 @@
 //! Desktop presentation for the high-level title controller.
+mod diagnostics;
+#[cfg(test)]
+mod test_support;
 use anyhow::{Context, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
@@ -6,8 +9,6 @@ use bevy::{
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
     render::render_resource::{TextureFormat, TextureUsages},
-    render::view::screenshot::{Screenshot, ScreenshotCaptured},
-    sprite_render::Material2dPlugin,
     window::ExitCondition,
 };
 use resonance_content::{HEIGHT, TitleAssets, WIDTH};
@@ -24,6 +25,8 @@ use std::{
 };
 mod audio;
 mod audio_output;
+mod battle;
+mod battle_view;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
 mod camera;
@@ -35,12 +38,13 @@ mod loading;
 mod renderer;
 mod testing;
 pub use display::Resolution;
-mod choice_cursor;
 mod draw_order;
 mod field_animation;
 mod field_audio;
 #[cfg(test)]
 mod field_test;
+mod ui_coordinates;
+pub(crate) use field_audio::battle as battle_audio;
 mod sparse_animation;
 pub use field_audio::record_field_audio;
 mod field_audit;
@@ -57,8 +61,12 @@ mod field_rumble;
 mod field_ui;
 use field_ui::{credits, session_screen};
 mod field_view;
+mod game_over;
 mod glow;
 mod materials;
+pub use materials::{
+    TitleOutput, TitleSurface, TitleText, install_output_materials, install_surface_material,
+};
 mod menu_backdrop;
 mod model_preview;
 mod movie;
@@ -67,17 +75,13 @@ mod overworld;
 pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
-    CheckpointReplay, SaveOptions, prepare_checkpoint_fixture, prepare_overworld_test_fixture,
-    record_checkpoint, record_checkpoint_with_display, run_menu_probe, run_overworld_field_probe,
-    run_quicksave_probe, run_title_load_probe,
+    CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
+    prepare_overworld_test_fixture, record_checkpoint, record_new_game, run_menu_probe,
+    run_overworld_field_probe, run_quicksave_probe, run_title_load_probe,
 };
 mod new_game_capture;
-mod secondary_motion;
-pub use new_game_capture::{
-    record_new_game, record_new_game_display, record_new_game_exploration, record_new_game_until,
-    record_new_game_with_gamepad,
-};
 mod performance;
+mod secondary_motion;
 pub use performance::{PerformanceOptions, run_frame_benchmark, run_movie_probe, run_window_probe};
 mod playthrough;
 mod scene;
@@ -85,9 +89,10 @@ mod screenshot;
 pub use field_probe::ClassroomProbe;
 pub use field_view::{
     CaptureMoment, FieldControls, FieldScene, FieldSequence, FieldSequenceRenderer,
-    capture_classroom, capture_classroom_probe, capture_dialogue, capture_field_sequence,
-    capture_setup,
+    capture_field_sequence as capture_effect_sequence,
 };
+
+pub use field_probe::{FieldCapture, capture_field, capture_field_sequence};
 mod timing;
 use audio::{GameAudio, PlaybackAssets};
 use audio_output::Player as AudioPlayer;
@@ -95,7 +100,6 @@ use scene::{FieldAssets, animate_field, prepare_field, update_materials};
 #[derive(Resource)]
 struct PendingAudio(Option<PlaybackAssets>);
 use camera::TitleProjection;
-use materials::{TitleOutput, TitleText};
 
 #[derive(Resource)]
 pub struct RunOptions {
@@ -103,15 +107,13 @@ pub struct RunOptions {
     pub assets: PathBuf,
     /// Optional editable source project containing explicit fields.json bindings.
     pub script_root: Option<PathBuf>,
-    pub tick: Option<u32>,
-    pub presentation_start: Option<u32>,
+    pub capture_at: Option<CaptureAt>,
     pub capture: Option<PathBuf>,
     pub reveal: bool,
     pub selected: usize,
     pub silent: bool,
-    pub replay: Option<PathBuf>,
-    pub movie_frame: Option<u32>,
-    pub boot_frame: Option<u32>,
+    /// Stop at recoverable content/runtime errors instead of logging and continuing.
+    pub paranoid: bool,
     pub skip_intro: bool,
     /// Temporary exploration: resolve field and world battles as victories.
     pub skip_battles: bool,
@@ -125,12 +127,20 @@ impl RunOptions {
         self.capture.is_some() || self.record_playthrough.is_some()
     }
 }
-#[derive(Resource)]
-struct Replay(Option<resonance_game::replay::TitleReplay>);
+/// A CLI checkpoint translated into the shared scenario runner.
+#[derive(Clone, Copy, Debug)]
+pub enum CaptureAt {
+    TitleTick(u32),
+    MovieFrame(u32),
+    BootTick(u32),
+    LoadedField,
+}
 #[derive(Resource)]
 struct Menu(TitleState);
 #[derive(Resource, Default)]
 struct Clock(PresentationClock);
+#[derive(Resource)]
+struct TitleActive;
 #[derive(Resource)]
 struct Events(resonance_events::EventRuntime);
 #[derive(Resource)]
@@ -143,18 +153,16 @@ struct TitleQuad {
     index: usize,
     row: Option<usize>,
 }
-#[derive(Resource, Default)]
-struct ReadyFrames(u32);
 #[derive(Resource, Default, Clone)]
-struct RenderReady(Arc<AtomicBool>);
-#[derive(Resource)]
-struct CaptureStart(Instant);
+struct RenderReady(Arc<std::sync::Mutex<model_preview::gpu::Report>>);
 #[derive(Resource)]
 struct Framebuffer(RenderTarget);
 #[derive(Component)]
 // Keep the view's pipeline key stable when a field starts or finishes fog.
 #[require(DistanceFog)]
 struct FieldCamera;
+#[derive(Component)]
+struct FieldOverlayCamera;
 #[derive(Resource, Default)]
 struct PendingInput {
     held: MenuInput,
@@ -164,19 +172,6 @@ struct PendingInput {
 }
 
 impl PendingInput {
-    fn record_replay(&mut self, replay: &resonance_game::replay::TitleReplay, tick: u32) {
-        let held = replay.held(tick);
-        self.pressed = MenuInput {
-            up: held.up && !self.held.up,
-            down: held.down && !self.held.down,
-            accept: held.accept && !self.held.accept,
-            reveal: (held.up && !self.held.up)
-                || (held.down && !self.held.down)
-                || (held.accept && !self.held.accept),
-        };
-        self.held = held;
-    }
-
     fn consume(&mut self, clock: PresentationClock) -> MenuInput {
         let pressed = std::mem::take(&mut self.pressed);
         MenuInput {
@@ -203,6 +198,10 @@ pub fn run_with_display(
     performance: PerformanceOptions,
     resolution: Resolution,
 ) -> Result<()> {
+    let checkpoint = options
+        .capture_at
+        .or_else(|| options.saves.load.as_ref().map(|_| CaptureAt::LoadedField))
+        .zip(options.capture.clone());
     let headless = options.headless();
     anyhow::ensure!(
         !headless || resolution == Resolution::default(),
@@ -210,6 +209,9 @@ pub fn run_with_display(
     );
     let (mut app, recording) = build_app_with_display(options, resolution)?;
     performance::install(&mut app, performance, headless)?;
+    if let Some((at, output)) = checkpoint {
+        return playthrough::capture(app, at, &output);
+    }
     if let Some(output) = recording {
         return playthrough::record(app, output);
     }
@@ -224,18 +226,17 @@ fn build_app_with_display(
     mut options: RunOptions,
     resolution: Resolution,
 ) -> Result<(App, Option<PathBuf>)> {
-    options.skip_intro |= options.saves.load.is_some();
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(options.paranoid);
     anyhow::ensure!(
-        options.presentation_start.is_none()
-            || options.tick.is_some()
-            || (options.record_playthrough.is_some()
-                && (options.skip_intro || options.replay.is_some())),
-        "presentation-start requires a title checkpoint or a title-only playthrough"
+        options.capture_at.is_none() || options.capture.is_some(),
+        "capture target requires an output path"
     );
+    options.skip_intro |=
+        options.saves.load.is_some() || matches!(options.capture_at, Some(CaptureAt::TitleTick(_)));
     let assets = fs::canonicalize(&options.assets)
         .context("missing cooked assets; run resonance-import cook-all first")?;
     let title_path = assets.join("title.json");
-    let manifest: TitleAssets = serde_json::from_slice(
+    let mut manifest: TitleAssets = serde_json::from_slice(
         &fs::read(&title_path).with_context(|| format!("reading {}", title_path.display()))?,
     )
     .with_context(|| {
@@ -245,79 +246,42 @@ fn build_app_with_display(
         )
     })?;
     manifest.validate()?;
-    for texture in &manifest.textures {
-        anyhow::ensure!(
-            assets.join(&texture.path).is_file(),
-            "missing cooked texture {}",
-            texture.path
-        );
-    }
-    if let Some(scene) = &manifest.scene {
-        anyhow::ensure!(
-            assets.join(&scene.glow.texture).is_file(),
-            "missing glow texture; recook title assets"
-        );
-        for part in &scene.parts {
-            for path in std::iter::once(&part.mesh).chain(&part.textures) {
-                anyhow::ensure!(
-                    assets.join(path).is_file(),
-                    "missing cooked scene asset {path}"
-                );
-            }
-        }
-    }
     let mut prepared_clips = sparse_animation::Prepared::default();
-    let mut events = if let Some(scene) = &manifest.scene {
-        use sha2::{Digest, Sha256};
-        let bytes = fs::read(assets.join(&scene.script.path))
-            .context("missing SymphoniaScript title resource; recook title assets")?;
-        anyhow::ensure!(
-            format!("{:x}", Sha256::digest(&bytes)) == scene.script.sha256,
-            "title script digest mismatch"
-        );
-        Some(resonance_game::title_events::start(
-            &bytes,
-            scene,
-            |path| prepared_clips.load(&assets, path),
-        )?)
+    let events = if let Some(scene) = &manifest.scene {
+        diagnostics.attempt(
+            "startup title script",
+            (|| {
+                use sha2::{Digest, Sha256};
+                let bytes = fs::read(assets.join(&scene.script.path))
+                    .context("missing SymphoniaScript title resource; recook title assets")?;
+                anyhow::ensure!(
+                    format!("{:x}", Sha256::digest(&bytes)) == scene.script.sha256,
+                    "title script digest mismatch"
+                );
+                resonance_game::title_events::start(&bytes, scene, |path| {
+                    prepared_clips.load(&assets, path)
+                })
+            })(),
+        )?
     } else {
         None
     };
-    let replay = options
-        .replay
-        .as_ref()
-        .map(|p| -> Result<resonance_game::replay::TitleReplay> {
-            let replay: resonance_game::replay::TitleReplay =
-                serde_json::from_slice(&fs::read(p)?)?;
-            replay.validate()?;
-            Ok(replay)
-        })
-        .transpose()?;
-    let mut state = TitleState {
+    if events.is_none() {
+        manifest.scene = None;
+    }
+    let state = TitleState {
         selected: options.selected,
+        revealed: options.reveal,
         ..Default::default()
     };
-    if options.reveal {
-        state.revealed = true;
-    }
-    let mut pending = PendingInput::default();
-    let mut clock = PresentationClock::new(options.presentation_start.unwrap_or(0));
-    if let Some(tick) = options.tick {
-        for _ in 0..tick {
-            clock.advance();
-            if let Some(replay) = &replay {
-                pending.record_replay(replay, state.tick + 1);
-            }
-            if let Some(events) = &mut events {
-                events.step()?;
-            }
-            state.step(pending.consume(clock));
-        }
-    }
-    let audio = PlaybackAssets::load(&assets)?;
-    let music = (!audio.is_empty()).then_some(audio);
-    let movie = movie::Playback::load(&assets, &options)?;
-    let boot = boot::Playback::load(&assets, &options)?;
+    let music =
+        Some(PlaybackAssets::load(&assets, diagnostics.clone())?).filter(|audio| !audio.is_empty());
+    let movie = diagnostics
+        .attempt("startup movie", movie::Playback::load(&assets, &options))?
+        .unwrap_or_default();
+    let boot = diagnostics
+        .attempt("startup logos", boot::Playback::load(&assets, &options))?
+        .unwrap_or_default();
     let mut app = App::new();
     app.insert_resource(session_screen::Title {
         events: events
@@ -326,15 +290,14 @@ fn build_app_with_display(
             .transpose()?,
         audio: music.clone(),
     });
+    app.insert_resource(crate::diagnostics::Diagnostics(diagnostics));
+    app.insert_resource(TitleActive);
     app.insert_resource(prepared_clips);
     saves::install(&mut app, &options.saves)?;
     loading::install(&mut app, &assets);
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
     let capture_only = options.headless();
-    if recording.is_some() {
-        app.init_resource::<playthrough::Recording>();
-    }
     let mut plugins = DefaultPlugins
         .set(bevy::pbr::PbrPlugin {
             gltf_enable_standard_materials: false,
@@ -371,7 +334,6 @@ fn build_app_with_display(
             display::OutputStage::Scanout
         })
         .insert_resource(bevy::winit::WinitSettings::continuous())
-        .insert_resource(CaptureStart(Instant::now()))
         .insert_resource(PendingAudio(if options.saves.load.is_some() {
             None
         } else {
@@ -379,15 +341,13 @@ fn build_app_with_display(
         }))
         .insert_resource(movie)
         .insert_resource(boot)
-        .insert_resource(Replay(replay))
         .insert_resource(options)
         .insert_resource(Menu(state))
-        .insert_resource(Clock(clock))
+        .init_resource::<Clock>()
         .insert_resource(Art {
             manifest,
             images: Vec::new(),
         })
-        .init_resource::<ReadyFrames>()
         .init_resource::<PendingInput>()
         .init_resource::<FieldAssets>()
         .init_resource::<scene::SampledImages>()
@@ -397,11 +357,8 @@ fn build_app_with_display(
         ))
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(plugins)
-        .add_plugins((
-            Material2dPlugin::<TitleOutput>::default(),
-            Material2dPlugin::<TitleText>::default(),
-        ))
-        .add_plugins(MaterialPlugin::<materials::TitleSurface>::default())
+        .add_plugins(materials::install_output_materials)
+        .add_plugins(materials::install_surface_material)
         .add_plugins(MaterialPlugin::<glow::GlowMaterial>::default())
         .add_plugins(draw_order::DrawOrderPlugin)
         .add_plugins(field_view::FieldPlugin)
@@ -412,15 +369,36 @@ fn build_app_with_display(
         .init_asset::<movie::MovieAudio>()
         .add_systems(
             PreUpdate,
-            (gather_input, field_audio::acknowledge).after(bevy::input::InputSystems),
+            (
+                gather_input.run_if(not(resource_exists::<saves::ScenarioInput>)),
+                field_audio::acknowledge,
+            )
+                .after(bevy::input::InputSystems),
+        )
+        .add_systems(
+            FixedPreUpdate,
+            gather_input
+                .after(bevy::input::InputSystems)
+                .run_if(resource_exists::<saves::ScenarioInput>),
+        )
+        .add_systems(
+            FixedPostUpdate,
+            (saves::shortcuts, movie::controls)
+                .chain()
+                .before(saves::scenario_consumed)
+                .run_if(resource_exists::<saves::ScenarioInput>),
         )
         .add_systems(Startup, (setup, glow::setup, display::initialize).chain())
         .add_systems(PostUpdate, loading::black_hold)
         .add_systems(
+            PostUpdate,
+            timing::prepare_draws
+                .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+        )
+        .add_systems(Update, audio::check)
+        .add_systems(
             Update,
-            (saves::release_frame, saves::capture)
-                .chain()
-                .after(field_view::FieldPreparation),
+            saves::release_frame.after(field_view::FieldPreparation),
         )
         .add_systems(
             FixedUpdate,
@@ -428,7 +406,9 @@ fn build_app_with_display(
                 timing::advance_clock,
                 boot::advance,
                 advance.run_if(dungeons::running),
-                new_game::advance.run_if(dungeons::running),
+                new_game::advance
+                    .run_if(dungeons::running)
+                    .run_if(battle::field_running),
             )
                 .chain(),
         )
@@ -439,7 +419,9 @@ fn build_app_with_display(
                 new_game::enter,
                 new_game::skip_test_battles.run_if(dungeons::running),
                 (
-                    new_game::transition.run_if(dungeons::running),
+                    new_game::transition
+                        .run_if(dungeons::running)
+                        .run_if(battle::field_running),
                     session_screen::update,
                 )
                     .chain(),
@@ -452,13 +434,12 @@ fn build_app_with_display(
                 glow::update,
                 timing::prepare,
                 boot::update,
+                movie::controls.run_if(not(resource_exists::<saves::ScenarioInput>)),
                 movie::update,
                 new_game::movie_handoff,
                 start_audio,
-                field_audio::update,
+                field_audio::update.run_if(battle::field_running),
                 layout,
-                capture,
-                playthrough::capture,
             )
                 .chain(),
         );
@@ -478,33 +459,21 @@ fn build_app_with_display(
         ));
     }
     audio::validate_startup(&app, silent, capture_only)?;
-    bevy::asset::embedded_asset!(app, "title_output.wgsl");
-    bevy::asset::embedded_asset!(app, "title_text.wgsl");
-    materials::embed_shaders(&mut app);
     bevy::asset::embedded_asset!(app, "title_glow.wgsl");
+    let render_diagnostics = app.world().resource::<diagnostics::Diagnostics>().clone();
     app.get_sub_app_mut(bevy::render::RenderApp)
         .context("render application unavailable")?
         .insert_resource(render_ready)
+        .insert_resource(render_diagnostics)
         .add_systems(
             bevy::render::Render,
-            check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
+            timing::rendered.in_set(bevy::render::RenderSystems::Cleanup),
         );
     field_warm::install(&mut app);
+    battle::install(&mut app);
+    game_over::install(&mut app)?;
     renderer::configure(&mut app);
     Ok((app, recording))
-}
-
-fn check_pipelines(
-    cache: Res<bevy::render::render_resource::PipelineCache>,
-    ready: Res<RenderReady>,
-) {
-    use bevy::render::render_resource::CachedPipelineState;
-    let complete = cache.pipelines().next().is_some()
-        && cache.waiting_pipelines().next().is_none()
-        && cache
-            .pipelines()
-            .all(|p| matches!(p.state, CachedPipelineState::Ok(_)));
-    ready.0.store(complete, Ordering::Relaxed);
 }
 
 #[allow(clippy::too_many_arguments)] // Bevy injects independent resources into this startup system.
@@ -547,7 +516,7 @@ fn setup(
         RenderTarget::Image(image.clone().into())
     });
     commands.insert_resource(Framebuffer(framebuffer.clone()));
-    // The original art and vertex colors are combined in encoded color space.
+    // Art and vertex colors are combined in encoded color space.
     // Keep that presentation choice in one pass, then convert for modern output.
     let mut source = Image::new_target_texture(
         size.width,
@@ -602,6 +571,7 @@ fn setup(
             clear_color: ClearColorConfig::None,
             ..default()
         },
+        FieldOverlayCamera,
         camera::overlay_alignment(),
         RenderTarget::Image(source.clone().into()),
         Projection::Orthographic(OrthographicProjection {
@@ -694,29 +664,20 @@ fn setup(
 #[allow(clippy::too_many_arguments)] // Readiness, movie handoff, and audio asset ownership.
 fn start_audio(
     mut commands: Commands,
-    options: Res<RunOptions>,
     mut music: ResMut<PendingAudio>,
     mut assets: ResMut<Assets<GameAudio>>,
     mut sounds: ResMut<audio::MenuSounds>,
     ready: Res<timing::Ready>,
     movie: Res<movie::Playback>,
     boot: Res<boot::Playback>,
-    recording: Option<Res<playthrough::Recording>>,
     new_game: Option<Res<new_game::Session>>,
     game_over: Option<Res<session_screen::GameOver>>,
 ) {
-    if new_game.is_some()
-        || game_over.is_some()
-        || recording.is_some_and(|r| !r.started)
-        || movie.active
-        || boot.active()
-        || options.capture.is_some()
-        || !ready.0
-    {
+    if new_game.is_some() || game_over.is_some() || movie.active || boot.active() || !ready.0 {
         return;
     }
     if let Some(music) = music.0.take() {
-        let (source, control) = music.session(movie.completed_naturally);
+        let (source, control) = music.session();
         sounds.control = Some(control);
         commands.spawn(AudioPlayer(assets.add(source)));
     }
@@ -770,14 +731,10 @@ fn gather_input(
     input: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
     mut pending: ResMut<PendingInput>,
-    replay: Option<Res<Replay>>,
     dungeons: Option<Res<dungeons::Menu>>,
 ) {
     if dungeons.is_some_and(|menu| menu.blocked()) {
         *pending = PendingInput::default();
-        return;
-    }
-    if replay.is_some_and(|r| r.0.is_some()) {
         return;
     }
     // Preserve presses across render frames with no fixed update; consume them
@@ -823,41 +780,46 @@ fn gather_input(
 #[allow(clippy::too_many_arguments)] // Input, clock, readiness, and cue playback resources.
 fn advance(
     mut commands: Commands,
-    options: Res<RunOptions>,
+    diagnostics: Res<crate::diagnostics::Diagnostics>,
+    mut exit: MessageWriter<AppExit>,
     mut menu: ResMut<Menu>,
     clock: Res<Clock>,
     mut events: Option<ResMut<Events>>,
     mut pending: ResMut<PendingInput>,
     ready: Res<timing::Ready>,
     sounds: Res<audio::MenuSounds>,
-    replay: Res<Replay>,
     movie: Res<movie::Playback>,
     boot: Res<boot::Playback>,
-    recording: Option<Res<playthrough::Recording>>,
     new_game: Option<Res<new_game::Session>>,
     loading: Option<Res<loading::Pending>>,
     load_menu: Option<Res<saves::title::LoadMenu>>,
-    game_over: Option<Res<session_screen::GameOver>>,
+    game_over: Option<Res<game_over::Active>>,
+    scenario: Option<ResMut<saves::ScenarioInput>>,
 ) {
-    if new_game.is_some()
+    if game_over.is_some()
+        || new_game.is_some()
         || game_over.is_some()
         || load_menu.is_some()
         || loading.is_some()
         || movie.active
         || boot.active()
-        || options.tick.is_some()
         || !ready.0
-        || recording.is_some_and(|r| !r.started)
     {
         return;
     }
-    if let Some(replay) = &replay.0 {
-        pending.record_replay(replay, menu.0.tick + 1);
-    }
     let previous_selection = menu.0.selected;
     let input = pending.consume(clock.0);
-    if let Some(events) = &mut events {
-        events.0.step().unwrap_or_else(|e| panic!("{e:#}"));
+    if let Some(mut scenario) = scenario {
+        scenario.acknowledge_input();
+    }
+    if let Some(events) = &mut events
+        && let Err(error) = events.0.step()
+    {
+        if diagnostics.0.report("title script", error).is_err() {
+            exit.write(AppExit::error());
+            return;
+        }
+        commands.remove_resource::<Events>();
     }
     match menu.0.step(input) {
         Some(resonance_game::TitleAction::NewGame) => {
@@ -893,6 +855,8 @@ fn layout(
     movie: Res<movie::Playback>,
     boot: Res<boot::Playback>,
     load_menu: Option<Res<saves::title::LoadMenu>>,
+    diagnostics: Res<crate::diagnostics::Diagnostics>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     let state = &menu.0;
     TitleOutput::update(&mut outputs, |b| {
@@ -903,7 +867,17 @@ fn layout(
         };
     });
     for (quad, handle, mut transform) in &mut quads {
-        let mut material = materials.get_mut(&handle.0).expect("title material exists");
+        let Some(mut material) = materials.get_mut(&handle.0) else {
+            if diagnostics
+                .0
+                .report("title layout", anyhow::anyhow!("missing title material"))
+                .is_err()
+            {
+                exit.write(AppExit::error());
+                return;
+            }
+            continue;
+        };
         let selected = quad.row == Some(state.selected);
         let source = &art.images[quad.index - usize::from(selected)];
         let opacity_pulse = Vec4::new(
@@ -934,144 +908,9 @@ fn layout(
     }
 }
 
-#[allow(clippy::too_many_arguments)] // Readiness gates are independent Bevy resources.
-fn capture(
-    mut commands: Commands,
-    options: Res<RunOptions>,
-    art: Res<Art>,
-    server: Res<AssetServer>,
-    mut ready: ResMut<ReadyFrames>,
-    menu: Res<Menu>,
-    clock: Res<Clock>,
-    events: Option<Res<Events>>,
-    framebuffer: Res<Framebuffer>,
-    field: Res<FieldAssets>,
-    renderer: Res<RenderReady>,
-    started: Res<CaptureStart>,
-    mut exit: MessageWriter<AppExit>,
-    movie: Res<movie::Playback>,
-    boot: Res<boot::Playback>,
-) {
-    let Some(path) = options.capture.clone() else {
-        return;
-    };
-    if options.saves.load.is_some() {
-        return;
-    }
-    if started.0.elapsed().as_secs() > 60 {
-        error!("title capture timed out waiting for assets, render pipelines, or GPU readback");
-        exit.write(AppExit::error());
-        return;
-    }
-    if !field.ready
-        || !boot.ready(&server)
-        || !renderer.0.load(Ordering::Relaxed)
-        || !art
-            .images
-            .iter()
-            .all(|h| server.is_loaded_with_dependencies(h.id()))
-    {
-        ready.0 = 0;
-        return;
-    }
-    ready.0 += 1;
-    // Let asset extraction and render pipeline preparation settle before capture.
-    if ready.0 != 30 {
-        return;
-    }
-    let mut metadata = serde_json::to_value(&menu.0).expect("title state serializes");
-    metadata["presentation_counter"] = serde_json::json!(clock.0.tick());
-    metadata["presentation_start"] = serde_json::json!(options.presentation_start.unwrap_or(0));
-    if let Some(index) = options.movie_frame {
-        metadata = serde_json::json!({"movie_frame": index, "movie": movie.asset,
-            "audio_playback": false, "output_width": WIDTH, "output_height": HEIGHT});
-    }
-    if options.boot_frame.is_some() {
-        metadata = serde_json::json!({"boot":boot.logos, "audio_playback":false,
-            "output_width":WIDTH, "output_height":HEIGHT});
-    }
-    metadata["capture"] = serde_json::json!({"headless": true, "audio_device": false});
-    if let Some(events) = events {
-        let world = &events.0.world;
-        metadata["events"] = serde_json::json!({
-            "runtime": "SymphoniaScript",
-            "script_sha256": art.manifest.scene.as_ref().map(|s| &s.script.sha256),
-            "tick": events.0.tick(),
-            "active_instances": events.0.active_instances(),
-            "camera": world.camera.as_ref().map(|c| serde_json::json!({"resource":c.resource,"start_tick":c.start_tick})),
-            "actors": world.actors.iter().map(|(id, a)| serde_json::json!({
-                "id": id, "resource": a.resource, "visible": a.visible,
-                "position": a.position, "depth_write": a.depth_write,
-                "animation": a.animation.as_ref().map(|a| serde_json::json!({
-                    "slot": a.slot, "start_tick": a.start_tick,
-                })),
-            })).collect::<Vec<_>>(),
-            "particles": world.billboards.len(),
-        });
-    }
-    commands.spawn(Screenshot(framebuffer.0.clone())).observe(
-        move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            match screenshot::write(&event.image, &path, Some(&metadata)) {
-                Ok(()) => {
-                    exit.write(AppExit::Success);
-                }
-                Err(error) => {
-                    error!("capture failed: {error:#}");
-                    exit.write(AppExit::error());
-                }
-            }
-        },
-    );
-}
-
 #[cfg(test)]
 mod input_tests {
     use super::*;
-
-    #[test]
-    fn navigation_hold_matches_saved_presentation_phase() {
-        let replay = serde_json::from_str::<resonance_game::replay::TitleReplay>(include_str!(
-            "../../../tools/oracle/cases/native-navigation.json"
-        ))
-        .unwrap();
-        let mut pending = PendingInput::default();
-        let mut menu = TitleState::default();
-        let mut clock = PresentationClock::new(2365);
-        let mut changes = Vec::new();
-        for tick in 1..=968 {
-            clock.advance();
-            pending.record_replay(&replay, tick);
-            let previous = menu.selected;
-            menu.step(pending.consume(clock));
-            if menu.selected != previous {
-                changes.push(tick);
-            }
-        }
-        assert_eq!(changes, [912, 943, 947]);
-        // Independently recorded Dolphin checkpoint: selection 0, pulse 111.
-        assert_eq!((menu.selected, menu.pulse_tick), (0, 111));
-        assert_eq!(clock.tick(), 3333);
-    }
-
-    #[test]
-    fn repeat_uses_the_continuing_clock_after_a_different_title_entry() {
-        // A held direction begins at the same scene age on both paths, but the
-        // application's repeat boundary depends on time spent before entry.
-        for (start, expected) in [(2365, vec![31, 63, 67]), (8651, vec![31, 61, 65])] {
-            let mut pending = PendingInput::default();
-            let mut clock = PresentationClock::new(start);
-            let mut fired = Vec::new();
-            for tick in 1..=70 {
-                clock.advance();
-                pending.held.down = (31..=68).contains(&tick);
-                pending.pressed.down = tick == 31;
-                if pending.consume(clock).down {
-                    fired.push(tick);
-                }
-            }
-            assert_eq!(fired, expected);
-        }
-    }
 
     #[test]
     fn quick_tap_survives_frames_without_a_fixed_update() {

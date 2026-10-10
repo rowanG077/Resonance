@@ -8,7 +8,7 @@ fn main() -> Result<()> {
     let messages = serde_json::from_slice(&fs::read(root.join(&field.messages))?)?;
     if let Some(pc) = std::env::args().nth(1).filter(|a| !a.starts_with("--")) {
         let start = u32::from_str_radix(pc.trim_start_matches("0x"), 16)?;
-        let program = symphonia_script::Program::decode(&fs::read(root.join(&field.script.path))?)?;
+        let program = symphonia_script::Program::decode(&fs::read(root.join(&field.script))?)?;
         for pc in start..start + 200 {
             if let Some((op, _)) = program.instruction(pc) {
                 println!("{pc:04x} {op:?}");
@@ -17,7 +17,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
     let mut events =
-        resonance_game::field::start(&fs::read(root.join(&field.script.path))?, messages, &field)?;
+        resonance_game::field::start(&fs::read(root.join(&field.script))?, messages, &field)?;
     let automatic = std::env::args().any(|a| a == "--auto");
     let interaction = std::env::args().any(|a| a == "--interact");
     let mut interacted = false;

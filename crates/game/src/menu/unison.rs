@@ -1,242 +1,384 @@
-use super::*;
-use resonance_events::input::Button;
-use resonance_events::party::TechniqueShortcut;
+pub use super::Input;
+use super::techniques::{Edit, EditResult, shortcut_choice, shortcut_selection};
+use super::{MenuAction, VISIBLE_PARTY};
+use anyhow::{Result, ensure};
+use resonance_content::{menu_data::MenuData, session::SessionData};
+use resonance_events::party::{Party, TechniqueShortcut};
 
-const UNLOCK_STORY: i32 = 1_403_000;
-pub const VISIBLE_TECHNIQUES: usize = 8;
+pub const UNLOCK_STORY: i32 = 1_403_000;
+pub use super::techniques::VISIBLE_SHORTCUT_CHOICES as VISIBLE_TECHNIQUES;
 
-#[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
     #[default]
     Slots,
     List,
 }
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Unison {
-    #[serde(flatten)]
-    pub transition: super::Transition,
     pub focus: Focus,
     pub character: usize,
     pub slot: usize,
     pub row: usize,
     pub first: usize,
-    pub scroll: i8,
-    pub list_opacity: u8,
-    pub list_closing: bool,
-    pub description_previous: Option<TechniqueShortcut>,
-    pub description_fade: u8,
-    pub description_opacity: u8,
 }
 
-impl Unison {
-    pub fn animating(&self) -> bool {
-        self.transition.animating()
-            || self.scroll != 0
-            || self.list_closing
-            || self.focus == Focus::List && self.list_opacity != 255
+/// Outcome of a Unison page update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Visit {
+    pub cue: Option<u16>,
+    pub changed: bool,
+    pub closed: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct Page<'a> {
+    pub state: &'a Unison,
+    pub party: &'a Party,
+    pub session: &'a SessionData,
+    pub data: &'a MenuData,
+}
+impl<'a> Page<'a> {
+    pub fn party_count(self) -> usize {
+        self.party.formation.len().min(VISIBLE_PARTY)
     }
-}
-
-impl Menu {
-    pub(super) fn remember_unison_description(&mut self) {
-        if self.unison.description_fade == 0 {
-            self.unison.description_previous = self.unison_selection();
+    pub fn member_index(self) -> Option<usize> {
+        if self.state.character >= self.party_count() {
+            return None;
         }
+        let id = *self.party.formation.get(self.state.character)?;
+        let member = usize::from(id.checked_sub(1)?);
+        self.party.members.get(member)?;
+        Some(member)
     }
-    pub(super) fn fade_unison_description(&mut self) {
-        let changed = self.unison.description_fade == 0
-            && self.unison.description_previous.map(|s| s.technique)
-                != self.unison_selection().map(|s| s.technique);
-        self.unison.description_opacity =
-            fade_description(&mut self.unison.description_fade, changed);
-    }
-    pub fn has_unison(&self) -> bool {
-        self.resources.is_some()
-            && self
-                .checkpoint
-                .as_ref()
-                .is_some_and(|c| c.progress.script_globals[16] >= UNLOCK_STORY)
-    }
-
-    pub fn unison_party_count(&self) -> usize {
-        self.party().formation.len().min(VISIBLE_PARTY)
-    }
-
-    pub fn unison_member_index(&self) -> usize {
-        usize::from(self.party().formation[self.unison.character] - 1)
-    }
-
-    pub fn unison_techniques(&self) -> Vec<u16> {
-        let member = self.unison_member_index();
-        let party = self.party();
-        self.resources.as_ref().unwrap().session.characters[member]
+    /// Learned techniques in catalogue order; availability controls display colour.
+    pub fn techniques(self) -> Vec<u16> {
+        let Some(member) = self.member_index() else {
+            return Vec::new();
+        };
+        let Some(definition) = self.session.characters.get(member) else {
+            return Vec::new();
+        };
+        definition
             .allowed_techniques
             .iter()
             .copied()
-            .filter(|id| party.members[member].techniques.contains(id))
+            .filter(|id| self.party.members[member].techniques.contains(id))
             .collect()
     }
-
-    pub fn unison_selection(&self) -> Option<TechniqueShortcut> {
-        let character = self.unison_member_index();
-        let technique = if self.unison.focus == Focus::List {
-            *self.unison_techniques().get(self.unison.row)?
+    pub fn selection(self) -> Option<TechniqueShortcut> {
+        let character = self.member_index()?;
+        if self.state.focus == Focus::List {
+            self.techniques()
+                .get(self.state.row)
+                .map(|&technique| TechniqueShortcut {
+                    character,
+                    technique,
+                })
         } else {
-            self.party().members[character].shortcuts[self.unison.slot]
-        };
-        (technique != 0).then_some(TechniqueShortcut {
-            character,
-            technique,
-        })
+            shortcut_selection(self.party, character, self.state.slot)
+        }
     }
+    pub fn character_name(self, member: usize) -> Option<&'a str> {
+        self.party
+            .members
+            .get(member)?
+            .name
+            .as_deref()
+            .or_else(|| self.data.initial_names.get(member).map(String::as_str))
+    }
+}
 
-    pub(super) fn open_unison(&mut self) {
-        self.unison = Unison {
-            transition: super::Transition::opening(),
-            character: if self.unison.character < self.unison_party_count() {
-                self.unison.character
+impl Unison {
+    /// Open the page and retain a valid active-party selection.
+    pub fn opening(remembered_character: usize, party: &Party) -> Result<Self> {
+        let count = party.formation.len().min(VISIBLE_PARTY);
+        ensure!(
+            count != 0
+                && party.members.len() == 9
+                && party.formation[..count]
+                    .iter()
+                    .all(|id| (1..=9).contains(id)),
+            "invalid U. Attack formation"
+        );
+        Ok(Self {
+            character: if remembered_character < count {
+                remembered_character
             } else {
                 0
             },
-            description_fade: DESCRIPTION_FADE_START,
-            description_opacity: 15,
-            ..Default::default()
-        };
-        self.entering = Some(Page::Unison);
+            ..Self::default()
+        })
+    }
+    pub fn page<'a>(
+        &'a self,
+        party: &'a Party,
+        session: &'a SessionData,
+        data: &'a MenuData,
+    ) -> Page<'a> {
+        Page {
+            state: self,
+            party,
+            session,
+            data,
+        }
+    }
+    /// Field convenience path; battle supplies its own prevalidated binding commit.
+    pub fn step(
+        &mut self,
+        input: Input,
+        party: &mut Party,
+        session: &SessionData,
+        data: &MenuData,
+    ) -> Result<Visit> {
+        self.step_with_edit(input, party, session, data, |party, edit| {
+            edit.apply_field(party, data)
+        })
+    }
+    /// The caller retains its own repeat owner.
+    /// The callback is called at most once and must validate before mutation.
+    /// It owns the only Party/live-binding commit. This page never reapplies it.
+    pub fn step_with_edit(
+        &mut self,
+        input: Input,
+        party: &mut Party,
+        session: &SessionData,
+        data: &MenuData,
+        mut edit: impl FnMut(&mut Party, Edit) -> Result<EditResult>,
+    ) -> Result<Visit> {
+        let (cue, changed, closed) = self.advance(input, party, session, data, &mut edit)?;
+        Ok(Visit {
+            cue,
+            changed,
+            closed,
+        })
+    }
+    fn advance(
+        &mut self,
+        input: Input,
+        party: &mut Party,
+        session: &SessionData,
+        data: &MenuData,
+        edit: &mut impl FnMut(&mut Party, Edit) -> Result<EditResult>,
+    ) -> Result<(Option<u16>, bool, bool)> {
+        let action = input;
+        if action.is_none() {
+            return Ok((None, false, false));
+        }
+        if action == Some(MenuAction::Cancel) {
+            if self.focus == Focus::List {
+                self.focus = Focus::Slots;
+                return Ok((Some(3), false, false));
+            }
+            return Ok((Some(3), false, true));
+        }
+        if self.focus == Focus::Slots {
+            let count = party.formation.len().min(VISIBLE_PARTY);
+            let before = (self.character, self.slot);
+            match action {
+                Some(MenuAction::Up) if self.slot != 0 => self.slot -= 1,
+                Some(MenuAction::Up) if self.character != 0 => {
+                    self.character -= 1;
+                    self.slot = 3;
+                }
+                Some(MenuAction::Down) if self.slot < 3 => self.slot += 1,
+                Some(MenuAction::Down) if self.character + 1 < count => {
+                    self.character += 1;
+                    self.slot = 0;
+                }
+                Some(MenuAction::Left) if self.character >= 2 => self.character -= 2,
+                Some(MenuAction::Right) if self.character + 2 < count => self.character += 2,
+                Some(MenuAction::Left | MenuAction::Right | MenuAction::Up | MenuAction::Down) => {}
+                _ if action == Some(MenuAction::Alternate) => {
+                    let page = self.page(party, session, data);
+                    if page.selection().is_some() {
+                        let member = page.member_index().unwrap();
+                        let changed = edit(
+                            party,
+                            Edit::Shortcut {
+                                member,
+                                slot: self.slot,
+                                selected: None,
+                            },
+                        )?
+                        .changed;
+                        return Ok((Some(1), changed, false));
+                    }
+                }
+                _ if action == Some(MenuAction::Confirm) => {
+                    let page = self.page(party, session, data);
+                    let choices = page.techniques();
+                    let Some((row, first)) = shortcut_choice(&choices, page.selection()) else {
+                        return Ok((Some(4), false, false));
+                    };
+                    self.row = row;
+                    self.first = first;
+                    self.focus = Focus::List;
+                    return Ok((Some(1), false, false));
+                }
+                _ => {}
+            }
+            return Ok((
+                (before != (self.character, self.slot)).then_some(1),
+                false,
+                false,
+            ));
+        }
+        if action == Some(MenuAction::Confirm) {
+            let page = self.page(party, session, data);
+            let Some(selected) = page.selection() else {
+                return Ok((Some(4), false, false));
+            };
+            ensure!(
+                selected.technique != 0
+                    && data
+                        .techniques
+                        .get(usize::from(selected.technique))
+                        .is_some(),
+                "selected U. Attack technique description is missing"
+            );
+            let changed = edit(
+                party,
+                Edit::Shortcut {
+                    member: selected.character,
+                    slot: self.slot,
+                    selected: Some(selected),
+                },
+            )?
+            .changed;
+            self.focus = Focus::Slots;
+            return Ok((Some(2), changed, false));
+        }
+        let count = self.page(party, session, data).techniques().len();
+        if count == 0 {
+            self.row = 0;
+            self.first = 0;
+            return Ok((None, false, false));
+        }
+        self.row = self.row.min(count - 1);
+        self.first = self.first.min(self.row);
+        let before = (self.row, self.first);
+        match action {
+            Some(MenuAction::Up) if self.row != 0 => {
+                self.row -= 1;
+                if self.first > self.row {
+                    self.first -= 1;
+                }
+            }
+            Some(MenuAction::Down) if self.row + 1 < count => {
+                self.row += 1;
+                if self.first + VISIBLE_TECHNIQUES <= self.row {
+                    self.first += 1;
+                }
+            }
+            Some(MenuAction::PageUp | MenuAction::PreviousTab) => {
+                let first = self.first.saturating_sub(VISIBLE_TECHNIQUES);
+                self.row = if self.first == 0 {
+                    0
+                } else {
+                    self.row - (self.first - first)
+                };
+                self.first = first;
+            }
+            Some(MenuAction::PageDown | MenuAction::NextTab) => {
+                if self.first + VISIBLE_TECHNIQUES < count {
+                    self.first += VISIBLE_TECHNIQUES;
+                    self.row = (self.row + VISIBLE_TECHNIQUES).min(count - 1);
+                } else {
+                    self.row = count - 1;
+                }
+            }
+            _ => {}
+        }
+        Ok((
+            (before != (self.row, self.first)).then_some(
+                if matches!(
+                    action,
+                    Some(
+                        MenuAction::PageDown
+                            | MenuAction::PageUp
+                            | MenuAction::PreviousTab
+                            | MenuAction::NextTab
+                    )
+                ) {
+                    38
+                } else {
+                    1
+                },
+            ),
+            false,
+            false,
+        ))
+    }
+}
+
+impl super::Menu {
+    pub fn unison_page(&self) -> Page<'_> {
+        let resources = self.resources.as_ref().unwrap();
+        self.unison
+            .page(self.party(), &resources.session, &resources.data)
+    }
+    pub fn has_unison(&self) -> bool {
+        self.resources.is_some()
+            && self.checkpoint.as_ref().is_some_and(|c| {
+                c.progress
+                    .script_globals
+                    .get(16)
+                    .is_some_and(|&story| story >= UNLOCK_STORY)
+            })
+    }
+    pub fn unison_party_count(&self) -> usize {
+        self.unison_page().party_count()
+    }
+    pub fn unison_member_index(&self) -> usize {
+        self.unison_page()
+            .member_index()
+            .expect("validated U. Attack formation")
+    }
+    pub fn unison_techniques(&self) -> Vec<u16> {
+        self.unison_page().techniques()
+    }
+    pub fn unison_selection(&self) -> Option<TechniqueShortcut> {
+        self.unison_page().selection()
     }
 
-    pub(super) fn step_unison(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down, page_up, page_down]: [bool; 6],
-    ) -> Option<i16> {
-        let state = &mut self.unison;
-        if state.focus == Focus::List {
-            state.scroll = (state.scroll + state.scroll.signum()) % 5;
-            if state.list_closing {
-                state.list_opacity = state.list_opacity.saturating_sub(32);
-                if state.list_opacity == 0 {
-                    state.list_closing = false;
-                    state.focus = Focus::Slots;
-                }
-            } else {
-                state.list_opacity = state.list_opacity.saturating_add(32);
+    pub(super) fn open_unison(&mut self) -> Option<i16> {
+        self.resources.as_ref()?;
+        match Unison::opening(self.unison.character, self.party()) {
+            Ok(state) => {
+                self.unison = state;
+                self.entering = Some(super::Page::Unison);
+                Some(2)
+            }
+            Err(error) => {
+                self.notice = Some(error.to_string());
+                Some(4)
             }
         }
-        if state.animating() {
-            return None;
-        }
-        if input.pressed(Button::Cancel) {
-            if self.unison.focus == Focus::List {
-                self.unison.list_closing = true;
-            } else {
-                self.character = self.unison.character;
-                self.unison.transition.page_closing = true;
-                self.select_main(Page::Unison);
-            }
-            return Some(3);
-        }
-        if self.unison.focus == Focus::Slots {
-            let count = self.unison_party_count();
-            let before = (self.unison.character, self.unison.slot);
-            let state = &mut self.unison;
-            if up {
-                if state.slot > 0 {
-                    state.slot -= 1;
-                } else if state.character > 0 {
-                    state.character -= 1;
-                    state.slot = 3;
+    }
+    pub(super) fn step_unison(&mut self, input: Input) -> Option<i16> {
+        let resources = self.resources.as_ref()?;
+        let visit = self.unison.step(
+            input,
+            &mut self.checkpoint.as_mut()?.progress.party,
+            &resources.session,
+            &resources.data,
+        );
+        match visit {
+            Ok(visit) => {
+                self.party_changed |= visit.changed;
+                if visit.closed {
+                    self.character = self.unison.character;
+                    self.select_main(super::Page::Unison);
+                    self.return_to_main();
                 }
-            } else if down {
-                if state.slot < 3 {
-                    state.slot += 1;
-                } else if state.character + 1 < count {
-                    state.character += 1;
-                    state.slot = 0;
-                }
-            } else if left && state.character >= 2 {
-                state.character -= 2;
-            } else if right && state.character + 2 < count {
-                state.character += 2;
-            } else if input.pressed(Button::Accept) {
-                let choices = self.unison_techniques();
-                if choices.is_empty() {
-                    return Some(4);
-                }
-                let equipped = self.unison_selection().map(|s| s.technique);
-                self.unison.row = choices
-                    .iter()
-                    .position(|&id| Some(id) == equipped)
-                    .unwrap_or(0);
-                self.unison.first = self.unison.row.saturating_sub(VISIBLE_TECHNIQUES - 1);
-                self.unison.focus = Focus::List;
-                self.unison.list_opacity = 0;
-                return Some(1);
-            } else if input.pressed(Button::Ring) {
-                let member = self.unison_member_index();
-                let changed = self
-                    .checkpoint
-                    .as_mut()
-                    .unwrap()
-                    .progress
-                    .party
-                    .assign_technique(member, self.unison.slot, None)
-                    .expect("validated unison shortcut");
-                self.party_changed |= changed;
-                return changed.then_some(1);
+                visit.cue.map(|cue| cue as i16)
             }
-            return (before != (self.unison.character, self.unison.slot)).then_some(1);
-        }
-        if input.pressed(Button::Accept) {
-            let member = self.unison_member_index();
-            let selected = self.unison_selection();
-            let changed = self
-                .checkpoint
-                .as_mut()
-                .unwrap()
-                .progress
-                .party
-                .assign_technique(member, self.unison.slot, selected)
-                .expect("validated unison technique selection");
-            self.party_changed |= changed;
-            self.unison.list_closing = true;
-            return Some(2);
-        }
-        let count = self.unison_techniques().len();
-        let state = &mut self.unison;
-        let before = (state.row, state.first);
-        if page_up {
-            let first = state.first.saturating_sub(VISIBLE_TECHNIQUES);
-            state.row = if state.first == 0 {
-                0
-            } else {
-                state.row - (state.first - first)
-            };
-            state.first = first;
-        } else if page_down {
-            if state.first + VISIBLE_TECHNIQUES < count {
-                state.first += VISIBLE_TECHNIQUES;
-                state.row = (state.row + VISIBLE_TECHNIQUES).min(count - 1);
-            } else {
-                state.row = count - 1;
+            Err(error) => {
+                self.notice = Some(error.to_string());
+                Some(4)
             }
-        } else if up || down {
-            state.row = if up {
-                state.row.saturating_sub(1)
-            } else {
-                (state.row + 1).min(count - 1)
-            };
-            state.first = state
-                .first
-                .min(state.row)
-                .max(state.row.saturating_sub(VISIBLE_TECHNIQUES - 1));
-            state.scroll = match state.first.cmp(&before.1) {
-                std::cmp::Ordering::Less => -1,
-                std::cmp::Ordering::Equal => 0,
-                std::cmp::Ordering::Greater => 1,
-            };
         }
-        (before != (state.row, state.first)).then_some(if page_up || page_down { 38 } else { 1 })
     }
 }

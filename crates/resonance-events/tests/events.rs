@@ -1,4 +1,12 @@
 use resonance_events::*;
+fn cooked<T: serde::de::DeserializeOwned>(name: &str) -> T {
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
+        });
+    serde_json::from_slice(&std::fs::read(root.join("game").join(name)).unwrap()).unwrap()
+}
 use std::sync::Arc;
 use symphonia_script::{
     NativeCall as Call, Program, Width,
@@ -8,12 +16,14 @@ use symphonia_script::{
 fn arg(code: &mut Vec<u16>, n: i32) {
     code.extend([0x0200, n as u16, (n as u32 >> 16) as u16, 0x3000, 0x4000]);
 }
+
 fn native(code: &mut Vec<u16>, op: Call, a: &[i32]) {
     for &a in a {
         arg(code, a);
     }
     code.push(0x2000 | u16::from(op as u8));
 }
+
 /// Encode a sequence of native calls followed by an event return.
 fn script(calls: &[(Call, &[i32])]) -> Vec<u16> {
     let mut code = Vec::new();
@@ -748,10 +758,11 @@ fn collection_services_track_discovery_and_preserve_awarded_completion() {
     let menu: resonance_content::menu_data::MenuData = cooked("menu-data.json");
     let skits: resonance_content::skit::SkitCatalog = cooked("skits.json");
     skits.validate().unwrap();
-    let group = i32::from(menu.monsters.records[29].unseen_count_group);
+    let group = i32::from(menu.monsters().unwrap().records[29].unseen_count_group);
     let mut party = party::Party::new(&data, Default::default()).unwrap();
     party.monsters = menu
-        .monsters
+        .monsters()
+        .unwrap()
         .records
         .iter()
         .filter(|m| m.id != 29)
@@ -2345,12 +2356,15 @@ fn world_entrance_preserves_fog_and_fixed_destination_camera_coordinates() {
     assert!(current.fog.is_none());
     assert_eq!(current.position_bounds, [[-100000., 100000.]; 3]);
 }
+
 fn program(main: &[u16], child: &[u16]) -> Arc<Program> {
     program_kind(main, child, 2)
 }
+
 fn program_kind(main: &[u16], child: &[u16], kind: u16) -> Arc<Program> {
     program_record(main, child, kind, 42)
 }
+
 fn program_record(main: &[u16], child: &[u16], kind: u16, key: u32) -> Arc<Program> {
     let mut words = vec![
         10,
@@ -2376,17 +2390,11 @@ fn program_record(main: &[u16], child: &[u16], kind: u16, key: u32) -> Arc<Progr
         .unwrap(),
     )
 }
+
 fn runtime(program: Arc<Program>, resources: ResourceLibrary, world: GameWorld) -> EventRuntime {
     EventRuntime::with_state(program, Arc::new(resources), world, Default::default()).unwrap()
 }
-fn cooked<T: serde::de::DeserializeOwned>(name: &str) -> T {
-    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
-        });
-    serde_json::from_slice(&std::fs::read(root.join("game").join(name)).unwrap()).unwrap()
-}
+
 fn party_runtime(main: &[u16], child: &[u16]) -> EventRuntime {
     let data = Arc::new(cooked("session-data.json"));
     let mut world = GameWorld::default();
@@ -2400,6 +2408,7 @@ fn party_runtime(main: &[u16], child: &[u16]) -> EventRuntime {
         world,
     )
 }
+
 fn reload(events: &EventRuntime, main: &[u16], child: &[u16]) -> EventRuntime {
     let resources = Arc::new(ResourceLibrary {
         session_data: events.resources().session_data.clone(),
@@ -2414,6 +2423,7 @@ fn reload(events: &EventRuntime, main: &[u16], child: &[u16]) -> EventRuntime {
         .into_world();
     EventRuntime::with_state(program(main, child), resources, world, memory).unwrap()
 }
+
 fn model(slots: impl IntoIterator<Item = u16>, duration_ticks: u32) -> ModelResource {
     ModelResource {
         clips: slots
@@ -2687,16 +2697,24 @@ fn recreated_player_keeps_the_default_pose_until_its_idle_handler_runs() {
     world.insert_actor(1, Actor::new(1, [0.; 3]));
     let code = script(&[(Call::SelectPartyMember, &[1])]);
     let mut events = runtime(program(&code, &[0x20ff]), resources, world);
-    assert_eq!(
-        events.world.actors[&1].animation.as_ref().unwrap().slot,
-        slot::IDLE
-    );
-    steps(&mut events, 20);
-    let actor = &events.world.actors[&1];
-    let animation = actor.animation.as_ref().unwrap();
-    assert_eq!(animation.slot, slot::EVENT_IDLE);
-    assert!(animation.sample(events.tick(), 0, 100.) > 0.);
-    assert!(!actor.scripted_animation);
+    let pose = |events: &EventRuntime| {
+        let a = events.world.actors[&1].animation.as_ref().unwrap();
+        (
+            a.slot,
+            a.sample(events.tick(), 0, 100.),
+            a.blend_weight(events.tick()),
+        )
+    };
+    assert_eq!(pose(&events), (slot::IDLE, 0., 1.));
+    for _ in 0..10 {
+        events.step().unwrap();
+        if pose(&events).0 == slot::EVENT_IDLE {
+            break;
+        }
+    }
+    assert_eq!(pose(&events), (slot::EVENT_IDLE, 0., 0.));
+    events.step().unwrap();
+    assert!((0. ..1.).contains(&pose(&events).2));
 }
 
 #[test]
@@ -2977,6 +2995,7 @@ fn scripted_eye_modes_enable_blinking_or_a_fixed_expression() {
         world = events.world;
     }
 }
+
 #[test]
 fn camera_target_accepts_the_controlled_actor_alias() {
     let mut world = GameWorld::default();
@@ -3060,13 +3079,13 @@ fn background_event_controls_suspend_its_wait_without_stopping_the_foreground() 
             (Call::YieldCommand, &[0, 3]),
             (Call::ControlEvent, &[2, resume]),
         ]);
-        let child = script(&[(Call::YieldCommand, &[0, 4]), (Call::SetEventBit, &[42])]);
+        let child = script(&[(Call::YieldCommand, &[0, 5]), (Call::SetEventBit, &[42])]);
         let mut events = runtime(
             program(&main, &child),
             Default::default(),
             Default::default(),
         );
-        for _ in 1..7 {
+        for _ in 1..8 {
             events.step().unwrap();
             assert!(!events.world.event_flags.contains(&42));
         }
@@ -3104,6 +3123,7 @@ fn line_events_use_their_registry_and_finish_once() {
         assert!(events.player_has_control());
     }
 }
+
 #[test]
 fn a_guarded_line_event_does_not_take_control_or_restart_walking() {
     let mut world = GameWorld::default();
@@ -3266,6 +3286,7 @@ fn dialogue_waits_for_the_speaker_to_turn_and_releases_them_after_dismissal() {
     }
     assert_eq!(events.world.actors[&2].heading, 180.);
 }
+
 #[test]
 fn event_control_selects_the_leaders_idle_without_overriding_other_actors() {
     for has_event_idle in [false, true] {
@@ -3452,9 +3473,7 @@ fn animation_release_rebinds_the_same_slot_with_the_requested_blend() {
 
 #[test]
 fn eraser_rate_preserves_the_scripted_impact_cue() {
-    // Play slot 80 at rate 50, wait 40 updates, then emit the impact cue.
-    // The rate advances a quarter source frame per update; immediate binding
-    // adds one sample, so impact occurs at frame 10.25.
+    // The authored wait releases sound and particles together while playback advances.
     let mut code = Vec::new();
     native(
         &mut code,
@@ -3476,12 +3495,14 @@ fn eraser_rate_preserves_the_scripted_impact_cue() {
     let mut world = GameWorld::default();
     world.actors.insert(100, Actor::new(68196, [0.; 3]));
     let mut events = runtime(program(&code, &[0x20ff]), resources, world);
-    steps(&mut events, 39);
+    for _ in 0..39 {
+        events.step().unwrap();
+    }
     assert!(events.world.billboards.is_empty());
     assert!(events.world.audio_commands.is_empty());
     events.step().unwrap();
     let animation = events.world.actors[&100].animation.as_ref().unwrap();
-    assert!((0. ..70.).contains(&animation.sample(events.tick(), 0, 70.)));
+    assert!(animation.sample(events.tick(), 0, 70.) > 0.);
     assert_eq!(
         events.world.billboards.values().next().unwrap().born,
         events.tick() + 1
@@ -3491,6 +3512,7 @@ fn eraser_rate_preserves_the_scripted_impact_cue() {
         [AudioCommand::Sound { id: 236, .. }]
     ));
 }
+
 #[test]
 fn particles_retire_before_presenting_negative_size_or_opacity() {
     for (recipe, alpha, fade, growth) in [(0, 255, 0, -200), (0, 10, -6, 0), (27, 10, -6, 0)] {
@@ -3545,6 +3567,7 @@ fn billboard_angle_is_absolute_and_independent_of_spin_and_growth() {
         assert_eq!(effect.position, [10., 20., 30.]);
     }
 }
+
 #[test]
 fn script_light_updates_preserve_order_and_default_selector_alias() {
     let mut code = Vec::new();
@@ -3568,6 +3591,7 @@ fn script_light_updates_preserve_order_and_default_selector_alias() {
     light.approach(&target);
     assert_eq!(light.bright, [64; 3]);
 }
+
 #[test]
 fn general_shims_run_non_title_events_with_shared_state_and_ordered_waits() {
     let mut main = Vec::new();
@@ -3960,7 +3984,7 @@ fn voice_commands_ignore_unqualified_ids_and_honor_playback_waits() {
     assert_eq!(events.active_instances(), 0);
     assert!(events.world.voice.is_none());
     assert!(matches!(events.world.audio_commands.as_slice(),
-        [resonance_events::AudioCommand::Voice(id), resonance_events::AudioCommand::StopVoice] if *id == voice as u32));
+        [resonance_events::AudioCommand::Voice { resource: id, .. }, resonance_events::AudioCommand::StopVoice] if *id == voice as u32));
 }
 
 #[test]
@@ -4535,7 +4559,7 @@ fn actor_luck_commands_reroll_once_and_read_equipment_bonuses_without_a_field_ac
     world.controlled_actor = 6;
     world.random_state = 0x12345678;
     world.insert_actor(6, Actor::new(6, [0.; 3]));
-    let gameplay = world.gameplay_random.clone();
+    let gameplay = world.gameplay_random;
     let mut code = Vec::new();
     for (slot, (call, args)) in [
         (Call::GetActorProperty, &[6, 112][..]),
@@ -5073,7 +5097,7 @@ fn released_task_callbacks_wait_for_control_and_hold_it_until_completion() {
         use game::field;
         use game::actors;
         task recover() {
-            await field::wait_ticks(2ticks);
+            await field::wait_ticks(ticks(2));
             field::release_control();
         }
         pub task main(actor: actors::Actor, delay: ticks) {
@@ -5081,9 +5105,9 @@ fn released_task_callbacks_wait_for_control_and_hold_it_until_completion() {
             await field::wait_ticks(delay);
             await actors::interact(actor);
             await recovery;
-            await field::wait_ticks(20ticks);
+            await field::wait_ticks(ticks(20));
         }
-        pub task other() { await field::wait_ticks(8ticks); }
+        pub task other() { await field::wait_ticks(ticks(8)); }
     "#
         .into(),
     )]
@@ -5222,7 +5246,7 @@ fn interaction_task() -> Arc<Program> {
         pub task main(actor: actors::Actor) {
             await actors::interact(actor);
             story::set_flag(43, true);
-            await field::wait_ticks(2ticks);
+            await field::wait_ticks(ticks(2));
             story::set_flag(44, true);
         }
     "#
@@ -5249,4 +5273,656 @@ fn ordinary_interactions_supply_their_actor() {
     assert!(events.interact(42).unwrap());
     events.step().unwrap();
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 42);
+}
+
+#[test]
+fn emote_phases_are_repeatable_and_leave_gameplay_randomness_untouched() {
+    let mut code = Vec::new();
+    for kind in 0..20 {
+        native(
+            &mut code,
+            Call::SpawnActor,
+            &[-100 - kind, 0, 0, 0, kind, 7, 0, -1],
+        );
+    }
+    native(&mut code, Call::SpawnActor, &[-200, 0, 0, 0, 0, 99, 0, -1]);
+    native(&mut code, Call::SpawnActor, &[-300, 0, 0, 0, 0, 7, 0, -1]);
+    code.push(0x20ff);
+    let make = |seed| {
+        let mut world = GameWorld::default();
+        world.random_state = seed;
+        world.insert_actor(7, Actor::new(7, [0.; 3]));
+        runtime(program(&code, &[0x20ff]), Default::default(), world)
+    };
+    let phases = |events: &EventRuntime| {
+        events
+            .world
+            .emotes
+            .values()
+            .map(|emote| (emote.kind, emote.phase))
+            .collect::<Vec<_>>()
+    };
+    let mut events = make(1);
+    let initial = phases(&events);
+    assert_eq!(
+        initial.len(),
+        20,
+        "invalid kinds and absent parents create no emote"
+    );
+    assert_eq!(initial, phases(&make(1)));
+    assert_ne!(initial, phases(&make(2)));
+    let gameplay = GameWorld::default().gameplay_random;
+    for _ in 0..3 {
+        events.step().unwrap();
+        assert_eq!(phases(&events), initial);
+        assert_eq!(events.world.gameplay_random, gameplay);
+    }
+}
+
+#[test]
+fn idle_activity_recovers_when_its_timer_expires_with_or_without_input() {
+    for free_control in [false, true] {
+        let mut world = GameWorld::default();
+        world.input_enabled = free_control;
+        let mut actor = Actor::new(1, [0.; 3]);
+        actor.autonomy = Some(Autonomy {
+            activity: Activity::Idle,
+            initialized: true,
+            remaining: -1,
+            ..Autonomy::new(Behavior::Player, 0., [0.; 3])
+        });
+        world.insert_actor(1, actor);
+        let mut events = runtime(program(&[0x20ff], &[0x20ff]), Default::default(), world);
+        for _ in 0..8 {
+            events.step().unwrap();
+        }
+        let actor = &events.world.actors[&1];
+        let ai = actor.autonomy.unwrap();
+        assert_eq!(ai.activity, Activity::Idle);
+        assert!(ai.initialized && ai.remaining > 0);
+        assert_eq!(actor.position, [0.; 3]);
+    }
+}
+
+#[test]
+fn conversation_holds_its_actor_until_the_foreground_event_finishes() {
+    let child = script(&[(Call::YieldCommand, &[0, 3])]);
+    let mut actor = Actor::new(24, [0.; 3]);
+    actor.autonomy = Some(Autonomy::new(Behavior::Stationary, 0., actor.position));
+    let mut world = GameWorld::default();
+    world.input_enabled = true;
+    world.insert_actor(42, actor);
+    let mut events = runtime(
+        program_kind(&[0x20ff], &child, 0),
+        Default::default(),
+        world,
+    );
+    assert!(events.interact(42).unwrap());
+    events
+        .world
+        .actors
+        .get_mut(&42)
+        .unwrap()
+        .autonomy
+        .as_mut()
+        .unwrap()
+        .begin_conversation();
+    // Event ownership holds the actor even when input is enabled.
+    events.world.input_enabled = true;
+    for _ in 0..8 {
+        events.step().unwrap();
+        assert_eq!(events.world.actors[&42].position, [0.; 3]);
+        if events.active_instances() == 0 {
+            break;
+        }
+        assert!(events.world.actors[&42].autonomy.unwrap().conversing);
+    }
+    assert_eq!(events.active_instances(), 0);
+    for _ in 0..8 {
+        events.step().unwrap();
+    }
+    let ai = events.world.actors[&42].autonomy.unwrap();
+    assert!(!ai.conversing);
+    assert_eq!(ai.activity, Activity::Idle);
+    assert!(ai.initialized && ai.remaining > 0);
+}
+
+#[test]
+fn npc_walking_slows_while_turning_and_recovers_its_authored_speed() {
+    let mut actor = Actor::new(48, [0.; 3]);
+    actor.target_heading = 90.;
+    actor.autonomy = Some(Autonomy {
+        activity: Activity::Walk,
+        initialized: true,
+        remaining: 100,
+        ..Autonomy::new(Behavior::WanderNearHome, 3., [0.; 3])
+    });
+    let mut world = GameWorld::default();
+    world.input_enabled = true;
+    world.insert_actor(2, actor);
+    let mut events = runtime(program(&[0x20ff], &[0x20ff]), Default::default(), world);
+    let mut previous = [0.; 3];
+    let mut last_distance = 0.;
+    for update in 0..15 {
+        events.step().unwrap();
+        let actor = &events.world.actors[&2];
+        last_distance = actor
+            .position
+            .iter()
+            .zip(previous)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            .sqrt();
+        assert!(last_distance > 0. && last_distance <= 3.001);
+        if update == 0 {
+            assert!(last_distance < 3.);
+        }
+        previous = actor.position;
+    }
+    assert_eq!(events.world.actors[&2].heading, 90.);
+    assert!((last_distance - 3.).abs() < 0.001);
+}
+
+#[test]
+fn field_turning_preserves_fractional_targets_and_converges_at_any_positive_speed() {
+    let distance = |a: f32, b: f32| ((a - b + 180.).rem_euclid(360.) - 180.).abs();
+    for (heading, target, speed) in [
+        (350., 10., 5.),
+        (10., 350., 5.),
+        (55.1, 55.9, 0.25),
+        (-57., 393., 7.),
+        (350., 10., 400.),
+        (0., 180., 5.),
+    ] {
+        let code = script(&[(Call::SetActorOrientation, &[2, 4, (speed * 100.) as i32])]);
+        let mut actor = Actor::new(2, [0.; 3]);
+        actor.face(heading);
+        actor.target_heading = target;
+        let mut world = GameWorld::default();
+        world.insert_actor(2, actor);
+        let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        let mut previous = heading.rem_euclid(360.);
+        for _ in 0..64 {
+            events.step().unwrap();
+            let actor = &events.world.actors[&2];
+            assert!((0. ..360.).contains(&actor.heading));
+            assert!(distance(actor.heading, previous) <= speed + 0.001);
+            assert!(distance(actor.heading, target) <= distance(previous, target) + 0.001);
+            previous = actor.heading;
+            if distance(previous, target) < 0.001 {
+                break;
+            }
+        }
+        let actor = &events.world.actors[&2];
+        assert_eq!(
+            actor.heading,
+            target.rem_euclid(360.),
+            "{heading} -> {target} at {speed}"
+        );
+        assert_eq!(actor.target_heading, target.rem_euclid(360.));
+    }
+}
+
+#[test]
+fn prepared_resource_waits_continue_in_the_requesting_update() {
+    let resource = 0x20041;
+    let mut main = Vec::new();
+    native(&mut main, Call::YieldCommand, &[0, 1]);
+    native(&mut main, Call::ResolveScriptResource, &[resource]);
+    main.push(0x3000);
+    native(&mut main, Call::YieldCommand, &[1, 0xffff0000u32 as i32]);
+    native(&mut main, Call::SetEventBit, &[43]);
+    main.push(0x20ff);
+    for kind in [ResourceKind::Model, ResourceKind::Animation] {
+        let mut resources = ResourceLibrary::default();
+        if kind == ResourceKind::Animation {
+            resources
+                .animations
+                .insert(resource as u32, Default::default());
+        } else {
+            resources.bindings.insert(resource, (kind, 1));
+        }
+        let mut events = runtime(program(&main, &[0x20ff]), resources, GameWorld::default());
+        assert!(!events.world.event_flags.contains(&43));
+        events.step().unwrap();
+        assert!(events.world.event_flags.contains(&43));
+        assert_eq!(events.active_instances(), 0);
+    }
+}
+
+#[test]
+fn locomotion_uses_actor_speed_and_keeps_its_phase_across_rate_changes() {
+    let mut resources = ResourceLibrary::default();
+    resources.models.insert(1, model([12, 36, 40, 120], 80));
+    let mut world = GameWorld::default();
+    world.controlled_actor = 1;
+    world.input_enabled = true;
+    let mut actor = Actor::new(1, [0.; 3]);
+    actor.motion = Some(ActorMotion {
+        target: [10000., 0., 0.],
+        speed: 4.,
+    });
+    world.actors.insert(1, actor);
+    let mut events = runtime(program(&[0x20ff], &[0x20ff]), resources, world);
+    let mut previous_sample = 0.;
+    let mut loops = 0;
+    let mut binding = None;
+    for _ in 0..160 {
+        events.step().unwrap();
+        let a = events.world.actors[&1].animation.as_ref().unwrap();
+        assert_eq!(a.slot, 36);
+        assert_eq!(a.rate, 2.);
+        assert_eq!(
+            *binding.get_or_insert(a.start_tick),
+            a.start_tick,
+            "walking restarted its clip"
+        );
+        let sample = a.sample(events.tick(), 0, 80.);
+        assert!((0. ..=80.).contains(&sample));
+        loops += usize::from(sample < previous_sample);
+        previous_sample = sample;
+        if loops == 3 {
+            break;
+        }
+    }
+    assert_eq!(loops, 3, "walking must keep looping without rebinding");
+    let tick = events.tick();
+    let previous = events.world.actors[&1]
+        .animation
+        .as_ref()
+        .unwrap()
+        .sample(tick + 1, 0, 80.);
+    events
+        .world
+        .actors
+        .get_mut(&1)
+        .unwrap()
+        .motion
+        .as_mut()
+        .unwrap()
+        .speed = 2.;
+    events.step().unwrap();
+    let a = events.world.actors[&1].animation.as_ref().unwrap();
+    assert_eq!(Some(a.start_tick), binding);
+    assert_eq!(a.rate, 1.);
+    assert_eq!(a.sample(events.tick(), 0, 80.), previous);
+    events
+        .world
+        .actors
+        .get_mut(&1)
+        .unwrap()
+        .motion
+        .as_mut()
+        .unwrap()
+        .speed = 8.;
+    events.step().unwrap();
+    let a = events.world.actors[&1].animation.as_ref().unwrap();
+    assert_eq!((a.slot, a.rate, a.blend_ticks), (40, 0.8, 2));
+    events.world.input_enabled = false;
+    events
+        .world
+        .actors
+        .get_mut(&1)
+        .unwrap()
+        .motion
+        .as_mut()
+        .unwrap()
+        .speed = 6.;
+    let mut npc = Actor::new(1, [0.; 3]);
+    npc.motion = events.world.actors[&1].motion.clone();
+    events.world.actors.insert(2, npc);
+    events.step().unwrap();
+    for (id, slot) in [(1, 120), (2, 36)] {
+        let a = events.world.actors[&id].animation.as_ref().unwrap();
+        assert_eq!((a.slot, a.rate, a.blend_ticks), (slot, 1., 8));
+    }
+    let actor = events.world.actors.get_mut(&1).unwrap();
+    actor.motion.as_mut().unwrap().target = actor.position;
+    events.step().unwrap();
+    let actor = &events.world.actors[&1];
+    assert!(actor.motion.is_none());
+    assert_eq!(actor.animation.as_ref().unwrap().slot, 120);
+    events.step().unwrap();
+    assert_eq!(events.world.actors[&1].animation.as_ref().unwrap().slot, 12);
+}
+
+#[test]
+fn walking_converges_to_fractional_heading_along_the_direct_path() {
+    let start = [0., 0., 0.];
+    let target = [-12., 350., 0.];
+    let speed = 1.875;
+    let mut actor = Actor::new(4, start);
+    actor.face(180.);
+    actor.motion = Some(ActorMotion { target, speed });
+    let mut world = GameWorld::default();
+    world.actors.insert(4, actor);
+    let mut events = runtime(program(&[0x20ff], &[0x20ff]), Default::default(), world);
+    let distance = |position: [f32; 3]| (target[0] - position[0]).hypot(target[1] - position[1]);
+    let path_length = distance(start);
+    let mut previous = start;
+    for _ in 0..300 {
+        events.step().unwrap();
+        let actor = &events.world.actors[&4];
+        let advanced = (actor.position[0] - previous[0]).hypot(actor.position[1] - previous[1]);
+        assert!(advanced <= speed + 0.0001);
+        assert!(distance(actor.position) <= distance(previous));
+        let cross = (actor.position[0] - start[0]) * (target[1] - start[1])
+            - (actor.position[1] - start[1]) * (target[0] - start[0]);
+        assert!(
+            cross.abs() / path_length < 0.001,
+            "walking left the direct path"
+        );
+        previous = actor.position;
+        if actor.motion.is_none() {
+            break;
+        }
+    }
+    let actor = &events.world.actors[&4];
+    assert!(actor.motion.is_none() && distance(actor.position) < 1.);
+    let heading = (target[0] - start[0])
+        .atan2(start[1] - target[1])
+        .to_degrees()
+        .rem_euclid(360.);
+    assert!((actor.heading - heading).abs() < 0.01);
+    assert!((actor.target_heading - heading).abs() < 0.01);
+}
+
+#[test]
+fn dialogue_waits_for_facing_and_releases_a_subsequent_turn() {
+    let code = script(&[
+        (Call::ConfigureDialogue, &[1, 64, -1, 1, 0, 0, 0, 0]),
+        (Call::SetActorHeading, &[2, 351]),
+        (Call::ConfigureDialogue, &[0, 64, -1, 2, 0, 0, 0, 0]),
+        (Call::YieldCommand, &[2, 0]),
+        (Call::SetActorHeading, &[2, 180]),
+    ]);
+    let mut world = GameWorld::default();
+    for id in [1, 2] {
+        let mut actor = Actor::new(id, [0.; 3]);
+        actor.face(180.);
+        world.actors.insert(id as i32, actor);
+    }
+    let resources = ResourceLibrary {
+        messages: vec![Message { tokens: vec![] }],
+        ..Default::default()
+    };
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    assert_eq!(events.world.dialogue[&1].opening_actor, None);
+    assert_eq!(events.world.dialogue[&0].opening_actor, Some(2));
+    for _ in 0..64 {
+        events.step().unwrap();
+        if events.world.dialogue[&0].opening_actor.is_none() {
+            break;
+        }
+        assert!(events.world.dialogue[&0].operation.is_pending());
+    }
+    assert_eq!(events.world.dialogue[&0].opening_actor, None);
+    assert_eq!(events.world.actors[&2].heading, 351.);
+    events.world.dialogue[&0].operation.complete(None).unwrap();
+    for _ in 0..64 {
+        events.step().unwrap();
+        if events.active_instances() == 0 && events.world.actors[&2].heading == 180. {
+            break;
+        }
+    }
+    assert_eq!(events.world.actors[&2].heading, 180.);
+    assert_eq!(events.active_instances(), 0);
+}
+
+#[test]
+fn replacing_animation_bindings_uses_the_last_command() {
+    let code = script(&[
+        (Call::ConfigureActorAnimation, &[2, -1, 12, 8, 8]),
+        (Call::ConfigureActorAnimation, &[2, -1, 24, 4, 8]),
+    ]);
+    let mut resources = ResourceLibrary::default();
+    resources.models.insert(2, model([12, 24], 32));
+    let mut world = GameWorld::default();
+    world.actors.insert(2, Actor::new(2, [0.; 3]));
+    let events = runtime(program(&code, &[0x20ff]), resources, world);
+    let animation = events.world.actors[&2].animation.as_ref().unwrap();
+    assert_eq!((animation.slot, animation.blend_ticks), (24, 4));
+    assert_eq!(animation.sample(events.tick(), 0, 32.), 0.);
+}
+
+#[test]
+fn animation_wait_completes_after_blending_and_playback_for_actor_or_alias() {
+    for operand in [2, CONTROLLED_ACTOR] {
+        let code = script(&[
+            (Call::ConfigureActorAnimation, &[operand, -1, 12, 8, 8]),
+            (Call::YieldCommand, &[7, operand]),
+            (Call::SetEventBit, &[42]),
+        ]);
+        let mut resources = ResourceLibrary::default();
+        resources.models.insert(2, model([12], 32));
+        let mut world = GameWorld::default();
+        world.controlled_actor = 2;
+        world.actors.insert(2, Actor::new(2, [0.; 3]));
+        let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+        let mut previous = 0.;
+        for _ in 0..100 {
+            let animation = events.world.actors[&2].animation.as_ref().unwrap();
+            let sample = animation.sample(events.tick(), 0, 32.);
+            assert!((previous..=32.).contains(&sample));
+            if events.world.event_flags.contains(&42) {
+                assert_eq!(sample, 32.);
+                assert_eq!(animation.blend_weight(events.tick()), 1.);
+                break;
+            }
+            previous = sample;
+            events.step().unwrap();
+        }
+        assert!(events.world.event_flags.contains(&42));
+    }
+}
+
+#[test]
+fn geometry_queries_resolve_both_alias_operands_against_the_live_controlled_actor() {
+    let forward = [143, 5, 12, 13];
+    let reverse = [323, 5, -12, 13];
+    for (first, second, expected) in [
+        (2, CONTROLLED_ACTOR, [forward, reverse]),
+        (CONTROLLED_ACTOR, 2, [reverse, forward]),
+        (2, 7, [forward, forward]),
+        (77, CONTROLLED_ACTOR, [[0; 4]; 2]),
+        (CONTROLLED_ACTOR, 77, [[0; 4]; 2]),
+    ] {
+        for (operation, (&initial, &changed)) in expected[0].iter().zip(&expected[1]).enumerate() {
+            let mut code = Vec::new();
+            for epoch in 0..2 {
+                // Keep the first result until the next simulation update.
+                native(
+                    &mut code,
+                    Call::MeasureActorGeometry,
+                    &[operation as i32, first, second],
+                );
+                if epoch == 0 {
+                    native(&mut code, Call::YieldCommand, &[0, 1]);
+                }
+            }
+            code.push(0x20ff);
+            let mut world = GameWorld::default();
+            world.controlled_actor = 7;
+            world.actors.insert(2, Actor::new(2, [0.; 3]));
+            world.actors.insert(7, Actor::new(7, [3., 4., 12.]));
+            world.actors.insert(1, Actor::new(1, [-3., -4., -12.]));
+            let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+            assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), initial);
+            events.world.controlled_actor = 1;
+            events.step().unwrap();
+            assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), changed);
+        }
+    }
+}
+
+#[test]
+fn opening_party_follow_query_keeps_the_controlled_actor_as_colettes_target() {
+    // Resolve the controlled actor before measuring relative heading.
+    let mut code = Vec::new();
+    arg(&mut code, 2);
+    arg(&mut code, 4);
+    native(
+        &mut code,
+        Call::MeasureActorGeometry,
+        &[0, 2, CONTROLLED_ACTOR],
+    );
+    code.extend([0x3000, 0x4000, 0x201d, 0x3000, 0x20ff]);
+    let mut world = GameWorld::default();
+    world.controlled_actor = 1;
+    world.actors.insert(1, Actor::new(1, [2260., 1230., 0.]));
+    let mut colette = Actor::new(2, [2360., 1160., 0.]);
+    colette.face(174.);
+    world.actors.insert(2, colette);
+    let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+    assert_eq!(events.world.actors[&2].heading, 174.);
+    assert_eq!(events.world.actors[&2].target_heading, 235.);
+}
+
+#[test]
+fn actor_draw_position_precedes_vm_teleport_without_delaying_movement() {
+    let main = script(&[
+        (Call::YieldCommand, &[0, 1]),
+        (Call::SetActorPosition, &[301, 3110, 3010, 0]),
+    ]);
+    let mut world = GameWorld::default();
+    world.insert_actor(301, Actor::new(20, [2416., 1795., 0.]));
+    let mut moving = Actor::new(1, [0.; 3]);
+    moving.motion = Some(ActorMotion {
+        target: [100., 0., 0.],
+        speed: 4.,
+    });
+    world.insert_actor(302, moving);
+    let mut events = runtime(program(&main, &[0x20ff]), ResourceLibrary::default(), world);
+    assert_eq!(
+        events.world.actors[&301].presented_position(),
+        [2416., 1795., 0.]
+    );
+    events.step().unwrap();
+    let ghost = &events.world.actors[&301];
+    // Source field return VI2535: the script teleports the live actor after its
+    // model submission. Next visit2536 draws the new offscreen placement.
+    assert_eq!(ghost.position, [3110., 3010., 0.]);
+    assert_eq!(ghost.presented_position(), [2416., 1795., 0.]);
+    assert_eq!(events.world.actors[&302].presented_position(), [4., 0., 0.]);
+    events.step().unwrap();
+    assert_eq!(
+        events.world.actors[&301].presented_position(),
+        [3110., 3010., 0.]
+    );
+    assert_eq!(events.world.actors[&302].presented_position(), [8., 0., 0.]);
+}
+
+fn eye_resources() -> ResourceLibrary {
+    let mut with_eyes = model([animation::slot::IDLE, 68], 100);
+    with_eyes.has_eyes = true;
+    ResourceLibrary {
+        bindings: [(5, (ResourceKind::Model, 5))].into(),
+        models: [(5, with_eyes), (6, ModelResource::default())].into(),
+        blink: Some(resonance_content::effect::BlinkCycle {
+            frames: (0..100).map(|tick| (tick % 3) as u8).collect(),
+        }),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn spawned_actor_blinks_and_replays_deterministically() {
+    let run = || {
+        let code = script(&[
+            (Call::YieldCommand, &[0, 1]),
+            (Call::SpawnActor, &[42, 0, 0, 0, 0, 5, 0, 0]),
+        ]);
+        let mut world = GameWorld::default();
+        world.field_camera = Some(Default::default());
+        world.random_state = 123;
+        let mut events = runtime(program(&code, &[0x20ff]), eye_resources(), world);
+        let mut frames = Vec::new();
+        for _ in 0..16 {
+            events.step().unwrap();
+            if let Some(eyes) = events.world.actors[&42].appearance.eyes {
+                assert!(eyes.frame < 3);
+                frames.push(eyes.frame);
+            }
+        }
+        assert!(frames.len() > 1);
+        assert!(frames.windows(2).any(|pair| pair[0] != pair[1]));
+        frames
+    };
+    assert_eq!(run(), run());
+}
+
+#[test]
+fn fixed_disabled_and_missing_eye_channels_do_not_blink() {
+    let mut world = GameWorld::default();
+    for id in 1..=3 {
+        let mut actor = Actor::new(if id == 3 { 6 } else { 5 }, [0.; 3]);
+        actor.appearance.face = match id {
+            1 => Face::Disabled,
+            2 => Face::Frame(2),
+            _ => actor.appearance.face,
+        };
+        world.insert_actor(id, actor);
+    }
+    let mut events = runtime(program(&[0x20ff], &[0x20ff]), eye_resources(), world);
+    for _ in 0..5 {
+        events.step().unwrap();
+        for actor in events.world.actors.values() {
+            assert!(actor.appearance.eyes.is_none());
+        }
+        assert!(matches!(
+            events.world.actors[&2].appearance.face,
+            Face::Frame(2)
+        ));
+    }
+}
+
+#[test]
+fn authored_animation_binding_keeps_pose_and_blinking() {
+    let mut actor = Actor::new(5, [2130., 1180., 0.]);
+    actor.face(155.);
+    actor.autonomy = Some(Autonomy::new(Behavior::Stationary, 0., actor.position));
+    actor.appearance.eyes = Some(EyeBlink { frame: 0, tick: 2 });
+    let mut world = GameWorld::default();
+    world.insert_actor(3, actor);
+    let code = script(&[(Call::ConfigureActorAnimation, &[3, -1, 68, 30, 1])]);
+    let mut events = runtime(program(&code, &[0x20ff]), eye_resources(), world);
+    let mut frames = Vec::new();
+    for _ in 0..6 {
+        events.step().unwrap();
+        let actor = &events.world.actors[&3];
+        assert_eq!(actor.position, [2130., 1180., 0.]);
+        assert_eq!(actor.heading, 155.);
+        assert_eq!(actor.animation.as_ref().unwrap().slot, 68);
+        assert!(actor.scripted_animation);
+        frames.push(actor.appearance.eyes.unwrap().frame);
+    }
+    assert!(frames.windows(2).any(|pair| pair[0] != pair[1]));
+}
+
+#[test]
+fn missing_blink_resource_latches_the_failure() {
+    let mut resources = eye_resources();
+    resources.blink = None;
+    let mut world = GameWorld::default();
+    world.random_state = 123;
+    world.insert_actor(42, Actor::new(5, [0.; 3]));
+    let mut events = runtime(program(&[0x20ff], &[0x20ff]), resources, world);
+    assert!(
+        events
+            .step()
+            .unwrap_err()
+            .to_string()
+            .contains("eye blink animation is not cooked")
+    );
+    let failed_tick = events.world.tick;
+    assert_eq!(events.world.random_state, 123);
+    assert!(
+        events
+            .step()
+            .unwrap_err()
+            .to_string()
+            .contains("event runtime stopped after a script failure")
+    );
+    assert_eq!(events.world.tick, failed_tick);
+    assert!(events.world.actors[&42].appearance.eyes.is_none());
 }

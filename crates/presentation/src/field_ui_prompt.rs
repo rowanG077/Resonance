@@ -70,7 +70,7 @@ impl Artwork {
         if let Some(prompt) = session.action_prompt() {
             let glyphs = self
                 .menu
-                .action_label(prompt.action)
+                .action_label(prompt.action)?
                 .chars()
                 .map(|c| {
                     self.font

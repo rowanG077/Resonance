@@ -45,12 +45,17 @@ pub struct Actor {
     pub(crate) operation: Option<crate::Operation>,
     /// Replacing an actor invalidates its retained presentation instance.
     pub instance: u64,
+    /// Pose at creation, before subsequent commands move the actor.
+    pub creation: Option<ActorCreation>,
     pub(crate) update_order: usize,
     pub(crate) authored_handle: Option<i32>,
     pub resource: u32,
     pub position: [f32; 3],
     pub(crate) visual_lift: Option<crate::projectile::VisualLift>,
     pub chain_impulses: BTreeMap<u32, crate::projectile::ChainImpulse>,
+    /// Position submitted by the latest actor callback, before later VM writes.
+    /// None uses the current position until the first callback or after origin registration.
+    pub draw_position: Option<[f32; 3]>,
     pub visible: bool,
     /// A spawned actor is presented after its first update.
     pub visible_from: u32,
@@ -152,6 +157,12 @@ impl Enemy {
     pub fn stun_effect(&self) -> Option<crate::effect::StunEffect> {
         (self.pause_ticks != 0).then_some(self.reaction)
     }
+}
+#[derive(Debug, Clone, Copy)]
+pub struct ActorCreation {
+    pub tick: u32,
+    pub position: [f32; 3],
+    pub heading: f32,
 }
 impl Actor {
     pub fn model_resource(&self) -> u32 {
@@ -296,11 +307,13 @@ impl Actor {
             role: ActorRole::Ordinary,
             operation: None,
             instance: 0,
+            creation: None,
             authored_handle: None,
             resource,
             position,
             visual_lift: None,
             chain_impulses: BTreeMap::new(),
+            draw_position: None,
             visible: true,
             visible_from: 0,
             update_order: 0,
@@ -357,6 +370,9 @@ impl Actor {
             idle_animation: slot::IDLE,
         }
     }
+    pub fn presented_position(&self) -> [f32; 3] {
+        self.draw_position.unwrap_or(self.position)
+    }
     pub fn face(&mut self, heading: f32) {
         self.heading = heading.rem_euclid(360.);
         self.target_heading = self.heading;
@@ -395,21 +411,29 @@ impl Actor {
                 }
         };
         self.target_heading = self.target_heading.rem_euclid(360.);
-        if speed > 0. {
-            let delta = self.heading_delta();
-            self.heading = if delta.abs() <= speed {
-                self.target_heading
-            } else {
-                (self.heading + delta.signum() * speed).rem_euclid(360.)
-            };
+        if speed <= 0. {
+            return;
         }
+        let difference = self.heading_difference();
+        self.heading = if difference.abs() <= speed {
+            self.target_heading
+        } else {
+            (self.heading + difference.signum() * speed).rem_euclid(360.)
+        };
     }
-    fn heading_delta(&self) -> f32 {
+    fn heading_difference(&self) -> f32 {
         (self.target_heading - self.heading + 180.).rem_euclid(360.) - 180.
     }
+    pub(crate) fn facing_target(&self) -> bool {
+        // Treat floating-point drift as a completed turn.
+        self.heading_difference().abs() < 0.01
+    }
     pub(crate) fn turn_direction(&self) -> f32 {
-        let delta = self.heading_delta();
-        if delta == 0. { 0. } else { delta.signum() }
+        if self.facing_target() {
+            0.
+        } else {
+            self.heading_difference().signum()
+        }
     }
     pub(crate) fn step_motion(&mut self) {
         let speed = self.movement_speed();
@@ -835,7 +859,10 @@ impl TryFrom<i16> for MusicCommand {
 #[derive(Debug, Clone)]
 pub enum AudioCommand {
     SoundReverb(u8),
-    Voice(u32),
+    Voice {
+        resource: u32,
+        completion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    },
     StopVoice,
     SelectBank(u8),
     StopSound(u16),
@@ -866,6 +893,14 @@ pub enum AudioCommand {
         volume: u8,
         slot: u8,
     },
+}
+impl AudioCommand {
+    pub fn voice(resource: u32) -> Self {
+        Self::Voice {
+            resource,
+            completion: None,
+        }
+    }
 }
 #[derive(Debug, Clone)]
 pub struct Trigger {
@@ -1032,13 +1067,26 @@ impl GameWorld {
         }
     }
 
-    /// Controlled actor first, followed by stable simulation order.
+    /// Resolve the live controlled-party alias without changing concrete IDs.
+    pub(crate) fn resolve_actor_id(&self, id: i32) -> i32 {
+        if id == crate::CONTROLLED_ACTOR {
+            self.controlled_actor
+        } else {
+            id
+        }
+    }
+    /// Controlled actor first, followed by other actors in creation order.
     pub fn actor_order(&self) -> &[i32] {
         &self.actor_order
     }
     pub fn insert_actor(&mut self, id: i32, mut actor: Actor) {
         self.next_actor_instance += 1;
         actor.instance = self.next_actor_instance;
+        actor.creation = Some(ActorCreation {
+            tick: self.tick,
+            position: actor.position,
+            heading: actor.appearance.fixed_heading.unwrap_or(actor.heading),
+        });
         actor.visible_from = self.tick + 1;
         actor.update_order = self.actors.get(&id).map_or_else(
             || {
@@ -1088,7 +1136,8 @@ impl GameWorld {
     }
 }
 
-pub(crate) fn random(state: &mut u32) -> u32 {
+/// Random stream shared by field effects and stat growth.
+pub fn random(state: &mut u32) -> u32 {
     *state = state.wrapping_mul(0x41c64e6d).wrapping_add(0x3039);
     (*state >> 16) & 0x7fff
 }

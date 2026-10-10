@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [dependencies]
+resonance-battle.workspace = true
 resonance-model-behavior.workspace = true
 resonance-playback.workspace = true
 resonance-audio-device.workspace = true
@@ -22,4 +23,5 @@ sha2.workspace = true
 resonance-media.workspace = true
 resonance-audio.workspace = true
 hound = "3.5"
+
 tempfile = "3"

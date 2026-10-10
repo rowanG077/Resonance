@@ -1,5 +1,5 @@
 //! High-level field data. Coordinates retain the authored Z-up world space.
-use crate::{ScenePart, ScriptAsset, validate_asset_path};
+use crate::{ScenePart, validate_asset_path};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -134,7 +134,7 @@ pub struct FieldAssets {
     pub version: u32,
     pub map_id: u32,
     pub source_sha256: String,
-    pub script: ScriptAsset,
+    pub script: String,
     pub messages: String,
     pub parts: Vec<ScenePart>,
     pub ground: Vec<CollisionGroup>,
@@ -163,9 +163,6 @@ pub struct FieldAssets {
     pub save_point_unlock: Vec<crate::font::TextSpan>,
     #[serde(default)]
     pub save_point_no_gem: Vec<crate::font::TextSpan>,
-    /// Complete cooked dependency inventory, excluding this manifest itself.
-    #[serde(default)]
-    pub files: BTreeMap<String, String>,
 }
 
 /// Native field callback operands: either a fixed value or a live slot written
@@ -257,6 +254,36 @@ pub struct UnboundGeometry {
 }
 
 impl FieldAssets {
+    pub fn references(&self) -> impl Iterator<Item = &str> {
+        [
+            &self.script,
+            &self.messages,
+            &self.contact_shadow.texture,
+            &self.toon_ramp,
+            &self.effects,
+        ]
+        .into_iter()
+        .chain(self.resource_catalogue.iter())
+        .chain(
+            self.unbound_geometry
+                .iter()
+                .flat_map(|geometry| &geometry.scenes),
+        )
+        .chain(self.overlays.values())
+        .chain(self.particles.values().map(|recipe| &recipe.texture))
+        .chain(
+            self.parts
+                .iter()
+                .chain(self.actors.iter().flat_map(|actor| &actor.parts))
+                .flat_map(|part| {
+                    std::iter::once(&part.mesh)
+                        .chain(&part.textures)
+                        .chain(part.clips.iter().map(|clip| &clip.motion))
+                }),
+        )
+        .map(String::as_str)
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(self.version == FIELD_VERSION, "unsupported field assets");
         for animation in &self.texture_animations {
@@ -304,7 +331,7 @@ impl FieldAssets {
                 "invalid field scenery draw range; recook the field"
             );
         }
-        validate_asset_path(&self.script.path)?;
+        validate_asset_path(&self.script)?;
         self.blink.validate()?;
         ensure!(self.doors.len() <= 128, "too many scenery doors");
         let mut hinges = std::collections::BTreeSet::new();
@@ -327,23 +354,8 @@ impl FieldAssets {
             );
         }
         validate_asset_path(&self.messages)?;
-        ensure!(
-            !self.files.is_empty(),
-            "field dependency inventory is missing; run cook-all"
-        );
-        for (path, hash) in &self.files {
-            validate_asset_path(path)?;
-            ensure!(
-                hash.len() == 64 && hash.bytes().all(|v| v.is_ascii_hexdigit()),
-                "invalid field dependency digest"
-            );
-        }
         if let Some(path) = &self.resource_catalogue {
             validate_asset_path(path)?;
-            ensure!(
-                self.files.contains_key(path),
-                "resource catalogue is missing from dependencies"
-            );
         }
         let mut geometry_resources = std::collections::BTreeSet::new();
         for geometry in &self.unbound_geometry {
@@ -358,10 +370,6 @@ impl FieldAssets {
             );
             for scene in &geometry.scenes {
                 validate_asset_path(scene)?;
-                ensure!(
-                    self.files.contains_key(scene),
-                    "unbound geometry is missing from dependencies"
-                );
             }
         }
         let shadow = &self.contact_shadow;
@@ -390,43 +398,18 @@ impl FieldAssets {
         );
         for overlay in self.overlays.values() {
             validate_asset_path(overlay)?;
-            ensure!(
-                self.files.contains_key(overlay),
-                "overlay is missing from dependencies"
-            );
         }
         for recipe in self.particles.values() {
             recipe.validate()?;
-            ensure!(
-                self.files.contains_key(&recipe.texture),
-                "particle texture is missing from dependencies"
-            );
         }
-        ensure!(
-            self.files.contains_key(&self.effects),
-            "field effects are missing from dependencies"
-        );
-        ensure!(
-            self.files.contains_key(&self.toon_ramp),
-            "toon ramp is missing from field dependencies"
-        );
+
         shadow.validate()?;
+
         ensure!(
-            self.files.contains_key(&shadow.texture),
-            "contact shadow texture is missing from dependencies"
+            self.source_sha256.len() == 64
+                && self.source_sha256.bytes().all(|v| v.is_ascii_hexdigit()),
+            "invalid field source digest"
         );
-        ensure!(
-            self.files.get(&self.script.path) == Some(&self.script.sha256)
-                && self.files.contains_key(&self.messages)
-                && self.files.contains_key("ui/dialogue.json"),
-            "field dependencies are incomplete"
-        );
-        for hash in [&self.source_sha256, &self.script.sha256] {
-            ensure!(
-                hash.len() == 64 && hash.bytes().all(|v| v.is_ascii_hexdigit()),
-                "invalid field source digest"
-            );
-        }
         for group in self.ground.iter().chain(&self.regions) {
             group.validate()?;
         }
@@ -435,7 +418,7 @@ impl FieldAssets {
             .iter()
             .chain(self.actors.iter().flat_map(|c| &c.parts))
         {
-            part.validate(|path| self.files.contains_key(path))?;
+            part.validate(|_| true)?;
         }
         for actor in &self.actors {
             ensure!(

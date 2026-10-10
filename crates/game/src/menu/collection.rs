@@ -1,6 +1,5 @@
 use super::*;
 use items::Description;
-use resonance_events::input::Button;
 
 pub const COLUMNS: usize = 3;
 pub const VISIBLE: usize = 24;
@@ -42,9 +41,7 @@ impl Menu {
         }
         let book = &mut self.collection;
         if book.page_fade == 255 {
-            self.page = Page::Items;
             self.open_items();
-            self.fade_item_description();
             return true;
         }
         book.page_fade = if book.page_closing {
@@ -106,18 +103,17 @@ impl Menu {
         (items, total)
     }
 
-    pub(super) fn step_collection(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down, page_up, page_down]: [bool; 6],
-    ) -> Option<i16> {
+    pub(super) fn step_collection(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [left, right, up, down, page_up, page_down] =
+            [Left, Right, Up, Down, PageUp, PageDown].map(|action| input == Some(action));
         let length = self.collection_items().0.len();
         let book = &mut self.collection;
         book.scroll = (book.scroll + book.scroll.signum()) % 5;
         if book.scroll != 0 {
             return None;
         }
-        if input.pressed(Button::Cancel) {
+        if input == Some(Cancel) {
             if book.categories {
                 book.page_closing = true;
             } else {
@@ -125,15 +121,13 @@ impl Menu {
             }
             return Some(3);
         }
-        if !book.categories
-            && !(left || right || up || down)
-            && (input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage))
+        if !book.categories && (matches!(input, Some(PreviousTab | NextTab)))
             || book.categories && (left || right)
         {
             let previous = if book.categories {
                 left
             } else {
-                input.pressed(Button::PreviousPage)
+                input == Some(PreviousTab)
             };
             book.category = (book.category + if previous { 7 } else { 1 }) % 8;
             book.row = 0;
@@ -141,7 +135,7 @@ impl Menu {
             return Some(1);
         }
         if book.categories {
-            if down || input.pressed(Button::Accept) {
+            if down || input == Some(Confirm) {
                 book.categories = false;
                 book.row = 0;
                 book.first = 0;

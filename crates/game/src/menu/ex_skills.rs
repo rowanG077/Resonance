@@ -1,5 +1,4 @@
 use super::*;
-use resonance_events::input::Button;
 
 pub const VISIBLE_CHOICES: usize = 4;
 const PREVIEW_STEP: u8 = 32;
@@ -195,11 +194,7 @@ impl Menu {
         );
     }
 
-    pub(super) fn step_ex_skills(
-        &mut self,
-        input: crate::field::FieldInput,
-        directions: [bool; 6],
-    ) -> Option<i16> {
+    pub(super) fn step_ex_skills(&mut self, input: Input) -> Option<i16> {
         let state = &mut self.ex_skills;
         if let Some(focus) = state.preview_closing {
             state.preview_opacity = state.preview_opacity.saturating_sub(PREVIEW_STEP);
@@ -220,7 +215,7 @@ impl Menu {
         if state.scroll != 0 {
             return None;
         }
-        let cue = self.ex_input(input, directions);
+        let cue = self.ex_input(input);
         let state = &mut self.ex_skills;
         state.popup_opacity = if matches!(state.focus, Focus::Confirm { .. }) {
             state.popup_opacity.saturating_add(PREVIEW_STEP)
@@ -230,13 +225,12 @@ impl Menu {
         cue
     }
 
-    fn ex_input(
-        &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down, page_up, page_down]: [bool; 6],
-    ) -> Option<i16> {
+    fn ex_input(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        let [left, right, up, down, page_up, page_down] =
+            [Left, Right, Up, Down, PageUp, PageDown].map(|action| input == Some(action));
         let focus = self.ex_skills.focus;
-        if input.pressed(Button::Cancel) {
+        if input == Some(Cancel) {
             self.ex_skills.focus = match focus {
                 Focus::Character | Focus::Gems | Focus::Skills => {
                     self.ex_skills.transition.page_closing = true;
@@ -257,13 +251,13 @@ impl Menu {
             return Some(if focus == Focus::Compounds { 1 } else { 3 });
         }
         if matches!(focus, Focus::Character | Focus::Gems | Focus::Skills)
-            && (input.pressed(Button::PreviousPage)
-                || input.pressed(Button::NextPage)
+            && (input == Some(PreviousTab)
+                || input == Some(NextTab)
                 || focus == Focus::Character && (left || right))
         {
             let count = self.party().formation.len();
             self.character = (self.character
-                + if input.pressed(Button::PreviousPage) || left {
+                + if input == Some(PreviousTab) || left {
                     count - 1
                 } else {
                     1
@@ -277,7 +271,7 @@ impl Menu {
         }
         match focus {
             Focus::Character => {
-                if input.pressed(Button::Accept) || down {
+                if input == Some(Confirm) || down {
                     self.ex_skills.focus = Focus::Gems;
                     self.ex_skills.slot = 0;
                     return Some(2);
@@ -330,7 +324,7 @@ impl Menu {
                     self.ex_skills.first = 0;
                     return Some(1);
                 }
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     if focus == Focus::Gems {
                         if self.ex_gems().is_empty() {
                             return Some(4);
@@ -362,7 +356,7 @@ impl Menu {
                 } else {
                     self.ex_choices().len()
                 };
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     if focus == Focus::GemList {
                         let current = self.member().ex_gems[self.ex_skills.slot];
                         if current == self.ex_gems()[self.ex_skills.gem] {
@@ -436,7 +430,7 @@ impl Menu {
                     };
                     return Some(1);
                 }
-                if input.pressed(Button::Accept) {
+                if input == Some(Confirm) {
                     if !yes {
                         self.ex_skills.focus = Focus::GemList;
                         return Some(3);

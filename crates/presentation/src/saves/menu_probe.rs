@@ -1,229 +1,123 @@
+//! Save/load menu coverage through real keyboard input and the shared scenario runner.
 use super::*;
-use resonance_events::input::{Button, Buttons};
-use resonance_game::{
-    field::FieldInput,
-    menu::{Menu, Mode, Page, Slot},
-};
-use std::{
-    path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use replay::{Event, Key, MenuPage, SlotMode, SlotState, Step, assert_checkpoint, capture_from};
+use std::{fs, path::Path};
 
-pub fn run_menu_probe(root: &Path, checkpoint: &Path, output: &Path) -> Result<()> {
-    let mut app = probe::app(root, checkpoint, output, crate::Resolution::default())?;
-    let completed = Arc::new(AtomicBool::new(false));
-    app.insert_resource(Probe {
-        output: output.into(),
-        step: 0,
-        settled: 0,
-        started: Instant::now(),
-        baseline: None,
-        captured: Arc::new(AtomicBool::new(true)),
-        completed: completed.clone(),
-    })
-    .add_systems(Update, drive.before(update));
+pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
+    let (identity, _) =
+        new_game::save_context(root, resonance_content::diagnostics::Diagnostics::new(true))?;
+    let (_, expected): (_, FieldCheckpoint) =
+        resonance_persistence::decode(&fs::read(save)?)?.admit(&identity)?;
+    let app = probe::app(root, save, output, crate::Resolution::default())?;
+    let mut steps = vec![
+        title_probe::field(expected.map_id),
+        Step::wait(Event::SavePoint, 1),
+        Step::capture("baseline"),
+    ];
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Save, SlotState::Bank));
+    steps.push(menu(MenuPage::Save));
+    steps.push(Step::capture("save-empty"));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Save, SlotState::List));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Save, SlotState::Confirm));
+    steps.push(menu(MenuPage::Save));
+    steps.push(Step::capture("save-confirm"));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Save, SlotState::Notice));
+    steps.push(menu(MenuPage::Save));
+    steps.push(Step::capture("save-success"));
+    steps.extend(Step::tap(Key::Interact));
+    steps.extend(Step::tap(Key::Cancel));
+    steps.extend(Step::tap(Key::Cancel));
+    steps.push(title_probe::field(expected.map_id));
+    steps.push(Step::capture("save-closed"));
+    steps.extend(Step::tap(Key::Menu));
+    steps.push(menu(MenuPage::Main));
+    steps.push(Step::capture("field-menu"));
+    steps.push(Step::select(
+        Event::MenuSelection {
+            page: MenuPage::Main,
+            entry: MenuPage::System,
+        },
+        Key::Left,
+    ));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(menu(MenuPage::System));
+    steps.push(Step::capture("system-menu"));
+    steps.push(Step::select(
+        Event::MenuSelection {
+            page: MenuPage::System,
+            entry: MenuPage::Load,
+        },
+        Key::Down,
+    ));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Load, SlotState::Bank));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Load, SlotState::List));
+    steps.push(menu(MenuPage::Load));
+    steps.push(Step::capture("load-slot"));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Load, SlotState::Confirm));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(title_probe::field(expected.map_id));
+    steps.push(Step::capture("loaded-field"));
+    steps.push(Step::Hold {
+        keys: vec![],
+        updates: 8,
+    });
+    steps.push(Step::capture("field-continued"));
+    replay::record_app(app, output, &CheckpointReplay::new(steps), false)?;
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.join("recording.json"))?)?;
+    let baseline = capture_from(&report, "baseline")?;
     ensure!(
-        app.run() == AppExit::Success && completed.load(Ordering::Acquire),
-        "menu probe failed"
+        baseline["active_save_point"] == true,
+        "menu probe requires an activated memory circle"
     );
+    ensure!(
+        capture_from(&report, "save-empty")?["quicksave_available"] == false,
+        "quicksave accepted an open menu"
+    );
+    ensure!(
+        capture_from(&report, "save-success")?["menu"]["slots"][0] == "saved"
+            && capture_from(&report, "load-slot")?["menu"]["slots"][0] == "saved",
+        "save/load menu lost its saved slot"
+    );
+    let store = Store::new(output.join("slots"));
+    let (_, persisted): (_, FieldCheckpoint) =
+        resonance_persistence::decode(&store.read(Kind::Save, &SlotId::new("a-001")?)?)?
+            .admit(&identity)?;
+    ensure!(
+        serde_json::to_value(&persisted)?
+            == capture_from(&report, "save-confirm")?["menu"]["checkpoint"],
+        "save menu changed the submitted checkpoint"
+    );
+    let loaded = capture_from(&report, "loaded-field")?;
+    let restored: FieldCheckpoint = serde_json::from_value(loaded["restored_checkpoint"].clone())?;
+    assert_checkpoint(&restored, &persisted)?;
+    let continued: FieldCheckpoint =
+        serde_json::from_value(capture_from(&report, "field-continued")?["checkpoint"].clone())?;
+    ensure!(
+        continued.map_id == restored.map_id
+            && continued.progress.tick > restored.progress.tick
+            && continued.played_ticks > restored.played_ticks,
+        "loaded memory circle did not resume ordinary updates"
+    );
+    fs::write(
+        output.join("result.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "saved":persisted, "restored":restored, "checkpoint":continued, "audio_device":false,
+            "unprepared_reads":report["unprepared_reads"], "save_load":true, "quicksave_rejected_in_menu":true
+        }))?,
+    )?;
     Ok(())
 }
-#[derive(Resource)]
-struct Probe {
-    output: PathBuf,
-    step: u8,
-    settled: u8,
-    started: Instant,
-    baseline: Option<FieldCheckpoint>,
-    captured: Arc<AtomicBool>,
-    completed: Arc<AtomicBool>,
+fn menu(page: MenuPage) -> Step {
+    Step::wait(Event::MenuSettled { page }, 600)
 }
-fn drive(world: &mut World) {
-    let mut probe = world.remove_resource::<Probe>().unwrap();
-    if let Err(error) = probe.advance(world) {
-        error!("Menu probe failed: {error:#}");
-        world.write_message(AppExit::error());
-    }
-    world.insert_resource(probe);
-}
-impl Probe {
-    fn advance(&mut self, world: &mut World) -> Result<()> {
-        ensure!(
-            self.started.elapsed().as_secs() < 90,
-            "menu probe timed out at step {}",
-            self.step
-        );
-        if !self.captured.load(Ordering::Acquire) || !field_view::ready(world) {
-            return Ok(());
-        }
-        if self.step == 0 {
-            if checkpoint(world).is_err() {
-                return Ok(());
-            }
-        } else if self.step != 10 && menu(world).is_some_and(|m| m.busy || m.main_animating()) {
-            return Ok(());
-        }
-        self.settled += 1;
-        if self.settled < 12 {
-            return Ok(());
-        }
-        self.settled = 0;
-        match self.step {
-            0 => {
-                let state = checkpoint(world)?;
-                ensure!(
-                    world
-                        .resource::<new_game::Session>()
-                        .field
-                        .events
-                        .world
-                        .save_points
-                        .iter()
-                        .any(|s| s.active),
-                    "menu probe needs free control on a previously activated memory circle"
-                );
-                self.baseline = Some(state);
-                press(world, Action::Confirm)?;
-            }
-            1 => {
-                ensure!(
-                    checkpoint(world).is_err(),
-                    "quicksave accepted an open menu"
-                );
-                let menu = menu(world).unwrap();
-                ensure!(
-                    menu.page == Page::Slots(Mode::Save),
-                    "memory circle did not open Save"
-                );
-                self.capture(world, "save-empty");
-            }
-            2 => {
-                press(world, Action::Confirm)?;
-                press(world, Action::Confirm)?;
-                self.capture(world, "save-confirm");
-            }
-            3 => {
-                press(world, Action::Confirm)?;
-            }
-            4 => {
-                let menu = menu(world).unwrap();
-                ensure!(
-                    matches!(menu.slots[0], Slot::Saved { .. }) && menu.notice.is_some(),
-                    "save did not finish"
-                );
-                self.capture(world, "save-success");
-            }
-            5 => {
-                press(world, Action::Confirm)?;
-                press(world, Action::Cancel)?;
-                press(world, Action::Cancel)?;
-                let state = checkpoint(world)?;
-                ensure!(
-                    state.position == self.baseline.as_ref().unwrap().position,
-                    "menu moved the player"
-                );
-                press(world, Action::Menu)?;
-                self.capture(world, "field-menu");
-            }
-            6 => {
-                tap_direction(world, [-1., 0.])?;
-                press(world, Action::Confirm)?;
-                ensure!(
-                    menu(world).is_some_and(|menu| menu.page == Page::System),
-                    "System navigation failed"
-                );
-                self.capture(world, "system-menu");
-            }
-            7 => {
-                tap_direction(world, [0., -1.])?;
-                press(world, Action::Confirm)?;
-            }
-            8 => {
-                press(world, Action::Confirm)?;
-                let menu = menu(world).unwrap();
-                ensure!(
-                    menu.page == Page::Slots(Mode::Load)
-                        && matches!(menu.slots[0], Slot::Saved { .. }),
-                    "load menu lost the saved slot: page={:?}, slot={:?}",
-                    menu.page,
-                    menu.slots[0]
-                );
-                self.capture(world, "load-slot");
-            }
-            9 => {
-                press(world, Action::Confirm)?;
-                press(world, Action::Confirm)?;
-            }
-            10 => {
-                let Ok(state) = checkpoint(world) else {
-                    return Ok(());
-                };
-                let expected = self.baseline.as_ref().unwrap();
-                ensure!(
-                    state.position == expected.position
-                        && state.heading == expected.heading
-                        && state.progress.script_globals == expected.progress.script_globals
-                        && state.progress.event_flags == expected.progress.event_flags,
-                    "menu load did not preserve the checkpoint"
-                );
-                let late = world
-                    .resource::<loading::Resident>()
-                    .late_reads
-                    .load(Ordering::Relaxed);
-                ensure!(late == 0, "menu requested an unprepared asset");
-                std::fs::write(
-                    self.output.join("result.json"),
-                    serde_json::to_vec_pretty(&serde_json::json!({
-                        "checkpoint":state,"audio_device":false,"late_reads":late,"save_load":true,
-                        "quicksave_rejected_in_menu":true
-                    }))?,
-                )?;
-                self.capture(world, "loaded-field");
-            }
-            _ => {
-                self.completed.store(true, Ordering::Release);
-                world.write_message(AppExit::Success);
-            }
-        }
-        self.step += 1;
-        Ok(())
-    }
-    fn capture(&self, world: &mut World, name: &str) {
-        probe::capture(
-            world,
-            self.output.join(format!("{name}.png")),
-            &self.captured,
-        );
-    }
-}
-fn menu(world: &World) -> Option<&Menu> {
-    world.resource::<new_game::Session>().field.menu.as_ref()
-}
-enum Action {
-    Confirm,
-    Cancel,
-    Menu,
-}
-fn press(world: &mut World, action: Action) -> Result<()> {
-    world
-        .resource_mut::<new_game::Session>()
-        .field
-        .step(FieldInput {
-            pressed_buttons: Buttons::default()
-                .with(Button::Accept, matches!(action, Action::Confirm))
-                .with(Button::Cancel, matches!(action, Action::Cancel))
-                .with(Button::Menu, matches!(action, Action::Menu)),
-            ..Default::default()
-        })
-}
-fn tap_direction(world: &mut World, direction: [f32; 2]) -> Result<()> {
-    let field = &mut world.resource_mut::<new_game::Session>().field;
-    field.step(FieldInput {
-        direction,
-        ..Default::default()
-    })?;
-    field.step(FieldInput::default())
+fn slots(mode: SlotMode, state: SlotState) -> Step {
+    Step::wait(Event::Slots { mode, state }, 600)
 }

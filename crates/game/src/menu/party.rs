@@ -1,11 +1,10 @@
 use super::*;
-use crate::field::FieldInput;
-use resonance_events::input::Button;
 
-pub(super) fn page_shift(input: FieldInput, length: usize, first: usize) -> isize {
-    if input.pressed(Button::NextPage) {
+pub(super) fn page_shift(input: Input, length: usize, first: usize) -> isize {
+    use MenuAction::*;
+    if input == Some(NextTab) {
         VISIBLE_PARTY.min(length.saturating_sub(first + VISIBLE_PARTY)) as isize
-    } else if input.pressed(Button::PreviousPage) {
+    } else if input == Some(PreviousTab) {
         -(VISIBLE_PARTY.min(first) as isize)
     } else {
         0
@@ -34,7 +33,7 @@ impl Menu {
         }
     }
 
-    pub(super) fn page_party(&mut self, input: FieldInput) -> Option<i16> {
+    pub(super) fn page_party(&mut self, input: Input) -> Option<i16> {
         let length = self.checkpoint.as_ref()?.progress.party.formation.len();
         let shift = page_shift(input, length, self.first_character);
         self.first_character = self.first_character.saturating_add_signed(shift);
@@ -42,17 +41,13 @@ impl Menu {
         (shift != 0).then_some(0x26)
     }
 
-    pub(super) fn move_party_cursor(
-        &mut self,
-        input: FieldInput,
-        up: bool,
-        down: bool,
-    ) -> Option<i16> {
+    pub(super) fn move_party_cursor(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
         let length = self.checkpoint.as_ref()?.progress.party.formation.len();
         let previous = self.character;
-        if up {
+        if input == Some(Up) {
             self.character = self.character.saturating_sub(1);
-        } else if down {
+        } else if input == Some(Down) {
             self.character = (self.character + 1).min(length - 1);
         } else {
             return self.page_party(input);
@@ -60,18 +55,19 @@ impl Menu {
         (previous != self.character).then_some(1)
     }
 
-    pub(super) fn step_party(&mut self, input: FieldInput, up: bool, down: bool) -> Option<i16> {
-        if input.pressed(Button::Cancel) {
+    pub(super) fn step_party(&mut self, input: Input) -> Option<i16> {
+        use MenuAction::*;
+        if input == Some(Cancel) {
             if self.swap_character.take().is_none() {
                 self.page = Page::Main;
             }
             return Some(3);
         }
-        if input.pressed(Button::Accept) || input.pressed(Button::Menu) {
+        if matches!(input, Some(Confirm | Menu)) {
             let party = &mut self.checkpoint.as_mut()?.progress.party;
             if let Some(origin) = self.swap_character.take() {
                 party.formation.swap(origin, self.character);
-            } else if input.pressed(Button::Menu) {
+            } else if input == Some(Menu) {
                 self.swap_character = Some(self.character);
                 return Some(2);
             } else {
@@ -84,10 +80,10 @@ impl Menu {
             self.party_changed = true;
             return Some(2);
         }
-        if up && self.character == 0 && self.swap_character.is_none() {
+        if input == Some(Up) && self.character == 0 && self.swap_character.is_none() {
             self.page = Page::Main;
             return Some(1);
         }
-        self.move_party_cursor(input, up, down)
+        self.move_party_cursor(input)
     }
 }

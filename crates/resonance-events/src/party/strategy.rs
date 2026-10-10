@@ -25,7 +25,8 @@ impl Party {
             }
             &mut self
                 .strategy_presets
-                .get_or_insert_with(|| data.presets.clone())[index]
+                .as_mut()
+                .ok_or("strategy presets have not been prepared")?[index]
                 .members[member][group]
         } else {
             &mut self.members[member].strategy[group]

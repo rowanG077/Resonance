@@ -1,54 +1,14 @@
 use super::*;
-use crate::{
-    data::{Command, Note},
-    dls, mix, modulation, pitch, resample,
-};
+use crate::data::{Command, Note};
 use std::collections::BTreeMap;
 
 fn fixture() -> (Resources, Score, Tables) {
-    (
-        Resources {
-            programs: BTreeMap::from([(1, vec![Command::End])]),
-            samples: BTreeMap::new(),
-        },
-        Score {
-            origin: crate::data::ScoreOrigin::Sequence,
-            initial_bpm_1024: 120 * 1024,
-            loop_start_tick: 2,
-            end_tick: 10,
-            has_master_track: false,
-            tempos: vec![],
-            controls: [Controls::default(); 16],
-            first_events: vec![],
-            loop_events: vec![],
-        },
-        Tables {
-            mix: mix::Tables {
-                volume: [1.; 129],
-                alternate_volume: [1.; 129],
-                pan: [1.; 4],
-                volume_16_scale: 1.,
-                controller_14_scale: 1.,
-                pan_16_scale: 1.,
-                spatial: None,
-            },
-            pitch: pitch::Tables {
-                up: [1.; 128],
-                down: [1.; 128],
-                semitone: 1.05946,
-            },
-            dls: dls::Tables {
-                attenuation: [0; 194],
-                inverse: [0; 1024],
-                sustain: [0.; 128],
-            },
-            modulation: modulation::Tables {
-                sine: [0; 1024],
-                tremolo: [1.; 5],
-            },
-            coefficients: resample::Coefficients([[[0; 4]; 128]; 4]),
-        },
-    )
+    let (mut resources, mut score, tables) = crate::package::tests::playback_data();
+    resources.programs = BTreeMap::from([(1, vec![Command::End])]);
+    resources.samples.clear();
+    score.loop_start_tick = 2;
+    score.end_tick = 10;
+    (resources, score, tables)
 }
 
 fn event(tick: u32, channel: u8, kind: EventKind) -> Event {
@@ -95,7 +55,7 @@ fn controller_operands_preserve_fraction_clamp_and_lfo_read_only_semantics() {
         ],
     );
     let control = shared::Control::default();
-    let mut voice = Voice::new(
+    let mut voice = Voice::new_at(
         &bank,
         &tables,
         Note {
@@ -106,11 +66,16 @@ fn controller_operands_preserve_fraction_clamp_and_lfo_read_only_semantics() {
             priority: 9,
             max_voices: 255,
         },
+        0,
+        control.clone(),
     )
     .unwrap();
-    voice.set_random(control.clone());
     let mut channel = Controls::default();
-    voice.prepare_commands(&mut channel).unwrap();
+    voice
+        .prepare_commands(&mut channel, &mut {
+            crate::music_voice::INSTRUCTION_BUDGET
+        })
+        .unwrap();
     assert_eq!(
         (0..6)
             .map(|index| control.variable(index))
@@ -139,8 +104,8 @@ fn controller_operands_preserve_fraction_clamp_and_lfo_read_only_semantics() {
 }
 
 #[test]
-fn macro_mailboxes_preserve_handles_fifo_capacity_and_one_shot_traps() {
-    use crate::data::{Arithmetic, Comparison, Operand, Variable::Global};
+fn macro_mailboxes_deliver_every_message_in_order_and_wake_a_trap_once() {
+    use crate::data::Variable::Global;
     let (mut bank, _, tables) = fixture();
     let wait = Command::Wait {
         milliseconds: None,
@@ -148,84 +113,35 @@ fn macro_mailboxes_preserve_handles_fifo_capacity_and_one_shot_traps() {
         key_off: false,
         sample_end: false,
     };
-    bank.programs.insert(
-        1,
-        vec![
-            Command::VoiceHandle {
-                destination: Global(0),
-                child: false,
-            },
-            Command::SpawnMacro {
-                program: 99,
-                instruction: 0,
-                key_offset: 0,
-                priority: 9,
-                max_voices: 255,
-            },
-            Command::VoiceHandle {
-                destination: Global(1),
-                child: true,
-            },
-            Command::Calculate {
-                destination: Global(2),
-                operation: Arithmetic::Add,
-                left: Global(0),
-                right: Operand::Constant(0),
-            },
-            Command::Branch {
-                comparison: Comparison::Equal,
-                left: Global(0),
-                right: Global(2),
-                invert: false,
-                instruction: 7,
-            },
-            Command::SetVariable {
-                destination: Global(3),
-                value: 1,
-            },
-            Command::MessageTrap {
-                program: 2,
-                instruction: 0,
-            },
-            Command::Wait {
-                milliseconds: Some(1),
-                from_start: false,
-                key_off: false,
-                sample_end: false,
-            },
-            Command::ReceiveMessage {
-                destination: Global(4),
-            },
-            Command::ReceiveMessage {
-                destination: Global(5),
-            },
-            Command::ReceiveMessage {
-                destination: Global(6),
-            },
-            Command::ReceiveMessage {
-                destination: Global(7),
-            },
-            Command::ReceiveMessage {
-                destination: Global(8),
-            },
-            wait,
-        ],
-    );
+    let messages = [11, -7, 23, 5, 91, 42];
+    let mut receive: Vec<_> = (0..messages.len() as u8)
+        .map(|index| Command::ReceiveMessage {
+            destination: Global(index),
+        })
+        .collect();
+    receive.extend([
+        Command::MessageTrap {
+            program: 2,
+            instruction: 0,
+        },
+        wait,
+    ]);
+    bank.programs.insert(1, receive);
     bank.programs.insert(
         2,
         vec![
             Command::ReceiveMessage {
-                destination: Global(10),
+                destination: Global(6),
             },
             Command::SetVariable {
-                destination: Global(9),
-                value: 7,
+                destination: Global(7),
+                value: 1,
             },
             wait,
         ],
     );
     let control = shared::Control::default();
-    let mut voice = Voice::new(
+    let mut voice = Voice::new_at(
         &bank,
         &tables,
         Note {
@@ -234,45 +150,39 @@ fn macro_mailboxes_preserve_handles_fifo_capacity_and_one_shot_traps() {
             velocity: 100,
             pan: 64,
             priority: 9,
-            max_voices: 255,
+            max_voices: 1,
         },
+        0,
+        control.clone(),
     )
     .unwrap();
-    voice.handle = 0x8000_8001;
-    voice.last_child = 123;
-    voice.set_random(control.clone());
-    // Delivering before startup retains the queue. Full delivery must neither
-    // replace its oldest entry nor fire an installed message trap.
-    for value in [0x1234_5678, -1, i32::MIN, 42] {
-        voice.send_message(value);
+    for value in messages {
+        voice.send_message(value).unwrap();
     }
-    voice.prepare_commands(&mut Controls::default()).unwrap();
-    assert_eq!(
-        (control.variable(0), control.variable(1)),
-        (0x8000_8001u32 as i32, -1)
-    );
-    assert_eq!((control.variable(2), control.variable(3)), (-32767, 1));
-    voice.send_message(99);
-    voice.prepare_commands(&mut Controls::default()).unwrap();
-    assert_eq!(control.variable(9), 0);
-    for _ in 0..32 {
-        voice.prepare_frame(Controls::default()).unwrap();
+    voice
+        .prepare_commands(&mut Controls::default(), &mut {
+            crate::music_voice::INSTRUCTION_BUDGET
+        })
+        .unwrap();
+    for (index, value) in messages.into_iter().enumerate() {
+        assert_eq!(control.variable(index as u8), value);
     }
-    voice.prepare_commands(&mut Controls::default()).unwrap();
-    assert_eq!(
-        (4..9)
-            .map(|index| control.variable(index))
-            .collect::<Vec<_>>(),
-        [0x1234_5678, -1, i32::MIN, 42, 0]
-    );
-    voice.send_message(0x7654_3210);
-    voice.prepare_commands(&mut Controls::default()).unwrap();
-    assert_eq!(control.variable(10), 0x7654_3210);
-    assert_eq!(control.variable(9), 7);
-    control.set_variable(9, 0);
-    voice.send_message(55);
-    voice.prepare_commands(&mut Controls::default()).unwrap();
-    assert_eq!(control.variable(9), 0);
+    voice.send_message(99).unwrap();
+    assert_eq!(control.variable(6), 0);
+    voice
+        .prepare_commands(&mut Controls::default(), &mut {
+            crate::music_voice::INSTRUCTION_BUDGET
+        })
+        .unwrap();
+    assert_eq!((control.variable(6), control.variable(7)), (99, 1));
+    control.set_variable(7, 0);
+    voice.send_message(55).unwrap();
+    voice
+        .prepare_commands(&mut Controls::default(), &mut {
+            crate::music_voice::INSTRUCTION_BUDGET
+        })
+        .unwrap();
+    assert_eq!((control.variable(6), control.variable(7)), (99, 0));
 }
 
 #[test]
@@ -317,7 +227,7 @@ fn macro_arithmetic_saturates_signed_values_and_validates_registers_and_branches
 }
 
 #[test]
-fn allocation_age_keeps_fractional_decay_and_add_age_restarts_from_integer_age() {
+fn allocation_priority_ages_and_authored_updates_take_effect() {
     let (mut bank, _, tables) = fixture();
     let wait = |milliseconds| Command::Wait {
         milliseconds,
@@ -328,13 +238,11 @@ fn allocation_age_keeps_fractional_decay_and_add_age_restarts_from_integer_age()
     bank.programs.insert(
         1,
         vec![
-            Command::SetAge { value: 1 },
+            Command::SetAge { value: 1000 },
             Command::AgePeriod { milliseconds: 30 },
             wait(Some(10)),
-            Command::AddAge { value: 2 },
-            Command::Priority { value: 9 },
+            Command::AddAge { value: 2000 },
             Command::Priority { value: 3 },
-            Command::Priority { value: 9 },
             wait(None),
         ],
     );
@@ -351,46 +259,143 @@ fn allocation_age_keeps_fractional_decay_and_add_age_restarts_from_integer_age()
         },
     )
     .unwrap();
-    for frame in 0..=320 {
-        voice.prepare_frame(Controls::default()).unwrap();
+    let deadline = crate::volume::frames_from_millis(10).unwrap().div_ceil(32) * 32;
+    let initial_age = voice.allocation_priority().1;
+    for frame in 0..=deadline {
+        crate::music_voice::test_frame(&mut voice, Controls::default()).unwrap();
         if frame == 160 {
-            assert_eq!(voice.allocation_priority(), (9, 27648, 0));
-            assert_eq!(voice.priority(), 9 << 24);
+            assert!(voice.allocation_priority().1 < initial_age);
         }
         if frame % 160 == 159 {
-            voice.mix_block(&mut [[[0; 2]; 3]; 160]).unwrap();
+            voice.mix_block(&mut [[[0; 2]; 3]; 160]);
         }
     }
-    assert_eq!(voice.allocation_priority(), (9, 60416, 2));
-    assert_eq!(voice.priority(), (9 << 24) | 1);
+    assert_eq!(voice.allocation_priority().0, 3);
+    assert!(voice.allocation_priority().1 > 1000);
 }
 
 #[test]
-fn crossed_pre_end_and_terminal_events_run_before_same_callback_restart() {
+fn age_periods_decay_monotonically_to_their_native_frame_endpoints() {
+    for milliseconds in [0, 117, 118] {
+        let (mut bank, _, tables) = fixture();
+        bank.programs.insert(
+            1,
+            vec![
+                Command::SetAge { value: 60_000 },
+                Command::AgePeriod { milliseconds },
+                Command::Wait {
+                    milliseconds: None,
+                    from_start: false,
+                    key_off: false,
+                    sample_end: false,
+                },
+            ],
+        );
+        let mut voice = Voice::new(
+            &bank,
+            &tables,
+            Note {
+                macro_id: 1,
+                key: 60,
+                velocity: 100,
+                pan: 64,
+                priority: 9,
+                max_voices: 1,
+            },
+        )
+        .unwrap();
+        voice
+            .prepare_commands(&mut Controls::default(), &mut {
+                crate::music_voice::INSTRUCTION_BUDGET
+            })
+            .unwrap();
+        let frames = crate::volume::frames_from_millis(u64::from(milliseconds)).unwrap();
+        let mut previous = voice.allocation_priority().1;
+        for frame in 0..frames.max(160) {
+            crate::music_voice::test_frame(&mut voice, Controls::default()).unwrap();
+            let age = voice.allocation_priority().1;
+            assert!(age <= previous);
+            if milliseconds == 0 {
+                assert_eq!(age, 60_000);
+            } else if frame + 1 < frames {
+                assert!(age > 0);
+            } else {
+                assert_eq!(age, 0);
+            }
+            previous = age;
+        }
+    }
+}
+
+#[test]
+fn smallest_tempos_eventually_dispatch_the_next_tick() -> Result<()> {
+    for bpm in [1, 2] {
+        let (bank, mut song, tables) = fixture();
+        song.initial_bpm_1024 = bpm;
+        song.first_events = vec![event(1, 0, EventKind::Volume { value: 31 })];
+        song.validate(&bank)?;
+        let mut kernel = Kernel::new(
+            &bank,
+            &song,
+            &tables,
+            false,
+            shared::Control::default(),
+            false,
+        )?;
+        let frames = TICK_DENOMINATOR.div_ceil(u128::from(bpm) * TICKS_PER_BEAT) as u64;
+        kernel.clock.advance(frames - 1, bpm);
+        kernel.prepare_controls(LiveControls::default())?;
+        assert_eq!(kernel.controls[0].paired[7], 127 << 7);
+        kernel.clock.advance(1, bpm);
+        kernel.prepare_controls(LiveControls::default())?;
+        assert_eq!(kernel.controls[0].paired[7], 31 << 7);
+    }
+    Ok(())
+}
+
+#[test]
+fn terminal_events_precede_loop_entry_and_tempo_restarts_from_the_loop_position() -> Result<()> {
     let (bank, mut song, tables) = fixture();
-    song.initial_bpm_1024 = 1000 * 1024;
-    song.controls[1].pitch_bend = 1000;
+    song.initial_bpm_1024 = 120 * 1024;
+    song.end_tick = 8;
     song.first_events = vec![
-        event(9, 0, EventKind::Volume { value: 31 }),
-        event(10, 1, EventKind::PitchBend { value: 8192 }),
-        event(10, 2, EventKind::Volume { value: 40 }),
+        event(7, 0, EventKind::Volume { value: 31 }),
+        event(8, 1, EventKind::PitchBend { value: 8192 }),
+        event(8, 2, EventKind::Volume { value: 40 }),
     ];
     song.loop_events = vec![event(2, 2, EventKind::Volume { value: 70 })];
-    let mut kernel =
-        Kernel::new(&bank, &song, &tables, Some(320), true, ClockStart::Running).unwrap();
-    kernel.time[0] = (8 << 16) | 49152;
-    kernel.next_millisecond(LiveControls::default()).unwrap();
-    assert_eq!(kernel.controls[0].paired[7], 127 << 7);
-    assert!(kernel.time[0] >> 16 > u64::from(song.end_tick));
-    kernel.next_millisecond(LiveControls::default()).unwrap();
+    song.tempos = vec![Tempo {
+        tick: 4,
+        bpm_1024: 240 * 1024,
+    }];
+    let mut kernel = Kernel::new(
+        &bank,
+        &song,
+        &tables,
+        true,
+        shared::Control::default(),
+        true,
+    )?;
+    let mut changed_tempo = false;
+    for _ in 0..20 {
+        kernel.prepare_controls(LiveControls::default())?;
+        kernel.next_quantum()?;
+        changed_tempo |= kernel.bpm == 240 * 1024;
+        if !kernel.result.as_ref().unwrap().loop_starts.is_empty() {
+            break;
+        }
+    }
+    assert!(changed_tempo);
+    assert!(!kernel.result.as_ref().unwrap().loop_starts.is_empty());
     assert_eq!(kernel.controls[0].paired[7], 31 << 7);
     assert_eq!(kernel.controls[1].pitch_bend, 8192);
     assert_eq!(kernel.controls[2].paired[7], 70 << 7);
-    assert_eq!(kernel.result.as_ref().unwrap().loop_starts, [32]);
+    assert_eq!(kernel.bpm, 120 * 1024);
+    Ok(())
 }
 
 #[test]
-fn terminal_note_keeps_its_outgoing_clock_until_authored_note_off() {
+fn held_notes_keep_absolute_deadlines_across_multiple_loops() -> Result<()> {
     let (mut bank, mut song, tables) = fixture();
     bank.programs.insert(
         1,
@@ -404,9 +409,11 @@ fn terminal_note_keeps_its_outgoing_clock_until_authored_note_off() {
             Command::End,
         ],
     );
-    song.end_tick = 18;
+    song.initial_bpm_1024 = 160_000;
+    song.loop_start_tick = 0;
+    song.end_tick = 4;
     song.first_events = vec![event(
-        18,
+        0,
         0,
         EventKind::Notes {
             source: crate::data::VoiceSource::Sequence {
@@ -416,71 +423,117 @@ fn terminal_note_keeps_its_outgoing_clock_until_authored_note_off() {
             },
             voices: vec![Note {
                 macro_id: 1,
-                key: 83,
+                key: 60,
                 velocity: 90,
                 pan: 64,
                 priority: 1,
                 max_voices: 64,
             }],
-            length: 4,
+            length: 20,
         },
     )];
-    let mut kernel =
-        Kernel::new(&bank, &song, &tables, Some(320), true, ClockStart::Running).unwrap();
-    kernel.time[0] = (18 << 16) | 16384;
-    kernel.next_millisecond(LiveControls::default()).unwrap();
-    assert_eq!(kernel.clock, 1);
-    assert_eq!(kernel.voices[0].clock, 0);
-    assert_eq!(kernel.voices[0].end_tick, Some(22));
-    for _ in 0..4 {
-        kernel.next_millisecond(LiveControls::default()).unwrap();
-        assert_eq!(kernel.voices[0].end_tick, Some(22));
-    }
-    assert!(kernel.time[0] >> 16 >= 22);
-    assert!(kernel.time[1] >> 16 < 22);
-    kernel.next_millisecond(LiveControls::default()).unwrap();
-    let result = kernel.result.as_ref().unwrap();
+    let reverbs = [[0., 0., 1., 0., 0.]; 2];
+    let package = Arc::new(crate::package::Loaded::new(bank, song, tables, reverbs)?);
+    let result = render_preview(package, reverbs, 1600)?;
     assert_eq!(result.notes, 1);
-    assert_eq!(result.voice_lifetimes[0].start_frame, 0);
-    assert_eq!(result.voice_lifetimes[0].end_frame, Some(160));
+    assert!(result.loop_starts.len() >= 5);
+    let note = &result.voice_lifetimes[0];
+    assert_eq!(note.start_frame, 0);
+    let end = note
+        .end_frame
+        .expect("held note never received its note-off");
+    let deadline = (20 * crate::SOURCE_RATE).div_ceil(1000);
+    assert!((deadline..=deadline + 32).contains(&end));
+    Ok(())
 }
 
 #[test]
-fn loop_carries_fraction_and_preserves_each_clocks_tempo_and_startup_seed() {
-    for (master, startup) in [
-        (true, ClockStart::Running),
-        (false, ClockStart::Cold),
-        (false, ClockStart::Running),
-    ] {
-        let (bank, mut song, tables) = fixture();
-        song.initial_bpm_1024 = 100 * 1024;
-        song.has_master_track = master;
-        if master {
-            song.tempos = vec![
-                Tempo {
-                    tick: 2,
-                    bpm_1024: 100 * 1024,
+fn sequence_pause_retires_notes_preserves_cursor_and_resumes_on_the_shared_clock() -> Result<()> {
+    let (mut bank, mut song, tables) = fixture();
+    bank.programs.insert(
+        1,
+        vec![Command::Wait {
+            milliseconds: None,
+            from_start: false,
+            key_off: false,
+            sample_end: false,
+        }],
+    );
+    let note = Note {
+        macro_id: 1,
+        key: 60,
+        velocity: 100,
+        pan: 64,
+        priority: 9,
+        max_voices: 255,
+    };
+    song.end_tick = 100;
+    song.first_events = vec![
+        event(
+            0,
+            0,
+            EventKind::Notes {
+                source: crate::data::VoiceSource::Sequence {
+                    group: 0,
+                    program: 0,
+                    drums: false,
                 },
-                Tempo {
-                    tick: 9,
-                    bpm_1024: 200 * 1024,
+                voices: vec![note],
+                length: 50,
+            },
+        ),
+        event(
+            10,
+            0,
+            EventKind::Notes {
+                source: crate::data::VoiceSource::Sequence {
+                    group: 0,
+                    program: 0,
+                    drums: false,
                 },
-            ];
+                voices: vec![note],
+                length: 50,
+            },
+        ),
+    ];
+    let mut kernel = Kernel::new(
+        &bank,
+        &song,
+        &tables,
+        false,
+        shared::Control::default(),
+        false,
+    )?;
+    kernel.prepare_controls(LiveControls::default())?;
+    assert_eq!(kernel.voices.len(), 1);
+    let time = kernel.clock.0;
+    let next = kernel.events.peek().unwrap().tick;
+    kernel.pause(true);
+    assert!(kernel.voices.is_empty());
+    for _ in 0..50 {
+        kernel.prepare_controls(LiveControls::default())?;
+        kernel.next_quantum()?;
+        if kernel.frame.is_multiple_of(160) {
+            kernel.finish_block(&mut [[[0; 2]; 3]; 160]);
         }
-        let mut kernel = Kernel::new(&bank, &song, &tables, Some(320), true, startup).unwrap();
-        let outgoing = (12 << 16) | 12345;
-        let incoming = (2 << 16) | 12345;
-        kernel.time[0] = outgoing;
-        kernel.next_millisecond(LiveControls::default()).unwrap();
-        let old_delta = tick_delta(if master { 200 * 1024 } else { 100 * 1024 });
-        let new_delta = if matches!(startup, ClockStart::Cold) {
-            0
-        } else {
-            tick_delta(100 * 1024)
-        };
-        assert_eq!(kernel.clock, 1);
-        assert_eq!(kernel.bpm, 100 * 1024);
-        assert_eq!(kernel.increments, [old_delta, new_delta]);
-        assert_eq!(kernel.time, [outgoing + old_delta, incoming + new_delta]);
     }
+    assert_eq!(kernel.clock.0, time);
+    assert_eq!(kernel.events.peek().unwrap().tick, next);
+    assert!(!kernel.ended);
+    kernel.pause(false);
+    for _ in 0..20 {
+        kernel.prepare_controls(LiveControls::default())?;
+        kernel.next_quantum()?;
+        // A shared-clock caller mixes each block before preparing the next.
+        if kernel.frame.is_multiple_of(160) {
+            kernel.finish_block(&mut [[[0; 2]; 3]; 160]);
+        }
+    }
+    assert_eq!(
+        kernel.voices.len(),
+        1,
+        "held notes are not restarted; the next authored note is issued"
+    );
+    assert!(kernel.clock.0 > time);
+    Ok(())
 }

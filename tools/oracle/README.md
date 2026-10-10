@@ -1,58 +1,20 @@
-# Dolphin oracle
+# Gameplay capture tools
 
-Run from the repository root inside `nix develop`. Reusable inputs belong in
-[cases](cases/); discs, savestates, captures and reports stay in ignored `local/`.
-Capture output directories must be fresh.
+Run from the repository root inside `nix develop`. Reusable input recipes belong
+in `cases/`; discs, savestates, captures, and reports stay in ignored `local/`.
+Each capture needs a fresh output directory and an isolated emulator profile.
 
-Group related fixes, build once, then run independent cases with up to 12
-workers. Give each worker a separate output directory; fresh Dolphin recordings
-also require isolated profiles, displays and watcher sockets. Retain exit codes,
-timings and failed comparisons. Reuse verified source captures when only native
-code changes.
+These tools capture ordinary gameplay, screenshots, audio, and selected data-memory
+observations. Engine development is guided by supported behavior. Comparisons at
+matching gameplay events are useful; matching an internal algorithm or update
+sequence is not an implementation requirement. Existing captures remain historical
+records until a current run establishes a new behavior baseline.
 
-**All validation is silent.** Dolphin capture enforces `Backend=No Audio Output`,
-`Muted=True` and `DumpAudio=True`, without changing desktop settings. Native
-recorders use no output device; interactive recording requires `--silent`.
-Audio is still recorded and compared.
+Unattended captures are silent: Dolphin uses `No Audio Output`, `Muted=True`, and
+`DumpAudio=True`; native recorders write audio to files. Interactive unattended
+recording also requires `--silent`.
 
-## Paired replay
-
-```sh
-cargo build --workspace --bins --examples
-target/debug/resonance-oracle pair tools/oracle/cases/school-grounds-pair.json \
-  --disc /path/to/Disc1.rvz --output local/oracle/school-grounds-pair
-```
-
-Each `*-pair.json` pins the disc, native save/replay, Dolphin savestate and consumed
-DTM prefix, emulator profile, common starting state and named comparisons. Its
-matching `*-keyboard.json` supplies ordinary native input. Case descriptions
-record fixture grants, source observations, timing origins and coverage limits.
-The suite directory covers field travel, dialogue, skits, shops, menus and saves;
-use the manifests as the case catalogue.
-
-Pair checks use native 640×480 framebuffer output, before display-position
-adjustment, matching Dolphin XFB dumps. Native metadata must declare
-`output_stage: "framebuffer"`. Map/story must match at every registered frame;
-player and camera coordinates/headings have separate 0.01-unit/degree gates.
-Optional manifest fields enable menu, party, prompt, animation and other state
-checks. Changed source storage pointers invalidate observations instead of
-allowing stale session data to pass.
-
-For native iterations, add `--reference local/previous-pair/dolphin`. Reuse requires
-complete captures with matching disc, DTM, savestate, emulator/profile and required
-memory observations. Cached images must match the video, VI registration and
-individual hashes; additional samples come from the same pinned recording.
-The report retains reference provenance. Re-record when source inputs, profile
-or required observations change.
-
-`--native-reference local/previous-pair` also reuses native output for comparison
-analysis. It requires the same pinned save/replay and records the original
-renderer hash when available. **It does not validate subsequent runtime edits.**
-Do not loosen tolerances or retime inputs to hide a regression. An intentional
-native convenience can differ from the source; keep the failing comparison and
-explain it in the run report.
-
-## Source capture and registration
+## Dolphin capture
 
 ```sh
 target/debug/resonance-oracle dtm tools/oracle/cases/title-navigation.json \
@@ -60,110 +22,82 @@ target/debug/resonance-oracle dtm tools/oracle/cases/title-navigation.json \
 python3 tools/oracle/capture.py --disc /path/to/Disc1.rvz \
   --movie local/oracle/title.dtm --output local/oracle/title-reference \
   --frame 2700 --xvfb --watch-state
-target/debug/resonance --silent --presentation-start 2365 --tick 964 \
-  --replay tools/oracle/cases/native-navigation.json --capture local/native/title.png
-target/debug/resonance-oracle compare local/oracle/title-reference/reference.png \
-  local/native/title.png --output local/oracle/comparison \
-  --tolerance 8 --max-changed-fraction 0.01
 ```
 
-The pinned `no-blur-v1` profile uses Dolphin 2606, GQSEAF, progressive 640×480,
-4:3 aspect, Remove Blur Gecko patches and `DisableCopyFilter`. The launcher uses
-regular Dolphin in an isolated user directory: `dolphin-emu-nogui --movie` does
-not replay input. `--xvfb` isolates Linux display output; `--watch-state` verifies
-the patched instructions. `capture.json` records hashes and completion, with WAVs
-under `user/Dump/Audio`. Python tools observe Dolphin; all asset cooking is Rust.
+The capture profile uses GQSEAF, progressive 640×480 output, 4:3 aspect and
+disabled copy filtering. Game patches are disabled. The regular Dolphin launcher
+is required because `dolphin-emu-nogui` does not replay movie inputs. Captures from
+the retired blur-removal profile need a fresh visual baseline.
 
-Dolphin PNG indices, VI observations, controller polls and native updates are
-different clocks. Register them from observed state and moving frames before
-accepting image comparisons. `--presentation-start` is an observed title-entry
-counter for probes, not a gameplay default. `--keep-frames` retains intermediate
-PNGs; `--keep-duplicate-frames` includes repeated XFB presentations, but blank
-intervals may still produce no image.
+`capture.json` records input identities, effective configuration, completion,
+images, and audio files. `--watch-vis N` records a data-memory timeline without
+PNG dumping; add `--video` for timestamped lossless video. `--watch-locations`
+accepts a JSON map of data-memory pointer paths to observation names. Default
+watches cover current paired gates and pose diagnostics; retired menu clocks and
+internal state are not collected. Actor, particle, synopsis, and volume-group
+options provide explicitly requested bounded data observations.
+Explicit location names override defaults; conflicting explicit requests are rejected.
+These observers do not pause gameplay or install executable breakpoints.
 
-For loading boundaries, prefer timestamped lossless RGB FFV1 capture with
-`--watch-vis N --video`. Extract exact samples with:
-
-```sh
-target/debug/resonance-oracle video-frames VIDEO --output local/oracle/frames \
-  --first-vi 0 --vi 0 100 300
-```
-
-The Rust tool streams Matroska through the Rust FFV1 decoder and retains
-container timestamps and image hashes in `frames.json`. No external media
-extraction command is required.
-It rejects missing presentations instead of choosing a nearby frame. A pair's
-`dolphin.video_first_vi` registers the first frame; its frames use `dolphin_vi`
-without a PNG index. Multiple video segments require explicit `video_segment`.
-A negative first VI must be justified by observed queued presentation and remain
-fixed throughout the recording.
-
-Other presentation/animation origins also belong to fixtures, not saves or live
-loading policy. Preview origins register a selected model once and reject repeats
-or out-of-range samples. A `disc_loading_overlay` exclusion requires observed DVD
-transfer state; reports retain the untouched comparison, excluded rectangles and
-reason, with all remaining image/state gates active.
-
-## Savestates and controlled fixtures
-
-Use `capture.py --save-state --xvfb` to retain a paused state and companion DTM.
-`checkpoint-reference.png` is the last completed dump near the pause; verify its
-update/draw phase. Inspect without running the game:
+Use `--save-state --xvfb` to retain a nearby paused checkpoint and its companion
+DTM. `checkpoint-reference.png` is the last complete image near that pause and
+may precede the saved state. Inspect the checkpoint without running it:
 
 ```sh
 python3 tools/oracle/state.py STATE.s01 --output local/oracle/state.json
 ```
 
-For a replay relative to that state, take `N` from `movie.input_count`:
+Checkpoint inspection reads replay identity and available field/story origins.
+Use `--field-origin` to require those origins, or `--actors`, `--particles`, and
+`--battle` to discover the storage needed for those observations. Unrequested
+audio, animation, script, and random-generator internals are not decoded.
+`--party` exports the observed formation and member statistics used by
+`checkpoint_fixture --party-stats`, retaining the source checkpoint hash.
+
+For state-relative input, take `N` from `movie.input_count`:
 
 ```sh
 target/debug/resonance-oracle dtm CASE.json --prefix STATE.dtm \
   --start-poll N --output local/oracle/replay.dtm
 ```
 
-This preserves the consumed prefix and RTC, replaces future inputs and marks the
-DTM as state-based. Supply it with `capture.py --initial-state STATE.s01`.
-Poll `stick`/`c_stick` values are byte pairs, neutral at `[128,128]`.
+This retains the consumed input prefix and RTC and replaces future inputs. Pass
+the resulting DTM with `capture.py --initial-state STATE.s01`. Stick coordinates
+are byte pairs, with neutral at `[128,128]`.
 
-`--watch-state` records frame-end memory; `--watch-vis N` can record a timeline
-without PNGs. Actor, particle and volume-group watchers extend observations.
-Battle checkpoints retain movie/result metadata for replay; field actor and
-particle watches require a field checkpoint because combat replaces that storage.
-
-`resonance-oracle inventory-fixture --help` describes matching changes to copied
-Dolphin states and native saves: items, formation, learned records, discoveries,
-settings and history. It validates starting values and records input/output hashes.
-Original files and game code remain unchanged. Declare these grants in the paired
-manifest; controlled menu fixtures do not prove natural story progression.
-
-## Native probes
-
-Replay ordinary keyboard input from a free-control save, recording frames, state
-and file-only audio:
+## Native capture and comparison
 
 ```sh
 target/debug/examples/checkpoint_replay SAVE REPLAY.json \
-  local/native/replay local/all-assets
+  local/native/replay local/all-assets 640x480 --paranoid
 ```
 
-Input changes use one-based game updates and hold keys until the next change;
-capture zero is the initialized field. Preparation/readbacks consume no game or
-audio time. `recording.json` retains pose, progression, identity and audio commands.
-An optional final `WIDTHxHEIGHT` tests other display layouts; paired Dolphin
-acceptance remains at native resolution. Quicksaves restart field animations and
-music, so register source animation/audio origins separately.
+Native replay version 2 uses ordered `hold`, `wait`, and `capture` steps. A wait
+names a field, menu, dialogue, battle phase, or title event and has a bounded
+update budget. Captures have semantic names rather than prescribed update numbers.
+`cases/school-menu-native.json` opens and captures the main menu from a playable
+school checkpoint. `recording.json` records state, completed steps, and audio.
+Preparation and readback do not advance gameplay time.
 
-Other device-free tools:
+A version 2 paired manifest binds those capture names to ordinary Dolphin observations.
+Supported gates compare images, audio, field/story identity, persistent party
+choices, cooking results, and Items selection. Position, camera, and heading
+errors or unavailable readings are reported under `diagnostics`; they do not determine
+acceptance. The initial origin requires only `map_id` and `story`, not an exact pose.
+Explicit image regions define pixel acceptance; the full-image comparison remains
+diagnostic in that case. Without regions, the full image determines acceptance.
+Reusing native recordings requires a complete report with the renderer identity
+and matching hashes for every recorded artifact. Every named native capture must
+occur exactly once, and Dolphin audio must match its recorded capture hash before
+comparison. Dolphin images come only from a hashed video recording with a required
+`video_first_vi` registration; extracted or reused PNGs are hash checked. The legacy
+`dolphin` frame-dump index is rejected. Private animation clocks and
+retired UI diagnostics are not part of this format:
 
-| Tool | Purpose |
-|---|---|
-| `field_events MAP STORY OUTPUT.json [COOKED_ROOT]` | Sweep entry choices and each registered actor/trigger branch through real field services and offline audio |
-| `field_sequence CASE.json OUTPUT [COOKED_ROOT]` | Consecutive animation, movement and effect frames; optional checkpoint and explicit pose origins |
-| `classroom_probe CASE.json OUTPUT.png [COOKED_ROOT]` | Registered static scene/pose capture |
-| `quicksave_probe SAVE OUTPUT` | Repeated live save/load cycles with timings and rejected-save checks |
-| `menu_probe SAVE OUTPUT` | Memory-circle Save and field-menu Load in isolated slots |
-| `title_load_probe SLOTS OUTPUT` | Load in a new process, including cancel/reopen and subsequent exploration |
-| `new_game_capture OUTPUT COOKED_ROOT exploration REPLAY.json` | Continuous New Game through the supported exploration/save route |
+```sh
+target/debug/resonance-oracle pair PAIR.json \
+  --disc /path/to/Disc1.rvz --output local/oracle/comparison
+```
 
 For a scripted arrival, `field_sequence` accepts
 `"scene": {"arrival": {"checkpoint": ...}}` and
@@ -187,17 +121,62 @@ layout for aspect checks. `capture_frames` selects sorted, unique zero-based
 render frames while still running the entire sequence; omit it to save every
 frame. Paired Dolphin comparisons continue to require 640×480.
 
-These are presentation examples under `target/debug/examples`. The event sweep
-fails on missing services, resources, audio or glyphs, and uses ordinary Cancel
-input to close shops/menus. It synthesizes every audio request and waits for real
-voice completion. Uncooked destinations are failures. Direct event/pose probes
-establish service behavior, not walking, collision or audiovisual equivalence.
-The paired replay cases establish those separately.
+Write a fresh paired manifest from observed matching game events and rebaseline
+its image and audio checks. Native loading remains fast; report disc-loading and
+related audio differences separately. The old injected-state keyboard recipes
+and their paired manifests have been retired. No source clock, RNG cursor, pose,
+or ambient-state injection is accepted by the native recorder.
 
-`resonance-game`'s `presentation_trace` example diagnoses script services without
-graphics/audio output; `--trigger KEY --follow` invokes a registered event directly.
-`--output PATH` exports a lightweight checkpoint when control returns. Use the
-player for save identity validation.
+The field capture examples (`classroom_capture`, `classroom_probe`,
+`particle_probe`, `setup_capture`, `dialogue_capture`, and `field_sequence`) all
+accept `CAPTURE.json OUTPUT [ASSETS]`. A capture spec contains an optional
+prepared save path and an ordinary version 2 scenario:
+
+```json
+{"checkpoint":"local/native/save.json","scenario":{"version":2,"steps":[
+  {"do":"wait","until":{"kind":"field_ready"},"max_updates":600},
+  {"do":"capture","name":"field"}
+]}}
+```
+
+The first five examples write one PNG and its held-state sidecar; `field_sequence`
+writes the named PNGs, native audio, and `recording.json`. They use the production
+application, input, movie/audio completion and GPU readback. There is no separate
+field simulation, render-settling counter, pose sampling override, or particle seed.
+For ordinary New Game products:
+
+```sh
+target/debug/examples/setup_capture \
+  crates/presentation/examples/scenarios/setup-capture.json local/native/setup.png local/all-assets
+target/debug/examples/classroom_capture \
+  crates/presentation/examples/scenarios/classroom-capture.json local/native/classroom.png local/all-assets
+target/debug/examples/dialogue_capture \
+  crates/presentation/examples/scenarios/classroom-dialogue-capture.json local/native/dialogue.png local/all-assets
+target/debug/examples/particle_probe \
+  tools/oracle/cases/eraser-particles.json local/native/particles.png local/all-assets
+target/debug/examples/field_sequence \
+  tools/oracle/cases/classroom-walking.json local/native/walking local/all-assets
+```
+
+The classroom product retains geometry/tint inspection. The old Colette phase
+fixtures and their pixel gates were retired because an injected phase does not
+identify an ordinary gameplay event. Register fresh matching observations before
+using those images for pixel acceptance. `no-blur.json` retains its title gates.
+The setup product captures the normal default prompt; the former style matrix
+required changing preferences before the player could reach Customize.
+
+The dialogue appearance matrix takes a current prepared save positioned at the
+matching conversation and an ordinary replay in its `capture` object. Produce
+that save from an ordinary New Game/input capture first; the repository does not
+ship a historical classroom save. Each variant runs `checkpoint_fixture
+--preferences FILE` before loading, so settings belong to the prepared save.
+Build that example alongside `dialogue_capture`. `RESONANCE_TEST_ASSETS` selects
+the prepared asset root for this matrix. Its exact preference assertion remains
+in addition to the registered image-region comparisons.
+
+`field_events`, `quicksave_probe`, `menu_probe`, `title_load_probe`, and
+`new_game_capture` cover event enumeration, persistence, and ordinary travel.
+
 
 ## Effect comparisons
 
@@ -208,9 +187,9 @@ they are stage scenery, never expected effect output.
 
 ```sh
 cargo build -p resonance-oracle
-cargo build --release -p resonance-presentation --example field_sequence
+cargo build --release -p resonance-presentation --example effect_sequence
 python3 tools/oracle/effect_lifecycle.py --disc /path/to/Disc1.rvz \
-  --native target/release/examples/field_sequence \
+  --native target/release/examples/effect_sequence \
   --output local/effect-comparison --workers 4 --random-cases 500 --seed 17
 ```
 
@@ -296,31 +275,16 @@ reproducer when a new regression is found.
 
 ```sh
 target/debug/resonance --silent --record-playthrough local/native/playthrough
-target/debug/resonance --silent --skip-intro --record-music local/native/title.wav \
-  --audio-frames 1280000
-cargo test -p resonance-presentation startup_fade_overlapping_cues_and_first_loop_match_dolphin -- --ignored
-cargo test -p resonance-presentation program_cues_match_dolphin_and_respect_live_group_volume -- --ignored
-```
-
-`resonance-oracle compare-audio` compares explicit WAV windows using
-`--reference-start-frame`, `--actual-start-frame` and `--frames`; tolerance defaults
-to zero. Audio manifests pin source hashes, replay inputs, PCM offsets and any
-matched baseline to subtract with `--reference-baseline`. Preserve raw errors;
-do not gain-fit or resample recordings to pass comparisons.
-
-`music_compare.py --help` documents fixed registration, drift and per-channel
-mean-removed metrics for Dolphin's DSP DC offset. Supplying `--actual-start-frame`
-disables alignment search. `voice_content.py --help` compares cooked speech with
-recordings. Both tools read files without playback. `record_field_music` and
-`record_field_voice` render the ordinary field mixer without a device; Customize
-music/mono/voice manifests define the corresponding volume comparisons.
-The music recorder accepts a final map ID after volume, fade ticks and stereo
-mode to load another field's bank (default: 340), for example:
-`record_field_music local/all-assets local/native/ranch.wav 34 120 127 6 stereo 196`.
-
-```sh
 python3 -m unittest discover -s tools/oracle -p 'test_*.py'
 ```
 
-Source PCM agreement does not establish physical device latency or underrun
-behavior. See [performance probes](../../docs/performance.md) for those checks.
+`resonance-oracle compare-audio` compares explicit WAV windows using
+`--reference-start-frame`, `--actual-start-frame`, and `--frames`. Use
+`music_compare.py --help` for drift and channel metrics and
+`voice_content.py --help` for speech-content comparisons. These tools read files
+without opening an audio device. Report the registration and limits of each check;
+waveform identity is not a substitute for correct playback and audible completion.
+
+Builds, cooks, captures, and performance measurements should run separately when
+resource contention could affect the result. See [battle support and
+validation](../../docs/battle-status.md) for the current rebaselining scope.

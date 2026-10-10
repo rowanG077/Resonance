@@ -111,9 +111,9 @@ fn compiled_field_branch_and_wait_share_the_existing_event_dispatcher() {
         pub task main() {
             if (!story::flag(CustomFlag)) {
                 story::set_flag(41, true);
-                await field::wait_ticks(0ticks);
+                await field::wait_ticks(ticks(0));
                 story::set_flag(43, true);
-                await field::wait_ticks(2ticks);
+                await field::wait_ticks(ticks(2));
                 story::set_flag(CustomFlag, true);
             }
         }
@@ -238,8 +238,8 @@ fn concurrent_children_join_fixed_results_in_the_existing_stable_slot_order() {
         use game::story;
         struct Pair { x: i32, y: i32 }
         pub task main() {
-            let slow = spawn work(2ticks, 10);
-            let fast = spawn work(1ticks, 20);
+            let slow = spawn work(ticks(2), 10);
+            let fast = spawn work(ticks(1), 20);
             let a = await slow;
             let b = await fast;
             if (a.x + b.x == 30 && a.y + b.y == 32) { story::set_flag(42, true); }
@@ -396,7 +396,7 @@ fn suspended_actor_handles_cannot_interact_with_a_replacement() {
         use game::field;
         pub task main() {
             let actor = actors::controlled();
-            await field::wait_ticks(1ticks);
+            await field::wait_ticks(ticks(1));
             await actors::interact(actor);
         }
     "#,
@@ -438,7 +438,8 @@ fn memory_circle_unlock_requires_confirmation_and_cancellation_releases_both_win
     });
     runtime.world.party = Some(
         serde_json::from_value(serde_json::json!({
-            "members": [], "formation": [], "items": {}, "found_items": [],
+            "battles": resonance_events::party::BattleStatistics::default(),
+                    "members": [], "formation": [], "items": {}, "found_items": [],
             "recent_items": [], "gald": 0, "spent_gald": 0,
             "settings": resonance_events::party::Settings::default()
         }))

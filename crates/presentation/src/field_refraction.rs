@@ -37,6 +37,10 @@ impl Ready {
     pub fn get(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
+    #[cfg(test)]
+    pub(super) fn completed() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
 }
 #[derive(Clone, Copy, Default, ShaderType)]
 struct Pulse {
@@ -73,7 +77,8 @@ pub(super) fn install(app: &mut App) {
         .add_systems(
             PostUpdate,
             sync.after(super::field_effects::render)
-                .before(super::field_audit::check),
+                .before(super::field_audit::check)
+                .run_if(super::battle::field_presenting),
         );
     app.sub_app_mut(RenderApp)
         .insert_resource(ready)

@@ -8,7 +8,6 @@ pub(super) struct Decoder<'a> {
     pub sample_rate: u32,
     pub frames: u32,
     encoding: u8,
-    version: u16,
     coefficients: [i32; 2],
     history: [[i32; 2]; 2],
     remaining: usize,
@@ -65,7 +64,6 @@ impl<'a> Decoder<'a> {
             sample_rate,
             frames,
             encoding: bytes[4],
-            version,
             coefficients: [(c * 8192.) as i16 as i32, (c * c * -4096.) as i16 as i32],
             history,
             remaining: frames as usize,
@@ -107,11 +105,8 @@ impl<'a> Decoder<'a> {
             for index in 0..count {
                 let nibble = (frame[2 + index / 2] >> (4 * (1 - index % 2))) & 15;
                 let sample = i32::from((nibble << 4) as i8) >> 4;
-                let prediction = if self.version == 0x0300 {
-                    ((c1 * h1) >> 12) + ((c2 * h2) >> 12)
-                } else {
-                    (c1 * h1 + c2 * h2) >> 12
-                };
+                // Combine both prediction products before truncation.
+                let prediction = (c1 * h1 + c2 * h2) >> 12;
                 let sample =
                     (sample * scale + prediction).clamp(i32::from(i16::MIN), i32::from(i16::MAX));
                 self.block[index * channels + channel] = sample as i16;
@@ -150,32 +145,74 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires original discs and independently cooked PCM; no devices or codecs"]
-    fn original_adx_matches_independent_cooked_pcm() -> Result<()> {
+    fn version_three_combines_predictor_products_before_truncating() -> Result<()> {
+        for channels in [1u8, 2] {
+            let mut bytes = vec![0; 0x26 + usize::from(channels) * 18];
+            bytes[..8].copy_from_slice(&[0x80, 0, 0, 0x22, 3, 18, 4, channels]);
+            bytes[8..12].copy_from_slice(&22_050u32.to_be_bytes());
+            bytes[12..16].copy_from_slice(&6u32.to_be_bytes());
+            bytes[16..20].copy_from_slice(&[1, 0xf4, 3, 0]);
+            bytes[0x20..0x26].copy_from_slice(b"(c)CRI");
+            for channel in 0..usize::from(channels) {
+                bytes[0x28 + channel * 18] = 0x10;
+            }
+            let mut decoder = Decoder::new(&bytes)?;
+            // Original combined arithmetic yields -3; separate shifts yield -4.
+            let expected: Vec<_> = [1, 1, 0, -1, -2, -3]
+                .into_iter()
+                .flat_map(|sample| std::iter::repeat_n(sample, usize::from(channels)))
+                .collect();
+            assert_eq!(decoder.next_block()?.unwrap(), expected);
+            assert!(decoder.next_block()?.is_none());
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires original battle archive and captured CRI prefill PCM; no devices or codecs"]
+    fn original_battle_adx_matches_captured_cri_prefill() -> Result<()> {
         use std::{
             fs,
+            io::{Read, Seek, SeekFrom},
             path::{Path, PathBuf},
         };
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let reference = PathBuf::from(
-            std::env::var_os("RESONANCE_ADX_REFERENCE")
-                .context("set RESONANCE_ADX_REFERENCE to independently decoded audio/streams")?,
+        let reference =
+            PathBuf::from(std::env::var_os("RESONANCE_CRI_ADX_REFERENCE").context(
+                "set RESONANCE_CRI_ADX_REFERENCE to the captured 8192-byte BE PCM buffer",
+            )?);
+        let expected = fs::read(reference)?;
+        ensure!(expected.len() == 8192, "unexpected CRI prefill length");
+        ensure!(
+            crate::digest(&expected)
+                == "a0a169f74cec7b22fc359a342488c119747aa037c972924ac1c5d6d1704f2a42",
+            "CRI prefill differs from the pinned first-activation observation"
         );
-        for disc in [1, 2] {
-            let bytes = fs::read(local.join(format!("extracted/disc{disc}/files/tos_ending.adx")))?;
-            let mut expected =
-                hound::WavReader::open(reference.join(format!("{}.wav", crate::digest(&bytes))))?;
-            let mut decoder = Decoder::new(&bytes)?;
-            assert_eq!(expected.spec().channels, decoder.channels);
-            assert_eq!(expected.spec().sample_rate, decoder.sample_rate);
-            assert_eq!(expected.duration(), decoder.frames);
-            let mut samples = expected.samples::<i16>();
-            while let Some(block) = decoder.next_block()? {
-                for &sample in block {
-                    assert_eq!(samples.next().context("missing reference PCM")??, sample);
-                }
-            }
-            assert!(samples.next().is_none());
+        let mut archive = fs::File::open(local.join("extracted/disc1/files/BTL/btlvoice.afs"))?;
+        let entries = crate::afs::index(&mut archive)?;
+        let entry = entries.get(257).context("missing observed battle voice")?;
+        archive.seek(SeekFrom::Start(entry.offset))?;
+        let mut bytes = vec![0; entry.size];
+        archive.read_exact(&mut bytes)?;
+        ensure!(
+            crate::digest(&bytes)
+                == "164c05aa40e220d8dd55148ce22df2fcfa6d19a9259a918ad423f24487383291",
+            "battle voice differs from the observed source member"
+        );
+        let mut decoder = Decoder::new(&bytes)?;
+        assert_eq!(
+            (decoder.channels, decoder.sample_rate, decoder.frames),
+            (1, 22_050, 32_937)
+        );
+        for block in expected.chunks_exact(64) {
+            let samples: Vec<_> = block
+                .chunks_exact(2)
+                .map(|pair| i16::from_be_bytes([pair[0], pair[1]]))
+                .collect();
+            assert_eq!(
+                decoder.next_block()?.context("missing decoded block")?,
+                samples
+            );
         }
         Ok(())
     }

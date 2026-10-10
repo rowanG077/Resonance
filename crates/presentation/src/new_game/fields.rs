@@ -38,7 +38,7 @@ pub(crate) struct FieldPackage {
     movies: BTreeSet<u32>,
 }
 impl FieldPackage {
-    pub fn load(root: &Path, files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
+    pub fn load(files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
         let manifest = files
             .manifests
             .get(&map)
@@ -49,11 +49,8 @@ impl FieldPackage {
             assets.map_id == map,
             "field inventory has the wrong map binding"
         );
-        for (path, hash) in &assets.files {
-            ensure!(
-                manifest.files.get(path).is_some_and(|f| f.sha256 == *hash),
-                "field dependency differs from its preparation inventory: {path}"
-            );
+        for path in assets.references() {
+            files.read(path)?;
         }
         ensure!(
             manifest.inputs.audio.len() == 1,
@@ -61,7 +58,7 @@ impl FieldPackage {
         );
         let audio = cache
             .audio
-            .load(root, manifest.inputs.audio.first().unwrap(), &files)?;
+            .load(manifest.inputs.audio.first().unwrap(), &files)?;
         let (authored, services) = Self::prepare_scripts(map, &files, cache)?;
         let attachments =
             resonance_game::field::attachments::prepare(&assets, |path| files.read(path))?;
@@ -80,7 +77,7 @@ impl FieldPackage {
             })
             .collect::<Result<_>>()?;
         Ok(Self {
-            script: files.read(&assets.script.path)?,
+            script: files.read(&assets.script)?,
             messages: files.read(&assets.messages)?,
             assets,
             audio,
@@ -98,11 +95,33 @@ impl FieldPackage {
         cache: &mut Cache,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
+        Self::prepare_with_diagnostics(
+            root,
+            map,
+            cache,
+            cancelled,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )
+    }
+
+    pub fn prepare_with_diagnostics(
+        root: &Path,
+        map: u32,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool,
+        diagnostics: resonance_content::diagnostics::Diagnostics,
+    ) -> Result<Self> {
         let files = Arc::new(
-            Files::load(root, &[&manifest_path(map)], &mut cache.bytes, cancelled)
-                .with_context(|| format!("prepare field {map}"))?,
+            Files::load_with_diagnostics(
+                root,
+                &[&manifest_path(map)],
+                &mut cache.bytes,
+                cancelled,
+                diagnostics,
+            )
+            .with_context(|| format!("prepare field {map}"))?,
         );
-        Self::load(root, files, map, cache)
+        Self::load(files, map, cache)
     }
 
     /// Revisit shared cooked bytes while refreshing only editable source inputs.
@@ -155,12 +174,12 @@ impl FieldPackage {
     ) -> Result<FieldSession> {
         let mut entry = checkpoint
             .clone()
-            .entry(&self.assets, data, available_fields)?;
+            .entry(&self.assets, data.clone(), available_fields)?;
         entry.skits = Some(skits);
         let kind = entry.kind;
         let mut field = self.enter(entry)?;
         if kind == resonance_game::field::EntryKind::Restore {
-            initialize_checkpoint(&mut field, checkpoint)?;
+            initialize_checkpoint(&mut field, checkpoint, &data)?;
         }
         self.queue_entry(&mut field, kind);
         Ok(field)
@@ -196,25 +215,31 @@ impl FieldPackage {
     }
 
     pub fn enter(&self, mut entry: FieldEntry) -> Result<FieldSession> {
-        let menu: resonance_content::menu_data::MenuData =
-            self.files.json("game/menu-data.json")?;
-        menu.validate()?;
         let effects: resonance_content::effect::FieldEffects =
             self.files.json(&self.assets.effects)?;
         effects.validate()?;
         entry.effect_palette = resonance_events::effect::Palette(effects.palette);
         entry.rising_light_destination = Some(effects.rising_light_destination);
-        entry.menu_data = Some(Arc::new(menu));
         entry.text = Arc::new(self.files.json("game/text.json")?);
         entry.services = Some(self.services.clone());
         entry.attachments = self.attachments.clone();
         entry.available_movies = self.movies.clone();
+        if entry.menu_data.is_none() {
+            let (data, menus) = super::admit_definitions(
+                |path| Ok(self.files.read(path)?.to_vec()),
+                self.files.diagnostics(),
+            )?;
+            entry.data = Some(data);
+            entry.menu_data = Some(menus);
+        }
+        entry.menu_files = self.files.clone();
         let mut field = FieldSession::enter(
             &self.script,
             serde_json::from_slice(&self.messages)?,
             &self.assets,
             entry,
         )?;
+        field.set_diagnostics(self.files.diagnostics().clone());
         field.events.world.voice_durations = self.audio.voice_durations();
         field.prepare_skits(&self.files)?;
         Ok(field)

@@ -11,7 +11,7 @@ use bevy::{
 };
 use resonance_content::{HEIGHT, MovieAsset, WIDTH};
 use resonance_media::{MovieDecoder, MovieEvent, MovieStream, VideoFrame};
-use resonance_playback::Decodable;
+use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
 use std::{
     collections::VecDeque,
     fs,
@@ -22,20 +22,49 @@ use std::{
 
 pub(super) mod pacing;
 #[cfg(test)]
-pub(super) mod tests;
+pub(crate) mod tests;
 
 type AudioBuffer = resonance_playback::Pcm;
 
 #[derive(Asset, TypePath, Clone)]
 pub(super) struct MovieAudio {
     buffer: Arc<AudioBuffer>,
+    rate: SampleRate,
     mono: bool,
+}
+pub(super) struct MovieSamples {
+    source: resonance_playback::PcmSource,
+    rate: SampleRate,
+}
+impl Iterator for MovieSamples {
+    type Item = f32;
+    fn next(&mut self) -> Option<f32> {
+        self.source.next()
+    }
+}
+
+impl Source for MovieSamples {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> ChannelCount {
+        ChannelCount::new(2).expect("stereo")
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.rate
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
 }
 
 impl Decodable for MovieAudio {
-    type Decoder = resonance_playback::PcmSource;
+    type Decoder = MovieSamples;
     fn decoder(&self) -> Self::Decoder {
-        self.buffer.source(self.mono)
+        MovieSamples {
+            source: self.buffer.source(self.mono),
+            rate: self.rate,
+        }
     }
 }
 
@@ -47,14 +76,14 @@ pub(super) struct Playback {
     pub asset: Option<MovieAsset>,
     pub presented_frame: Option<u32>,
     pub presented_timestamp: Option<Duration>,
+    /// Audible position at the latest frame-selection attempt, before later host work.
+    pub selection_position: Option<Duration>,
     decoder: Option<MovieDecoder>,
     pending_events: VecDeque<MovieEvent>,
     stream: Option<MovieStream>,
     pub dropped_frames: u64,
     frames: VecDeque<VideoFrame>,
     buffer: Arc<AudioBuffer>,
-    reported_underruns: u64,
-    captured: Option<VideoFrame>,
     audio_entity: Option<Entity>,
     texture: Handle<Image>,
     ended: bool,
@@ -72,6 +101,16 @@ pub(super) struct Prepared {
     decoder: MovieDecoder,
     events: VecDeque<MovieEvent>,
 }
+/// Both entry paths wait for half a second of PCM, or a complete usable short clip.
+fn buffer_ready(video: bool, audio_frames: u64, rate: u32, ended: bool) -> Result<bool> {
+    let usable = video && audio_frames != 0;
+    ensure!(
+        !ended || usable,
+        "movie ended without usable video and audio"
+    );
+    Ok(usable && (ended || audio_frames >= u64::from(rate) / 2))
+}
+
 impl Prepared {
     pub(super) fn load(
         root: &Path,
@@ -80,9 +119,8 @@ impl Prepared {
     ) -> Result<Self> {
         let decoder = MovieDecoder::open(&root.join(&asset.path), asset.clone())?;
         let mut events = VecDeque::new();
-        let (mut video, mut audio, mut chunks) = (0, 0, 0);
-        let video_target = (asset.frames as usize).min(resonance_media::VIDEO_LOOKAHEAD);
-        let audio_target = asset.audio_frames.min(u64::from(asset.sample_rate) / 2) as usize * 2;
+        let (mut video, mut audio_frames, mut chunks) = (0, 0, 0);
+        let mut ended = false;
         let started = Instant::now();
         loop {
             ensure!(!cancelled(), "movie preparation cancelled");
@@ -90,28 +128,26 @@ impl Prepared {
                 started.elapsed() < Duration::from_secs(30),
                 "movie preparation timed out"
             );
-            if video < video_target
-                && let Some(frame) = decoder.try_video()?
-            {
-                events.push_back(MovieEvent::Video(frame));
-                video += 1;
+            let Some(event) = decoder.try_next()? else {
+                std::thread::sleep(Duration::from_millis(1));
+                continue;
+            };
+            match &event {
+                MovieEvent::Video(_) => video += 1,
+                MovieEvent::Audio(chunk) => {
+                    audio_frames += chunk.samples.len() as u64 / 2;
+                    chunks += 1;
+                }
+                MovieEvent::End => ended = true,
             }
-            if audio < audio_target
-                && let Some(chunk) = decoder.try_audio()?
-            {
-                audio += chunk.samples.len();
-                chunks += 1;
-                events.push_back(MovieEvent::Audio(chunk));
-            }
-            if video >= video_target && audio >= audio_target {
+            events.push_back(event);
+            if buffer_ready(video != 0, audio_frames, asset.sample_rate, ended)? {
                 break;
             }
             ensure!(
-                !decoder.video_complete() && !decoder.audio_complete(),
-                "movie ended during preparation"
+                video < 32 && chunks < 64,
+                "movie exceeds startup buffer limits"
             );
-            ensure!(chunks < 64, "movie exceeds startup buffer limits");
-            std::thread::sleep(Duration::from_millis(1));
         }
         Ok(Self { decoder, events })
     }
@@ -155,11 +191,7 @@ impl Playback {
         Ok(())
     }
     pub fn load(root: &Path, options: &RunOptions) -> Result<Self> {
-        if options.skip_intro
-            || options.tick.is_some()
-            || options.replay.is_some()
-            || options.boot_frame.is_some()
-        {
+        if options.skip_intro || matches!(options.capture_at, Some(crate::CaptureAt::BootTick(_))) {
             return Ok(Self::default());
         }
         let asset: MovieAsset =
@@ -168,20 +200,12 @@ impl Playback {
             )?)?;
         asset.validate()?;
         let path = root.join(&asset.path);
-        let (decoder, captured) = if let Some(index) = options.movie_frame {
-            (
-                None,
-                Some(MovieDecoder::frame(&path, asset.clone(), index)?),
-            )
-        } else {
-            (Some(MovieDecoder::open(&path, asset.clone())?), None)
-        };
+        let decoder = Some(MovieDecoder::open(&path, asset.clone())?);
         Ok(Self {
             active: true,
             resource: Some(0),
             asset: Some(asset),
             decoder,
-            captured,
             ..Default::default()
         })
     }
@@ -195,6 +219,7 @@ impl Playback {
         self.buffer.finish();
         self.stream.take();
         self.decoder.take();
+        self.pending_events.clear();
         self.frames.clear();
         if let Some(entity) = self.audio_entity.take() {
             commands.entity(entity).despawn();
@@ -230,10 +255,6 @@ pub(super) fn setup(
         .asset
         .as_ref()
         .map_or((WIDTH, HEIGHT), |a| (a.width, a.height));
-    let bytes = movie.captured.take().map_or_else(
-        || vec![0; width as usize * height as usize * 4],
-        |frame| frame.rgba,
-    );
     let mut image = Image::new(
         Extent3d {
             width,
@@ -241,7 +262,7 @@ pub(super) fn setup(
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        bytes,
+        vec![0; width as usize * height as usize * 4],
         TextureFormat::Rgba8Unorm,
         default(),
     );
@@ -279,32 +300,24 @@ pub(super) fn setup(
     ));
 }
 
-#[allow(clippy::too_many_arguments)] // Movie decoding, input, texture upload, and playback ownership.
-pub(super) fn update(
+#[allow(clippy::too_many_arguments)] // Device input and movie ownership.
+/// Input policy shared by render-frame player input and fixed-update scenarios.
+pub(super) fn controls(
     mut commands: Commands,
     mut movie: ResMut<Playback>,
-    options: Res<RunOptions>,
     input: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
     mut pending: ResMut<PendingInput>,
     mut cameras: Query<&mut Camera, With<MovieCamera>>,
-    mut images: ResMut<Assets<Image>>,
-    mut audio_assets: ResMut<Assets<MovieAudio>>,
-    sinks: Query<&AudioSink>,
-    mut exit: MessageWriter<AppExit>,
-    recording: Option<Res<super::playthrough::Recording>>,
     ready: Res<super::timing::Ready>,
     boot: Res<super::boot::Playback>,
-    testing: Option<Res<super::testing::Controls>>,
+    scenario: Option<ResMut<super::saves::ScenarioInput>>,
 ) {
-    if !ready.0 || recording.is_some_and(|r| !r.started) {
+    if !ready.0 || !movie.active || boot.active() {
         return;
     }
-    for mut camera in &mut cameras {
-        camera.is_active = movie.active && !boot.active();
-    }
-    if !movie.active || options.movie_frame.is_some() || boot.active() {
-        return;
+    if let Some(mut scenario) = scenario {
+        scenario.acknowledge_input();
     }
     let skip_pressed = input.just_pressed(KeyCode::Enter)
         || input.just_pressed(KeyCode::Escape)
@@ -312,7 +325,7 @@ pub(super) fn update(
             .iter()
             .any(|pad| pad.just_pressed(GamepadButton::Start));
     let ignore_skip = std::mem::take(&mut movie.ignore_initial_skip);
-    let skip = skip_pressed && !ignore_skip || testing.as_ref().is_some_and(|c| c.skipping);
+    let skip = skip_pressed && !ignore_skip;
     if skip {
         info!("Movie skipped");
         movie.finish(&mut commands, &mut pending);
@@ -324,7 +337,29 @@ pub(super) fn update(
     if input.just_pressed(KeyCode::Space) {
         movie.paused = !movie.paused;
     }
-    if testing.as_ref().is_some_and(|c| c.paused) {
+}
+
+#[allow(clippy::too_many_arguments)] // Movie decoding, texture upload, and playback ownership.
+pub(super) fn update(
+    mut commands: Commands,
+    mut movie: ResMut<Playback>,
+    mut pending: ResMut<PendingInput>,
+    mut cameras: Query<&mut Camera, With<MovieCamera>>,
+    mut images: ResMut<Assets<Image>>,
+    mut audio_assets: ResMut<Assets<MovieAudio>>,
+    sinks: Query<&AudioSink>,
+    mut exit: MessageWriter<AppExit>,
+    ready: Res<super::timing::Ready>,
+    boot: Res<super::boot::Playback>,
+    diagnostics: Res<super::diagnostics::Diagnostics>,
+) {
+    if !ready.0 {
+        return;
+    }
+    for mut camera in &mut cameras {
+        camera.is_active = movie.active && !boot.active();
+    }
+    if !movie.active || boot.active() {
         return;
     }
     if let Err(error) = advance(
@@ -334,12 +369,16 @@ pub(super) fn update(
         &mut audio_assets,
         &sinks,
     ) {
-        error!("movie playback failed: {error:#}");
-        if let Some(completion) = movie.completion.take() {
-            completion.cancel();
+        if diagnostics.0.report("movie playback", error).is_err() {
+            if let Some(completion) = movie.completion.take() {
+                completion.cancel();
+            }
+            exit.write(AppExit::error());
         }
         movie.finish(&mut commands, &mut pending);
-        exit.write(AppExit::error());
+        for mut camera in &mut cameras {
+            camera.is_active = false;
+        }
     } else if movie.ended
         && let Some(entity) = movie.audio_entity
         && let Ok(sink) = sinks.get(entity)
@@ -378,14 +417,6 @@ fn advance(
     }
     let stream = movie.stream.as_ref().unwrap();
     stream.check()?;
-    let underruns = movie.buffer.underruns();
-    if underruns != movie.reported_underruns {
-        warn!(
-            underruns,
-            "Movie decoded audio underrun; rebuffering preserves the movie clock"
-        );
-        movie.reported_underruns = underruns;
-    }
     // Free stale presentation frames before draining the producer. Otherwise a
     // long stall with a full local queue would flash an old frame for one update.
     let mut latest = None;
@@ -405,21 +436,25 @@ fn advance(
             latest = movie.frames.pop_front();
         }
     }
+    // EOF must be sampled before draining: completion publishes its queued video too.
+    movie.ended = stream.complete();
     while movie.frames.len() < 32 {
         let Some(frame) = stream.try_video()? else {
             break;
         };
         movie.frames.push_back(frame);
     }
-    movie.ended = stream.complete();
     if movie.audio_entity.is_none() {
-        let buffered = movie.buffer.buffered();
-        if movie.frames.len() >= (asset.frames as usize).min(resonance_media::VIDEO_LOOKAHEAD)
-            && buffered >= asset.audio_frames.min(u64::from(asset.sample_rate) / 2)
-        {
+        if buffer_ready(
+            !movie.frames.is_empty(),
+            movie.buffer.buffered(),
+            asset.sample_rate,
+            movie.ended,
+        )? {
             let audio = MovieAudio {
                 buffer: movie.buffer.clone(),
                 mono: movie.mono,
+                rate: SampleRate::new(asset.sample_rate).context("invalid movie sample rate")?,
             };
             movie.audio_entity = Some(
                 commands
@@ -459,6 +494,7 @@ fn advance(
         sink.play();
     }
     let position = sink.position();
+    movie.selection_position = Some(position);
     while movie
         .frames
         .front()
@@ -509,10 +545,5 @@ impl Playback {
     }
     pub(super) fn audio_sink<'a>(&self, sinks: &'a Query<&AudioSink>) -> Option<&'a AudioSink> {
         self.audio_entity.and_then(|entity| sinks.get(entity).ok())
-    }
-    pub(super) fn position(&self, world: &World) -> Option<Duration> {
-        self.audio_entity
-            .and_then(|entity| world.get::<AudioSink>(entity))
-            .map(AudioSink::position)
     }
 }

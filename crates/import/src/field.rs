@@ -192,9 +192,7 @@ pub(crate) fn prepare(
     shared: &crate::shared::Prepared,
     recovered: &crate::scene::decoded::Package,
     declared: &crate::field_resources::Declarations,
-) -> Result<FieldAssets> {
-    use resonance_content::ScriptAsset;
-    let script = physical.script()?;
+) -> Result<(FieldAssets, std::collections::BTreeSet<String>)> {
     let mut resources =
         crate::field_resources::binding::Resources::decoded(&shared.catalogue, recovered);
     let mut declared_assets = crate::character::Sources::read(&mut resources, &declared.resources)?;
@@ -214,14 +212,11 @@ pub(crate) fn prepare(
         &mut resources,
         declared,
     )?;
-    let mut assets = FieldAssets {
+    let assets = FieldAssets {
         version: resonance_content::field::FIELD_VERSION,
         map_id,
         source_sha256: physical.source_sha256.clone(),
-        script: ScriptAsset {
-            path: script_path.clone(),
-            sha256: digest(&script),
-        },
+        script: script_path.clone(),
         messages: messages_path.clone(),
         parts,
         ground: physical
@@ -266,7 +261,6 @@ pub(crate) fn prepare(
         } else {
             Vec::new()
         },
-        files: shared.files.clone(),
     };
     let mut files: std::collections::BTreeSet<_> = [script_path, messages_path].into();
     files.extend(overlay_files);
@@ -280,13 +274,8 @@ pub(crate) fn prepare(
         files.extend(part.textures.iter().cloned());
         files.extend(part.clips.iter().map(|clip| clip.motion.clone()));
     }
-    for path in files {
-        assets
-            .files
-            .insert(path.clone(), crate::media::hash_file(&output.join(path))?);
-    }
     assets.validate()?;
-    Ok(assets)
+    Ok((assets, files))
 }
 
 pub(crate) fn publish(output: &Path, assets: &FieldAssets) -> Result<String> {
@@ -307,13 +296,24 @@ fn publish_field(output: &Path, path: &str, field: &FieldAssets) -> Result<Strin
     Ok(digest(&bytes))
 }
 
-pub(crate) fn finish(output: &Path, ids: impl IntoIterator<Item = u32>) -> Result<()> {
-    for id in ids {
+/// Validate existing field publications and rebuild their complete dependency
+/// inventories. This performs no asset conversion or resource substitution.
+pub fn finish(
+    output: &Path,
+    fields: &std::collections::BTreeMap<u32, std::collections::BTreeSet<String>>,
+    shared_paths: &std::collections::BTreeSet<String>,
+) -> Result<()> {
+    if fields.is_empty() {
+        return Ok(());
+    }
+    crate::save_identity::cook(output, fields, shared_paths)?;
+    let shared = crate::field_preload::cook_shared(output, shared_paths)?;
+    for (&id, paths) in fields {
         let path = resonance_content::field::metadata_path(id);
         let bytes = fs::read(output.join(&path))?;
         let assets: FieldAssets =
             serde_json::from_slice(&bytes).with_context(|| format!("invalid field {path}"))?;
-        let manifest = preload(output, path, &assets, &digest(&bytes))?;
+        let manifest = preload(output, path, &assets, &digest(&bytes), paths, &shared)?;
         ensure!(
             manifest.missing_inputs.is_empty(),
             "field {} has missing inputs: {:?}",
@@ -329,9 +329,11 @@ fn preload(
     path: String,
     assets: &FieldAssets,
     hash: &str,
+    paths: &std::collections::BTreeSet<String>,
+    shared: &resonance_content::field_preload::Shared,
 ) -> Result<resonance_content::field_preload::Manifest> {
     use symphonia_script::NativeCall;
-    let script = fs::read(output.join(&assets.script.path))?;
+    let script = fs::read(output.join(&assets.script))?;
     let mut movies = std::collections::BTreeSet::new();
     for args in
         crate::field_resources::literal_arguments(&script, NativeCall::PlayMovieBlocking, 1)?
@@ -342,7 +344,7 @@ fn preload(
                 ensure!(id >= 0, "invalid movie ID {id}");
                 movies.insert(format!("movies/{id}.json"));
             }
-            None => anyhow::bail!("unresolved movie dependency in {}", assets.script.path),
+            None => anyhow::bail!("unresolved movie dependency in {}", assets.script),
         }
     }
     crate::field_preload::cook_field(
@@ -354,6 +356,8 @@ fn preload(
         },
         assets,
         hash,
+        paths,
+        shared,
     )
 }
 
@@ -374,8 +378,15 @@ mod tests {
             root.path().join("fields/map-42.json"),
             b"stale invalid metadata",
         )?;
-        finish(root.path(), [])?;
-        assert!(finish(root.path(), [42]).is_err());
+        finish(root.path(), &Default::default(), &Default::default())?;
+        assert!(
+            finish(
+                root.path(),
+                &[(42, Default::default())].into(),
+                &Default::default()
+            )
+            .is_err()
+        );
         Ok(())
     }
 

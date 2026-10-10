@@ -7,8 +7,8 @@ impl Drawing<'_> {
         let shop = &menu.resources.as_ref().unwrap().data.grade_shop;
         let state = &menu.grade_shop;
         self.heading(&shop.labels["heading"])?;
-        self.frame([16., 64., 604., 232.]);
-        self.frame([16., 302., 604., 122.]);
+        self.frame([16., 64., 604., 232.])?;
+        self.frame([16., 302., 604., 122.])?;
         let cost = menu.grade_cost();
         self.text(
             &format!(
@@ -41,10 +41,10 @@ impl Drawing<'_> {
             }
         }
         if state.first > 0 {
-            self.scroll_arrow(SCROLL_UP, [600., 68.]);
+            self.scroll_arrow(SCROLL_UP, [600., 68.])?;
         }
         if state.first + VISIBLE <= shop.options.len() {
-            self.scroll_arrow(SCROLL_DOWN, [600., 276.]);
+            self.scroll_arrow(SCROLL_DOWN, [600., 276.])?;
         }
         if let Some(yes) = state.confirmation {
             for (row, line) in self

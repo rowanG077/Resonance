@@ -243,10 +243,6 @@ impl AuthoredTrack {
                         track.scale = Some(vector);
                         2
                     } else if curve.component == Component::EulerDegrees {
-                        ensure!(
-                            curve.interpolation != Interpolation::Hermite,
-                            "Euler Hermite interpolation is unsupported by the source evaluator"
-                        );
                         track.euler_degrees = Some(vector);
                         4
                     } else {
@@ -789,6 +785,44 @@ mod tests {
         assert_eq!(curve.ease, translation.ease);
         assert_eq!(curve.incoming, [[3., 0., 0.]]);
         assert_eq!(curve.outgoing, [[5., 0., 0.]]);
+    }
+
+    #[test]
+    fn euler_hermite_controls_produce_smooth_native_rotation() -> Result<()> {
+        let mut authored = AuthoredTrack {
+            node: 0,
+            kind: 1,
+            flags: 4,
+            period_frames: 20.,
+            times: vec![0., 20.],
+            channels: vec![Curve {
+                component: Component::EulerDegrees,
+                interpolation: Interpolation::Hermite,
+                scalar: Scalar::F32,
+                scale: 1.,
+                values: vec![vec![0.; 3], vec![0., 0., 90.]],
+                incoming: vec![vec![0.; 3]; 2],
+                outgoing: vec![vec![0., 0., 90.], vec![0.; 3]],
+                ease: vec![[0., 0.25], [0.25, 0.]],
+            }],
+        };
+        let track = authored.pose(0)?;
+        for (frame, degrees) in [(0., 0_f32), (10., 56.25), (20., 90.)] {
+            let pose = track.sample(frame, Default::default())?;
+            let (sin, cos) = (degrees.to_radians() * 0.5).sin_cos();
+            for (actual, expected) in pose.rotation.into_iter().zip([0., 0., sin, cos]) {
+                assert!((actual - expected).abs() < 1e-6);
+            }
+        }
+        // Timing stays inside the interval; authored tangents may still overshoot values.
+        authored.channels[0].outgoing[0][2] = 720.;
+        let pose = authored.pose(0)?.sample(10., Default::default())?;
+        let (sin, cos) = (135_f32.to_radians() * 0.5).sin_cos();
+        assert!((pose.rotation[2] - sin).abs() < 1e-6);
+        assert!((pose.rotation[3] - cos).abs() < 1e-6);
+        authored.channels[0].outgoing.clear();
+        assert!(authored.pose(0).is_err());
+        Ok(())
     }
 
     #[test]

@@ -447,7 +447,12 @@ fn capture(
         if art.ready
             && !roots.is_empty()
             && roots.iter().all(|(_, p)| p.prepared)
-            && ready.0.load(std::sync::atomic::Ordering::Relaxed)
+            && ready
+                .0
+                .lock()
+                .unwrap()
+                .completed
+                .load(std::sync::atomic::Ordering::Acquire)
             && refraction.get()
         {
             recording.settled += 1;
@@ -478,7 +483,12 @@ fn capture(
         return;
     }
     if !recording.presenting
-        || !ready.0.load(std::sync::atomic::Ordering::Relaxed)
+        || !ready
+            .0
+            .lock()
+            .unwrap()
+            .completed
+            .load(std::sync::atomic::Ordering::Acquire)
         || !refraction.get()
         || roots.iter().any(|(_, p)| !p.prepared)
         || session.0.events.world.actors.iter().any(|(id, actor)| {
@@ -566,7 +576,7 @@ mod tests {
             heading: 180.,
             camera: None,
             allow_incomplete_scripts: false,
-            played_ticks: None,
+            played_ticks: 0,
             progress: field.events.save_progress()?,
         };
         let inputs: Vec<_> = (0..1401)
@@ -587,7 +597,7 @@ mod tests {
         }))?;
         let directory = tempfile::tempdir()?;
         let output = directory.path().join("frames");
-        super::super::capture_field_sequence(&root, &output, &sequence)?;
+        crate::capture_effect_sequence(&root, &output, &sequence)?;
         for frame in sequence.capture_frames {
             let image = Image::from_buffer(
                 &fs::read(output.join(format!("frame-{frame:04}.png")))?,

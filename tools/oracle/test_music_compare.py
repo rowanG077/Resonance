@@ -1,4 +1,5 @@
 """Known in-memory signals verify reporting; no game audio is generated."""
+import json
 import unittest
 import numpy as np
 from music_compare import acceptance, alignment, compare, metrics
@@ -30,18 +31,21 @@ class MusicComparisonTests(unittest.TestCase):
             alignment(np.zeros((100, 2)), np.zeros((200, 2)))
 
     def test_acceptance_uses_fixed_alignment_quality_and_rejects_phase_error(self):
-        summary = {
-            'reference_clipped_samples': 0,
-            'actual_clipped_samples': 0,
-        }
-        windows = [{
-            'correlation': 0.999,
-            'mean_removed_signal_to_error_db': 24.,
-            'level_difference_db': -0.03,
-        }]
-        self.assertTrue(acceptance(summary, windows)['passed'])
-        windows[0]['correlation'] = 0.8
-        self.assertFalse(acceptance(summary, windows)['passed'])
+        source = np.random.default_rng(57).integers(-2000, 2001, (4096, 2)).astype(float)
+        exact = metrics(source, source.copy())
+        result = acceptance(exact, [exact])
+        self.assertTrue(result['passed'])
+        self.assertEqual(result['zero_mean_removed_error_windows'], 1)
+        self.assertIsNone(result['minimum_window_mean_removed_signal_to_error_db'])
+        json.dumps(result, allow_nan=False)
+
+        small_error = metrics(source, source * 0.999)
+        self.assertTrue(acceptance(small_error, [exact, small_error])['passed'])
+        shifted = metrics(source, np.roll(source, 1, axis=0))
+        self.assertFalse(acceptance(shifted, [shifted])['passed'])
+        silence = metrics(np.zeros_like(source), np.zeros_like(source))
+        self.assertFalse(acceptance(silence, [silence])['passed'])
+        self.assertFalse(acceptance(exact, [exact, silence])['passed'])
 
 
 if __name__ == '__main__':
