@@ -83,7 +83,7 @@ impl PlaybackAssets {
         self.music.is_none() && self.cues.is_none()
     }
 
-    pub fn session(self, full_intro: bool) -> (GameAudio, SoundControl) {
+    pub fn session(self) -> (GameAudio, SoundControl) {
         let (send, receive) = mpsc::sync_channel(64);
         let rendered = Arc::new(AtomicU64::new(0));
         // Publish music/effects levels and stereo together for each synthesis block.
@@ -98,8 +98,7 @@ impl PlaybackAssets {
             error: error.clone(),
         };
         let audio = GameAudio {
-            music: self.music.map(|music| music.entry(full_intro)),
-            master_lead_ms: if full_intro { 1200 } else { 1185 },
+            music: self.music,
             cues: self.cues,
             requests: Arc::new(Mutex::new(Some(receive))),
             rendered,
@@ -183,7 +182,7 @@ pub(crate) struct GameAudio {
 pub(crate) struct GameFrames {
     music: Option<MusicFrames>,
     studio: Option<Studio>,
-    cue_fade: resonance_audio::volume::ControlFade,
+    fade: resonance_audio::volume::Fade,
     requests: Option<Receiver<Arc<LoadedProgram>>>,
     rendered: Arc<AtomicU64>,
     settings: Arc<AtomicU32>,
@@ -207,13 +206,12 @@ impl GameFrames {
         let mut frames = Self {
             music: None,
             studio: None,
-            cue_fade: {
-                let mut fade = resonance_audio::volume::ControlFade::new(0., 1., 2000).unwrap();
-                for _ in 0..audio.master_lead_ms / 5 {
-                    fade.advance_block();
-                }
-                fade
-            },
+            fade: resonance_audio::volume::Fade::new(
+                0.,
+                1.,
+                resonance_audio::volume::TITLE_STARTUP_MS,
+            )
+            .expect("valid native title fade"),
             requests: None,
             rendered: audio.rendered.clone(),
             settings: audio.settings.clone(),
@@ -277,7 +275,7 @@ impl GameFrames {
                 music.mono = !self.stereo;
             }
             if let Some(studio) = &mut self.studio {
-                studio.set_group_volume(self.cue_fade.value() * effects_level)?;
+                studio.set_group_volume(effects_level)?;
             }
             self.cue_fade.advance_block();
             for cue in self.requests.iter().flat_map(|r| r.try_iter()) {
@@ -311,7 +309,7 @@ impl GameFrames {
         if !self.stereo {
             output = [(output[0] + output[1]) * 0.5; 2];
         }
-        Ok(output)
+        Ok(output.map(|sample| sample * self.fade.value_at(self.frame)))
     }
 }
 
@@ -538,11 +536,11 @@ mod tests {
                             // Listen to the admitted cue without music masking a failure.
                             assets.music = None;
                         }
-                        let (source, control) = assets.session(false);
+                        let (source, control) = assets.session();
                         if path != "title-sounds.json" {
                             control.play("navigate").unwrap();
-                            assert!(source.decoder().take(640).any(|sample| sample != 0.));
                         }
+                        assert!(source.decoder().take(320).any(|sample| sample != 0.));
                         control.check().unwrap();
                     }
                 }
@@ -558,7 +556,7 @@ mod tests {
     }
 
     fn navigation() -> Vec<f32> {
-        let (audio, control) = assets(Diagnostics::new(true)).session(false);
+        let (audio, control) = assets(Diagnostics::new(true)).session();
         control.play("navigate").unwrap();
         let samples: Vec<_> = audio.decoder().take(640).collect();
         assert_eq!(samples.len(), 640);
@@ -606,17 +604,14 @@ mod tests {
                     .unwrap(),
                 );
                 if broken_music {
-                    assets.music = Some(TitleMusic {
-                        music: score,
-                        master_lead_ms: 1185,
-                    });
+                    assets.music = Some(TitleMusic { music: score });
                 } else {
                     Arc::get_mut(assets.cues.as_mut().unwrap())
                         .unwrap()
                         .cues
                         .insert("broken".into(), score);
                 }
-                let (audio, control) = assets.session(false);
+                let (audio, control) = assets.session();
                 let mut source = audio.decoder();
                 if !broken_music {
                     control.play("broken").unwrap();
@@ -650,7 +645,7 @@ mod tests {
         let expected = navigation();
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
-            let (audio, control) = assets(diagnostics.clone()).session(false);
+            let (audio, control) = assets(diagnostics.clone()).session();
             let mut source = audio.decoder();
             assert_eq!(control.play("missing").is_err(), paranoid);
             assert_eq!(control.check().is_err(), paranoid);
@@ -670,7 +665,7 @@ mod tests {
     #[test]
     fn cue_requests_follow_source_blocks_and_stop_with_the_consumer() {
         let expected = navigation();
-        let (audio, control) = assets(Diagnostics::new(true)).session(false);
+        let (audio, control) = assets(Diagnostics::new(true)).session();
         let mut source = audio.decoder();
         control.play("navigate").unwrap();
         assert_eq!(source.by_ref().take(6).collect::<Vec<_>>(), expected[..6]);

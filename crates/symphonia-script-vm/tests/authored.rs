@@ -602,14 +602,14 @@ fn named_bindings_allocate_free_opcodes_and_keep_their_handlers() {
     impl Host for NamedHost {
         const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::new()
             .register_typed(WAIT, |_, _, _| Ok(NativeResult::Suspend))
-            .function(
+            .register_authored(
                 "add",
                 &[Type::I32, Type::I32],
                 Some(Type::I32),
                 false,
                 |_, a, _| Ok(NativeResult::Continue(Some(a[0] + a[1]))),
             )
-            .function("double", &[Type::I32], Some(Type::I32), false, |_, a, _| {
+            .register_authored("double", &[Type::I32], Some(Type::I32), false, |_, a, _| {
                 Ok(NativeResult::Continue(Some(a[0] * 2)))
             });
     }
@@ -647,4 +647,58 @@ fn named_bindings_allocate_free_opcodes_and_keep_their_handlers() {
         RunEvent::Halted
     );
     assert_eq!(vm.result(), Some(vec![14]));
+}
+
+#[test]
+fn assigned_native_opcodes_execute_and_reject_stale_declarations() {
+    struct Current;
+    impl Host for Current {
+        const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::new()
+            .register_authored("unused", &[], None, false, |_, _, _| {
+                Ok(NativeResult::Continue(None))
+            })
+            .register_authored(
+                "increment",
+                &[Type::I32],
+                Some(Type::I32),
+                false,
+                |_, args, _| Ok(NativeResult::Continue(Some(args[0] + 1))),
+            );
+    }
+    struct Reordered;
+    impl Host for Reordered {
+        const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::new()
+            .register_authored(
+                "increment",
+                &[Type::I32],
+                Some(Type::I32),
+                false,
+                |_, args, _| Ok(NativeResult::Continue(Some(args[0] + 1))),
+            )
+            .register_authored("unused", &[], None, false, |_, _, _| {
+                Ok(NativeResult::Continue(None))
+            });
+    }
+    let increment = Current::AUTHORED_NATIVES
+        .declarations()
+        .find(|declaration| declaration.name == "increment")
+        .unwrap();
+    let prepared = Arc::new(
+        Program::from_authored(Module {
+            code: vec![
+                Op::Push(41),
+                Op::ArgumentValue,
+                Op::Native(increment.opcode),
+                Op::ReturnValues(1),
+            ],
+            functions: vec![function("main", 0, 0, 0, 1)],
+            natives: vec![increment],
+            ..Module::default()
+        })
+        .unwrap(),
+    );
+    let mut vm = Vm::new(prepared.clone(), 0).unwrap();
+    vm.run(&mut Current, &mut Memory::default(), 100).unwrap();
+    assert_eq!(vm.result(), Some(vec![42]));
+    assert!(Vm::validate_bindings::<Reordered>(&prepared).is_err());
 }

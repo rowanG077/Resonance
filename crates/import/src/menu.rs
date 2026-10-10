@@ -50,7 +50,6 @@ pub fn publish_metadata(
         "ui/dialogue.json".into(),
         "ui/story-subtitles.json".into(),
         art.font,
-        art.cursor.path,
         font.texture,
     ]);
     paths.extend(art.textures.into_iter().map(|texture| texture.path));
@@ -210,6 +209,11 @@ fn cook_windows(
         Ok(library
             .bank(address, opaque_images)?
             .into_iter()
+            .take(if address == Bank::Alternate {
+                13
+            } else {
+                usize::MAX
+            })
             .map(|texture| {
                 let index = textures.len();
                 textures.push(texture);
@@ -218,11 +222,11 @@ fn cook_windows(
             .collect())
     };
     let plain = bank(Bank::Plain, 1)?;
+    // The last alternate-window image is an unused selection sprite.
     let alternate = bank(Bank::Alternate, 1)?;
     let patterns = bank(Bank::Patterns, 5)?;
-    let cursor = bank(Bank::Cursor, 0)?;
     ensure!(
-        plain.len() == 1 && alternate.len() == 14 && patterns.len() == 5 && cursor.len() == 1,
+        plain.len() == 1 && alternate.len() == 13 && patterns.len() == 5,
         "unsupported menu window banks"
     );
     let patterns = |last| std::array::from_fn(|i| if i == 5 { last } else { patterns[i] });
@@ -230,8 +234,6 @@ fn cook_windows(
         WindowArt {
             patterns: patterns(plain[0]),
             heading: None,
-            cursor: Some(cursor[0]),
-            cursor_motion: library.recipe.cursor_motion[0],
             slices: None,
             outset: 4,
             flourish_outset: [0; 2],
@@ -242,8 +244,6 @@ fn cook_windows(
         WindowArt {
             patterns: patterns(0),
             heading: Some(12),
-            cursor: None,
-            cursor_motion: library.recipe.cursor_motion[1],
             slices: Some(std::array::from_fn(|i| i)),
             outset: 3,
             flourish_outset: [7, 17],
@@ -254,8 +254,6 @@ fn cook_windows(
         WindowArt {
             patterns: patterns(alternate[0]),
             heading: Some(alternate[12]),
-            cursor: Some(alternate[13]),
-            cursor_motion: library.recipe.cursor_motion[1],
             slices: Some(alternate[..12].try_into()?),
             outset: 4,
             flourish_outset: [8, 4],
@@ -425,7 +423,6 @@ fn cook_sprites(
                 (Sprite::Technique, technique),
                 (Sprite::Numbers, vec![numbers]),
                 (Sprite::Leader, vec![leader]),
-                (Sprite::WorldHud, world_hud),
             ]
             .into(),
             number_colors: library.recipe.number_colors.to_vec(),

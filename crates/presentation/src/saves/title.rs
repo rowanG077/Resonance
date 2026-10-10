@@ -45,14 +45,24 @@ fn prepare(world: &mut World) {
     }
     let server = world.resource::<AssetServer>().clone();
     let root = world.resource::<crate::RunOptions>().assets.clone();
-    let diagnostics = crate::diagnostics::policy(world);
-    match MenuOverlay::load(
-        &root,
-        &server,
-        &mut world.resource_mut::<Assets<Surface>>(),
-        &diagnostics,
-    ) {
-        Ok(overlay) => {
+    let result = (|| -> Result<()> {
+        if needs_resources {
+            let data: resonance_content::menu_data::MenuData =
+                serde_json::from_slice(&fs::read(root.join("game/menu-data.json"))?)?;
+            data.validate()?;
+            let session: resonance_content::session::SessionData =
+                serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
+            session.validate()?;
+            world.resource_mut::<TitleMenu>().0.resources =
+                Some(Arc::new(resonance_game::menu::Resources {
+                    session: Arc::new(session),
+                    data: Arc::new(data),
+                }));
+        }
+        if !world.contains_resource::<MenuOverlay>() {
+            let server = world.resource::<AssetServer>().clone();
+            let overlay =
+                MenuOverlay::load(&root, &server, &mut world.resource_mut::<Assets<Surface>>(), &crate::diagnostics::policy(world))?;
             world.insert_resource(overlay);
         }
         Err(error) => unavailable(world, error),
@@ -69,13 +79,18 @@ fn advance(
     mut pending: ResMut<PendingInput>,
     sounds: Res<audio::MenuSounds>,
     mut preferences: ResMut<Preferences>,
+    game_over: Option<Res<crate::game_over::Active>>,
+    battle_audio: Option<Res<crate::battle_audio::Playback>>,
+    mut failures: field_view::Failures,
     scenario: Option<ResMut<ScenarioInput>>,
 ) {
     let Some(menu) = &mut menu else {
         return;
     };
     let input = controls.consume();
-    if art.is_none_or(|art| !art.ready(&images)) {
+    if art.is_none_or(|art| !art.ready(&images))
+        || menu.0.page == Page::Customize && menu.0.resources.is_none()
+    {
         return;
     }
     if let Some(mut scenario) = scenario {
@@ -100,17 +115,30 @@ fn advance(
             );
         }
     }
-    if let Some(cue) = cue
-        && let Some(control) = &sounds.control
-    {
-        let name = match cue {
-            1 | 38 => "navigate",
-            2 => "confirm",
-            3 => "back",
-            _ => "error",
-        };
-        if let Err(error) = control.play(name) {
-            error!("Menu cue failed: {error:#}");
+    if let Some(cue) = cue {
+        if game_over.is_some() {
+            if let Some(audio) = &battle_audio {
+                let result = u16::try_from(cue)
+                    .context("invalid load-menu sound ID")
+                    .and_then(|cue| audio.system_cue(cue));
+                if let Err(error) = result
+                    && !failures.skip("load menu cue", error)
+                {
+                    return;
+                }
+            }
+        } else if let Some(control) = &sounds.control {
+            let name = match cue {
+                1 | 38 => "navigate",
+                2 => "confirm",
+                3 => "back",
+                _ => "error",
+            };
+            if let Err(error) = control.play(name)
+                && !failures.skip("load menu cue", error)
+            {
+                return;
+            }
         }
     }
     if menu.0.closed {
@@ -209,7 +237,7 @@ mod tests {
         for paranoid in [false, true] {
             let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
             let (source, control) =
-                audio::PlaybackAssets::load(&root, diagnostics.clone())?.session(false);
+                audio::PlaybackAssets::load(&root, diagnostics.clone())?.session();
             drop(source);
             let mut app = App::new();
             app.add_plugins((
@@ -226,7 +254,6 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<field_view::Controls>()
             .init_resource::<PendingInput>()
-            .init_resource::<Preferences>()
             .add_message::<AppExit>()
             .insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()))
             .insert_resource(audio::MenuSounds {
@@ -383,7 +410,6 @@ mod tests {
                 .init_resource::<crate::display::Display>()
                 .init_resource::<crate::Clock>()
                 .init_resource::<PendingInput>()
-                .init_resource::<Preferences>()
                 .add_message::<AppExit>()
                 .insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()))
                 .insert_resource(crate::TitleActive)

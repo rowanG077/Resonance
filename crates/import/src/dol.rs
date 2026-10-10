@@ -19,18 +19,6 @@ pub(crate) fn slice(data: &[u8], address: u32, size: usize) -> Result<&[u8]> {
     mapped(data, address, Some(size))
 }
 
-/// Match an embedded texture declaration to the generic data-section publication.
-pub(crate) fn texture_bank(data: &[u8], address: u32) -> Result<String> {
-    for section in 7..18 {
-        let base = crate::read::u32(data, 0x48 + section * 4)?;
-        let length = crate::read::u32(data, 0x90 + section * 4)?;
-        if let Some(offset) = address.checked_sub(base).filter(|offset| *offset < length) {
-            return Ok(format!("embedded/dol/section-{section}/tpl-{offset:x}"));
-        }
-    }
-    bail!("texture address {address:#x} outside DOL data sections")
-}
-
 /// Without a length, return only the remainder of the containing section.
 fn mapped(data: &[u8], address: u32, size: Option<usize>) -> Result<&[u8]> {
     let word = |at| -> Result<u64> {

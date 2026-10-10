@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "steps": [
+    {"do": "wait", "until": {"kind": "field", "map_id": 332, "free_control": true}, "max_updates": 600},
+    {"do": "capture", "name": "field"},
+    {"do": "hold", "keys": ["menu"], "updates": 1},
+    {"do": "wait", "until": {"kind": "menu", "page": "main"}, "max_updates": 120},
+    {"do": "capture", "name": "main-menu"}
+  ]
+}

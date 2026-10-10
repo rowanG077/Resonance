@@ -39,8 +39,6 @@ impl FieldCapture {
                 assets: root.into(),
                 script_root: None,
                 capture: Some(output.into()),
-                presentation_start: None,
-                replay: None,
                 capture_at: None,
                 saves: SaveOptions {
                     directory: Some(output.with_extension("slots")),
@@ -86,6 +84,9 @@ mod tests {
             include_str!("../examples/scenarios/setup-capture.json"),
             include_str!("../examples/scenarios/classroom-capture.json"),
             include_str!("../examples/scenarios/classroom-dialogue-capture.json"),
+            include_str!("../../../tools/oracle/cases/classroom-walking.json"),
+            include_str!("../../../tools/oracle/cases/classroom-emotes.json"),
+            include_str!("../../../tools/oracle/cases/eraser-particles.json"),
         ] {
             let spec: FieldCapture = serde_json::from_str(json).unwrap();
             spec.validate().unwrap();

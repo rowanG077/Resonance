@@ -75,46 +75,6 @@ impl<'a> Source<'a> {
         Ok((directories[0], bytes))
     }
 
-    /// Archive records use paths relative to their publication's root.
-    #[cfg(test)]
-    pub(crate) fn textures(&self, resource: &str) -> Result<Vec<crate::texture::Texture>> {
-        let (directories, _) = self.candidates(&format!("{resource}/textures.json"))?;
-        let mut textures = crate::texture::bind(&self.root.join(directories[0]), resource)?;
-        for image in textures.iter_mut().flat_map(|texture| &mut texture.images) {
-            self.verify_file(&directories, image)?;
-            if !directories[0].is_empty() {
-                *image = format!("{}/{image}", directories[0]);
-            }
-        }
-        Ok(textures)
-    }
-
-    /// Embedded banks are published as named directories inside a shared namespace.
-    #[cfg(test)]
-    pub(crate) fn published_textures(&self, suffix: &str) -> Result<Vec<crate::texture::Texture>> {
-        validate_asset_path(suffix)?;
-        let paths = self
-            .paths
-            .iter()
-            .filter_map(|path| {
-                if path == suffix {
-                    Some(String::new())
-                } else {
-                    path.strip_suffix(&format!("/{suffix}")).map(str::to_owned)
-                }
-            })
-            .collect::<Vec<_>>();
-        ensure!(
-            !paths.is_empty(),
-            "missing cooked texture bank {suffix}; rerun cook-all"
-        );
-        Self {
-            root: self.root,
-            paths,
-        }
-        .textures(suffix)
-    }
-
     /// Standalone images already use paths relative to the whole library.
     #[cfg(test)]
     pub(crate) fn standalone_textures(&self) -> Result<Vec<crate::texture::Texture>> {

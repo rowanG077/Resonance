@@ -22,9 +22,10 @@ pub(crate) struct MenuDefinition {
 }
 
 pub(crate) fn read(executable: &[u8]) -> Result<Imported> {
-    let rows = definition::definitions(executable)?;
-    let (definitions, menu): (Vec<_>, Vec<_>) =
-        rows.into_iter().map(|row| (row.gameplay, row.menu)).unzip();
+    let (definitions, menu): (Vec<_>, Vec<_>) = definition::definitions(executable)?
+        .into_iter()
+        .map(|row| (row.gameplay, row.menu))
+        .unzip();
     let mut catalogue = Catalogue {
         definitions,
         learning: tables::learning(executable)?,

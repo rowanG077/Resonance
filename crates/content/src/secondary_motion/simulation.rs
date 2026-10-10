@@ -1,4 +1,4 @@
-//! Secondary-chain dynamics for battle models.
+//! Retained secondary-chain dynamics shared by field and battle models.
 use super::Chain;
 use glam::Vec3;
 
@@ -122,14 +122,6 @@ impl Simulation {
                     position[environment.up.index()] = position[environment.up.index()].max(floor);
                 }
             }
-            // Collision projection can stretch a rotating chain after relaxation.
-            // Keep each free joint within its segment's authored reach before
-            // turning that corrected displacement into next tick's momentum.
-            for (index, &length) in lengths.iter().enumerate() {
-                let parent = self.positions[index];
-                let delta = self.positions[index + 1] - parent;
-                self.positions[index + 1] = parent + delta.clamp_length_max(length);
-            }
             for (index, joint) in chain.joints.iter().enumerate() {
                 self.velocity[index] = (self.positions[index] - previous[index]) * joint.damping;
             }
@@ -242,54 +234,6 @@ mod tests {
         }
         assert_eq!(batched.positions(), before.positions());
         assert_eq!(batched.velocity(), before.velocity());
-    }
-
-    #[test]
-    fn spinning_long_chain_stays_within_authored_reach_after_collision() {
-        let chain = Chain {
-            joints: (0..11)
-                .map(|node| Joint {
-                    node,
-                    gravity: 0.333,
-                    damping: 0.766,
-                })
-                .collect(),
-            attraction: 0.03,
-            preserve_rotation: false,
-            rotation_locks: [false; 2],
-            collision_plane: None,
-        };
-        let mut simulation = Simulation::default();
-        for tick in 0..120 {
-            let angle = tick as f32 * std::f32::consts::PI / 6.;
-            let direction = Vec3::new(angle.sin(), angle.cos(), 0.);
-            let root = Vec3::new(tick as f32 * 4., 160., 0.) + direction * 70.;
-            let targets: Vec<_> = (0..11)
-                .map(|index| root + direction * (index as f32 * 8.))
-                .collect();
-            simulation.advance(
-                &chain,
-                &targets,
-                Some((direction, 0., 1.)),
-                chain.attraction,
-                1,
-                Environment {
-                    up: UpAxis::Y,
-                    floor: Some(5.),
-                    ..Default::default()
-                },
-            );
-            assert_eq!(simulation.positions()[0], root);
-            for (actual, authored) in simulation.positions().windows(2).zip(targets.windows(2)) {
-                assert!(actual[0].distance(actual[1]) <= authored[0].distance(authored[1]) + 0.001);
-            }
-            assert!(
-                simulation
-                    .positions()
-                    .iter()
-                    .all(|point| point.is_finite() && point.y >= 5.)
-            );
-        }
     }
 
     #[test]

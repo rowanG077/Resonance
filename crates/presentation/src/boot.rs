@@ -41,6 +41,17 @@ impl Playback {
                     .all(|h| server.is_loaded_with_dependencies(h.id()))
         })
     }
+
+    pub fn check_images(&mut self, server: &AssetServer) -> Result<()> {
+        for image in &self.images {
+            if let Some(bevy::asset::LoadState::Failed(error)) = server.get_load_state(image.id()) {
+                // A broken logo must not hold the title behind an endless load.
+                *self = Self::default();
+                anyhow::bail!("startup logo image failed: {error}");
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Component)]

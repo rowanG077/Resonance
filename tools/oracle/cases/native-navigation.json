@@ -1,6 +1,32 @@
 {
-  "version": 1,
-  "inputs": [
-    {"tick": 912, "duration": 36, "buttons": ["down"]}
+  "version": 2,
+  "steps": [
+    {
+      "do": "wait",
+      "until": {
+        "kind": "title_tick",
+        "tick": 911
+      },
+      "max_updates": 912
+    },
+    {
+      "do": "hold",
+      "keys": [
+        "down"
+      ],
+      "updates": 36
+    },
+    {
+      "do": "wait",
+      "until": {
+        "kind": "title_tick",
+        "tick": 964
+      },
+      "max_updates": 18
+    },
+    {
+      "do": "capture",
+      "name": "title-navigation"
+    }
   ]
 }

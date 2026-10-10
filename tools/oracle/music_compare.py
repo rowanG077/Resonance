@@ -101,20 +101,28 @@ def metrics(reference, actual):
 def acceptance(summary, windows):
     """Return the fixed-alignment field-music acceptance decision."""
     correlations = [w['correlation'] for w in windows]
-    snrs = [w['mean_removed_signal_to_error_db'] for w in windows]
+    # A zero-error window has unbounded SNR. Keep that case explicit rather
+    # than writing infinity into the JSON report or treating it as no signal.
+    snrs = [w['mean_removed_signal_to_error_db'] for w in windows
+            if w['mean_removed_error_rms_pcm16'] != 0]
     levels = [w['level_difference_db'] for w in windows]
-    minimum_correlation = min(correlations) if correlations else None
+    minimum_correlation = (
+        min(correlations) if correlations and all(value is not None for value in correlations)
+        else None
+    )
     minimum_snr = min(snrs) if snrs and all(value is not None for value in snrs) else None
     maximum_level_error = (
         max(abs(value) for value in levels)
         if levels and all(value is not None for value in levels)
         else None
     )
-    values = (minimum_correlation, minimum_snr, maximum_level_error)
+    values = (minimum_correlation, maximum_level_error)
     passed = (
         all(value is not None and math.isfinite(value) for value in values)
         and minimum_correlation >= AUDIO_ACCEPTANCE['minimum_window_correlation']
-        and minimum_snr >= AUDIO_ACCEPTANCE['minimum_window_mean_removed_signal_to_error_db']
+        and all(value is not None and math.isfinite(value)
+                and value >= AUDIO_ACCEPTANCE['minimum_window_mean_removed_signal_to_error_db']
+                for value in snrs)
         and maximum_level_error <= AUDIO_ACCEPTANCE['maximum_window_abs_level_difference_db']
         and summary['reference_clipped_samples'] == 0
         and summary['actual_clipped_samples'] == 0
@@ -123,6 +131,7 @@ def acceptance(summary, windows):
         "thresholds": AUDIO_ACCEPTANCE,
         "minimum_window_correlation": minimum_correlation,
         "minimum_window_mean_removed_signal_to_error_db": minimum_snr,
+        "zero_mean_removed_error_windows": len(windows) - len(snrs),
         "maximum_window_abs_level_difference_db": maximum_level_error,
         "passed": bool(passed),
     }

@@ -1,25 +1,5 @@
 //! Helpers shared by presentation tests.
-
-pub(crate) fn run_options(assets: impl Into<std::path::PathBuf>) -> crate::RunOptions {
-    crate::RunOptions {
-        assets: assets.into(),
-        script_root: None,
-        saves: Default::default(),
-        presentation_start: None,
-        replay: None,
-        capture_at: None,
-        capture: None,
-        reveal: false,
-        selected: 0,
-        silent: true,
-        paranoid: true,
-        skip_intro: true,
-        skip_battles: false,
-        allow_incomplete_scripts: false,
-        record_playthrough: None,
-        record_title_ticks: 0,
-    }
-}
+use resonance_battle::{Actor, Side};
 
 /// A save beside Iselia's save point, after the classroom sequence.
 /// Host tests restore it directly; the game integration test owns story playback.
@@ -31,7 +11,10 @@ pub(crate) fn field_checkpoint(
         camera::{CameraRig, EntryCamera},
         party::Party,
     };
-    let data = resonance_content::session::SessionData::load(files)?;
+    let (data, _) = crate::new_game::admit_definitions(
+        |path| Ok(files.read(path)?.to_vec()),
+        files.diagnostics(),
+    )?;
     let mut party = Party::new(&data, Default::default())?;
     party.formation = vec![1, 2, 3];
     let leader = i32::from(party.field_leader);
@@ -50,4 +33,63 @@ pub(crate) fn field_checkpoint(
         progress,
         played_ticks: 0,
     })
+}
+
+pub(crate) fn actor(side: Side, hp: i32, tp: u16) -> Actor {
+    Actor {
+        side,
+        species: 0,
+        equipment: resonance_battle::EquipmentAttributes {
+            max_hp: hp,
+            max_tp: tp,
+            tp_cost_reduction: false,
+            quick_escape: false,
+            taunt_enabled: false,
+            taunt_guard: false,
+            taunt_cancel: false,
+            control_ex: Default::default(),
+            quick_turn: false,
+            backstep_guard: false,
+            casting: Default::default(),
+            dagger_reach: false,
+            contact: Default::default(),
+            normal_combo_limit: 3,
+            luck: 0,
+            stats: Default::default(),
+            affinities: [resonance_battle::Affinity::Normal; 9],
+            damage: Default::default(),
+            recovery: Default::default(),
+            base_element: None,
+            combo_traits: Default::default(),
+            normal_guard: false,
+            speed_multiplier: 1.,
+            reaction_ex: Default::default(),
+            stun_ex_bonus: false,
+            spell_revenge: false,
+        },
+        control: Default::default(),
+        availability: Default::default(),
+        guard: Default::default(),
+        hp,
+        tp,
+        control_ex_state: Default::default(),
+        casting_state: Default::default(),
+        stored_spell: None,
+        overlimit: Default::default(),
+        proficiency: 0,
+        input: Default::default(),
+        control_slot: 0,
+        elements: Default::default(),
+        attack_power: 100,
+        conditions: Default::default(),
+        position: [0.; 3],
+        heading: 0.,
+        facing_direction: [0., 0., 1.],
+        effect_scale: 1.,
+        body: Default::default(),
+        movement: Default::default(),
+        reaction: Default::default(),
+        hit_stop: 0,
+        time_stop: 0,
+    }
 }

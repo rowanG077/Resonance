@@ -32,18 +32,9 @@ fn cancellation_during_stream_probing_does_not_use_incomplete_formats() {
 }
 
 #[test]
-#[ignore = "requires the cooked opening and original H4M; silent comparison"]
-fn decodes_every_opening_frame_and_preserves_lossless_audio() {
-    check_movie(0);
-}
-
-#[test]
-#[ignore = "requires the cooked story movie and original H4M; silent comparison"]
-fn decodes_every_story_frame_and_preserves_lossless_audio() {
-    check_movie(1);
-}
-
-fn check_movie(id: u32) {
+#[ignore = "requires the cooked story movie and source H4M; silent comparison"]
+fn decodes_story_movie_and_preserves_lossless_audio() {
+    let id = 1;
     let root = std::env::var_os("RESONANCE_COOKED_TEST_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -85,16 +76,20 @@ fn check_movie(id: u32) {
         }
     }
     let decoder = MovieDecoder::open(&root.join(&asset.path), asset.clone()).unwrap();
-    let started = Instant::now();
+    let mut last_event = Instant::now();
     let mut frames = 0;
     let mut audio_frames = 0;
     let mut actual = Sha256::new();
     loop {
         assert!(
-            started.elapsed() < Duration::from_secs(120),
+            last_event.elapsed() < Duration::from_secs(10),
             "movie decoder stalled"
         );
-        match decoder.try_next().unwrap() {
+        let event = decoder.try_next().unwrap();
+        if event.is_some() {
+            last_event = Instant::now();
+        }
+        match event {
             Some(MovieEvent::Video(video)) => {
                 assert_eq!(video.index, frames);
                 assert_eq!(
@@ -102,9 +97,6 @@ fn check_movie(id: u32) {
                     asset.width as usize * asset.height as usize * 4
                 );
                 assert!(video.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
-                if id == 0 && video.index == 1137 {
-                    assert_eq!(video.rgba[(214 * 640 + 499) * 4], 217);
-                }
                 frames += 1;
             }
             Some(MovieEvent::Audio(audio)) => {

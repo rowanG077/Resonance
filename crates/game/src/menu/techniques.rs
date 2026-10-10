@@ -1,8 +1,9 @@
-//! Field Tech page. The caller owns the party.
+//! Shared field and battle Tech page. The caller owns the party.
 pub use super::Input;
 use super::MenuAction;
 use anyhow::{Result, ensure};
-pub use resonance_content::arte::TechniqueTarget as TargetKind;
+pub use resonance_battle::TechniqueTarget as TargetKind;
+use resonance_battle::{ActorId, Battle, PreparedTechnique};
 use resonance_content::{
     menu_data::{MenuData, TechniqueUse},
     session::SessionData,
@@ -17,13 +18,38 @@ pub enum Context<'a> {
         at_save_point: bool,
         connected: &'a [bool; 4],
     },
+    Battle {
+        battle: &'a Battle,
+        actors: &'a [(ActorId, u8)],
+        connected: &'a [bool; 4],
+    },
 }
 
-impl Context<'_> {
-    fn connected(self, slot: usize) -> bool {
-        let Self::Field { connected, .. } = self;
-        connected[slot]
+impl<'a> Context<'a> {
+    fn battle(self) -> bool {
+        matches!(self, Self::Battle { .. })
     }
+    fn connected(self) -> &'a [bool; 4] {
+        match self {
+            Self::Field { connected, .. } | Self::Battle { connected, .. } => connected,
+        }
+    }
+    fn prepared(self, member: usize, catalogue: u16) -> Option<(ActorId, &'a PreparedTechnique)> {
+        let Self::Battle { battle, actors, .. } = self else {
+            return None;
+        };
+        let actor = actors
+            .iter()
+            .find(|(_, character)| usize::from(*character) == member + 1)?
+            .0;
+        Some((actor, battle.prepared_technique(actor, catalogue)?))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BattlePage {
+    pub state: Tech,
+    pub connected: [bool; 4],
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -119,7 +145,7 @@ pub(crate) fn shortcut_choice(
 }
 
 impl Edit {
-    /// Apply a field menu edit.
+    /// Field convenience; battle commits through its prevalidated live binding join.
     pub fn apply_field(self, party: &mut Party, data: &MenuData) -> Result<EditResult> {
         let changed = match self {
             Self::Control { slot, value } => {
@@ -209,6 +235,9 @@ pub struct Page<'a> {
     pub context: Context<'a>,
 }
 impl<'a> Page<'a> {
+    pub fn battle(self) -> bool {
+        self.context.battle()
+    }
     pub fn at_save_point(self) -> bool {
         matches!(
             self.context,
@@ -220,6 +249,7 @@ impl<'a> Page<'a> {
     }
     pub fn party_count(self) -> usize {
         match self.context {
+            Context::Battle { actors, .. } => actors.len(),
             Context::Field { .. } => self.party.formation.len(),
         }
     }
@@ -253,7 +283,7 @@ impl<'a> Page<'a> {
     pub fn tech_unison_available(self) -> bool {
         self.state.character < 4
             && self.tech_auto()
-            && !self.context.connected(self.state.character)
+            && !self.context.connected()[self.state.character]
     }
     pub fn tech_columns(self) -> usize {
         if self.state.unison {
@@ -339,7 +369,13 @@ impl<'a> Page<'a> {
             )
         })
     }
-
+    pub fn battle_party_target(self) -> bool {
+        self.selected_technique().is_some_and(|selected| {
+            self.context
+                .prepared(selected.character, selected.technique)
+                .is_some_and(|(_, row)| row.capabilities.target == TargetKind::Ally)
+        })
+    }
     pub fn character_name(self, member: usize) -> &'a str {
         self.party.members[member]
             .name
@@ -347,15 +383,35 @@ impl<'a> Page<'a> {
             .unwrap_or(&self.data.initial_names[member])
     }
     pub fn technique_cost(self, member: usize, id: u16) -> Option<u32> {
-        Some(u32::from(self.party.members.get(member)?.technique_cost(
-            self.data,
-            id,
-            self.at_save_point(),
-        )))
+        if !self.battle() {
+            return Some(u32::from(self.party.members.get(member)?.technique_cost(
+                self.data,
+                id,
+                self.at_save_point(),
+            )));
+        }
+        let (actor, prepared) = self.context.prepared(member, id)?;
+        let Context::Battle { battle, .. } = self.context else {
+            return None;
+        };
+        battle.technique_tp_cost(actor, prepared.action)
     }
     pub fn ready(self, member: usize, id: u16) -> bool {
-        self.technique_cost(member, id)
-            .is_some_and(|cost| cost <= u32::from(self.party.members[member].tp))
+        if let Context::Battle { battle, .. } = self.context {
+            self.context
+                .prepared(member, id)
+                .is_some_and(|(actor, prepared)| {
+                    battle
+                        .technique_queue_admitted(actor, prepared.action)
+                        .unwrap_or(false)
+                })
+        } else {
+            self.technique_cost(member, id)
+                .is_some_and(|cost| cost <= u32::from(self.party.members[member].tp))
+        }
+    }
+    pub fn available(self, member: usize, id: u16) -> bool {
+        !self.battle() || self.context.prepared(member, id).is_some()
     }
 }
 impl Tech {
@@ -370,10 +426,6 @@ impl Tech {
             character,
             ..Self::default()
         };
-        // Cursor memory can come from a larger party roster.
-        if state.character >= state.page(party, session, data, context).party_count() {
-            state.character = 0;
-        }
         state.validate(party, context)?;
         state.reset_focus(party, session, data, context);
         Ok(state)
@@ -393,10 +445,13 @@ impl Tech {
             context,
         }
     }
-    fn validate(&self, party: &Party, _context: Context<'_>) -> Result<()> {
+    fn validate(&self, party: &Party, context: Context<'_>) -> Result<()> {
         let count = party.formation.len();
         ensure!(
-            (1..=8).contains(&count) && party.members.len() == 9 && self.character < count,
+            (1..=8).contains(&count)
+                && party.members.len() == 9
+                && self.character < count
+                && (!context.battle() || self.character < 4),
             "invalid Tech party selection"
         );
         for (slot, &id) in party.formation.iter().enumerate() {
@@ -465,6 +520,10 @@ impl Tech {
         data: &MenuData,
         context: Context<'_>,
     ) -> Result<Visit> {
+        ensure!(
+            !context.battle(),
+            "battle Tech edits require prepared core bindings"
+        );
         match self.request_step(input, party, session, data, context)? {
             Step::Navigate(visit) => Ok(visit),
             Step::Edit(edit) => {
@@ -489,7 +548,7 @@ impl Tech {
         })
     }
 
-    /// Called after the requested edit succeeds.
+    /// Called only after the requested edit has succeeded in the field or battle core.
     pub fn finish_edit(
         &mut self,
         edit: Edit,
@@ -560,7 +619,11 @@ impl Tech {
                 member,
                 technique,
                 target: self.target,
-                target_kind: None,
+                target_kind: technique.and_then(|technique| {
+                    context
+                        .prepared(member, technique)
+                        .map(|(_, row)| row.capabilities.target)
+                }),
             })
         } else {
             None
@@ -583,6 +646,7 @@ impl Tech {
         let selected = (action != MenuAction::Cancel)
             .then(|| page.selected_technique())
             .flatten();
+        let battle = page.battle();
         let at_save_point = page.at_save_point();
         let mut cue = None;
         let mut requested = None;
@@ -694,6 +758,8 @@ impl Tech {
                     if self.unison {
                         self.focus = Focus::Character;
                         self.unison = false;
+                    } else if battle {
+                        self.close(None);
                     } else {
                         self.focus = Focus::Character;
                     }
@@ -798,7 +864,11 @@ impl Tech {
                 } else if action == MenuAction::Confirm {
                     let selected = selected
                         .ok_or_else(|| anyhow::anyhow!("missing Tech field target selection"))?;
-
+                    if battle {
+                        self.close(Some(selected.technique));
+                        cue = Some(2);
+                        return Ok((cue, None));
+                    }
                     let target = usize::from(party.formation[self.target] - 1);
                     return Ok((
                         None,
@@ -829,7 +899,9 @@ impl Tech {
                 let two = page.tech_columns() == 2;
                 if two && self.focus == Focus::List {
                     if action == MenuAction::Alternate {
-                        cue = self.begin_forget(party, session, data, context)?;
+                        if !battle {
+                            cue = self.begin_forget(party, session, data, context)?;
+                        }
                     } else if matches!(action, MenuAction::PreviousTab | MenuAction::NextTab)
                         && party.formation.len() > 1
                     {
@@ -894,10 +966,13 @@ impl Tech {
     ) -> Result<(Option<u16>, Option<Edit>)> {
         let page = self.page(party, session, data, context);
         let member = page.member_index();
+        let battle = page.battle();
         let assist = self.focus == Focus::AssistList;
         if action == MenuAction::Cancel {
             if assist {
                 self.focus = Focus::AssistCharacter;
+            } else if two && battle {
+                self.close(None);
             } else if two {
                 self.focus = Focus::Character;
             } else {
@@ -913,6 +988,7 @@ impl Tech {
             if !party.members[selected.character]
                 .techniques
                 .contains(&selected.technique)
+                || !page.available(selected.character, selected.technique)
             {
                 return Ok((Some(4), None));
             }
@@ -934,20 +1010,29 @@ impl Tech {
                     }),
                 ));
             }
-            if party.members[selected.character].knocked_out()
-                || party.members[selected.character].ailments.petrified
-                || party.members[selected.character].ailments.curse
-                || !page.ready(selected.character, selected.technique)
+            if !battle
+                && ((party.members[selected.character].knocked_out()
+                    || party.members[selected.character].ailments.petrified
+                    || party.members[selected.character].ailments.curse)
+                    || !page.ready(selected.character, selected.technique))
             {
                 return Ok((Some(4), None));
             }
-            if data.techniques[usize::from(selected.technique)]
-                .field_use
-                .is_none()
-            {
-                return Ok((Some(4), None));
+            if battle {
+                if page.battle_party_target() {
+                    self.begin_target(party, session, data, context);
+                } else {
+                    self.close(Some(selected.technique));
+                }
+            } else {
+                if data.techniques[usize::from(selected.technique)]
+                    .field_use
+                    .is_none()
+                {
+                    return Ok((Some(4), None));
+                }
+                self.begin_target(party, session, data, context);
             }
-            self.begin_target(party, session, data, context);
             return Ok((Some(2), None));
         }
         if action == MenuAction::Menu {
@@ -961,6 +1046,7 @@ impl Tech {
                 if !party.members[selected.character]
                     .techniques
                     .contains(&selected.technique)
+                    || !page.available(selected.character, selected.technique)
                 {
                     return Ok((Some(4), None));
                 }
@@ -976,7 +1062,7 @@ impl Tech {
                     }),
                 ));
             }
-            if self.unison {
+            if self.unison || battle {
                 return Ok((None, None));
             }
             let Some(selected) = selected else {
@@ -1000,7 +1086,7 @@ impl Tech {
         }
         if !two && action == MenuAction::Alternate {
             return Ok((
-                if self.focus == Focus::List && !self.unison {
+                if self.focus == Focus::List && !self.unison && !battle {
                     self.begin_forget(party, session, data, context)?
                 } else {
                     None
@@ -1137,7 +1223,7 @@ impl super::Menu {
         let resources = self.resources.as_ref()?;
         let visit = self.tech.step(
             input,
-            &mut self.checkpoint.as_mut()?.progress_mut().party,
+            &mut self.checkpoint.as_mut()?.progress.party,
             &resources.session,
             &resources.data,
             Context::Field {

@@ -68,9 +68,9 @@ pub(super) struct Orbiting {
     pub target: [f32; 3],
 }
 impl Orbiting {
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
-        reason = "Keep independent timing and mutable emission state explicit at the call site"
+        reason = "Emission borrows actor state, clocks, randomness and its output batch."
     )]
     pub fn emit(
         &mut self,

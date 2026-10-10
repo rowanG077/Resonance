@@ -28,7 +28,7 @@ pub(super) const fn register(
     bindings: NativeBindings<FieldHost<'_>>,
 ) -> NativeBindings<FieldHost<'_>> {
     bindings
-        .function(
+        .register_authored(
             "game::memory::notice",
             &[MESSAGE, Type::I32],
             None,
@@ -42,7 +42,7 @@ pub(super) const fn register(
                 Ok(NativeResult::Suspend)
             },
         )
-        .function(
+        .register_authored(
             "game::memory::choose",
             &[MESSAGE],
             Some(Type::I32),
@@ -59,7 +59,7 @@ pub(super) const fn register(
                 Ok(NativeResult::Suspend)
             },
         )
-        .function(
+        .register_authored(
             "game::memory::unlock",
             &[POINT, Type::I32],
             Some(Type::Bool),

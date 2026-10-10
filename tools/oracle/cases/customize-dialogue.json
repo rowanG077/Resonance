@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "description": "All three saved dialogue frame styles and six backgrounds on the naturally reached Genis/Mithos line. Compare the entire dialogue panel region, including tab and continue marker, at the unchanged tolerance 8 / 1% gate. Controlled Dolphin checkpoint copies change only the saved appearance; source VI 150. Native scripts reach and reveal the same line before applying appearance for rendering. This matrix does not validate actor animation, attached pointers, choices, or dialogue opening timing.",
+  "description": "Dialogue appearance variants at the displayed Genis opening-lesson line, reached through ordinary title and New Game input. Each fresh game receives validated initial preferences before field preparation; camera and animation follow authored initialization.",
   "tolerance": 8,
   "max_changed_fraction": 0.01,
   "preferences": {
@@ -191,9 +191,8 @@
     }
   ],
   "capture": {
-    "kind": "dialogue",
-    "prefix": "Mithos, the hero",
-    "hold_ticks": 0
+    "checkpoint": null,
+    "scenario": "tools/oracle/cases/mithos-dialogue.json"
   },
   "regions": [
     {

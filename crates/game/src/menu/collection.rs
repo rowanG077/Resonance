@@ -41,7 +41,7 @@ impl Menu {
         }
         let book = &mut self.collection;
         if book.page_fade == 255 {
-            self.return_to_items();
+            self.open_items();
             return true;
         }
         book.page_fade = if book.page_closing {

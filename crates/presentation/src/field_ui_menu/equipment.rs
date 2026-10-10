@@ -248,3 +248,35 @@ impl Drawing<'_> {
         Ok(x)
     }
 }
+
+impl MenuArtwork {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_battle_equipment(
+        &mut self,
+        page: EquipmentPage<'_>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        tick: u32,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        self.set_page(Some(ActivePage::Menu(Page::Equip)));
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
+        draw.opacity = 255 - page.state.transition.page_fade;
+        draw.shade(draw.screen);
+        draw.plane = 1;
+        let anchor = draw.equipment_page(page)?;
+        draw.plane = 2;
+        if page.state.focus != Focus::Character {
+            let fade = u32::from(page.state.transition.page_fade);
+            draw.cursor(
+                [32. - (fade * 308 / 256) as f32, 68.],
+                ((255 - fade) / 2) as u8,
+            );
+        }
+        draw.cursor(anchor, 255 - page.state.transition.page_fade);
+        let drawing = draw.batches;
+        self.submit_drawing(drawing, commands, meshes)
+    }
+}

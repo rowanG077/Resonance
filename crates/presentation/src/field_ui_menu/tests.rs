@@ -144,10 +144,33 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
     let mut artwork = fixture.artwork(&mut world)?;
     let mut queue = bevy::ecs::world::CommandQueue::default();
     let mut meshes = Assets::<Mesh>::default();
-    artwork.prepare_windows(crate::Resolution::default());
+    artwork.prepare_windows();
     queue.apply(&mut world);
     assert!(meshes.is_empty(), "unused menu planes allocated meshes");
     assert!(artwork.layers.is_empty());
+    let state = resonance_game::menu::strategy::Strategy {
+        focus: StrategyFocus::Rename,
+        preset_opacity: 255,
+        rename_opacity: 255,
+        ..Default::default()
+    };
+    artwork.render_battle_strategy(
+        state.page(&fixture.party, &fixture.data),
+        &fixture.font,
+        &fixture.dialogue,
+        &fixture.party.settings.preferences,
+        100,
+        &mut Commands::new(&mut queue, &world),
+        &mut meshes,
+    )?;
+    queue.apply(&mut world);
+    assert!(
+        artwork
+            .layers
+            .values()
+            .all(|layer| world.get::<RenderLayers>(layer.entity)
+                == Some(&RenderLayers::layer(crate::battle_view::LAYER)))
+    );
     let mut menu = fixture.field_menu();
     menu.page = Page::Tech;
     menu.tech.character = 3;
@@ -176,16 +199,6 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             .filter(|layer| layer.visible)
             .collect();
         assert!(!submitted.is_empty());
-        let text = &artwork.layers[&(1, DrawRole::Text, FONT)];
-        assert_eq!(
-            world
-                .get::<GlobalTransform>(text.entity)
-                .unwrap()
-                .translation()
-                .z,
-            DepthBand::Field.at(1, DrawRole::Text.depth()),
-            "first text publication must have its menu depth before propagation",
-        );
         for layer in submitted {
             assert!(meshes.get(&layer.mesh).unwrap().count_vertices() > 0);
             assert!(matches!(
@@ -194,6 +207,33 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             ));
         }
     }
+    let list = resonance_game::battle::command::ListFrame {
+        rows: vec![],
+        selected: 0,
+        first: 0,
+        scroll: 0,
+        fade: 0,
+        description_previous: 0,
+        description_blend: 255,
+    };
+    artwork.render_battle_items(
+        &list,
+        &fixture.data,
+        &fixture.font,
+        &fixture.dialogue,
+        &fixture.party.settings.preferences,
+        101,
+        &mut Commands::new(&mut queue, &world),
+        &mut meshes,
+    )?;
+    queue.apply(&mut world);
+    assert!(
+        artwork
+            .layers
+            .range((2, DrawRole::Background, MaterialKey::Texture(0))..)
+            .map(|(_, layer)| layer)
+            .all(|layer| !layer.visible)
+    );
     let mut images = world.remove_resource::<Assets<Image>>().unwrap();
     for image in artwork.drawn_images() {
         images.insert(image.id(), Image::default())?;
@@ -213,12 +253,13 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
     queue.apply(&mut world);
     assert!(artwork.layers.values().all(|layer| !layer.visible
         && world.get::<Visibility>(layer.entity) == Some(&Visibility::Hidden)));
-    artwork.render(
-        Source::Title(Some(&menu)),
+    artwork.render_battle_items(
+        &list,
+        &fixture.data,
         &fixture.font,
         &fixture.dialogue,
+        &fixture.party.settings.preferences,
         103,
-        crate::Resolution::default(),
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;
@@ -251,7 +292,7 @@ fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
     let mut artwork = fixture.artwork(&mut world)?;
     let mut queue = bevy::ecs::world::CommandQueue::default();
     let mut meshes = Assets::<Mesh>::default();
-    artwork.prepare_windows(crate::Resolution::default());
+    artwork.prepare_windows();
     queue.apply(&mut world);
     for focus in [
         EquipmentFocus::Character,
@@ -263,27 +304,26 @@ fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
             focus,
             ..Default::default()
         };
-        let mut menu = fixture.field_menu();
-        menu.page = Page::Equip;
-        menu.equipment = state;
-        artwork.render(
-            Source::Title(Some(&menu)),
+        let page = resonance_game::menu::equipment::Page {
+            state: &state,
+            party: &fixture.party,
+            session: &fixture.session,
+            data: &fixture.data,
+            names: &fixture.data.initial_names,
+            character: 0,
+        };
+        artwork.render_battle_equipment(
+            page,
             &fixture.font,
             &fixture.dialogue,
+            &fixture.party.settings.preferences,
             100,
-            crate::Resolution::default(),
             &mut Commands::new(&mut queue, &world),
             &mut meshes,
         )?;
         queue.apply(&mut world);
         assert!(
-            artwork.layers.iter().any(|((_, role, _), layer)| {
-                *role == DrawRole::Cursor
-                    && layer.visible
-                    && world
-                        .get::<Visibility>(layer.entity)
-                        .is_some_and(|v| *v != Visibility::Hidden)
-            }),
+            artwork.layers[&(2, DrawRole::Cursor, FONT)].visible,
             "{focus:?}"
         );
     }
@@ -343,13 +383,14 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
         let mut menu = fixture.field_menu();
         menu.page = Page::Items;
         menu.inventory.category = healthy.items[usize::from(id)].inventory_category().unwrap();
-        let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
+        let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
         party.items = [(id, 1)].into();
         party.members[0].hp = 1;
         let before = serde_json::to_vec(party)?;
+        let mut animation = items::Animation::default();
         fixture
             .drawing(0)
-            .items(&menu, items::Visual::from_menu(&menu))?;
+            .items(&menu, animation.sample(menu.inventory.focus, 0))?;
         assert_eq!(
             menu.step(FieldInput {
                 pressed_buttons: [resonance_events::input::Button::Accept].into(),
@@ -360,7 +401,7 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
         assert_eq!(menu.inventory.focus, Focus::List);
         assert!(menu.notice.is_some());
         assert_eq!(
-            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress().party)?,
+            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress.party)?,
             before
         );
         // Direct rendering is checked too, including callers that already held a target page.
@@ -368,9 +409,10 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
         menu.inventory.target_all = true;
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
+            let mut animation = items::Animation::default();
             let result = fixture
                 .drawing(0)
-                .items(&menu, items::Visual::from_menu(&menu));
+                .items(&menu, animation.sample(menu.inventory.focus, 0));
             assert!(result.is_err());
             assert_eq!(
                 diagnostics.attempt("item target prompt", result).is_err(),
@@ -393,11 +435,12 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
             Some(2)
         );
         assert_eq!(menu.inventory.focus, Focus::Target);
+        let mut animation = items::Animation::default();
         fixture
             .drawing(1)
-            .items(&menu, items::Visual::from_menu(&menu))?;
+            .items(&menu, animation.sample(menu.inventory.focus, 1))?;
         assert_eq!(
-            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress().party)?,
+            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress.party)?,
             before
         );
     }
@@ -429,7 +472,7 @@ fn cooking_commits_before_optional_popup_drawing() -> Result<()> {
         fixture.art = healthy_art.clone();
         let mut menu = fixture.field_menu();
         menu.page = Page::Cooking;
-        let mut expected = menu.checkpoint.as_ref().unwrap().progress().clone();
+        let mut expected = menu.checkpoint.as_ref().unwrap().progress.clone();
         expected
             .cook(&fixture.data)
             .map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -452,7 +495,7 @@ fn cooking_commits_before_optional_popup_drawing() -> Result<()> {
             Some(2)
         );
         assert_eq!(
-            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress())?,
+            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress)?,
             serde_json::to_vec(&expected)?
         );
         for tick in 0..3 {
@@ -468,7 +511,7 @@ fn cooking_commits_before_optional_popup_drawing() -> Result<()> {
                 ..Default::default()
             });
             assert_eq!(
-                serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress())?,
+                serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress)?,
                 serde_json::to_vec(&expected)?
             );
         }

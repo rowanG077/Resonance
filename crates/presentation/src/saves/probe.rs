@@ -102,17 +102,6 @@ pub(super) fn app_with_saves_mode(
     resolution: crate::Resolution,
     paranoid: bool,
 ) -> Result<App> {
-    app_with_target(root, output, saves, resolution, paranoid, false)
-}
-
-pub(super) fn app_with_target(
-    root: &Path,
-    output: &Path,
-    saves: SaveOptions,
-    resolution: crate::Resolution,
-    paranoid: bool,
-    window: bool,
-) -> Result<App> {
     ensure!(!output.exists(), "probe output must be a fresh directory");
     fs::create_dir_all(output)?;
     let (mut app, _) = crate::build_app_with_display(
@@ -121,10 +110,8 @@ pub(super) fn app_with_target(
             assets: root.into(),
             reveal: saves.load.is_none(),
             saves,
-            presentation_start: None,
-            replay: None,
             capture_at: None,
-            capture: (!window).then(|| output.join("unused.png")),
+            capture: Some(output.join("unused.png")),
             silent: true,
             paranoid,
             skip_intro: true,
@@ -136,9 +123,7 @@ pub(super) fn app_with_target(
         },
         resolution,
     )?;
-    if !window {
-        bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO).build(&mut app);
-    }
+    bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO).build(&mut app);
     Ok(app)
 }
 
@@ -236,11 +221,8 @@ impl Probe {
         }
         let persistence = world.resource::<Persistence>();
         let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-        let (_, SceneCheckpoint::Field(saved)) = resonance_persistence::decode(&bytes)?
-            .admit(&world.resource::<new_game::Session>().identity)?
-        else {
-            anyhow::bail!("probe requires a field save");
-        };
+        let (_, saved): (_, FieldCheckpoint) = resonance_persistence::decode(&bytes)?
+            .admit(&world.resource::<new_game::Session>().identity)?;
         ensure!(
             serde_json::to_value(&saved)? == serde_json::to_value(baseline)?,
             "quicksave changed the captured payload"
@@ -263,6 +245,8 @@ impl Probe {
             .gald = baseline.progress.party.gald ^ 1;
         self.loaded = Some(Instant::now());
         load(world)?;
+        let restored = world.resource::<new_game::Session>().field.checkpoint()?;
+        replay::assert_checkpoint(&restored, &saved)?;
         Ok(())
     }
 }

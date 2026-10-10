@@ -168,7 +168,7 @@ fn close_shared(inventory: &mut Inventory<'_>) -> Result<()> {
     let font: BitmapFont = inventory.json(&ui.font, None, Role::Data)?;
     font.validate()?;
     inventory.add(&font.texture, None, Role::Texture)?;
-    for texture in ui.textures.iter().chain([&ui.cursor]) {
+    for texture in &ui.textures {
         inventory.add(&texture.path, None, Role::Texture)?;
     }
     let menu: resonance_content::menu::MenuArt =
@@ -212,23 +212,7 @@ fn close_shared(inventory: &mut Inventory<'_>) -> Result<()> {
         }
     }
     close_skits(inventory, &font)?;
-    Ok(())
-}
-
-#[cfg(test)]
-pub(crate) fn shared_fixture(
-    root: &Path,
-    paths: &std::collections::BTreeSet<String>,
-) -> Result<Shared> {
-    let mut inventory = Inventory::new(root);
-    inventory.paths(paths.iter().map(String::as_str))?;
-    close_shared(&mut inventory)?;
-    let shared = Shared {
-        version: VERSION,
-        files: inventory.files,
-    };
-    shared.validate()?;
-    Ok(shared)
+    close_battle_audio(inventory)
 }
 
 fn close_skits(inventory: &mut Inventory<'_>, font: &BitmapFont) -> Result<()> {
@@ -254,6 +238,25 @@ fn close_skits(inventory: &mut Inventory<'_>, font: &BitmapFont) -> Result<()> {
             inventory.add(&voice.asset.path, Some(&voice.asset.sha256), Role::Voice)?;
         }
     }
+    Ok(())
+}
+
+fn close_battle_audio(inventory: &mut Inventory<'_>) -> Result<()> {
+    // Battle packages are prepared only when an encounter is requested, but its
+    // descriptor belongs to this verified snapshot. It is produced after the
+    // shared field descriptors, before final inventory publication.
+    if inventory
+        .files
+        .contains_key(resonance_content::battle_formation::PATH)
+    {
+        let path = resonance_content::battle_audio::PATH;
+        if input_exists(inventory.root, path)? {
+            let audio: resonance_content::battle_audio::Audio =
+                inventory.json(path, None, Role::Data)?;
+            audio.validate()?;
+        }
+    }
+
     Ok(())
 }
 

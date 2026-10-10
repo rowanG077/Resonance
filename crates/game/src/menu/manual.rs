@@ -20,7 +20,7 @@ impl Menu {
     pub(super) fn advance_manual(&mut self) -> bool {
         let state = &mut self.manual;
         if state.page_fade == 255 {
-            self.return_to_items();
+            self.open_items();
             return true;
         }
         state.page_fade = if state.page_closing {
@@ -41,7 +41,7 @@ impl Menu {
         let Some(checkpoint) = &self.checkpoint else {
             return Vec::new();
         };
-        let flags = &checkpoint.progress().event_flags;
+        let flags = &checkpoint.progress.event_flags;
         data.chapters
             .iter()
             .filter_map(|chapter| {

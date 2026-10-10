@@ -1,7 +1,6 @@
 //! Repeatable Dolphin input fixtures and explicit image comparisons.
 mod audio;
 mod dialogue;
-mod inventory_fixture;
 mod pair;
 mod video;
 use anyhow::{Context, Result, ensure};
@@ -29,17 +28,6 @@ enum Command {
         output: PathBuf,
         #[arg(long)]
         native: Option<PathBuf>,
-    },
-    /// Prepare matched menu-test inventory in copies of a Dolphin state and native save.
-    InventoryFixture {
-        dolphin_state: PathBuf,
-        native_save: PathBuf,
-        #[arg(long)]
-        output: PathBuf,
-        #[command(flatten)]
-        changes: Box<inventory_fixture::Changes>,
-        #[arg(long, default_value = "local/all-assets")]
-        cooked: PathBuf,
     },
     /// Index lossless Dolphin video by VI timestamp and extract requested frames.
     VideoFrames {
@@ -409,15 +397,6 @@ fn main() -> Result<()> {
             output,
             native,
         } => dialogue::run(&case, &output, native.as_deref())?,
-        Command::InventoryFixture {
-            dolphin_state,
-            native_save,
-            output,
-            changes,
-            cooked,
-        } => {
-            inventory_fixture::run(&dolphin_state, &native_save, &output, &changes, &cooked)?;
-        }
         Command::VideoFrames {
             video,
             output,

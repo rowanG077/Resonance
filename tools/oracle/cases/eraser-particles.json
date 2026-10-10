@@ -1,0 +1,18 @@
+{
+  "checkpoint": null,
+  "scenario": {
+    "version": 2,
+    "steps": [
+      {"do":"wait","until":{"kind":"title"},"max_updates":120},
+      {"do":"hold","keys":["interact"],"updates":1},
+      {"do":"wait","until":{"kind":"choice","slot":1},"max_updates":1800},
+      {"do":"hold","keys":["down"],"updates":1},
+      {"do":"hold","keys":[],"updates":1},
+      {"do":"hold","keys":["interact"],"updates":1},
+      {"do":"wait","until":{"kind":"movie","resource":1},"max_updates":2400},
+      {"do":"wait","until":{"kind":"field","map_id":340},"max_updates":16000},
+      {"do":"wait","until":{"kind":"field_billboard","map_id":340,"recipe":0},"keys":["interact"],"tap_every":12,"max_updates":9000},
+      {"do":"capture","name":"eraser-dust"}
+    ]
+  }
+}

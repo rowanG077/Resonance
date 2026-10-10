@@ -1,6 +1,4 @@
 //! Authored animation playback. Slots are resource-table byte offsets.
-mod locomotion;
-pub(crate) use locomotion::Locomotion;
 
 pub mod slot {
     pub const IDLE: u16 = 12;
@@ -30,7 +28,7 @@ pub struct Animation {
     pub duration_ticks: u32,
     pub slot: u16,
     pub start_tick: u32,
-    /// Last seek/rate update; changing speed does not restart a cross-fade.
+    /// Last seek or rate change, measured on the same paused playback clock.
     pub phase_tick: u32,
     pub repeat: bool,
     pub paused_at: Option<u32>,
@@ -74,23 +72,27 @@ impl Animation {
 
     pub fn elapsed(&self, tick: u32, presentation_delay: u32) -> f32 {
         let tick = self.animation_tick(tick);
-        let age = tick
+        let clip_age = tick
             .saturating_sub(self.start_tick)
             .saturating_sub(self.blend_ticks);
         let phase_age = tick.saturating_sub(self.phase_tick);
-        self.start_frame + age.min(phase_age).saturating_sub(presentation_delay) as f32 * self.rate
+        self.start_frame
+            + clip_age.min(phase_age).saturating_sub(presentation_delay) as f32 * self.rate
     }
-    /// Blend from the displayed pose before advancing the new clip.
+    /// Blend from the current pose, then begin advancing the new clip.
     pub fn blend_weight(&self, tick: u32) -> f32 {
         if self.blend_ticks == 0 {
-            return 1.;
+            1.
+        } else {
+            (self.animation_tick(tick).saturating_sub(self.start_tick) as f32
+                / self.blend_ticks as f32)
+                .min(1.)
         }
-        (self.animation_tick(tick).saturating_sub(self.start_tick) as f32
-            / (self.blend_ticks as f32 + 1.))
-            .min(1.)
     }
     pub fn sample(&self, tick: u32, presentation_delay: u32, duration: f32) -> f32 {
-        let elapsed = self.elapsed(tick, presentation_delay);
+        self.sample_elapsed(self.elapsed(tick, presentation_delay), duration)
+    }
+    fn sample_elapsed(&self, elapsed: f32, duration: f32) -> f32 {
         if self.repeat && duration > 0. && elapsed < 0. {
             elapsed.rem_euclid(duration)
         } else if self.repeat && duration > self.loop_start && elapsed > duration {
@@ -144,9 +146,147 @@ impl Animation {
     }
 }
 
+/// Inputs already sampled by the actor visit, before heading integration.
+pub(crate) struct OrdinaryAnimation {
+    pub movement_speed: Option<f32>,
+    pub turn: f32,
+    pub walking: bool,
+    pub event_controlled: bool,
+    pub player_locomotion: bool,
+    pub dialogue: bool,
+}
+impl crate::Actor {
+    pub(crate) fn select_ordinary_animation(
+        &mut self,
+        model: &crate::ModelResource,
+        tick: u32,
+        selection: OrdinaryAnimation,
+        blend_ticks: Option<u32>,
+    ) -> bool {
+        let OrdinaryAnimation {
+            movement_speed,
+            turn,
+            walking,
+            event_controlled,
+            player_locomotion,
+            dialogue,
+        } = selection;
+        let requested = if let Some(speed) = movement_speed {
+            let running = !walking && speed > 7.;
+            let event_gait = if running {
+                slot::EVENT_RUN
+            } else {
+                slot::EVENT_WALK
+            };
+            if event_controlled && model.clips.contains_key(&event_gait) {
+                event_gait
+            } else if running && model.clips.contains_key(&slot::RUN) {
+                slot::RUN
+            } else {
+                slot::WALK
+            }
+        } else if turn != 0. && model.clips.contains_key(&slot::TURN_RIGHT) {
+            if turn < 0. {
+                slot::TURN_LEFT
+            } else {
+                slot::TURN_RIGHT
+            }
+        } else if dialogue {
+            // Use the event conversation pose when the script owns the player.
+            [
+                if event_controlled {
+                    slot::EVENT_TALK
+                } else {
+                    slot::TALK
+                },
+                slot::TALK_FALLBACK,
+                slot::IDLE,
+            ]
+            .into_iter()
+            .find(|slot| model.clips.contains_key(slot))
+            .unwrap_or(self.idle_animation)
+        } else if event_controlled && model.clips.contains_key(&slot::EVENT_IDLE) {
+            slot::EVENT_IDLE
+        } else {
+            self.idle_animation
+        };
+        let slot = if model.clips.contains_key(&requested) {
+            requested
+        } else {
+            slot::IDLE
+        };
+        let mut bound = false;
+        if model.clips.contains_key(&slot)
+            && self.animation.as_ref().is_none_or(|a| {
+                a.slot != slot
+                    || a.resource != self.resource
+                    || a.source != AnimationSource::Model
+                    || blend_ticks.is_some()
+            })
+        {
+            bound = true;
+            self.animation = Some(Animation {
+                blend_ticks: blend_ticks.unwrap_or(
+                    if matches!(slot, slot::TURN_RIGHT | slot::TURN_LEFT)
+                        || player_locomotion && matches!(slot, slot::WALK | slot::RUN)
+                    {
+                        2
+                    } else {
+                        8
+                    },
+                ),
+                repeat: !matches!(slot, slot::TURN_RIGHT | slot::TURN_LEFT),
+                ..Animation::new(self.resource, slot, model.clips[&slot].duration_ticks, tick)
+            });
+        }
+        if player_locomotion
+            && let Some(motion) = &self.motion
+            && let Some(animation) = &mut self.animation
+            && matches!(slot, slot::WALK | slot::RUN)
+        {
+            // Scale player gait with movement speed. Script-directed movement
+            // keeps its independent authored rate and blend duration.
+            let rate = motion.speed / if slot == slot::WALK { 2. } else { 10. };
+            if animation.rate != rate {
+                animation.seek(
+                    animation.sample(tick, 0, animation.duration_ticks as f32),
+                    tick,
+                );
+                animation.rate = rate;
+            }
+        }
+        bound
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blend_seek_rate_and_pause_share_one_clock() {
+        let mut animation = Animation {
+            blend_ticks: 4,
+            repeat: false,
+            ..Animation::new(1, 12, 100, 10)
+        };
+        assert_eq!(animation.blend_weight(10), 0.);
+        assert_eq!(animation.blend_weight(12), 0.5);
+        assert_eq!(animation.blend_weight(14), 1.);
+        assert_eq!(animation.sample(14, 0, 100.), 0.);
+        assert_eq!(animation.sample(18, 0, 100.), 4.);
+        animation.seek(30., 18);
+        animation.rate = 0.5;
+        assert_eq!(animation.sample(18, 0, 100.), 30.);
+        assert_eq!(animation.sample(22, 0, 100.), 32.);
+        animation.set_paused(true, 23);
+        let frozen = animation.sample(23, 0, 100.);
+        assert_eq!(animation.sample(40, 0, 100.), frozen);
+        animation.set_paused(false, 40);
+        assert_eq!(animation.sample(40, 0, 100.), frozen + 0.5);
+        animation.seek(99., 40);
+        assert_eq!(animation.sample(44, 0, 100.), 100.);
+    }
 
     #[test]
     fn reverse_loops_cross_zero_and_keep_moving_after_multiple_cycles() {

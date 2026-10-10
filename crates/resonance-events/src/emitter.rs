@@ -214,9 +214,9 @@ impl Emitter {
             _ => true,
         }
     }
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
-        reason = "Keep independent timing and mutable emission state explicit at the call site"
+        reason = "Emission borrows actor state, clocks, randomness and its output batch."
     )]
     fn step(
         &mut self,
@@ -542,8 +542,8 @@ impl Emitter {
                 let velocity = velocity.get_or_insert_with(|| {
                     std::array::from_fn(|i| (target[i] - center[i]) / *updates as f32)
                 });
-                for (position, velocity) in actor.position.iter_mut().zip(velocity) {
-                    *position += *velocity;
+                for (position, velocity) in actor.position.iter_mut().zip(velocity.iter()) {
+                    *position += velocity;
                 }
                 let core = BillboardEffect {
                     recipe: crate::effect::STATION_GLOW_SPRITE,
@@ -847,8 +847,8 @@ impl Emitter {
                     std::array::from_fn(|i| (target[i] - center[i]) / (*updates).max(1) as f32)
                 });
                 if *updates >= 0 {
-                    for (position, motion) in actor.position.iter_mut().zip(motion) {
-                        *position += *motion;
+                    for (position, delta) in actor.position.iter_mut().zip(motion.iter()) {
+                        *position += delta;
                     }
                     *updates -= 1;
                 }

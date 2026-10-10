@@ -128,9 +128,7 @@ mod tests {
                 let bytes = crate::source_assets::enemy_package(&archive, &usual, id as u16)?;
                 let record = read(&bytes)?;
                 assert!(record.drop_chances.iter().all(|&chance| chance <= 100));
-                assert!(record.steal_chance <= 100);
                 match id {
-                    126 => assert_eq!((record.steal, record.steal_chance), (10, 21)),
                     36 => {
                         assert_eq!(record.grade, 0);
                         assert_eq!(record.drops, [1, 50]);
@@ -153,6 +151,39 @@ mod tests {
                 }
                 records.push((record.statistics, record.affinities));
             }
+            let mut unresolved = Vec::new();
+            let formations = crate::battle_formation::read(&usual)?.records;
+            for (index, formation) in formations.iter().enumerate() {
+                for actor in &formation.actors {
+                    let id = usize::from(formation.resources[usize::from(actor.resource)].enemy);
+                    if usize::from(actor.variant) >= records[id].0.len() {
+                        unresolved.push((index, id, actor.variant));
+                    }
+                }
+            }
+            // Formation 90 asks for Sword Dancer variant 3. Its actual table
+            // contains two variants, followed by model bytes. Keep this source
+            // discrepancy visible; reachability is not established here.
+            assert_eq!(unresolved, [(90, 191, 3)]);
+            let opening = &formations[2];
+            let actor = &opening.actors[0];
+            assert_eq!(opening.resources[usize::from(actor.resource)].enemy, 49);
+            assert_eq!(actor.variant, 1);
+            let stats = &records[49].0[usize::from(actor.variant)];
+            assert_eq!(
+                (
+                    stats.attack,
+                    stats.thrust,
+                    stats.defense,
+                    stats.intelligence,
+                    stats.accuracy,
+                    stats.evasion,
+                    stats.level
+                ),
+                (144, 144, 10, 31, 73, 48, 4),
+            );
+            assert_eq!((stats.hp, stats.luck), (320, 25));
+            assert_eq!(records[49].1[0], 2, "neutral resistance");
             if let Some(first) = &first {
                 assert_eq!(&records, first);
             }

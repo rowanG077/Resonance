@@ -159,8 +159,8 @@ impl BattleStatistics {
         self.escaped = self.escaped.saturating_add(1).min(99_999);
     }
 
-    pub fn add_grade(&mut self, grade: i32) {
-        self.grade = self.grade.saturating_add(grade).min(99_999_999);
+    pub fn add_grade(&mut self, grade: i16) {
+        self.grade = self.grade.saturating_add(i32::from(grade)).min(99_999_999);
     }
 }
 

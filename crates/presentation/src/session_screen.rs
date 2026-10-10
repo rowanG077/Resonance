@@ -188,7 +188,7 @@ fn show_game_over(world: &mut World) -> Result<()> {
         coverage: Coverage::default(),
         opaque: false,
         additive: false,
-        texture_effect: Default::default(),
+        red_channel: false,
     });
     let background = world.resource::<crate::Art>().images[14].clone();
     let quad = world.resource_mut::<Assets<Mesh>>().add(Rectangle::new(

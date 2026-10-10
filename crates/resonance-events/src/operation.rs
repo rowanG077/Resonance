@@ -196,18 +196,19 @@ impl Wait {
                     .is_none_or(|v| world.tick >= v.end_tick));
             }
             Self::ActorAnimation(id) => {
-                return Ok(world
-                    .actors
-                    .get(id)
-                    .and_then(|a| a.animation.as_ref())
-                    .is_none_or(|a| {
-                        let frame = a.elapsed(world.tick, 0);
-                        if a.script_rate() < 0. {
-                            frame <= 0.
-                        } else {
-                            frame >= a.duration_ticks as f32
-                        }
-                    }));
+                // Field wait 7 resolves the controlled actor on every poll.
+                // A missing field actor leaves the command pending.
+                let Some(actor) = world.actors.get(&world.resolve_actor_id(*id)) else {
+                    return Ok(false);
+                };
+                return Ok(actor.animation.as_ref().is_none_or(|a| {
+                    let frame = a.elapsed(world.tick, 0);
+                    if a.script_rate() < 0. {
+                        frame <= 0.
+                    } else {
+                        frame >= a.duration_ticks as f32
+                    }
+                }));
             }
             Self::ActorAnimationFrame(id, frame) => {
                 // Native model time is in 30-Hz authored frames; cooked poses
@@ -242,10 +243,7 @@ impl Wait {
                 return Ok((actor.heading - *heading + 180.).rem_euclid(360.) - 180. == 0.);
             }
             Self::ActorHeading(id) => {
-                return Ok(world
-                    .actors
-                    .get(id)
-                    .is_none_or(|a| (a.target_heading - a.heading).abs() < 0.01));
+                return Ok(world.actors.get(id).is_none_or(crate::Actor::facing_target));
             }
             Self::Tick(wake) | Self::ControlHandoff(wake) => {
                 return Ok(world.tick >= *wake);
@@ -335,6 +333,75 @@ mod tests {
         assert!(!wait.poll(&mut world).unwrap());
         world.tick += 1;
         assert!(wait.poll(&mut world).unwrap());
+    }
+
+    #[test]
+    fn actor_animation_alias_resolves_each_poll_until_service_completion() {
+        let mut world = crate::GameWorld::default();
+        for (id, duration) in [(1, 10), (2, 30)] {
+            let mut actor = crate::Actor::new(id as u32, [0.; 3]);
+            actor.animation = Some(crate::Animation::new(id as u32, 12, duration, 0));
+            world.actors.insert(id, actor);
+        }
+        world.controlled_actor = 1;
+        let mut wait = Wait::Service {
+            condition: Box::new(Wait::ActorAnimation(crate::CONTROLLED_ACTOR)),
+            ready_at: None,
+        };
+        assert!(!wait.poll(&mut world).unwrap());
+        world.tick = 10;
+        world.controlled_actor = 2;
+        // The actor selected at admission is finished; the current actor is not.
+        assert!(Wait::ActorAnimation(1).poll(&mut world).unwrap());
+        assert!(!wait.poll(&mut world).unwrap());
+        world.tick = 29;
+        assert!(!wait.poll(&mut world).unwrap());
+        world.controlled_actor = 1;
+        assert!(!wait.poll(&mut world).unwrap());
+        // Once observed, readiness stays latched until the next service visit.
+        world.controlled_actor = 3;
+        assert!(!wait.poll(&mut world).unwrap());
+        world.tick += 1;
+        assert!(wait.poll(&mut world).unwrap());
+    }
+
+    #[test]
+    fn actor_animation_wait_keeps_missing_field_actors_pending() {
+        for operand in [2, crate::CONTROLLED_ACTOR] {
+            let mut world = crate::GameWorld {
+                controlled_actor: 2,
+                ..Default::default()
+            };
+            let mut wait = Wait::Service {
+                condition: Box::new(Wait::ActorAnimation(operand)),
+                ready_at: None,
+            };
+            assert!(!wait.poll(&mut world).unwrap());
+            world.tick = 100;
+            assert!(!wait.poll(&mut world).unwrap());
+            assert!(matches!(wait, Wait::Service { ready_at: None, .. }));
+            let mut actor = crate::Actor::new(2, [0.; 3]);
+            actor.animation = Some(crate::Animation::new(2, 12, 3, 100));
+            world.actors.insert(2, actor);
+            assert!(!wait.poll(&mut world).unwrap());
+            world.tick = 103;
+            assert!(!wait.poll(&mut world).unwrap());
+            world.tick = 104;
+            assert!(wait.poll(&mut world).unwrap());
+        }
+    }
+
+    #[test]
+    fn actor_animation_wait_preserves_present_actor_without_animation() {
+        let mut world = crate::GameWorld {
+            controlled_actor: 2,
+            ..Default::default()
+        };
+        world.actors.insert(2, crate::Actor::new(2, [0.; 3]));
+        // This alias correction does not change the existing no-playback policy.
+        for operand in [2, crate::CONTROLLED_ACTOR] {
+            assert!(Wait::ActorAnimation(operand).poll(&mut world).unwrap());
+        }
     }
 
     #[test]

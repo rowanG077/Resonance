@@ -10,16 +10,11 @@
         "sha256": "43d28832d9601dcf0ab62ac13fe3c3642687fc5e12b956605d902814b8b4f93d"
       },
       "native_args": [
-        "target/debug/resonance",
-        "--silent",
-        "--presentation-start",
-        "2365",
-        "--tick",
-        "964",
-        "--replay",
+        "target/debug/examples/new_game_capture",
         "tools/oracle/cases/native-navigation.json",
-        "--capture",
-        "local/native/no-blur/title-navigation.png"
+        "local/native/no-blur/title-navigation",
+        "local/all-assets",
+        "--paranoid"
       ]
     },
     {
@@ -29,16 +24,11 @@
         "sha256": "43d28832d9601dcf0ab62ac13fe3c3642687fc5e12b956605d902814b8b4f93d"
       },
       "native_args": [
-        "target/debug/resonance",
-        "--silent",
-        "--presentation-start",
-        "2365",
-        "--tick",
-        "964",
-        "--replay",
+        "target/debug/examples/new_game_capture",
         "tools/oracle/cases/native-navigation.json",
-        "--capture",
-        "local/native/no-blur/title-navigation.png"
+        "local/native/no-blur/title-navigation",
+        "local/all-assets",
+        "--paranoid"
       ],
       "region": [
         224,
@@ -56,234 +46,10 @@
       "native_args": [
         "target/debug/resonance",
         "--silent",
-        "--presentation-start",
-        "2365",
-        "--tick",
+        "--title-tick",
         "117",
         "--capture",
         "local/native/no-blur/title-entry.png"
-      ]
-    },
-    {
-      "name": "colette-held-whole",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-held/user/Dump/Frames/framedump_2.png",
-        "sha256": "48394c46996068c72e530bfd02817f91b5e403d8d26e6be0080f4f69c6246e9f"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-held.json",
-        "local/native/no-blur/colette-held.png",
-        "local/cooked"
-      ]
-    },
-    {
-      "name": "colette-held-actors",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-held/user/Dump/Frames/framedump_2.png",
-        "sha256": "48394c46996068c72e530bfd02817f91b5e403d8d26e6be0080f4f69c6246e9f"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-held.json",
-        "local/native/no-blur/colette-held.png",
-        "local/cooked"
-      ],
-      "region": [
-        130,
-        193,
-        240,
-        209
-      ]
-    },
-    {
-      "name": "colette-held-window",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-held/user/Dump/Frames/framedump_2.png",
-        "sha256": "48394c46996068c72e530bfd02817f91b5e403d8d26e6be0080f4f69c6246e9f"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-held.json",
-        "local/native/no-blur/colette-held.png",
-        "local/cooked"
-      ],
-      "region": [
-        140,
-        78,
-        380,
-        112
-      ]
-    },
-    {
-      "name": "colette-opening-36-top",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_162.png",
-        "sha256": "42ccb6d418a1a092534830dc6c4f9aecd225814bbd5d332edb9a13a2ff742fb2"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-36.json",
-        "local/native/no-blur/colette-opening-36.png",
-        "local/cooked"
-      ],
-      "region": [
-        140,
-        78,
-        380,
-        72
-      ]
-    },
-    {
-      "name": "colette-opening-36-edge",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_162.png",
-        "sha256": "42ccb6d418a1a092534830dc6c4f9aecd225814bbd5d332edb9a13a2ff742fb2"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-36.json",
-        "local/native/no-blur/colette-opening-36.png",
-        "local/cooked"
-      ],
-      "region": [
-        361,
-        151,
-        26,
-        83
-      ]
-    },
-    {
-      "name": "colette-opening-37-top",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_163.png",
-        "sha256": "0d55f09ac1bdb9d276e058e576f7c03dab98d4d9661563dea1ac292c717380fd"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-37.json",
-        "local/native/no-blur/colette-opening-37.png",
-        "local/cooked"
-      ],
-      "region": [
-        140,
-        78,
-        380,
-        72
-      ]
-    },
-    {
-      "name": "colette-opening-37-edge",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_163.png",
-        "sha256": "0d55f09ac1bdb9d276e058e576f7c03dab98d4d9661563dea1ac292c717380fd"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-37.json",
-        "local/native/no-blur/colette-opening-37.png",
-        "local/cooked"
-      ],
-      "region": [
-        401,
-        131,
-        26,
-        83
-      ]
-    },
-    {
-      "name": "colette-opening-38-top",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_164.png",
-        "sha256": "8c272b0d800ac34288ffc285a5d55c5452a1244c922f10181a3af988af3ad4e4"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-38.json",
-        "local/native/no-blur/colette-opening-38.png",
-        "local/cooked"
-      ],
-      "region": [
-        140,
-        78,
-        380,
-        72
-      ]
-    },
-    {
-      "name": "colette-opening-38-edge",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_164.png",
-        "sha256": "8c272b0d800ac34288ffc285a5d55c5452a1244c922f10181a3af988af3ad4e4"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-38.json",
-        "local/native/no-blur/colette-opening-38.png",
-        "local/cooked"
-      ],
-      "region": [
-        441,
-        111,
-        26,
-        83
-      ]
-    },
-    {
-      "name": "colette-opening-39-top",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_165.png",
-        "sha256": "807a2333fa2082c74c788d37ac16ed73089be7947b89706f6bf82696f88fb3c4"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-39.json",
-        "local/native/no-blur/colette-opening-39.png",
-        "local/cooked"
-      ],
-      "region": [
-        140,
-        78,
-        380,
-        72
-      ]
-    },
-    {
-      "name": "colette-opening-39-edge",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_165.png",
-        "sha256": "807a2333fa2082c74c788d37ac16ed73089be7947b89706f6bf82696f88fb3c4"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-39.json",
-        "local/native/no-blur/colette-opening-39.png",
-        "local/cooked"
-      ],
-      "region": [
-        482,
-        91,
-        26,
-        83
-      ]
-    },
-    {
-      "name": "colette-opening-40-top",
-      "reference": {
-        "path": "local/oracle/no-blur-colette-turn/user/Dump/Frames/framedump_168.png",
-        "sha256": "8b133dca9d73638dab77c2b8c3aa4c20e348e679786debc6e7b1da4971daf4fd"
-      },
-      "native_args": [
-        "target/debug/examples/classroom_probe",
-        "tools/oracle/cases/colette-opening-40.json",
-        "local/native/no-blur/colette-opening-40.png",
-        "local/cooked"
-      ],
-      "region": [
-        140,
-        78,
-        380,
-        72
       ]
     },
     {

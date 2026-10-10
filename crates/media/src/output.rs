@@ -1,4 +1,4 @@
-//! Device-rate conversion is separate from the oracle-compatible native DSP.
+//! Device-rate conversion is separate from native synthesis and decoding.
 use anyhow::{Result, ensure};
 use resonance_playback::{Converter, SOURCE_BLOCK, SOURCE_RATE};
 use rubato::{

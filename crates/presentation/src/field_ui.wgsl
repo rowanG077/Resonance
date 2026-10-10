@@ -3,18 +3,12 @@ struct Vertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
     @location(2) uv: vec2<f32>,
-#ifdef GLYPH_PATTERN
-    @location(3) pattern_uv: vec2<f32>,
-#endif
     @location(4) color: vec4<f32>,
 };
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) world_position: vec4<f32>,
     @location(2) uv: vec2<f32>,
-#ifdef GLYPH_PATTERN
-    @location(3) pattern_uv: vec2<f32>,
-#endif
     @location(4) color: vec4<f32>,
 };
 @vertex
@@ -24,9 +18,6 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         mesh2d_functions::get_world_from_local(vertex.instance_index), vec4(vertex.position, 1.0));
     out.position = mesh2d_functions::mesh2d_position_world_to_clip(out.world_position);
     out.uv = vertex.uv;
-#ifdef GLYPH_PATTERN
-    out.pattern_uv = vertex.pattern_uv;
-#endif
     out.color = vertex.color;
     return out;
 }
@@ -78,16 +69,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef OPAQUE_IMAGE
     sampled.a = 1.0;
 #endif
-    let base = sampled * raster;
-#ifdef GLYPH_PATTERN
-    // Composite the translucent pattern over the colored glyph in one draw.
-    let pattern = textureSample(source, source_sampler, in.pattern_uv);
-    let pattern_alpha = sampled.a * (64.0 / 255.0);
-    let base_alpha = base.a * (1.0 - pattern_alpha);
-    let alpha = pattern_alpha + base_alpha;
-    let color = (pattern.rgb * pattern_alpha + base.rgb * base_alpha) / max(alpha, 0.000001);
-    return vec4(color, alpha);
-#else
-    return base;
-#endif
+    return sampled * raster;
 }
