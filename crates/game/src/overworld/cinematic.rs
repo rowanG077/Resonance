@@ -224,7 +224,6 @@ impl super::Session {
     }
     pub(super) fn step_cinematic(&mut self) -> Result<()> {
         let playback = self.cinematic.as_mut().unwrap();
-        self.play_time.advance();
         self.events.world.tick += 1;
         if !playback.step(&mut self.events.world.audio_commands) {
             return Ok(());
