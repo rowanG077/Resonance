@@ -37,13 +37,20 @@ MODEL_PROPERTIES = {
     'speed': (442, SPEEDS), 'directed': (443, (0, 1)),
     'blend': (447, (0, 1, 2)), 'gravity_and_fade': (448, (0, 1, 2, 4, 8, 9, 10, 12)),
 }
+SPRITE_CONTROLS = {
+    **{f'velocity_{axis}': (129+i, (-150, 0, 50, 200)) for i, axis in enumerate('xyz')},
+    **{f'spin_{axis}': (132+i, (-300, 0, 300)) for i, axis in enumerate('xyz')},
+    'growth': (135, (-100, 0, 100)),
+    'speed': (136, (0, 50, 100, 200)), 'directed': (137, (0, 1)),
+    **{f'integer_velocity_{axis}': (138+i, (-2, 0, 2)) for i, axis in enumerate('xyz')},
+    'rotation_order': (149, (0, 1, 2, 4, 8, 16)),
+}
 SPRITE_PROPERTIES = {
+    **SPRITE_CONTROLS,
     'width': (123, SIZES), 'height': (124, SIZES),
     **{f'tint_{axis}': (125+i, (32, 64, 128)) for i, axis in enumerate('rgb')},
     'alpha': (128, ALPHAS),
-    **{f'spin_{axis}': (132+i, (-300, 0, 300)) for i, axis in enumerate('xyz')},
-    'growth': (135, (-100, 0, 100)),
-    **{f'rotation_{axis}': (141+i, (0, 4500, 9000)) for i, axis in enumerate('xyz')},
+    **{f'rotation_{axis}': (141+i, (0, 3000, 4500, 6000, 9000)) for i, axis in enumerate('xyz')},
     'orientation': (144, (0, 1)), 'blend': (145, (0, 1, 2, 3)),
     'fade_mode': (146, (8,)), 'anchor': (147, (0, 4, 8)), 'fog': (148, (0, 1)),
 }
@@ -219,7 +226,9 @@ EMITTERS = {kind: definition for kinds, definition in [
 def properties(effect):
     kind = effect['kind']
     if kind == 'sprite':
-        return ({'growth': SPRITE_PROPERTIES['growth']} if effect['variant'] in (27, 28)
+        return ({name: control for name, control in SPRITE_PROPERTIES.items()
+                 if name in SPRITE_CONTROLS or name.startswith('rotation_')}
+                if effect['variant'] in (27, 28)
                 else SPRITE_PROPERTIES)
     return MODEL_PROPERTIES if kind == 'model' else ACTOR_PROPERTIES
 
@@ -245,6 +254,8 @@ FIELD_TYPES = ([('sprite', n) for n in SPRITES] + [('model', n) for n in range(3
 EMPTY_TAIL_UPDATES = 6
 CLEANUP_CASES = {f'emitter-{variant}-phase-{phase}-cleanup-{before}-to-{1-before}': (variant, phase, before)
                  for variant, phase in [(38, 2), (59, 0), (59, 1), (59, 2)] for before in (0, 1)}
+SPRITE_CONTROL_CASES = {f'sprite-{variant}-{name}': (variant, name)
+                        for variant in (0, 25, 27) for name in SPRITE_CONTROLS}
 FAR_CLIP_DISTANCE = 40000
 BACKDROP_SEPARATION = 2
 
@@ -394,7 +405,12 @@ def effect(kind, variant, camera, rng, index=0, actor=None, *, baseline=False):
                   parameters=parameters, changes=[])
     if not baseline and kind in ('sprite', 'model'):
         name, (_, values) = rng.choice(list(properties(result).items()))
-        result['changes'].append([rng.randint(birth+1, last_particle_edit(result)), {name: rng.choice(values)}])
+        changes = {name: rng.choice(values)}
+        if name == 'rotation_order':
+            # An order change only matters when multiple axes are rotated.
+            changes.update({f'rotation_{axis}': rng.choice((3000, 4500, 6000))
+                            for axis in 'xyz'})
+        result['changes'].append([rng.randint(birth+1, last_particle_edit(result)), changes])
     return result
 
 
@@ -603,6 +619,15 @@ def cases(camera, family='field'):
         for kind, variant in FIELD_TYPES:
             name = f'{kind}-{variant}'
             yield frame_ascent(composed_case(name, [effect(kind, variant, camera, random.Random(name), baseline=True)], 1), camera)
+        for name, (variant, control) in SPRITE_CONTROL_CASES.items():
+            subject = effect('sprite', variant, camera, random.Random(name), baseline=True)
+            subject['parameters'].update(lifetime=60, alpha=200, fade=0, velocity=[2, -1, 1], speed=100)
+            subject['changes'] = [[subject['birth'] + 6*(i+1), {control: value}]
+                                  for i, value in enumerate(SPRITE_CONTROLS[control][1])]
+            if control == 'rotation_order':
+                subject['changes'].insert(0, [subject['birth'],
+                                             dict(rotation_x=3000, rotation_y=4500, rotation_z=6000)])
+            yield composed_case(name, [subject], 1)
         for name, (variant, phase, before) in CLEANUP_CASES.items():
             subject = effect('emitter', variant, camera, random.Random(name), baseline=True)
             subject['parameters']['cleanup'] = before
@@ -639,7 +664,7 @@ TOWER_MODELS = [('colette-wings', 90021, 131428, 535),
 
 def case_names(family):
     if family == 'field':
-        return [f'{kind}-{variant}' for kind, variant in FIELD_TYPES] + list(CLEANUP_CASES)
+        return [f'{kind}-{variant}' for kind, variant in FIELD_TYPES] + list(SPRITE_CONTROL_CASES) + list(CLEANUP_CASES)
     if family == 'tower':
         return ([f'bound-sprite-{slot}' for slot in range(8)]
                 + [f'emitter-{n}' for n in RESOURCE_EMITTERS if n != 66]

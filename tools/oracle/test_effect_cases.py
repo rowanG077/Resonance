@@ -44,6 +44,32 @@ class GeneratedEffects(unittest.TestCase):
             after = {case['name']: case for case in cases(CAMERA)}
         self.assertEqual(after, {name: before[name] for name in after})
 
+    def test_sprite_controls_are_exercised_before_expiry_on_sprites_leaves_and_refraction(self):
+        covered = {variant: {} for variant in (0, 25, 27)}
+        for case in cases(CAMERA):
+            for subject in case['effects']:
+                if subject['kind'] != 'sprite' or subject['variant'] not in covered:
+                    continue
+                values, angles = covered[subject['variant']], {}
+                for tick, op, args in effect_events(subject):
+                    if op != 0xd1:
+                        continue
+                    _, prop, value = args
+                    self.assertLess(tick - subject['birth'], subject['parameters']['lifetime'])
+                    values.setdefault(prop, set()).add(value)
+                    if 141 <= prop <= 143:
+                        angles[prop] = value
+                    if prop == 149:
+                        self.assertEqual(set(angles), {141, 142, 143})
+                        self.assertTrue(all(0 < angle < 9000 for angle in angles.values()))
+        for values in covered.values():
+            for prop in (129, 130, 131, 138, 139, 140):
+                self.assertTrue(min(values[prop]) < 0 < max(values[prop]))
+                self.assertIn(0, values[prop])
+            self.assertTrue({0, 50, 100, 200} <= values[136])
+            self.assertEqual(values[137], {0, 1})
+            self.assertEqual(values[149], {0, 1, 2, 4, 8, 16})
+
     def test_model_ring_and_station_compositions_keep_every_actor_and_emitter_independent(self):
         variants = set()
         for family in ('tower', 'rings', 'stations'):
@@ -140,7 +166,8 @@ class GeneratedEffects(unittest.TestCase):
         self.assertTrue(pairs, 'generated cases must combine emitters')
         self.assertTrue(reused_handles, 'generated cases must recreate removed emitters')
         self.assertTrue(moving_sprites, 'generated cases must exercise moving sprites')
-        self.assertTrue({123, 124, 128, 135, 145, 146, 147} <= sprite_properties)
+        self.assertTrue({123, 124, 128, 129, 130, 131, 135, 136, 137, 138, 139, 140,
+                         145, 146, 147, 149} <= sprite_properties)
         self.assertTrue(target_changes, 'generated cases must retarget moving effects')
         self.assertTrue(set(range(423, 426)) | set(range(429, 432)) | set(range(435, 441))
                         | {442, 443, 447, 448} <= model_properties)

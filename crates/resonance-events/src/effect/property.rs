@@ -1,5 +1,5 @@
 //! Script changes become visible after the next particle update.
-use super::{BillboardEffect, Blend, Fade, RotationOrder, SpriteOrientation};
+use super::{BillboardController, BillboardEffect, Blend, Fade, RotationOrder, SpriteOrientation};
 use resonance_content::effect::VerticalAnchor;
 
 #[derive(Debug, Clone)]
@@ -73,6 +73,28 @@ impl Property {
     }
 
     fn apply(self, effect: &mut BillboardEffect, tick: u32) {
+        if let Some(BillboardController::Flutter(flutter)) = &mut effect.controller {
+            // Flutter controls change its fall, wind heading and turn interval.
+            match self {
+                Self::Velocity(2, value) => {
+                    flutter.fall_speed = if flutter.rising { -value } else { value };
+                    return;
+                }
+                Self::Spin(1, value) => {
+                    flutter.heading = value;
+                    return;
+                }
+                Self::Growth(value) => {
+                    flutter.turn_after = value;
+                    return;
+                }
+                Self::Velocity(..)
+                | Self::Spin(..)
+                | Self::Speed(..)
+                | Self::NormalizeVelocity(..) => return,
+                _ => {}
+            }
+        }
         match self {
             Self::Position(axis, value) => effect.position[axis] = value,
             Self::Velocity(axis, value) => effect.velocity[axis] = value,
