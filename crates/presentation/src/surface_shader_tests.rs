@@ -11,10 +11,33 @@ use std::{fs, path::Path, process::Command};
 fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<()> {
     // Resolve the locked dependency versions, including patched/local Bevy
     // checkouts, instead of copying shader declarations into this test.
-    let metadata = Command::new(env!("CARGO"))
-        .args(["metadata", "--offline", "--locked", "--format-version", "1"])
+    // Fresh CI runners only cache dependencies for their own platform. Without
+    // this filter, offline metadata also tries to download other targets' crates.
+    let platform = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .args(["--print", "host-tuple"])
         .output()?;
-    anyhow::ensure!(metadata.status.success(), "cargo metadata failed");
+    anyhow::ensure!(
+        platform.status.success(),
+        "rustc --print host-tuple failed: {}",
+        String::from_utf8_lossy(&platform.stderr)
+    );
+    let platform = String::from_utf8(platform.stdout)?;
+    let metadata = Command::new(env!("CARGO"))
+        .args([
+            "metadata",
+            "--offline",
+            "--locked",
+            "--format-version",
+            "1",
+            "--filter-platform",
+            platform.trim(),
+        ])
+        .output()?;
+    anyhow::ensure!(
+        metadata.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&metadata.stderr)
+    );
     let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout)?;
     let mut sources = Vec::new();
     fn collect(root: &Path, sources: &mut Vec<Shader>) -> anyhow::Result<()> {
