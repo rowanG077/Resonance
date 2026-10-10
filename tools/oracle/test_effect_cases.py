@@ -5,7 +5,7 @@ import random
 import unittest
 from unittest.mock import patch
 
-from effect_cases import FIELD_TYPES, cases, random_cases, scenario_commands, minimize, composed_case, capture_settings, effect
+from effect_cases import FIELD_TYPES, cases, random_cases, scenario_commands, minimize, composed_case, capture_settings, effect, effect_events, emitter_vector_slot
 from effect_fixture import fixture_program, SCENE_SETUP
 
 CAMERA = {'position': [700, -324, 736], 'target': [0, 97, 87]}
@@ -101,7 +101,13 @@ class GeneratedEffects(unittest.TestCase):
                         self.assertLess(age, p['lifetime'])
                         self.assertGreater(p['alpha'] + p['fade'] * age, 0)
                 if e['kind'] == 'emitter':
-                    target_changes += sum('target' in values for _, values in e['changes'])
+                    if 'target' in e['parameters']:
+                        slot = 113 + emitter_vector_slot(e['variant'], 'target')
+                        targets = [args[2] for _, op, args in effect_events(e)
+                                   if op == 0x1d and slot <= args[1] < slot+3]
+                        self.assertTrue(all(0 <= value <= 0xffff for value in targets),
+                                        'target edits must stay in the unsigned coordinate range')
+                        target_changes += len(targets)
                     palettes.add(e['parameters'].get('palette'))
                     if e['variant'] == 11:
                         gathering_phases.update(values['phase'] for _, values in e['changes'] if 'phase' in values)
@@ -261,13 +267,14 @@ class GeneratedEffects(unittest.TestCase):
         switches = set()
         for case in cases(CAMERA):
             effect = case['effects'][0]
-            if effect['kind'] != 'emitter' or effect['variant'] != 38:
+            if effect['kind'] != 'emitter' or effect['variant'] not in (38, 59):
                 continue
-            cleanup, released = effect['parameters']['cleanup'], False
+            cleanup, phase = effect['parameters']['cleanup'], 0
             for _, changes in sorted(effect['changes'], key=lambda row: row[0]):
-                released |= changes.get('phase') == 2
+                phase = changes.get('phase', phase)
                 if 'cleanup' in changes:
-                    if released:
-                        switches.add((cleanup, changes['cleanup']))
+                    switches.add((effect['variant'], phase, cleanup, changes['cleanup']))
                     cleanup = changes['cleanup']
-        self.assertTrue({(0, 1), (1, 0)} <= switches)
+        self.assertTrue({(variant, phase, before, 1-before)
+                         for variant, phase in [(38, 2), (59, 0), (59, 1), (59, 2)]
+                         for before in (0, 1)} <= switches)
