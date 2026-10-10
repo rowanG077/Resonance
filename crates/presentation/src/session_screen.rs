@@ -1,5 +1,6 @@
 //! Terminal session screens reuse the title artwork and shared save browser.
 use super::*;
+use crate::materials::TitleOutput;
 use crate::{Events, Menu, PendingAudio, PendingInput, audio, new_game, saves};
 use resonance_events::session_screen::Target;
 
@@ -75,6 +76,10 @@ fn retire_session(world: &mut World) {
     world.remove_resource::<new_game::TransitionFailure>();
     saves::title::retire(world);
     crate::field_audio::retire(world);
+    TitleOutput::update(
+        &mut world.resource_mut::<Assets<TitleOutput>>(),
+        |brightness| *brightness = Vec4::X,
+    );
     let resident = world.resource::<crate::loading::Resident>();
     resident
         .active
@@ -287,6 +292,7 @@ mod tests {
         .init_resource::<Assets<Mesh>>()
         .init_resource::<Assets<Surface>>()
         .init_resource::<Assets<crate::materials::TitleText>>()
+        .init_resource::<Assets<TitleOutput>>()
         .init_resource::<crate::loading::Resident>()
         .init_resource::<crate::field_view::Controls>()
         .init_resource::<crate::audio::MenuSounds>()
@@ -303,6 +309,13 @@ mod tests {
             images: vec![Handle::default(); 17],
         });
         let world = app.world_mut();
+        let output = world
+            .resource_mut::<Assets<TitleOutput>>()
+            .add(TitleOutput {
+                source: Handle::default(),
+                brightness: Vec4::X,
+                screen_offset: Vec2::ZERO,
+            });
         let title = world
             .spawn((
                 crate::scene::PartRoot,
@@ -315,8 +328,21 @@ mod tests {
             let font: BitmapFont = session.files().json("fonts/dialogue.json")?;
             let _font = world.resource::<AssetServer>().load::<Image>(font.texture);
             new_game::activate(world, session);
+            world
+                .resource_mut::<Assets<TitleOutput>>()
+                .get_mut(&output)
+                .unwrap()
+                .brightness = Vec4::Y;
             assert_eq!(*world.get::<Visibility>(title).unwrap(), Visibility::Hidden);
             show_game_over(world)?;
+            assert_eq!(
+                world
+                    .resource::<Assets<TitleOutput>>()
+                    .get(&output)
+                    .unwrap()
+                    .brightness,
+                Vec4::X
+            );
             assert!(!world.contains_resource::<new_game::Session>());
             assert!(
                 world
@@ -329,7 +355,20 @@ mod tests {
             let entities = world.resource::<GameOver>().entities;
             world.resource_mut::<GameOver>().selected = selected;
             world.resource_mut::<PendingInput>().pressed.accept = true;
+            world
+                .resource_mut::<Assets<TitleOutput>>()
+                .get_mut(&output)
+                .unwrap()
+                .brightness = Vec4::Y;
             advance(world);
+            assert_eq!(
+                world
+                    .resource::<Assets<TitleOutput>>()
+                    .get(&output)
+                    .unwrap()
+                    .brightness,
+                Vec4::X
+            );
             assert!(!world.contains_resource::<GameOver>());
             assert!(
                 entities

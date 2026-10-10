@@ -28,10 +28,7 @@ pub(super) fn install(app: &mut App) {
         ExtractComponentPlugin::<Settings>::default(),
         UniformComponentPlugin::<Settings>::default(),
     ))
-    .add_systems(
-        PostUpdate,
-        sync.run_if(resource_exists::<super::field_view::Art>),
-    );
+    .add_systems(PostUpdate, sync);
     app.sub_app_mut(RenderApp)
         .add_systems(RenderStartup, prepare)
         .add_systems(
@@ -44,9 +41,16 @@ pub(super) fn install(app: &mut App) {
 
 fn sync(
     mut commands: Commands,
+    art: Option<Res<super::field_view::Art>>,
     state: super::field_view::State,
     views: Query<Entity, With<super::FieldCamera>>,
 ) {
+    if art.is_none() {
+        for view in &views {
+            commands.entity(view).remove::<Settings>();
+        }
+        return;
+    }
     let world = &state.get().events.world;
     let alpha = world
         .scene_dissolve
