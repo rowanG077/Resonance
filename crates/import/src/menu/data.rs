@@ -138,6 +138,7 @@ impl Source {
 }
 
 pub(crate) struct Inputs {
+    pub grade_shop: resonance_content::grade::Shop,
     pub arte: crate::arte::Catalogue,
     pub items: Vec<crate::item::Definition>,
     pub characters: crate::character_data::Catalogue,
@@ -161,6 +162,7 @@ pub(crate) struct Inputs {
 impl Inputs {
     pub(crate) fn read(executable: &[u8]) -> Result<Self> {
         Ok(Self {
+            grade_shop: crate::all_assets::grade_shop::read(executable)?,
             arte: crate::arte::read(executable)?,
             items: crate::item::read(executable)?,
             characters: crate::character_data::read(executable)?,
@@ -403,6 +405,7 @@ pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
             &inputs.style,
         )?,
         data: MenuData {
+            grade_shop: inputs.grade_shop.clone(),
             version: MenuData::VERSION,
             item_group_prompt: text::decode(ui.text(inventory.actions.use_hint), 9)?,
             item_bottle_count: text::decode(ui.text(inventory.actions.remaining_format), 8)?,

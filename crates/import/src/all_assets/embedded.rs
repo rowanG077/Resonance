@@ -5,7 +5,7 @@ pub(crate) mod crafting;
 pub(crate) mod defeat_ui;
 pub(crate) mod ex_skills;
 pub(crate) mod figurine_catalogue;
-mod grade_shop;
+pub(crate) mod grade_shop;
 pub(crate) mod inventory_ui;
 pub(crate) mod monster_catalogue;
 pub(crate) mod options_ui;

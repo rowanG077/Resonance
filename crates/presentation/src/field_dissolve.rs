@@ -1,4 +1,4 @@
-//! Native transition mode 4 fades the last captured field over the live image.
+//! Blend a captured field into the live image for dissolves and motion trails.
 use bevy::{
     core_pipeline::{Core3dSystems, FullscreenShader, schedule::Core3d},
     prelude::*,
@@ -28,10 +28,7 @@ pub(super) fn install(app: &mut App) {
         ExtractComponentPlugin::<Settings>::default(),
         UniformComponentPlugin::<Settings>::default(),
     ))
-    .add_systems(
-        PostUpdate,
-        sync.run_if(resource_exists::<super::field_view::Art>),
-    );
+    .add_systems(PostUpdate, sync);
     app.sub_app_mut(RenderApp)
         .add_systems(RenderStartup, prepare)
         .add_systems(
@@ -44,17 +41,30 @@ pub(super) fn install(app: &mut App) {
 
 fn sync(
     mut commands: Commands,
+    art: Option<Res<super::field_view::Art>>,
     state: super::field_view::State,
     views: Query<Entity, With<super::FieldCamera>>,
 ) {
+    if art.is_none() {
+        for view in &views {
+            commands.entity(view).remove::<Settings>();
+        }
+        return;
+    }
     let world = &state.get().events.world;
     let alpha = world
         .scene_dissolve
         .as_ref()
         .map_or(0., |f| f.alpha(world.tick));
+    let feedback = alpha == 0. && world.frame_feedback != 0;
     for view in &views {
         commands.entity(view).insert(Settings {
-            opacity: Vec4::new(alpha / 255., 0., 0., 0.),
+            opacity: Vec4::new(
+                if feedback { 128. / 255. } else { alpha / 255. },
+                f32::from(feedback),
+                0.,
+                0.,
+            ),
         });
     }
 }
@@ -209,4 +219,12 @@ fn render(
     pass.set_pipeline(gpu_pipeline);
     pass.set_bind_group(0, &history.binding.as_ref().unwrap().1, &[index.index()]);
     pass.draw(0..3, 0..1);
+    drop(pass);
+    if settings.opacity.y != 0. {
+        context.command_encoder().copy_texture_to_texture(
+            source.as_image_copy(),
+            history.texture.as_image_copy(),
+            source.size(),
+        );
+    }
 }

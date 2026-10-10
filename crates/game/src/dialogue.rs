@@ -2,7 +2,7 @@
 use anyhow::{Result, ensure};
 use resonance_events::{
     Operation,
-    dialogue::{Dialogue, ResolvedMessage, TextToken, flags},
+    dialogue::{Dialogue, DialogueStatus, ResolvedMessage, TextToken, flags},
 };
 use std::{
     collections::BTreeMap,
@@ -50,10 +50,24 @@ pub enum VoiceAction {
 pub struct Page {
     pub glyphs: Vec<Glyph>,
     pub voices: Vec<(usize, VoiceAction)>,
+    pub number: Option<std::ops::Range<usize>>,
 }
 impl Page {
     pub fn text(&self) -> String {
         self.glyphs.iter().map(|g| g.character).collect()
+    }
+    pub fn set_number(&mut self, value: i32) -> Result<()> {
+        if let Some(range) = &self.number {
+            let text = format!("{value:0width$}", width = range.len());
+            ensure!(
+                text.len() == range.len(),
+                "number exceeds dialogue digit field"
+            );
+            for (glyph, character) in self.glyphs[range.clone()].iter_mut().zip(text.chars()) {
+                glyph.character = character;
+            }
+        }
+        Ok(())
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +96,19 @@ pub struct DialoguePlayer {
     instant_glyphs: bool,
 }
 impl DialoguePlayer {
+    pub fn status(&self) -> DialogueStatus {
+        if !self.operation.is_pending() {
+            return DialogueStatus::Closed;
+        }
+        match self.phase {
+            WindowPhase::Opening(_) => DialogueStatus::Opening,
+            WindowPhase::Text if !self.fully_revealed() => DialogueStatus::Revealing,
+            WindowPhase::Text if self.page + 1 < self.pages.len() => DialogueStatus::PageReady,
+            WindowPhase::Text => DialogueStatus::Finished,
+            WindowPhase::Closing(_) => DialogueStatus::Closing,
+            WindowPhase::Closed => DialogueStatus::Closed,
+        }
+    }
     /// Scripts can release a persistent notice after its text has appeared.
     pub fn sync_flags(&mut self, dialogue: &Dialogue) {
         self.persistent = dialogue.persistent();
@@ -332,6 +359,7 @@ pub fn step_requests(
                 VoiceAction::Stop => resonance_events::AudioCommand::StopVoice,
             });
         }
+        world.dialogue.get_mut(&slot).unwrap().status = player.status();
     }
     Ok(())
 }
@@ -395,7 +423,20 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
                     };
                     page.voices.push((page.glyphs.len(), voice));
                 }
-                7 => {} // Original text renderer skips this parameter.
+                8 => {
+                    ensure!((1..=10).contains(value), "invalid number input width");
+                    let page = pages.last_mut().unwrap();
+                    ensure!(page.number.is_none(), "multiple number inputs on one page");
+                    let start = page.glyphs.len();
+                    page.number = Some(start..start + *value as usize);
+                    page.glyphs.extend((0..*value).map(|_| Glyph {
+                        character: '0',
+                        color,
+                        delay: 0,
+                        followed_by_control: false,
+                    }));
+                }
+                7 => {}
                 _ => anyhow::bail!("dialogue control {opcode:#x} requires a UI service"),
             },
         }
@@ -435,6 +476,7 @@ mod tests {
         .unwrap();
         let dialogue = Dialogue {
             operation: events.world.movie.as_ref().unwrap().operation.clone(),
+            status: DialogueStatus::Waiting,
             speaker: ResolvedMessage { tokens: vec![] },
             body: ResolvedMessage {
                 tokens: vec![

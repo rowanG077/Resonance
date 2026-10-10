@@ -18,6 +18,25 @@ pub struct FieldCheckpoint {
     pub played_ticks: Option<u64>,
 }
 impl FieldSession {
+    pub(super) fn endgame_checkpoint(&self) -> Result<FieldCheckpoint> {
+        let mut progress = self.events.save_progress()?;
+        ensure!(
+            progress.party.new_game_plus.cleared,
+            "endgame menu requires clear data"
+        );
+        // The setup script selects its New Game Plus branch with story counter 1.
+        const NEW_GAME_PLUS_STORY: usize = 0x40 / 4;
+        progress.script_globals[NEW_GAME_PLUS_STORY] = 1;
+        Ok(FieldCheckpoint {
+            allow_incomplete_scripts: self.allow_incomplete_scripts,
+            map_id: 5,
+            position: [0.; 3],
+            heading: 0.,
+            camera: None,
+            progress,
+            played_ticks: Some(self.play_time.total()),
+        })
+    }
     pub fn checkpoint(&self) -> Result<FieldCheckpoint> {
         let checkpoint = self.player_menu_checkpoint()?;
         ensure!(
@@ -110,6 +129,9 @@ impl FieldSession {
     }
 }
 impl FieldCheckpoint {
+    pub fn starts_new_game_plus(&self) -> bool {
+        self.map_id == 5 && self.progress.party.new_game_plus.cleared
+    }
     pub fn played_ticks(&self) -> u64 {
         self.played_ticks.unwrap_or(u64::from(self.progress.tick))
     }
@@ -126,24 +148,32 @@ impl FieldCheckpoint {
                 && (0.0..360.0).contains(&self.heading),
             "invalid saved field location"
         );
-        let ground = navigation::WalkMesh::new(&assets.ground)?;
-        ensure!(
-            self.camera.is_some() || self.map_id == 340,
-            "saved field requires its entry camera settings"
-        );
-        ensure!(
-            ground
-                .height(self.position, 32.)
-                .is_some_and(|height| (height - self.position[2]).abs() <= 32.),
-            "saved player position is outside the field ground"
-        );
+        let new_game_plus = self.starts_new_game_plus();
+        if !new_game_plus {
+            let ground = navigation::WalkMesh::new(&assets.ground)?;
+            ensure!(
+                self.camera.is_some() || self.map_id == 340,
+                "saved field requires its entry camera settings"
+            );
+            ensure!(
+                ground
+                    .height(self.position, 32.)
+                    .is_some_and(|height| (height - self.position[2]).abs() <= 32.),
+                "saved player position is outside the field ground"
+            );
+        }
         let leader = i32::from(self.progress.party.field_leader);
         Ok(FieldEntry {
             effect_palette: Default::default(),
+            rising_light_destination: None,
             services: None,
             attachments: Default::default(),
             allow_incomplete_scripts: self.allow_incomplete_scripts,
-            kind: super::EntryKind::Restore,
+            kind: if new_game_plus {
+                super::EntryKind::Arrival
+            } else {
+                super::EntryKind::Restore
+            },
             play_time: crate::clock::PlayTime::resume(self.played_ticks()),
             persistent: self.progress.into_state(&data)?,
             data: Some(data),

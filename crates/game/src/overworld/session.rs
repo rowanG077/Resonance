@@ -146,6 +146,7 @@ impl Session {
             assets.story_rules.clone(),
         )?;
         let (mut world, memory) = persistent.into_world();
+        world.played_ticks = play_time.total();
         world.current_field = Some(3000);
         world.input_enabled = true;
         world.external_encounter_clock = true;
@@ -512,6 +513,9 @@ impl Session {
     }
     pub fn step(&mut self, input: Input) -> Result<Vec<travel::Cue>> {
         input.travel.validate()?;
+        if self.events.world.screen_request.is_some() {
+            return Ok(Vec::new());
+        }
         if self.battle.is_some() {
             self.poll_battle()?;
             return Ok(Vec::new());
@@ -522,12 +526,13 @@ impl Session {
         {
             return Ok(Vec::new());
         }
+        self.play_time.advance();
+        self.events.world.played_ticks = self.play_time.total();
         if self.cinematic.is_some() {
             self.step_cinematic()?;
             return Ok(Vec::new());
         }
         if let Some(menu) = &mut self.menu {
-            self.play_time.advance();
             menu.set_play_time(self.play_time);
             let cue = menu.step(input.menu);
             if let Some((party, random)) = menu.take_party_changes() {
@@ -547,7 +552,6 @@ impl Session {
             return Ok(Vec::new());
         }
         if let Some(skit) = &mut self.active_skit {
-            self.play_time.advance();
             if skit.step(
                 &mut self.events,
                 crate::skit::Input {
@@ -579,17 +583,25 @@ impl Session {
                 Some(request.operation),
             )?;
             self.events.world.skit_request = None;
-            self.play_time.advance();
             return Ok(Vec::new());
         }
-        self.skits
-            .step(&self.events, 3000, self.player_has_control())?;
+        let state = self.travel.state();
+        let area = self.assets.rules.area(state.world, state.position);
+        let terrain = self
+            .assets
+            .rules
+            .terrain(state.world, self.travel.response());
+        self.skits.step(
+            &self.events,
+            3000,
+            self.player_has_control(),
+            Some((area, terrain)),
+        )?;
         if input.skit
             && self.player_has_control()
             && let Some(id) = self.skits.open()
         {
             self.start_skit(id, true, false, None)?;
-            self.play_time.advance();
             return Ok(Vec::new());
         }
         self.refresh_locations()?;
@@ -706,7 +718,6 @@ impl Session {
                     volume: 64 + (63. * self.travel.speed_fraction()) as u8,
                 });
         }
-        self.play_time.advance();
         if self.battle.is_none() {
             self.events.step()?;
         }

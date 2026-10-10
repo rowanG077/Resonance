@@ -59,6 +59,173 @@ fn enemy_resources() -> ResourceLibrary {
 }
 
 #[test]
+fn textured_emitters_require_their_images_before_creation() {
+    for kind in [40, 70] {
+        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 5, &[100, 40]))]);
+        let program = program(&setup, &[0x20ff]);
+        assert!(
+            EventRuntime::with_state(
+                program.clone(),
+                Arc::new(Default::default()),
+                controlled_world(),
+                Default::default()
+            )
+            .is_err()
+        );
+        let mut world = controlled_world();
+        world.effect_textures.extend([(0, (100, 0)), (1, (101, 0))]);
+        let events = runtime(program, Default::default(), world);
+        assert!(!events.world.actors[&500].visible);
+    }
+}
+
+#[test]
+fn projectiles_report_completion_to_the_waiting_script() {
+    for (kind, parameters, phase) in [
+        (10, vec![100, 40, 0, -400, 100, 0, 0, 0, 0, 100], 2),
+        (37, vec![100, 34, 40, 0, 100, 0, 0, 0, 0, 100], 1),
+        (61, vec![100, 40, 0, -400, 100, 0, 0, 0, 0, 100], 2),
+        (66, vec![100, 40, 0, -400, 100, 0, 0, 0, 0, 100], 3),
+        (56, vec![101, 20, 4, -4, 100, 0, 0], 2),
+    ] {
+        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 5, &parameters))]);
+        let query = script(&[(Call::GetActorProperty, &[500, 33])]);
+        let mut events = interactive_effect(&setup, &query);
+        steps(&mut events, 20);
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        assert_eq!(
+            events.memory().read(0x20, Width::S32).unwrap(),
+            phase,
+            "emitter {kind}"
+        );
+        finish_effects(&mut events);
+    }
+}
+
+#[test]
+fn charged_light_waits_for_release_then_reports_completion() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(58, 10, &[0, 100, 0, -5, 100]),
+    )]);
+    let launch = script(&[
+        (Call::SetActorProperty, &[500, 33, 1]),
+        (Call::YieldCommand, &[0, 20]),
+        (Call::GetActorProperty, &[500, 33]),
+    ]);
+    let mut events = interactive_effect(&setup, &launch);
+    steps(&mut events, 10);
+    assert_eq!(events.world.actors[&500].position, [0.; 3]);
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 25);
+    assert_eq!(events.world.actors[&500].position, [100., 0., 0.]);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 3);
+    finish_effects(&mut events);
+}
+
+#[test]
+fn staged_glow_can_restart_after_reporting_completion() {
+    let setup = script(&[(Call::CreateEffectEmitter, &emitter(4, 0, &[]))]);
+    let charge = script(&[
+        (Call::SetActorProperty, &[500, 33, 1]),
+        (Call::YieldCommand, &[0, 20]),
+        (Call::GetActorProperty, &[500, 33]),
+    ]);
+    let mut events = interactive_effect(&setup, &charge);
+    for _ in 0..2 {
+        assert!(events.trigger(42, true).unwrap());
+        steps(&mut events, 25);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
+    }
+}
+
+#[test]
+fn releasing_lights_reuses_existing_particles_and_eventually_finishes() {
+    for (args, release) in [
+        (
+            emitter(65, 5, &[100, 12, 10, 10, 0, 100, 0, 500, 0, 100]),
+            2,
+        ),
+        (
+            emitter(68, 5, &[100, 12, 10, 10, 0, 100, 0, 500, 0, 100]),
+            2,
+        ),
+        (emitter(73, 200, &[101, 50, 15, 15, 0, 20, 200, 0, 2]), 1),
+    ] {
+        let setup = script(&[(Call::CreateEffectEmitter, &args)]);
+        let release = script(&[(Call::SetActorProperty, &[500, 33, release])]);
+        let resources = ResourceLibrary {
+            rising_light_destination: Some([500., 0., 100.]),
+            ..Default::default()
+        };
+        let mut events = runtime(program(&setup, &release), resources, controlled_world());
+        steps(&mut events, 30);
+        let ids: std::collections::BTreeSet<_> = events.world.billboards.keys().copied().collect();
+        assert!(!ids.is_empty());
+        assert!(events.trigger(42, true).unwrap());
+        for _ in 0..180 {
+            events.step().unwrap();
+            assert!(events.world.billboards.keys().all(|id| ids.contains(id)));
+        }
+        finish_effects(&mut events);
+    }
+}
+
+#[test]
+fn cloud_and_flame_cleanup_uses_the_setting_at_removal() {
+    for (kind, phase) in [(25, 0), (59, 0), (59, 1), (59, 2)] {
+        for cleanup in [0, 1] {
+            let mut args = if kind == 25 {
+                emitter(kind, 0, &[60, 57])
+            } else {
+                emitter(kind, 8, &[69, 35, 25, 300, 120, 100, 150, -16, 0])
+            };
+            args[17] = 1 - cleanup;
+            let setup = script(&[
+                (Call::CreateEffectEmitter, &args),
+                (Call::SetActorProperty, &[500, 33, phase]),
+            ]);
+            let remove = script(&[
+                (Call::SetActorProperty, &[500, 122, cleanup]),
+                (Call::DespawnActor, &[500]),
+            ]);
+            let mut events = interactive_effect(&setup, &remove);
+            steps(&mut events, 9);
+            assert!(!events.world.billboards.is_empty());
+            assert!(events.trigger(42, true).unwrap());
+            steps(&mut events, 4);
+            assert_eq!(
+                events.world.billboards.is_empty(),
+                phase == 0 && cleanup == 1,
+                "emitter {kind}, phase {phase}, cleanup {cleanup}"
+            );
+            finish_effects(&mut events);
+        }
+    }
+}
+
+#[test]
+fn model_trail_reports_completion_and_retires_its_copies() {
+    let mut input = emitter(50, 0, &[0, 4, 0, 0, 100, 0, 0]);
+    input[4] = 1;
+    let setup = script(&[(Call::CreateEffectEmitter, &input)]);
+    let query = script(&[(Call::GetActorProperty, &[500, 33])]);
+    let mut events = runtime(
+        program(&setup, &query),
+        enemy_resources(),
+        controlled_world(),
+    );
+    steps(&mut events, 4);
+    assert!(!events.world.actors[&500].visible);
+    assert!(!events.world.model_particles.is_empty());
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
+    finish_effects(&mut events);
+}
+
+#[test]
 fn genis_fireball_travels_and_its_trail_finishes_after_the_emitter_is_removed() {
     const FLIGHT: u32 = 80;
     let mut input = emitter(51, 0, &[100, FLIGHT as i32]);
@@ -157,6 +324,53 @@ fn ordinary_locomotion_replaces_same_slot_from_a_block_animation_bank() {
         assert_eq!(animation.resource, 1);
         assert_eq!(animation.slot, slot);
     }
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
+fn battle_rules_survive_saves_and_are_captured_when_an_encounter_starts() {
+    let data = Arc::new(cooked::<resonance_content::session::SessionData>(
+        "session-data.json",
+    ));
+    let mut world = controlled_world();
+    world.party = Some(party::Party::new(&data, Default::default()).unwrap());
+    let setup = script(&[
+        (Call::ConfigureBattleRules, &[0, 0x1234]),
+        (Call::ConfigureBattleRules, &[1, 0x20]),
+        (Call::ConfigureBattleRules, &[2, 2]),
+        (Call::ConfigureBattleRules, &[3, -25]),
+        (Call::ConfigureBattleRules, &[4, 50]),
+        (Call::ConfigureBattleRules, &[5, -1]),
+    ]);
+    let battle = script(&[
+        (Call::ConfigureBattleRules, &[5, -1]),
+        (Call::Unknown37, &[30, 79, 0]),
+    ]);
+    let mut events = runtime(
+        program(&setup, &battle),
+        ResourceLibrary {
+            session_data: Some(data),
+            ..Default::default()
+        },
+        world,
+    );
+    let expected = battle::Rules {
+        modifiers: 0x1234,
+        disabled_commands: 0x20,
+        coliseum: true,
+        attack_adjustment: -25,
+        defense_adjustment: 50,
+        intelligence_adjustment: -1,
+    };
+    let saved = serde_json::to_vec(events.world.party.as_ref().unwrap()).unwrap();
+    events.world.party = Some(serde_json::from_slice(&saved).unwrap());
+    assert_eq!(events.world.party.as_ref().unwrap().battle_rules, expected);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), -1);
+    let request = events.world.battle_request.as_ref().unwrap();
+    events.world.party.as_mut().unwrap().battle_rules = Default::default();
+    assert_eq!(request.rules, expected);
 }
 
 #[test]
@@ -267,8 +481,50 @@ fn scripted_enemy_reaction_returns_the_previous_mode_and_reads_its_current_value
 }
 
 #[test]
-fn patrol_properties_update_enemy_movement() {
-    for (property, value, previous, stored) in [(23, 3, 2, 3), (26, 3, 1, 3), (27, 1, 2, 1)] {
+fn offscreen_enemy_activity_pauses_but_scripted_movement_can_finish() {
+    let setup = script(&[
+        (
+            Call::SpawnEnemyActor,
+            &[90, 0, 0, 5000, 1000, 0, 0, 2, 4, 42, 1, 3, 0, 0, 600, 0],
+        ),
+        (Call::SetActorProperty, &[90, 67, 3]),
+    ]);
+    let move_actor = script(&[
+        (Call::MoveActor, &[90, 5010, 1000, 0, 2]),
+        (Call::GetActorProperty, &[90, 67]),
+    ]);
+    let mut camera = camera::CameraRig::default();
+    camera.current_mut().target = [0., 1000., 0.];
+    camera.target = camera.current().target;
+    let mut world = controlled_world();
+    world.field_camera = Some(camera);
+    let mut events = runtime(program(&setup, &move_actor), enemy_resources(), world);
+    let actor = events.world.actors.get_mut(&90).unwrap();
+    actor.path.count = 1;
+    actor.path.points[0] = [5100., 1000., 0.];
+    steps(&mut events, 10);
+    assert_eq!(events.world.actors[&90].position, [5000., 1000., 0.]);
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 7);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    assert_eq!(events.world.actors[&90].position, [5010., 1000., 0.]);
+    let actor = events.world.actors.get_mut(&90).unwrap();
+    actor.position = [0., 1000., 0.];
+    actor.path.points[0] = [100., 1000., 0.];
+    steps(&mut events, 5);
+    assert!(events.world.actors[&90].position[0] > 0.);
+}
+
+#[test]
+fn enemy_properties_update_patrol_and_preserve_script_flags() {
+    for (property, value, previous, stored) in [
+        (23, 3, 2, 3),
+        (26, 3, 1, 3),
+        (27, 1, 2, 1),
+        (60, 3, 0, 1),
+        (60, 2, 0, 0),
+        (61, 3, 0, 1),
+    ] {
         let main = script(&[
             (
                 Call::SpawnEnemyActor,
@@ -292,6 +548,7 @@ fn patrol_properties_update_enemy_movement() {
                 actor.path.points[0] = [100., 0., 0.];
             }
             27 => assert_ne!(actor.enemy.as_ref().unwrap().random_turns, 0),
+            60 | 61 => (),
             _ => unreachable!(),
         }
         events.world.input_enabled = true;
@@ -437,12 +694,192 @@ fn costume_change_selects_a_body_and_survives_save() {
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
+fn script_collection_and_character_changes_survive_save_without_stale_shortcuts() {
+    let data = Arc::new(cooked("session-data.json"));
+    let mut party = party::Party::new(&data, Default::default()).unwrap();
+    party.members[4].techniques.insert(139);
+    party.members[4].disabled_techniques.insert(139);
+    party.members[4].shortcuts[0] = 139;
+    party.members[0].assist_shortcuts[0] = Some(party::TechniqueShortcut {
+        character: 4,
+        technique: 139,
+    });
+    let setup = script(&[
+        (Call::ConfigureFigurine, &[0, 50]),
+        (Call::RecipeProficiency, &[1, 0, 3]),
+        (Call::LearnTitle, &[262]),
+        (Call::SetEquippedTitle, &[2, 262]),
+        (Call::ForgetTitle, &[262]),
+        (Call::ForgetTechnique, &[5, 139]),
+        (Call::GetTitle, &[2, 0]),
+    ]);
+    let mut world = GameWorld::default();
+    world.party = Some(party);
+    let events = runtime(
+        program(&setup, &[0x20ff]),
+        ResourceLibrary {
+            session_data: Some(data),
+            text: Arc::new(cooked("text.json")),
+            ..Default::default()
+        },
+        world,
+    );
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 262);
+    let restored = reload(
+        &events,
+        &script(&[(Call::HasTechnique, &[5, 139])]),
+        &[0x20ff],
+    );
+    assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 0);
+    let party = restored.world.party.as_ref().unwrap();
+    assert!(party.figurines.contains(&50));
+    assert_eq!(party.members[0].cooking[0], 8);
+    assert_eq!(party.members[1].title, 6);
+    assert!(!party.members[1].titles.contains(&6));
+    assert_eq!(party.members[4].shortcuts[0], 0);
+    assert!(!party.members[4].disabled_techniques.contains(&139));
+    assert!(party.members[0].assist_shortcuts[0].is_none());
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
+fn collection_services_track_discovery_and_preserve_awarded_completion() {
+    let data = Arc::new(cooked("session-data.json"));
+    let menu: resonance_content::menu_data::MenuData = cooked("menu-data.json");
+    let skits: resonance_content::skit::SkitCatalog = cooked("skits.json");
+    skits.validate().unwrap();
+    let group = i32::from(menu.monsters.records[29].unseen_count_group);
+    let mut party = party::Party::new(&data, Default::default()).unwrap();
+    party.monsters = menu
+        .monsters
+        .records
+        .iter()
+        .filter(|m| m.id != 29)
+        .map(|m| (m.id, party::MonsterKnowledge::default()))
+        .collect();
+    party.figurines = (0..resonance_content::figurine::FIGURINE_COUNT as u16)
+        .filter(|&id| id != 50)
+        .collect();
+    let calls: &[(Call, &[i32], i32)] = &[
+        (Call::Unknown92, &[2, group], 1),
+        (Call::ConfigureMonsterKnowledge, &[29, 63], 0),
+        (Call::Unknown92, &[2, group], 0),
+        (Call::Unknown92, &[4, 0], 1),
+        (Call::ConfigureMonsterKnowledge, &[29, 0], 63),
+        (Call::Unknown92, &[4, 0], 0),
+        (Call::Unknown92, &[7, 0], 1),
+        (Call::ConfigureMonsterKnowledge, &[29, 2], 0),
+        (Call::ConfigureMonsterKnowledge, &[29, -1], 2),
+        (Call::Unknown92, &[2, group], 0),
+        (Call::ConfigureFigurine, &[0, 50], 0),
+        (Call::Unknown92, &[5, 0], 1),
+        (Call::Unknown92, &[8, 0], 1),
+        (Call::Unknown92, &[1, 0], 9876),
+        (Call::GetReplaySkit, &[-1], skits.preview_order.len() as i32),
+        (Call::GetReplaySkit, &[0], i32::from(skits.preview_order[0])),
+        (Call::GetReplaySkit, &[skits.preview_order.len() as i32], -1),
+        (Call::GetReplaySkit, &[-2], -1),
+    ];
+    let mut code = Vec::new();
+    for (i, (call, args, _)) in calls.iter().enumerate() {
+        native(&mut code, *call, args);
+        code.extend([
+            0x3000,
+            0x1200,
+            0x100 + i as u16 * 4,
+            0x1200,
+            0x20,
+            0x3010,
+            0x3000,
+        ]);
+    }
+    code.push(0x20ff);
+    let mut world = GameWorld::default();
+    world.party = Some(party);
+    world.played_ticks = 9876;
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary {
+            session_data: Some(data),
+            menu_data: Some(Arc::new(menu)),
+            skits: Some(Arc::new(skits)),
+            ..Default::default()
+        },
+        world,
+    );
+    for (i, (call, args, expected)) in calls.iter().enumerate() {
+        assert_eq!(
+            events
+                .memory()
+                .read(0x100 + i as u16 * 4, Width::S32)
+                .unwrap(),
+            *expected,
+            "{call:?} {args:?}"
+        );
+    }
+    let restored = reload(&events, &[0x20ff], &[0x20ff]);
+    let party = restored.world.party.as_ref().unwrap();
+    assert!(party.monster_book_complete && party.figurine_book_complete);
+    assert!(!party.monsters[&29].seen);
+    assert!(party.monsters[&29].scanned);
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
+fn skit_prompt_control_survives_save_and_follows_control_handoff() {
+    let disable = script(&[(Call::Unknown92, &[21, 0])]);
+    let mut events = party_runtime(&disable, &[0x20ff]);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), -1);
+    events = reload(&events, &[0x20ff], &[0x20ff]);
+    assert!(
+        events
+            .world
+            .party
+            .as_ref()
+            .unwrap()
+            .travel
+            .skit_prompts_disabled
+    );
+    let enable = script(&[(Call::Unknown92, &[21, 1])]);
+    events = reload(&events, &enable, &[0x20ff]);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert!(
+        !events
+            .world
+            .party
+            .as_ref()
+            .unwrap()
+            .travel
+            .skit_prompts_disabled
+    );
+    for mode in [1, 0] {
+        let handoff = script(&[(Call::ReturnFieldControl, &[mode])]);
+        events = reload(&events, &handoff, &[0x20ff]);
+        steps(&mut events, 11);
+        assert!(events.player_has_control());
+        assert_eq!(
+            events
+                .world
+                .party
+                .as_ref()
+                .unwrap()
+                .travel
+                .skit_prompts_disabled,
+            mode == 1
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
 fn field_countdown_runs_during_pause_and_reentry_preserves_countdown_and_conditions() {
     const CONDITIONS: i32 = 100;
     const STATUS: i32 = 0x8000_0080u32 as i32;
     let setup = script(&[
         (Call::SetFieldCountdown, &[4]),
         (Call::SetRingTimer, &[9]),
+        (Call::ResetFieldTicks, &[]),
+        (Call::ResetScenarioTicks, &[]),
         (Call::SetActorProperty, &[1, CONDITIONS, STATUS]),
         (Call::DisableMappedInput, &[]),
         (Call::GetFieldCountdown, &[]),
@@ -456,12 +893,18 @@ fn field_countdown_runs_during_pause_and_reentry_preserves_countdown_and_conditi
     events.step().unwrap();
     // Scripts read the countdown before the common frame's decrement.
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 3);
+    let travel = &events.world.party.as_ref().unwrap().travel;
+    assert_eq!((travel.field_ticks, travel.scenario_ticks), (0, 2));
     let read_conditions = script(&[
         (Call::EnableMappedInput, &[]),
         (Call::GetActorProperty, &[1, CONDITIONS]),
     ]);
     let mut restored = reload(&events, &read_conditions, &query);
     assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), STATUS);
+    assert_eq!(
+        restored.world.party.as_ref().unwrap().travel.scenario_ticks,
+        2
+    );
     assert_eq!(
         restored
             .world
@@ -489,7 +932,7 @@ fn movement_behavior_changes_resume_chasing_and_grab_queries_follow_live_blocks(
     const GRABBED_BLOCK: i32 = 53;
     let setup = script(&[(
         Call::SetActorProperty,
-        &[FRAGMENT, BEHAVIOR, Behavior::ChasePlayer as i32],
+        &[FRAGMENT, BEHAVIOR, i32::from(Behavior::ChasePlayer.code())],
     )]);
     // This property always reads the controlled player's block, regardless of target.
     let query = script(&[(Call::GetActorProperty, &[FRAGMENT, GRABBED_BLOCK])]);
@@ -1173,6 +1616,124 @@ fn bound_particles_move_grow_fade_and_expire() {
 }
 
 #[test]
+fn sprite_constructors_share_animation_and_preserve_their_motion_units() {
+    use resonance_content::effect::sprite::{
+        BURST_SPRITE, COOKING_CLOUDS, FLAME_PLUME_SPRITE, FLAME_SPRITE, GLOW_SPRITE,
+        LIGHTNING_BOLT_SPRITE, SMOKE_SPRITE, SPARKLE_CLUSTER_SPRITE, SQUARE_GLOW_SPRITE,
+        STATION_GLOW_SPRITE, STATION_HALO_SPRITE, SWIRL_SPRITE,
+    };
+    for kind in [
+        GLOW_SPRITE,
+        SMOKE_SPRITE,
+        STATION_GLOW_SPRITE,
+        FLAME_SPRITE,
+        STATION_HALO_SPRITE,
+        BURST_SPRITE,
+        SWIRL_SPRITE,
+        SPARKLE_CLUSTER_SPRITE,
+        SQUARE_GLOW_SPRITE,
+        LIGHTNING_BOLT_SPRITE,
+        FLAME_PLUME_SPRITE,
+    ]
+    .into_iter()
+    .chain(COOKING_CLOUDS)
+    {
+        let setup = script(&[
+            (
+                Call::CreateParticle,
+                &[i32::from(kind), 100, 0, 0, 0, 3, 4, 0, 20, 200, -1, 0, 0],
+            ),
+            (
+                Call::CreateEffectObject,
+                &[
+                    i32::from(kind),
+                    100,
+                    0,
+                    0,
+                    0,
+                    30,
+                    40,
+                    0,
+                    500,
+                    20,
+                    200,
+                    -1,
+                    0,
+                    0,
+                ],
+            ),
+        ]);
+        let mut events = runtime(
+            program(&setup, &[0x20ff]),
+            Default::default(),
+            Default::default(),
+        );
+        steps(&mut events, 6);
+        let a = &events.world.billboards[&1];
+        let b = &events.world.billboards[&2];
+        assert_eq!(
+            a.recipe,
+            if COOKING_CLOUDS.contains(&kind) {
+                GLOW_SPRITE
+            } else {
+                kind
+            }
+        );
+        assert_eq!(a.position, [15., 20., 0.]);
+        assert_eq!(a.position, b.position);
+        assert_eq!(a.rotation, b.rotation);
+        assert_eq!(a.alpha(events.tick()), b.alpha(events.tick()));
+        steps(&mut events, 96);
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
+fn changing_particle_velocity_preserves_position_until_the_next_motion_update() {
+    let setup = script(&[
+        (
+            Call::CreateParticle,
+            &[0, 100, 0, 0, 0, 0, 0, 0, 20, 200, -1, 0, 0],
+        ),
+        (Call::SetEffectProperty, &[1, 129, 50]),
+        (Call::SetEffectProperty, &[1, 131, -150]),
+    ]);
+    let change = script(&[(Call::SetEffectProperty, &[1, 138, 2])]);
+    let mut events = interactive_effect(&setup, &change);
+    steps(&mut events, 3);
+    assert_eq!(events.world.billboards[&1].position, [1., 0., -3.]);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    events.step().unwrap();
+    assert_eq!(events.world.billboards[&1].position, [2., 0., -6.]);
+    events.step().unwrap();
+    assert_eq!(events.world.billboards[&1].position, [4., 0., -7.5]);
+}
+
+#[test]
+fn directed_particles_retain_direction_while_stopped_and_can_resume_at_fractional_speed() {
+    for kind in [0, 27] {
+        let setup = script(&[(
+            Call::CreateEffectObject,
+            &[kind, 100, 0, 0, 0, 10, 0, 0, 99, 20, 255, 0, 0, 0],
+        )]);
+        let change = script(&[(Call::SetEffectProperty, &[1, 136, 50])]);
+        let mut events = interactive_effect(&setup, &change);
+        let position = |world: &GameWorld| match kind {
+            0 => world.billboards[&1].position,
+            _ => world.refractions[&1].position,
+        };
+        steps(&mut events, 3);
+        assert_eq!(position(&events.world), [0.; 3]);
+        assert!(events.trigger(42, true).unwrap());
+        steps(&mut events, 2);
+        assert_eq!(position(&events.world), [0.; 3]);
+        events.step().unwrap();
+        assert_eq!(position(&events.world), [0.5, 0., 0.]);
+    }
+}
+
+#[test]
 fn explicit_particle_tints_can_replace_palette_channels_with_neutral() {
     for channel in 0..3 {
         let mut world = controlled_world();
@@ -1359,6 +1920,42 @@ fn field_system_leader_commands_read_and_change_the_party_selection() {
         assert_eq!(events.world.party.as_ref().unwrap().field_leader, leader);
         assert_eq!(events.world.controlled_actor, 1000);
         world = events.world;
+    }
+}
+
+#[test]
+fn inactive_ambient_modes_still_accept_scripted_movement() {
+    for (spawn, behavior, speed) in [
+        (Call::SpawnActor, 13, 8),
+        (Call::SpawnActor, 300, 0),
+        (Call::CreateSceneActor, 90, 0),
+        (Call::CreateSceneActor, 0, 1),
+        (Call::SpawnInteractionActor, 90, 0),
+    ] {
+        let mut world = controlled_world();
+        world.field_camera = Some(Default::default());
+        let setup = script(&[
+            (spawn, &[500, 0, 0, 0, 0, 1, behavior, speed]),
+            (Call::SetActorProperty, &[500, 0, 300]),
+            (Call::SetActorProperty, &[500, 6, 1]),
+            (Call::GetActorProperty, &[500, 34]),
+        ]);
+        let movement = script(&[(Call::MoveActor, &[500, 12, 0, 0, 3])]);
+        let mut events = runtime(
+            program_record(&setup, &movement, 0, 500),
+            enemy_resources(),
+            world,
+        );
+        steps(&mut events, 5);
+        assert_eq!(events.world.actors[&500].position, [0.; 3]);
+        assert_eq!(events.world.actors[&500].movement_speed(), speed as f32);
+        assert_eq!(
+            events.memory().read(0x20, Width::S32).unwrap(),
+            i32::from(behavior as u8)
+        );
+        assert!(events.interact(500).unwrap());
+        steps(&mut events, 5);
+        assert_eq!(events.world.actors[&500].position, [12., 0., 0.]);
     }
 }
 
@@ -1564,6 +2161,83 @@ fn native_music_requests_decode_before_reaching_the_mixer() {
         ]
     );
     assert!(MusicCommand::try_from(-4).is_err());
+}
+
+#[test]
+#[ignore = "requires cooked party definitions; no devices"]
+fn terminal_session_screens_suspend_the_scene_until_its_owner_retires_it() {
+    use resonance_events::session_screen::Target;
+    for (setting, target) in [(13, Target::Title), (14, Target::GameOver)] {
+        let code = script(&[
+            (Call::ConfigureSession, &[setting, 0]),
+            (Call::SetEventBit, &[2000]),
+        ]);
+        let mut events = party_runtime(&code, &[0x20ff]);
+        let request = events.world.screen_request.clone().unwrap();
+        assert_eq!(request.target, target);
+        assert!(!events.player_has_control());
+        let tick = events.tick();
+        steps(&mut events, 3);
+        assert_eq!(events.tick(), tick);
+        assert!(!events.world.event_flags.contains(&2000));
+        assert!(request.operation.is_pending());
+        events.cancel();
+        assert!(events.world.screen_request.is_none());
+        assert_eq!(
+            request.operation.progress().outcome,
+            Some(resonance_events::Outcome::Cancelled)
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires cooked party definitions; no devices"]
+fn credits_wait_for_playback_then_resume_without_changing_menu_results() {
+    let code = script(&[
+        (Call::ConfigureSession, &[18, 0]),
+        (Call::SetEventBit, &[2000]),
+    ]);
+    let data = Arc::new(cooked("session-data.json"));
+    let mut world = GameWorld::default();
+    world.party = Some(party::Party::new(&data, Default::default()).unwrap());
+    let mut memory = symphonia_script_vm::Memory::default();
+    memory.write(0x24, Width::S32, 17).unwrap();
+    memory.write(0x28, Width::S32, 23).unwrap();
+    let mut events = EventRuntime::with_state(
+        program(&code, &[0x20ff]),
+        Arc::new(ResourceLibrary {
+            session_data: Some(data),
+            ..Default::default()
+        }),
+        world,
+        memory,
+    )
+    .unwrap();
+    let request = events.world.screen_request.clone().unwrap();
+    assert_eq!(
+        request.target,
+        resonance_events::session_screen::Target::Credits
+    );
+    steps(&mut events, 4);
+    assert!(!events.world.event_flags.contains(&2000));
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [AudioCommand::Music(MusicCommand::Stop)]
+    ));
+    events
+        .world
+        .screen_request
+        .take()
+        .unwrap()
+        .operation
+        .complete(Some(0))
+        .unwrap();
+    events.step().unwrap();
+    assert!(events.world.event_flags.contains(&2000));
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert_eq!(events.world.audio_commands.len(), 1);
+    assert_eq!(events.memory().read(0x24, Width::S32).unwrap(), 17);
+    assert_eq!(events.memory().read(0x28, Width::S32).unwrap(), 23);
 }
 
 #[test]
@@ -1962,6 +2636,43 @@ fn explicit_party_selection_recreates_the_actor_but_alias_and_query_preserve_it(
             assert_eq!(actor.appearance.eyes.unwrap().tick, 10);
         }
     }
+}
+
+#[test]
+fn player_model_swaps_preserve_position_and_restore_the_selected_member() {
+    let resources = ResourceLibrary {
+        bindings: [(398, (ResourceKind::Model, 400))].into(),
+        models: [
+            (1, model([animation::slot::IDLE], 60)),
+            (400, model([animation::slot::IDLE], 40)),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = controlled_world();
+    world.controlled_actor = 1;
+    let mut actor = Actor::new(1, [20., 30., 40.]);
+    actor.face(135.);
+    world.insert_actor(1, actor);
+    let code = script(&[
+        (Call::SetPlayerModel, &[398]),
+        (Call::YieldCommand, &[0, 2]),
+        (Call::SelectPartyMember, &[CONTROLLED_ACTOR]),
+    ]);
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    let actor = &events.world.actors[&1];
+    assert_eq!(actor.resource, 400);
+    assert_eq!(actor.animation.as_ref().unwrap().resource, 400);
+    assert_eq!(actor.position, [20., 30., 40.]);
+    assert_eq!(actor.heading, 135.);
+    assert_eq!(
+        actor.autonomy.as_ref().unwrap().behavior,
+        resonance_events::Behavior::Player
+    );
+    steps(&mut events, 3);
+    assert_eq!(events.world.controlled_actor, 1);
+    assert_eq!(events.world.actors[&1].resource, 1);
+    assert_eq!(events.world.actors[&1].position, [20., 30., 40.]);
 }
 
 #[test]
@@ -3105,11 +3816,18 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
             ..Default::default()
         };
         let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
-        assert_eq!(events.world.choices[&1].selected_line, 3 - page_start);
+        assert_eq!(
+            events.world.choices[&1]
+                .selection
+                .lines()
+                .unwrap()
+                .selected_line,
+            3 - page_start
+        );
         steps(&mut events, 4);
         assert!(events.world.texture_bindings.is_empty());
         let choice = events.world.choices.get_mut(&1).unwrap();
-        choice.selected_line = 4 - page_start;
+        choice.selection.lines_mut().unwrap().selected_line = 4 - page_start;
         let callback = choice.clone();
         choice.finish(reason).unwrap();
         events.step().unwrap();
@@ -3591,6 +4309,23 @@ fn clear_field_handoff_releases_input_without_a_delayed_second_handoff() {
 }
 
 #[test]
+fn frame_feedback_can_be_enabled_and_restored_by_scripts() {
+    let setup = script(&[(Call::Unknown92, &[18, 2])]);
+    let restore = script(&[(Call::Unknown92, &[18, 0])]);
+    let mut events = runtime(
+        program(&setup, &restore),
+        Default::default(),
+        controlled_world(),
+    );
+    assert_eq!(events.world.frame_feedback, 2);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.world.frame_feedback, 0);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
+}
+
+#[test]
 fn door_exit_owns_control_and_finishes_its_pose_sound_and_hinge_before_handoff() {
     use resonance_content::field::{Door, FIELD_SERVICE_MOTION_RESOURCE_BASE};
     use resonance_events::animation::slot;
@@ -4037,6 +4772,79 @@ fn numbered_world_cinematics_keep_the_following_scene_and_retire_the_caller() {
 }
 
 #[test]
+fn camera_tracks_hold_mapped_positions_then_resume_and_loop() {
+    let setup = script(&[
+        (Call::PlayCameraTrack, &[555, 1, 1]),
+        (Call::MapCameraTrackPosition, &[0, 0, -100, 300, 0, 0, 0, 0]),
+    ]);
+    let resume = script(&[
+        (Call::ConfigureCameraTrack, &[4, 100]),
+        (Call::ConfigureCameraTrack, &[0, 0]),
+        (Call::YieldCommand, &[0, 30]),
+        (Call::ConfigureCameraTrack, &[10, 0]),
+    ]);
+    let resources = ResourceLibrary {
+        bindings: [(555, (ResourceKind::Camera, 22))].into(),
+        camera_tracks: [(
+            22,
+            vec![
+                resonance_content::CameraKey {
+                    time: 0.,
+                    position: [0.; 3],
+                    target: [0., 10., 0.],
+                },
+                resonance_content::CameraKey {
+                    time: 20.,
+                    position: [40., 0., 0.],
+                    target: [0., 10., 0.],
+                },
+            ],
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = controlled_world();
+    world.field_camera = Some(Default::default());
+    let mut events = runtime(program(&setup, &resume), resources, world);
+    steps(&mut events, 10);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().position,
+        [10., 0., 0.]
+    );
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 31);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().position,
+        [30., 0., 0.]
+    );
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+}
+
+#[test]
+fn actor_queries_follow_the_controlled_actor_through_a_scripted_move() {
+    let mut world = controlled_world();
+    world.controlled_actor = 2;
+    let mut actor = Actor::new(2, [0.; 3]);
+    actor.face(270.);
+    world.insert_actor(2, actor);
+    let setup = script(&[(Call::GetActorHeading, &[999999])]);
+    let movement = script(&[
+        (Call::MoveActor, &[999999, 30, 0, 0, 3]),
+        (Call::IsActorMoving, &[999999]),
+        (Call::YieldCommand, &[4, 999999]),
+        (Call::IsActorMoving, &[999999]),
+    ]);
+    let mut events = runtime(program(&setup, &movement), Default::default(), world);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 270);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    steps(&mut events, 30);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert_eq!(events.world.actors[&2].position, [30., 0., 0.]);
+}
+
+#[test]
 fn scenery_motion_layers_pause_and_clear_independently() {
     let code = script(&[
         (Call::ResolveScriptResource, &[123]),
@@ -4049,6 +4857,8 @@ fn scenery_motion_layers_pause_and_clear_independently() {
             &[999996, 0, -65536, 0, 100, 8],
         ),
         (Call::SeekSceneryAnimation, &[1, -1, 5]),
+        (Call::SetSceneryAnimationRate, &[1, -1, 250]),
+        (Call::SetSceneryAnimationRate, &[1, 0, 200]),
     ]);
     let mut world = GameWorld::default();
     world.actors.insert(999996, Actor::new(1, [0.; 3]));
@@ -4066,6 +4876,7 @@ fn scenery_motion_layers_pause_and_clear_independently() {
     let actor = &events.world.actors[&999996];
     let paused = actor.animation.as_ref().unwrap();
     assert_eq!(paused.sample(events.tick(), 0, 20.), 10.);
+    assert_eq!(paused.script_rate(), 2.5);
     assert_eq!(
         actor.scenery_animations[&0].sample(events.tick(), 0, 20.),
         20.

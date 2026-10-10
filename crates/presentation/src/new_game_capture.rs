@@ -235,7 +235,11 @@ fn record(
                     && let Some(choice) = field.events.world.choices.get(&1)
                     && choice.operation.is_pending()
                 {
-                    if choice.selected_line == 0 {
+                    if choice
+                        .selection
+                        .lines()
+                        .is_some_and(|lines| lines.selected_line == 0)
+                    {
                         keys.push(KeyCode::ArrowDown);
                     } else if tick >= 390 && tick.is_multiple_of(30) {
                         keys.push(KeyCode::Enter);
@@ -403,6 +407,7 @@ fn record(
         app.update();
         playthrough::check_exit(&app)?;
         playthrough::attach::<movie::MovieAudio>(app.world_mut(), &mixer)?;
+        playthrough::attach::<crate::credits::Audio>(app.world_mut(), &mixer)?;
         playthrough::attach::<GameAudio>(app.world_mut(), &mixer)?;
         playthrough::attach::<field_audio::FieldSource>(app.world_mut(), &mixer)?;
         let end = (step + 1) * 32028 * resonance_game::clock::UPDATE_RATE_DENOMINATOR
@@ -910,12 +915,12 @@ fn record(
                 .copied()
                 .collect::<Vec<_>>()
                 == [1, resonance_events::camera::ANCHOR_ACTOR, 999996]
-            && field
-                .events
-                .world
-                .choices
-                .get(&1)
-                .is_some_and(|c| { c.selected_line == 0 && c.operation.is_pending() })
+            && field.events.world.choices.get(&1).is_some_and(|c| {
+                c.selection
+                    .lines()
+                    .is_some_and(|lines| lines.selected_line == 0)
+                    && c.operation.is_pending()
+            })
             && field.events.world.voice.is_none()
             && field.events.world.movie.is_none()
             && !field.events.world.input_enabled,

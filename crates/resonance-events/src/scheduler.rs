@@ -94,6 +94,10 @@ impl EventRuntime {
     pub fn resources(&self) -> &ResourceLibrary {
         &self.resources
     }
+    /// Restart a reusable scene without reloading its program or immutable assets.
+    pub fn fresh(&self) -> Result<Self> {
+        Self::new(self.program.clone(), self.resources.clone())
+    }
     pub fn restore_field_leader(&mut self) -> Result<()> {
         let id = self
             .world
@@ -241,6 +245,7 @@ impl EventRuntime {
             && self.world.input_enabled
             && !self.world.mapped_input_disabled
             && self.world.battle_request.is_none()
+            && self.world.screen_request.is_none()
             && !self
                 .instances
                 .iter()
@@ -638,6 +643,7 @@ impl EventRuntime {
         self.world.dialogue.clear();
         self.world.choices.clear();
         self.world.menu_request = None;
+        self.world.screen_request = None;
         self.world.battle_request = None;
         self.world.movie = None;
         self.world.voice = None;
@@ -674,7 +680,7 @@ impl EventRuntime {
     ) -> Result<()> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
         self.world.reap_authored_resources();
-        if self.world.blocked_by_movie() {
+        if self.world.blocked_by_movie() || self.world.screen_request.is_some() {
             return Ok(());
         }
         self.world.actors.retain(|_, actor| !actor.retiring);
@@ -748,24 +754,16 @@ impl EventRuntime {
             camera.shake.step(&mut self.world.random_state);
             if let Some(playback) = &self.world.camera
                 && let Some(track) = self.resources.camera_tracks.get(&playback.resource)
+                && let Some((position, target)) = playback.sample(self.world.tick, track)
             {
-                let time = (self.world.tick.saturating_sub(playback.start_tick) as f32 * 0.5)
-                    .min(track.last().unwrap().time);
-                let right = track
-                    .partition_point(|key| key.time < time)
-                    .min(track.len() - 1);
-                let a = &track[right.saturating_sub(1)];
-                let b = &track[right];
-                let fraction = if a.time == b.time {
-                    0.
-                } else {
-                    (time - a.time) / (b.time - a.time)
-                };
-                camera.position = std::array::from_fn(|i| {
-                    a.position[i] + (b.position[i] - a.position[i]) * fraction
-                });
-                camera.target =
-                    std::array::from_fn(|i| a.target[i] + (b.target[i] - a.target[i]) * fraction);
+                camera.position = position;
+                camera.target = self
+                    .world
+                    .actors
+                    .get(&playback.target_actor)
+                    .map_or(target, |actor| {
+                        std::array::from_fn(|i| actor.position[i] + playback.target_offset[i])
+                    });
             }
         }
         self.world.update_collision_attachments(&self.resources)?;
@@ -801,12 +799,29 @@ impl EventRuntime {
                 .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
-            let ambient = actor.step_autonomy(
-                self.world.input_enabled,
-                conversation_active,
-                player_position,
-                &mut || crate::world::random(&mut self.world.random_state),
-            );
+            let ambient = if actor.motion.is_none()
+                && actor
+                    .enemy
+                    .as_ref()
+                    .is_some_and(|enemy| enemy.pause_outside_view)
+                && self
+                    .world
+                    .field_camera
+                    .as_ref()
+                    .is_some_and(|camera| !camera.enemy_active(actor.position))
+            {
+                crate::autonomy::AmbientMotion {
+                    paused: true,
+                    ..Default::default()
+                }
+            } else {
+                actor.step_autonomy(
+                    self.world.input_enabled,
+                    conversation_active,
+                    player_position,
+                    &mut || crate::world::random(&mut self.world.random_state),
+                )
+            };
             let turn = actor.turn_direction();
             let movement_speed = actor
                 .motion
@@ -914,9 +929,14 @@ impl EventRuntime {
             ring.cancel(&mut self.world);
         }
         if let Some(party) = &mut self.world.party {
+            const MAX_FIELD_TICKS: u32 = u32::MAX - 15;
+            party.travel.scenario_ticks = party
+                .travel
+                .scenario_ticks
+                .saturating_add(1)
+                .min(MAX_FIELD_TICKS);
             party.travel.field_countdown = party.travel.field_countdown.saturating_sub(1);
             if !self.world.mapped_input_disabled {
-                const MAX_FIELD_TICKS: u32 = u32::MAX - 15;
                 party.travel.field_ticks = party
                     .travel
                     .field_ticks
@@ -1036,7 +1056,13 @@ impl EventRuntime {
                 if matches!(wait, Wait::ControlHandoff(_)) {
                     self.world.input_enabled = true;
                 }
-                let result = if let Wait::Menu(operation) = wait {
+                let result = if let Wait::Result(operation) = wait {
+                    let Some(crate::Outcome::Completed(value)) = operation.progress().outcome
+                    else {
+                        anyhow::bail!("service completed without a result");
+                    };
+                    value
+                } else if let Wait::Menu(operation) = wait {
                     ensure!(
                         operation.progress().outcome == Some(crate::Outcome::Completed(Some(0))),
                         "menu completed without its zero result"

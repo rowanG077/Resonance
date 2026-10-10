@@ -737,6 +737,45 @@ fn field_return_is_prepared_without_consuming_the_fields_pending_operation() -> 
 }
 
 #[test]
+fn restored_play_time_unlocks_overworld_skits_as_exploration_continues() -> Result<()> {
+    const REQUIRED_SECONDS: u64 = 18 * 60 * 60;
+    let mut session = start(definitions(), vec![])?;
+    session
+        .travel
+        .reject_displacement(crate::overworld::Position::from_map([4000., 4000., 0.])?);
+    let mut checkpoint = session.checkpoint()?;
+    checkpoint.played_ticks = (REQUIRED_SECONDS - 1) * 60;
+    let catalog = Arc::new(serde_json::from_value(serde_json::json!({
+        "version": 2, "preview_order": [], "portrait_recipes": [],
+        "skits": [{"id": 788, "title": "Time to talk", "party_mask": 0,
+            "location": "anywhere", "story": null,
+            "condition": {"range": {"value": "played_seconds", "min": REQUIRED_SECONDS}}}]
+    }))?);
+    let mut assets = (*session.assets).clone();
+    assets.resources = Arc::new(ResourceLibrary {
+        session_data: assets.resources.session_data.clone(),
+        fields: assets.resources.fields.clone(),
+        skits: Some(catalog),
+        ..Default::default()
+    });
+    let mut session = Session::restore(Arc::new(assets), checkpoint.clone())?;
+    assert_eq!(session.events.world.played_ticks, checkpoint.played_ticks);
+    for _ in 0..60 * 60 {
+        session.step(Input::default())?;
+        assert_eq!(session.events.world.played_ticks, session.play_time.total());
+        if session.skits.prompt().is_some() {
+            break;
+        }
+    }
+    assert!(session.play_time.total() >= REQUIRED_SECONDS * 60);
+    assert_eq!(session.skits.prompt().map(|prompt| prompt.id), Some(788));
+    let checkpoint = session.checkpoint()?;
+    let restored = Session::restore(session.assets.clone(), checkpoint.clone())?;
+    assert_eq!(restored.events.world.played_ticks, checkpoint.played_ticks);
+    Ok(())
+}
+
+#[test]
 fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
     use resonance_content::skit::{SkitCatalog, SkitResourcePaths};
     let mut session = start(definitions(), vec![])?;
@@ -746,6 +785,7 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
         42, 0x3000, 0x4000, 0x2068, 0, 0x3000, 0x4000, 2, 0x3000, 0x4000, 0x2064, 0x20ff,
     ]);
     let catalog = Arc::new(SkitCatalog {
+        preview_order: Vec::new(),
         version: 2,
         skits: vec![],
         resources: [(
@@ -808,6 +848,8 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
         }
     }
     assert!(session.active_skit.is_none());
+    assert_eq!(session.events.world.played_ticks, session.play_time.total());
+    assert!(session.play_time.total() > 0);
     assert_eq!(session.events.tick(), parent_tick);
     assert_eq!(session.travel.state().position, position);
     assert_eq!(session.events.memory().read(0x40, Width::S32)?, 999);
@@ -893,6 +935,11 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
             })?;
         }
         assert_eq!(movie.cinematic.as_ref().unwrap().camera().position[0], 50.);
+        assert_eq!(
+            movie.events.world.played_ticks,
+            source.play_time.total() + 60
+        );
+        assert_eq!(movie.play_time.total(), movie.events.world.played_ticks);
         assert!(movie.menu.is_none());
         assert!(!movie.player_has_control());
         assert_eq!(

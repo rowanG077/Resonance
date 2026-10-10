@@ -28,6 +28,7 @@ pub(crate) fn prepare(
     let session = crate::session::cook(executable, &catalogues.menu, output)?;
     let text = crate::session::cook_text(executable, &catalogues.menu, output)?;
     let skits = crate::skit::cook(extracted, output)?;
+    crate::all_assets::credits::prepare(output, executable, sources)?;
     let effects = crate::field_effects::cook(extracted, output)?;
     let toon_ramp = crate::field_lighting::cook(extracted, output)?;
     let catalogue = &catalogues.resources;

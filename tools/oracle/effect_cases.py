@@ -37,13 +37,20 @@ MODEL_PROPERTIES = {
     'speed': (442, SPEEDS), 'directed': (443, (0, 1)),
     'blend': (447, (0, 1, 2)), 'gravity_and_fade': (448, (0, 1, 2, 4, 8, 9, 10, 12)),
 }
+SPRITE_CONTROLS = {
+    **{f'velocity_{axis}': (129+i, (-150, 0, 50, 200)) for i, axis in enumerate('xyz')},
+    **{f'spin_{axis}': (132+i, (-300, 0, 300)) for i, axis in enumerate('xyz')},
+    'growth': (135, (-100, 0, 100)),
+    'speed': (136, (0, 50, 100, 200)), 'directed': (137, (0, 1)),
+    **{f'integer_velocity_{axis}': (138+i, (-2, 0, 2)) for i, axis in enumerate('xyz')},
+    'rotation_order': (149, (0, 1, 2, 4, 8, 16)),
+}
 SPRITE_PROPERTIES = {
+    **SPRITE_CONTROLS,
     'width': (123, SIZES), 'height': (124, SIZES),
     **{f'tint_{axis}': (125+i, (32, 64, 128)) for i, axis in enumerate('rgb')},
     'alpha': (128, ALPHAS),
-    **{f'spin_{axis}': (132+i, (-300, 0, 300)) for i, axis in enumerate('xyz')},
-    'growth': (135, (-100, 0, 100)),
-    **{f'rotation_{axis}': (141+i, (0, 4500, 9000)) for i, axis in enumerate('xyz')},
+    **{f'rotation_{axis}': (141+i, (0, 3000, 4500, 6000, 9000)) for i, axis in enumerate('xyz')},
     'orientation': (144, (0, 1)), 'blend': (145, (0, 1, 2, 3)),
     'fade_mode': (146, (8,)), 'anchor': (147, (0, 4, 8)), 'fog': (148, (0, 1)),
 }
@@ -67,6 +74,77 @@ class Emitter:
 # These are oracle inputs, independent of the engine's effect implementation.
 EMITTERS = {kind: definition for kinds, definition in [
     ((0, 1, 2, 3), Emitter([(0, 'size', (24, 40, 60))], phases=((2, 0),), tail=61)),
+    ((4,), Emitter([], phases=((2, 1, 2, 3),), tail=121, depth=6)),
+    ((10, 61), Emitter([(0, 'curvature', (50, 100, 500)), (1, 'size', (30, 60, 100)),
+                (3, 'fade_sixteenths', (-64, -200, -400)), (7, 'launch_x', (100,)),
+                (8, 'launch_y', (-50, 0, 50)), (9, 'launch_z', (0, 50))], speeds=(5, 10, 20), tail=81)),
+    ((40,), Emitter([(0, 'curvature', (50, 100, 500)), (1, 'size', (30, 60, 100)),
+                (3, 'fade_sixteenths', (-64, -200, -400)), (7, 'launch_x', (100,)),
+                (8, 'launch_y', (-50, 0, 50)), (9, 'launch_z', (0, 50))], speeds=(5, 10, 20), tail=81, depth=6)),
+    ((20,), Emitter([], tail=301, depth=6)),
+    ((21,), Emitter([], tail=601, depth=6)),
+    ((25,), Emitter([(0, 'size', (30, 60, 100)), (1, 'palette', PALETTES), (9, 'cleanup', (0, 1))], tail=101)),
+    ((29,), Emitter([(3, 'radius', (50, 100, 150)), (4, 'spread', (10, 20, 30)),
+                (5, 'tilt', (0, 15, 30))], tail=301, depth=6)),
+    ((32,), Emitter([(0, 'palette', PALETTES), (1, 'size', (50, 100, 200))], speeds=(1, 2, 3), tail=61)),
+    ((37,), Emitter([(0, 'curvature', (50, 100, 200)), (1, 'palette', PALETTES),
+                (2, 'size', (30, 60, 100)), (7, 'launch_x', (100,)),
+                (8, 'launch_y', (-50, 0, 50)), (9, 'launch_z', (0, 50))], speeds=(5, 10, 20), tail=61)),
+    ((39,), Emitter([(0, 'palette', PALETTES), (1, 'lifetime', (30, 60, 90)),
+                (2, 'radius', (30, 80, 150))], tail=0, depth=6)),
+    ((41,), Emitter([(0, 'count', (3, 6, 12)), (1, 'lifetime', (30, 60, 90)),
+                (2, 'width', (0, 10, 20)), (3, 'height', (0, 10, 20)), (4, 'height_step', (0, 5, 10)),
+                (5, 'size', (20, 40, 60)), (6, 'size_variation', (1, 5, 10)),
+                (7, 'alpha', (100, 150, 200)), (8, 'alpha_variation', (1, 20, 40))], speeds=(50, 100, 200), tail=0)),
+    ((42,), Emitter([(1, 'size', (60, 100, 150)), (2, 'satellite_size', (8, 16, 24)),
+                (3, 'yaw', (0, 45, 90)), (4, 'tilt', (0, 45, 90))], tail=2)),
+    ((43,), Emitter([(0, 'palette', PALETTES), (1, 'size', (10, 20, 30)),
+                (2, 'size_variation', (1, 5, 10)), (3, 'count', (3, 6, 12)),
+                (4, 'color_group', (1, 2, 4))], speeds=(1, 2, 3), tail=301, depth=6)),
+    ((44,), Emitter([(0, 'palette', PALETTES), (1, 'radius', (30, 60, 100)), (2, 'size', SIZES),
+                (3, 'size_variation', (1, 8, 20)), (4, 'lifetime', (30, 60, 90)),
+                (5, 'speed_variation', (1, 100, 200)), (6, 'alpha', VISIBLE_ALPHAS),
+                (7, 'fade', FADES), (8, 'interval', INTERVALS)], speeds=(50, 100, 200), tail=0)),
+    ((45,), Emitter([(0, 'palette', PALETTES)], tail=301, depth=6)),
+    ((50,), Emitter([(1, 'duration', (15, 30, 60))], tail=61)),
+    ((52,), Emitter([(0, 'lifetime', (10, 15, 20))], tail=301, depth=6)),
+    ((53,), Emitter([], tail=11, refracts=True)),
+    ((56,), Emitter([(0, 'palette', PALETTES), (1, 'size', (30, 60, 100)),
+                (2, 'duration', (15, 30, 60)), (3, 'fade', (-2, -4, -8))], tail=61)),
+    ((57,), Emitter([(0, 'radius', (30, 60, 100)), (1, 'lifetime', (30, 60, 90)),
+                (2, 'size', SIZES), (3, 'size_variation', (1, 8, 20)), (4, 'alpha', VISIBLE_ALPHAS),
+                (5, 'fade', FADES), (6, 'interval', INTERVALS), (7, 'spin', (0, 2, 5))], tail=0)),
+    ((58,), Emitter([(1, 'size', (50, 100, 150)), (3, 'fade', (-5, -10, -20))],
+                speeds=(5, 10, 20), phases=((1,),), tail=87, refracts=True)),
+    ((59,), Emitter([(0, 'palette', PALETTES), (1, 'size', SIZES), (2, 'trail_size', SIZES),
+                (3, 'lifetime', (30, 60, 90)), (4, 'trail_lifetime', (30, 60, 90)),
+                (5, 'alpha', VISIBLE_ALPHAS), (6, 'trail_alpha', VISIBLE_ALPHAS),
+                (7, 'fade_sixteenths', (-16, -32, -64)), (8, 'trail_fade_sixteenths', (0, -16, -32)),
+                (9, 'cleanup', (0, 1))],
+                speeds=(3, 5, 8), phases=((1, 2), (3,), ()), tail=max(VISIBLE_ALPHAS)+1, depth=6)),
+    ((62,), Emitter([(0, 'radius', (30, 60, 100)), (1, 'size', SIZES),
+                (2, 'size_variation', (1, 8, 20))], tail=301, depth=4)),
+    ((64,), Emitter([(0, 'radius', (30, 60, 100)), (1, 'size', SIZES),
+                (2, 'size_variation', (1, 8, 20)), (3, 'interval', INTERVALS),
+                (4, 'interval_variation', (1, 3, 5))], speeds=(1, 2, 3), tail=76)),
+    ((65, 68), Emitter([(0, 'radius', (50, 100, 150)), (1, 'count', (4, 8, 12)), (2, 'size', SIZES),
+                (3, 'size_variation', (1, 8, 20))], speeds=(5, 10, 20), phases=((1, 2),), tail=2, minimum_run=450)),
+    ((67,), Emitter([(0, 'palette', PALETTES), (1, 'size', SIZES), (2, 'size_variation', (1, 8, 20)),
+                (3, 'interval', INTERVALS), (7, 'radius', (30, 60, 100)),
+                (8, 'radius_variation', (1, 10, 20)), (9, 'growth', (100, 200, 300))],
+                speeds=(1, 2, 3), phases=((2,),), tail=201, depth=6)),
+    ((70,), Emitter([(0, 'palette', PALETTES)], phases=((1,),), tail=61, depth=4)),
+    ((71, 72), Emitter([(0, 'palette', PALETTES), (1, 'offset', (-10, 0, 10)), (2, 'lifetime', (0, 30, 60)),
+                (3, 'width', (40, 60, 80)), (4, 'height', (160, 240, 320)), (5, 'alpha', VISIBLE_ALPHAS),
+                (6, 'fade', FADES), (7, 'growth', (1, 3, 5)), (8, 'rate', (1, 3, 5))], tail=0, depth=4)),
+    ((73,), Emitter([(0, 'palette', PALETTES), (1, 'radius', (30, 60, 100)), (2, 'size', SIZES),
+                (3, 'size_variation', (1, 8, 20)), (4, 'fog', (0, 1)), (5, 'speed_variation', (1, 100, 200)),
+                (6, 'alpha', VISIBLE_ALPHAS), (7, 'fade', (0, -1, -2)), (8, 'interval', INTERVALS)],
+                speeds=(50, 100, 200), tail=301, depth=6)),
+    ((74,), Emitter([(0, 'count', (3, 6, 12)), (1, 'lifetime', (30, 60, 90)),
+                (2, 'lifetime_variation', (1, 5, 10)), (3, 'size', (30, 60, 100)),
+                (4, 'size_variation', (1, 8, 20)), (5, 'speed_variation', (1, 100, 200)),
+                (6, 'growth_variation', (1, 100, 200))], speeds=(50, 100, 200), tail=301, depth=4)),
     ((9, 75), Emitter([(0, 'palette', PALETTES + EMPTY_PALETTES), (1, 'radius', (0, 15, 30)),
                (2, 'lifetime', LIFETIMES), (3, 'interval', (3, 6, 12)),
                (4, 'angular_spacing', (30, 60, 120)), (5, 'size', SIZES),
@@ -148,7 +226,9 @@ EMITTERS = {kind: definition for kinds, definition in [
 def properties(effect):
     kind = effect['kind']
     if kind == 'sprite':
-        return ({'growth': SPRITE_PROPERTIES['growth']} if effect['variant'] in (27, 28)
+        return ({name: control for name, control in SPRITE_PROPERTIES.items()
+                 if name in SPRITE_CONTROLS or name.startswith('rotation_')}
+                if effect['variant'] in (27, 28)
                 else SPRITE_PROPERTIES)
     return MODEL_PROPERTIES if kind == 'model' else ACTOR_PROPERTIES
 
@@ -165,12 +245,17 @@ def domains(effect):
 
 # Complete effect inputs are the unit of composition and shrinking. Numeric
 # command slots are confined to this compiler, shared by the two test runners.
-SPRITES = (0, 1, 2, 4, 5, 6, 7, 8, 10, 14, 23, 25, 27, 28, 40, 41, 42, 43, 49, 52, 53, 54, 69)
+SPRITES = (0, 1, 2, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 18, 21, 22, 23, 25, 27, 28,
+           40, 41, 42, 43, 49, 52, 53, 54, 69, 70, 74, 80, 501, 502, 503, 504, 505)
+RESOURCE_EMITTERS = (40, 47, 50, 66, 70)
 FIELD_TYPES = ([('sprite', n) for n in SPRITES] + [('model', n) for n in range(3)]
-               + [('emitter', n) for n in EMITTERS if n not in (47, 66)]
+               + [('emitter', n) for n in EMITTERS if n not in RESOURCE_EMITTERS]
                + [('emote', n) for n in range(20)])
 EMPTY_TAIL_UPDATES = 6
-CLEANUP_CASES = ('emitter-38-cleanup-0-to-1', 'emitter-38-cleanup-1-to-0')
+CLEANUP_CASES = {f'emitter-{variant}-phase-{phase}-cleanup-{before}-to-{1-before}': (variant, phase, before)
+                 for variant, phase in [(38, 2), (59, 0), (59, 1), (59, 2)] for before in (0, 1)}
+SPRITE_CONTROL_CASES = {f'sprite-{variant}-{name}': (variant, name)
+                        for variant in (0, 25, 27) for name in SPRITE_CONTROLS}
 FAR_CLIP_DISTANCE = 40000
 BACKDROP_SEPARATION = 2
 
@@ -239,8 +324,11 @@ def effect(kind, variant, camera, rng, index=0, actor=None, *, baseline=False):
                 parameters[name] = max(values)
             else:
                 parameters[name] = rng.choice(values)
-        if variant in (18, 19, 36, 46, 47, 51, 66):
+        if variant in (10, 18, 19, 29, 32, 36, 37, 40, 46, 47, 50, 51, 56, 58, 61, 65, 66, 67, 68):
             parameters['target'] = [position[0]+rng.randint(50, 150), *position[1:]]
+        if variant in (65, 68):
+            # A vertical launch degenerates the expanding orbit's horizontal basis.
+            parameters['direction_target'] = [position[0]+100, position[1], position[2]+200]
         speed = rng.choice(EMITTERS[variant].speeds)
         changes = []
         # Travelling motes can finish quickly; exercise restart during flight.
@@ -259,12 +347,22 @@ def effect(kind, variant, camera, rng, index=0, actor=None, *, baseline=False):
             name, values = rng.choice(list(fields.items()))
             changes.append([rng.randint(change, removal-1),
                             {name: rng.choice(visual_values(variant, name, values))}])
-        if not baseline and 'target' in parameters and rng.choice((False, True)):
+        if not baseline and 'target' in parameters and variant != 67 and rng.choice((False, True)):
             # Moving bursts accept per-update displacement after launch.
-            motion = ({'velocity': [rng.randint(0, 4), 0, 0]} if variant in (19, 46, 47, 51) else
-                      {'target': [position[0]+rng.randint(50, 150), *position[1:]]})
-            changes.append([birth + rng.randint(1, 8),
-                            motion])
+            if variant in (19, 32, 46, 47, 50, 51, 58):
+                motion = {'velocity': [rng.randint(0, 4), 0, 0]}
+            else:
+                target = parameters['target'].copy()
+                offset = rng.randint(50, 150)
+                # Constructors accept signed coordinates; later target edits are unsigned.
+                axis = next((i for i, v in enumerate(target) if 0 <= v <= 0xffff-offset), None)
+                motion = {}
+                if axis is not None:
+                    target[axis] += offset
+                    motion = {'target': target}
+            at = birth + rng.randint(1, 8)
+            if motion:
+                changes.append([at, motion])
         if variant == 18:
             # A restart after the first update still needs an outward and return
             # step. Shorter flights divide by zero in the source simulation.
@@ -282,8 +380,10 @@ def effect(kind, variant, camera, rng, index=0, actor=None, *, baseline=False):
             # Distortion must cross a checker edge to be observable.
             position = [round(v) for v in plane(camera, 280, 200, 2)[0]]
         velocity = [rng.choice(VELOCITIES) for _ in range(3)]
-        speed = rng.choice(SPEEDS) if variant not in (4, 25) else 0
+        speed = rng.choice(SPEEDS) if sprite_directed(variant) else 0
         size = round(rng.choice(REFRACTION_PIXELS if refracts else SPRITE_PIXELS) * units)
+        if variant == 22:
+            size *= 3  # The halo's thin artwork needs enough visible pixels to compare.
         parameters = dict(lifetime=lifetime, velocity=velocity, speed=speed, size=size,
                           alpha=rng.choice(VISIBLE_ALPHAS), fade=rng.choice(FADES), palette=rng.choice(PALETTES))
     elif kind == 'model':
@@ -305,7 +405,12 @@ def effect(kind, variant, camera, rng, index=0, actor=None, *, baseline=False):
                   parameters=parameters, changes=[])
     if not baseline and kind in ('sprite', 'model'):
         name, (_, values) = rng.choice(list(properties(result).items()))
-        result['changes'].append([rng.randint(birth+1, last_particle_edit(result)), {name: rng.choice(values)}])
+        changes = {name: rng.choice(values)}
+        if name == 'rotation_order':
+            # An order change only matters when multiple axes are rotated.
+            changes.update({f'rotation_{axis}': rng.choice((3000, 4500, 6000))
+                            for axis in 'xyz'})
+        result['changes'].append([rng.randint(birth+1, last_particle_edit(result)), changes])
     return result
 
 
@@ -315,7 +420,7 @@ def composed_case(name, effects, seed):
 
 def frame_ascent(case, camera):
     """Watch ascending discs from below so their flight stays inside the stage."""
-    if not any(e['kind'] == 'emitter' and e['variant'] == 23 for e in case['effects']):
+    if not any(e['kind'] == 'emitter' and e['variant'] in (21, 23) for e in case['effects']):
         return case
     def basis(view):
         eye, target = (np.asarray(view[k], dtype=float) for k in ('position', 'target'))
@@ -339,8 +444,9 @@ def frame_ascent(case, camera):
         e['position'] = [round(v) for v in new_eye + new_axes @ axes.T @ (before-eye)]
         offset = np.asarray(e['position'])-before
         for values in [e['parameters']] + [values for _, values in e['changes']]:
-            if 'target' in values:
-                values['target'] = [round(v) for v in np.asarray(values['target'])+offset]
+            for name in ('target', 'direction_target'):
+                if name in values:
+                    values[name] = [round(v) for v in np.asarray(values[name])+offset]
     case['camera'] = view
     return case
 
@@ -349,14 +455,26 @@ def effect_setup(effect):
     kind, variant = effect['kind'], effect['variant']
     if kind == 'ring':
         return ring_setup(effect)
-    if kind == 'model':
+    if kind == 'model' or (kind == 'emitter' and variant == 50):
         return [[0x98, [68610]], [0x64, [1, None]], ['copy', [effect['handle']+0x40, 0x20]]]
     if kind == 'actor':
         # Keep the model handle until this actor's birth, even when other layers load resources.
         return [[0x98, [variant]], [0x64, [1, None]], ['copy', [0x1e00, 0x20]]]
-    if (kind == 'emitter' and variant in (47, 66)) or (kind == 'sprite' and 32 <= variant < 40):
-        return [[0x98, [68611]], [0x64, [1, None]], [0xd2, [variant-32 if kind == 'sprite' else 0, None, 0]]]
+    if (kind == 'emitter' and variant in (40, 47, 66, 70)) or (kind == 'sprite' and 32 <= variant < 40):
+        bindings = [(variant-32 if kind == 'sprite' else 0, 68611)]
+        if variant == 70:
+            bindings.append((1, 68614))
+        return [command for slot, resource in bindings for command in
+                [[0x98, [resource]], [0x64, [1, None]], [0xd2, [slot, None, 0]]]]
     return []
+
+
+def sprite_directed(variant):
+    return variant not in (4, 21, 22, 25, 70) and not 501 <= variant <= 505
+
+
+def emitter_vector_slot(variant, name):
+    return 7 if name == 'target' and variant in (29, 65, 68) else 4
 
 
 def effect_events(effect):
@@ -367,17 +485,18 @@ def effect_events(effect):
         definition = EMITTERS[variant]
         parameters = [0]*10
         for name, value in p.items():
-            if name == 'target':
-                parameters[4:7] = value
+            if name in ('target', 'direction_target'):
+                slot = emitter_vector_slot(variant, name)
+                parameters[slot:slot+3] = value
             else:
                 parameters[definition.slots[name]] = value
         speed = effect['speed']
-        yield [birth, 0xbf, [handle, *effect['position'], 0, variant, 0, speed, *parameters]]
-        yield [birth, 0xb2, [handle, 0]]
+        resource = {'variable': handle+0x40} if variant == 50 else 0
+        yield [birth, 0xbf, [handle, *effect['position'], resource, variant, 0, speed, *parameters]]
         yield [birth, 0x1d, [handle, 34, 3]]
         yield [birth, 0x1d, [handle, 5, speed]]
     elif kind in ('sprite', 'model'):
-        directed = kind == 'sprite' and variant not in (4, 25)
+        directed = kind == 'sprite' and sprite_directed(variant)
         args = [variant if kind == 'sprite' else {'variable': handle+0x40}, p['lifetime'],
                 *effect['position'], *p['velocity' if kind == 'sprite' else 'rotation']]
         args += [p['speed']] if directed else []
@@ -410,12 +529,17 @@ def effect_events(effect):
             yield [birth+70, 0x19, [1, 4000, 0, 0]]
     else:
         raise ValueError(f'unknown effect kind {kind}')
-    for tick, changes in effect['changes']:
+    target = p.get('target')
+    for tick, changes in sorted(effect['changes'], key=lambda row: row[0]):
         for name, value in changes.items():
             if kind == 'emitter':
-                if name in ('target', 'velocity'):
+                if name in ('target', 'velocity', 'direction_target'):
                     for axis, coordinate in enumerate(value):
-                        yield [tick, 0x1d, [handle, 117+axis, coordinate]]
+                        if name == 'target' and target is not None and coordinate == target[axis]:
+                            continue
+                        yield [tick, 0x1d, [handle, 113+emitter_vector_slot(variant, name)+axis, coordinate]]
+                    if name == 'target':
+                        target = value
                 else:
                     property = 33 if name == 'phase' else 5 if name == 'movement_speed' else 113+definition.slots[name]
                     yield [tick, 0x1d, [handle, property, value]]
@@ -495,12 +619,20 @@ def cases(camera, family='field'):
         for kind, variant in FIELD_TYPES:
             name = f'{kind}-{variant}'
             yield frame_ascent(composed_case(name, [effect(kind, variant, camera, random.Random(name), baseline=True)], 1), camera)
-        for before, name in enumerate(CLEANUP_CASES):
-            subject = effect('emitter', 38, camera, random.Random(name), baseline=True)
+        for name, (variant, control) in SPRITE_CONTROL_CASES.items():
+            subject = effect('sprite', variant, camera, random.Random(name), baseline=True)
+            subject['parameters'].update(lifetime=60, alpha=200, fade=0, velocity=[2, -1, 1], speed=100)
+            subject['changes'] = [[subject['birth'] + 6*(i+1), {control: value}]
+                                  for i, value in enumerate(SPRITE_CONTROLS[control][1])]
+            if control == 'rotation_order':
+                subject['changes'].insert(0, [subject['birth'],
+                                             dict(rotation_x=3000, rotation_y=4500, rotation_z=6000)])
+            yield composed_case(name, [subject], 1)
+        for name, (variant, phase, before) in CLEANUP_CASES.items():
+            subject = effect('emitter', variant, camera, random.Random(name), baseline=True)
             subject['parameters']['cleanup'] = before
-            subject['changes'] = [[tick, values] for tick, values in subject['changes'] if 'cleanup' not in values]
-            release = next(tick for tick, values in subject['changes'] if values.get('phase') == 2)
-            subject['changes'].append([release+1, {'cleanup': 1-before}])
+            subject['changes'] = [[subject['birth'], {'phase': phase}],
+                                  [subject['removal']-1, {'cleanup': 1-before}]]
             yield composed_case(name, [subject], 1)
     else:
         raise ValueError(f'unknown effect family {family}')
@@ -532,9 +664,11 @@ TOWER_MODELS = [('colette-wings', 90021, 131428, 535),
 
 def case_names(family):
     if family == 'field':
-        return [f'{kind}-{variant}' for kind, variant in FIELD_TYPES] + list(CLEANUP_CASES)
+        return [f'{kind}-{variant}' for kind, variant in FIELD_TYPES] + list(SPRITE_CONTROL_CASES) + list(CLEANUP_CASES)
     if family == 'tower':
-        return [f'bound-sprite-{slot}' for slot in range(8)] + ['emitter-47', 'renegade-shot'] + [row[0] for row in TOWER_MODELS]
+        return ([f'bound-sprite-{slot}' for slot in range(8)]
+                + [f'emitter-{n}' for n in RESOURCE_EMITTERS if n != 66]
+                + ['renegade-shot'] + [row[0] for row in TOWER_MODELS])
     if family == 'rings':
         return [f'ring-{name}-{variant}' for mode, name in enumerate(RING_NAMES, 1) for variant in ring_variants(mode)]
     if family == 'stations':
@@ -585,7 +719,13 @@ def ring_cases(camera):
 
 def tower_cases(camera):
     rng = random.Random(0)
-    yield composed_case('emitter-47', [effect('emitter', 47, camera, random.Random('emitter-47'), baseline=True)], 1)
+    for variant in RESOURCE_EMITTERS:
+        if variant != 66:
+            name = f'emitter-{variant}'
+            case = composed_case(name, [effect('emitter', variant, camera, random.Random(name), baseline=True)], 1)
+            if variant == 70:
+                case['map'] = 58  # This field supplies both cylinder textures.
+            yield case
     for slot in range(8):
         yield composed_case(f'bound-sprite-{slot}', [effect('sprite', 32+slot, camera, rng)], 1)
     center = [round(value) for value in plane(camera, 320, 240, 1)[0]]

@@ -19,7 +19,7 @@ impl Party {
         }
         let result_count = u16::from(self.items.get(&recipe.result).copied().unwrap_or(0))
             - required.get(&recipe.result).copied().unwrap_or(0);
-        if result_count >= u16::from(data.items[usize::from(recipe.result)].stack_limit) {
+        if result_count >= u16::from(self.item_limit(&data.items[usize::from(recipe.result)])) {
             return Err(CraftError::InventoryFull);
         }
         Ok(())

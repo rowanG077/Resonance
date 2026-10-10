@@ -1,5 +1,5 @@
 //! Translate scenario constructors and properties into the live effect settings.
-use super::{Emitter, Kind, PHASE_PROPERTY, stream};
+use super::{Emitter, Kind, PHASE_PROPERTY, ProjectileColor, stream};
 use crate::effect::{BILLBOARD_LIMIT, BillboardEffect, Fade, SpriteOrientation};
 
 macro_rules! setting {
@@ -17,11 +17,26 @@ macro_rules! setting {
 }
 
 impl Emitter {
-    pub fn from_native(a: &[i32], impact_texture: Option<(u32, u8)>) -> Result<Self, String> {
+    pub fn from_native(a: &[i32], assets: super::Assets) -> Result<Self, String> {
         if a.len() != 18 {
             return Err("invalid emitter arguments".into());
         }
+        let impact_texture = assets.textures[0];
         let kind = match a[5] {
+            74 => Kind::SoftBurst(Default::default()),
+            4 => Kind::Awakening { size: 0. },
+            67 => Kind::ChargedRay(Default::default()),
+            70 => Kind::Cylinder(super::planes::Cylinder {
+                palette: 0,
+                textures: [
+                    assets.textures[0].ok_or("cylinder texture 0 is not bound")?,
+                    assets.textures[1].ok_or("cylinder texture 1 is not bound")?,
+                ],
+            }),
+            71 | 72 => Kind::Sheet(super::planes::Sheet {
+                burst: a[5] == 72,
+                ..Default::default()
+            }),
             11 => Kind::Gathering {
                 delay: 0,
                 state: Default::default(),
@@ -38,7 +53,9 @@ impl Emitter {
                 size: 0.,
                 smoke: a[5] != 0,
             },
-            9 | 17 | 24 | 36 | 44 | 54 | 75 => Kind::Stream(stream::Stream::new(a[5])),
+            9 | 17 | 20 | 21 | 24 | 25 | 36 | 39 | 41 | 44 | 54 | 57 | 62 | 64 | 75 => {
+                Kind::Stream(stream::Stream::new(a[5]))
+            }
             12 => Kind::Glow {
                 angle: 0.,
                 palette: 0,
@@ -46,12 +63,29 @@ impl Emitter {
                 retire_with_emitter: false,
             },
             13 => Kind::Scatter(Default::default()),
+            59 => Kind::Cloud(Default::default()),
+            65 | 68 => Kind::Orbiting(super::orbiting::Orbiting {
+                expanding: a[5] == 68,
+                ..Default::default()
+            }),
             14 => Kind::Portal {
                 palette: 0,
                 size: 0.,
             },
-            15 | 30 => Kind::RisingOrbs(super::rays::RisingOrbs {
-                drifting: a[5] == 30,
+            15 | 30 | 73 => Kind::RisingOrbs(super::rays::RisingOrbs {
+                drifting: a[5] != 15,
+                alpha: 255,
+                fade: -1.,
+                field_fog: true,
+                destination: if a[5] == 73 {
+                    Some(
+                        assets
+                            .rising_light_destination
+                            .ok_or("light destination is not cooked")?,
+                    )
+                } else {
+                    None
+                },
                 ..Default::default()
             }),
             16 => Kind::Crown {
@@ -91,7 +125,20 @@ impl Emitter {
                 },
                 radius: 0.,
             },
+            32 => Kind::Ray {
+                palette: 0,
+                size: 0.,
+                target: [0.; 3],
+                velocity: None,
+            },
             34 => Kind::Bloom(Default::default()),
+            42 => Kind::TwinGlow {
+                size: 0,
+                satellite_size: 0,
+                angles: [0.; 2],
+            },
+            43 => Kind::Explosion(Default::default()),
+            45 => Kind::RadialSpray { palette: 0 },
             38 => Kind::Inward {
                 palette: 0,
                 radius: 0,
@@ -113,18 +160,57 @@ impl Emitter {
                 offset: 0.,
                 interval: 1,
             },
+            50 => Kind::ModelTrail {
+                remaining: 1,
+                target: [0.; 3],
+                velocity: None,
+            },
+            58 => Kind::ChargedTrail {
+                size: 0.,
+                fade: 0.,
+                target: [0.; 3],
+                flight: None,
+            },
+            52 | 53 => Kind::Flash {
+                sparks: a[5] == 52,
+                lifetime: 11,
+            },
+            56 => Kind::LinearTrail {
+                sprite: BillboardEffect {
+                    size_delta: -0.75,
+                    fade: Fade::Linear(0.),
+                    ..super::particle([0.; 3], 0, 0, 61)
+                },
+                remaining: 1,
+                target: [0.; 3],
+                velocity: None,
+            },
             60 => Kind::Cardinal {
                 angle: 0.,
                 count: 0,
             },
-            66 => Kind::Projectile {
+            10 | 37 | 40 | 61 | 66 => Kind::Projectile {
+                completed_phase: match a[5] {
+                    37 => None,
+                    66 => Some(3),
+                    _ => Some(2),
+                },
+                color: match a[5] {
+                    40 => ProjectileColor::White,
+                    10 => ProjectileColor::Violet,
+                    37 => ProjectileColor::Selected(0),
+                    _ => ProjectileColor::Changing { fade: 0. },
+                },
                 path: None,
                 launch: [0.; 3],
                 curvature: 0,
                 size: 0.,
-                fade: 0.,
                 target: [0.; 3],
-                texture: impact_texture,
+                texture: match a[5] {
+                    40 => Some(impact_texture.ok_or("projectile impact texture is not bound")?),
+                    66 => impact_texture,
+                    _ => None,
+                },
             },
             kind => return Err(format!("unsupported emitter {kind}")),
         };
@@ -142,6 +228,12 @@ impl Emitter {
     pub fn property(&mut self, property: i32, value: Option<i32>) -> Result<i32, String> {
         if property == PHASE_PROPERTY {
             let previous = match &mut self.kind {
+                Kind::Awakening { size } => {
+                    if value == Some(1) {
+                        *size = 0.;
+                    }
+                    setting!(self.phase, value, |v| bounded(v, 0, 4))
+                }
                 Kind::Mote(mote) => {
                     let previous = i32::from(mote.script_phase);
                     if let Some(value) = value {
@@ -223,11 +315,15 @@ impl Emitter {
                 self.age = 0;
                 if value == 0 {
                     match &mut self.kind {
-                        Kind::Travel { flight, .. } => *flight = None,
-                        Kind::Projectile { path, .. } => *path = None,
-                        Kind::Charge { velocity, .. } | Kind::Fireball { velocity, .. } => {
-                            *velocity = None
+                        Kind::Travel { flight, .. } | Kind::ChargedTrail { flight, .. } => {
+                            *flight = None
                         }
+                        Kind::Projectile { path, .. } => *path = None,
+                        Kind::Charge { velocity, .. }
+                        | Kind::Fireball { velocity, .. }
+                        | Kind::LinearTrail { velocity, .. }
+                        | Kind::ModelTrail { velocity, .. } => *velocity = None,
+                        Kind::Ray { velocity, .. } => *velocity = None,
                         Kind::Mote(mote) => mote.path = None,
                         Kind::Stream(stream::Stream::Smoke { emitted, .. }) => *emitted = 0,
                         _ => {}
@@ -244,6 +340,124 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
+            Kind::SoftBurst(burst) => match slot {
+                0 => setting!(burst.count, value, count),
+                1 => duration(&mut burst.lifetime, value),
+                2 => setting!(burst.lifetime_variation, value, at_least_one),
+                3 => setting!(burst.size, value),
+                4 => setting!(burst.size_variation, value, at_least_one),
+                5 => setting!(burst.speed_variation, value, at_least_one),
+                6 => setting!(burst.growth_variation, value, at_least_one),
+                _ => Ok(0),
+            },
+            Kind::Awakening { size } => match slot {
+                0 => setting!(*size, value, nonnegative),
+                _ => Ok(0),
+            },
+            Kind::ChargedRay(ray) => match slot {
+                0 => setting!(ray.palette, value, palette_group),
+                1 => setting!(ray.size, value),
+                2 => setting!(ray.variation, value, at_least_one),
+                3 => setting!(ray.interval, value, at_least_one),
+                4..=6 => setting!(ray.direction[slot - 4], value),
+                7 => setting!(ray.radius, value),
+                8 => setting!(ray.radius_variation, value, at_least_one),
+                9 => scaled(&mut ray.growth, value, 100.),
+                _ => Ok(0),
+            },
+            Kind::Cylinder(cylinder) => match slot {
+                0 => setting!(cylinder.palette, value, palette_index),
+                _ => Ok(0),
+            },
+            Kind::Sheet(sheet) => match slot {
+                0 => setting!(sheet.palette, value, palette_index),
+                1 => setting!(sheet.offset, value),
+                2 => duration(&mut sheet.lifetime, value),
+                3..=4 => setting!(sheet.size[slot - 3], value),
+                5 => setting!(sheet.alpha, value, alpha),
+                6 => setting!(sheet.fade, value),
+                7 => setting!(sheet.growth, value),
+                8 => setting!(sheet.rate, value, count),
+                _ => Ok(0),
+            },
+            Kind::RadialSpray { palette: color } => match slot {
+                0 => setting!(*color, value, palette_index),
+                _ => Ok(0),
+            },
+            Kind::Explosion(s) => match slot {
+                0 => setting!(s.palette, value, palette_index),
+                1 => setting!(s.size, value),
+                2 => setting!(s.variation, value, nonnegative),
+                3 => setting!(s.count, value, count),
+                4 => setting!(s.color_group, value),
+                _ => Ok(0),
+            },
+            Kind::TwinGlow {
+                size,
+                satellite_size,
+                angles,
+            } => match slot {
+                1 => setting!(*size, value),
+                2 => setting!(*satellite_size, value),
+                3..=4 => setting!(angles[slot - 3], value),
+                _ => Ok(0),
+            },
+            Kind::Flash { sparks, lifetime } => {
+                if *sparks && slot == 0 {
+                    duration(lifetime, value)
+                } else {
+                    Ok(0)
+                }
+            }
+            Kind::ModelTrail {
+                remaining,
+                target,
+                velocity,
+            } => match slot {
+                1 => setting!(*remaining, value, nonnegative),
+                4..=6 => displacement(target, velocity.as_mut(), slot - 4, value),
+                _ => Ok(0),
+            },
+            Kind::ChargedTrail {
+                size,
+                fade,
+                target,
+                flight,
+            } => match slot {
+                1 => setting!(*size, value),
+                3 => setting!(*fade, value),
+                4..=6 => displacement(
+                    target,
+                    flight.as_mut().map(|f| &mut f.velocity),
+                    slot - 4,
+                    value,
+                ),
+                _ => Ok(0),
+            },
+            Kind::Ray {
+                palette: color,
+                size,
+                target,
+                velocity,
+            } => match slot {
+                0 => setting!(*color, value, palette_index),
+                1 => setting!(*size, value),
+                4..=6 => displacement(target, velocity.as_mut(), slot - 4, value),
+                _ => Ok(0),
+            },
+            Kind::LinearTrail {
+                sprite,
+                remaining,
+                target,
+                ..
+            } => match slot {
+                0 => color(sprite, value, palette_index),
+                1 => diameter(sprite, value),
+                2 => setting!(*remaining, value, nonnegative),
+                3 => linear_fade(sprite, value, 1.),
+                4..=6 => setting!(target[slot - 4], value),
+                _ => Ok(0),
+            },
             Kind::Burst(burst) => match slot {
                 3 => setting!(burst.radius, value),
                 4 => setting!(burst.spread, value, positive),
@@ -347,7 +561,16 @@ impl Emitter {
                 1 => setting!(s.radius, value, nonnegative),
                 2 => setting!(s.size, value),
                 3 => setting!(s.variation, value, at_least_one),
+                4 if s.destination.is_some() => flag(&mut s.field_fog, value),
                 5 => setting!(s.speed_variation, value, at_least_one),
+                6 if s.destination.is_some() => setting!(s.alpha, value, alpha),
+                7 if s.destination.is_some() => {
+                    let previous = s.fade as i32;
+                    if let Some(v) = value {
+                        s.fade = v.wrapping_mul(16) as i16 as f32 / 16.;
+                    }
+                    Ok(previous)
+                }
                 8 => setting!(s.interval, value, at_least_one),
                 9 => {
                     let old = i32::from(!s.preserve_particles);
@@ -443,6 +666,28 @@ impl Emitter {
                 4..=6 => displacement(target, velocity.as_mut(), slot - 4, value),
                 _ => Ok(0),
             },
+            Kind::Cloud(s) => match slot {
+                0 => setting!(s.palette, value, palette_group),
+                1..=2 => setting!(s.size[slot - 1], value),
+                3..=4 => setting!(s.lifetime[slot - 3], value, nonnegative),
+                5..=6 => setting!(s.alpha[slot - 5], value, nonnegative),
+                7..=8 => scaled(
+                    &mut s.fade[slot - 7],
+                    value.map(|v| i32::from(v as i16)),
+                    16.,
+                ),
+                9 => flag(&mut s.cleanup, value),
+                _ => Ok(0),
+            },
+            Kind::Orbiting(s) => match slot {
+                0 => setting!(s.radius, value),
+                1 => setting!(s.count, value, count),
+                2 => setting!(s.size, value),
+                3 => setting!(s.variation, value, nonnegative),
+                4..=6 => setting!(s.direction_target[slot - 4], value),
+                7..=9 => setting!(s.target[slot - 7], value),
+                _ => Ok(0),
+            },
             Kind::Scatter(s) => match slot {
                 0 => setting!(s.palette, value, |v| bounded(
                     v,
@@ -503,16 +748,28 @@ impl Emitter {
                 _ => Ok(0),
             },
             Kind::Projectile {
+                color,
                 curvature,
                 size,
-                fade,
                 target,
                 launch,
                 ..
             } => match slot {
                 0 => setting!(*curvature, value),
+                1 if matches!(color, ProjectileColor::Selected(_)) => {
+                    let ProjectileColor::Selected(color) = color else {
+                        unreachable!()
+                    };
+                    setting!(*color, value, palette_index)
+                }
                 1 => setting!(*size, value, nonnegative),
-                3 => scaled(fade, value, 16.),
+                2 if matches!(color, ProjectileColor::Selected(_)) => {
+                    setting!(*size, value, nonnegative)
+                }
+                3 => match color {
+                    ProjectileColor::Changing { fade } => scaled(fade, value, 16.),
+                    _ => Ok(0),
+                },
                 4..=6 => setting!(target[slot - 4], value),
                 7..=9 => setting!(launch[slot - 7], value),
                 _ => Ok(0),
@@ -561,6 +818,79 @@ impl stream::Stream {
     fn property(&mut self, slot: usize, value: Option<i32>) -> Result<i32, String> {
         use stream::Stream::*;
         match self {
+            PlanarLights {
+                sprite,
+                radius,
+                variation,
+                interval,
+                spin,
+            } => match slot {
+                0 => setting!(*radius, value, nonnegative),
+                1 => lifetime(sprite, value),
+                2 => diameter(sprite, value),
+                3 => setting!(*variation, value, nonnegative),
+                4 => setting!(sprite.rgba[3], value, alpha),
+                5 => {
+                    let old = if let Fade::Linear(fade) = sprite.fade {
+                        fade as i32
+                    } else {
+                        0
+                    };
+                    if let Some(v) = value {
+                        sprite.fade = if v == 0 {
+                            Fade::tail(sprite.lifetime)
+                        } else {
+                            Fade::Linear(v.wrapping_mul(16) as i16 as f32 / 16.)
+                        };
+                    }
+                    Ok(old)
+                }
+                6 => setting!(*interval, value, positive),
+                7 => setting!(*spin, value),
+                _ => Ok(0),
+            },
+            RisingCircle {
+                radius,
+                size,
+                variation,
+                interval,
+                interval_variation,
+            } => match slot {
+                0 => setting!(*radius, value),
+                1 => setting!(*size, value),
+                2 => setting!(*variation, value, nonnegative),
+                3 => setting!(*interval, value, nonnegative),
+                4 => setting!(*interval_variation, value, nonnegative),
+                _ => Ok(0),
+            },
+            Lightning { sprite, radius } => match slot {
+                0 => color(sprite, value, palette_index),
+                1 => lifetime(sprite, value),
+                2 => setting!(*radius, value, nonnegative),
+                _ => Ok(0),
+            },
+            Flame {
+                size,
+                palette: color,
+                tint,
+                cleanup,
+            } => match slot {
+                0 => setting!(*size, value, nonnegative),
+                1 => setting!(*color, value, palette_index),
+                2..=4 => setting!(tint[slot - 2], value),
+                9 => flag(cleanup, value),
+                _ => Ok(0),
+            },
+            Embers {
+                radius,
+                size,
+                variation,
+            } => match slot {
+                0 => setting!(*radius, value, nonnegative),
+                1 => setting!(*size, value),
+                2 => setting!(*variation, value, nonnegative),
+                _ => Ok(0),
+            },
             Splash {
                 sprite,
                 interval,
@@ -655,7 +985,26 @@ impl stream::Stream {
                 9 => linear_fade(sprite, value, 1.),
                 _ => Ok(0),
             },
-            Rain => Ok(0),
+            RisingSmoke {
+                remaining,
+                sprite,
+                radius,
+                height_step,
+                size_variation,
+                alpha_variation,
+                ..
+            } => match slot {
+                0 => setting!(*remaining, value, nonnegative),
+                1 => lifetime(sprite, value),
+                2..=3 => setting!(radius[slot - 2], value, nonnegative),
+                4 => setting!(*height_step, value),
+                5 => diameter(sprite, value),
+                6 => setting!(*size_variation, value, nonnegative),
+                7 => setting!(sprite.rgba[3], value, alpha),
+                8 => setting!(*alpha_variation, value, nonnegative),
+                _ => Ok(0),
+            },
+            Rain | ConvergingShafts | Spiral => Ok(0),
         }
     }
 }
@@ -770,10 +1119,10 @@ mod tests {
             let mut args = [0; 18];
             args[5] = preset;
             args[8] = 33;
-            let mut emitter = Emitter::from_native(&args, None).unwrap();
+            let mut emitter = Emitter::from_native(&args, Default::default()).unwrap();
             for palette in [-1, maximum + 1, i32::MAX] {
                 args[8] = palette;
-                assert!(Emitter::from_native(&args, None).is_err());
+                assert!(Emitter::from_native(&args, Default::default()).is_err());
                 assert!(emitter.property(113, Some(palette)).is_err());
                 assert_eq!(emitter.property(113, None).unwrap(), 33);
             }
@@ -796,7 +1145,7 @@ mod tests {
             }
             let mut world = crate::GameWorld::default();
             for birth in output.items {
-                if let super::super::Birth::Sprite(particle) = birth {
+                if let super::super::Birth::Sprite(particle, _) = birth {
                     world.emit_billboard(particle).unwrap();
                 }
             }
@@ -809,7 +1158,7 @@ mod tests {
             &[
                 500, 0, 0, 0, 0, 31, 0, 0, 33, 20, 60, 1, 10, 20, 20, 255, 0, 0,
             ],
-            None,
+            Default::default(),
         )
         .unwrap();
         let mut actor = crate::Actor::new(0, [0.; 3]);
@@ -833,7 +1182,7 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(actor.position, [0., 0., -48.]);
-        let super::super::Birth::Sprite(particle) = output.items.last().unwrap() else {
+        let super::super::Birth::Sprite(particle, _) = output.items.last().unwrap() else {
             panic!("expected a descending sprite");
         };
         assert_eq!(particle.rgba[3], 128);
@@ -843,7 +1192,7 @@ mod tests {
     fn invalid_count_updates_leave_a_usable_emitter() {
         let mut emitter = Emitter::from_native(
             &[500, 0, 0, 0, 0, 60, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            None,
+            Default::default(),
         )
         .unwrap();
         for count in [-1, 5, i32::MAX] {

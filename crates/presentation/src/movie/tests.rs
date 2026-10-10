@@ -448,7 +448,7 @@ fn new_game_confirm_opens_script_movie_and_preserves_the_field_session() {
                 .world
                 .choices
                 .get(&1)
-                .map(|c| c.selected_line);
+                .map(|c| c.selection.lines().unwrap().selected_line);
             session
                 .field
                 .step(resonance_game::field::FieldInput {

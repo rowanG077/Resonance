@@ -1,11 +1,14 @@
 //! Scene effects share particle births, analytic paths and bounded stage timing.
 mod burst;
+mod cloud;
 mod column;
 mod contract;
 mod fire;
 mod gathering;
 mod mote;
 mod native;
+pub(crate) mod orbiting;
+mod planes;
 mod rays;
 pub(crate) mod scatter;
 mod seal;
@@ -20,6 +23,12 @@ use crate::{
 };
 
 pub(crate) const PHASE_PROPERTY: i32 = 33;
+
+#[derive(Default)]
+pub(crate) struct Assets {
+    pub textures: [Option<(u32, u8)>; 2],
+    pub rising_light_destination: Option<[f32; 3]>,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Emitter {
@@ -48,6 +57,47 @@ enum Kind {
         sprite: BillboardEffect,
         offset: f32,
         interval: u32,
+    },
+    LinearTrail {
+        sprite: BillboardEffect,
+        remaining: i32,
+        target: [f32; 3],
+        velocity: Option<[f32; 3]>,
+    },
+    ModelTrail {
+        remaining: i32,
+        target: [f32; 3],
+        velocity: Option<[f32; 3]>,
+    },
+    ChargedTrail {
+        size: f32,
+        fade: f32,
+        target: [f32; 3],
+        flight: Option<Flight>,
+    },
+    Ray {
+        palette: u16,
+        size: f32,
+        target: [f32; 3],
+        velocity: Option<[f32; 3]>,
+    },
+    Flash {
+        sparks: bool,
+        lifetime: u32,
+    },
+    RadialSpray {
+        palette: u16,
+    },
+    ChargedRay(rays::ChargedRay),
+    Explosion(rays::Explosion),
+    SoftBurst(rays::SoftBurst),
+    Awakening {
+        size: f32,
+    },
+    TwinGlow {
+        size: i32,
+        satellite_size: i32,
+        angles: [f32; 2],
     },
     Shafts(rays::Shafts),
     Convergence(rays::Convergence),
@@ -86,6 +136,10 @@ enum Kind {
         travelling: bool,
     },
     Scatter(scatter::Scatter),
+    Cloud(cloud::Cloud),
+    Orbiting(orbiting::Orbiting),
+    Cylinder(planes::Cylinder),
+    Sheet(planes::Sheet),
     Travel {
         flight: Option<Flight>,
         texture: Option<(u32, u8)>,
@@ -97,11 +151,12 @@ enum Kind {
         afterimages: bool,
     },
     Projectile {
+        completed_phase: Option<u8>,
+        color: ProjectileColor,
         path: Option<mote::Path>,
         launch: [f32; 3],
         curvature: i32,
         size: f32,
-        fade: f32,
         target: [f32; 3],
         texture: Option<(u32, u8)>,
     },
@@ -128,6 +183,14 @@ enum Kind {
 }
 
 #[derive(Debug, Clone)]
+enum ProjectileColor {
+    White,
+    Violet,
+    Selected(u16),
+    Changing { fade: f32 },
+}
+
+#[derive(Debug, Clone)]
 struct Flight {
     velocity: [f32; 3],
     remaining: u32,
@@ -145,6 +208,8 @@ impl Emitter {
         match &self.kind {
             Kind::RisingOrbs(effect) => !effect.preserve_particles,
             Kind::Inward { clear, .. } => *clear == 1,
+            Kind::Stream(stream::Stream::Flame { cleanup, .. }) => *cleanup,
+            Kind::Cloud(cloud) => cloud.cleanup,
             _ => true,
         }
     }
@@ -162,7 +227,227 @@ impl Emitter {
         let phase = &mut self.phase;
         let tick = self.age;
         match &mut self.kind {
+            Kind::SoftBurst(burst) => {
+                crate::world::random(random);
+                if *phase == 0 {
+                    burst.emit(center, born, camera, speed, random, out);
+                    *phase = 1;
+                }
+            }
+            Kind::Awakening { size } => {
+                rays::awakening(phase, size, center, born, clock, random, out);
+            }
+            Kind::ChargedRay(ray) => {
+                ray.emit(phase, (owner, center), born, clock, speed, random, out)?;
+            }
+            Kind::Cylinder(cylinder) => {
+                crate::world::random(random);
+                cylinder.emit(phase, center, born, clock, random, out);
+            }
+            Kind::Sheet(sheet) => {
+                crate::world::random(random);
+                sheet.emit(phase, center, born, clock, camera, out);
+            }
+            Kind::Flash { sparks, lifetime } => {
+                crate::world::random(random);
+                if *phase == 0 {
+                    let mut flash = particle(center, born, 33, *lifetime);
+                    flash.field_fog = false;
+                    flash.size = [100.; 2];
+                    flash.size_delta = 40.;
+                    if *sparks {
+                        flash.fade = Fade::Linear(0.);
+                        out.push(flash.clone());
+                        out.push(flash);
+                        rays::flash_sparks(center, born, camera, random, out);
+                    } else {
+                        flash.rgba = [10, 200, 200, 255];
+                        flash.blend = Some(crate::effect::Blend::Subtractive);
+                        out.push(flash);
+                    }
+                    *phase = 1;
+                }
+            }
+            Kind::LinearTrail {
+                sprite,
+                remaining,
+                target,
+                velocity,
+            } => {
+                crate::world::random(random);
+                if *phase >= 2 {
+                    return Ok(());
+                }
+                let velocity = velocity.get_or_insert_with(|| {
+                    std::array::from_fn(|i| (target[i] - center[i]) / (*remaining).max(1) as f32)
+                });
+                let mut trail = sprite.clone();
+                trail.position = center;
+                trail.born = born;
+                out.push(trail);
+                if *remaining >= 0 {
+                    actor.position = std::array::from_fn(|i| center[i] + velocity[i]);
+                    *remaining -= 1;
+                }
+                *phase = if *remaining < 0 { 2 } else { 1 };
+            }
             Kind::Burst(burst) => burst.emit(center, born, phase, random, out),
+            Kind::RadialSpray { palette } => {
+                rays::spray(center, born, camera, *palette, random, out)
+            }
+            Kind::Explosion(explosion) => {
+                crate::world::random(random);
+                if *phase == 0 {
+                    explosion.emit(center, born, actor, random, out);
+                    *phase = 1;
+                }
+            }
+            Kind::TwinGlow {
+                size,
+                satellite_size,
+                angles,
+            } => {
+                crate::world::random(random);
+                let mut core = particle(center, born, 50, 2);
+                core.owner = Some(owner);
+                core.field_fog = false;
+                core.size = [*size as f32; 2];
+                core.rgba[3] = 100;
+                core.fade = Fade::Linear(0.);
+                out.push(core);
+                if *phase == 0 {
+                    for (color, radial, sign) in [(35, [1., 0., 0.], 1.), (34, [0., 1., 0.], -1.)] {
+                        let radial = rotated(
+                            rotated(radial, [0., 0., 1.], angles[0] * sign),
+                            [0., 1., 0.],
+                            angles[1] * sign,
+                        );
+                        let position =
+                            std::array::from_fn(|i| center[i] + radial[i] * (*size / 5) as f32);
+                        let mut glow = particle(position, born, color, 61);
+                        glow.owner = Some(owner);
+                        glow.field_fog = false;
+                        glow.size = [if *satellite_size == 0 {
+                            *size / 10
+                        } else {
+                            *satellite_size
+                        } as f32; 2];
+                        glow.rgba[3] = 160;
+                        glow.fade = Fade::Linear(-4.);
+                        out.push(glow);
+                    }
+                    angles[0] += 5.;
+                    angles[1] += (crate::world::random(random) % 2) as f32;
+                }
+            }
+            Kind::Ray {
+                palette,
+                size,
+                target,
+                velocity,
+            } => {
+                crate::world::random(random);
+                let velocity = velocity.get_or_insert_with(|| {
+                    normalized(std::array::from_fn(|i| target[i] - center[i])).map(|v| v * speed)
+                });
+                let mut glow = particle(center, born, *palette, 61);
+                glow.field_fog = false;
+                glow.size = [*size; 2];
+                glow.size_delta = -0.75;
+                glow.fade = Fade::Linear(-10.);
+                glow.blend = Some(crate::effect::Blend::Additive);
+                out.push(glow.clone());
+                glow.recipe = crate::effect::ELECTRIC_ARC_SPRITE;
+                glow.size = [*size * 0.75; 2];
+                glow.position =
+                    center.map(|v| v + 15. - (crate::world::random(random) % 30) as f32);
+                glow.angular_velocity[2] = if crate::world::random(random).is_multiple_of(2) {
+                    -100.
+                } else {
+                    100.
+                };
+                out.push(glow);
+                actor.position = std::array::from_fn(|i| center[i] + velocity[i]);
+                *phase = 1;
+            }
+            Kind::Cloud(cloud) => {
+                cloud.emit((owner, center), born, clock, *phase, actor, random, out)
+            }
+            Kind::Orbiting(orbiting) => {
+                orbiting.emit((owner, center), actor, phase, born, clock, random, out)?
+            }
+            Kind::ModelTrail {
+                remaining,
+                target,
+                velocity,
+            } => {
+                crate::world::random(random);
+                let velocity = velocity.get_or_insert_with(|| {
+                    std::array::from_fn(|i| (target[i] - center[i]) / (*remaining).max(1) as f32)
+                });
+                if *remaining >= 0 {
+                    actor.position = std::array::from_fn(|i| center[i] + velocity[i]);
+                    *remaining -= 1;
+                }
+                if *phase < 2 {
+                    out.push_model(crate::model_particle::ModelParticle::streak(
+                        actor.resource,
+                        actor.position,
+                        velocity[1].atan2(velocity[0]).to_degrees(),
+                    ));
+                    *phase = if *remaining <= 0 { 2 } else { 1 };
+                }
+            }
+            Kind::ChargedTrail {
+                size,
+                fade,
+                target,
+                flight,
+            } => {
+                crate::world::random(random);
+                if *phase == 0 {
+                    let mut glow = particle(center, born, palette(108, random), 87);
+                    glow.size = [(10 + crate::world::random(random) % 10) as f32; 2];
+                    glow.angular_velocity[2] = if crate::world::random(random).is_multiple_of(2) {
+                        -3.
+                    } else {
+                        3.
+                    };
+                    glow.blend = Some(crate::effect::Blend::Subtractive);
+                    let mut direction = [1.; 3];
+                    for axis in [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]] {
+                        direction =
+                            rotated(direction, axis, (crate::world::random(random) % 360) as f32);
+                    }
+                    glow.position = std::array::from_fn(|i| center[i] + direction[i] * 100.);
+                    glow.velocity = normalized(direction).map(|v| -v * 2.);
+                    out.push(glow);
+                } else if *phase < 3 {
+                    if speed <= 0. {
+                        return Err("charged trail needs positive flight speed".into());
+                    }
+                    let flight = flight.get_or_insert_with(|| {
+                        let delta = std::array::from_fn(|i| target[i] - center[i]);
+                        Flight {
+                            velocity: normalized(delta).map(|v| v * speed),
+                            remaining: (delta.iter().map(|v| v * v).sum::<f32>().sqrt() / speed)
+                                as u32,
+                            heading: 0.,
+                        }
+                    });
+                    let mut glow = particle(center, born, palette(108, random), 61);
+                    glow.size = [*size; 2];
+                    glow.fade = Fade::Linear(*fade);
+                    glow.size_delta = -10.;
+                    glow.blend = Some(crate::effect::Blend::Subtractive);
+                    out.push(glow);
+                    *phase = if flight.remaining == 0 { 3 } else { 2 };
+                    if flight.remaining > 0 {
+                        actor.position = std::array::from_fn(|i| center[i] + flight.velocity[i]);
+                        flight.remaining -= 1;
+                    }
+                }
+            }
             Kind::Mote(mote) => return mote.emit(actor, born, random, out),
             Kind::Gathering { state, .. } => {
                 state.emit(center, born, clock, random, out);
@@ -185,17 +470,19 @@ impl Emitter {
                 fire::emit(center, born, clock, *size, *smoke, random, out);
             }
             Kind::Projectile {
+                completed_phase,
+                color,
                 path,
                 launch,
                 curvature,
                 size,
-                fade,
                 target,
                 texture,
                 ..
             } => {
                 crate::world::random(random);
-                if *phase >= 3 {
+                let through = matches!(color, ProjectileColor::White);
+                if !through && completed_phase.is_some_and(|done| *phase >= done) {
                     return Ok(());
                 }
                 if speed <= 0. {
@@ -204,14 +491,25 @@ impl Emitter {
                 let path = path.get_or_insert_with(|| {
                     mote::Path::new(center, *target, *launch, speed, *curvature)
                 });
+                let emitting = !path.arrived();
                 actor.position = path.advance();
-                let mut trail = particle(actor.position, born, palette(108, random), 61);
-                trail.field_fog = false;
-                trail.size = [*size; 2];
-                trail.fade = Fade::Linear(*fade);
-                out.push(trail);
+                if emitting {
+                    let (color, fade) = match color {
+                        ProjectileColor::White => (33, -10.),
+                        ProjectileColor::Violet => (65, -10.),
+                        ProjectileColor::Selected(color) => (*color, -10.),
+                        ProjectileColor::Changing { fade } => (palette(108, random), *fade),
+                    };
+                    let mut trail = particle(actor.position, born, color, 61);
+                    trail.field_fog = false;
+                    trail.size = [*size; 2];
+                    trail.fade = Fade::Linear(fade);
+                    out.push(trail);
+                }
                 if path.arrived() {
-                    if let Some(texture) = texture {
+                    if through && emitting {
+                        rays::impact_spheres(actor.position, born, texture.unwrap(), random, out);
+                    } else if !through && let Some(texture) = texture {
                         out.push(arrival_flash(
                             actor.position,
                             born,
@@ -219,7 +517,7 @@ impl Emitter {
                             *texture,
                         ));
                     }
-                    *phase = 3;
+                    *phase = completed_phase.unwrap_or(1);
                 } else {
                     *phase = 1;
                 }
@@ -295,7 +593,17 @@ impl Emitter {
             }
             Kind::Rising(lights) => lights.emit(center, born, clock, camera, random, out),
             Kind::RisingOrbs(orbs) => {
-                orbs.emit(center, born, clock, (owner, actor), random, out);
+                if let Some(target) = orbs.destination
+                    && *phase != 0
+                {
+                    crate::world::random(random);
+                    if *phase == 1 {
+                        out.release = Some(Release::Toward(owner, target));
+                        *phase = 2;
+                    }
+                } else {
+                    orbs.emit(center, born, clock, (owner, actor), random, out);
+                }
             }
             Kind::Aura {
                 palette, offset, ..
@@ -322,7 +630,7 @@ impl Emitter {
                 }
             }
             Kind::Stream(stream) => {
-                stream.particles(center, actor, born, clock, random, out);
+                stream.particles((owner, center), actor, born, clock, random, out);
             }
             Kind::TwinTrail { sprite, radius, .. } => {
                 crate::world::random(random);
@@ -696,8 +1004,11 @@ impl Emitter {
                             orientation: SpriteOrientation::World,
                             angular_velocity: [0.; 3],
                             rotation: [0., 0., 90.],
+                            rotation_order: Default::default(),
                             position: [center[0], center[1], center[2] + 4.],
                             velocity: [0.; 3],
+                            speed: 0.,
+                            normalize_velocity: false,
                             born,
                             lifetime: 41,
                             size: 30.,
@@ -722,7 +1033,7 @@ impl Emitter {
 }
 
 enum Birth {
-    Sprite(BillboardEffect),
+    Sprite(BillboardEffect, [Option<u8>; 3]),
     Model(crate::model_particle::ModelParticle),
     Refraction(RefractionPulse),
 }
@@ -731,10 +1042,19 @@ enum Birth {
 struct Births {
     items: Vec<Birth>,
     shake: Option<f32>,
+    release: Option<Release>,
+}
+#[derive(Clone, Copy)]
+enum Release {
+    Guided(i32),
+    Toward(i32, [f32; 3]),
 }
 impl Births {
     fn push(&mut self, sprite: BillboardEffect) {
-        self.items.push(Birth::Sprite(sprite));
+        self.items.push(Birth::Sprite(sprite, [None; 3]));
+    }
+    fn push_tinted(&mut self, sprite: BillboardEffect, tint: [Option<u8>; 3]) {
+        self.items.push(Birth::Sprite(sprite, tint));
     }
     fn push_model(&mut self, model: crate::model_particle::ModelParticle) {
         self.items.push(Birth::Model(model));
@@ -784,8 +1104,14 @@ impl GameWorld {
         let direction = normalized([camera[0], camera[1], 0.]);
         for birth in output.items {
             match birth {
-                Birth::Sprite(mut p) => {
+                Birth::Sprite(mut p, tint) => {
                     match &p.controller {
+                        Some(BillboardController::Stretch(growth)) => {
+                            for (size, growth) in p.size.iter_mut().zip(growth) {
+                                *size += *growth;
+                            }
+                            p.step();
+                        }
                         Some(BillboardController::Orbit(orbit)) => p.position = orbit.position(0),
                         Some(BillboardController::CameraOffset {
                             center, distance, ..
@@ -795,13 +1121,55 @@ impl GameWorld {
                         }
                         _ => {}
                     }
-                    self.emit_billboard(p)?;
+                    let id = self.emit_billboard(p)?;
+                    for (channel, color) in self.billboards.get_mut(&id).unwrap().rgba[..3]
+                        .iter_mut()
+                        .zip(tint)
+                    {
+                        if let Some(color) = color {
+                            *channel = color;
+                        }
+                    }
                 }
                 Birth::Model(p) => {
-                    self.emit_model_particle(p)?;
+                    self.emit_model_particle(p, self.tick)?;
                 }
                 Birth::Refraction(p) => {
                     self.emit_refraction(p)?;
+                }
+            }
+        }
+        if let Some(release) = output.release {
+            let (Release::Guided(owner) | Release::Toward(owner, _)) = release;
+            for p in self
+                .billboards
+                .values_mut()
+                .filter(|p| p.owner == Some(owner))
+            {
+                match (release, &mut p.controller) {
+                    (Release::Guided(_), Some(BillboardController::Guided(guided))) => {
+                        guided.release()
+                    }
+                    (
+                        Release::Toward(_, target),
+                        Some(BillboardController::Drift { speed, .. }),
+                    ) => {
+                        if *speed <= 0. {
+                            return Err("light convergence needs positive speed".into());
+                        }
+                        let delta = std::array::from_fn(|i| target[i] - p.position[i]);
+                        p.velocity = normalized(delta).map(|v| v * *speed);
+                        let lifetime =
+                            (delta.iter().map(|v| v * v).sum::<f32>().sqrt() / *speed) as u32 + 1;
+                        p.rgba[3] = p.alpha(self.tick).clamp(0., 255.) as u8;
+                        p.born = self.tick;
+                        p.lifetime = lifetime;
+                        if matches!(p.fade, Fade::Tail { .. }) {
+                            p.fade = Fade::tail(lifetime);
+                        }
+                        p.controller = None;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -935,8 +1303,11 @@ fn inward_release(
         orientation: SpriteOrientation::Camera,
         angular_velocity: [0.; 3],
         rotation: [0.; 3],
+        rotation_order: Default::default(),
         position: center,
         velocity: [0.; 3],
+        speed: 0.,
+        normalize_velocity: false,
         born,
         lifetime: LIFETIME,
         size: 0.,

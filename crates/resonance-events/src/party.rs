@@ -8,6 +8,7 @@ pub use crafting::CraftError;
 mod ex_skills;
 pub use bestiary::MonsterKnowledge;
 mod items;
+pub mod new_game_plus;
 mod stats;
 mod strategy;
 mod techniques;
@@ -39,6 +40,7 @@ pub struct Member {
     #[serde(skip)]
     ex_rules: Option<ex_skills::Rules>,
     #[serde(default = "initial_title")]
+    /// Events may temporarily equip a title that has not been learned.
     pub title: u8,
     #[serde(default = "initial_titles")]
     pub titles: BTreeSet<u8>,
@@ -164,6 +166,19 @@ pub(crate) mod tests {
             )
             .unwrap();
         assert_eq!(party.items, [(3, 1)].into());
+    }
+
+    #[test]
+    fn percentage_recovery_and_damage_preserve_conditions_and_clamp_vitals() {
+        let mut party = Party::new(&data(), Default::default()).unwrap();
+        party.members[0].hp = 60;
+        party.members[0].tp = 7;
+        party.members[0].conditions = 0x20;
+        party.adjust_vitals_percent([50, -50]);
+        assert_eq!((party.members[0].hp, party.members[0].tp), (100, 0));
+        party.adjust_vitals_percent([-100, 100]);
+        assert_eq!((party.members[0].hp, party.members[0].tp), (1, 20));
+        assert_eq!(party.members[0].conditions, 0x20);
     }
 
     #[test]
@@ -298,11 +313,15 @@ impl Default for Settings {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Party {
+    #[serde(default)]
+    pub new_game_plus: new_game_plus::State,
     /// Completed playthroughs, queried by original field scripts.
     #[serde(default)]
     pub game_clears: u8,
     #[serde(default)]
     pub battles: crate::battle::History,
+    #[serde(default)]
+    pub battle_rules: crate::battle::Rules,
     #[serde(default)]
     pub figurines: BTreeSet<u16>,
     #[serde(default)]
@@ -334,6 +353,10 @@ pub struct Party {
     pub grade_hundredths: u32,
     #[serde(default)]
     pub collectors_book_complete: bool,
+    #[serde(default)]
+    pub monster_book_complete: bool,
+    #[serde(default)]
+    pub figurine_book_complete: bool,
     pub spent_gald: u32,
     pub settings: Settings,
 }
@@ -422,7 +445,7 @@ impl Party {
             self.items.iter().all(|(id, count)| data
                 .items
                 .get(usize::from(*id))
-                .is_some_and(|item| *count > 0 && *count <= item.stack_limit))
+                .is_some_and(|item| *count > 0 && *count <= self.item_limit(item)))
                 && self
                     .found_items
                     .iter()
@@ -441,7 +464,7 @@ impl Party {
                         .iter()
                         .zip(resonance_content::menu_data::STRATEGY_COUNTS)
                         .all(|(v, count)| usize::from(*v) < count)
-                    && member.titles.contains(&member.title)
+                    && (1..32).contains(&member.title)
                     && member.titles.iter().all(|id| (1..32).contains(id))
                     && (-100..=100).contains(&member.technique_balance)
                     && usize::from(member.level) < data.experience.len()
@@ -483,6 +506,7 @@ impl Party {
     pub fn new(data: &SessionData, settings: Settings) -> anyhow::Result<Self> {
         data.validate()?;
         Ok(Self {
+            new_game_plus: Default::default(),
             game_clears: 0,
             cooking: Cooking::default(),
             encounter_modifier: None,
@@ -529,6 +553,7 @@ impl Party {
                 .collect(),
             formation: vec![1],
             battles: Default::default(),
+            battle_rules: Default::default(),
             monsters: BTreeMap::new(),
             figurines: BTreeSet::new(),
             travel: Travel::default(),
@@ -542,18 +567,20 @@ impl Party {
             gald: 0,
             grade_hundredths: 0,
             collectors_book_complete: false,
+            monster_book_complete: false,
+            figurine_book_complete: false,
             spent_gald: 0,
             settings,
         })
     }
     pub fn change_item(&mut self, data: &SessionData, id: u16, delta: i8) -> Result<bool, String> {
         let item = data.items.get(usize::from(id)).ok_or("unknown item")?;
+        let limit = self.item_limit(item);
         let previous = self.items.get(&id).copied().unwrap_or(0);
-        if delta > 0 && previous == item.stack_limit || delta <= 0 && previous == 0 {
+        if delta > 0 && previous == limit || delta <= 0 && previous == 0 {
             return Ok(false);
         }
-        let count =
-            (i16::from(previous) + i16::from(delta)).clamp(0, i16::from(item.stack_limit)) as u8;
+        let count = (i16::from(previous) + i16::from(delta)).clamp(0, i16::from(limit)) as u8;
         if count == 0 {
             self.items.remove(&id);
         } else {
@@ -620,10 +647,21 @@ impl Party {
 
     /// Field hazards spare one HP and never revive knocked-out members.
     pub fn damage_hp_percent(&mut self, percent: u16) {
+        self.adjust_vitals_percent([-(percent.min(100) as i16), 0]);
+    }
+
+    /// Signed percentages of maximum HP and TP; conditions are unchanged.
+    pub fn adjust_vitals_percent(&mut self, percent: [i16; 2]) {
         for member in &mut self.members {
-            if member.hp != 0 {
-                let damage = u32::from(member.maximum_vitals()[0]) * u32::from(percent) / 100;
-                member.hp = u32::from(member.hp).saturating_sub(damage).max(1) as u16;
+            let maximum = member.maximum_vitals();
+            for (index, current) in [&mut member.hp, &mut member.tp].into_iter().enumerate() {
+                if index == 0 && *current == 0 && percent[0] < 0 {
+                    continue;
+                }
+                let delta = i32::from(maximum[index]) * i32::from(percent[index]) / 100;
+                let minimum = i32::from(index == 0 && percent[0] < 0);
+                *current =
+                    (i32::from(*current) + delta).clamp(minimum, i32::from(maximum[index])) as u16;
             }
         }
     }

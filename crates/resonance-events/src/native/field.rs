@@ -16,14 +16,26 @@ const THIRD_SCENERY: i32 = 999_998;
 #[derive(Clone, Copy)]
 #[repr(i32)]
 enum FieldSystemCommand {
+    PlayTime = 1,
+    UndiscoveredMonsters = 2,
     CheckCollectorsBook = 3,
+    CheckMonsterBook = 4,
+    CheckFigurineBook = 5,
     CollectorsBookComplete = 6,
+    MonsterBookComplete = 7,
+    FigurineBookComplete = 8,
     SetCollectorsBookComplete = 9,
+    SetMonsterBookComplete = 10,
+    SetFigurineBookComplete = 11,
+    LastBattleDuration = 12,
     FieldLeader = 13,
     SetFieldLeader = 14,
     SuppressTransitionFade = 15,
+    SelectExitDoor = 16,
     BattleCount = 17,
+    FrameFeedback = 18,
     SetDoorInteractionRadius = 19,
+    SetSkitPrompts = 21,
 }
 
 impl TryFrom<i32> for FieldSystemCommand {
@@ -31,14 +43,26 @@ impl TryFrom<i32> for FieldSystemCommand {
 
     fn try_from(id: i32) -> Result<Self, Self::Error> {
         match id {
+            1 => Ok(Self::PlayTime),
+            2 => Ok(Self::UndiscoveredMonsters),
             3 => Ok(Self::CheckCollectorsBook),
+            4 => Ok(Self::CheckMonsterBook),
+            5 => Ok(Self::CheckFigurineBook),
             6 => Ok(Self::CollectorsBookComplete),
+            7 => Ok(Self::MonsterBookComplete),
+            8 => Ok(Self::FigurineBookComplete),
             9 => Ok(Self::SetCollectorsBookComplete),
+            10 => Ok(Self::SetMonsterBookComplete),
+            11 => Ok(Self::SetFigurineBookComplete),
+            12 => Ok(Self::LastBattleDuration),
             13 => Ok(Self::FieldLeader),
             14 => Ok(Self::SetFieldLeader),
             15 => Ok(Self::SuppressTransitionFade),
+            16 => Ok(Self::SelectExitDoor),
             17 => Ok(Self::BattleCount),
+            18 => Ok(Self::FrameFeedback),
             19 => Ok(Self::SetDoorInteractionRadius),
+            21 => Ok(Self::SetSkitPrompts),
             _ => Err("field system command is not implemented"),
         }
     }
@@ -236,25 +260,32 @@ impl NativeHost<'_> {
                     actor.scenery_animations.insert(a[1] as i8, animation);
                 }
             }
-            NativeCall::ClearSceneryAnimation | NativeCall::SeekSceneryAnimation => {
+            NativeCall::ClearSceneryAnimation
+            | NativeCall::SeekSceneryAnimation
+            | NativeCall::SetSceneryAnimationRate => {
                 let id = match a[0] {
-                    2 => SECOND_SCENERY,
-                    3 => THIRD_SCENERY,
+                    2 | SECOND_SCENERY => SECOND_SCENERY,
+                    3 | THIRD_SCENERY => THIRD_SCENERY,
+                    4 | 0xF422C => 0xF422C,
                     _ => MAIN_SCENERY,
                 };
                 require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
                 if let Some(actor) = self.world.actors.get_mut(&id) {
-                    if op == NativeCall::SeekSceneryAnimation {
+                    if op != NativeCall::ClearSceneryAnimation {
                         let animation = if a[1] == -1 {
                             actor.animation.as_mut()
                         } else {
                             actor.scenery_animations.get_mut(&(a[1] as i8))
                         };
                         if let Some(animation) = animation {
-                            animation.seek(
-                                (a[2] as f32 * 2.).min(animation.duration_ticks as f32),
-                                self.world.tick,
-                            );
+                            if op == NativeCall::SetSceneryAnimationRate {
+                                animation.set_script_rate(a[2] as f32 / 100., self.world.tick);
+                            } else {
+                                animation.seek(
+                                    (a[2] as f32 * 2.).min(animation.duration_ticks as f32),
+                                    self.world.tick,
+                                );
+                            }
                         }
                     } else if a[1] == -1 {
                         actor.animation = None;
@@ -343,6 +374,57 @@ impl NativeHost<'_> {
             }
             NativeCall::Unknown92 => {
                 match FieldSystemCommand::try_from(a[0])? {
+                    FieldSystemCommand::FrameFeedback => {
+                        value = Some(i32::from(std::mem::replace(
+                            &mut self.world.frame_feedback,
+                            a[1] as u8,
+                        )));
+                    }
+                    FieldSystemCommand::PlayTime => value = Some(self.world.played_ticks as i32),
+                    FieldSystemCommand::LastBattleDuration => {
+                        value = Some(
+                            self.world
+                                .party
+                                .as_ref()
+                                .ok_or("party is not initialized")?
+                                .battles
+                                .last_duration_ticks as i32,
+                        );
+                    }
+                    FieldSystemCommand::SetSkitPrompts => {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        value = Some(-i32::from(!party.travel.skit_prompts_disabled));
+                        party.travel.skit_prompts_disabled = a[1] & 1 == 0;
+                    }
+                    FieldSystemCommand::UndiscoveredMonsters => {
+                        let party = self
+                            .world
+                            .party
+                            .as_ref()
+                            .ok_or("party is not initialized")?;
+                        let menu = self
+                            .resources
+                            .menu_data
+                            .as_ref()
+                            .ok_or("monster catalogue is missing")?;
+                        value = Some(
+                            menu.monsters
+                                .records
+                                .iter()
+                                .filter(|monster| {
+                                    monster.unseen_count_group == a[1] as u8
+                                        && party
+                                            .monsters
+                                            .get(&monster.id)
+                                            .is_none_or(|knowledge| knowledge.script_flags() == 0)
+                                })
+                                .count() as i32,
+                        );
+                    }
                     command @ (FieldSystemCommand::CheckCollectorsBook
                     | FieldSystemCommand::CollectorsBookComplete
                     | FieldSystemCommand::SetCollectorsBookComplete) => {
@@ -374,6 +456,57 @@ impl NativeHost<'_> {
                             _ => party.collectors_book_complete = a[1] & 1 != 0,
                         }
                     }
+                    command @ (FieldSystemCommand::CheckMonsterBook
+                    | FieldSystemCommand::CheckFigurineBook) => {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        let (complete, flag) = match command {
+                            FieldSystemCommand::CheckMonsterBook => (
+                                (0..resonance_content::monster::MONSTER_COUNT as u8).all(|id| {
+                                    party
+                                        .monsters
+                                        .get(&id)
+                                        .is_some_and(|knowledge| knowledge.script_flags() != 0)
+                                }),
+                                &mut party.monster_book_complete,
+                            ),
+                            _ => (
+                                (0..resonance_content::figurine::FIGURINE_COUNT as u16)
+                                    .all(|id| party.figurines.contains(&id)),
+                                &mut party.figurine_book_complete,
+                            ),
+                        };
+                        *flag |= complete;
+                        value = Some(i32::from(complete));
+                    }
+                    command @ (FieldSystemCommand::MonsterBookComplete
+                    | FieldSystemCommand::FigurineBookComplete
+                    | FieldSystemCommand::SetMonsterBookComplete
+                    | FieldSystemCommand::SetFigurineBookComplete) => {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        let flag = match command {
+                            FieldSystemCommand::MonsterBookComplete
+                            | FieldSystemCommand::SetMonsterBookComplete => {
+                                &mut party.monster_book_complete
+                            }
+                            _ => &mut party.figurine_book_complete,
+                        };
+                        value = Some(i32::from(*flag));
+                        if matches!(
+                            command,
+                            FieldSystemCommand::SetMonsterBookComplete
+                                | FieldSystemCommand::SetFigurineBookComplete
+                        ) {
+                            *flag = a[1] & 1 != 0;
+                        }
+                    }
                     FieldSystemCommand::FieldLeader => {
                         value = Some(i32::from(
                             self.world
@@ -403,6 +536,30 @@ impl NativeHost<'_> {
                         require(a[1] >= 0, "negative door interaction range")?;
                         value = Some(self.world.door_interaction_radius.unwrap_or(250.) as i32);
                         self.world.door_interaction_radius = Some(a[1] as f32);
+                    }
+                    FieldSystemCommand::SelectExitDoor => {
+                        let name = self
+                            .program
+                            .string(a[1] as u16)
+                            .ok_or("door name is missing")?;
+                        let model = self
+                            .world
+                            .actors
+                            .get(&MAIN_SCENERY)
+                            .and_then(|actor| self.resources.model(actor.model_resource()))
+                            .ok_or("door scenery is missing")?;
+                        let bone = model
+                            .names
+                            .iter()
+                            .position(|n| n.as_bytes() == name)
+                            .ok_or("named door is missing")?
+                            as u16;
+                        require(
+                            self.resources.doors.iter().any(|door| door.bone == bone),
+                            "named door is not cooked",
+                        )?;
+                        self.world.exit_door = Some(bone);
+                        value = Some(0);
                     }
                     FieldSystemCommand::BattleCount => {
                         let party = self
@@ -515,6 +672,9 @@ impl NativeHost<'_> {
             }
             NativeCall::ReturnFieldControl => {
                 self.world.mapped_input_disabled = false;
+                if let Some(party) = &mut self.world.party {
+                    party.travel.skit_prompts_disabled = a[0] & 1 != 0;
+                }
                 // Fade in the scene before returning field input.
                 let from = self
                     .world
@@ -672,6 +832,7 @@ impl NativeHost<'_> {
                 let resource = self.resolve(a[0], ResourceKind::Model)?;
                 value = Some(self.world.emit_model_particle(
                     crate::model_particle::ModelParticle::from_native(resource, a),
+                    self.world.tick + 1,
                 )?);
             }
             NativeCall::SetModelParticleProperty => {
@@ -681,16 +842,21 @@ impl NativeHost<'_> {
             NativeCall::CreateEffectEmitter => {
                 let emitter = crate::emitter::Emitter::from_native(
                     a,
-                    self.world.effect_textures.get(&0).copied(),
+                    crate::emitter::Assets {
+                        textures: std::array::from_fn(|i| {
+                            self.world.effect_textures.get(&(i as u8)).copied()
+                        }),
+                        rising_light_destination: self.resources.rising_light_destination,
+                    },
                 )?;
-                let resource = if a[4] == 0 || a[5] == 47 {
+                let resource = if a[4] == 0 || !matches!(a[5], 46 | 50) {
                     0
                 } else {
                     self.resolve(a[4], ResourceKind::Model)?
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
-                // Recipe 46 keeps its model solely for independent afterimages.
-                actor.visible = resource != 0 && a[5] != 46;
+                // Emitters draw through their particles; model resources supply copies only.
+                actor.visible = false;
                 actor.contact = crate::ActorContact::None;
                 actor.collidable = false;
                 actor.grounded = false;
@@ -711,15 +877,17 @@ impl NativeHost<'_> {
             }
             NativeCall::CreateEffectObject | NativeCall::CreateParticle => {
                 use crate::effect::{
-                    BillboardController, BillboardEffect, Blend, CAMERA_DISC_SPRITE,
-                    ELECTRIC_ARC_SPRITE, ELECTRIC_SPARK_SPRITE, Fade, Flutter, GLOW_SPRITE,
-                    ORB_SPRITE, RING_SPRITE, RefractionImage, RefractionPulse, SEAL_SPARK_SPRITE,
-                    SEAL_STAR_SPRITE, SPINNING_STAR_SPRITE, STAR_SPRITE, STATION_GLOW_SPRITE,
-                    SpriteOrientation, TRAIL_GLOW_SPRITE, WORLD_GLOW_SPRITE,
+                    BillboardController, BillboardEffect, Blend, CAMERA_DISC_SPRITE, Fade, Flutter,
+                    GLOW_SPRITE, ORB_SPRITE, RING_SPRITE, RefractionImage, RefractionPulse,
+                    SEAL_STAR_SPRITE, SPINNING_STAR_SPRITE, STAR_SPRITE, SpriteOrientation,
+                    TRAIL_GLOW_SPRITE, WORLD_GLOW_SPRITE,
                 };
                 use resonance_content::effect::{
                     SMOKE_UPDATES,
-                    sprite::{DEBRIS_SPRITES, SMOKE_SPRITE, STREAK_SPRITE},
+                    sprite::{
+                        BURST_SPRITE, ELECTRIC_ARC_SPRITE, FLAME_SPRITE, SMOKE_SPRITE,
+                        SPARKLE_CLUSTER_SPRITE, STATION_HALO_SPRITE, STREAK_SPRITE,
+                    },
                 };
                 const IMPACT_GLOW: u16 = 2;
                 const AIR_REFRACTION: u16 = 9;
@@ -738,7 +906,16 @@ impl NativeHost<'_> {
                         && (!directed
                             || matches!(
                                 kind,
-                                WORLD_GLOW_SPRITE | SPINNING_STAR_SPRITE | AIR_REFRACTION
+                                WORLD_GLOW_SPRITE
+                                    | SPINNING_STAR_SPRITE
+                                    | AIR_REFRACTION
+                                    | FLAME_SPRITE
+                                    | TRAIL_GLOW_SPRITE
+                                    | BURST_SPRITE
+                                    | ELECTRIC_ARC_SPRITE
+                                    | SPARKLE_CLUSTER_SPRITE
+                                    | STATION_HALO_SPRITE
+                                    | STREAK_SPRITE
                             )
                             || parameter == 0),
                     "invalid effect palette or parameter",
@@ -756,12 +933,9 @@ impl NativeHost<'_> {
                     born: self.world.tick + 1,
                     lifetime,
                     position: [a[2] as f32, a[3] as f32, a[4] as f32],
-                    velocity: if directed {
-                        let speed = (a[8] / 100) as f32;
-                        crate::effect::emission::normalized(velocity).map(|v| v * speed)
-                    } else {
-                        velocity
-                    },
+                    velocity,
+                    speed: if directed { (a[8] / 100) as f32 } else { 0. },
+                    normalize_velocity: directed,
                     size: [size as f32; 2],
                     rgba: [64, 64, 64, alpha as u8],
                     fade: if fade == 0 {
@@ -777,17 +951,21 @@ impl NativeHost<'_> {
                     3.
                 };
                 match kind {
-                    GLOW_SPRITE if directed => particle.angular_velocity[2] = spin,
+                    GLOW_SPRITE => particle.angular_velocity[2] = spin,
                     IMPACT_GLOW if directed => {
                         particle.recipe = GLOW_SPRITE;
                         particle.blend = Some(Blend::Additive);
                         particle.rgba[..3].copy_from_slice(&[255, 10, 10]);
                         particle.angular_velocity[2] = spin;
                     }
-                    SMOKE_SPRITE if directed => {
+                    SMOKE_SPRITE => {
                         particle.lifetime = lifetime.min(SMOKE_UPDATES);
                         particle.rotation[2] = (self.world.effect_tick & 127) as f32;
                         particle.angular_velocity[2] = spin;
+                    }
+                    _ if resonance_content::effect::sprite::COOKING_CLOUDS.contains(&kind) => {
+                        particle.recipe = GLOW_SPRITE;
+                        particle.uv = Some([0., 0.25, 0.25, 0.5]);
                     }
                     _ if directed && BOUND_SPRITES.contains(&kind) => {
                         particle.recipe = ORB_SPRITE;
@@ -809,9 +987,18 @@ impl NativeHost<'_> {
                             });
                         }
                     }
-                    STREAK_SPRITE => particle.size[1] /= 6.,
-                    SEAL_SPARK_SPRITE if directed => {}
-                    STATION_GLOW_SPRITE if !directed => {}
+                    STREAK_SPRITE => {
+                        particle.size[1] /= 6.;
+                        particle.angular_velocity[2] = parameter as f32;
+                    }
+                    FLAME_SPRITE
+                    | TRAIL_GLOW_SPRITE
+                    | BURST_SPRITE
+                    | ELECTRIC_ARC_SPRITE
+                    | SPARKLE_CLUSTER_SPRITE
+                    | STATION_HALO_SPRITE => {
+                        particle.angular_velocity[2] = parameter as f32;
+                    }
                     CAMERA_DISC_SPRITE | CAMERA_RING => particle.recipe = WORLD_GLOW_SPRITE,
                     WORLD_GLOW_SPRITE => {
                         particle.orientation = SpriteOrientation::World;
@@ -868,8 +1055,11 @@ impl NativeHost<'_> {
                                 },
                             ],
                             rotation: [0.; 3],
+                            rotation_order: particle.rotation_order,
                             position: particle.position,
                             velocity: particle.velocity,
+                            speed: particle.speed,
+                            normalize_velocity: particle.normalize_velocity,
                             born: particle.born,
                             lifetime,
                             size: size as f32,
@@ -879,11 +1069,7 @@ impl NativeHost<'_> {
                         })?;
                         return Ok(NativeResult::Continue(Some(handle)));
                     }
-                    ORB_SPRITE
-                    | ELECTRIC_SPARK_SPRITE
-                    | ELECTRIC_ARC_SPRITE
-                    | TRAIL_GLOW_SPRITE => {}
-                    _ if DEBRIS_SPRITES.contains(&kind) => {}
+                    _ if resonance_content::effect::sprite::ALL.contains(&kind) => {}
                     _ => return Err("effect recipe is not implemented".into()),
                 }
                 value = Some(self.world.emit_billboard(particle)?);
@@ -1252,7 +1438,7 @@ impl NativeHost<'_> {
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
                 if self.world.field_camera.is_some() {
-                    let behavior = crate::Behavior::try_from(a[6]).map_err(|e| e.to_string())?;
+                    let behavior = crate::Behavior::from(a[6] as u8);
                     require(a[7] >= 0, "negative ambient movement speed")?;
                     require(
                         locator
@@ -1261,6 +1447,7 @@ impl NativeHost<'_> {
                                 crate::Behavior::Stationary
                                     | crate::Behavior::WatchPlayer
                                     | crate::Behavior::Player
+                                    | crate::Behavior::ScriptOnly(_)
                             )
                             || self.resources.model(resource).is_some_and(|m| {
                                 m.clips.contains_key(&crate::animation::slot::WALK)
@@ -1379,6 +1566,12 @@ impl NativeHost<'_> {
                     }
                     .map_err(|e| e.to_string())?;
                 }
+            }
+            NativeCall::SetPlayerModel => {
+                let resource = self.resolve(a[0], ResourceKind::Model)?;
+                self.world
+                    .replace_controlled_model(self.resources, self.world.controlled_actor, resource)
+                    .map_err(|e| e.to_string())?;
             }
             NativeCall::TriggerExists => {
                 value = Some(i32::from(self.world.triggers.iter().any(|trigger| {
@@ -1825,6 +2018,8 @@ impl NativeHost<'_> {
             alerted: false,
             event_parameters: [a[1] as i16, a[2] as i16],
             pause_ticks: 0,
+            pause_outside_view: false,
+            script_flag: false,
             reaction: crate::effect::StunEffect::None,
         });
         if let Some(model) = self.resources.model(resource) {

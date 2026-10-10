@@ -59,9 +59,9 @@
     },
     {
       "opcode": 13,
-      "name": "native_0d",
+      "name": "get_dialogue_status",
       "arguments": [
-        "arg0"
+        "slot"
       ],
       "returns_value": true
     },
@@ -130,9 +130,9 @@
     },
     {
       "opcode": 19,
-      "name": "native_13",
+      "name": "get_actor_heading",
       "arguments": [
-        "arg0"
+        "actor_id"
       ],
       "returns_value": true
     },
@@ -147,9 +147,9 @@
     },
     {
       "opcode": 21,
-      "name": "native_15",
+      "name": "is_actor_moving",
       "arguments": [
-        "arg0"
+        "actor_id"
       ],
       "returns_value": true
     },
@@ -295,10 +295,11 @@
     },
     {
       "opcode": 35,
-      "name": "native_23",
+      "name": "set_player_model",
       "arguments": [
-        "arg0"
-      ]
+        "resource"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 36,
@@ -398,10 +399,10 @@
     },
     {
       "opcode": 47,
-      "name": "native_2f",
+      "name": "has_technique",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "technique_id"
       ],
       "returns_value": true
     },
@@ -648,12 +649,13 @@
     },
     {
       "opcode": 69,
-      "name": "native_45",
+      "name": "set_scenery_animation_rate",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
-      ]
+        "layer",
+        "channel",
+        "rate"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 70,
@@ -903,17 +905,18 @@
     },
     {
       "opcode": 95,
-      "name": "native_5f",
+      "name": "map_camera_track_position",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7"
-      ]
+        "mode",
+        "position",
+        "start",
+        "end",
+        "reserved0",
+        "reserved1",
+        "reserved2",
+        "reserved3"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 96,
@@ -1057,14 +1060,16 @@
     },
     {
       "opcode": 113,
-      "name": "native_71",
+      "name": "show_number_input",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4"
-      ]
+        "slot",
+        "initial",
+        "minimum",
+        "maximum",
+        "wrap_digits"
+      ],
+      "returns_value": true,
+      "yields": true
     },
     {
       "opcode": 114,
@@ -1284,18 +1289,20 @@
     },
     {
       "opcode": 134,
-      "name": "native_86",
+      "name": "forget_technique",
       "arguments": [
-        "arg0",
-        "arg1"
-      ]
+        "character_id",
+        "technique_id"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 135,
-      "name": "native_87",
+      "name": "forget_title",
       "arguments": [
-        "arg0"
-      ]
+        "packed_title"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 136,
@@ -1315,10 +1322,10 @@
     },
     {
       "opcode": 138,
-      "name": "native_8a",
+      "name": "configure_figurine",
       "arguments": [
-        "arg0",
-        "arg1"
+        "operation",
+        "figurine_id"
       ],
       "returns_value": true
     },
@@ -1332,10 +1339,10 @@
     },
     {
       "opcode": 140,
-      "name": "native_8c",
+      "name": "set_equipped_title",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "title_id"
       ],
       "returns_value": true
     },
@@ -1672,10 +1679,10 @@
     },
     {
       "opcode": 174,
-      "name": "native_ae",
+      "name": "configure_camera_track",
       "arguments": [
-        "arg0",
-        "arg1"
+        "operation",
+        "value"
       ],
       "returns_value": true
     },
@@ -2206,8 +2213,9 @@
     },
     {
       "opcode": 216,
-      "name": "native_d8",
-      "arguments": []
+      "name": "reset_field_ticks",
+      "arguments": [],
+      "returns_value": false
     },
     {
       "opcode": 217,
@@ -2305,12 +2313,13 @@
     },
     {
       "opcode": 227,
-      "name": "native_e3",
-      "arguments": []
+      "name": "reset_scenario_ticks",
+      "arguments": [],
+      "returns_value": false
     },
     {
       "opcode": 228,
-      "name": "native_e4",
+      "name": "get_scenario_ticks",
       "arguments": [],
       "returns_value": true
     },
@@ -2339,11 +2348,11 @@
     },
     {
       "opcode": 232,
-      "name": "native_e8",
+      "name": "recipe_proficiency",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
+        "character_id",
+        "recipe_id",
+        "amount"
       ],
       "returns_value": true
     },
@@ -2365,10 +2374,10 @@
     },
     {
       "opcode": 235,
-      "name": "native_eb",
+      "name": "configure_monster_knowledge",
       "arguments": [
-        "arg0",
-        "arg1"
+        "monster",
+        "flags"
       ],
       "returns_value": true
     },
@@ -2383,9 +2392,9 @@
     },
     {
       "opcode": 237,
-      "name": "native_ed",
+      "name": "get_replay_skit",
       "arguments": [
-        "arg0"
+        "index"
       ],
       "returns_value": true
     },

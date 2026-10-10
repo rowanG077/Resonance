@@ -143,12 +143,12 @@ fn main() -> Result<()> {
             interact = true;
         }
         let choosing = stay
-            && session
-                .events
-                .world
-                .choices
-                .values()
-                .any(|c| c.operation.is_pending() && c.selected_line < c.last_line);
+            && session.events.world.choices.values().any(|c| {
+                c.operation.is_pending()
+                    && c.selection
+                        .lines()
+                        .is_some_and(|lines| lines.selected_line < lines.last_line)
+            });
         let direction = if choosing {
             [0., -1.]
         } else if exit && session.events.world.input_enabled {

@@ -43,6 +43,7 @@ pub struct FieldEntry {
     pub services: Option<Arc<crate::authored::FieldServices>>,
     pub attachments: attachments::Attachments,
     pub effect_palette: resonance_events::effect::Palette,
+    pub rising_light_destination: Option<[f32; 3]>,
     pub play_time: crate::clock::PlayTime,
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
@@ -395,7 +396,11 @@ impl FieldSession {
         Ok(())
     }
     fn step_inner(&mut self, input: FieldInput) -> Result<()> {
+        if self.events.world.screen_request.is_some() {
+            return Ok(());
+        }
         self.play_time.advance();
+        self.events.world.played_ticks = self.play_time.total();
         self.effect_clock.advance();
         if self.field_control_available()
             && let Some(event) = self.authored_entry.take()
@@ -420,6 +425,18 @@ impl FieldSession {
         if let Some(request) = self.events.world.menu_request.take() {
             ensure!(!self.menu_is_open(), "nested field menu");
             match request.target {
+                resonance_events::menu::Target::GradeShop
+                | resonance_events::menu::Target::ClearSave => {
+                    let saving = request.target == resonance_events::menu::Target::ClearSave;
+                    let page = if saving {
+                        crate::menu::Page::Slots(crate::menu::Mode::Save)
+                    } else {
+                        crate::menu::Page::GradeShop
+                    };
+                    self.open_menu(page, self.endgame_checkpoint()?, saving);
+                    self.menu_operation = Some(request.operation);
+                    return Ok(());
+                }
                 resonance_events::menu::Target::Shop(id) => {
                     self.shop = Some(shop::Shop::open(
                         id,
@@ -705,6 +722,7 @@ impl FieldSession {
              id,
              actor,
              previous| {
+                actor.ground_attributes = 0;
                 let (scripted_control, event_paused) = (*scripted_control, *event_paused);
                 if let Some((player, target, heading)) = *player_destination
                     && id == player
@@ -772,6 +790,9 @@ impl FieldSession {
                             previous
                         }
                     });
+                    actor.ground_attributes = walkmesh
+                        .surface(actor.position, 0.01)
+                        .map_or(0, |surface| surface.attributes);
                 }
                 resolved.insert(id, actor.position);
             },
@@ -807,6 +828,9 @@ impl FieldSession {
                 Ok(())
             },
         )?;
+        if std::mem::take(&mut self.events.world.reset_play_time) {
+            self.play_time = Default::default();
+        }
         let action = if can_trigger && self.events.player_has_control() {
             action.or(self.interaction_action()?)
         } else {
@@ -835,7 +859,8 @@ impl FieldSession {
                     .as_ref()
                     .is_none_or(|f| world.tick >= f.start_tick.saturating_add(f.duration)),
         );
-        self.skits.step(&self.events, self.map_id, free_control)?;
+        self.skits
+            .step(&self.events, self.map_id, free_control, None)?;
         if self.events.world.input_enabled
             && let Some((id, heading, automatic_heading)) = self.conversation_facing.take()
             && let Some(actor) = self.events.world.actors.get_mut(&id)
@@ -992,12 +1017,13 @@ impl FieldSession {
             .map(|(&slot, _)| slot);
         for (slot, player) in &mut self.dialogue {
             let accepts_input = choice_slot.is_none_or(|choice| choice == *slot);
+            let before_selection_page = player.page + 1 < player.pages.len();
             let voices = if input.skip_dialogue && choice_slot.is_none() {
                 player.skip_step()?
             } else {
                 player.step(
                     (input.pressed(Button::Accept) || input.pressed(Button::Cancel))
-                        && choice_slot.is_none(),
+                        && (choice_slot.is_none() || before_selection_page && accepts_input),
                     input.held_buttons.contains(Button::Accept) && accepts_input,
                 )?
             };
@@ -1049,19 +1075,43 @@ impl FieldSession {
                 .get_mut(&slot)
                 .ok_or_else(|| anyhow::anyhow!("choice dialogue player is missing"))?;
             let choice = self.events.world.choices.get_mut(&slot).unwrap();
-            let lines = 1 + player
-                .current()
-                .glyphs
-                .iter()
-                .filter(|g| g.character == '\n')
-                .count();
-            ensure!(
-                usize::from(choice.last_line) < lines,
-                "choice extends beyond dialogue lines"
-            );
+            let final_page = player.page + 1 == player.pages.len();
+            if final_page {
+                match &choice.selection {
+                    resonance_events::dialogue::Selection::Lines(lines) => {
+                        let count = 1 + player
+                            .current()
+                            .glyphs
+                            .iter()
+                            .filter(|g| g.character == '\n')
+                            .count();
+                        ensure!(
+                            usize::from(lines.last_line) < count,
+                            "choice extends beyond dialogue lines"
+                        );
+                    }
+                    resonance_events::dialogue::Selection::Number(number) => {
+                        ensure!(
+                            player
+                                .current()
+                                .number
+                                .as_ref()
+                                .is_some_and(|range| range.len() == usize::from(number.digits)),
+                            "number input is missing from the final dialogue page"
+                        );
+                    }
+                }
+            }
             let (reason, moved) = self.choices.step(
                 choice,
                 crate::choice::ChoiceInput {
+                    horizontal: if input.direction[0] > 0.5 {
+                        1
+                    } else if input.direction[0] < -0.5 {
+                        -1
+                    } else {
+                        0
+                    },
                     direction: if input.direction[1] > 0.5 {
                         -1
                     } else if input.direction[1] < -0.5 {
@@ -1075,8 +1125,11 @@ impl FieldSession {
                                 || input.pressed(Button::NextPage)),
                     cancel: input.pressed(Button::Cancel),
                 },
-                player.accepts_input() && player.fully_revealed(),
+                final_page && player.accepts_input() && player.fully_revealed(),
             );
+            if let resonance_events::dialogue::Selection::Number(number) = &choice.selection {
+                player.pages[player.page].set_number(number.value)?;
+            }
             if moved {
                 self.events
                     .world
@@ -1113,6 +1166,9 @@ impl FieldSession {
                         });
                 }
             }
+        }
+        for (slot, player) in &self.dialogue {
+            self.events.world.dialogue.get_mut(slot).unwrap().status = player.status();
         }
         Ok(choice_slot.is_some()
             || self
@@ -1257,6 +1313,7 @@ fn start_with_entry(
         }
     }
     let mut resources = ResourceLibrary {
+        rising_light_destination: entry.rising_light_destination,
         station_script: entry
             .services
             .as_ref()
@@ -1332,6 +1389,7 @@ fn start_with_entry(
         bind_clips(&mut resources, resource, &model.clips)?;
     }
     let (mut world, memory) = entry.persistent.into_world();
+    world.played_ticks = entry.play_time.total();
     world.effect_palette = entry.effect_palette;
     world.current_field = Some(assets.map_id);
     world.ring_scenery = resonance_content::field::RingScenery::for_field(assets.map_id);
@@ -1659,6 +1717,37 @@ mod tests {
     }
 
     #[test]
+    fn scripts_read_the_current_ground_surface_and_clear_it_in_air() {
+        let mut code = vec![4, 0, 0, 0];
+        for _ in 0..3 {
+            native(&mut code, NativeCall::YieldCommand, &[0, 1]);
+            native(&mut code, NativeCall::GetActorProperty, &[100, 52]);
+        }
+        code.push(0x20ff);
+        let mut field = session(runtime(code, Default::default()));
+        field.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+            surface: 0x96,
+            vertices: vec![[0., 0., 0.], [10., 0., 0.], [0., 10., 0.]],
+            triangles: vec![[0, 1, 2]],
+        }])
+        .unwrap();
+        field
+            .events
+            .world
+            .insert_actor(100, Actor::new(1, [2., 2., 10.]));
+        field.step(FieldInput::default()).unwrap();
+        assert_eq!(field.events.memory().read(0x20, Width::S32).unwrap(), 0x96);
+        field.events.world.actors.get_mut(&100).unwrap().grounded = false;
+        field.step(FieldInput::default()).unwrap();
+        assert_eq!(field.events.memory().read(0x20, Width::S32).unwrap(), 0);
+        let actor = field.events.world.actors.get_mut(&100).unwrap();
+        actor.grounded = true;
+        actor.position = [100., 100., 0.];
+        field.step(FieldInput::default()).unwrap();
+        assert_eq!(field.events.memory().read(0x20, Width::S32).unwrap(), 0);
+    }
+
+    #[test]
     fn grounding_depends_on_actor_role_instead_of_resource_number() {
         for (resource, anchor) in [(24, false), (7, true)] {
             let mut field = empty_session();
@@ -1699,6 +1788,8 @@ mod tests {
             alerted: false,
             event_parameters: [0; 2],
             pause_ticks: 0,
+            pause_outside_view: false,
+            script_flag: false,
             reaction: resonance_events::effect::StunEffect::None,
         });
         world.insert_actor(2, enemy);
@@ -2316,7 +2407,7 @@ mod tests {
                 && session
                     .dialogue
                     .get(&1)
-                    .is_some_and(|page| page.accepts_input())
+                    .is_some_and(|page| page.accepts_input() && page.fully_revealed())
             {
                 return;
             }
@@ -2394,7 +2485,14 @@ mod tests {
             .unwrap();
         reveal_choices(&mut session);
         assert!(!session.dialogue[&0].closed);
-        assert_eq!(session.events.world.choices[&1].selected_line, 0);
+        assert_eq!(
+            session.events.world.choices[&1]
+                .selection
+                .lines()
+                .unwrap()
+                .selected_line,
+            0
+        );
         assert!(!session.events.world.input_enabled);
         session
             .step(FieldInput {
@@ -2459,6 +2557,147 @@ mod tests {
     }
 
     #[test]
+    fn scripts_observe_dialogue_readiness_and_closure() {
+        let mut code = vec![4, 0, 0, 0];
+        native(
+            &mut code,
+            NativeCall::ConfigureDialogue,
+            &[1, 0, -2, 7, 0, 0, 0, 0],
+        );
+        for _ in 0..100 {
+            native(&mut code, NativeCall::GetDialogueStatus, &[1]);
+            code.extend([0x3000, 0x1200, 0x100, 0x1200, 0x20, 0x3010, 0x3000]);
+            native(&mut code, NativeCall::YieldCommand, &[0, 1]);
+        }
+        code.push(0x20ff);
+        let mut session = session(runtime(
+            code,
+            ResourceLibrary {
+                messages: vec![Message {
+                    tokens: vec![Token::Text {
+                        text: "A\u{c}B".into(),
+                    }],
+                }],
+                ..Default::default()
+            },
+        ));
+        for expected in [4, 5, 0] {
+            for _ in 0..30 {
+                session.step(FieldInput::default()).unwrap();
+            }
+            assert_eq!(
+                session.events.memory().read(0x100, Width::S32).unwrap(),
+                expected
+            );
+            session
+                .step(FieldInput {
+                    pressed_buttons: [Button::Accept].into(),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn number_input_edits_digits_and_returns_after_the_window_closes() {
+        for (wrap, initial, maximum, expected, cancel) in [
+            (false, 19, 99, 30, false),
+            (true, 19, 99, 20, true),
+            (false, 99, 99, 99, false),
+            (true, 29, 29, 20, false),
+        ] {
+            let mut code = vec![4, 0, 0, 0];
+            native(
+                &mut code,
+                NativeCall::ConfigureDialogue,
+                &[1, 0x1000, -2, 7, 0, 0, 0, 1],
+            );
+            native(
+                &mut code,
+                NativeCall::ShowNumberInput,
+                &[1, initial, 0, maximum, i32::from(wrap)],
+            );
+            code.extend([0x3000, 0x1200, 0x100, 0x1200, 0x20, 0x3010, 0x3000]);
+            native(&mut code, NativeCall::CloseDialogue, &[1]);
+            code.push(0x20ff);
+            let mut session = session(runtime(
+                code,
+                ResourceLibrary {
+                    messages: vec![
+                        Message { tokens: vec![] },
+                        Message {
+                            tokens: vec![
+                                Token::Text {
+                                    text: "Choose an amount.\u{c}Spend: ".into(),
+                                },
+                                Token::Control {
+                                    opcode: 8,
+                                    expression: vec![0, 2, 0x30, 0, 0x20, 0xff],
+                                },
+                            ],
+                        },
+                    ],
+                    ..Default::default()
+                },
+            ));
+            // An early confirmation advances the explanation, but cannot submit the number.
+            for _ in 0..120 {
+                if session.dialogue.get(&1).is_some_and(|p| p.page == 1) {
+                    break;
+                }
+                session
+                    .step(FieldInput {
+                        pressed_buttons: [Button::Accept].into(),
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            reveal_choices(&mut session);
+            assert_eq!(
+                session.dialogue[&1].current().text(),
+                format!("Spend: {initial:02}")
+            );
+            assert!(!session.can_skip_event());
+            for direction in [[0., 1.], [-1., 0.], [0., 1.]] {
+                session
+                    .step(FieldInput {
+                        direction,
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            assert_eq!(
+                session.dialogue[&1].current().text(),
+                format!("Spend: {expected:02}")
+            );
+            session
+                .step(FieldInput {
+                    pressed_buttons: [if cancel {
+                        Button::Cancel
+                    } else {
+                        Button::Accept
+                    }]
+                    .into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(session.events.memory().read(0x100, Width::S32).unwrap(), 0);
+            for _ in 0..6 {
+                session.step(FieldInput::default()).unwrap();
+            }
+            assert_eq!(
+                session.events.memory().read(0x100, Width::S32).unwrap(),
+                expected
+            );
+            assert_eq!(
+                session.events.memory().read(0x24, Width::S32).unwrap(),
+                i32::from(cancel)
+            );
+            assert!(session.events.world.choices.is_empty());
+        }
+    }
+
+    #[test]
     fn choice_wrap_repeat_and_timeout_wait_for_revealed_text() {
         use crate::choice::{ChoiceInput, ChoicePlayer};
         use resonance_events::dialogue::ChoiceExit;
@@ -2475,12 +2714,12 @@ mod tests {
             assert_eq!(player.step(&mut choice, up, false), (None, false));
         }
         assert_eq!(player.step(&mut choice, up, true), (None, true));
-        assert_eq!(choice.selected_line, 1); // Wrap from first to last.
+        assert_eq!(choice.selection.lines().unwrap().selected_line, 1); // Wrap from first to last.
         for _ in 0..19 {
             assert_eq!(player.step(&mut choice, up, true), (None, false));
         }
         assert_eq!(player.step(&mut choice, up, true), (None, true));
-        assert_eq!(choice.selected_line, 0);
+        assert_eq!(choice.selection.lines().unwrap().selected_line, 0);
         for _ in 0..8 {
             assert_eq!(
                 player.step(&mut choice, ChoiceInput::default(), true),
@@ -2496,6 +2735,6 @@ mod tests {
         reveal_choices(&mut fresh);
         let choice = fresh.events.world.choices.get_mut(&1).unwrap();
         assert_eq!(player.step(choice, up, true), (None, true));
-        assert_eq!(choice.selected_line, 1);
+        assert_eq!(choice.selection.lines().unwrap().selected_line, 1);
     }
 }

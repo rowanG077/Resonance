@@ -157,9 +157,12 @@ impl FieldPackage {
             .clone()
             .entry(&self.assets, data, available_fields)?;
         entry.skits = Some(skits);
+        let kind = entry.kind;
         let mut field = self.enter(entry)?;
-        initialize_checkpoint(&mut field, checkpoint)?;
-        self.queue_entry(&mut field, resonance_game::field::EntryKind::Restore);
+        if kind == resonance_game::field::EntryKind::Restore {
+            initialize_checkpoint(&mut field, checkpoint)?;
+        }
+        self.queue_entry(&mut field, kind);
         Ok(field)
     }
 
@@ -200,6 +203,7 @@ impl FieldPackage {
             self.files.json(&self.assets.effects)?;
         effects.validate()?;
         entry.effect_palette = resonance_events::effect::Palette(effects.palette);
+        entry.rising_light_destination = Some(effects.rising_light_destination);
         entry.menu_data = Some(Arc::new(menu));
         entry.text = Arc::new(self.files.json("game/text.json")?);
         entry.services = Some(self.services.clone());

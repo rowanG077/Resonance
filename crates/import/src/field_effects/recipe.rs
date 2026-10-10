@@ -82,6 +82,11 @@ fn effects(executable: &[u8]) -> Result<FieldEffects<Atlas>> {
         version: resonance_content::effect::FIELD_EFFECTS_VERSION,
         emote_texture: Atlas::Effect(1),
         status_texture: Atlas::Status,
+        rising_light_destination: [
+            value(0x8018_D214)?,
+            value(0x8018_D218)?,
+            value(0x8018_D21C)?,
+        ],
         palette: palette(executable)?,
         sprites: resonance_content::effect::sprite::ALL
             .into_iter()

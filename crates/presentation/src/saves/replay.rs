@@ -528,6 +528,7 @@ pub(crate) fn record_live(
 fn attach(app: &mut App, mixer: &resonance_playback::Control) -> Result<()> {
     crate::playthrough::attach::<crate::field_audio::FieldSource>(app.world_mut(), mixer)?;
     crate::playthrough::attach::<crate::GameAudio>(app.world_mut(), mixer)?;
+    crate::playthrough::attach::<crate::credits::Audio>(app.world_mut(), mixer)?;
     crate::testing::audio(app.world_mut());
     Ok(())
 }
