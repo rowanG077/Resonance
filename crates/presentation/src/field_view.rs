@@ -881,6 +881,7 @@ fn camera(
     mut outputs: ResMut<Assets<TitleOutput>>,
     mut clear: ResMut<ClearColor>,
     mut applied: ResMut<Applied>,
+    credits: Option<Res<super::credits::Playback>>,
 ) {
     if state.live.as_ref().is_some_and(|s| !s.ready_for_field) {
         return;
@@ -921,6 +922,11 @@ fn camera(
     // Field fades affect the room/actors. Speech remains readable while the
     // script deliberately holds the scene black at the beginning of the lesson.
     TitleOutput::update(&mut outputs, |b| {
+        if let Some(credits) = &credits {
+            b.x = credits.brightness();
+            b.y = 0.;
+            return;
+        }
         b.x = 1.;
         b.y = state
             .get()

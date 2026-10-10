@@ -1047,7 +1047,7 @@ impl Cast {
                 self.operation.clone(),
             );
             let handle = world
-                .emit_model_particle(particle)
+                .emit_model_particle(particle, world.tick + 1)
                 .map_err(anyhow::Error::msg)?;
             anyhow::ensure!(handle != 0, "ring model effect pool is full");
             self.models.push(handle);

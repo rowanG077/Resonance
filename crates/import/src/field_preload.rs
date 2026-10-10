@@ -213,6 +213,42 @@ fn build_field(
                 .push(analyze_script(path, &bytes, &registry)?);
         }
     }
+    for script in &manifest.scripts {
+        use symphonia_script::NativeCall::ConfigureSession;
+        if !script
+            .native_calls
+            .iter()
+            .any(|call| call.opcode == ConfigureSession as u8)
+        {
+            continue;
+        }
+        let bytes = fs::read(root.join(&script.path))?;
+        let calls = crate::field_resources::literal_arguments(&bytes, ConfigureSession, 2)?;
+        if calls
+            .iter()
+            .any(|args| args[0].is_none_or(|setting| setting == 18))
+        {
+            let credits: resonance_content::credits::Manifest =
+                inventory.json(resonance_content::credits::PATH, None, Role::Data)?;
+            credits.validate()?;
+            for op in &credits.program.operations {
+                if let resonance_content::credits::Operation::Text { text } = op {
+                    for c in text.chars() {
+                        ensure!(font.glyphs.contains_key(&c), "uncooked credits glyph {c:?}");
+                    }
+                }
+            }
+            for picture in &credits.pictures {
+                inventory.add(&picture.path, None, Role::Texture)?;
+            }
+            inventory.add(
+                &credits.music.asset.path,
+                Some(&credits.music.asset.sha256),
+                Role::Voice,
+            )?;
+            break;
+        }
+    }
     manifest.files = inventory.files;
     manifest.total_file_bytes = manifest.files.values().try_fold(0u64, |sum, file| {
         sum.checked_add(file.bytes)

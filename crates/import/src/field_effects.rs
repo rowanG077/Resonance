@@ -94,6 +94,7 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
         emote_texture: image(source.emote_texture)?,
         status_texture: image(source.status_texture)?,
         palette: source.palette,
+        rising_light_destination: source.rising_light_destination,
         sprites: source
             .sprites
             .into_iter()

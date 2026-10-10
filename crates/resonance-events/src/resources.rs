@@ -16,6 +16,7 @@ pub struct MemoryCircleText {
 }
 #[derive(Default)]
 pub struct ResourceLibrary {
+    pub rising_light_destination: Option<[f32; 3]>,
     pub memory_circle_text: MemoryCircleText,
     pub station_script: Option<std::sync::Arc<symphonia_script::Program>>,
     pub blink: Option<resonance_content::effect::BlinkCycle>,

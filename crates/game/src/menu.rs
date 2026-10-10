@@ -8,6 +8,7 @@ pub mod customize;
 pub mod equipment;
 pub mod ex_skills;
 pub mod figurines;
+pub mod grade_shop;
 pub mod items;
 pub mod manual;
 pub mod monsters;
@@ -103,6 +104,7 @@ pub enum CharacterMenu {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
+    GradeShop,
     Main,
     Party,
     Character(CharacterMenu),
@@ -181,6 +183,7 @@ pub struct Popup {
 }
 
 pub struct Menu {
+    pub grade_shop: grade_shop::State,
     pub resources: Option<Arc<Resources>>,
     /// Index into the party's formation, independent of the current list row.
     pub character: usize,
@@ -254,6 +257,7 @@ impl Menu {
     pub fn new(page: Page, checkpoint: Option<FieldCheckpoint>, at_save_point: bool) -> Self {
         let direct = matches!(page, Page::Slots(_));
         Self {
+            grade_shop: Default::default(),
             resources: None,
             character: 0,
             first_character: 0,
@@ -653,6 +657,9 @@ impl Menu {
         }
         let directions = [left, right, up, down, page_up, page_down];
         match self.page {
+            Page::GradeShop => {
+                return self.step_grade_shop(input, [left, right, up, down, page_up, page_down]);
+            }
             Page::Items => return self.step_items(input, directions),
             Page::Collection => return self.step_collection(input, directions),
             Page::WorldMap => return self.step_world_map(input, [up, down, page_up, page_down]),

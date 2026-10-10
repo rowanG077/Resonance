@@ -76,7 +76,7 @@ pub(crate) struct Catalog {
     pub(crate) portrait_archive: String,
     pub(crate) portraits: Vec<Portrait>,
     pub(crate) portrait_recipes: Vec<Recipe>,
-    preview_order: Vec<u16>,
+    pub(crate) preview_order: Vec<u16>,
 }
 
 impl Catalog {
@@ -164,6 +164,8 @@ struct Physical {
 
 impl Physical {
     fn prepared(&self) -> Result<Vec<SkitDefinition>> {
+        let conditions: std::collections::BTreeMap<u16, SkitCondition> =
+            serde_json::from_str(include_str!("skit_conditions.json"))?;
         let mut definitions = Vec::new();
         for (group, first, count) in [(Group::Story, 1, 119), (Group::Timed, 600, 259)] {
             let rows = self.definitions.iter().filter(|row| row.group == group);
@@ -198,13 +200,19 @@ impl Physical {
                     story,
                     party_mask: row.party_mask,
                     location,
-                    condition: match (row.availability.selector, row.id) {
-                        (0, _) => SkitCondition::None,
-                        (_, 600) => SkitCondition::Maps([330, 346]),
-                        _ => SkitCondition::Unimplemented,
+                    condition: if row.availability.selector == 0 {
+                        SkitCondition::None
+                    } else {
+                        conditions
+                            .get(&row.id)
+                            .with_context(|| format!("missing availability for skit {}", row.id))?
+                            .clone()
                     },
                 });
             }
+        }
+        for definition in &definitions {
+            definition.condition.validate()?;
         }
         Ok(definitions)
     }
@@ -443,6 +451,23 @@ fn portraits(archive: &[u8]) -> Result<Vec<Portrait>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires both locally extracted discs; reads metadata only"]
+    fn automatic_skit_rules_cover_both_discs() -> Result<()> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+        let mut first = None;
+        for disc in ["disc1", "disc2"] {
+            let definitions =
+                definitions_from_source(&fs::read(root.join(disc).join("sys/main.dol"))?)?;
+            assert_eq!(definitions.len(), 319);
+            let encoded = serde_json::to_value(&definitions)?;
+            if let Some(previous) = first.replace(encoded.clone()) {
+                assert_eq!(previous, encoded);
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires both locally extracted original discs; only publishes JSON"]

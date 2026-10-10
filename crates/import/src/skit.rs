@@ -67,6 +67,7 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
     let mut catalog = SkitCatalog {
         version: 2,
         skits: physical.definitions()?,
+        preview_order: physical.preview_order.clone(),
         resources: BTreeMap::new(),
         portraits: BTreeMap::new(),
         portrait_recipes: physical

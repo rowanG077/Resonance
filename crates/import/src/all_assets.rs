@@ -5,10 +5,11 @@ mod attachment;
 pub(crate) use archive::Directory as PhysicalDirectory;
 pub(crate) use archive::{FieldDirectory, MemberKind, entries as archive_entries};
 mod audio_tables;
-mod credits;
+pub(crate) mod credits;
 mod embedded;
 #[cfg(test)]
 pub(crate) use embedded::cook_tables;
+pub(crate) use embedded::grade_shop;
 pub(crate) use embedded::{
     Catalogues, cooking_ui, crafting, ex_skills, figurine_catalogue, inventory_ui,
     monster_catalogue, options_ui, rename_ui, save_menu, shop_ui, status_ui, strategy_ui, synopsis,

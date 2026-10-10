@@ -866,7 +866,14 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
         ..Default::default()
     })?;
     field.advance_until(FieldSession::player_has_control)?;
-    assert_eq!(field.events.world.choices[&0].selected_line, 1);
+    assert_eq!(
+        field.events.world.choices[&0]
+            .selection
+            .lines()
+            .unwrap()
+            .selected_line,
+        1
+    );
     assert!(!field.events.world.choices[&0].operation.is_pending());
 
     const REWARD: u16 = 390;

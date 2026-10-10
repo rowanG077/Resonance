@@ -7,7 +7,7 @@
   },
   "native_sequence": {
     "path": "local/oracle-fixtures/effects/ring-sunlight.json",
-    "sha256": "a8bf27ec267dac10974f0149f5bd9ea9cff0b1ade52415068f31dd131f58dc3d"
+    "sha256": "f883bc4e292fef48220c680b5d582fda392fe3e2d56e85fcce2a90165f2cee59"
   },
   "inputs": [
     {

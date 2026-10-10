@@ -53,6 +53,7 @@ impl Menu {
         self.party()
             .monsters
             .iter()
+            .filter(|(_, knowledge)| knowledge.seen)
             .map(|(&id, knowledge)| {
                 let record = &book.records[usize::from(id)];
                 assert!(

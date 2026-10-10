@@ -55,6 +55,7 @@ mod field_probe;
 mod field_refraction;
 mod field_rumble;
 mod field_ui;
+use field_ui::{credits, session_screen};
 mod field_view;
 mod glow;
 mod materials;
@@ -318,6 +319,13 @@ fn build_app_with_display(
     let movie = movie::Playback::load(&assets, &options)?;
     let boot = boot::Playback::load(&assets, &options)?;
     let mut app = App::new();
+    app.insert_resource(session_screen::Title {
+        events: events
+            .as_ref()
+            .map(resonance_events::EventRuntime::fresh)
+            .transpose()?,
+        audio: music.clone(),
+    });
     app.insert_resource(prepared_clips);
     saves::install(&mut app, &options.saves)?;
     loading::install(&mut app, &assets);
@@ -364,7 +372,11 @@ fn build_app_with_display(
         })
         .insert_resource(bevy::winit::WinitSettings::continuous())
         .insert_resource(CaptureStart(Instant::now()))
-        .insert_resource(PendingAudio(music))
+        .insert_resource(PendingAudio(if options.saves.load.is_some() {
+            None
+        } else {
+            music
+        }))
         .insert_resource(movie)
         .insert_resource(boot)
         .insert_resource(Replay(replay))
@@ -426,7 +438,11 @@ fn build_app_with_display(
                 saves::update.run_if(dungeons::running),
                 new_game::enter,
                 new_game::skip_test_battles.run_if(dungeons::running),
-                new_game::transition.run_if(dungeons::running),
+                (
+                    new_game::transition.run_if(dungeons::running),
+                    session_screen::update,
+                )
+                    .chain(),
                 scene::bind_animated,
                 prepare_field,
                 update_materials,
@@ -451,6 +467,8 @@ fn build_app_with_display(
         field_ui::transition_failure.after(new_game::transition),
     );
     dungeons::install(&mut app, capture_only);
+    session_screen::install(&mut app);
+    credits::install(&mut app);
     testing::install(&mut app);
     if !capture_only {
         audio_output::install(&mut app, silent)?;
@@ -685,9 +703,10 @@ fn start_audio(
     boot: Res<boot::Playback>,
     recording: Option<Res<playthrough::Recording>>,
     new_game: Option<Res<new_game::Session>>,
+    game_over: Option<Res<session_screen::GameOver>>,
 ) {
     if new_game.is_some()
-        || options.saves.load.is_some()
+        || game_over.is_some()
         || recording.is_some_and(|r| !r.started)
         || movie.active
         || boot.active()
@@ -738,23 +757,12 @@ fn field_camera(
     };
     let track = &scene.cameras[camera.resource as usize];
     // The title camera samples two updates behind the title counter.
-    let time = (events.0.tick() - camera.start_tick).saturating_sub(2) as f32 * 0.5;
-    let time = time.min(track.last().unwrap().time);
-    let right = track
-        .partition_point(|k| k.time < time)
-        .min(track.len() - 1);
-    let left = right.saturating_sub(1);
-    let a = &track[left];
-    let b = &track[right];
-    let fraction = if a.time == b.time {
-        0.
-    } else {
-        (time - a.time) / (b.time - a.time)
+    let Some((position, target)) = camera.sample(events.0.tick().saturating_sub(2), track) else {
+        return;
     };
-    let position = Vec3::from_array(a.position).lerp(Vec3::from_array(b.position), fraction);
-    let target = Vec3::from_array(a.target).lerp(Vec3::from_array(b.target), fraction);
     for mut camera in &mut cameras {
-        *camera = Transform::from_translation(position).looking_at(target, Vec3::Z);
+        *camera = Transform::from_translation(Vec3::from_array(position))
+            .looking_at(Vec3::from_array(target), Vec3::Z);
     }
 }
 
@@ -829,8 +837,10 @@ fn advance(
     new_game: Option<Res<new_game::Session>>,
     loading: Option<Res<loading::Pending>>,
     load_menu: Option<Res<saves::title::LoadMenu>>,
+    game_over: Option<Res<session_screen::GameOver>>,
 ) {
     if new_game.is_some()
+        || game_over.is_some()
         || load_menu.is_some()
         || loading.is_some()
         || movie.active

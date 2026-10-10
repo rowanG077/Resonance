@@ -52,7 +52,7 @@ fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
             }
             for (&slot, choice) in &mut events.world.choices {
                 if choice.operation.is_pending() {
-                    choice.selected_line = selections[selected];
+                    choice.selection.lines_mut().unwrap().selected_line = selections[selected];
                     selected += 1;
                     choice.finish(ChoiceExit::Confirm).unwrap();
                     events.world.dialogue[&slot]

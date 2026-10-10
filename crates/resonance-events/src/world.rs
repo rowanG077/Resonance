@@ -88,7 +88,11 @@ pub struct Actor {
     /// Last actor update's view test; animation and secondary motion share it.
     pub animation_culled: bool,
     pub grounded: bool,
+    /// Surface flags published by field navigation before the scripts run.
+    pub ground_attributes: u32,
     pub collidable: bool,
+    /// Script readback; axis-separated contacts already settle without repulsion.
+    pub overlap_repulsion_disabled: bool,
     /// Native contact shape; disabling walking collision does not remove it.
     pub contact: ActorContact,
     /// Touching the player invokes registry (0, -2), enabled by property 20.
@@ -139,6 +143,9 @@ pub struct Enemy {
     pub event_parameters: [i16; 2],
     /// Shared contact/ring/script timer (property 54); negatives pause indefinitely.
     pub pause_ticks: i16,
+    pub pause_outside_view: bool,
+    /// A script-controlled marker, independent of movement and reaction state.
+    pub script_flag: bool,
     pub reaction: crate::effect::StunEffect,
 }
 impl Enemy {
@@ -325,7 +332,9 @@ impl Actor {
             culling_flags: [None; 2],
             animation_culled: false,
             grounded: true,
+            ground_attributes: 0,
             collidable: true,
+            overlap_repulsion_disabled: false,
             contact: ActorContact::Cylinder,
             contact_event: false,
             model_collision: None,
@@ -532,6 +541,13 @@ impl BoneAdjustment {
 pub struct CameraTrack {
     pub resource: u32,
     pub start_tick: u32,
+    pub(crate) start_frame: f32,
+    pub(crate) rate: f32,
+    pub(crate) playing: bool,
+    pub(crate) repeat: bool,
+    pub(crate) completed: bool,
+    pub(crate) target_actor: i32,
+    pub(crate) target_offset: [f32; 3],
 }
 #[derive(Default)]
 pub struct GameWorld {
@@ -539,6 +555,9 @@ pub struct GameWorld {
     pub(crate) ring: crate::ring::Controller,
     pub(crate) fog_effects: BTreeMap<i32, crate::camera::FogEffect>,
     pub tick: u32,
+    /// Published by the scene owner; includes time spent in menus and movies.
+    pub played_ticks: u64,
+    pub reset_play_time: bool,
     pub effect_tick: u32,
     /// The owning scene's map, also available to its nested skit scripts.
     pub current_field: Option<u32>,
@@ -548,6 +567,7 @@ pub struct GameWorld {
     pub skit: Option<crate::skit::Scene>,
     pub skit_request: Option<crate::skit::Request>,
     pub menu_request: Option<crate::menu::Request>,
+    pub screen_request: Option<crate::session_screen::Request>,
     pub actors: BTreeMap<i32, Actor>,
     pub(crate) duplicate_actors: BTreeMap<i32, i32>,
     pub(crate) automatic_wings: Option<(u64, u64)>,
@@ -556,6 +576,8 @@ pub struct GameWorld {
     pub camera: Option<CameraTrack>,
     pub fade: Option<Fade>,
     pub scene_dissolve: Option<SceneDissolve>,
+    /// Nonzero blends the previous rendered field into each new frame.
+    pub frame_feedback: u8,
     pub next_transition_white: Option<bool>,
     pub overlays: BTreeMap<i32, Overlay>,
     pub effect_settings: BTreeMap<(i32, i32), [i32; 3]>,
@@ -601,6 +623,8 @@ pub struct GameWorld {
     pub treasure_models: [Option<u32>; 2],
     /// Search distance for automatic scenery-door interactions; absent uses 250.
     pub door_interaction_radius: Option<f32>,
+    /// Explicit scenery door for scripted exits, independent of proximity.
+    pub exit_door: Option<u16>,
     pub audio_commands: Vec<AudioCommand>,
     pub rumble: Option<crate::rumble::Rumble>,
     pub(crate) ambient_voices: [Option<crate::ambient::Voice>; 2],
@@ -974,6 +998,13 @@ impl GameWorld {
                 if clear_particles {
                     // Retire submitted particles after their final presentation.
                     particle.lifetime = particle.lifetime.min(age + 2);
+                    // A pending release must not renew a retired particle's lifetime.
+                    if matches!(
+                        particle.controller,
+                        Some(crate::effect::BillboardController::Guided(_))
+                    ) {
+                        particle.controller = None;
+                    }
                 } else if let crate::effect::OwnerTail::Fade(updates) = particle.owner_tail {
                     particle.rgba[3] = particle.alpha(self.tick) as u8;
                     particle.lifetime = particle.lifetime.min(age + updates);

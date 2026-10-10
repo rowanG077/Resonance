@@ -103,6 +103,7 @@ pub(super) fn record(mut app: App, output: PathBuf) -> Result<()> {
         check_exit(&app)?;
         attach::<movie::MovieAudio>(app.world_mut(), &mixer)?;
         attach::<GameAudio>(app.world_mut(), &mixer)?;
+        attach::<crate::credits::Audio>(app.world_mut(), &mixer)?;
         serde_json::to_writer(&mut timeline, &observation(app.world()))?;
         timeline.write_all(b"\n")?;
         let end = step * u64::from(RATE) * UPDATE_RATE_DENOMINATOR / UPDATE_RATE_NUMERATOR;

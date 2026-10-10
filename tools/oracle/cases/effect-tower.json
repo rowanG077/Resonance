@@ -7,7 +7,7 @@
   },
   "native_sequence": {
     "path": "local/oracle-fixtures/effects/tower.json",
-    "sha256": "c0ce54b9c7d4f388305102390456fa7ccb06971e14d68565ee3c5e30a50a0d82"
+    "sha256": "e03cf7ab5f696da84f9f726898a64cc2beff7e9b2bfcec5af36929df71f9af27"
   },
   "description": "Tower model resources loaded through scenario commands on the registered Martel effect stage."
 }

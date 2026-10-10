@@ -5,7 +5,7 @@
   },
   "native_sequence": {
     "path": "local/oracle-fixtures/effects/base.json",
-    "sha256": "42160829d191cc07050873104d77bfd7a077dc6f47526abdb002cd5c9cbdad15"
+    "sha256": "44fe80aa8f2c0572d9db52c4f6e0d14e5771e910a54831e03e85409cff420ef4"
   },
   "description": "Registered Martel stage for independent scenario-driven field effects, emotes and generated compositions."
 }

@@ -16,16 +16,27 @@ pub mod sprite {
     pub const ORB_SPRITE: u16 = 10;
     pub const FLAME_SPRITE: u16 = 11;
     pub const TRAIL_GLOW_SPRITE: u16 = 12;
+    pub const BURST_SPRITE: u16 = 13;
     pub const ELECTRIC_ARC_SPRITE: u16 = 14;
+    pub const SWIRL_SPRITE: u16 = 18;
+    pub const SPARKLE_CLUSTER_SPRITE: u16 = 21;
     pub const STATION_HALO_SPRITE: u16 = 22;
     pub const STREAK_SPRITE: u16 = 23;
     pub const RING_SPRITE: u16 = 41;
     pub const ELECTRIC_SPARK_SPRITE: u16 = 42;
+    pub const RISING_LIGHT_SPRITE: u16 = 44;
     pub const DEBRIS_SPRITES: [u16; 3] = [52, 53, 54];
     pub const SEAL_STAR_SPRITE: u16 = 68;
     pub const SEAL_SPARK_SPRITE: u16 = 69;
+    pub const SQUARE_GLOW_SPRITE: u16 = 70;
+    pub const LIGHTNING_BOLT_SPRITE: u16 = 74;
+    pub const PLANE_LIGHT_SPRITES: [u16; 4] = [75, 76, 77, 78];
+    pub const FLAME_PLUME_SPRITE: u16 = 80;
+    pub const CYLINDER_RAY_SPRITE: u16 = 82;
+    pub const LIGHT_SHEET_SPRITE: u16 = 95;
+    pub const COOKING_CLOUDS: std::ops::RangeInclusive<u16> = 501..=505;
 
-    pub const ALL: [u16; 20] = [
+    pub const ALL: [u16; 33] = [
         GLOW_SPRITE,
         SMOKE_SPRITE,
         STATION_GLOW_SPRITE,
@@ -36,16 +47,29 @@ pub mod sprite {
         ORB_SPRITE,
         FLAME_SPRITE,
         TRAIL_GLOW_SPRITE,
+        BURST_SPRITE,
         ELECTRIC_ARC_SPRITE,
+        SWIRL_SPRITE,
+        SPARKLE_CLUSTER_SPRITE,
         STATION_HALO_SPRITE,
         STREAK_SPRITE,
         RING_SPRITE,
         ELECTRIC_SPARK_SPRITE,
+        RISING_LIGHT_SPRITE,
         DEBRIS_SPRITES[0],
         DEBRIS_SPRITES[1],
         DEBRIS_SPRITES[2],
         SEAL_STAR_SPRITE,
         SEAL_SPARK_SPRITE,
+        SQUARE_GLOW_SPRITE,
+        LIGHTNING_BOLT_SPRITE,
+        PLANE_LIGHT_SPRITES[0],
+        PLANE_LIGHT_SPRITES[1],
+        PLANE_LIGHT_SPRITES[2],
+        PLANE_LIGHT_SPRITES[3],
+        FLAME_PLUME_SPRITE,
+        CYLINDER_RAY_SPRITE,
+        LIGHT_SHEET_SPRITE,
     ];
 }
 
@@ -144,6 +168,7 @@ pub struct FieldEffects<Image = String> {
     pub refraction: RefractionRecipe<Image>,
     pub air_refraction: SpriteRecipe<Image>,
     pub mouth_cycle: Vec<u8>,
+    pub rising_light_destination: [f32; 3],
 }
 pub const FIELD_EFFECTS_VERSION: u32 = 10;
 pub const SMOKE_UPDATES: u32 = 56;
@@ -245,6 +270,10 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
                 && sprite::ALL.iter().all(|id| self.sprites.contains_key(id))
                 && self.palette.len() == FIELD_PALETTE_COLORS,
             "invalid or outdated field effects; run cook-all"
+        );
+        ensure!(
+            self.rising_light_destination.iter().all(|v| v.is_finite()),
+            "invalid light destination"
         );
         crate::validate_asset_path(self.emote_texture.as_ref())?;
         crate::validate_asset_path(self.status_texture.as_ref())?;

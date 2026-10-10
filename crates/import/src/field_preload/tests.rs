@@ -6,6 +6,28 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
+#[test]
+#[ignore = "requires cooked ending field; checks preparation without recooking or devices"]
+fn ending_script_preloads_credits_text_pictures_and_music() -> Result<()> {
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
+        PathBuf::from,
+    );
+    let existing: Manifest =
+        serde_json::from_slice(&fs::read(root.join("fields/map-534.preload.json"))?)?;
+    let rebuilt = build(&root, existing.inputs)?;
+    let credits: resonance_content::credits::Manifest =
+        serde_json::from_slice(&fs::read(root.join(resonance_content::credits::PATH))?)?;
+    for path in std::iter::once(resonance_content::credits::PATH)
+        .chain(credits.pictures.iter().map(|picture| picture.path.as_str()))
+        .chain([credits.music.asset.path.as_str()])
+    {
+        assert_eq!(rebuilt.files[path].sha256, existing.files[path].sha256);
+        assert_eq!(rebuilt.files[path].bytes, existing.files[path].bytes);
+    }
+    Ok(())
+}
+
 struct Fixture(PathBuf);
 
 impl Drop for Fixture {
@@ -142,6 +164,10 @@ fn fixture() -> Fixture {
         (
             "game/menu-data.json",
             json!({"version":resonance_content::menu_data::MenuData::VERSION,"world_map":{"names":["A","A"],"locations":{},"field_locations":{},"shops":[]},"item_categories":vec!["A";48],"inventory_categories":vec!["A";9],"items":vec![json!({"name":"A","description":"","details":"","category":0,"price":0,"transforms_to":0,"field_use":null,"equipment_stats":vec![0;7]});528],
+                "grade_shop":{"options":resonance_content::grade::Benefit::ALL.map(|benefit|json!({
+                    "benefit":benefit,"price":1,"name":"A","description":"A","excludes":[]})),
+                    "labels":(["heading","grade","finish","confirmation","yes","no","total_cost"]
+                        .into_iter().map(|key|(key,"A")).collect::<BTreeMap<_,_>>())},
                 "crafting":{"recipes":[],"vendors":[],"labels":{"heading":"A","confirmation":"A","yes":"A","no":"A","missing_materials":"A","inventory_full":"A"}},
                 "item_group_prompt":{"lines":[[{"kind":"button","sprite":6},{"kind":"text","text":"A","color":9}]]},
                 "item_bottle_count":{"lines":[[{"kind":"text","text":"A","color":8}]]},
@@ -154,7 +180,7 @@ fn fixture() -> Fixture {
                 "manual":{"title":"A","chapters":(1..=9).map(|flag|json!({"name":"A","topics":[{
                     "name":"A","learned_flag":flag,"paragraphs":[{"lines":[[{"kind":"text","text":"A","color":9}]]}]}]})).collect::<Vec<_>>()},
                 "monsters":{"records":(0..resonance_content::monster::MONSTER_COUNT).map(|id|json!({
-                    "version":resonance_content::monster::MONSTER_VERSION,"id":id,"name":"A","location":"A","category":"A",
+                    "version":resonance_content::monster::MONSTER_VERSION,"id":id,"name":"A","location":"A","category":"A","unseen_count_group":0,
                     "statistics":[{"hp":1,"tp":0,"attack":0,"defense":0,"experience":0,"gald":0}],
                     "drops":[null,null],"steal":null,"attack_element":null,"weaknesses":[],"resistances":[],
                     "preview":preview})).collect::<Vec<_>>(),
@@ -181,8 +207,8 @@ fn fixture() -> Fixture {
         (
             "effects/test.json",
             json!({"version":resonance_content::effect::FIELD_EFFECTS_VERSION,
-            "palette":vec![[255;4];resonance_content::effect::FIELD_PALETTE_COLORS],
-            "sprites":([0,1,4,5,6,7,8,10,11,12,14,22,23,41,42,52,53,54,68,69].into_iter().map(|kind|(kind.to_string(),
+            "palette":vec![[255;4];resonance_content::effect::FIELD_PALETTE_COLORS],"rising_light_destination":[0.,0.,0.],
+            "sprites":(resonance_content::effect::sprite::ALL.into_iter().map(|kind|(kind.to_string(),
                 json!({"texture":"textures/shared.ktx2","uv":[0.,0.,1.,1.],"additive":kind>1}))).collect::<BTreeMap<_,_>>()),
             "air_refraction":{"texture":"textures/refraction.ktx2","uv":[0.,0.,1.,1.],"additive":false},
             "refraction":{"sprite":{"texture":"textures/refraction.ktx2","uv":[0.,0.,1.,1.],"additive":false},"displacement":[1.,1.]},
@@ -307,7 +333,7 @@ fn complete_field_includes_hidden_actors_all_clips_and_deduplicates_files() {
     let skits = "game/skits.json";
     let skit_hash = root.json(
         skits,
-        &json!({"version":2,"skits":[],"portrait_recipes":[],"portraits":{
+        &json!({"version":2,"skits":[],"preview_order":[],"portrait_recipes":[],"portraits":{
             "851968":{"size":[16,16],"images":[
                 {"texture":"textures/shared.ktx2","size":[16,16]},
                 {"texture":expression,"size":[8,8]}

@@ -181,15 +181,18 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
                         .filter(|c| c.operation.is_pending())
                     {
                         if choices.insert(choice.operation.id()) {
+                            let Some(lines) = choice.selection.lines_mut() else {
+                                continue;
+                            };
                             let depth = chosen.len();
                             ensure!(depth < 32, "event choice path exceeds 32 decisions");
-                            let selected = path.get(depth).copied().unwrap_or(choice.first_line);
+                            let selected = path.get(depth).copied().unwrap_or(lines.first_line);
                             ensure!(
-                                (choice.first_line..=choice.last_line).contains(&selected),
+                                (lines.first_line..=lines.last_line).contains(&selected),
                                 "choice branch changed unexpectedly"
                             );
                             if depth >= path.len() {
-                                for alternative in choice.first_line..=choice.last_line {
+                                for alternative in lines.first_line..=lines.last_line {
                                     if alternative != selected {
                                         let mut next = chosen.clone();
                                         next.push(alternative);
@@ -198,7 +201,7 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
                                 }
                             }
                             chosen.push(selected);
-                            choice.selected_line = selected;
+                            lines.selected_line = selected;
                         }
                     }
                     if let Some(menu) = &field.menu {

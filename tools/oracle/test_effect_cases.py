@@ -5,7 +5,7 @@ import random
 import unittest
 from unittest.mock import patch
 
-from effect_cases import FIELD_TYPES, cases, random_cases, scenario_commands, minimize, composed_case, capture_settings, effect
+from effect_cases import FIELD_TYPES, cases, random_cases, scenario_commands, minimize, composed_case, capture_settings, effect, effect_events, emitter_vector_slot
 from effect_fixture import fixture_program, SCENE_SETUP
 
 CAMERA = {'position': [700, -324, 736], 'target': [0, 97, 87]}
@@ -44,14 +44,43 @@ class GeneratedEffects(unittest.TestCase):
             after = {case['name']: case for case in cases(CAMERA)}
         self.assertEqual(after, {name: before[name] for name in after})
 
+    def test_sprite_controls_are_exercised_before_expiry_on_sprites_leaves_and_refraction(self):
+        covered = {variant: {} for variant in (0, 25, 27)}
+        for case in cases(CAMERA):
+            for subject in case['effects']:
+                if subject['kind'] != 'sprite' or subject['variant'] not in covered:
+                    continue
+                values, angles = covered[subject['variant']], {}
+                for tick, op, args in effect_events(subject):
+                    if op != 0xd1:
+                        continue
+                    _, prop, value = args
+                    self.assertLess(tick - subject['birth'], subject['parameters']['lifetime'])
+                    values.setdefault(prop, set()).add(value)
+                    if 141 <= prop <= 143:
+                        angles[prop] = value
+                    if prop == 149:
+                        self.assertEqual(set(angles), {141, 142, 143})
+                        self.assertTrue(all(0 < angle < 9000 for angle in angles.values()))
+        for values in covered.values():
+            for prop in (129, 130, 131, 138, 139, 140):
+                self.assertTrue(min(values[prop]) < 0 < max(values[prop]))
+                self.assertIn(0, values[prop])
+            self.assertTrue({0, 50, 100, 200} <= values[136])
+            self.assertEqual(values[137], {0, 1})
+            self.assertEqual(values[149], {0, 1, 2, 4, 8, 16})
+
     def test_model_ring_and_station_compositions_keep_every_actor_and_emitter_independent(self):
+        variants = set()
         for family in ('tower', 'rings', 'stations'):
             bases = list(cases(CAMERA, family))
             for case in random_cases(CAMERA, bases, 500, 20261006):
                 commands = list(scenario_commands(case))
                 self.assert_lifetimes(commands)
+                variants.update(args[5] for op, args in commands if op == 0xbf)
                 if family == 'stations':
                     self.assertTrue(any(op == 0x5c for op, _ in commands))
+        self.assertTrue({40, 47, 50, 66, 70} <= variants)
 
     def test_visibility_tracks_palette_and_emission_changes(self):
         bases = {c['name']: c for c in cases(CAMERA)}
@@ -81,6 +110,8 @@ class GeneratedEffects(unittest.TestCase):
             self.assertEqual(commands, list(scenario_commands(json.loads(json.dumps(case)))))
             fixture_program([0, 90020, 32, 33, 34, 10000, 10001], SCENE_SETUP + commands)
             handles = [args[0] for op, args in commands if op == 0xbf]
+            self.assertFalse(set(handles) & {args[0] for op, args in commands if op == 0xb2},
+                             'face controls overwrite emitter parameters')
             reused_handles += len(handles) - len(set(handles))
             self.assert_lifetimes(commands)
             moving_sprites += sum(op in (0xd0, 0xd3) and any(args[5:8])
@@ -96,7 +127,13 @@ class GeneratedEffects(unittest.TestCase):
                         self.assertLess(age, p['lifetime'])
                         self.assertGreater(p['alpha'] + p['fade'] * age, 0)
                 if e['kind'] == 'emitter':
-                    target_changes += sum('target' in values for _, values in e['changes'])
+                    if 'target' in e['parameters']:
+                        slot = 113 + emitter_vector_slot(e['variant'], 'target')
+                        targets = [args[2] for _, op, args in effect_events(e)
+                                   if op == 0x1d and slot <= args[1] < slot+3]
+                        self.assertTrue(all(0 <= value <= 0xffff for value in targets),
+                                        'target edits must stay in the unsigned coordinate range')
+                        target_changes += len(targets)
                     palettes.add(e['parameters'].get('palette'))
                     if e['variant'] == 11:
                         gathering_phases.update(values['phase'] for _, values in e['changes'] if 'phase' in values)
@@ -113,19 +150,24 @@ class GeneratedEffects(unittest.TestCase):
         # Required inputs are explicit, independent of the generator's catalogue.
         self.assertTrue({('emote', n) for n in range(20)} <= variants)
         self.assertTrue({('sprite', n) for n in (0, 1, 2, 4, 5, 6, 7, 8, 10, 14, 23, 25,
-                                                27, 28, 40, 41, 42, 43, 49, 52, 53, 54, 69)} <= variants)
+                                                27, 28, 40, 41, 42, 43, 49, 52, 53, 54, 69,
+                                                11, 12, 13, 18, 21, 22, 70, 74, 80, 501, 502, 503, 504, 505)} <= variants)
         self.assertTrue({105, 106, 107, 108} <= palettes)
         self.assertEqual(seal_phases, {1, 3})
         self.assertEqual(gathering_phases, {0, 1, 2})
+        mote = next(c for c in bases if c['name'] == 'emitter-18')
+        mote_phases.update(values['phase'] for case in random_cases(CAMERA, [mote], 20, 17)
+                           for e in case['effects'] if e['kind'] == 'emitter' and e['variant'] == 18
+                           for _, values in e['changes'] if 'phase' in values)
         self.assertIn(0, mote_phases, 'generated motes must exercise restart')
         self.assertTrue({('model', n) for n in range(3)} <= variants)
-        self.assertTrue({('emitter', n) for n in (0, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22,
-                                                 23, 24, 26, 27, 28, 30, 31, 33, 34, 36, 38,
-                                                 46, 48, 49, 51, 54, 55, 60, 63, 75)} <= variants)
+        emitters = set(range(5)) | set(range(9, 35)) | set(range(36, 69)) | set(range(70, 76))
+        self.assertTrue({('emitter', n) for n in emitters - {40, 47, 50, 66, 70}} <= variants)
         self.assertTrue(pairs, 'generated cases must combine emitters')
         self.assertTrue(reused_handles, 'generated cases must recreate removed emitters')
         self.assertTrue(moving_sprites, 'generated cases must exercise moving sprites')
-        self.assertTrue({123, 124, 128, 135, 145, 146, 147} <= sprite_properties)
+        self.assertTrue({123, 124, 128, 129, 130, 131, 135, 136, 137, 138, 139, 140,
+                         145, 146, 147, 149} <= sprite_properties)
         self.assertTrue(target_changes, 'generated cases must retarget moving effects')
         self.assertTrue(set(range(423, 426)) | set(range(429, 432)) | set(range(435, 441))
                         | {442, 443, 447, 448} <= model_properties)
@@ -177,7 +219,7 @@ class GeneratedEffects(unittest.TestCase):
 
     def test_projectile_speed_varies_and_primary_models_can_be_shrunk_without_overlays(self):
         bases = {c['name']: c for c in cases(CAMERA, 'tower')}
-        for name in ('emitter-47', 'renegade-shot'):
+        for name in ('emitter-40', 'emitter-47', 'emitter-70', 'renegade-shot'):
             commands = list(scenario_commands(bases[name]))
             binding = next(i for i, (op, _) in enumerate(commands) if op == 0xd2)
             birth = next(i for i, (op, _) in enumerate(commands) if op == 0xbf)
@@ -252,13 +294,14 @@ class GeneratedEffects(unittest.TestCase):
         switches = set()
         for case in cases(CAMERA):
             effect = case['effects'][0]
-            if effect['kind'] != 'emitter' or effect['variant'] != 38:
+            if effect['kind'] != 'emitter' or effect['variant'] not in (38, 59):
                 continue
-            cleanup, released = effect['parameters']['cleanup'], False
+            cleanup, phase = effect['parameters']['cleanup'], 0
             for _, changes in sorted(effect['changes'], key=lambda row: row[0]):
-                released |= changes.get('phase') == 2
+                phase = changes.get('phase', phase)
                 if 'cleanup' in changes:
-                    if released:
-                        switches.add((cleanup, changes['cleanup']))
+                    switches.add((effect['variant'], phase, cleanup, changes['cleanup']))
                     cleanup = changes['cleanup']
-        self.assertTrue({(0, 1), (1, 0)} <= switches)
+        self.assertTrue({(variant, phase, before, 1-before)
+                         for variant, phase in [(38, 2), (59, 0), (59, 1), (59, 2)]
+                         for before in (0, 1)} <= switches)

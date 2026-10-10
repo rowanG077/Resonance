@@ -15,6 +15,7 @@ macro_rules! bindings {
 impl Host for NativeHost<'_> {
     const NATIVES: NativeBindings<Self> = bindings! {
         CloseDialogue(1) -> () = dispatch;
+        GetDialogueStatus(1) -> i32 = dispatch;
         ConfigureDialogue(8) -> () = dispatch;
         SetDialogueSlotFlag(3) -> () = dispatch;
         CreateSavePoint(4) -> () = field;
@@ -30,6 +31,9 @@ impl Host for NativeHost<'_> {
         DespawnActor(1) -> () = field;
         DespawnActorAfterMovement(1) -> () = dispatch;
         SetActorHeading(2) -> () = field;
+        GetActorHeading(1) -> i32 = dispatch;
+        IsActorMoving(1) -> i32 = dispatch;
+        SetSceneryAnimationRate(3) -> () = field;
         FaceActorAfterMovement(2) -> () = dispatch;
         TransformActorNode(6) -> () = dispatch;
         ConfigureActorBoneRotation(6) -> () = field;
@@ -45,6 +49,7 @@ impl Host for NativeHost<'_> {
         GetItemStackLimit(0) -> i32 = party;
         ChangeItemCount(2) -> i32 = party;
         SelectPartyMember(1) -> i32 = field;
+        SetPlayerModel(1) -> () = field;
         AddPartyMember(1) -> i32 = party;
         RemovePartyMember(1) -> i32 = party;
         FindPartyMember(1) -> i32 = party;
@@ -105,6 +110,7 @@ impl Host for NativeHost<'_> {
         SetSkitSubtitle(3) -> () = skit;
         PlaySkit(3) -> () = request_skit;
         PreviewSkit(1) -> () = request_skit;
+        GetReplaySkit(1) -> i32 = dispatch;
         ReturnFieldControl(1) -> () = field;
         DisableMappedInput(0) -> () = field;
         IsMappedInputDisabled(0) -> i32 = field;
@@ -122,14 +128,26 @@ impl Host for NativeHost<'_> {
         SetFieldCountdown(1) -> () = party;
         GetFieldCountdown(0) -> i32 = party;
         ShowChoice(5) -> i32 = dispatch;
+        ShowNumberInput(5) -> i32 = dispatch;
         OpenMenu(1) -> i32 = request_menu;
         SetEventBit(1) -> () = field;
         ClearEventBit(1) -> () = field;
         TestEventBit(1) -> i32 = field;
         AddGald(1) -> i32 = party;
         AddGrade(1) -> i32 = party;
+        HasTechnique(2) -> i32 = party;
+        ForgetTechnique(2) -> () = party;
+        ForgetTitle(1) -> () = party;
+        ConfigureFigurine(2) -> i32 = party;
+        ConfigureMonsterKnowledge(2) -> i32 = party;
+        SetEquippedTitle(2) -> i32 = party;
+        ResetFieldTicks(0) -> () = party;
+        ResetScenarioTicks(0) -> () = party;
+        GetScenarioTicks(0) -> i32 = party;
+        RecipeProficiency(3) -> i32 = party;
         IsDebugSession(0) -> i32 = dispatch;
         ConfigureSession(2) -> i32 = party;
+        ConfigureBattleRules(2) -> i32 = party;
         ConfigureSorcerersRing(2) -> i32 = party;
         SetPlayerSize(4) -> () = field;
         SnapshotParty(1) -> () = party;
@@ -164,6 +182,8 @@ impl Host for NativeHost<'_> {
         ResetCameraBounds(0) -> () = field;
         StopCameraTrack(0) -> () = dispatch;
         PlayCameraTrack(3) -> () = dispatch;
+        MapCameraTrackPosition(8) -> () = dispatch;
+        ConfigureCameraTrack(2) -> i32 = dispatch;
         MeasureActorGeometry(3) -> i32 = field;
         WaitActorAnimationFrame(2) -> () = dispatch;
         IsActorAnimationFinished(1) -> i32 = dispatch;

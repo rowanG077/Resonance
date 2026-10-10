@@ -224,6 +224,14 @@ separate `effect-ring-*.json` stage profiles because their scenery or controller
 input differs. Profiles pin source checkpoints, their movie prefix and native
 scene inputs; existing cooked assets are used without cooking.
 
+The catalogue includes all 70 implemented emitters, including the new trails,
+star orbits, cylinders, light sheets and bursts. They use the same named input
+domains for individual comparisons, random compositions and shrinking. Sprite
+coverage also includes flames, sparkles, lightning and cooking clouds.
+Cloud cleanup runs in each emission phase with both cleanup transitions, in
+addition to randomized controls and compositions. Rust tests cover script results,
+resource requirements and particle ownership; this suite covers visual appearance.
+
 Required private effect inputs live in `local/oracle-fixtures/effects/`: one
 savestate and companion `.s01.dtm` per starting field, plus the native scene
 templates. Preserve this directory when deleting capture reports. To prepare a
@@ -235,8 +243,10 @@ Generated cases cover every eligible input before repeating, then combine
 finite particles with randomized placement, size, palette, opacity, duration,
 casting direction and random seed. Sprites, models, emitters, emotes and actors
 use named inputs and timed changes; numeric commands are compiled at the simulator
-boundary. Generated changes include sprite properties, moving targets, early
-quake removal and emitter-handle reuse. Every complete scenario is saved in
+boundary. Sprite cases cover fractional and integer velocity, speed, direction mode
+and all six rotation orders with combined axis rotations, including leaves and refraction.
+Generated changes also include moving targets, early quake removal and
+emitter-handle reuse. Every complete scenario is saved in
 `case.json`. Use `--replay-case PATH` to reproduce it independently of generator
 changes. `--only 'sprite-*'` filters case names. `--random-cases 0` runs the
 base catalogue only. Visible scenarios must actually appear in the source recording;

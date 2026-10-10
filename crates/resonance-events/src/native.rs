@@ -82,6 +82,23 @@ fn sprite_property(
     Some(previous)
 }
 impl NativeHost<'_> {
+    fn wait_for_choice(
+        &mut self,
+        slot: u8,
+        choice: crate::dialogue::Choice,
+    ) -> Result<NativeResult, String> {
+        *self.wait = Some(Wait::Choice {
+            result: choice.operation.clone(),
+            window: Box::new(Wait::Service {
+                condition: Box::new(Wait::Complete(self.world.dialogue[&slot].operation.clone())),
+                ready_at: None,
+            }),
+        });
+        if let Some(old) = self.world.choices.insert(slot, choice) {
+            old.operation.cancel();
+        }
+        Ok(NativeResult::Suspend)
+    }
     fn yield_update(&mut self) -> Result<NativeResult, String> {
         *self.wait = Some(Wait::Tick(
             self.world
@@ -237,6 +254,31 @@ impl NativeHost<'_> {
                     dialogue.operation.complete(None)?;
                 }
             }
+            NativeCall::GetDialogueStatus => {
+                value = Some(
+                    u8::try_from(a[0])
+                        .ok()
+                        .and_then(|slot| self.world.dialogue.get(&slot))
+                        .filter(|dialogue| dialogue.operation.is_pending())
+                        .map_or(0, |dialogue| dialogue.status as i32),
+                );
+            }
+            NativeCall::GetReplaySkit => {
+                let order = &self
+                    .resources
+                    .skits
+                    .as_ref()
+                    .ok_or("skit catalogue is missing")?
+                    .preview_order;
+                value = Some(if a[0] == -1 {
+                    order.len() as i32
+                } else {
+                    usize::try_from(a[0])
+                        .ok()
+                        .and_then(|index| order.get(index))
+                        .map_or(-1, |&id| i32::from(id))
+                });
+            }
             NativeCall::ConfigureDialogue => {
                 require(
                     (0..i32::from(DIALOGUE_SLOTS)).contains(&a[0]),
@@ -296,6 +338,7 @@ impl NativeHost<'_> {
                 };
                 let dialogue = Dialogue {
                     operation: self.world.operations.begin()?,
+                    status: crate::dialogue::DialogueStatus::Waiting,
                     speaker,
                     body,
                     anchor,
@@ -323,6 +366,15 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::GetEventActor => value = Some(i32::from(self.event_actor)),
+            NativeCall::GetActorHeading | NativeCall::IsActorMoving => {
+                value = Some(self.world.actors.get(&a[0]).map_or(0, |actor| {
+                    if op == NativeCall::GetActorHeading {
+                        actor.heading as i16 as i32
+                    } else {
+                        i32::from(actor.motion.is_some())
+                    }
+                }));
+            }
             NativeCall::DespawnActorAfterMovement => {
                 let actor = if a[0] == crate::CONTROLLED_ACTOR {
                     self.world.controlled_actor
@@ -349,12 +401,27 @@ impl NativeHost<'_> {
                 const SHADE_BLUE: i32 = 59;
                 const DISABLE_SECONDARY_MOTION: i32 = 40;
                 const TOON_LIGHTING: i32 = 38;
+                const PAUSE_OFFSCREEN: i32 = 67;
+                const ENEMY_SCRIPT_FLAG: i32 = 60;
+                const DISABLE_REPULSION: i32 = 61;
                 // Ordinary property writes return the previous value.
                 let id = if a[0] == crate::CONTROLLED_ACTOR {
                     self.world.controlled_actor
                 } else {
                     a[0]
                 };
+                // Reserved properties accept writes without changing actor state.
+                if matches!(a[1], 0 | 6) {
+                    return Ok(NativeResult::Continue(Some(0)));
+                }
+                if a[1] == 52 {
+                    let surface = self
+                        .world
+                        .actors
+                        .get(&id)
+                        .map_or(0, |a| a.ground_attributes);
+                    return Ok(NativeResult::Continue(Some(surface as i32)));
+                }
                 if a[1] == 49 {
                     // Both native property commands only read this detection bit.
                     let alert = self
@@ -404,7 +471,7 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(Some(previous)));
                 }
                 require(
-                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=23 | 26..=27 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53..=54 | 56 | 66 | CONDITIONS | 101 | 102 | 104 | 112)
+                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=23 | 26..=27 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53..=54 | 56 | ENEMY_SCRIPT_FLAG | DISABLE_REPULSION | 66 | PAUSE_OFFSCREEN | CONDITIONS | 101 | 102 | 104 | 112)
                         && (a[1] != 112 || op == NativeCall::GetActorProperty),
                     "actor property shim is not implemented",
                 )?;
@@ -555,7 +622,10 @@ impl NativeHost<'_> {
                         .as_ref()
                         .map_or(0, |enemy| i32::from(enemy.random_turns)),
                     30..=32 => actor.scale_percent[(a[1] - 30) as usize],
-                    34 => actor.autonomy.as_ref().map_or(0, |ai| ai.behavior as i32),
+                    34 => actor
+                        .autonomy
+                        .as_ref()
+                        .map_or(0, |ai| i32::from(ai.behavior.code())),
                     35 | 36 => actor.tilt[(a[1] - 35) as usize],
                     37 => actor.heading as i32,
                     TOON_LIGHTING => actor.toon_lighting.map(i32::from).unwrap_or_else(|| {
@@ -575,6 +645,16 @@ impl NativeHost<'_> {
                         .enemy
                         .as_ref()
                         .map_or(0, |enemy| i32::from(enemy.pause_ticks)),
+                    PAUSE_OFFSCREEN => i32::from(
+                        actor
+                            .enemy
+                            .as_ref()
+                            .is_some_and(|enemy| enemy.pause_outside_view),
+                    ),
+                    ENEMY_SCRIPT_FLAG => {
+                        i32::from(actor.enemy.as_ref().is_some_and(|enemy| enemy.script_flag))
+                    }
+                    DISABLE_REPULSION => i32::from(actor.overlap_repulsion_disabled),
                     56 => actor
                         .enemy
                         .as_ref()
@@ -674,8 +754,7 @@ impl NativeHost<'_> {
                         }
                         20 => actor.contact_event = a[2] & 1 != 0,
                         34 => {
-                            let behavior = crate::Behavior::try_from(i32::from(a[2] as u8))
-                                .map_err(|e| e.to_string())?;
+                            let behavior = crate::Behavior::from(a[2] as u8);
                             actor
                                 .autonomy
                                 .get_or_insert_with(|| {
@@ -700,6 +779,17 @@ impl NativeHost<'_> {
                                 enemy.pause_ticks = a[2] as i16;
                             }
                         }
+                        PAUSE_OFFSCREEN => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                enemy.pause_outside_view = a[2] & 1 != 0;
+                            }
+                        }
+                        ENEMY_SCRIPT_FLAG => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                enemy.script_flag = a[2] & 1 != 0;
+                            }
+                        }
+                        DISABLE_REPULSION => actor.overlap_repulsion_disabled = a[2] & 1 != 0,
                         56 => {
                             if let Some(enemy) = &mut actor.enemy {
                                 require(
@@ -926,9 +1016,11 @@ impl NativeHost<'_> {
                 )?;
                 let choice = crate::dialogue::Choice {
                     operation: self.world.operations.begin()?,
-                    first_line: (first - page_start) as u8,
-                    last_line: (last - page_start) as u8,
-                    selected_line: (initial - page_start) as u8,
+                    selection: crate::dialogue::Selection::Lines(crate::dialogue::LineSelection {
+                        first_line: (first - page_start) as u8,
+                        last_line: (last - page_start) as u8,
+                        selected_line: (initial - page_start) as u8,
+                    }),
                     cancel_allowed: a[4] & choice_flags::DISABLE_CANCEL == 0,
                     confirmation: if a[4] & choice_flags::SHOULDER_CONFIRM != 0 {
                         ChoiceConfirmation::AcceptOrShoulder
@@ -937,17 +1029,56 @@ impl NativeHost<'_> {
                     },
                     timeout_ticks: (a[3] > 0).then_some(a[3] as u16),
                 };
-                *self.wait = Some(Wait::Choice {
-                    result: choice.operation.clone(),
-                    window: Box::new(Wait::Service {
-                        condition: Box::new(Wait::Complete(dialogue.operation.clone())),
-                        ready_at: None,
+                return self.wait_for_choice(slot, choice);
+            }
+            NativeCall::ShowNumberInput => {
+                use crate::dialogue::{
+                    Choice, ChoiceConfirmation, NumberSelection, Selection, TextToken,
+                };
+                require(
+                    (0..i32::from(DIALOGUE_SLOTS)).contains(&a[0]),
+                    "invalid number input slot",
+                )?;
+                let slot = a[0] as u8;
+                let dialogue = self
+                    .world
+                    .dialogue
+                    .get(&slot)
+                    .ok_or("number input dialogue is missing")?;
+                require(
+                    dialogue.operation.is_pending() && !dialogue.persistent(),
+                    "number input needs an open dialogue",
+                )?;
+                let digits = dialogue
+                    .body
+                    .tokens
+                    .iter()
+                    .rev()
+                    .find_map(|token| match token {
+                        TextToken::Control { opcode: 8, value } => Some(*value),
+                        _ => None,
+                    })
+                    .ok_or("number input dialogue has no digit field")?;
+                require((1..=10).contains(&digits), "invalid number input width")?;
+                require(
+                    a[2] >= 0 && a[2] <= a[3] && i64::from(a[3]) < 10_i64.pow(digits as u32),
+                    "invalid number input bounds",
+                )?;
+                let choice = Choice {
+                    operation: self.world.operations.begin()?,
+                    selection: Selection::Number(NumberSelection {
+                        value: a[1].clamp(a[2], a[3]),
+                        minimum: a[2],
+                        maximum: a[3],
+                        digits: digits as u8,
+                        place: 0,
+                        wrap_digits: a[4] != 0,
                     }),
-                });
-                if let Some(old) = self.world.choices.insert(slot, choice) {
-                    old.operation.cancel();
-                }
-                return Ok(NativeResult::Suspend);
+                    cancel_allowed: true,
+                    confirmation: ChoiceConfirmation::Accept,
+                    timeout_ticks: None,
+                };
+                return self.wait_for_choice(slot, choice);
             }
             NativeCall::SetTransitionMode => {
                 require(
@@ -1075,18 +1206,41 @@ impl NativeHost<'_> {
                 actor.scripted_animation = true;
             }
             NativeCall::PlayCameraTrack => {
-                require(a[1..] == [0, 0], "camera playback mode is not implemented")?;
                 let resource = self.resolve(a[0], ResourceKind::Camera)?;
-                self.world.camera = Some(CameraTrack {
-                    resource,
-                    start_tick: self.world.tick,
-                });
+                let mut playback = CameraTrack::new(resource, self.world.tick);
+                playback.playing = a[1] == 0;
+                playback.repeat = a[2] == 1;
+                self.world.camera = Some(playback);
+            }
+            NativeCall::ConfigureCameraTrack | NativeCall::MapCameraTrackPosition => {
+                let playback = self
+                    .world
+                    .camera
+                    .as_mut()
+                    .ok_or("camera track is not active")?;
+                let duration = self
+                    .resources
+                    .camera_tracks
+                    .get(&playback.resource)
+                    .and_then(|keys| keys.last())
+                    .ok_or("camera track is not cooked")?
+                    .time;
+                if op == NativeCall::MapCameraTrackPosition {
+                    require(a[2] != a[3], "camera mapping range is empty")?;
+                    let fraction =
+                        ((a[1] as f64 - a[2] as f64) / (a[3] as f64 - a[2] as f64)).clamp(0., 1.);
+                    playback.retime(self.world.tick, duration);
+                    playback.seek(duration * fraction as f32, self.world.tick);
+                } else {
+                    let argument = if a[0] == 11 && a[1] == crate::CONTROLLED_ACTOR {
+                        self.world.controlled_actor
+                    } else {
+                        a[1]
+                    };
+                    value = Some(playback.configure(a[0], argument, self.world.tick, duration)?);
+                }
             }
             NativeCall::CreateSceneActor | NativeCall::SpawnInteractionActor => {
-                require(
-                    a[6..] == [0, 0],
-                    "scene actor movement mode is not implemented",
-                )?;
                 let locator = self.resources.locators.contains(&a[5]);
                 let interaction = op == NativeCall::SpawnInteractionActor;
                 let resource = if locator {
@@ -1138,6 +1292,11 @@ impl NativeHost<'_> {
                         },
                         interaction_label: if locator { 0 } else { 2 },
                         ring_contact_disabled: locator && !interaction,
+                        autonomy: Some(crate::Autonomy::new(
+                            crate::Behavior::from(a[6] as u8),
+                            a[7] as f32,
+                            [a[1] as f32, a[2] as f32, a[3] as f32],
+                        )),
                         animation,
                         ..Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32])
                     },
@@ -1363,6 +1522,8 @@ impl NativeHost<'_> {
             && matches!(
                 call,
                 NativeCall::SetActorHeading
+                    | NativeCall::GetActorHeading
+                    | NativeCall::IsActorMoving
                     | NativeCall::ActorExists
                     | NativeCall::SelectActor
                     | NativeCall::MoveActor

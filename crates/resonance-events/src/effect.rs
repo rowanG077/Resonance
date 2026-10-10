@@ -86,9 +86,12 @@ pub struct RefractionPulse {
     pub palette: u8,
     pub orientation: SpriteOrientation,
     pub rotation: [f32; 3],
+    pub rotation_order: RotationOrder,
     pub angular_velocity: [f32; 3],
     pub position: [f32; 3],
     pub velocity: [f32; 3],
+    pub speed: f32,
+    pub normalize_velocity: bool,
     pub born: u32,
     pub lifetime: u32,
     pub size: f32,
@@ -105,7 +108,8 @@ pub enum RefractionImage {
 impl RefractionPulse {
     pub(crate) fn step(&mut self, tick: u32) -> bool {
         if tick > self.born {
-            for (position, velocity) in self.position.iter_mut().zip(self.velocity) {
+            let delta = motion_delta(self.velocity, self.speed, self.normalize_velocity);
+            for (position, velocity) in self.position.iter_mut().zip(delta) {
                 *position += velocity;
             }
             self.size += self.growth;
@@ -313,22 +317,24 @@ impl crate::GameWorld {
 /// Wind-blown leaves tumble around three world axes, rather than facing the camera.
 #[derive(Debug, Clone)]
 pub(crate) struct Flutter {
+    rising: bool,
     fall_speed: f32,
     initial_variation: Option<f32>,
     spin: f32,
     heading: f32,
-    turn_after: i32,
+    turn_after: f32,
 }
 
 impl Flutter {
     pub(crate) fn pending(recipe: &resonance_content::effect::FlutterRecipe, rising: bool) -> Self {
         let direction = if rising { -1. } else { 1. };
         Self {
+            rising,
             fall_speed: recipe.fall_speed * direction,
             initial_variation: Some(recipe.fall_variation * direction),
             spin: recipe.spin,
             heading: 0.,
-            turn_after: 0,
+            turn_after: 0.,
         }
     }
     fn initialize(&mut self, rotation: &mut [f32; 3], random: &mut impl FnMut() -> u32) {
@@ -339,7 +345,7 @@ impl Flutter {
         if random() & 1 != 0 {
             turn_after = -turn_after;
         }
-        self.turn_after = turn_after;
+        self.turn_after = turn_after as f32;
         self.fall_speed -= (random() & 31) as f32 * variation;
         *rotation = std::array::from_fn(|_| random() as f32);
     }
@@ -351,9 +357,9 @@ impl Flutter {
         random: &mut impl FnMut() -> u32,
     ) {
         self.initialize(rotation, random);
-        self.turn_after -= 1;
-        if self.turn_after < 0 {
-            self.turn_after = (random() & 63) as i32 + 5;
+        self.turn_after -= 1.;
+        if self.turn_after < 0. {
+            self.turn_after = (random() & 63) as f32 + 5.;
             self.heading += (random() as i32 % 90 - 45) as f32;
             rotation[1] -= (random() & 3) as f32;
             rotation[0] += (random() & 3) as f32;
@@ -377,11 +383,12 @@ mod flutter_tests {
         let flutter = BillboardEffect {
             lifetime: 30,
             controller: Some(BillboardController::Flutter(Flutter {
+                rising: false,
                 fall_speed: 2.,
                 initial_variation: None,
                 spin: 0.2,
                 heading: 0.,
-                turn_after: 0,
+                turn_after: 0.,
             })),
             ..Default::default()
         };
@@ -418,11 +425,12 @@ mod flutter_tests {
     #[test]
     fn leaves_fall_sway_and_spin() {
         let mut motion = Flutter {
+            rising: false,
             fall_speed: 2.,
             initial_variation: None,
             spin: 0.2,
             heading: 0.,
-            turn_after: 10,
+            turn_after: 10.,
         };
         let mut position = [0., 0., 100.];
         let mut rotation = [0.; 3];
@@ -544,9 +552,12 @@ pub struct BillboardEffect {
     pub lifetime: u32,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
+    pub speed: f32,
+    pub normalize_velocity: bool,
     pub(crate) controller: Option<BillboardController>,
     pub gravity: f32,
     pub rotation: [f32; 3],
+    pub rotation_order: RotationOrder,
     pub angular_velocity: [f32; 3],
     pub size: [f32; 2],
     pub size_delta: f32,
@@ -569,9 +580,22 @@ pub enum SpriteOrientation {
     World,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum RotationOrder {
+    #[default]
+    Zyx,
+    Zxy,
+    Xyz,
+    Xzy,
+    Yxz,
+    Yzx,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum BillboardController {
     Orbit(crate::emitter::Orbit),
+    Guided(crate::emitter::orbiting::Guided),
+    Stretch([f32; 2]),
     Scatter {
         direction: [f32; 3],
         speed: f32,
@@ -581,9 +605,11 @@ pub(crate) enum BillboardController {
     Drift {
         direction: [f32; 3],
         speed: f32,
+        spatial: bool,
     },
     Accelerate {
         multiplier: f32,
+        delta: [f32; 3],
     },
     Flutter(Flutter),
     TextureStrip {
@@ -669,9 +695,12 @@ impl Default for BillboardEffect {
             lifetime: 0,
             position: [0.; 3],
             velocity: [0.; 3],
+            speed: 0.,
+            normalize_velocity: false,
             controller: None,
             gravity: 0.,
             rotation: [0.; 3],
+            rotation_order: RotationOrder::default(),
             angular_velocity: [0.; 3],
             size: [0.; 2],
             size_delta: 0.,
@@ -718,20 +747,15 @@ impl BillboardEffect {
     }
 
     pub fn step(&mut self) {
-        for i in 0..3 {
-            self.position[i] += self.velocity[i];
+        let delta = motion_delta(self.velocity, self.speed, self.normalize_velocity);
+        for (i, delta) in delta.into_iter().enumerate() {
+            self.position[i] += delta;
             self.rotation[i] += self.angular_velocity[i];
         }
         self.velocity[2] += self.gravity;
-        let aspect = if matches!(self.controller, Some(BillboardController::Flutter(_)))
-            && self.size[0] > 0.
-        {
-            self.size[1] / self.size[0]
-        } else {
-            1.
-        };
-        self.size[0] += self.size_delta;
-        self.size[1] += self.size_delta * aspect;
+        for size in &mut self.size {
+            *size += self.size_delta;
+        }
     }
     fn alive(&self, tick: u32) -> bool {
         tick.saturating_sub(self.born) < self.lifetime
@@ -746,6 +770,14 @@ impl BillboardEffect {
         }
         self.fade
             .alpha(f32::from(self.rgba[3]), tick.saturating_sub(self.born))
+    }
+}
+
+fn motion_delta(velocity: [f32; 3], speed: f32, normalized: bool) -> [f32; 3] {
+    if normalized {
+        emission::normalized(velocity).map(|component| component * speed)
+    } else {
+        velocity
     }
 }
 
@@ -786,10 +818,18 @@ impl crate::GameWorld {
                     wandering.then_some(crate::emitter::scatter::wander as Change),
                     f32::from(*planar) * crate::emitter::scatter::RISE_PER_TICK,
                 ),
-                Some(BillboardController::Drift { direction, speed }) => (
+                Some(BillboardController::Drift {
+                    direction,
+                    speed,
+                    spatial,
+                }) => (
                     direction,
                     *speed,
-                    Some(crate::emitter::scatter::drift as Change),
+                    Some(if *spatial {
+                        crate::emitter::scatter::diffuse as Change
+                    } else {
+                        crate::emitter::scatter::drift as Change
+                    }),
                     0.,
                 ),
                 _ => continue,
@@ -835,8 +875,21 @@ impl crate::GameWorld {
                 }
             }
             match &mut effect.controller {
+                Some(BillboardController::Stretch(growth)) => {
+                    for (size, growth) in effect.size.iter_mut().zip(growth) {
+                        *size += *growth;
+                    }
+                }
                 Some(BillboardController::Orbit(orbit)) => {
                     effect.position = orbit.position(self.tick.saturating_sub(effect.born));
+                }
+                Some(BillboardController::Guided(guided)) => {
+                    if let Some((velocity, lifetime)) = guided.step(&mut effect.position) {
+                        effect.velocity = velocity;
+                        effect.born = self.tick;
+                        effect.lifetime = lifetime;
+                        effect.fade = Fade::tail(lifetime);
+                    }
                 }
                 Some(BillboardController::Flutter(flutter)) => {
                     flutter.step(
@@ -845,6 +898,7 @@ impl crate::GameWorld {
                         effect_tick,
                         &mut || crate::world::random(&mut self.random_state),
                     );
+                    continue;
                 }
                 Some(BillboardController::TextureStrip { columns, ticks }) => {
                     let left = (self.tick - effect.born) / *ticks % *columns;
@@ -872,8 +926,10 @@ impl crate::GameWorld {
                         *distance = offset;
                     }
                 }
-                Some(BillboardController::Accelerate { multiplier }) => {
-                    effect.velocity.iter_mut().for_each(|v| *v *= *multiplier);
+                Some(BillboardController::Accelerate { multiplier, delta }) => {
+                    for (velocity, delta) in effect.velocity.iter_mut().zip(delta) {
+                        *velocity = *velocity * *multiplier + *delta;
+                    }
                 }
                 Some(BillboardController::Scatter { .. } | BillboardController::Drift { .. })
                 | None => {}

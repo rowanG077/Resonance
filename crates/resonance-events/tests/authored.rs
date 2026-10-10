@@ -484,7 +484,7 @@ fn memory_circle_unlock_requires_confirmation_and_cancellation_releases_both_win
             .unwrap();
         runtime.step().unwrap();
         let choice = runtime.world.choices.get_mut(&0).unwrap();
-        choice.selected_line = line;
+        choice.selection.lines_mut().unwrap().selected_line = line;
         choice.finish(reason).unwrap();
         runtime.world.dialogue[&0].operation.complete(None).unwrap();
         runtime.step().unwrap();

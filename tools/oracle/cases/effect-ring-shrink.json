@@ -8,7 +8,7 @@
   },
   "native_sequence": {
     "path": "local/oracle-fixtures/effects/ring-shrink.json",
-    "sha256": "5fdee7c952ee477d4da0f724fc9a5a99defb6bdc6e3a4616a3eb445342044521"
+    "sha256": "d5a2c0cf60d2fc26bcedf0c683ae1586e6acad1b48026df684ec66ac60c6a0d5"
   },
   "inputs": [
     {

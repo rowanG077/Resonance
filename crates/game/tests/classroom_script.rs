@@ -3482,12 +3482,12 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
                 .any(|c| c.operation.is_pending());
             saw_choice |= choosing;
             let move_choice = stay
-                && session
-                    .events
-                    .world
-                    .choices
-                    .values()
-                    .any(|c| c.operation.is_pending() && c.selected_line < c.last_line);
+                && session.events.world.choices.values().any(|c| {
+                    c.operation.is_pending()
+                        && c.selection
+                            .lines()
+                            .is_some_and(|lines| lines.selected_line < lines.last_line)
+                });
             for p in session.dialogue.values() {
                 let text: String = p.current().text();
                 saw_question |= text.contains("Where are you going?");
