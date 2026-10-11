@@ -139,7 +139,7 @@ impl Drawing<'_> {
                     x -= 2240;
                 }
                 let x = x as f32;
-                if x + 312. < 0. || x > 640. {
+                if x + 312. < self.screen[0] || x > self.screen[2] {
                     continue;
                 }
                 if matches!(index, 4 | 5) {
