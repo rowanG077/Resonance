@@ -795,7 +795,7 @@ impl EventRuntime {
                         && !actor.appearance.model_hidden
                         && self.world.field_camera.is_some()
                 })
-                .map(|_| self.world.attached_position(&self.resources, *id))
+                .map(|_| self.world.attached_culling_position(&self.resources, *id))
                 .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
@@ -859,7 +859,9 @@ impl EventRuntime {
             actor.animation_culled = actor.cull_outside_view
                 && !actor.appearance.model_hidden
                 && self.world.field_camera.as_ref().is_some_and(|camera| {
-                    !camera.animates(attached_position.unwrap_or(actor.position))
+                    attached_position
+                        .unwrap_or(Some(actor.position))
+                        .is_some_and(|position| !camera.animates(position))
                 });
             if let Some(animation) = &mut actor.animation {
                 // Offscreen scripted clips must still advance so their events can finish.
