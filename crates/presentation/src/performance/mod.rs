@@ -3,6 +3,7 @@ mod movie_probe;
 mod overlay;
 pub use movie_probe::run_movie_probe;
 mod render_profile;
+pub(crate) mod smoothing_profile;
 mod stats;
 mod window_output;
 mod window_probe;

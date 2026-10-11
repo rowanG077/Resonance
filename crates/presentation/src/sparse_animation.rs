@@ -76,6 +76,40 @@ pub(super) fn install(app: &mut App) {
 #[derive(Default)]
 pub(super) struct Binding(pub Vec<(Entity, Transform)>);
 impl Binding {
+    pub fn sample_between(
+        &self,
+        motion: &Motion,
+        seconds: f32,
+        next: Option<(&Motion, f32, f32)>,
+        nodes: &mut Query<&mut Transform>,
+        affine: &mut affine::Locals,
+    ) -> Result<()> {
+        let Some((next, next_seconds, alpha)) = next else {
+            return self.sample(motion, seconds, nodes, affine);
+        };
+        ensure!(
+            seconds.is_finite() && seconds >= 0. && next_seconds.is_finite() && next_seconds >= 0.,
+            "invalid animation time"
+        );
+        for (i, &(entity, rest)) in self.0.iter().enumerate() {
+            let sample = |motion: &Motion, seconds: f32| -> Result<affine::Pose> {
+                motion
+                    .tracks
+                    .iter()
+                    .find(|track| usize::from(track.bone) == i)
+                    .map_or(Ok(rest.into()), |track| {
+                        sample_track(
+                            track,
+                            (seconds * FRAME_HZ).min(motion.duration_frames),
+                            rest,
+                        )
+                    })
+            };
+            let pose = sample(motion, seconds)?.interpolate(sample(next, next_seconds)?, alpha);
+            affine.set(entity, &mut *nodes.get_mut(entity)?, pose);
+        }
+        Ok(())
+    }
     pub fn new(
         root: Entity,
         bone_count: usize,

@@ -4,7 +4,7 @@ use bevy::{
     math::Affine3A,
     prelude::*,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Pose {
@@ -19,6 +19,36 @@ impl From<Transform> for Pose {
 }
 
 impl Pose {
+    /// Render interpolation also handles authored shear/reflection. Factor out
+    /// rotation before blending the residual matrix to avoid collapsing spins.
+    pub fn interpolate(self, to: Self, weight: f32) -> Self {
+        if weight <= 0. || self == to {
+            return self;
+        }
+        if weight >= 1. {
+            return to;
+        }
+        if matches!((self, to), (Self::Trs(_), Self::Trs(_))) {
+            return self.mix(to, weight);
+        }
+        let a = self.global().affine();
+        let b = to.global().affine();
+        if a.matrix3 == b.matrix3 {
+            return Self::Affine(Affine3A {
+                translation: a.translation.lerp(b.translation, weight),
+                ..a
+            });
+        }
+        let ra = rotation(a);
+        let rb = rotation(b);
+        let residual_a = bevy::math::Mat3A::from_quat(ra.inverse()) * a.matrix3;
+        let residual_b = bevy::math::Mat3A::from_quat(rb.inverse()) * b.matrix3;
+        Self::Affine(Affine3A {
+            matrix3: bevy::math::Mat3A::from_quat(ra.slerp(rb, weight))
+                * (residual_a * (1. - weight) + residual_b * weight),
+            translation: a.translation.lerp(b.translation, weight),
+        })
+    }
     pub fn global(self) -> GlobalTransform {
         match self {
             Self::Trs(value) => value.into(),
@@ -48,11 +78,19 @@ pub(crate) fn rotation(matrix: Affine3A) -> Quat {
 
 #[derive(Resource, Default)]
 pub(crate) struct Locals {
-    poses: BTreeMap<Entity, (Affine3A, Transform)>,
-    worlds: BTreeMap<Entity, GlobalTransform>,
-    translations: BTreeMap<Entity, Vec3>,
+    poses: EntityHashMap<(Affine3A, Transform)>,
+    worlds: EntityHashMap<GlobalTransform>,
+    translations: EntityHashMap<Vec3>,
 }
 impl Locals {
+    pub fn has_translation(&self, entity: Entity) -> bool {
+        self.translations.contains_key(&entity)
+    }
+    pub fn replace_for_render(&mut self, entity: Entity, transform: &mut Transform, pose: Pose) {
+        self.worlds.remove(&entity);
+        self.translations.remove(&entity);
+        self.set(entity, transform, pose);
+    }
     /// Dynamics and outline copying can write a world matrix even when
     /// an ancestor has zero scale. No local matrix can represent that result.
     pub fn set_world(&mut self, entity: Entity, pose: GlobalTransform) {
@@ -154,6 +192,124 @@ pub(crate) struct Helper<'w, 's> {
     affine: Option<Res<'w, Locals>>,
 }
 impl Helper<'_, '_> {
+    /// A disposable authored pose supplies its own translation boundaries.
+    /// Current secondary world overrides must not feed into the next solver step.
+    pub fn predicted_global(
+        &self,
+        entity: Entity,
+        locals: &BTreeMap<Entity, Pose>,
+        adjustments: &Locals,
+        overrides: &BTreeMap<Entity, GlobalTransform>,
+    ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
+        let mut world = GlobalTransform::IDENTITY;
+        let mut offset = None;
+        for node in std::iter::once(entity).chain(self.parents.iter_ancestors(entity)) {
+            offset = offset.or_else(|| adjustments.translations.get(&node).copied());
+            if let Some(pose) = overrides.get(&node) {
+                // Match Locals::set_world: descendants may establish a new
+                // translation boundary instead of inheriting this bone's offset.
+                let mut matrix = pose.affine();
+                matrix.translation -= bevy::math::Vec3A::from(
+                    adjustments
+                        .translations
+                        .get(&node)
+                        .copied()
+                        .unwrap_or_default(),
+                );
+                world = GlobalTransform::from(matrix) * world;
+                break;
+            }
+            if let Some(local) = locals.get(&node) {
+                world = local.global() * world;
+            } else {
+                world = self.local(node)?.global() * world;
+            }
+        }
+        let mut matrix = world.affine();
+        matrix.translation += bevy::math::Vec3A::from(offset.unwrap_or_default());
+        Ok(matrix.into())
+    }
+
+    pub fn predicted_has_affine(&self, entity: Entity, locals: &BTreeMap<Entity, Pose>) -> bool {
+        std::iter::once(entity)
+            .chain(self.parents.iter_ancestors(entity))
+            .any(|e| {
+                locals
+                    .get(&e)
+                    .copied()
+                    .or_else(|| self.local(e).ok())
+                    .is_some_and(|p| matches!(p, Pose::Affine(_)))
+            })
+    }
+
+    pub fn parent(&self, entity: Entity) -> Option<Entity> {
+        self.parents.get(entity).ok().map(ChildOf::parent)
+    }
+
+    pub fn predicted_global_cached(
+        &self,
+        entity: Entity,
+        locals: &BTreeMap<Entity, Pose>,
+        adjustments: &Locals,
+        overrides: &BTreeMap<Entity, GlobalTransform>,
+        cache: &mut EntityHashMap<GlobalTransform>,
+    ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
+        let pose = self.predicted_cached(entity, locals, adjustments, overrides, cache)?;
+        let offset = std::iter::once(entity)
+            .chain(self.parents.iter_ancestors(entity))
+            .find_map(|e| adjustments.translations.get(&e))
+            .copied()
+            .unwrap_or_default();
+        let mut matrix = pose.affine();
+        matrix.translation += bevy::math::Vec3A::from(offset);
+        Ok(matrix.into())
+    }
+
+    fn predicted_cached(
+        &self,
+        entity: Entity,
+        locals: &BTreeMap<Entity, Pose>,
+        adjustments: &Locals,
+        overrides: &BTreeMap<Entity, GlobalTransform>,
+        cache: &mut EntityHashMap<GlobalTransform>,
+    ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
+        if let Some(&pose) = cache.get(&entity) {
+            return Ok(pose);
+        }
+        let pose = if let Some(pose) = overrides.get(&entity) {
+            let mut matrix = pose.affine();
+            matrix.translation -= bevy::math::Vec3A::from(
+                adjustments
+                    .translations
+                    .get(&entity)
+                    .copied()
+                    .unwrap_or_default(),
+            );
+            matrix.into()
+        } else {
+            let local = locals
+                .get(&entity)
+                .copied()
+                .map_or_else(|| self.local(entity), Ok)?
+                .global();
+            if let Some(parent) = self.parent(entity) {
+                self.predicted_cached(parent, locals, adjustments, overrides, cache)? * local
+            } else {
+                local
+            }
+        };
+        cache.insert(entity, pose);
+        Ok(pose)
+    }
+
+    pub fn compute_global_cached(
+        &self,
+        entity: Entity,
+        cache: &mut EntityHashMap<GlobalTransform>,
+    ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
+        self.cached_global(entity, cache)
+            .map(|p| self.translated(entity, p))
+    }
     pub fn local(&self, entity: Entity) -> Result<Pose, bevy::ecs::query::QueryEntityError> {
         let transform = *self.transforms.get(entity)?;
         Ok(self
@@ -173,6 +329,13 @@ impl Helper<'_, '_> {
 
     fn world_override(&self, entity: Entity) -> Option<GlobalTransform> {
         self.affine.as_ref()?.worlds.get(&entity).copied()
+    }
+
+    /// Ordinary bones can stay in local space, retaining their authored TRS.
+    pub fn requires_world_interpolation(&self, entity: Entity) -> bool {
+        self.affine
+            .as_ref()
+            .is_some_and(|a| a.worlds.contains_key(&entity) || a.translations.contains_key(&entity))
     }
 
     pub fn has_world_translation(&self, entity: Entity) -> bool {
@@ -280,44 +443,59 @@ pub(crate) fn install(app: &mut App) {
 }
 
 fn clear(mut affine: ResMut<Locals>, mut transforms: Query<&mut Transform>) {
-    let worlds = std::mem::take(&mut affine.worlds);
-    let translations = std::mem::take(&mut affine.translations);
-    for entity in std::mem::take(&mut affine.poses)
-        .into_keys()
-        .chain(worlds.into_keys())
-        .chain(translations.into_keys())
+    for &entity in affine
+        .poses
+        .keys()
+        .chain(affine.worlds.keys())
+        .chain(affine.translations.keys())
     {
         if let Ok(mut transform) = transforms.get_mut(entity) {
-            // A dropped matrix clip must restore ordinary descendant globals too.
             transform.set_changed();
         }
     }
+    affine.poses.clear();
+    affine.worlds.clear();
+    affine.translations.clear();
 }
 
+#[allow(clippy::too_many_arguments)] // Hierarchy queries and retained traversal scratch buffers.
 fn propagate(
     affine: Res<Locals>,
     helper: Helper,
     children: Query<&Children>,
     mut globals: Query<&mut GlobalTransform>,
+    mut seen: Local<bevy::ecs::entity::EntityHashSet>,
+    mut entities: Local<Vec<Entity>>,
+    mut stack: Local<Vec<Entity>>,
+    mut cache: Local<EntityHashMap<GlobalTransform>>,
 ) {
-    let mut seen = BTreeSet::new();
-    let mut entities = Vec::new();
+    let _timer = crate::performance::smoothing_profile::Timer::start(3);
+    seen.clear();
+    entities.clear();
+    stack.clear();
+    cache.clear();
     for &root in affine
         .poses
         .keys()
         .chain(affine.worlds.keys())
         .chain(affine.translations.keys())
     {
-        for entity in std::iter::once(root).chain(children.iter_descendants(root)) {
-            if seen.insert(entity) {
-                entities.push(entity);
+        stack.push(root);
+        while let Some(entity) = stack.pop() {
+            if !seen.insert(entity) {
+                continue;
+            }
+            entities.push(entity);
+            if let Ok(children) = children.get(entity) {
+                stack.extend(children.iter());
             }
         }
     }
-    let poses = helper
-        .compute_global_transforms(entities.iter().copied())
-        .expect("affine hierarchy must have local transforms");
-    for (entity, pose) in entities.into_iter().zip(poses) {
+    for &entity in entities.iter() {
+        let pose = helper
+            .cached_global(entity, &mut cache)
+            .map(|p| helper.translated(entity, p))
+            .expect("affine hierarchy must have local transforms");
         *globals
             .get_mut(entity)
             .expect("affine hierarchy must have global transforms") = pose;
@@ -706,5 +884,114 @@ mod tests {
                 .abs_diff_eq(ordinary, 0.0001)
         );
         assert_eq!(*app.world().get::<Transform>(bone).unwrap(), rest);
+    }
+}
+
+#[cfg(test)]
+mod interpolation_tests {
+    use super::*;
+    #[test]
+    fn stationary_affine_poses_do_not_drift_between_ticks() {
+        let mut matrix = Transform::from_xyz(127., -23., 81.)
+            .with_rotation(Quat::from_euler(EulerRot::ZYX, 0.23, 0.91, -0.1))
+            .with_scale(Vec3::new(-1.3, 0.9, 2.4))
+            .compute_affine();
+        matrix.matrix3.y_axis.x += 0.13;
+        let pose = Pose::Affine(matrix);
+        let translated = Pose::Affine(Affine3A {
+            translation: matrix.translation + bevy::math::Vec3A::Z,
+            ..matrix
+        });
+        for alpha in [0.01, 0.25, 0.5, 0.9, 0.99] {
+            assert_eq!(pose.interpolate(pose, alpha), pose);
+            assert_eq!(
+                pose.interpolate(translated, alpha)
+                    .global()
+                    .affine()
+                    .matrix3,
+                matrix.matrix3
+            );
+        }
+    }
+    #[test]
+    fn predicted_solver_poses_respect_independent_translation_boundaries() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let parent = world.spawn(Transform::IDENTITY).id();
+        let child = world
+            .spawn((Transform::from_xyz(0., 0., 10.), ChildOf(parent)))
+            .id();
+        world
+            .run_system_once(move |helper: Helper| {
+                let mut adjustments = Locals::default();
+                adjustments.translate(parent, Vec3::Z * 600.);
+                adjustments.translation_boundary(child);
+                let overrides =
+                    [(parent, GlobalTransform::from_translation(Vec3::Z * 900.))].into();
+                let locals = BTreeMap::new();
+                for order in [[parent, child], [child, parent]] {
+                    let mut cache = EntityHashMap::default();
+                    for entity in order {
+                        assert_eq!(
+                            helper
+                                .predicted_global_cached(
+                                    entity,
+                                    &locals,
+                                    &adjustments,
+                                    &overrides,
+                                    &mut cache
+                                )
+                                .unwrap(),
+                            helper
+                                .predicted_global(entity, &locals, &adjustments, &overrides)
+                                .unwrap(),
+                        );
+                    }
+                }
+                assert_eq!(
+                    helper
+                        .predicted_global(parent, &locals, &adjustments, &overrides)
+                        .unwrap()
+                        .translation()
+                        .z,
+                    900.
+                );
+                assert_eq!(
+                    helper
+                        .predicted_global(child, &locals, &adjustments, &overrides)
+                        .unwrap()
+                        .translation()
+                        .z,
+                    310.
+                );
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn matrices_preserve_endpoints_and_stay_finite_with_shear_reflection_and_zero_scale() {
+        for scale in [Vec3::ONE, Vec3::new(-2., 3., 0.5), Vec3::ZERO] {
+            let from = Pose::Affine(
+                Transform::from_rotation(Quat::from_rotation_z(359_f32.to_radians()))
+                    .with_scale(scale)
+                    .compute_affine(),
+            );
+            let mut to = Transform::from_xyz(8., 2., -4.)
+                .with_rotation(Quat::from_rotation_z(1_f32.to_radians()))
+                .with_scale(scale)
+                .compute_affine();
+            to.matrix3.y_axis.x += 0.4;
+            let to = Pose::Affine(to);
+            assert_eq!(from.interpolate(to, 0.), from);
+            assert_eq!(from.interpolate(to, 1.), to);
+            for alpha in [0.25, 0.5, 0.75] {
+                let pose = from.interpolate(to, alpha).global();
+                assert!(pose.affine().is_finite());
+                assert!(
+                    pose.translation()
+                        .abs_diff_eq(Vec3::new(8., 2., -4.) * alpha, 0.0001)
+                );
+            }
+        }
     }
 }
