@@ -1,5 +1,9 @@
 //! Live testing controls. Event skipping executes scripts and keeps their progress.
 use bevy::prelude::*;
+use resonance_playback::Speed;
+
+#[cfg(test)]
+mod tests;
 
 const SKIP_UPDATES_PER_FRAME: usize = 64;
 
@@ -7,7 +11,7 @@ const SKIP_UPDATES_PER_FRAME: usize = 64;
 pub(super) struct Controls {
     pub paused: bool,
     pub skipping: bool,
-    pub double_speed: bool,
+    pub speed: Speed,
 }
 
 pub(super) fn install(app: &mut App) {
@@ -22,8 +26,8 @@ pub(super) fn install(app: &mut App) {
         .add_systems(Update, advance.before(super::new_game::skip_test_battles));
 }
 
-fn controls(world: &mut World) {
-    for (index, key) in [KeyCode::F6, KeyCode::F7, KeyCode::F8]
+pub(super) fn controls(world: &mut World) {
+    for (index, key) in [KeyCode::F6, KeyCode::F7, KeyCode::F8, KeyCode::F10]
         .into_iter()
         .enumerate()
     {
@@ -34,16 +38,27 @@ fn controls(world: &mut World) {
 }
 
 pub(super) fn press(world: &mut World, index: usize) {
-    let Some(session) = world.get_resource::<super::new_game::Session>() else {
+    // Slow motion is a live inspection control, not part of deterministic captures.
+    if index == 3
+        && world
+            .get_resource::<super::RunOptions>()
+            .is_some_and(|o| o.headless() || o.replay.is_some())
+    {
         return;
-    };
-    let can_skip = session.overworld.is_none() && session.field.can_skip_event();
+    }
+    let can_skip = world
+        .get_resource::<super::new_game::Session>()
+        .is_some_and(|s| s.overworld.is_none() && s.field.can_skip_event());
     world.resource_scope(|world, mut controls: Mut<Controls>| {
         let mut time = world.resource_mut::<Time<Virtual>>();
         match index {
             0 => {
-                controls.double_speed = !controls.double_speed;
-                time.set_relative_speed(if controls.double_speed { 2. } else { 1. });
+                controls.speed = if controls.speed == Speed::Double {
+                    Speed::Normal
+                } else {
+                    Speed::Double
+                };
+                time.set_relative_speed_f64(controls.speed.factor());
             }
             1 => {
                 controls.paused = !controls.paused;
@@ -54,22 +69,34 @@ pub(super) fn press(world: &mut World, index: usize) {
                 }
             }
             2 => controls.skipping = !controls.skipping && can_skip,
+            3 => {
+                controls.speed = match controls.speed {
+                    Speed::Normal | Speed::Double => Speed::Half,
+                    Speed::Half => Speed::Fifth,
+                    Speed::Fifth => Speed::Tenth,
+                    Speed::Tenth => Speed::Normal,
+                };
+                time.set_relative_speed_f64(controls.speed.factor());
+            }
             _ => unreachable!(),
         }
         info!(
-            "Testing: {}x, {}, skip={}",
-            if controls.double_speed { 2 } else { 1 },
+            "Testing: {}, {}, skip={}",
+            controls.speed.label(),
             if controls.paused { "paused" } else { "playing" },
             controls.skipping
         );
     });
+    if index == 3 {
+        super::performance::show(world);
+    }
 }
 
 pub(super) fn audio(world: &mut World) {
     if let Some(controls) = world.get_resource::<Controls>() {
-        let (paused, double_speed) = (controls.paused, controls.double_speed);
+        let (paused, speed) = (controls.paused, controls.speed);
         for sink in world.query::<&super::audio_output::Sink>().iter(world) {
-            sink.0.set_transport(paused, double_speed);
+            sink.0.set_transport(paused, speed);
         }
     }
 }

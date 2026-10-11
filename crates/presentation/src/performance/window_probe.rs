@@ -100,6 +100,7 @@ fn run(
         },
     );
     let title_capture = std::env::var_os("RESONANCE_PROBE_TITLE_CAPTURE").is_some();
+    let speed_probe = std::env::var_os("RESONANCE_PROBE_SPEEDS").is_some();
     if title_capture {
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
             std::time::Duration::from_nanos(4_170_833),
@@ -156,12 +157,16 @@ fn run(
         screenshots: 0,
         benchmark,
         completed: completed.clone(),
-        title_only: title_capture || std::env::var_os("RESONANCE_PROBE_TITLE").is_some(),
+        title_only: speed_probe
+            || title_capture
+            || std::env::var_os("RESONANCE_PROBE_TITLE").is_some(),
+        speed_step: speed_probe.then_some(0),
     })
     .add_systems(
         PreUpdate,
         drive
             .after(bevy::input::InputSystems)
+            .before(crate::testing::controls)
             .before(crate::gather_input)
             .before(crate::field_view::gather_controls),
     );
@@ -215,6 +220,7 @@ struct Probe {
     benchmark: Option<(u64, bool)>,
     completed: Arc<AtomicBool>,
     title_only: bool,
+    speed_step: Option<u8>,
 }
 #[allow(clippy::too_many_arguments)] // Diagnostic input, field state, window and finite lifetime.
 fn drive(
@@ -262,6 +268,25 @@ fn drive(
         return;
     }
     if probe.title_only {
+        if let Some(step) = probe.speed_step {
+            let seconds = probe.started.elapsed().as_secs();
+            if step < 4 && seconds >= 3 + u64::from(step) * 3 {
+                input.press(KeyCode::F10);
+                probe.speed_step = Some(step + 1);
+            }
+            if probe.screenshots < 4 && seconds >= 4 + u64::from(probe.screenshots) * 3 {
+                let path = probe
+                    .output
+                    .join(format!("speed-{}.png", probe.screenshots));
+                commands.spawn(Screenshot::primary_window()).observe(
+                    move |event: On<ScreenshotCaptured>| {
+                        crate::screenshot::write(&event.image, &path, None)
+                            .expect("speed diagnostic screenshot");
+                    },
+                );
+                probe.screenshots += 1;
+            }
+        }
         if probe.started.elapsed().as_secs() >= 20 {
             probe.completed.store(true, Ordering::Release);
             exit.write(AppExit::Success);

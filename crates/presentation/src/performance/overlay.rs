@@ -12,7 +12,7 @@ use bevy::{
 use std::time::{Duration, Instant};
 
 const WIDTH: u32 = 368;
-const HEIGHT: u32 = 226;
+const HEIGHT: u32 = 244;
 const LAYER: usize = 31;
 
 #[derive(Component)]
@@ -37,7 +37,7 @@ pub(super) fn setup(
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        pixels(&monitor),
+        pixels(&monitor, resonance_playback::Speed::Normal),
         TextureFormat::Rgba8UnormSrgb,
         default(),
     );
@@ -69,6 +69,7 @@ pub(super) fn setup(
 
 pub(super) fn update(
     monitor: Res<Monitor>,
+    testing: Option<Res<crate::testing::Controls>>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     mut camera: Single<&mut Camera, With<OverlayCamera>>,
     mut panel: Single<&mut Transform, With<Panel>>,
@@ -92,19 +93,23 @@ pub(super) fn update(
         );
     }
     let now = Instant::now();
-    if art
-        .last_draw
-        .is_some_and(|last| now.duration_since(last) < Duration::from_millis(250))
+    if !testing.as_ref().is_some_and(|t| t.is_changed())
+        && art
+            .last_draw
+            .is_some_and(|last| now.duration_since(last) < Duration::from_millis(250))
     {
         return;
     }
     art.last_draw = Some(now);
     if let Some(mut image) = images.get_mut(&art.image) {
-        image.data = Some(pixels(&monitor));
+        image.data = Some(pixels(
+            &monitor,
+            testing.as_ref().map_or(Default::default(), |t| t.speed),
+        ));
     }
 }
 
-fn pixels(monitor: &Monitor) -> Vec<u8> {
+fn pixels(monitor: &Monitor, speed: resonance_playback::Speed) -> Vec<u8> {
     let mut rgba = [12, 17, 25, 235].repeat((WIDTH * HEIGHT) as usize);
     let mut lines = vec!["PERFORMANCE  F3 HIDE  F4 SAVE".to_owned()];
     if let Some(s) = monitor.history.summary() {
@@ -158,8 +163,15 @@ fn pixels(monitor: &Monitor) -> Vec<u8> {
     } else {
         "FRAME MS - GRAPH TOP 50 MS"
     };
-    draw_text(&mut rgba, 10, 154, notice, [99, 215, 201, 255]);
-    let top = 174;
+    draw_text(
+        &mut rgba,
+        10,
+        154,
+        &format!("GAME {}  F10 SLOW MOTION", speed.label()),
+        [255, 199, 101, 255],
+    );
+    draw_text(&mut rgba, 10, 172, notice, [99, 215, 201, 255]);
+    let top = 192;
     let bottom = HEIGHT - 9;
     let height = bottom - top;
     for threshold in [1000. / 60., 1000. / 30.] {
@@ -230,7 +242,10 @@ mod tests {
         let mut app = App::new();
         install(&mut app, PerformanceOptions::default(), true).unwrap();
         let mut monitor = app.world_mut().resource_mut::<Monitor>();
-        assert_eq!(pixels(&monitor).len(), (WIDTH * HEIGHT * 4) as usize);
+        assert_eq!(
+            pixels(&monitor, Default::default()).len(),
+            (WIDTH * HEIGHT * 4) as usize
+        );
         for frame in 0..1800 {
             monitor.history.push(Sample {
                 frame,
@@ -239,7 +254,7 @@ mod tests {
                 app_ms: 3.2,
             });
         }
-        let rgba = pixels(&monitor);
+        let rgba = pixels(&monitor, resonance_playback::Speed::Tenth);
         assert!(
             rgba.chunks_exact(4).any(|p| p == [255, 99, 109, 255]),
             "graph should identify stalls"

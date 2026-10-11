@@ -36,6 +36,13 @@ cargo run --release -p resonance -- --silent --speculative --perf-overlay \
 ```
 
 Compare the same scene and input sequence with and without `--speculative`.
+For visual inspection, **F10** cycles ½×, ⅕×, ⅒× and normal speed. It opens the
+performance overlay with the selected rate; **F3** hides the overlay. The game
+clock and audio transport slow together, while rendering stays uncapped. The
+fixed timestep and interpolation calculation are unchanged. At ⅒× this exposes
+roughly 167 ms between committed ticks, making unsmoothed motion easy to spot.
+Movies still present decoded frames without blending. Use normal speed for FPS
+comparisons: slow motion intentionally reduces the amount of simulation work.
 
 The authoritative simulation remains at 60000/1001 Hz. An isolated branch executes
 one ordinary update with the latest latched input. Render frames reuse the branch
@@ -107,6 +114,8 @@ RESONANCE_PROBE_SMOOTHING=1 cargo run -p resonance-presentation --example window
 ```
 
 `RESONANCE_PROBE_TITLE=1` holds the title for a finite 20-second run.
+`RESONANCE_PROBE_SPEEDS=1` runs a 20-second title check that presses F10 through
+all four speeds and captures the speed overlay after each change.
 `RESONANCE_PROBE_TITLE_CAPTURE=1` instead advances at four renders per fixed update
 and captures the title lighting transition at ticks 614–620. This diagnostic is
 for visual comparison, not throughput. `RESONANCE_PROBE_PROFILE=1` adds render

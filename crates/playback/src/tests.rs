@@ -55,15 +55,15 @@ fn scheduled_sources_pause_resume_and_complete_on_consumed_frames() {
     let fast = control
         .play(false, || Ok(Box::new(Samples((1..=12).map(|v| v as f32)))))
         .unwrap();
-    fast.set_transport(false, true);
+    fast.set_transport(false, Speed::Double);
     assert_eq!(output.by_ref().take(2).collect::<Vec<_>>(), [2., 3.]);
     assert_eq!(fast.audible_frames(), 2);
-    fast.set_transport(true, true);
+    fast.set_transport(true, Speed::Double);
     assert_eq!(output.by_ref().take(8).collect::<Vec<_>>(), [0.; 8]);
     assert_eq!(fast.audible_frames(), 2);
-    fast.set_transport(false, false);
+    fast.set_transport(false, Speed::Normal);
     assert_eq!(output.by_ref().take(2).collect::<Vec<_>>(), [5., 6.]);
-    fast.set_transport(false, true);
+    fast.set_transport(false, Speed::Double);
     assert_eq!(
         output.by_ref().take(6).collect::<Vec<_>>(),
         [8., 9., 11., 12., 0., 0.]
@@ -73,6 +73,82 @@ fn scheduled_sources_pause_resume_and_complete_on_consumed_frames() {
 }
 
 struct Identity;
+
+#[test]
+fn slow_audio_rates_preserve_samples_clock_and_completion_across_block_boundaries() {
+    for (speed, repeat) in [(Speed::Half, 2usize), (Speed::Fifth, 5), (Speed::Tenth, 10)] {
+        for chunk in [1, 7, 13] {
+            let clock = Arc::new(Clock::new(SOURCE_RATE));
+            clock.manual(NativeFrame(0));
+            let (control, mut mixer) = Mixer::new(clock.clone());
+            let handle = control
+                .play(false, || {
+                    Ok(Box::new(Samples(
+                        (1..=6).flat_map(|i| [i as f32, -(i as f32)]),
+                    )))
+                })
+                .unwrap();
+            handle.set_transport(false, speed);
+            let mut rendered = 0;
+            let mut output = vec![[0.; 2]; chunk];
+            while rendered < repeat * 6 + chunk {
+                mixer.render(&mut output).unwrap();
+                for (i, &sample) in output.iter().enumerate() {
+                    let position = rendered + i;
+                    let value = if position < repeat * 6 {
+                        (position / repeat + 1) as f32
+                    } else {
+                        0.
+                    };
+                    assert_eq!(sample, [value, -value]);
+                    clock.manual(NativeFrame((position + 1) as u64));
+                    assert_eq!(
+                        handle.audible_frames(),
+                        ((position + 1) / repeat).min(6) as u64
+                    );
+                    if position + 1 < repeat * 6 {
+                        assert!(!handle.empty());
+                    }
+                }
+                rendered += chunk;
+            }
+            assert!(handle.empty());
+            assert_eq!(handle.rendered_frames(), 6);
+        }
+    }
+}
+
+#[test]
+fn fractional_audio_position_survives_pause_and_mid_sample_speed_changes() {
+    let (control, mut output) = Offline::new();
+    let handle = control
+        .play(false, || {
+            Ok(Box::new(Samples(
+                (1..).step_by(2).flat_map(|i| [i as f32, -(i as f32)]),
+            )))
+        })
+        .unwrap();
+    handle.set_transport(false, Speed::Tenth);
+    assert_eq!(
+        output.by_ref().take(6).collect::<Vec<_>>(),
+        [1., -1., 1., -1., 1., -1.]
+    );
+    handle.set_transport(true, Speed::Half);
+    assert_eq!(output.by_ref().take(8).collect::<Vec<_>>(), [0.; 8]);
+    assert_eq!(handle.audible_frames(), 0);
+    handle.set_transport(false, Speed::Half);
+    assert_eq!(output.by_ref().take(2).collect::<Vec<_>>(), [1., -1.]);
+    let next: Vec<_> = output.by_ref().take(2).collect();
+    assert!((next[0] - 2.2).abs() < 1e-6);
+    assert!((next[1] + 2.2).abs() < 1e-6);
+    assert_eq!(handle.audible_frames(), 1);
+    handle.set_transport(false, Speed::Normal);
+    let next: Vec<_> = output.by_ref().take(2).collect();
+    assert!((next[0] - 3.6).abs() < 1e-6);
+    assert!((next[1] + 3.6).abs() < 1e-6);
+    assert_eq!(handle.audible_frames(), 2);
+}
+
 impl Converter for Identity {
     fn convert(&mut self, input: &[[f32; 2]], output: &mut Vec<[f32; 2]>) -> anyhow::Result<()> {
         output.extend_from_slice(input);

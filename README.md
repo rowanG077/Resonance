@@ -92,6 +92,15 @@ their native frame cadence. Billboard births/deaths cross-fade; changed text, at
 and loading handoffs stay discrete. Capture, replay and paused test modes retain
 exact tick sampling. Omit the flag to compare with ordinary rendering.
 
+Press **F10** to cycle game speed **1× → ½× → ⅕× → ⅒× → 1×** while inspecting
+interpolation. This works at the title and during play, with or without smoothing.
+The performance overlay opens and shows the selected speed; **F3** hides it.
+Rendering stays uncapped, and the simulation timestep stays fixed: at ⅒×, ticks
+arrive about six times per real second while smoothing fills the frames between
+them. Audio follows the selected speed (including pitch); movie frames remain
+unblended. **F7** pauses/resumes without losing the selected speed. **F6** selects
+2×, then restores 1× on the next press. Slow motion is disabled in captures/replays.
+
 Two fixed 64 MiB arenas are allocated at startup and reused for isolated scene
 state and temporary prediction work. Prediction makes no system allocator calls;
 ordinary rendering and GPU uploads retain their existing allocation behavior.
@@ -124,6 +133,7 @@ for validation, memory limits and profiling commands.
 | Development quicksave / quickload | F5 / F9 | — |
 | Location test selector | Shift+Tab | — |
 | Test speed 1× / 2× | F6 | — |
+| Cycle slow motion: ½× / ⅕× / ⅒× / 1× | F10 | — |
 | Pause / resume | F7 | — |
 | Skip current cutscene / cancel skip | F8 | — |
 

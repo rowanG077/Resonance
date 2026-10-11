@@ -1,4 +1,4 @@
-use crate::{Clock, NativeFrame, clock::duration};
+use crate::{Clock, NativeFrame, Speed, clock::duration};
 use anyhow::{Context, Result, ensure};
 use std::{
     collections::VecDeque,
@@ -26,6 +26,8 @@ pub enum State {
 struct Span {
     start: u64,
     end: u64,
+    // Source positions and rate use tenths of a source frame. Device positions
+    // remain whole mix frames, including across pauses and speed changes.
     source: u64,
     source_end: u64,
     rate: u64,
@@ -34,11 +36,11 @@ struct Shared {
     failure: Arc<AtomicBool>,
     clock: Arc<Clock>,
     paused: AtomicBool,
-    double_speed: AtomicBool,
+    rate: AtomicU64,
     suspended: AtomicBool,
     stopped: AtomicBool,
     ended: AtomicBool,
-    rendered: AtomicU64,
+    rendered_units: AtomicU64,
     timeline: Mutex<VecDeque<Span>>,
 }
 #[derive(Clone)]
@@ -47,12 +49,10 @@ pub struct Handle {
     pub epoch: u64,
 }
 impl Handle {
-    /// Pause or accelerate playback without changing the source's own pause state.
-    pub fn set_transport(&self, paused: bool, double_speed: bool) {
+    /// Change playback rate without changing the source's own pause state.
+    pub fn set_transport(&self, paused: bool, speed: Speed) {
         self.shared.suspended.store(paused, Ordering::Release);
-        self.shared
-            .double_speed
-            .store(double_speed, Ordering::Release);
+        self.shared.rate.store(speed.tenths(), Ordering::Release);
     }
     pub fn pause(&self) {
         self.shared.paused.store(true, Ordering::Release);
@@ -70,7 +70,7 @@ impl Handle {
         duration(self.audible_frames())
     }
     pub fn rendered_frames(&self) -> u64 {
-        self.shared.rendered.load(Ordering::Acquire)
+        self.shared.rendered_units.load(Ordering::Acquire) / 10
     }
     pub fn audible_frames(&self) -> u64 {
         let audible = self.shared.clock.audible().0;
@@ -84,6 +84,7 @@ impl Handle {
         };
         (span.source + audible.min(span.end).saturating_sub(span.start) * span.rate)
             .min(span.source_end)
+            / 10
     }
     pub fn empty(&self) -> bool {
         self.shared.stopped.load(Ordering::Acquire)
@@ -118,6 +119,68 @@ struct Playing {
     source: Source,
     handle: Handle,
     at: NativeFrame,
+    held: Option<[f32; 2]>,
+    phase: u64,
+}
+
+impl Playing {
+    fn read(&mut self) -> Result<Option<[f32; 2]>> {
+        let Some(left) = self.source.next() else {
+            if !self.source.is_pending() {
+                self.handle.shared.ended.store(true, Ordering::Release);
+            }
+            return Ok(None);
+        };
+        let right = self
+            .source
+            .next()
+            .context("incomplete stereo source frame")?;
+        ensure!(
+            left.is_finite() && right.is_finite(),
+            "nonfinite source PCM"
+        );
+        Ok(Some([left, right]))
+    }
+
+    fn sample(&mut self, rate: u64) -> Result<([f32; 2], u64)> {
+        let mut samples = [0.; 2];
+        let mut read = 0;
+        // Preserve the exact ordinary and double-speed mixing paths.
+        if self.phase == 0 && rate >= 10 {
+            for _ in 0..rate / 10 {
+                let Some(next) = self.read()? else { break };
+                samples[0] += next[0];
+                samples[1] += next[1];
+                read += 1;
+            }
+            if read > 0 {
+                samples = samples.map(|v| v / read as f32);
+            }
+            return Ok((samples, read * 10));
+        }
+        // Hold a source sample across output frames at slow rates. Integrate
+        // partial samples when changing speed, keeping both channels and the
+        // source clock continuous across arbitrary output block boundaries.
+        while read < rate {
+            if self.held.is_none() {
+                self.held = self.read()?;
+            }
+            let Some(next) = self.held else { break };
+            let amount = (10 - self.phase).min(rate - read);
+            samples[0] += next[0] * amount as f32;
+            samples[1] += next[1] * amount as f32;
+            read += amount;
+            self.phase += amount;
+            if self.phase == 10 {
+                self.phase = 0;
+                self.held = None;
+            }
+        }
+        if read > 0 {
+            samples = samples.map(|v| v / read as f32);
+        }
+        Ok((samples, read))
+    }
 }
 #[derive(Clone)]
 pub struct Control {
@@ -146,11 +209,11 @@ impl Control {
                 failure: self.failure.clone(),
                 clock: self.clock.clone(),
                 paused: AtomicBool::new(paused),
-                double_speed: AtomicBool::new(false),
+                rate: AtomicU64::new(Speed::Normal.tenths()),
                 suspended: AtomicBool::new(false),
                 stopped: AtomicBool::new(false),
                 ended: AtomicBool::new(false),
-                rendered: AtomicU64::new(0),
+                rendered_units: AtomicU64::new(0),
                 timeline: Mutex::new(VecDeque::with_capacity(512)),
             }),
         };
@@ -217,11 +280,13 @@ impl Mixer {
                 source: (pending.factory)()?,
                 handle: pending.handle,
                 at: pending.at,
+                held: None,
+                phase: 0,
             });
         }
         output.fill([0.; 2]);
         for playing in &mut self.playing {
-            let state = &playing.handle.shared;
+            let state = playing.handle.shared.clone();
             if state.stopped.load(Ordering::Acquire)
                 || state.paused.load(Ordering::Acquire)
                 || state.suspended.load(Ordering::Acquire)
@@ -234,45 +299,21 @@ impl Mixer {
                 .0
                 .saturating_sub(self.frame)
                 .min(output.len() as u64) as usize;
-            let rate = if state.double_speed.load(Ordering::Acquire) {
-                2
-            } else {
-                1
-            };
+            let rate = state.rate.load(Ordering::Acquire);
             let mut count = 0;
             let mut consumed = 0;
             for frame in &mut output[start..] {
-                let mut samples = [0.; 2];
-                let mut read = 0;
-                for _ in 0..rate {
-                    let Some(left) = playing.source.next() else {
-                        if !playing.source.is_pending() {
-                            state.ended.store(true, Ordering::Release);
-                        }
-                        break;
-                    };
-                    let right = playing
-                        .source
-                        .next()
-                        .context("incomplete stereo source frame")?;
-                    ensure!(
-                        left.is_finite() && right.is_finite(),
-                        "nonfinite source PCM"
-                    );
-                    samples[0] += left;
-                    samples[1] += right;
-                    read += 1;
-                }
+                let (samples, read) = playing.sample(rate)?;
                 if read == 0 {
                     break;
                 }
-                frame[0] += samples[0] / read as f32;
-                frame[1] += samples[1] / read as f32;
+                frame[0] += samples[0];
+                frame[1] += samples[1];
                 count += 1;
                 consumed += read;
             }
             if count > 0 {
-                let source = state.rendered.load(Ordering::Relaxed);
+                let source = state.rendered_units.load(Ordering::Relaxed);
                 let span = Span {
                     start: self.frame + start as u64,
                     end: self.frame + start as u64 + count,
@@ -296,7 +337,9 @@ impl Mixer {
                     }
                     spans.push_back(span);
                 }
-                state.rendered.store(source + consumed, Ordering::Release);
+                state
+                    .rendered_units
+                    .store(source + consumed, Ordering::Release);
             }
         }
         // All source destruction happens here, never in the device callback.

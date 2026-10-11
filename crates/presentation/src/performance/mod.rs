@@ -146,6 +146,7 @@ fn begin_frame(
     movie: Option<Res<crate::movie::Playback>>,
     profile: Option<Res<render_profile::Shared>>,
     prediction: Option<Res<crate::field_view::Prediction>>,
+    testing: Option<Res<crate::testing::Controls>>,
     diagnostics: Option<Res<bevy::diagnostic::DiagnosticsStore>>,
 ) {
     let now = Instant::now();
@@ -172,6 +173,7 @@ fn begin_frame(
                     "render_profile":profile.as_ref().map(|p| p.snapshot()),
                     "smoothing_ns":smoothing_profile::take(),
                     "prediction_built_reused":prediction.as_ref().map(|p| p.counts()),
+                    "game_speed":testing.as_ref().map_or(1., |t| t.speed.factor()),
                     "render_diagnostics":profile.as_ref().and(diagnostics.as_ref()).map(|d| d.iter().filter_map(|v| v.value().map(|value| (v.path().as_str(),value))).collect::<std::collections::BTreeMap<_,_>>()),
                     "resolution":display.as_ref().map(|d| d.0),
                     "window_resolution":window.as_ref().map(|w| crate::Resolution { width: w.physical_width(), height: w.physical_height() }),
@@ -245,6 +247,12 @@ impl Monitor {
         writer.write_all(b"\n")?;
         writer.flush()?;
         Ok(path)
+    }
+}
+
+pub(crate) fn show(world: &mut World) {
+    if let Some(mut monitor) = world.get_resource_mut::<Monitor>() {
+        monitor.shown = true;
     }
 }
 
