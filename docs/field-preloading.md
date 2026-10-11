@@ -22,7 +22,9 @@ Field inventories also include skit scenarios, message tables, portrait atlases
 and media metadata. Portrait surfaces and dialogue layers warm with the field;
 opening Z performs no reads or shader compilation. Silent media carries only a
 clock; audible tracks join the prepared voice bank. Shared content hashes and
-dependent field inventories refresh together.
+dependent field inventories must refresh together with `worlds/world.json`.
+Refreshing only the fields leaves the first overworld transition unable to verify
+shared menu or skit data. Use a complete `cook-all` run after shared content changes.
 Field particle recipes carry their texture, palette and motion parameters.
 Their texture dependencies and render layers are prepared before activation;
 live particles only update geometry and use the same missing-effect audit.
@@ -61,8 +63,12 @@ preload destination fields. Completeness does not prove native/effect support.
 2. The memory-backed asset reader serves declared bytes. Each model loads once;
    scenes/clips come from its retained glTF graph. Completion requires both loaded
    dependencies and finished load jobs. Texture copies share by image and sampler.
-3. An offscreen draw prepares every mesh/material variant, both depth-write states,
-   dialogue/subtitles, location captions, effects and shadows using the live camera/target settings.
+3. Offscreen draws prepare representatives of every distinct mesh-layout/material
+   pipeline variant, both depth-write states, dialogue/subtitles, location captions,
+   effects and shadows using the live camera/target settings. Resolve every texture
+   and sampler, but share warm draws across models with the same pipeline keys.
+   Instancing every model for every variant bloats Bevy's skinning staging buffer;
+   its full contents are uploaded every frame even after warm scenes are retired.
    Wait for expected render draws, successful compilation and GPU completion.
 4. Release the black hold, attach the destination audio source and resume field
    updates. Opening audio commands remain queued until the scene is ready.
@@ -82,3 +88,5 @@ preparing other fields does not establish support for their native services.
 Relevant tests: `cargo test -p resonance-import --lib field_preload::`,
 `cargo test -p resonance-content prepared::`, and
 `cargo test -p resonance-presentation sampled_tests:: --lib`.
+The first Iselia exit is covered without output devices by
+`RESONANCE_WORLD_ASSETS="$PWD/local/all-assets" cargo test --release -p resonance-presentation --lib iselia_first_tutorial_skips_both_battles_and_enters_the_overworld -- --ignored`.
