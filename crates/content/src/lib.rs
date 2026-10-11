@@ -239,9 +239,45 @@ pub struct TextureAnimation<Texture = usize> {
     pub delay_ticks: u32,
     pub loop_start: usize,
     pub offsets: Vec<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "TextureInterpolation::is_legacy")]
+    pub interpolation: TextureInterpolation,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextureInterpolation {
+    /// Older cooked packages predate the distinction between scrolls and atlases.
+    #[default]
+    Legacy,
+    Step,
+    Scroll,
+}
+impl TextureInterpolation {
+    fn is_legacy(&self) -> bool {
+        *self == Self::Legacy
+    }
 }
 
 impl<Texture> TextureAnimation<Texture> {
+    /// Resolve once at asset preparation. Legacy title/world atlases hold each
+    /// row for several ticks; only constant per-tick scrolls are interpolated.
+    pub fn is_scroll(&self) -> bool {
+        match self.interpolation {
+            TextureInterpolation::Scroll => true,
+            TextureInterpolation::Step => false,
+            TextureInterpolation::Legacy => {
+                let Some(pair) = self.offsets.get(..2) else {
+                    return false;
+                };
+                let delta = [pair[1][0] - pair[0][0], pair[1][1] - pair[0][1]];
+                delta != [0.; 2]
+                    && self
+                        .offsets
+                        .windows(2)
+                        .all(|p| (0..2).all(|i| (p[1][i] - p[0][i] - delta[i]).abs() < 0.00001))
+            }
+        }
+    }
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.offsets.is_empty()

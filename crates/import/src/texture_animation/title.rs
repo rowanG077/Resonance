@@ -57,6 +57,7 @@ fn bind_tracks(tracks: Tracks, script: &[u8]) -> Result<Vec<TextureAnimation>> {
                 delay_ticks: track.delay_ticks,
                 loop_start: track.loop_start,
                 offsets: track.offsets,
+                interpolation: track.interpolation,
             })
         })
         .collect()
@@ -102,6 +103,7 @@ fn bake(steps: f32, step_size: f32, first: f32, speed: f32, second: f32) -> Resu
             texture,
             delay_ticks: 1,
             loop_start: 0,
+            interpolation: resonance_content::TextureInterpolation::Step,
             offsets: (0..period)
                 .map(|tick| [0., (tick / interval) as f32 * step_size])
                 .collect(),
@@ -122,6 +124,7 @@ fn bake(steps: f32, step_size: f32, first: f32, speed: f32, second: f32) -> Resu
         stepped(Slot::FirstVertical, first)?,
         TextureAnimation {
             texture: Slot::Horizontal,
+            interpolation: resonance_content::TextureInterpolation::Scroll,
             delay_ticks: 1,
             loop_start: 1,
             offsets,
@@ -141,6 +144,20 @@ mod tests {
         for track in &tracks {
             track.validate().unwrap();
         }
+        assert_eq!(
+            tracks.each_ref().map(|t| t.is_scroll()),
+            [false, true, false]
+        );
+        let legacy = tracks.clone().map(|mut t| {
+            t.interpolation = resonance_content::TextureInterpolation::Legacy;
+            t
+        });
+        assert_eq!(
+            legacy.each_ref().map(|t| t.is_scroll()),
+            [false, true, false]
+        );
+        // Small, rapid atlas steps remain discrete when explicitly authored.
+        assert!(!bake(32., 1. / 32., 1., 1. / 120., 1.).unwrap()[0].is_scroll());
         assert_eq!(tracks[0].offset(22), [0., 0.]);
         assert_eq!(tracks[0].offset(23), [0., 1. / 32.]);
         assert_eq!(tracks[0].offset(705), [0., 0.]);
@@ -188,6 +205,19 @@ mod tests {
     #[test]
     #[ignore = "requires both original discs, cook-all, and the prepared title; no devices"]
     fn original_title_uv_publications_match_native_values_and_prepared_tracks() -> Result<()> {
+        fn normalized<T: Clone + Serialize>(
+            tracks: &[TextureAnimation<T>],
+        ) -> Result<serde_json::Value> {
+            let mut tracks = tracks.to_vec();
+            for track in &mut tracks {
+                track.interpolation = if track.is_scroll() {
+                    resonance_content::TextureInterpolation::Scroll
+                } else {
+                    resonance_content::TextureInterpolation::Step
+                };
+            }
+            Ok(serde_json::to_value(tracks)?)
+        }
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
         let library = local.join("all-assets");
         let prepared: resonance_content::TitleAssets =
@@ -212,10 +242,7 @@ mod tests {
             );
             let published: Tracks =
                 crate::cooked::Source::open(&library, disc, "sys/main.dol")?.document(PATH)?;
-            assert_eq!(
-                serde_json::to_value(&published)?,
-                serde_json::to_value(&native)?
-            );
+            assert_eq!(normalized(&published)?, normalized(&native)?);
             let source = crate::scene::title_source(&extracted, &executable)?;
             let map = crate::field::MapArchive::open(&extracted.join("files").join(&source))?;
             let tracks = bind(&executable, map.section(6)?)?;
@@ -223,10 +250,7 @@ mod tests {
                 tracks.iter().map(|track| track.texture).collect::<Vec<_>>(),
                 [2, 0, 1]
             );
-            assert_eq!(
-                serde_json::to_value(&tracks)?,
-                serde_json::to_value(expected)?
-            );
+            assert_eq!(normalized(&tracks)?, normalized(expected)?);
         }
         Ok(())
     }
