@@ -15,6 +15,11 @@ pub(crate) struct Voice {
 }
 impl GameWorld {
     pub(crate) fn actor_sound(&mut self, actor: i32, sound: AmbientSound) {
+        // Native actor audio requests an unbound voice (slot 0xff). Its
+        // 0xffff sound ID yields no voice, without releasing an earlier cue.
+        if sound.id == -1 {
+            return;
+        }
         if let Some(voice) = self
             .actors
             .get(&actor)
