@@ -4,7 +4,7 @@ use resonance_content::menu_data::{
 };
 use resonance_events::input::Button;
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Synopsis {
     #[serde(flatten)]
     pub transition: Transition,

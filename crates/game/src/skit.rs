@@ -71,6 +71,23 @@ pub struct Playback {
     finished: bool,
 }
 impl Playback {
+    pub fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        Self {
+            id: self.id,
+            title: self.title.clone(),
+            events: self.events.fork_for_prediction(fork),
+            skippable: self.skippable,
+            dialogue: self
+                .dialogue
+                .iter()
+                .map(|(&slot, player)| (slot, player.fork_for_prediction(fork)))
+                .collect(),
+            choices: self.choices.clone(),
+            preview: self.preview,
+            completion: self.completion.as_ref().map(|op| fork.fork(op)),
+            finished: self.finished,
+        }
+    }
     pub fn start(
         prepared: &Prepared,
         parent: &mut EventRuntime,
@@ -82,6 +99,7 @@ impl Playback {
         let mut memory = symphonia_script_vm::Memory::default();
         memory.copy_from(parent.memory(), 0..0x2000)?;
         let mut world = resonance_events::GameWorld::default();
+        world.inherit_prediction_allocator(&parent.world);
         world.current_field = parent.world.current_field;
         world.played_ticks = parent.world.played_ticks;
         world.skit = Some(Default::default());

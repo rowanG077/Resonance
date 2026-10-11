@@ -5,14 +5,14 @@ use resonance_events::party::TechniqueShortcut;
 const UNLOCK_STORY: i32 = 1_403_000;
 pub const VISIBLE_TECHNIQUES: usize = 8;
 
-#[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
     #[default]
     Slots,
     List,
 }
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Unison {
     #[serde(flatten)]
     pub transition: super::Transition,

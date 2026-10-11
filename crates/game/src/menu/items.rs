@@ -20,6 +20,7 @@ pub enum Description {
     Category(usize),
     Item(u16),
 }
+#[derive(Clone)]
 pub struct Inventory {
     pub page_fade: u8,
     pub page_closing: bool,

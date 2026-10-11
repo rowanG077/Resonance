@@ -4,7 +4,7 @@ use resonance_events::input::Button;
 
 pub const VISIBLE: usize = 12;
 
-#[derive(Default, serde::Serialize)]
+#[derive(Clone, Default, serde::Serialize)]
 pub struct Figurines {
     pub row: usize,
     pub first: usize,

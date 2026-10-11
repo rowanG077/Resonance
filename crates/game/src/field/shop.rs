@@ -43,7 +43,7 @@ pub enum Focus {
     Empty,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct Row {
     pub id: u16,
     pub quantity: u8,
@@ -55,6 +55,7 @@ enum Exit {
     Equip,
 }
 
+#[derive(Clone)]
 pub struct Shop {
     pub resources: Arc<Resources>,
     pub id: u8,
@@ -81,6 +82,11 @@ pub struct Shop {
 }
 
 impl Shop {
+    pub(crate) fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        let mut next = self.clone();
+        next.operation = fork.fork(&self.operation);
+        next
+    }
     pub fn open(
         id: u8,
         resources: Arc<Resources>,

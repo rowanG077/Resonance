@@ -77,6 +77,7 @@ enum WindowPhase {
     Closing(u8),
     Closed,
 }
+#[derive(Clone)]
 pub struct DialoguePlayer {
     pub operation: Operation,
     pub pages: Vec<Page>,
@@ -96,6 +97,18 @@ pub struct DialoguePlayer {
     instant_glyphs: bool,
 }
 impl DialoguePlayer {
+    pub(crate) fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        let mut result = self.clone();
+        result.operation = fork.fork(&self.operation);
+        // Snapshot existing acknowledgements; never enqueue a real voice request.
+        result.voice_feedback = None;
+        result.voice_completion = self
+            .voice_completion
+            .as_ref()
+            .map(|done| Arc::new(AtomicBool::new(done.load(Ordering::Acquire))));
+        result
+    }
+
     pub fn status(&self) -> DialogueStatus {
         if !self.operation.is_pending() {
             return DialogueStatus::Closed;

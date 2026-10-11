@@ -23,6 +23,7 @@ pub enum Focus {
     InventoryFull,
 }
 
+#[derive(Clone)]
 pub struct Crafting {
     pub resources: Arc<Resources>,
     pub vendor: u8,
@@ -44,6 +45,11 @@ pub struct Crafting {
 }
 
 impl Crafting {
+    pub(crate) fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        let mut next = self.clone();
+        next.operation = fork.fork(&self.operation);
+        next
+    }
     pub fn open(vendor: u8, resources: Arc<Resources>, operation: Operation) -> Result<Self> {
         ensure!(
             resources

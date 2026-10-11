@@ -17,18 +17,20 @@ pub fn touches_trigger(trigger: &resonance_events::Trigger, p: [f32; 3], radius:
 
 type Surface = ([[f32; 3]; 3], u32);
 
+#[derive(Clone)]
 pub struct WalkMesh {
     triangles: Arc<[Surface]>,
     model_floors: Vec<(u64, Surface)>,
     solids: Vec<Solid>,
 }
+#[derive(Clone)]
 struct Solid {
     owner: u64,
     surface: u32,
     planes: Vec<Plane>,
     body_planes: Option<Vec<Plane>>,
 }
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) enum PlayerFall {
     #[default]
     Supported,

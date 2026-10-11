@@ -22,6 +22,7 @@ pub mod techniques;
 pub mod unison;
 pub mod world_map;
 
+#[derive(Clone)]
 pub struct Resources {
     pub session: Arc<resonance_content::session::SessionData>,
     pub data: Arc<resonance_content::menu_data::MenuData>,
@@ -68,7 +69,7 @@ pub(crate) fn move_list(
 }
 
 /// A submenu's slide is independent of the retained Main-menu backdrop.
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Transition {
     pub page_fade: u8,
     pub page_closing: bool,
@@ -182,6 +183,7 @@ pub struct Popup {
     pub opacity: u8,
 }
 
+#[derive(Clone)]
 pub struct Menu {
     pub grade_shop: grade_shop::State,
     pub resources: Option<Arc<Resources>>,
@@ -420,6 +422,9 @@ impl Menu {
         if let Some(checkpoint) = &mut self.checkpoint {
             checkpoint.played_ticks = Some(time.total());
         }
+    }
+    pub fn has_command(&self) -> bool {
+        self.command.is_some()
     }
     pub fn take_command(&mut self) -> Option<Command> {
         self.command.take()

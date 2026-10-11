@@ -835,14 +835,40 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
         .set_global(16, 999)?;
     let parent_tick = session.events.tick();
     let position = session.travel.state().position;
+    let mut storage = crate::field::PredictionBuffer::new()?;
     for _ in 0..4 {
-        session.step(Input {
+        let input = Input {
             travel: travel::Input {
                 stick: [1., 0.],
                 ..Default::default()
             },
             ..Default::default()
-        })?;
+        };
+        let flags = session.events.world.event_flags.clone();
+        let counts = resonance_simulation_memory::system_calls();
+        let mut predicted = None;
+        for _ in 0..4 {
+            predicted = Some(storage.execute(|| {
+                let mut next =
+                    session.fork_for_prediction(&mut resonance_events::OperationFork::default());
+                next.step(input)?;
+                Ok::<_, anyhow::Error>(next)
+            })??);
+        }
+        assert_eq!(counts, resonance_simulation_memory::system_calls());
+        assert_eq!(session.events.world.event_flags, flags);
+        assert_eq!(session.events.tick(), parent_tick);
+        session.step(input)?;
+        let next = predicted.unwrap();
+        assert_eq!(next.active_skit.is_some(), session.active_skit.is_some());
+        assert_eq!(
+            next.events.world.event_flags,
+            session.events.world.event_flags
+        );
+        assert_eq!(
+            next.events.memory().read(0x40, Width::S32)?,
+            session.events.memory().read(0x40, Width::S32)?
+        );
         if session.active_skit.is_none() {
             break;
         }
@@ -1005,6 +1031,52 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
         assert_eq!(
             operation.progress().outcome,
             Some(resonance_events::Outcome::Cancelled)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn speculative_world_updates_reuse_slots_and_leave_motion_rng_and_menus_committed() -> Result<()> {
+    let mut session = start(definitions(), vec![])?;
+    let mut storage = crate::field::PredictionBuffer::new()?;
+    for tick in 0..120 {
+        let input = Input {
+            travel: travel::Input {
+                stick: [if tick % 40 < 20 { 0.25 } else { -0.25 }, 0.],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let position = session.travel.state().position;
+        let rng = session.events.world.random_state;
+        let counts = resonance_simulation_memory::system_calls();
+        let mut result = None;
+        for _ in 0..4 {
+            result = Some(storage.execute(|| {
+                let mut next =
+                    session.fork_for_prediction(&mut resonance_events::OperationFork::default());
+                next.step(input)?;
+                Ok::<_, anyhow::Error>(next)
+            })??);
+        }
+        assert_eq!(counts, resonance_simulation_memory::system_calls());
+        assert_eq!(session.travel.state().position, position);
+        assert_eq!(session.events.world.random_state, rng);
+        session.step(input)?;
+        let next = result.unwrap();
+        assert_eq!(
+            next.travel.state().position,
+            session.travel.state().position
+        );
+        assert_eq!(next.travel.state().heading, session.travel.state().heading);
+        assert_eq!(
+            next.events.world.random_state,
+            session.events.world.random_state
+        );
+        assert_eq!(
+            next.events.world.event_flags,
+            session.events.world.event_flags
         );
     }
     Ok(())

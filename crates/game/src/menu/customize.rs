@@ -14,7 +14,7 @@ pub enum Focus {
     Position,
 }
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Customize {
     #[serde(flatten)]
     pub transition: super::Transition,

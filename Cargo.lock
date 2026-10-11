@@ -4408,6 +4408,7 @@ dependencies = [
  "anyhow",
  "resonance-content",
  "resonance-events",
+ "resonance-simulation-memory",
  "serde",
  "serde_json",
  "sha2",
@@ -4543,6 +4544,7 @@ dependencies = [
  "resonance-model-behavior",
  "resonance-persistence",
  "resonance-playback",
+ "resonance-simulation-memory",
  "serde",
  "serde_json",
  "sha2",
@@ -4569,6 +4571,10 @@ dependencies = [
 
 [[package]]
 name = "resonance-script-content"
+version = "0.1.0"
+
+[[package]]
+name = "resonance-simulation-memory"
 version = "0.1.0"
 
 [[package]]

@@ -5,7 +5,7 @@ use resonance_events::input::Button;
 pub const LOCATION_ROWS: usize = 9;
 pub const ITEM_ROWS: usize = 8;
 
-#[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Focus {
     #[default]
@@ -14,7 +14,7 @@ pub enum Focus {
     Items,
 }
 
-#[derive(Default, serde::Serialize)]
+#[derive(Clone, Default, serde::Serialize)]
 pub struct WorldMap {
     pub page_fade: u8,
     pub page_closing: bool,

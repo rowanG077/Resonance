@@ -5,7 +5,7 @@ use resonance_events::input::Button;
 pub const COLUMNS: usize = 3;
 pub const VISIBLE: usize = 24;
 
-#[derive(Default, serde::Serialize)]
+#[derive(Clone, Default, serde::Serialize)]
 pub struct Collection {
     pub page_fade: u8,
     pub page_closing: bool,

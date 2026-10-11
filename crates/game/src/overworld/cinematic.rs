@@ -4,6 +4,7 @@ use resonance_content::{CameraKey, overworld::Cinematic};
 use resonance_events::{AudioCommand, SceneDestination};
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Playback {
     pub id: u16,
     pub definition: Arc<Cinematic>,

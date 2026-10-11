@@ -36,7 +36,7 @@ impl Focus {
     }
 }
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Strategy {
     #[serde(flatten)]
     pub transition: Transition,
@@ -57,7 +57,7 @@ pub struct Strategy {
     pub rename: NameEditor,
 }
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct NameEditor {
     pub value: String,
     pub position: usize,

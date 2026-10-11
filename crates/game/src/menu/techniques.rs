@@ -18,7 +18,7 @@ pub enum Focus {
         yes: bool,
     },
 }
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct Tech {
     #[serde(flatten)]
     pub transition: super::Transition,

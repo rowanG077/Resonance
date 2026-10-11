@@ -23,7 +23,7 @@ pub enum Focus {
         thrust: bool,
     },
 }
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct Equipment {
     #[serde(flatten)]
     pub transition: super::Transition,

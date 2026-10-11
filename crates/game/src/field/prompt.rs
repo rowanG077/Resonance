@@ -72,7 +72,7 @@ pub struct ActionPrompt {
     pub text_opacity: u8,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct ActionHints {
     pub prompt: Option<ActionPrompt>,
     action: Option<FieldAction>,

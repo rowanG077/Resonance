@@ -2,7 +2,7 @@ use super::*;
 use resonance_content::menu_data::{ManualChapter, ManualTopic};
 use resonance_events::input::Button;
 
-#[derive(Default, serde::Serialize)]
+#[derive(Clone, Default, serde::Serialize)]
 pub struct Manual {
     pub page_fade: u8,
     pub page_closing: bool,

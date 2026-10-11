@@ -25,7 +25,7 @@ pub struct Assets {
     pub skits: Arc<std::collections::BTreeMap<u16, crate::skit::Prepared>>,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Input {
     pub travel: travel::Input,
     pub menu: crate::field::FieldInput,
@@ -91,6 +91,35 @@ pub struct Session {
     portal_contact: bool,
 }
 impl Session {
+    pub fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        Self {
+            events: self.events.fork_for_prediction(fork),
+            travel: self.travel.clone(),
+            camera: self.camera.clone(),
+            enemies: self.enemies.clone(),
+            locations: self.locations.clone(),
+            play_time: self.play_time,
+            active_skit: self
+                .active_skit
+                .as_ref()
+                .map(|s| s.fork_for_prediction(fork)),
+            menu: self.menu.clone(),
+            skits: self.skits.clone(),
+            assets: self.assets.clone(),
+            cinematic: self.cinematic.clone(),
+            prompt: self.prompt.clone(),
+            discovery: self.discovery,
+            battle: self.battle.as_ref().map(|b| {
+                let request = b.request.fork_for_prediction(fork);
+                PendingBattle {
+                    request,
+                    special: b.special,
+                }
+            }),
+            world_destination: self.world_destination,
+            portal_contact: self.portal_contact,
+        }
+    }
     pub fn enter(
         assets: Arc<Assets>,
         state: travel::State,

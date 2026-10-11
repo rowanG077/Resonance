@@ -1,4 +1,7 @@
 //! Desktop presentation for the high-level title controller.
+#[global_allocator]
+static ALLOCATOR: resonance_simulation_memory::Allocator = resonance_simulation_memory::Allocator;
+
 use anyhow::{Context, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
