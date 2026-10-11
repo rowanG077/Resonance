@@ -13,6 +13,7 @@ impl Rig {
         actor: &resonance_events::Actor,
         world: &resonance_events::GameWorld,
         clips: &Assets<crate::sparse_animation::Clip>,
+        echo: Option<&resonance_events::WingEcho>,
     ) -> (BTreeMap<Entity, Pose>, Locals, Vec<u16>) {
         let mut frames: Vec<_> = self
             .bones
@@ -34,9 +35,16 @@ impl Rig {
             let entrance = actor.wings.as_ref().and_then(|w| {
                 w.entrance(part.pass, world.tick.saturating_sub(animation.start_tick))
             });
-            let delay = entrance
-                .as_ref()
-                .map_or_else(|| layer.as_ref().map_or(0., |l| l.pose_delay), |e| e.delay);
+            let delay = entrance.as_ref().map_or_else(
+                || {
+                    if echo.is_some() {
+                        -1.
+                    } else {
+                        layer.as_ref().map_or(0., |l| l.pose_delay)
+                    }
+                },
+                |e| e.delay,
+            );
             let Some((clip, mut time, animated_roots)) = sample_clip(
                 &model.spec,
                 &model.clips,
@@ -55,10 +63,8 @@ impl Rig {
             {
                 roots.extend_from_slice(animated_roots);
             }
-            let echo = layer
-                .and_then(|l| l.echo)
-                .and_then(|e| e.entrance_weight(world.tick));
-            if echo.is_some() {
+            let echo_weight = echo.and_then(|e| e.entrance_weight(world.tick));
+            if echo_weight.is_some() {
                 time = 0.;
             }
             for track in &clip.tracks {
@@ -71,7 +77,7 @@ impl Rig {
                     channels[i],
                     self.bind_channels[i],
                 );
-                if let Some(weight) = echo {
+                if let Some(weight) = echo_weight {
                     frame = Frame::sample(rest.into(), 0, self.bind_channels[i]).mix(
                         frame,
                         rest,
@@ -151,14 +157,15 @@ impl Rig {
 
 fn root_pose(
     actor: &resonance_events::Actor,
-    part: &ActorPart,
+    id: i32,
+    pass: u8,
     world: &resonance_events::GameWorld,
+    echo: Option<&resonance_events::WingEcho>,
 ) -> Transform {
     let layer = actor
         .wings
         .as_ref()
-        .map(|w| w.layer(part.pass, world.effect_tick));
-    let echo = layer.as_ref().and_then(|l| l.echo);
+        .map(|w| w.layer(pass, world.effect_tick));
     let [x, y, z] = echo.map_or_else(
         || {
             [
@@ -172,7 +179,7 @@ fn root_pose(
     let mut scale =
         Vec3::from_array(echo.map_or_else(|| actor.model_scale(), |e| e.scale(world.tick)))
             * layer.as_ref().map_or(1., |l| l.scale);
-    if part.actor == world.controlled_actor {
+    if id == world.controlled_actor {
         scale *= world.player_size.model_scale();
     }
     Transform {
@@ -216,17 +223,17 @@ pub(crate) fn present(
                     continue;
                 };
                 if !part.prepared
-                    || current.instance != actor.instance
-                    || current.model_resource() != actor.model_resource()
-                    || current.visible != actor.visible
-                    || current.attachment.as_ref().map(|a| (a.actor, &a.bone))
-                        != actor.attachment.as_ref().map(|a| (a.actor, &a.bone))
-                    || Vec3::from_array(current.position).distance(Vec3::from_array(actor.position))
-                        > 128.
+                    || !crate::field_view::prediction::continuous_actor(current, actor)
                 {
                     continue;
                 }
-                let target_root = root_pose(actor, part, world);
+                // Echo slots shift when an older echo expires. Keep this draw's
+                // snapshot while advancing its age; never morph it into its neighbor.
+                let echo = current.wings.as_ref().and_then(|w| {
+                    w.layer(part.pass, state.get().events.world.effect_tick)
+                        .echo
+                });
+                let target_root = root_pose(actor, part.actor, part.pass, world, echo);
                 if let Ok(current_root) = helper.local(root) {
                     output.push(PoseEndpoint {
                         entity: root,
@@ -244,7 +251,7 @@ pub(crate) fn present(
                     continue;
                 }
                 let (mut locals, adjustments, animated_roots) =
-                    rig.next_pose(part, model, actor, world, &clips);
+                    rig.next_pose(part, model, actor, world, &clips, echo);
                 locals.insert(root, target_root.into());
                 let empty = BTreeMap::new();
                 let mut future_cache = bevy::ecs::entity::EntityHashMap::default();
@@ -362,5 +369,53 @@ pub(crate) fn present(
                 affine.set_world(entity, pose.global());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expiring_wing_echo_keeps_its_snapshot_when_the_slots_shift() {
+        let bytes: Vec<_> = [4u16, 0, 0, 0, 0x20ff]
+            .into_iter()
+            .flat_map(u16::to_be_bytes)
+            .collect();
+        let mut events = resonance_events::EventRuntime::new(
+            std::sync::Arc::new(symphonia_script::Program::decode(&bytes).unwrap()),
+            Default::default(),
+        )
+        .unwrap();
+        let mut actor = resonance_events::Actor::new(10, [0.; 3]);
+        actor.set_wings(resonance_events::WingStyle::Echo);
+        events.world.insert_actor(90026, actor);
+        for tick in 1..=23 {
+            events.world.actors.get_mut(&90026).unwrap().position[0] = tick as f32 * 2.;
+            events.step().unwrap();
+        }
+        let echo = events.world.actors[&90026]
+            .wings
+            .as_ref()
+            .unwrap()
+            .layer(0, events.world.effect_tick)
+            .echo
+            .unwrap()
+            .clone();
+        assert_eq!(echo.position[0], 16.);
+        events.step().unwrap();
+        let actor = &events.world.actors[&90026];
+        let replacement = actor
+            .wings
+            .as_ref()
+            .unwrap()
+            .layer(0, events.world.effect_tick)
+            .echo
+            .unwrap();
+        assert_eq!(replacement.position[0], 32.);
+        let pose = root_pose(actor, 90026, 0, &events.world, Some(&echo));
+        assert_eq!(pose.translation.x, 16.);
+        assert!(pose.scale.abs_diff_eq(Vec3::new(1.32, 1.32, 1.8), 0.00001));
+        assert_eq!(echo.rgba(events.world.tick)[3], 0);
     }
 }

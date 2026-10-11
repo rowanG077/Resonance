@@ -322,7 +322,7 @@ impl Prediction {
         self.storage = Some(resonance_game::field::PredictionBuffer::new()?);
         Ok(())
     }
-    fn camera(&self, current: &CameraRig) -> Option<&CameraRig> {
+    pub(crate) fn camera(&self, current: &CameraRig) -> Option<&CameraRig> {
         let next = self.field()?.events.world.field_camera.as_ref()?;
         (next.selected == current.selected
             && Vec3::from_array(next.position).distance(Vec3::from_array(current.position)) <= 256.
@@ -446,6 +446,19 @@ pub(crate) fn uv_scrolls(from: Vec4, to: Vec4, scrolls: [bool; 2], alpha: f32) -
     Vec4::from_array(std::array::from_fn(|i| {
         if scrolls[i / 2] { smooth[i] } else { from[i] }
     }))
+}
+
+/// Material, shadow and pose endpoints must agree about actor discontinuities.
+pub(crate) fn continuous_actor(
+    from: &resonance_events::Actor,
+    to: &resonance_events::Actor,
+) -> bool {
+    from.instance == to.instance
+        && from.model_resource() == to.model_resource()
+        && from.visible == to.visible
+        && from.attachment.as_ref().map(|a| (a.actor, &a.bone))
+            == to.attachment.as_ref().map(|a| (a.actor, &a.bone))
+        && Vec3::from_array(from.position).distance(Vec3::from_array(to.position)) <= 128.
 }
 
 #[cfg(test)]

@@ -498,6 +498,9 @@ pub(super) fn render(
         .filter(|(p, _)| p.part == 0)
         .map(|(p, rig)| (p.actor, (p, rig)))
         .collect();
+    let brightness = future.map_or(brightness, |(w, a)| {
+        brightness + (w.brightness() - brightness) * a
+    });
     let mut emotes: Vec<_> = world.emotes.iter().collect();
     emotes.sort_unstable_by_key(|(_, emote)| emote.draw_order);
     let emotes = emotes.into_iter().map(|(&id, emote)| {
@@ -524,24 +527,34 @@ pub(super) fn render(
             STATUS,
         )
     });
-    for (request, actor, (anchor_name, fallback), sprites, offset, layer) in emotes.chain(paralysis)
+    for (request, actor_id, (anchor_name, fallback), sprites, offset, layer) in
+        emotes.chain(paralysis)
     {
         if sprites.is_empty() {
             applied.ack(request);
             continue;
         }
-        let Some((part, rig)) = roots.get(&actor) else {
+        let Some((part, rig)) = roots.get(&actor_id) else {
             continue;
         };
         let Some(rig) = rig.filter(|_| part.prepared) else {
             applied.loading(request);
             continue;
         };
-        let Some(actor) = world.actors.get(&actor) else {
+        let Some(actor) = world.actors.get(&actor_id) else {
             continue;
         };
-        let Some(anchor) =
-            anchor_position(rig, anchor_name, fallback, actor.position, &names, &helper)
+        let position = future
+            .and_then(|(w, a)| {
+                let next = w.actors.get(&actor_id)?;
+                crate::field_view::prediction::continuous_actor(actor, next).then(|| {
+                    Vec3::from_array(actor.position)
+                        .lerp(Vec3::from_array(next.position), a)
+                        .to_array()
+                })
+            })
+            .unwrap_or(actor.position);
+        let Some(anchor) = anchor_position(rig, anchor_name, fallback, position, &names, &helper)
         else {
             continue;
         };

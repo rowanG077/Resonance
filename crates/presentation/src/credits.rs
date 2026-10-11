@@ -301,9 +301,11 @@ pub(crate) struct Playback {
     final_hold: u32,
 }
 impl Playback {
-    pub fn brightness(&self) -> f32 {
+    pub fn brightness(&self, alpha: f32) -> f32 {
         self.tail
-            .map_or(1., |age| 1. - age as f32 / self.final_hold.max(1) as f32)
+            .map_or(1., |age| {
+                1. - (age as f32 + alpha) / self.final_hold.max(1) as f32
+            })
             .clamp(0., 1.)
     }
 }

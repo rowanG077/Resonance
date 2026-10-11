@@ -1,6 +1,8 @@
 //! Field scene instances: shared cooked assets, independent actor state.
 #[path = "field_backdrop.rs"]
 mod backdrop;
+#[cfg(test)]
+mod interpolation_tests;
 pub(crate) mod prediction;
 #[path = "field_sequence.rs"]
 mod sequence;
@@ -971,7 +973,7 @@ fn camera(
     // script deliberately holds the scene black at the beginning of the lesson.
     TitleOutput::update(&mut outputs, |b| {
         if let Some(credits) = &credits {
-            b.x = credits.brightness();
+            b.x = credits.brightness(prediction.alpha);
             b.y = 0.;
             return;
         }
@@ -1973,6 +1975,30 @@ fn instances(
         }
     }
 }
+fn light_uniforms(
+    light: &resonance_events::effect::CharacterLight,
+    actor: &resonance_events::Actor,
+    world: &resonance_events::GameWorld,
+) -> (Vec4, [Vec4; 2]) {
+    let position = match light.position {
+        LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
+        LightPosition::World(p) => Vec3::from_array(p),
+        LightPosition::Actor { id, height } => world.actors.get(&id).map_or(Vec3::ZERO, |a| {
+            Vec3::from_array(a.position) + Vec3::Z * height
+        }),
+    }
+    .extend(f32::from(light.strength));
+    // Quantize each endpoint to native five-bit colors before interpolating.
+    let shades = [light.shade, light.bright].map(|c| {
+        Vec3::from_array(c.map(|v| {
+            let v = v >> 3;
+            f32::from((v << 3) | (v >> 2)) / 255.
+        }))
+        .extend(1.)
+    });
+    (position, shades)
+}
+
 #[allow(clippy::too_many_arguments)] // Independent scene instances, materials, and animation players.
 fn pose(
     mut commands: Commands,
@@ -2035,8 +2061,7 @@ fn pose(
         let future = prediction.as_ref().and_then(|p| {
             let s = p.field()?;
             let a = s.events.world.actors.get(&instance.actor)?;
-            (a.instance == actor.instance && a.model_resource() == actor.model_resource())
-                .then_some((s, a, p.alpha))
+            prediction::continuous_actor(actor, a).then_some((s, a, p.alpha))
         });
         let brightness = future.map_or(world.brightness(), |(s, _, a)| {
             world.brightness() + (s.events.world.brightness() - world.brightness()) * a
@@ -2057,7 +2082,13 @@ fn pose(
             layer
         });
         let wing_echo = wing_layer.as_ref().and_then(|layer| layer.echo);
-        let echo_color = wing_echo.map(|echo| echo.rgba(tick));
+        let echo_color = wing_echo.map(|echo| {
+            let from = echo.rgba(tick).map(f32::from);
+            future.map_or(from, |(s, _, alpha)| {
+                let to = echo.rgba(s.events.tick()).map(f32::from);
+                std::array::from_fn(|i| from[i] + (to[i] - from[i]) * alpha)
+            })
+        });
         let reaction_tint = world
             .pose_tint(instance.actor)
             .or_else(|| actor.enemy.as_ref()?.stun_effect()?.tint(tick))
@@ -2075,14 +2106,14 @@ fn pose(
                 1.,
                 1.,
                 1.,
-                f32::from(wing_layer.as_ref().map_or(
+                wing_layer.as_ref().map_or(
                     if actor.ring_station {
-                        64
+                        64.
                     } else {
-                        actor.opacity
+                        f32::from(actor.opacity)
                     },
-                    |layer| echo_color.map_or(layer.alpha, |rgba| rgba[3]),
-                )) / 255.,
+                    |layer| echo_color.map_or(f32::from(layer.alpha), |rgba| rgba[3]),
+                ) / 255.,
             )
             * if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                 if sealed {
@@ -2102,14 +2133,8 @@ fn pose(
         {
             tint.w += (f32::from(n.opacity) / 255. - tint.w) * a;
         }
-        let light = session.character_light(instance.actor);
         let mut ambient_color = if let Some(rgba) = echo_color {
-            Vec4::new(
-                f32::from(rgba[0]),
-                f32::from(rgba[1]),
-                f32::from(rgba[2]),
-                1.,
-            )
+            Vec4::new(rgba[0], rgba[1], rgba[2], 1.)
         } else if instance.part == 0 {
             Vec3::from_array(actor.tint.map(f32::from)).extend(1.)
         } else {
@@ -2122,22 +2147,46 @@ fn pose(
             ambient_color =
                 ambient_color.lerp(Vec3::from_array(n.tint.map(f32::from)).extend(1.), a);
         }
-        let light_position = match light.position {
-            LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
-            LightPosition::World(p) => Vec3::from_array(p),
-            LightPosition::Actor { id, height } => world.actors.get(&id).map_or(Vec3::ZERO, |a| {
-                Vec3::from_array(a.position) + Vec3::Z * height
-            }),
+        let light = session.character_light(instance.actor);
+        let (mut light_position, mut shades) = light_uniforms(&light, actor, world);
+        if let Some((s, actor, alpha)) = future {
+            let next_light = s.character_light(instance.actor);
+            let next_world = &s.events.world;
+            let (position, colors) = light_uniforms(&next_light, actor, next_world);
+            let same_anchor = match (&light.position, &next_light.position) {
+                (LightPosition::Relative(_), LightPosition::Relative(_))
+                | (LightPosition::World(_), LightPosition::World(_)) => true,
+                (LightPosition::Actor { id, .. }, LightPosition::Actor { id: next_id, .. }) => {
+                    id == next_id
+                        && world
+                            .actors
+                            .get(id)
+                            .zip(next_world.actors.get(id))
+                            .is_some_and(|(a, b)| prediction::continuous_actor(a, b))
+                }
+                _ => false,
+            };
+            if same_anchor {
+                light_position = light_position.lerp(position, alpha);
+            }
+            for (shade, color) in shades.iter_mut().zip(colors) {
+                *shade = shade.lerp(color, alpha);
+            }
         }
-        .extend(f32::from(light.strength));
-        // Quantize light colors to five bits per channel before shading.
-        let shades = [light.shade, light.bright].map(|c| {
-            Vec3::from_array(c.map(|v| {
-                let v = v >> 3;
-                f32::from((v << 3) | (v >> 2)) / 255.
-            }))
-            .extend(1.)
-        });
+        let mut glow_scale = save_point.filter(|_| !sealed).map_or(1., |p| p.glow_scale);
+        if !sealed
+            && save_point.is_some()
+            && let Some((s, _, alpha)) = future
+            && let Some(next) = s
+                .events
+                .world
+                .save_points
+                .iter()
+                .find(|p| p.actor == instance.actor)
+            && next.is_open(&s.events.world.event_flags)
+        {
+            glow_scale += (next.glow_scale - glow_scale) * alpha;
+        }
         for (index, material) in part.spec.materials.iter().enumerate() {
             let tint = tint
                 * part
@@ -2230,7 +2279,7 @@ fn pose(
             }
             let scales = [&material.color, &material.multiply].map(|binding| {
                 if binding.as_ref().is_some_and(|b| b.texture == 1) {
-                    save_point.filter(|_| !sealed).map_or(1., |p| p.glow_scale)
+                    glow_scale
                 } else {
                     1.
                 }
