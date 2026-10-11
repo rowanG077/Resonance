@@ -122,3 +122,10 @@ pub(super) fn uv(playback: &Playback, actor: u8, texture: usize) -> Vec2 {
         _ => Vec2::ZERO,
     }
 }
+
+pub(super) fn uv_scroll(id: u16, actor: u8, texture: usize) -> bool {
+    matches!(
+        (id, actor, texture),
+        (516..=518, 5..=8, 0) | (516, 9, 1..=2) | (521, 2, 0) | (525, 1, 0)
+    )
+}

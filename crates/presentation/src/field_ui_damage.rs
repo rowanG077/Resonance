@@ -37,15 +37,7 @@ impl Artwork {
         });
     }
 
-    pub(super) fn render_damage(
-        &mut self,
-        session: &FieldSession,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        if session.active_skit.is_some() || session.menu_is_open() {
-            return Ok(());
-        }
+    fn sample_damage(&self, session: &FieldSession) -> Result<Batch> {
         let world = &session.events.world;
         let mut batch = Batch::default();
         if let Some(actor) = world.actors.get(&world.controlled_actor)
@@ -100,6 +92,26 @@ impl Artwork {
                     }
                 }
             }
+        }
+        Ok(batch)
+    }
+    pub(super) fn render_damage(
+        &mut self,
+        session: &FieldSession,
+        prediction: Option<&mut crate::field_view::Prediction>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        if session.active_skit.is_some() || session.menu_is_open() {
+            return Ok(());
+        }
+        let mut batch = self.sample_damage(session)?;
+        if let Some(prediction) = prediction
+            && let Some((next, alpha)) = prediction
+                .scratch(|p, a| self.sample_damage(p).map(|b| (b, a)))
+                .transpose()?
+        {
+            batch.interpolate(&next, alpha);
         }
         let visible = !batch.positions.is_empty();
         let layer = self.damage_layer.as_mut().expect("prepared damage layer");

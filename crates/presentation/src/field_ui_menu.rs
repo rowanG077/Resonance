@@ -66,6 +66,7 @@ const DISABLED: usize = 7;
 const LINE_SPACING: f32 = 2.;
 const TICKS_PER_MINUTE: u64 = 60 * 60;
 
+#[derive(Clone, Copy)]
 pub(super) enum Source<'a> {
     Title(Option<&'a Menu>),
     Field(&'a FieldSession),
@@ -127,7 +128,7 @@ pub(super) struct MenuArtwork {
     world_notice: WorldNotice,
 }
 /// Native world notices slide down from the top while their alpha approaches 255.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct WorldNotice {
     message: Option<(String, bool)>,
     opacity: u8,
@@ -316,16 +317,14 @@ impl MenuArtwork {
         }
     }
     #[allow(clippy::too_many_arguments)] // Compose shared artwork with the live viewport and clock.
-    pub fn render(
+    fn sample(
         &mut self,
         source: Source<'_>,
         font: &BitmapFont,
         dialogue: &DialogueArt,
         presentation_tick: u32,
         resolution: super::super::Resolution,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    ) -> Result<Vec<Batch>> {
         let (menu, shop) = match source {
             Source::Title(menu) => (menu, None),
             Source::Field(session) => (
@@ -668,7 +667,57 @@ impl MenuArtwork {
         } else {
             self.trail = Default::default();
         }
-        for (index, (layer, batch)) in self.layers.iter_mut().zip(draw.batches).enumerate() {
+        Ok(draw.batches)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(
+        &mut self,
+        source: Source<'_>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        presentation_tick: u32,
+        resolution: super::super::Resolution,
+        prediction: Option<&mut crate::field_view::Prediction>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        let mut batches = self.sample(source, font, dialogue, presentation_tick, resolution)?;
+        if let Some(prediction) = prediction {
+            let future = prediction.scratch_scene(|scene, alpha| {
+                let target = match source {
+                    Source::Field(_) => scene.field().map(Source::Field),
+                    Source::World(_, message) => {
+                        scene.world().map(|w| Source::World(&w.session, message))
+                    }
+                    Source::Title(_) => scene.menu().map(|m| Source::Title(Some(m))),
+                };
+                let Some(target) = target else {
+                    return Ok::<_, anyhow::Error>(None);
+                };
+                // Only the committed draw advances retained cursor trails/notices.
+                let trail = std::mem::take(&mut self.trail);
+                let notice = std::mem::take(&mut self.world_notice);
+                self.trail = trail.clone();
+                self.world_notice = notice.clone();
+                let result = self.sample(
+                    target,
+                    font,
+                    dialogue,
+                    presentation_tick.wrapping_add(1),
+                    resolution,
+                );
+                self.trail = trail;
+                self.world_notice = notice;
+                result.map(|batches| Some((batches, alpha)))
+            });
+            if let Some(Some((future, alpha))) = future.transpose()? {
+                for (batch, next) in batches.iter_mut().zip(&future) {
+                    batch.interpolate(next, alpha);
+                }
+            }
+        }
+        let cursor = &dialogue.cursor;
+        for (index, (layer, batch)) in self.layers.iter_mut().zip(batches).enumerate() {
             let visible = !batch.indices.is_empty();
             if visible {
                 let size = match index % self.materials.len() {

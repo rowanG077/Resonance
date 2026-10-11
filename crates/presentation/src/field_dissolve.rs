@@ -43,6 +43,7 @@ fn sync(
     mut commands: Commands,
     art: Option<Res<super::field_view::Art>>,
     state: super::field_view::State,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     views: Query<Entity, With<super::FieldCamera>>,
 ) {
     if art.is_none() {
@@ -52,10 +53,18 @@ fn sync(
         return;
     }
     let world = &state.get().events.world;
-    let alpha = world
+    let mut alpha = world
         .scene_dissolve
         .as_ref()
         .map_or(0., |f| f.alpha(world.tick));
+    if let Some((next, a)) = prediction
+        .as_ref()
+        .and_then(|p| p.field().map(|f| (&f.events.world, p.alpha)))
+        && world.scene_dissolve.is_some()
+        && let Some(dissolve) = &next.scene_dissolve
+    {
+        alpha += (dissolve.alpha(next.tick) - alpha) * a;
+    }
     let feedback = alpha == 0. && world.frame_feedback != 0;
     for view in &views {
         commands.entity(view).insert(Settings {

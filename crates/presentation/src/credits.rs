@@ -128,13 +128,19 @@ impl Artwork {
         }
     }
 
-    pub fn render(&mut self, request: Option<&Request>, commands: &mut Commands) {
+    pub fn render(&mut self, request: Option<&Request>, alpha: f32, commands: &mut Commands) {
         let progress = request
             .filter(|r| r.target == Target::Credits)
             .map(|r| r.operation.progress());
         let scroll = &self.manifest.program.scroll;
         let offset = progress.map_or(0., |p| {
-            (p.position as f64 * f64::from(scroll.height_pixels)
+            ((p.position as f64
+                + if p.ready && p.outcome.is_none() {
+                    f64::from(alpha)
+                } else {
+                    0.
+                })
+                * f64::from(scroll.height_pixels)
                 / f64::from(scroll.speed_divisor_ticks))
             .min(f64::from(
                 scroll.height_pixels - i32::from(scroll.stop_margin_pixels),

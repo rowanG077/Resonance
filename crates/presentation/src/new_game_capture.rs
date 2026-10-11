@@ -136,6 +136,7 @@ fn record(
             allow_incomplete_scripts: false,
             record_playthrough: Some(output.into()),
             record_title_ticks: 1000,
+            speculative: false,
         },
         resolution,
     )?;

@@ -137,8 +137,10 @@ fn advance(
         };
     }
 }
+#[allow(clippy::too_many_arguments)] // Scene endpoints and independent Bevy presentation resources.
 fn render(
     mut commands: Commands,
+    mut prediction: ResMut<crate::field_view::Prediction>,
     display: Res<crate::display::Display>,
     menu: Option<Res<TitleMenu>>,
     art: Option<ResMut<MenuOverlay>>,
@@ -154,6 +156,7 @@ fn render(
         && let Err(error) = art.render(
             menu.as_ref().map(|m| &m.0),
             display.0,
+            Some(&mut prediction),
             &mut commands,
             &mut meshes,
         )

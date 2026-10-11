@@ -77,37 +77,27 @@ pub(super) fn setup(
 pub(super) fn update(
     mut commands: Commands,
     events: Option<Res<Events>>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     camera: Single<&Transform, With<FieldCamera>>,
     glow: Single<(Entity, Option<&Mesh3d>, &mut Visibility), With<GlowMesh>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let (entity, handle, mut visibility) = glow.into_inner();
-    let Some(events) = events.filter(|events| !events.0.world.billboards.is_empty()) else {
+    let Some(events) = events else {
         // Bevy skips allocating empty meshes but still attempts their upload.
         // Keep the last nonempty buffer and hide it between particle bursts;
         // before the first burst there is no mesh asset to extract at all.
         *visibility = Visibility::Hidden;
         return;
     };
-    let tick = events.0.tick();
-    let quads: Vec<_> = events
-        .0
-        .world
-        .billboards
-        .values()
-        .map(|particle| {
-            let mut color = particle.rgba.map(|v| f32::from(v) / 255.);
-            color[3] = particle.alpha(tick).max(0.) / 255.;
-            Quad::new(
-                Vec3::from_array(particle.position),
-                camera.rotation,
-                particle.size,
-                [192., 0., 254., 62.].map(|v| v / 256.),
-                color,
-                particle.anchor,
-            )
-        })
-        .collect();
+    let future = prediction
+        .as_ref()
+        .and_then(|p| p.title().map(|(_, n)| (&n.world, p.alpha)));
+    let quads = sample(&events.0.world, future, camera.rotation);
+    if quads.is_empty() {
+        *visibility = Visibility::Hidden;
+        return;
+    }
     let geometry = Quad::mesh(&quads);
     if let Some(handle) = handle {
         *meshes.get_mut(&handle.0).expect("glow mesh exists") = geometry;
@@ -117,10 +107,81 @@ pub(super) fn update(
     *visibility = Visibility::Inherited;
 }
 
+fn sample(
+    world: &resonance_events::GameWorld,
+    future: Option<(&resonance_events::GameWorld, f32)>,
+    camera: Quat,
+) -> Vec<Quad> {
+    let (next, alpha) = future.map_or((None, 0.), |(w, a)| (Some(w), a));
+    crate::field_effects::particle_pairs(&world.billboards, next.map(|w| &w.billboards))
+        .map(|pair| {
+            let quad = |particle: &resonance_events::effect::BillboardEffect, tick| {
+                let mut color = particle.rgba.map(|v| f32::from(v) / 255.);
+                color[3] = particle.alpha(tick).max(0.) / 255.;
+                Quad::new(
+                    Vec3::from_array(particle.position),
+                    camera,
+                    particle.size,
+                    [192., 0., 254., 62.].map(|v| v / 256.),
+                    color,
+                    particle.anchor,
+                )
+            };
+            let current = pair.current.map(|p| quad(p, world.tick));
+            let next = pair.next.map(|p| quad(p, next.unwrap().tick));
+            Quad::between(current, next, alpha)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn particle_births_replace_fading_light_without_a_tick_boundary_flash() {
+        let mut current = resonance_events::GameWorld::default();
+        current.tick = 10;
+        let mut fading = resonance_events::effect::BillboardEffect::default();
+        fading.born = 10;
+        fading.lifetime = 100;
+        fading.rgba = [255; 4];
+        fading.fade = resonance_events::effect::Fade::Linear(-100.);
+        current.billboards.insert(1, fading.clone());
+        let mut next = resonance_events::GameWorld::default();
+        next.tick = 11;
+        next.billboards.insert(1, fading.clone());
+        let mut born = fading.clone();
+        born.born = 11;
+        born.rgba[3] = 100;
+        next.billboards.insert(2, born);
+        let intensity = |quads: Vec<Quad>| {
+            let mesh = Quad::mesh(&quads);
+            let bevy::mesh::VertexAttributeValues::Float32x4(colors) =
+                mesh.attribute(Mesh::ATTRIBUTE_COLOR).unwrap()
+            else {
+                panic!("colors");
+            };
+            colors.iter().step_by(4).map(|c| c[3]).sum::<f32>()
+        };
+        for alpha in [0., 0.25, 0.5, 0.75, 1.] {
+            assert!(
+                (intensity(sample(&current, Some((&next, alpha)), Quat::IDENTITY)) - 1.).abs()
+                    < 0.00001
+            );
+        }
+        // A recycled ID is a death and a birth, not an unrelated pose blend.
+        let mut replacement = fading;
+        replacement.born = 11;
+        replacement.position = [1000., 0., 0.];
+        next.billboards.clear();
+        next.billboards.insert(1, replacement);
+        assert_eq!(
+            sample(&current, Some((&next, 0.5)), Quat::IDENTITY).len(),
+            2
+        );
+    }
 
     #[test]
     fn particle_bursts_never_publish_empty_meshes_or_leave_stale_glows_visible() {

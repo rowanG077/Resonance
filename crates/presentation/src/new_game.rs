@@ -636,10 +636,12 @@ pub(super) fn skip_test_battles(
     if (options.skip_battles || dungeons.is_some_and(|menu| menu.testing))
         && let Some(mut session) = session
     {
-        if options.allow_incomplete_scripts {
+        if options.allow_incomplete_scripts && !session.field.allow_incomplete_scripts {
             session.field.allow_incomplete_scripts = true;
         }
-        if let Err(error) = session.events_mut().world.skip_battle_as_victory() {
+        if session.events().world.battle_request.is_some()
+            && let Err(error) = session.events_mut().world.skip_battle_as_victory()
+        {
             error!("Could not finish test battle: {error}");
         }
     }

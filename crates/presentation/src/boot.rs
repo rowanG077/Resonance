@@ -130,6 +130,9 @@ pub(super) fn advance(
 }
 
 pub(super) fn update(
+    prediction: Option<Res<crate::field_view::Prediction>>,
+    pending: Res<PendingInput>,
+    ready: Res<timing::Ready>,
     boot: Res<Playback>,
     mut cameras: Query<&mut Camera, With<BootCamera>>,
     mut quads: Query<(&MeshMaterial2d<TitleText>, &mut Transform), With<LogoQuad>>,
@@ -139,7 +142,16 @@ pub(super) fn update(
         return;
     };
     let texture = &boot.asset.as_ref().unwrap().textures[logos.texture];
-    let alpha = f32::from(logos.alpha) / 255.;
+    let mut alpha = f32::from(logos.alpha) / 255.;
+    if ready.0
+        && let Some(p) = prediction.filter(|p| p.alpha > 0.)
+    {
+        let mut next = logos.clone();
+        next.step(pending.pressed.accept);
+        if next.texture == logos.texture && next.active() == logos.active() {
+            alpha += (f32::from(next.alpha) / 255. - alpha) * p.alpha;
+        }
+    }
     for mut camera in &mut cameras {
         camera.is_active = boot.active();
         let rgb = texture.background.map(|v| f32::from(v) / 255. * alpha);

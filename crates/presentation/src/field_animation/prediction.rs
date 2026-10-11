@@ -1,0 +1,366 @@
+//! Predict authored skeletons and one secondary-physics update in scratch memory.
+//! Committed blend sources and solver velocities never receive rendered poses.
+use super::*;
+use crate::field_view::prediction::PoseEndpoint;
+use crate::sparse_animation::affine::Helper;
+use std::collections::BTreeMap;
+
+impl Rig {
+    fn next_pose(
+        &self,
+        part: &ActorPart,
+        model: &crate::field_view::Part,
+        actor: &resonance_events::Actor,
+        world: &resonance_events::GameWorld,
+        clips: &Assets<crate::sparse_animation::Clip>,
+    ) -> (BTreeMap<Entity, Pose>, Locals, Vec<u16>) {
+        let mut frames: Vec<_> = self
+            .bones
+            .iter()
+            .enumerate()
+            .map(|(i, (_, rest))| Frame::sample((*rest).into(), 0, self.bind_channels[i]))
+            .collect();
+        let mut channels = vec![0; frames.len()];
+        let mut roots = Vec::new();
+        for animation in actor
+            .animation
+            .iter()
+            .chain(actor.scenery_animations.values())
+        {
+            let layer = actor
+                .wings
+                .as_ref()
+                .map(|w| w.layer(part.pass, world.effect_tick));
+            let entrance = actor.wings.as_ref().and_then(|w| {
+                w.entrance(part.pass, world.tick.saturating_sub(animation.start_tick))
+            });
+            let delay = entrance
+                .as_ref()
+                .map_or_else(|| layer.as_ref().map_or(0., |l| l.pose_delay), |e| e.delay);
+            let Some((clip, mut time, animated_roots)) = sample_clip(
+                &model.spec,
+                &model.clips,
+                clips,
+                animation,
+                actor.resource,
+                world.tick,
+                delay,
+            ) else {
+                continue;
+            };
+            if actor
+                .animation
+                .as_ref()
+                .is_some_and(|a| std::ptr::eq(a, animation))
+            {
+                roots.extend_from_slice(animated_roots);
+            }
+            let echo = layer
+                .and_then(|l| l.echo)
+                .and_then(|e| e.entrance_weight(world.tick));
+            if echo.is_some() {
+                time = 0.;
+            }
+            for track in &clip.tracks {
+                let i = usize::from(track.bone);
+                let rest = self.bones[i].1;
+                channels[i] |= track.channels().0;
+                let mut frame = Frame::sample(
+                    crate::sparse_animation::sample_track(track, time, rest)
+                        .expect("validated motion"),
+                    channels[i],
+                    self.bind_channels[i],
+                );
+                if let Some(weight) = echo {
+                    frame = Frame::sample(rest.into(), 0, self.bind_channels[i]).mix(
+                        frame,
+                        rest,
+                        self.bind_channels[i],
+                        weight,
+                    );
+                }
+                frames[i] = frame;
+            }
+        }
+        let animation = actor.animation.as_ref();
+        let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
+        let source = if key == self.clip {
+            &self.from
+        } else {
+            &self.presented
+        };
+        let weight = animation.map_or(1., |a| {
+            actor
+                .wings
+                .as_ref()
+                .and_then(|w| w.entrance(part.pass, world.tick.saturating_sub(a.start_tick)))
+                .map_or_else(|| a.blend_weight(world.tick), |e| e.weight)
+        });
+        let mut locals = BTreeMap::new();
+        let mut adjustments = Locals::default();
+        for (i, &(entity, rest)) in self.bones.iter().enumerate() {
+            let pose = if channels[i] == 0 {
+                self.presented[i]
+            } else if weight < 1. {
+                source[i].mix(frames[i], rest, self.bind_channels[i], weight)
+            } else {
+                frames[i]
+            };
+            let mut transform = rest;
+            adjustments.set(entity, &mut transform, pose.pose);
+            if self.camera_facing.contains(&entity)
+                && let Some(camera) = &world.field_camera
+            {
+                adjustments.face_camera(
+                    entity,
+                    &mut transform,
+                    crate::field_view::camera_transform(camera).rotation,
+                );
+            }
+            if actor
+                .appearance
+                .bone_adjustments
+                .values()
+                .any(|a| a.translation.is_some())
+            {
+                adjustments.translation_boundary(entity);
+            }
+            for adjustment in actor.appearance.bone_adjustments.values() {
+                let matches = match &adjustment.bone {
+                    resonance_events::BoneTarget::Index(index) => usize::from(*index) == i,
+                    resonance_events::BoneTarget::Name(name) => {
+                        model.spec.bone_names.get(i) == Some(name)
+                    }
+                };
+                if matches {
+                    crate::field_pose::adjust_bone(
+                        entity,
+                        &mut transform,
+                        &mut adjustments,
+                        adjustment,
+                        rest.scale,
+                        world.tick,
+                    );
+                }
+            }
+            locals.insert(entity, adjustments.get(entity, transform));
+        }
+        (locals, adjustments, roots)
+    }
+}
+
+fn root_pose(
+    actor: &resonance_events::Actor,
+    part: &ActorPart,
+    world: &resonance_events::GameWorld,
+) -> Transform {
+    let layer = actor
+        .wings
+        .as_ref()
+        .map(|w| w.layer(part.pass, world.effect_tick));
+    let echo = layer.as_ref().and_then(|l| l.echo);
+    let [x, y, z] = echo.map_or_else(
+        || {
+            [
+                actor.tilt_degrees()[0],
+                actor.tilt_degrees()[1],
+                actor.appearance.fixed_heading.unwrap_or(actor.heading),
+            ]
+        },
+        |e| e.angles,
+    );
+    let mut scale =
+        Vec3::from_array(echo.map_or_else(|| actor.model_scale(), |e| e.scale(world.tick)))
+            * layer.as_ref().map_or(1., |l| l.scale);
+    if part.actor == world.controlled_actor {
+        scale *= world.player_size.model_scale();
+    }
+    Transform {
+        translation: Vec3::from_array(echo.map_or_else(|| actor.visual_position(), |e| e.position)),
+        rotation: Quat::from_rotation_z(z.to_radians())
+            * Quat::from_rotation_y(y.to_radians())
+            * Quat::from_rotation_x(x.to_radians()),
+        scale,
+    }
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn present(
+    state: State,
+    art: Res<Art>,
+    clips: Res<Assets<crate::sparse_animation::Clip>>,
+    mut prediction: ResMut<crate::field_view::Prediction>,
+    rigs: Query<(
+        Entity,
+        &ActorPart,
+        Option<&Rig>,
+        Option<&crate::secondary_motion::Rig>,
+    )>,
+    mut transforms: ParamSet<(Helper, (Query<&mut Transform>, ResMut<Locals>))>,
+) {
+    let _timer = crate::performance::smoothing_profile::Timer::start(1);
+    if prediction.field().is_none() {
+        return;
+    }
+    if prediction.poses().is_none() {
+        let helper = transforms.p0();
+        let result = prediction.scratch(|next, _| {
+            let mut output = Vec::new();
+            let mut current_cache = bevy::ecs::entity::EntityHashMap::default();
+            let world = &next.events.world;
+            for (root, part, rig, secondary) in &rigs {
+                let Some(current) = state.get().events.world.actors.get(&part.actor) else {
+                    continue;
+                };
+                let Some(actor) = world.actors.get(&part.actor) else {
+                    continue;
+                };
+                if !part.prepared
+                    || current.instance != actor.instance
+                    || current.model_resource() != actor.model_resource()
+                    || current.visible != actor.visible
+                    || current.attachment.as_ref().map(|a| (a.actor, &a.bone))
+                        != actor.attachment.as_ref().map(|a| (a.actor, &a.bone))
+                    || Vec3::from_array(current.position).distance(Vec3::from_array(actor.position))
+                        > 128.
+                {
+                    continue;
+                }
+                let target_root = root_pose(actor, part, world);
+                if let Ok(current_root) = helper.local(root) {
+                    output.push(PoseEndpoint {
+                        entity: root,
+                        from: current_root,
+                        to: target_root.into(),
+                        global: false,
+                    });
+                }
+                let Some(rig) = rig.filter(|_| !current.animation_culled) else {
+                    continue;
+                };
+                let model = &art.models[&part.resource][part.part];
+                // Outline skeletons receive the final primary pose in outlines().
+                if model.spec.outline_color.is_some() {
+                    continue;
+                }
+                let (mut locals, adjustments, animated_roots) =
+                    rig.next_pose(part, model, actor, world, &clips);
+                locals.insert(root, target_root.into());
+                let empty = BTreeMap::new();
+                let mut future_cache = bevy::ecs::entity::EntityHashMap::default();
+                let dynamics = secondary
+                    .and_then(|s| {
+                        s.predict(
+                            actor,
+                            world.tick,
+                            target_root.scale,
+                            &animated_roots,
+                            |entity| {
+                                Some((
+                                    helper
+                                        .predicted_global_cached(
+                                            entity,
+                                            &locals,
+                                            &adjustments,
+                                            &empty,
+                                            &mut future_cache,
+                                        )
+                                        .ok()?,
+                                    helper.predicted_has_affine(entity, &locals),
+                                ))
+                            },
+                        )
+                    })
+                    .unwrap_or_default();
+                // Solver overrides change the hierarchy products for this phase.
+                future_cache.clear();
+                for &(entity, _) in &rig.bones {
+                    if !helper.requires_world_interpolation(entity)
+                        && !dynamics.contains_key(&entity)
+                        && !adjustments.has_translation(entity)
+                    {
+                        if let (Ok(from), Some(&to)) = (helper.local(entity), locals.get(&entity)) {
+                            output.push(PoseEndpoint {
+                                entity,
+                                from,
+                                to,
+                                global: false,
+                            });
+                        }
+                        continue;
+                    }
+                    let Ok(from) = helper.compute_global_cached(entity, &mut current_cache) else {
+                        continue;
+                    };
+                    let Ok(to) = helper.predicted_global_cached(
+                        entity,
+                        &locals,
+                        &adjustments,
+                        &dynamics,
+                        &mut future_cache,
+                    ) else {
+                        continue;
+                    };
+                    let parents = helper.parent(entity).and_then(|parent| {
+                        Some((
+                            helper
+                                .compute_global_cached(parent, &mut current_cache)
+                                .ok()?,
+                            helper
+                                .predicted_global_cached(
+                                    parent,
+                                    &locals,
+                                    &adjustments,
+                                    &dynamics,
+                                    &mut future_cache,
+                                )
+                                .ok()?,
+                        ))
+                    });
+                    let (from, to, global) = if let Some((a, b)) = parents.filter(|(a, b)| {
+                        a.affine().matrix3.determinant().abs() > 1e-12
+                            && b.affine().matrix3.determinant().abs() > 1e-12
+                    }) {
+                        (
+                            Pose::Affine(a.affine().inverse() * from.affine()),
+                            Pose::Affine(b.affine().inverse() * to.affine()),
+                            false,
+                        )
+                    } else {
+                        (Pose::Affine(from.affine()), Pose::Affine(to.affine()), true)
+                    };
+                    output.push(PoseEndpoint {
+                        entity,
+                        from,
+                        to,
+                        global,
+                    });
+                }
+            }
+            output
+        });
+        let Some(output) = result else {
+            return;
+        };
+        if let Err(error) = prediction.retain_poses(&output) {
+            prediction.report_error(&error);
+            return;
+        }
+    }
+    let (mut nodes, mut affine) = transforms.p1();
+    for &PoseEndpoint {
+        entity,
+        from,
+        to,
+        global,
+    } in prediction.poses().unwrap()
+    {
+        let pose = from.interpolate(to, prediction.alpha);
+        if let Ok(mut transform) = nodes.get_mut(entity) {
+            affine.replace_for_render(entity, &mut transform, pose);
+            if global {
+                affine.set_world(entity, pose.global());
+            }
+        }
+    }
+}

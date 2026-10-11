@@ -1,6 +1,7 @@
 //! Field scene instances: shared cooked assets, independent actor state.
 #[path = "field_backdrop.rs"]
 mod backdrop;
+pub(crate) mod prediction;
 #[path = "field_sequence.rs"]
 mod sequence;
 #[path = "field_shadow.rs"]
@@ -26,6 +27,7 @@ use bevy::{
     window::ExitCondition,
     world_serialization::WorldInstanceReady,
 };
+pub(super) use prediction::Prediction;
 use resonance_content::{
     HEIGHT, ScenePart, TextureBinding, WIDTH,
     field::{DrawStage, FieldAssets, MODEL_DRAW_SPAN, SCENERY_RESOURCE_BASE},
@@ -73,6 +75,14 @@ impl Plugin for FieldPlugin {
             .init_resource::<RetainedFields>()
             .add_systems(
                 Update,
+                (prediction::reset, prediction::title)
+                    .chain()
+                    .after(super::new_game::transition)
+                    .before(FieldPreparation)
+                    .before(super::scene::bind_animated),
+            )
+            .add_systems(
+                Update,
                 super::field_ui::subtitles
                     .after(super::movie::update)
                     .after(load_live),
@@ -114,6 +124,7 @@ impl Plugin for FieldRendering {
         super::menu_backdrop::install(app);
         super::model_preview::install(app);
         app.init_resource::<super::display::Display>()
+            .init_resource::<Prediction>()
             .add_plugins(Material2dPlugin::<super::field_ui::Surface>::default())
             .init_resource::<Applied>()
             .init_resource::<super::field_pose::Authored>()
@@ -135,6 +146,7 @@ impl Plugin for FieldRendering {
                     super::field_animation::face_camera,
                     super::field_pose::bones,
                     super::secondary_motion::apply,
+                    super::field_animation::present,
                     super::field_pose::attachments,
                     super::field_pose::outlines,
                     shadows::pose,
@@ -161,6 +173,7 @@ impl Plugin for FieldRendering {
 }
 fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     (
+        prediction::update,
         prepare,
         audit::begin,
         instances,
@@ -180,6 +193,10 @@ pub(super) struct Controls {
     input: FieldInput,
 }
 impl Controls {
+    pub(super) fn current(&self) -> FieldInput {
+        self.input
+    }
+
     fn clear_actions(&mut self) {
         self.input.pressed_buttons = Buttons::default();
     }
@@ -222,6 +239,7 @@ pub(super) struct Part {
 pub(super) struct Surface {
     pub(super) color: Option<(Handle<Image>, TextureBinding)>,
     pub(super) multiply: Option<(Handle<Image>, TextureBinding)>,
+    pub(super) uv_scrolls: [bool; 2],
 }
 impl Part {
     pub(super) fn load(
@@ -249,6 +267,14 @@ impl Part {
             .map(|m| Surface {
                 color: m.color.as_ref().map(load),
                 multiply: m.multiply.as_ref().map(load),
+                uv_scrolls: [&m.color, &m.multiply].map(|b| {
+                    b.as_ref().is_some_and(|b| {
+                        spec.texture_animations
+                            .iter()
+                            .find(|a| a.texture == b.texture)
+                            .is_some_and(|a| a.is_scroll())
+                    })
+                }),
             })
             .collect();
         Self {
@@ -854,25 +880,46 @@ pub(super) fn advance_live(
     }
 }
 
-pub(super) fn fog(state: State, mut views: Query<&mut DistanceFog, With<super::FieldCamera>>) {
+pub(super) fn fog(
+    state: State,
+    prediction: Option<Res<Prediction>>,
+    mut views: Query<&mut DistanceFog, With<super::FieldCamera>>,
+) {
     // Transport the native range through Bevy's per-view fog uniform. The
     // surface shader applies GX's curve; Bevy's linear falloff is not used.
     // Updating materials here would reprepare every retained warm variant.
-    let (color, start, end) = state
-        .get()
-        .events
-        .world
-        .fog()
-        .map_or((Color::NONE, 0., 0.), |fog| {
-            let [r, g, b] = fog.color.map(|c| f32::from(c) / 255.);
-            (Color::linear_rgb(r, g, b), fog.start, fog.end)
-        });
+    let (mut color, mut start, mut end) =
+        state
+            .get()
+            .events
+            .world
+            .fog()
+            .map_or((Color::NONE, 0., 0.), |fog| {
+                let [r, g, b] = fog.color.map(|c| f32::from(c) / 255.);
+                (Color::linear_rgb(r, g, b), fog.start, fog.end)
+            });
+    if let Some((next, a)) = prediction
+        .as_ref()
+        .and_then(|p| p.field()?.events.world.fog().map(|f| (f, p.alpha)))
+        && state.get().events.world.fog().is_some()
+    {
+        let current = color.to_linear();
+        let target = next.color.map(|v| f32::from(v) / 255.);
+        color = Color::linear_rgb(
+            current.red + (target[0] - current.red) * a,
+            current.green + (target[1] - current.green) * a,
+            current.blue + (target[2] - current.blue) * a,
+        );
+        start += (next.start - start) * a;
+        end += (next.end - end) * a;
+    }
     for mut view in &mut views {
         view.color = color;
         view.falloff = FogFalloff::Linear { start, end };
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy camera, presentation and prediction resources.
 fn camera(
     state: State,
     display: Option<Res<super::display::Display>>,
@@ -882,6 +929,7 @@ fn camera(
     mut clear: ResMut<ClearColor>,
     mut applied: ResMut<Applied>,
     credits: Option<Res<super::credits::Playback>>,
+    prediction: Res<Prediction>,
 ) {
     if state.live.as_ref().is_some_and(|s| !s.ready_for_field) {
         return;
@@ -909,9 +957,9 @@ fn camera(
         *output_stage,
     );
     for (mut transform, mut projection) in &mut cameras {
-        *transform = camera_transform(camera);
+        *transform = prediction.camera_transform(camera);
         *projection = Projection::custom(TitleProjection(PerspectiveProjection {
-            fov: camera.fov_degrees().to_radians(),
+            fov: prediction.camera_fov(camera).to_radians(),
             aspect_ratio: display.as_ref().map_or(4. / 3., |d| d.0.aspect()),
             near: super::camera::FIELD_NEAR,
             far: super::camera::FIELD_FAR,
@@ -939,12 +987,24 @@ fn camera(
                 fade.alpha(state.get().events.tick()) as u8 as f32 / 255.
             });
     });
+    if let Some(next) = prediction.field() {
+        let white = |w: &resonance_events::GameWorld| {
+            w.fade
+                .as_ref()
+                .filter(|f| f.white)
+                .map_or(0., |f| f.alpha(w.tick) as u8 as f32 / 255.)
+        };
+        TitleOutput::update(&mut outputs, |b| {
+            b.y += (white(&next.events.world) - b.y) * prediction.alpha
+        });
+    }
     applied.ack(Request::Fade);
 }
 
 #[allow(clippy::too_many_arguments)] // Dialogue state, glyph meshes, and projected actor attachments.
 fn ui(
     mut commands: Commands,
+    mut prediction: Option<ResMut<Prediction>>,
     state: State,
     mut art: ResMut<super::field_ui::Artwork>,
     display: Option<Res<super::display::Display>>,
@@ -1030,7 +1090,12 @@ fn ui(
                 .map(|position| (part.actor, position))
         })
         .collect();
-    match art.render_overlays(&state.get().events.world, &mut commands, &mut meshes) {
+    match art.render_overlays(
+        &state.get().events.world,
+        prediction.as_deref_mut(),
+        &mut commands,
+        &mut meshes,
+    ) {
         Ok(handled) => {
             for id in handled {
                 applied.ack(Request::Overlay(id));
@@ -1044,6 +1109,7 @@ fn ui(
     }
     if let Err(error) = art.render(
         state.get(),
+        prediction.as_deref_mut(),
         // Standalone captures advance or freeze their checkpoint explicitly.
         // Live play keeps UI time independent of paused field scripts.
         if state.checkpoint.is_some() {
@@ -1910,6 +1976,7 @@ fn instances(
 #[allow(clippy::too_many_arguments)] // Independent scene instances, materials, and animation players.
 fn pose(
     mut commands: Commands,
+    prediction: Option<Res<Prediction>>,
     session: State,
     art: Res<Art>,
     children: Query<&Children>,
@@ -1965,7 +2032,15 @@ fn pose(
         let part = &art.models[&instance.resource][instance.part];
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
         let sealed = save_point.is_some_and(|p| !p.is_open(&world.event_flags));
-        let brightness = world.brightness();
+        let future = prediction.as_ref().and_then(|p| {
+            let s = p.field()?;
+            let a = s.events.world.actors.get(&instance.actor)?;
+            (a.instance == actor.instance && a.model_resource() == actor.model_resource())
+                .then_some((s, a, p.alpha))
+        });
+        let brightness = future.map_or(world.brightness(), |(s, _, a)| {
+            world.brightness() + (s.events.world.brightness() - world.brightness()) * a
+        });
         let wing_layer = actor
             .wings
             .as_ref()
@@ -1983,7 +2058,7 @@ fn pose(
                     1.,
                 )
             });
-        let tint = reaction_tint
+        let mut tint = reaction_tint
             * Vec4::new(brightness, brightness, brightness, 1.)
             * Vec4::new(
                 1.,
@@ -2009,8 +2084,15 @@ fn pose(
             } else {
                 Vec4::ONE
             };
+        if actor.wings.is_none()
+            && !actor.ring_station
+            && actor.resource != resonance_content::field::SAVE_POINT_RESOURCE
+            && let Some((_, n, a)) = future
+        {
+            tint.w += (f32::from(n.opacity) / 255. - tint.w) * a;
+        }
         let light = session.character_light(instance.actor);
-        let ambient_color = if let Some(rgba) = echo_color {
+        let mut ambient_color = if let Some(rgba) = echo_color {
             Vec4::new(
                 f32::from(rgba[0]),
                 f32::from(rgba[1]),
@@ -2022,6 +2104,13 @@ fn pose(
         } else {
             Vec4::new(64., 64., 64., 0.)
         };
+        if echo_color.is_none()
+            && instance.part == 0
+            && let Some((_, n, a)) = future
+        {
+            ambient_color =
+                ambient_color.lerp(Vec3::from_array(n.tint.map(f32::from)).extend(1.), a);
+        }
         let light_position = match light.position {
             LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
             LightPosition::World(p) => Vec3::from_array(p),
@@ -2095,10 +2184,26 @@ fn pose(
                     continue;
                 }
                 let texture = animation.texture.resolve(&world.texture_bindings);
-                let uv = animation.offset(
+                let mut uv = animation.offset(
                     world.texture_animation_tick,
                     world.texture_animation_effect_tick,
                 );
+                if let Some((s, _, a)) = future
+                    && matches!(
+                        animation.motion,
+                        resonance_content::field::TextureMotion::Scroll { .. }
+                    )
+                {
+                    let n = &s.events.world;
+                    let target =
+                        animation.offset(n.texture_animation_tick, n.texture_animation_effect_tick);
+                    let value = prediction::uv_offsets(
+                        Vec4::new(uv[0], uv[1], 0., 0.),
+                        Vec4::new(target[0], target[1], 0., 0.),
+                        a,
+                    );
+                    uv = [value.x, value.y];
+                }
                 for (stage, binding) in [&material.color, &material.multiply]
                     .into_iter()
                     .enumerate()

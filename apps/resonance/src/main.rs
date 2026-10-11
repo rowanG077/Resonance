@@ -70,6 +70,9 @@ struct Args {
     /// Show wall-clock FPS, frame-time percentiles and low FPS (F3 toggles).
     #[arg(long, conflicts_with_all = ["record_music", "capture", "record_playthrough"])]
     perf_overlay: bool,
+    /// Smooth game-rendered scenes toward an isolated next tick using current input.
+    #[arg(long, conflicts_with_all = ["record_music", "capture", "record_playthrough", "replay"])]
+    speculative: bool,
     /// Stream frame timings and rolling summaries to a new JSONL file.
     #[arg(long, conflicts_with = "record_music")]
     perf_dump: Option<PathBuf>,
@@ -125,6 +128,7 @@ fn main() -> anyhow::Result<()> {
             allow_incomplete_scripts: args.test_overworld,
             record_playthrough: args.record_playthrough,
             record_title_ticks: args.record_title_ticks,
+            speculative: args.speculative,
         },
         resonance_presentation::PerformanceOptions {
             overlay: args.perf_overlay,

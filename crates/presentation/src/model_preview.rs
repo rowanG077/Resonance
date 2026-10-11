@@ -2,6 +2,7 @@
 mod gpu;
 mod material;
 mod motion;
+mod prediction;
 mod source;
 use anyhow::{Context, Result, ensure};
 use bevy::{
@@ -50,7 +51,7 @@ pub(super) fn install(app: &mut App) {
         .add_systems(Update, prepare.after(crate::field_view::FieldPreparation))
         .add_systems(
             PostUpdate,
-            (animate, pose, motion::apply)
+            (animate, pose, motion::apply, prediction::present)
                 .chain()
                 .after(crate::secondary_motion::restore)
                 .before(bevy::transform::TransformSystems::Propagate),
@@ -147,7 +148,19 @@ pub(super) struct State<'w> {
     live: Option<ResMut<'w, crate::new_game::Session>>,
 }
 impl State<'_> {
-    fn menu(&mut self) -> Option<&mut resonance_game::menu::Menu> {
+    fn menu(&self) -> Option<&resonance_game::menu::Menu> {
+        if let Some(session) = &self.checkpoint {
+            session.0.menu.as_ref()
+        } else {
+            let session = self.live.as_ref()?;
+            if let Some(scene) = &session.overworld {
+                scene.session.menu.as_ref()
+            } else {
+                session.field.menu.as_ref()
+            }
+        }
+    }
+    fn menu_mut(&mut self) -> Option<&mut resonance_game::menu::Menu> {
         if let Some(session) = &mut self.checkpoint {
             session.0.menu.as_mut()
         } else {
@@ -288,6 +301,8 @@ fn prepare(
         if viewer.ready && viewer.record.as_ref().is_some_and(|r| r.id == selected.id) {
             return Ok(());
         }
+        let menu = state.menu_mut().unwrap();
+        let selected = menu.preview().unwrap();
         if viewer.record.as_ref().is_none_or(|r| r.id != selected.id) {
             let record = Record {
                 id: selected.id,
@@ -640,7 +655,7 @@ impl Part {
 }
 
 fn animate(
-    mut state: State,
+    state: State,
     mut viewer: ResMut<Viewer>,
     clips: Res<Assets<crate::sparse_animation::Clip>>,
     mut transforms: Query<&mut Transform>,
@@ -704,7 +719,7 @@ fn animate(
 }
 
 fn pose(
-    mut state: State,
+    state: State,
     viewer: Res<Viewer>,
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<crate::sparse_animation::affine::Locals>,
@@ -719,21 +734,7 @@ fn pose(
     }
     let result = (|| -> Result<()> {
         let preview = menu.preview().unwrap();
-        let distance = preview.distance;
-        let slide = 16 - i32::from(preview.page_fade) * 316 / 256;
-        let target = Vec3::new(
-            -distance * 4.8_f32.to_radians().sin() + (slide / 4 - 16) as f32,
-            0.,
-            distance * 6.4_f32.to_radians().sin(),
-        );
-        let eye = target
-            + Vec3::new(
-                0.,
-                -distance * 15_f32.to_radians().cos(),
-                distance * 15_f32.to_radians().sin(),
-            );
-        *transforms.get_mut(viewer.camera).unwrap() =
-            Transform::from_translation(eye).looking_at(target, Vec3::Z);
+        *transforms.get_mut(viewer.camera).unwrap() = preview_camera(&preview);
         ensure!(
             viewer
                 .overrides
@@ -788,6 +789,23 @@ fn evaluate_behavior(
         .as_ref()
         .context("preview behavior has no checkpoint flags")?;
     behavior.evaluate(|flag| checkpoint.progress.event_flags.contains(&flag))
+}
+
+fn preview_camera(preview: &resonance_game::menu::preview::Preview<'_>) -> Transform {
+    let distance = preview.distance;
+    let slide = 16 - i32::from(preview.page_fade) * 316 / 256;
+    let target = Vec3::new(
+        -distance * 4.8_f32.to_radians().sin() + (slide / 4 - 16) as f32,
+        0.,
+        distance * 6.4_f32.to_radians().sin(),
+    );
+    let eye = target
+        + Vec3::new(
+            0.,
+            -distance * 15_f32.to_radians().cos(),
+            distance * 15_f32.to_radians().sin(),
+        );
+    Transform::from_translation(eye).looking_at(target, Vec3::Z)
 }
 
 fn preview_translation(pose: &PoseOverrides, elevation: f32) -> Vec3 {

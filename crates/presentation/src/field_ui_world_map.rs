@@ -44,6 +44,7 @@ impl Artwork {
     pub fn render(
         &mut self,
         session: &resonance_game::overworld::Session,
+        future: Option<(&resonance_game::overworld::Session, f32)>,
         overlay: &mut Batch,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
@@ -61,7 +62,10 @@ impl Artwork {
                     continue;
                 }
                 let layout = Layout::new(index == 0);
-                let alpha = f32::from(alpha) / 255.;
+                let alpha = future.map_or(f32::from(alpha), |(s, a)| {
+                    f32::from(alpha)
+                        + (f32::from(s.travel.map_opacity()[index]) - f32::from(alpha)) * a
+                }) / 255.;
                 let [width, height] = self.sizes[world].map(|v| v as f32);
                 map.quad(
                     [
@@ -93,8 +97,24 @@ impl Artwork {
                     }
                 }
                 let [x, y, _] = state.position.map();
-                let center = layout.point([x, y]);
-                draw_direction(overlay, center, state.camera_yaw - layout.angle, alpha);
+                let mut center = layout.point([x, y]);
+                let mut yaw = state.camera_yaw;
+                if let Some((s, a)) = future.filter(|(s, _)| s.travel.state().world == state.world)
+                {
+                    let n = s.travel.state();
+                    let [nx, ny, _] = n.position.map();
+                    let target = layout.point([nx, ny]);
+                    if (nx - x).abs() < WORLD_WIDTH / 2. && (ny - y).abs() < WORLD_DEPTH / 2. {
+                        for i in 0..2 {
+                            center[i] += (target[i] - center[i]) * a;
+                        }
+                    }
+                    yaw += ((n.camera_yaw - yaw + std::f32::consts::PI)
+                        .rem_euclid(std::f32::consts::TAU)
+                        - std::f32::consts::PI)
+                        * a;
+                }
+                draw_direction(overlay, center, yaw - layout.angle, alpha);
             }
         }
         let drawn = !map.indices.is_empty();

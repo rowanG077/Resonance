@@ -198,6 +198,7 @@ impl MenuOverlay {
         &mut self,
         menu: Option<&resonance_game::menu::Menu>,
         resolution: super::Resolution,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -207,6 +208,7 @@ impl MenuOverlay {
             &self.dialogue,
             menu.map_or(0, |menu| menu.tick),
             resolution,
+            prediction,
             commands,
             meshes,
         )
@@ -518,15 +520,17 @@ impl Artwork {
     pub fn render_overlays(
         &mut self,
         world: &resonance_events::GameWorld,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<Vec<i32>> {
-        self.overlays.render(world, commands, meshes)
+        self.overlays.render(world, prediction, commands, meshes)
     }
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         session: &FieldSession,
+        mut prediction: Option<&mut crate::field_view::Prediction>,
         presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
@@ -535,12 +539,19 @@ impl Artwork {
         images: &mut Assets<Image>,
     ) -> Result<()> {
         if let Some(credits) = &mut self.credits {
-            credits.render(session.events.world.screen_request.as_ref(), commands);
+            credits.render(
+                session.events.world.screen_request.as_ref(),
+                prediction.as_ref().map_or(0., |p| p.alpha),
+                commands,
+            );
         }
-        self.render_prompt(session, commands, meshes)?;
-        self.render_damage(session, commands, meshes)?;
+        self.render_prompt(session, prediction.as_deref_mut(), commands, meshes)?;
+        self.render_damage(session, prediction.as_deref_mut(), commands, meshes)?;
         self.skits.render(
             session.active_skit.as_ref(),
+            prediction
+                .as_ref()
+                .and_then(|p| p.field()?.active_skit.as_ref().map(|s| (s, p.alpha))),
             &self.font,
             self.resolution,
             commands,
@@ -553,6 +564,7 @@ impl Artwork {
             &self.spec,
             presentation_tick,
             self.resolution,
+            prediction.as_deref_mut(),
             commands,
             meshes,
         )?;
@@ -561,6 +573,9 @@ impl Artwork {
             world,
             dialogue,
             &session.events.world,
+            prediction
+                .as_ref()
+                .and_then(|p| p.field().map(|f| (f.dialogue_scene().1, p.alpha))),
             presentation_tick,
             heads,
             commands,
@@ -574,6 +589,7 @@ impl Artwork {
         world: &resonance_events::GameWorld,
         dialogue: &BTreeMap<u8, DialoguePlayer>,
         camera_world: &resonance_events::GameWorld,
+        future: Option<(&BTreeMap<u8, DialoguePlayer>, f32)>,
         presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
@@ -622,7 +638,16 @@ impl Artwork {
                     .unwrap_or(170.),
                 self.resolution,
             )?;
-            let opening = player.opening_fraction();
+            let opening = player.opening_fraction().map(|value| {
+                future
+                    .and_then(|(players, a)| {
+                        let next = players
+                            .get(&slot)
+                            .filter(|p| p.operation.id() == player.operation.id())?;
+                        Some(value + (next.opening_fraction().unwrap_or(1.) - value) * a)
+                    })
+                    .unwrap_or(value)
+            });
             let rect = opening.map_or(rect, |fraction| {
                 expanding_rect(
                     rect,
@@ -724,6 +749,11 @@ impl Artwork {
                 }
                 let [w, h] = cursor_size.map(|v| v as f32);
                 let bob = super::choice_cursor::bob(&style, presentation_tick);
+                let bob = future.map_or(bob, |(_, a)| {
+                    bob + (super::choice_cursor::bob(&style, presentation_tick.wrapping_add(1))
+                        - bob)
+                        * a
+                });
                 let x = left + bob;
                 let y = y - bob;
                 for ([tx, ty], alpha) in self
@@ -786,7 +816,16 @@ impl Artwork {
                         f32::from(glyph.color[0]) / 255.,
                         f32::from(glyph.color[1]) / 255.,
                         f32::from(glyph.color[2]) / 255.,
-                        f32::from(player.glyph_alpha(index)) / 255.,
+                        future
+                            .and_then(|(players, a)| {
+                                let next = players.get(&slot).filter(|p| {
+                                    p.operation.id() == player.operation.id()
+                                        && p.page == player.page
+                                })?;
+                                let v = f32::from(player.glyph_alpha(index));
+                                Some((v + (f32::from(next.glyph_alpha(index)) - v) * a) / 255.)
+                            })
+                            .unwrap_or(f32::from(player.glyph_alpha(index)) / 255.),
                     ],
                 );
                 x += body_advance(spec.advance);
@@ -1375,6 +1414,33 @@ struct Batch {
     indices: Vec<u32>,
 }
 impl Batch {
+    /// Geometry and color may move; changing glyphs, atlas frames and topology
+    /// remain discrete so input speculation cannot morph unrelated UI content.
+    fn interpolate(&mut self, next: &Self, alpha: f32) {
+        if self.indices != next.indices
+            || self.positions.len() != next.positions.len()
+            || self.uv.len() != next.uv.len()
+        {
+            return;
+        }
+        for start in (0..self.positions.len()).step_by(4) {
+            let end = (start + 4).min(self.positions.len());
+            if self.uv[start..end] != next.uv[start..end] {
+                continue;
+            }
+            for i in start..end {
+                for axis in 0..3 {
+                    self.positions[i][axis] +=
+                        (next.positions[i][axis] - self.positions[i][axis]) * alpha;
+                }
+                for channel in 0..4 {
+                    self.colors[i][channel] +=
+                        (next.colors[i][channel] - self.colors[i][channel]) * alpha;
+                }
+            }
+        }
+    }
+
     /// Clip axis-aligned quads after composition, including their gradient colours.
     fn clip_vertical(&mut self, start: usize, top: f32, bottom: f32) {
         for i in (start..self.positions.len()).step_by(4) {
@@ -1506,5 +1572,28 @@ mod tests {
             expanding_rect(rect, [330., 220.], 1.),
             [169., 120., 491., 144.]
         );
+    }
+}
+
+#[cfg(test)]
+mod interpolation_tests {
+    use super::*;
+    #[test]
+    fn ui_motion_and_fades_interpolate_but_glyph_changes_are_discrete() {
+        let mut start = Batch::default();
+        start.quad([10., 20., 30., 40.], [0., 0., 1., 1.], [1.; 4]);
+        let mut next = Batch::default();
+        next.quad([20., 30., 40., 50.], [0., 0., 1., 1.], [0.; 4]);
+        let mut middle = start.clone();
+        middle.interpolate(&next, 0.5);
+        for (a, b) in start.positions.iter().zip(&middle.positions) {
+            assert_eq!(b[0], a[0] + 5.);
+            assert_eq!(b[1], a[1] - 5.);
+        }
+        assert_eq!(middle.colors, vec![[0.5; 4]; 4]);
+        next.uv[0][0] = 0.25;
+        let mut unchanged = start.clone();
+        unchanged.interpolate(&next, 0.5);
+        assert!(unchanged == start);
     }
 }

@@ -8,6 +8,7 @@ use resonance_events::effect::Blend;
 mod capture;
 mod cinematic;
 mod effects;
+mod prediction;
 use anyhow::{Context, Result};
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 pub use capture::{Probe, capture_overworld};
@@ -43,11 +44,12 @@ pub(super) struct Package {
 pub(super) struct Scene {
     pub session: game::Session,
     pub package: Arc<game::Prepared>,
-    models: BTreeMap<Model, Vec<ScenePart>>,
-    landmarks: BTreeMap<u16, Position>,
+    models: Arc<BTreeMap<Model, Vec<ScenePart>>>,
+    landmarks: Arc<BTreeMap<u16, Position>>,
     animation: Option<MountAnimation>,
     effects: effects::Effects,
 }
+#[derive(Clone)]
 struct MountAnimation {
     token: u64,
     slot: u16,
@@ -116,8 +118,8 @@ impl Scene {
         Ok(Self {
             session,
             package,
-            models,
-            landmarks,
+            models: Arc::new(models),
+            landmarks: Arc::new(landmarks),
             animation: None,
             effects: Default::default(),
         })
@@ -201,6 +203,7 @@ impl Plugin for OverworldPlugin {
                     prepare,
                     instances,
                     bind,
+                    prediction::update,
                     pose,
                     terrain_order,
                     camera,
@@ -723,18 +726,51 @@ fn terrain_order(
         }
     }
 }
-fn pose(
-    owner: State,
-    art: Option<Res<Art>>,
-    mut roots: Query<(&mut Instance, &mut Transform, &mut Visibility)>,
-    mut surfaces: ResMut<Assets<TitleSurface>>,
-) {
-    let Some(scene) = owner.get() else {
-        return;
-    };
-    let Some(art) = art.filter(|a| a.ready) else {
-        return;
-    };
+struct SurfacePose {
+    offsets: Vec4,
+    uv_scrolls: [bool; 2],
+    tint: Vec4,
+    fog: Vec4,
+}
+struct ModelPose {
+    transform: Transform,
+    visible: bool,
+    slot: Option<u16>,
+    materials: Vec<SurfacePose>,
+}
+impl ModelPose {
+    fn interpolate(&mut self, next: &Self, alpha: f32) {
+        if self.visible != next.visible
+            || self
+                .transform
+                .translation
+                .distance(next.transform.translation)
+                > 2048.
+        {
+            return;
+        }
+        self.transform.translation = self
+            .transform
+            .translation
+            .lerp(next.transform.translation, alpha);
+        self.transform.rotation = self
+            .transform
+            .rotation
+            .slerp(next.transform.rotation, alpha);
+        self.transform.scale = self.transform.scale.lerp(next.transform.scale, alpha);
+        for (a, b) in self.materials.iter_mut().zip(&next.materials) {
+            a.tint = a.tint.lerp(b.tint, alpha);
+            a.fog = a.fog.lerp(b.fog, alpha);
+            a.offsets = crate::field_view::prediction::uv_scrolls(
+                a.offsets,
+                b.offsets,
+                a.uv_scrolls,
+                alpha,
+            );
+        }
+    }
+}
+fn model_pose(scene: &Scene, instance: &Instance, part: &Part) -> ModelPose {
     let session = &scene.session;
     let state = session.travel.state();
     let mount = session.travel.displayed_mount();
@@ -742,301 +778,364 @@ fn pose(
     let formation = &session.events.world.party.as_ref().unwrap().formation;
     let cinema = session.cinematic.as_ref();
     let origin = cinema.map_or(state.position, cinematic::origin);
-    for (mut instance, mut transform, mut visibility) in &mut roots {
-        if !instance.prepared {
-            continue;
-        }
-        let part = &art.models[&instance.model][instance.part];
-        let mut visible = true;
-        let mut slot = None;
-        let mut heading = 0.;
-        let mut scale = Vec3::ONE;
-        let mut uv_offset = 0.;
-        let mut brightness = 1.;
-        let mut alpha = 1.;
-        let position = if let Some(index) = instance.wake {
-            if let Some(wake) = &scene.effects.wakes[index] {
-                let fraction = wake.age as f32 / wake.duration as f32;
-                scale = Vec3::splat(0.6 * (1. + fraction));
-                let fade = (1. - fraction) * 1.25;
-                brightness = 64. / 255. * if fade <= 1. { fade } else { 4. * (1.25 - fade) };
-                uv_offset = (tick & 255) as f32 / 256.;
-                slot = Some(0);
-                wake.position
-            } else {
-                visible = false;
-                state.position
-            }
-        } else if let Some(member) = instance.flight {
-            visible = mount == Mount::Rheairds && member < formation.len();
-            let (position, lift) = flight_position(session, member);
-            scale = Vec3::splat(lift);
-            if instance.model == Model::Actor(203) {
-                let fraction = session.travel.speed_fraction();
-                scale *= Vec3::new(
-                    0.5 + 0.5 * fraction,
-                    0.25 + 0.75 * fraction,
-                    0.5 + 0.5 * fraction,
-                );
-                uv_offset = (tick & 127) as f32 / 128.;
-                brightness = (64. + 64. * fraction) / 255.;
-                slot = Some(0);
-            } else {
-                uv_offset = member as f32 * 0.25;
-            }
-            position
-        } else if let Some(index) = instance.enemy {
-            if let Some(symbol) = session.enemies.get(index) {
-                visible = instance.model == Model::Actor(100 + u16::from(symbol.variant));
-                heading = symbol.heading;
-                slot = Some(symbol.animation);
-                symbol.position
-            } else {
-                visible = false;
-                state.position
-            }
-        } else if let Some(id) = instance.landmark {
-            visible = session
-                .locations
-                .appearance(id)
-                .is_some_and(|a| match a.marker {
-                    Marker::Model { id } => instance.model == Model::Marker(id),
-                    Marker::FieldPoint => {
-                        matches!(instance.model, Model::Actor(99) | Model::Marker(17))
-                            && a.interaction != resonance_content::overworld::Interaction::Disabled
-                    }
-                    _ => false,
-                });
-            visible |= instance.model == Model::Actor(99)
-                && session
-                    .discovery()
-                    .is_some_and(|(location, _)| location == id);
-            if part.spec.autoplay || matches!(instance.model, Model::Actor(99) | Model::Marker(1)) {
-                slot = Some(0);
-            }
-            if instance.model == Model::Marker(17) {
-                let [near, far] = scene.package.definition.movement.camera_distances
-                    [usize::from(state.alternate_perspective)];
-                alpha = ((far - session.travel.camera_distance()) / (far - near)).clamp(0., 1.);
-                visible &= !mount.long_range() && alpha > 0.;
-            }
-            if instance.model == Model::Marker(1) {
-                let landmark = session.locations.definition(id).unwrap();
-                let position = scene.landmarks[&id];
-                // The portal archive also contains reference spheres more than
-                // 22,000 units from its origin. Gate this
-                // model at 10,000 + entrance radius, before mesh culling.
-                visible &= origin.distance_to(position) < 10000. + landmark.radius;
-                Position::from_map([position.map()[0], position.map()[1], 0.]).unwrap()
-            } else {
-                scene.landmarks[&id]
-            }
+    let mut transform = Transform::IDENTITY;
+    let mut materials = Vec::with_capacity(instance.materials.len());
+    let mut visible = true;
+    let mut slot = None;
+    let mut heading = 0.;
+    let mut scale = Vec3::ONE;
+    let mut uv_offset = 0.;
+    let mut brightness = 1.;
+    let mut alpha = 1.;
+    let position = if let Some(index) = instance.wake {
+        if let Some(wake) = &scene.effects.wakes[index] {
+            let fraction = wake.age as f32 / wake.duration as f32;
+            scale = Vec3::splat(0.6 * (1. + fraction));
+            let fade = (1. - fraction) * 1.25;
+            brightness = 64. / 255. * if fade <= 1. { fade } else { 4. * (1.25 - fade) };
+            uv_offset = (tick & 255) as f32 / 256.;
+            slot = Some(0);
+            wake.position
         } else {
-            match instance.model {
-                Model::Sky => {
-                    visible = cinema.is_none_or(|c| !matches!(c.id, 521 | 526));
-                    cinema.map_or_else(
-                        || Position::from_map([origin.map()[0], origin.map()[1], -100.]).unwrap(),
-                        cinematic::sky_position,
-                    )
+            visible = false;
+            state.position
+        }
+    } else if let Some(member) = instance.flight {
+        visible = mount == Mount::Rheairds && member < formation.len();
+        let (position, lift) = flight_position(session, member);
+        scale = Vec3::splat(lift);
+        if instance.model == Model::Actor(203) {
+            let fraction = session.travel.speed_fraction();
+            scale *= Vec3::new(
+                0.5 + 0.5 * fraction,
+                0.25 + 0.75 * fraction,
+                0.5 + 0.5 * fraction,
+            );
+            uv_offset = (tick & 127) as f32 / 128.;
+            brightness = (64. + 64. * fraction) / 255.;
+            slot = Some(0);
+        } else {
+            uv_offset = member as f32 * 0.25;
+        }
+        position
+    } else if let Some(index) = instance.enemy {
+        if let Some(symbol) = session.enemies.get(index) {
+            visible = instance.model == Model::Actor(100 + u16::from(symbol.variant));
+            heading = symbol.heading;
+            slot = Some(symbol.animation);
+            symbol.position
+        } else {
+            visible = false;
+            state.position
+        }
+    } else if let Some(id) = instance.landmark {
+        visible = session
+            .locations
+            .appearance(id)
+            .is_some_and(|a| match a.marker {
+                Marker::Model { id } => instance.model == Model::Marker(id),
+                Marker::FieldPoint => {
+                    matches!(instance.model, Model::Actor(99) | Model::Marker(17))
+                        && a.interaction != resonance_content::overworld::Interaction::Disabled
                 }
-                Model::Tile(index) => {
-                    if part.spec.autoplay {
-                        slot = Some(0);
+                _ => false,
+            });
+        visible |= instance.model == Model::Actor(99)
+            && session
+                .discovery()
+                .is_some_and(|(location, _)| location == id);
+        if part.spec.autoplay || matches!(instance.model, Model::Actor(99) | Model::Marker(1)) {
+            slot = Some(0);
+        }
+        if instance.model == Model::Marker(17) {
+            let [near, far] = scene.package.definition.movement.camera_distances
+                [usize::from(state.alternate_perspective)];
+            alpha = ((far - session.travel.camera_distance()) / (far - near)).clamp(0., 1.);
+            visible &= !mount.long_range() && alpha > 0.;
+        }
+        if instance.model == Model::Marker(1) {
+            let landmark = session.locations.definition(id).unwrap();
+            let position = scene.landmarks[&id];
+            // The portal archive also contains reference spheres more than
+            // 22,000 units from its origin. Gate this
+            // model at 10,000 + entrance radius, before mesh culling.
+            visible &= origin.distance_to(position) < 10000. + landmark.radius;
+            Position::from_map([position.map()[0], position.map()[1], 0.]).unwrap()
+        } else {
+            scene.landmarks[&id]
+        }
+    } else {
+        match instance.model {
+            Model::Sky => {
+                visible = cinema.is_none_or(|c| !matches!(c.id, 521 | 526));
+                cinema.map_or_else(
+                    || Position::from_map([origin.map()[0], origin.map()[1], -100.]).unwrap(),
+                    cinematic::sky_position,
+                )
+            }
+            Model::Tile(index) => {
+                if part.spec.autoplay {
+                    slot = Some(0);
+                }
+                Position::from_map([
+                    (index % 12) as f32 * TILE_SIZE + TILE_SIZE / 2.,
+                    (index / 12) as f32 * TILE_SIZE + TILE_SIZE / 2.,
+                    0.,
+                ])
+                .unwrap()
+            }
+            Model::Actor(id) => {
+                heading = state.heading;
+                visible = match mount {
+                    Mount::Foot => id == scene.leader(),
+                    Mount::Noishe => id == scene.leader() || id == 202,
+                    Mount::Rheairds => {
+                        (204..=212).contains(&id)
+                            && formation.iter().take(4).any(|&c| u16::from(c) + 203 == id)
                     }
+                    Mount::Ship => {
+                        id == 201
+                            || id == 214
+                            || (state.mount == Mount::Foot && id == scene.leader())
+                    }
+                };
+                slot = Some(
+                    if let Some(animation) = &scene.animation
+                        && id == scene.leader()
+                    {
+                        animation.slot
+                    } else if mount == Mount::Noishe && id == scene.leader() {
+                        4
+                    } else if session.travel.speed().abs() > 8. {
+                        2
+                    } else if session.travel.speed().abs() > 0.01 {
+                        1
+                    } else {
+                        0
+                    },
+                );
+                if id == 201 {
+                    let (position, size) =
+                        session.travel.ship_pose().unwrap_or((state.position, 0.));
+                    scale = Vec3::splat(size);
+                    Position::from_map([position.map()[0], position.map()[1], 0.]).unwrap()
+                } else if id == 214 {
+                    visible &= state.mount == Mount::Ship && session.travel.player_has_control();
+                    let fraction = session.travel.speed_fraction();
+                    scale = Vec3::splat(0.3 * (1. + fraction));
+                    brightness = 64. * fraction / 255.;
+                    uv_offset = (tick & 63) as f32 / 64.;
+                    slot = Some(0);
+                    Position::from_map([state.position.map()[0], state.position.map()[1], 0.])
+                        .unwrap()
+                } else if mount == Mount::Rheairds && (204..=212).contains(&id) {
+                    let member = formation
+                        .iter()
+                        .position(|&c| u16::from(c) + 203 == id)
+                        .unwrap_or(0);
+                    flight_position(session, member).0
+                } else {
                     Position::from_map([
-                        (index % 12) as f32 * TILE_SIZE + TILE_SIZE / 2.,
-                        (index / 12) as f32 * TILE_SIZE + TILE_SIZE / 2.,
-                        0.,
+                        state.position.map()[0],
+                        state.position.map()[1],
+                        state.altitude,
                     ])
                     .unwrap()
                 }
-                Model::Actor(id) => {
-                    heading = state.heading;
-                    visible = match mount {
-                        Mount::Foot => id == scene.leader(),
-                        Mount::Noishe => id == scene.leader() || id == 202,
-                        Mount::Rheairds => {
-                            (204..=212).contains(&id)
-                                && formation.iter().take(4).any(|&c| u16::from(c) + 203 == id)
-                        }
-                        Mount::Ship => {
-                            id == 201
-                                || id == 214
-                                || (state.mount == Mount::Foot && id == scene.leader())
-                        }
-                    };
-                    slot = Some(
-                        if let Some(animation) = &scene.animation
-                            && id == scene.leader()
-                        {
-                            animation.slot
-                        } else if mount == Mount::Noishe && id == scene.leader() {
-                            4
-                        } else if session.travel.speed().abs() > 8. {
-                            2
-                        } else if session.travel.speed().abs() > 0.01 {
-                            1
-                        } else {
-                            0
-                        },
-                    );
-                    if id == 201 {
-                        let (position, size) =
-                            session.travel.ship_pose().unwrap_or((state.position, 0.));
-                        scale = Vec3::splat(size);
-                        Position::from_map([position.map()[0], position.map()[1], 0.]).unwrap()
-                    } else if id == 214 {
-                        visible &=
-                            state.mount == Mount::Ship && session.travel.player_has_control();
-                        let fraction = session.travel.speed_fraction();
-                        scale = Vec3::splat(0.3 * (1. + fraction));
-                        brightness = 64. * fraction / 255.;
-                        uv_offset = (tick & 63) as f32 / 64.;
-                        slot = Some(0);
-                        Position::from_map([state.position.map()[0], state.position.map()[1], 0.])
-                            .unwrap()
-                    } else if mount == Mount::Rheairds && (204..=212).contains(&id) {
-                        let member = formation
-                            .iter()
-                            .position(|&c| u16::from(c) + 203 == id)
-                            .unwrap_or(0);
-                        flight_position(session, member).0
-                    } else {
-                        Position::from_map([
-                            state.position.map()[0],
-                            state.position.map()[1],
-                            state.altitude,
-                        ])
-                        .unwrap()
-                    }
-                }
-                Model::Cinematic(actor) => {
-                    let playback = cinema.unwrap();
-                    slot = Some(0);
-                    alpha = cinematic::opacity(playback, actor);
-                    visible = alpha > 0.;
-                    if cinematic::background(playback.id, actor) {
-                        cinematic::sky_position(playback)
-                    } else {
-                        state.position
-                    }
-                }
-                Model::Marker(_) => unreachable!(),
             }
-        };
-        let delta = origin.displacement_to(position);
-        if instance.model == Model::Actor(99) {
-            // Keep discoveries visible across the same ground horizon as other
-            // landmarks; the contact radius must not become their draw distance.
-            // Long-range vehicle travel still suppresses their interaction/model.
-            let distance = delta[0].hypot(delta[1]);
-            alpha *= ((10000. - distance) / 2000.).clamp(0., 1.);
-            visible &= !mount.long_range() && alpha > 0.;
-        }
-        if matches!(instance.model, Model::Actor(_)) && cinema.is_some() {
-            visible = false;
-        }
-        // Cull actual mesh bounds through the camera, never an entire tile or
-        // landmark from its origin. The native fog hides the far clipping plane.
-        // The model transform uses native object +0x0c. The nearby [-60,-60,140]
-        // values at +0x40 are auxiliary coordinates, not actor translation.
-        transform.translation = Vec3::new(delta[0], delta[1], position.map()[2])
-            + Vec3::from_array(part.spec.translation);
-        transform.scale = scale;
-        for (index, handle) in instance.materials.iter().enumerate() {
-            let binding = &part.spec.materials[index];
-            let mut offset = Vec4::new(
-                0.,
-                if binding.color.as_ref().is_some_and(|b| b.texture == 0) {
-                    uv_offset
+            Model::Cinematic(actor) => {
+                let playback = cinema.unwrap();
+                slot = Some(0);
+                alpha = cinematic::opacity(playback, actor);
+                visible = alpha > 0.;
+                if cinematic::background(playback.id, actor) {
+                    cinematic::sky_position(playback)
                 } else {
-                    0.
-                },
-                0.,
-                if binding.multiply.as_ref().is_some_and(|b| b.texture == 0) {
-                    uv_offset
-                } else {
-                    0.
-                },
-            );
-            if instance.model == Model::Marker(17) {
-                let scroll = (tick & 127) as f32 / 128.;
-                offset = Vec4::new(scroll, 0., scroll, 0.);
-            } else if let Model::Cinematic(actor) = instance.model {
-                let uv = [&binding.color, &binding.multiply].map(|binding| {
-                    binding.as_ref().map_or(Vec2::ZERO, |b| {
-                        cinematic::uv(cinema.unwrap(), actor, b.texture)
-                    })
-                });
-                offset = Vec4::new(uv[0].x, uv[0].y, uv[1].x, uv[1].y);
-            } else if matches!(instance.model, Model::Tile(_)) {
-                let uv = [&binding.color, &binding.multiply].map(|binding| {
-                    binding
-                        .as_ref()
-                        .and_then(|binding| {
-                            part.spec
-                                .texture_animations
-                                .iter()
-                                .find(|animation| animation.texture == binding.texture)
-                        })
-                        .map_or([0.; 2], |animation| animation.offset(u64::from(tick)))
-                });
-                offset = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
+                    state.position
+                }
             }
-            let tint = part.spec.outline_color_for(binding).map_or(Vec4::ONE, |c| {
-                Vec4::from_array(c.map(|v| f32::from(v) / 255.))
-            }) * Vec4::new(brightness, brightness, brightness, alpha);
-            let background = instance.model == Model::Sky
-                || matches!(instance.model, Model::Cinematic(actor)
-                    if cinematic::background(cinema.unwrap().id, actor));
-            let fog_range = if !background {
-                let far = if cinema.is_some() {
-                    cinematic::FAR_CLIP
-                } else {
-                    session.travel.camera_distance() + 10000.
-                };
-                Vec4::new(far * 0.5, far * 0.75, 0., 0.)
+            Model::Marker(_) => unreachable!(),
+        }
+    };
+    let delta = origin.displacement_to(position);
+    if instance.model == Model::Actor(99) {
+        // Keep discoveries visible across the same ground horizon as other
+        // landmarks; the contact radius must not become their draw distance.
+        // Long-range vehicle travel still suppresses their interaction/model.
+        let distance = delta[0].hypot(delta[1]);
+        alpha *= ((10000. - distance) / 2000.).clamp(0., 1.);
+        visible &= !mount.long_range() && alpha > 0.;
+    }
+    if matches!(instance.model, Model::Actor(_)) && cinema.is_some() {
+        visible = false;
+    }
+    // Cull actual mesh bounds through the camera, never an entire tile or
+    // landmark from its origin. The native fog hides the far clipping plane.
+    // The model transform uses native object +0x0c. The nearby [-60,-60,140]
+    // values at +0x40 are auxiliary coordinates, not actor translation.
+    transform.translation =
+        Vec3::new(delta[0], delta[1], position.map()[2]) + Vec3::from_array(part.spec.translation);
+    transform.scale = scale;
+    for (index, _) in instance.materials.iter().enumerate() {
+        let binding = &part.spec.materials[index];
+        let mut offset = Vec4::new(
+            0.,
+            if binding.color.as_ref().is_some_and(|b| b.texture == 0) {
+                uv_offset
             } else {
-                Vec4::ZERO
-            };
-            if surfaces.get(handle).is_some_and(|s| {
-                s.uv_offsets != offset || s.tint != tint || s.fog_range != fog_range
-            }) {
-                let mut surface = surfaces.get_mut(handle).unwrap();
-                surface.uv_offsets = offset;
-                surface.tint = tint;
-                surface.fog_color = Vec4::new(208. / 255., 208. / 255., 224. / 255., 1.);
-                surface.fog_range = fog_range;
-            }
+                0.
+            },
+            0.,
+            if binding.multiply.as_ref().is_some_and(|b| b.texture == 0) {
+                uv_offset
+            } else {
+                0.
+            },
+        );
+        if instance.model == Model::Marker(17) {
+            let scroll = (tick & 127) as f32 / 128.;
+            offset = Vec4::new(scroll, 0., scroll, 0.);
+        } else if let Model::Cinematic(actor) = instance.model {
+            let uv = [&binding.color, &binding.multiply].map(|binding| {
+                binding.as_ref().map_or(Vec2::ZERO, |b| {
+                    cinematic::uv(cinema.unwrap(), actor, b.texture)
+                })
+            });
+            offset = Vec4::new(uv[0].x, uv[0].y, uv[1].x, uv[1].y);
+        } else if matches!(instance.model, Model::Tile(_)) {
+            let uv = [&binding.color, &binding.multiply].map(|binding| {
+                binding
+                    .as_ref()
+                    .and_then(|binding| {
+                        part.spec
+                            .texture_animations
+                            .iter()
+                            .find(|animation| animation.texture == binding.texture)
+                    })
+                    .map_or([0.; 2], |animation| animation.offset(u64::from(tick)))
+            });
+            offset = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
         }
-        transform.rotation = if instance.landmark.is_none()
-            && instance.enemy.is_none()
-            && matches!(instance.model, Model::Actor(_))
-        {
-            match mount {
-                Mount::Rheairds => flight_rotation(
-                    state.camera_yaw,
-                    session.travel.pitch(),
-                    session.travel.bank(),
-                ),
-                Mount::Ship => Quat::from_rotation_z(
-                    std::f32::consts::PI
-                        - state.camera_yaw
-                        - (0.75 * session.travel.bank()).to_radians(),
-                ),
-                _ => Quat::from_rotation_z(heading),
-            }
+        let tint = part.spec.outline_color_for(binding).map_or(Vec4::ONE, |c| {
+            Vec4::from_array(c.map(|v| f32::from(v) / 255.))
+        }) * Vec4::new(brightness, brightness, brightness, alpha);
+        let background = instance.model == Model::Sky
+            || matches!(instance.model, Model::Cinematic(actor)
+                    if cinematic::background(cinema.unwrap().id, actor));
+        let fog_range = if !background {
+            let far = if cinema.is_some() {
+                cinematic::FAR_CLIP
+            } else {
+                session.travel.camera_distance() + 10000.
+            };
+            Vec4::new(far * 0.5, far * 0.75, 0., 0.)
         } else {
-            Quat::from_rotation_z(heading)
+            Vec4::ZERO
         };
-        *visibility = if visible {
+        materials.push(SurfacePose {
+            uv_scrolls: if let Model::Cinematic(actor) = instance.model {
+                [&binding.color, &binding.multiply].map(|b| {
+                    b.as_ref()
+                        .is_some_and(|b| cinematic::uv_scroll(cinema.unwrap().id, actor, b.texture))
+                })
+            } else {
+                part.materials[materials.len()].uv_scrolls
+            },
+            offsets: offset,
+            tint,
+            fog: fog_range,
+        });
+    }
+    transform.rotation = if instance.landmark.is_none()
+        && instance.enemy.is_none()
+        && matches!(instance.model, Model::Actor(_))
+    {
+        match mount {
+            Mount::Rheairds => flight_rotation(
+                state.camera_yaw,
+                session.travel.pitch(),
+                session.travel.bank(),
+            ),
+            Mount::Ship => Quat::from_rotation_z(
+                std::f32::consts::PI
+                    - state.camera_yaw
+                    - (0.75 * session.travel.bank()).to_radians(),
+            ),
+            _ => Quat::from_rotation_z(heading),
+        }
+    } else {
+        Quat::from_rotation_z(heading)
+    };
+    ModelPose {
+        transform,
+        visible,
+        slot,
+        materials,
+    }
+}
+fn pose(
+    owner: State,
+    art: Option<Res<Art>>,
+    mut roots: Query<(Entity, &mut Instance, &mut Transform, &mut Visibility)>,
+    mut surfaces: ResMut<Assets<TitleSurface>>,
+    mut prediction: Option<ResMut<crate::field_view::Prediction>>,
+) {
+    let Some(scene) = owner.get() else {
+        return;
+    };
+    let Some(art) = art.filter(|a| a.ready) else {
+        return;
+    };
+    let mut predicted = prediction.as_deref_mut().and_then(|p| {
+        p.scratch_world(|next, alpha| {
+            roots
+                .iter()
+                .filter(|(_, instance, _, _)| instance.prepared)
+                .map(|(entity, instance, _, _)| {
+                    let part = &art.models[&instance.model][instance.part];
+                    let mut pose = model_pose(scene, instance, part);
+                    if scene.session.travel.displayed_mount()
+                        == next.session.travel.displayed_mount()
+                        && scene.session.cinematic.as_ref().map(|c| c.id)
+                            == next.session.cinematic.as_ref().map(|c| c.id)
+                    {
+                        pose.interpolate(&model_pose(next, instance, part), alpha);
+                    }
+                    (entity, pose)
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+    });
+    for (entity, mut instance, mut transform, mut visibility) in &mut roots {
+        if !instance.prepared {
+            continue;
+        }
+        let pose = predicted
+            .as_mut()
+            .and_then(|p| p.remove(&entity))
+            .unwrap_or_else(|| {
+                model_pose(
+                    scene,
+                    &instance,
+                    &art.models[&instance.model][instance.part],
+                )
+            });
+        *transform = pose.transform;
+        *visibility = if pose.visible {
             Visibility::Inherited
         } else {
             Visibility::Hidden
         };
-        if instance.clip.map(|c| c.0) != slot {
-            instance.clip = slot.map(|slot| (slot, tick));
+        if instance.clip.map(|c| c.0) != pose.slot {
+            instance.clip = pose.slot.map(|slot| (slot, scene.session.events.tick()));
+        }
+        for (handle, sample) in instance.materials.iter().zip(pose.materials) {
+            if let Some(mut surface) = surfaces.get_mut(handle) {
+                surface.uv_offsets = sample.offsets;
+                surface.tint = sample.tint;
+                surface.fog_color = Vec4::new(208. / 255., 208. / 255., 224. / 255., 1.);
+                surface.fog_range = sample.fog;
+            }
         }
     }
 }
@@ -1069,6 +1168,51 @@ fn flight_position(session: &game::Session, member: usize) -> (Position, f32) {
         lift,
     )
 }
+fn animation_seconds(
+    scene: &Scene,
+    instance: &Instance,
+    slot: u16,
+    start: u32,
+    part: &Part,
+    index: usize,
+) -> Option<f32> {
+    let elapsed = (scene.session.events.tick().saturating_sub(start) as f64
+        / resonance_game::clock::UPDATE_HZ) as f32;
+    let duration = part.spec.clips[index].duration_seconds;
+    let seconds = if matches!(instance.model, Model::Cinematic(_)) {
+        scene
+            .session
+            .cinematic
+            .as_ref()
+            .unwrap()
+            .seconds()
+            .min(duration)
+    } else if let Some(index) = instance.wake {
+        let wake = scene.effects.wakes[index].as_ref()?;
+        (wake.age as f32 / resonance_game::clock::UPDATE_HZ as f32 * effects::WAKE_RATE)
+            .min(duration)
+    } else if instance.model == Model::Actor(99) {
+        scene
+            .session
+            .discovery()
+            .filter(|(id, _)| Some(*id) == instance.landmark)
+            .map_or(0., |(_, start)| {
+                (scene.session.events.tick().saturating_sub(start) as f32
+                    / resonance_game::clock::UPDATE_HZ as f32)
+                    .min(duration)
+            })
+    } else if slot >= 4 {
+        if scene.animation.is_none() {
+            duration
+        } else {
+            elapsed.min(duration)
+        }
+    } else {
+        elapsed % duration
+    };
+    Some(seconds)
+}
+#[allow(clippy::too_many_arguments)] // Scene endpoints and independent Bevy presentation resources.
 fn animate(
     owner: State,
     art: Option<Res<Art>>,
@@ -1077,6 +1221,7 @@ fn animate(
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<sparse_animation::affine::Locals>,
     mut exit: MessageWriter<AppExit>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -1096,45 +1241,18 @@ fn animate(
             continue;
         };
         let clip = clips.get(&part.clips[index]).unwrap();
-        let elapsed = (scene.session.events.tick().saturating_sub(start) as f64
-            / resonance_game::clock::UPDATE_HZ) as f32;
-        let duration = part.spec.clips[index].duration_seconds;
-        let seconds = if matches!(instance.model, Model::Cinematic(_)) {
-            scene
-                .session
-                .cinematic
-                .as_ref()
-                .unwrap()
-                .seconds()
-                .min(duration)
-        } else if let Some(index) = instance.wake {
-            let Some(wake) = &scene.effects.wakes[index] else {
-                continue;
-            };
-            (wake.age as f32 / resonance_game::clock::UPDATE_HZ as f32 * effects::WAKE_RATE)
-                .min(duration)
-        } else if instance.model == Model::Actor(99) {
-            scene
-                .session
-                .discovery()
-                .filter(|(id, _)| Some(*id) == instance.landmark)
-                .map_or(0., |(_, start)| {
-                    (scene.session.events.tick().saturating_sub(start) as f32
-                        / resonance_game::clock::UPDATE_HZ as f32)
-                        .min(duration)
-                })
-        } else if slot >= 4 {
-            if scene.animation.is_none() {
-                duration
-            } else {
-                elapsed.min(duration)
-            }
-        } else {
-            elapsed % duration
+        let Some(seconds) = animation_seconds(scene, instance, slot, start, part, index) else {
+            continue;
         };
-        if let Err(error) = instance
-            .binding
-            .sample(&clip.0, seconds, &mut nodes, &mut affine)
+        let future = prediction.as_ref().and_then(|prediction| {
+            let next = prediction.world()?;
+            let time = animation_seconds(next, instance, slot, start, part, index)?;
+            Some((&*clip.0, time, prediction.alpha))
+        });
+        if let Err(error) =
+            instance
+                .binding
+                .sample_between(&clip.0, seconds, future, &mut nodes, &mut affine)
         {
             error!("World animation failed: {error:#}");
             exit.write(AppExit::error());
@@ -1142,17 +1260,7 @@ fn animate(
         }
     }
 }
-fn camera(
-    owner: State,
-    display: Res<super::display::Display>,
-    mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
-    mut outputs: ResMut<Assets<TitleOutput>>,
-    mut clear: ResMut<ClearColor>,
-) {
-    let Some(scene) = owner.get() else {
-        return;
-    };
-    clear.0 = Color::linear_rgb(60. / 255., 130. / 255., 30. / 255.);
+fn camera_pose(scene: &Scene) -> (Transform, f32, f32, Vec4) {
     let state = scene.session.travel.state();
     let distance = scene.session.travel.camera_distance();
     let angle = scene.session.camera.angle();
@@ -1193,29 +1301,61 @@ fn camera(
     } else {
         (eye, target, up, 31.668, distance + 10000.)
     };
+    let (fade, white) = scene
+        .session
+        .cinematic
+        .as_ref()
+        .map_or((0., false), |c| c.fade());
+    (
+        Transform::from_translation(eye).looking_at(target, up),
+        fov.to_radians(),
+        far,
+        Vec4::new(1. - fade, if white { fade } else { 0. }, 0., 0.),
+    )
+}
+fn camera(
+    owner: State,
+    display: Res<super::display::Display>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
+    mut outputs: ResMut<Assets<TitleOutput>>,
+    mut clear: ResMut<ClearColor>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
+) {
+    let Some(scene) = owner.get() else {
+        return;
+    };
+    clear.0 = Color::linear_rgb(60. / 255., 130. / 255., 30. / 255.);
+    let (mut pose, mut fov, mut far, mut brightness) = camera_pose(scene);
+    if let Some(prediction) = prediction.as_ref()
+        && let Some(next) = prediction.world()
+        && scene.session.cinematic.as_ref().map(|c| c.id)
+            == next.session.cinematic.as_ref().map(|c| c.id)
+    {
+        let (target, next_fov, next_far, next_brightness) = camera_pose(next);
+        let alpha = prediction.alpha;
+        pose.translation = pose.translation.lerp(target.translation, alpha);
+        pose.rotation = pose.rotation.slerp(target.rotation, alpha);
+        fov += (next_fov - fov) * alpha;
+        far += (next_far - far) * alpha;
+        brightness = brightness.lerp(next_brightness, alpha);
+    }
     for (mut transform, mut projection) in &mut cameras {
-        *transform = Transform::from_translation(eye).looking_at(target, up);
+        *transform = pose;
         *projection = Projection::custom(super::camera::TitleProjection(PerspectiveProjection {
-            fov: fov.to_radians(),
+            fov,
             aspect_ratio: display.0.aspect(),
             near: 100.,
             far,
             ..default()
         }));
     }
-    TitleOutput::update(&mut outputs, |brightness| {
-        let (fade, white) = scene
-            .session
-            .cinematic
-            .as_ref()
-            .map_or((0., false), |c| c.fade());
-        *brightness = Vec4::new(1. - fade, if white { fade } else { 0. }, 0., 0.)
-    });
+    TitleOutput::update(&mut outputs, |value| *value = brightness);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn ui(
     mut commands: Commands,
+    mut prediction: Option<ResMut<crate::field_view::Prediction>>,
     owner: State,
     mut art: Option<ResMut<Art>>,
     display: Res<super::display::Display>,
@@ -1235,6 +1375,7 @@ fn ui(
     }
     if let Err(error) = ui.render(
         &scene.session,
+        prediction.as_deref_mut(),
         &scene.package.resources.text,
         display.0,
         &mut commands,

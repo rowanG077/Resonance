@@ -39,17 +39,7 @@ impl Artwork {
         }
     }
 
-    pub(super) fn render_prompt(
-        &mut self,
-        session: &FieldSession,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        // Menus and skits retain the last field presentation, including its
-        // notifications. Their input remains owned by the modal scene.
-        if session.active_skit.is_some() || session.menu_is_open() {
-            return Ok(());
-        }
+    fn sample_prompt(&self, session: &FieldSession) -> Result<[Batch; 2]> {
         let mut batches = [Batch::default(), Batch::default()];
         if session.allow_incomplete_scripts
             && session
@@ -116,6 +106,30 @@ impl Artwork {
             session.skit_prompt(),
             button_highlight,
         )?;
+        Ok(batches)
+    }
+    pub(super) fn render_prompt(
+        &mut self,
+        session: &FieldSession,
+        prediction: Option<&mut crate::field_view::Prediction>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        // Menus and skits retain the last field presentation, including its
+        // notifications. Their input remains owned by the modal scene.
+        if session.active_skit.is_some() || session.menu_is_open() {
+            return Ok(());
+        }
+        let mut batches = self.sample_prompt(session)?;
+        if let Some(prediction) = prediction
+            && let Some((next, alpha)) = prediction
+                .scratch(|p, a| self.sample_prompt(p).map(|b| (b, a)))
+                .transpose()?
+        {
+            for (a, b) in batches.iter_mut().zip(&next) {
+                a.interpolate(b, alpha);
+            }
+        }
         self.upload_prompts(batches, commands, meshes)
     }
     pub(super) fn render_world_notifications(

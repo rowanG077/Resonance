@@ -61,6 +61,7 @@ pub(crate) fn fixture() -> App {
         allow_incomplete_scripts: false,
         record_playthrough: None,
         record_title_ticks: 1000,
+        speculative: false,
     };
     let mut movie = Playback::load(&root, &options).expect("cook-all first");
     let asset = movie.asset.as_ref().unwrap();

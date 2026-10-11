@@ -86,15 +86,36 @@ fn run(
             allow_incomplete_scripts: false,
             record_playthrough: None,
             record_title_ticks: 1000,
+            speculative: std::env::var_os("RESONANCE_PROBE_SMOOTHING").is_some(),
         },
         resolution,
     )?;
+    app.add_systems(
+        Startup,
+        |options: Res<crate::RunOptions>, mut window: Single<&mut Window, With<PrimaryWindow>>| {
+            window.title = format!(
+                "Resonance probe — smoothing {}",
+                if options.speculative { "ON" } else { "OFF" }
+            );
+        },
+    );
+    let title_capture = std::env::var_os("RESONANCE_PROBE_TITLE_CAPTURE").is_some();
+    if title_capture {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_nanos(4_170_833),
+        ));
+        app.add_systems(Update, capture_title.after(crate::layout));
+    }
     if let Some(size) = surface_size {
         let mut window = app
             .world_mut()
             .query_filtered::<&mut Window, With<PrimaryWindow>>()
             .single_mut(app.world_mut())?;
         *window = crate::display::window(size);
+    }
+    if std::env::var_os("RESONANCE_PROBE_PROFILE").is_some() {
+        super::smoothing_profile::enable();
+        super::render_profile::install(&mut app);
     }
     if let Some((_, profile)) = benchmark {
         app.add_systems(
@@ -135,6 +156,7 @@ fn run(
         screenshots: 0,
         benchmark,
         completed: completed.clone(),
+        title_only: title_capture || std::env::var_os("RESONANCE_PROBE_TITLE").is_some(),
     })
     .add_systems(
         PreUpdate,
@@ -151,6 +173,36 @@ fn run(
     Ok(())
 }
 
+fn capture_title(
+    mut commands: Commands,
+    probe: Res<Probe>,
+    events: Option<Res<crate::Events>>,
+    fixed: Res<Time<Fixed>>,
+    mut captured: Local<u32>,
+) {
+    let Some(events) = events else {
+        return;
+    };
+    let tick = events.0.tick();
+    // Both title lighting atlases change row at tick 617. Capture the interval
+    // around that boundary at four render samples per authoritative update.
+    if !(614..=620).contains(&tick) {
+        return;
+    }
+    let path = probe.output.join(format!(
+        "title-{tick}-{:03}-{:03}.png",
+        (fixed.overstep_fraction() * 1000.) as u32,
+        *captured
+    ));
+    *captured += 1;
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(move |event: On<ScreenshotCaptured>| {
+            crate::screenshot::write(&event.image, &path, None)
+                .expect("title diagnostic screenshot");
+        });
+}
+
 #[derive(Resource)]
 struct Probe {
     started: Instant,
@@ -162,6 +214,7 @@ struct Probe {
     screenshots: u8,
     benchmark: Option<(u64, bool)>,
     completed: Arc<AtomicBool>,
+    title_only: bool,
 }
 #[allow(clippy::too_many_arguments)] // Diagnostic input, field state, window and finite lifetime.
 fn drive(
@@ -206,6 +259,13 @@ fn drive(
     if probe.started.elapsed().as_secs() > probe.benchmark.map_or(180, |(s, _)| s + 150) {
         error!("Window probe timed out");
         exit.write(AppExit::error());
+        return;
+    }
+    if probe.title_only {
+        if probe.started.elapsed().as_secs() >= 20 {
+            probe.completed.store(true, Ordering::Release);
+            exit.write(AppExit::Success);
+        }
         return;
     }
     if movie.active {

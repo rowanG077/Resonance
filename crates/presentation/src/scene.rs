@@ -51,6 +51,7 @@ struct SurfaceBinding {
     depth_write: bool,
     draw_order: u32,
     uv_animations: [Option<Arc<TextureAnimation>>; 2],
+    uv_scrolls: [bool; 2],
 }
 
 #[derive(Resource, Default)]
@@ -163,6 +164,7 @@ pub(super) fn bind_animated(
 
 pub(super) fn animate_field(
     events: Option<Res<Events>>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     roots: Query<(Entity, &AnimatedPart)>,
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<super::sparse_animation::affine::Locals>,
@@ -172,6 +174,7 @@ pub(super) fn animate_field(
     let Some(events) = events else {
         return;
     };
+    let _timer = crate::performance::smoothing_profile::Timer::start(2);
     for (root, part) in &roots {
         let Some(binding) = &part.binding else {
             continue;
@@ -207,6 +210,42 @@ pub(super) fn animate_field(
             ) / ANIMATION_HZ;
             (clip, sampled, false)
         };
+        let future = prediction
+            .as_ref()
+            .and_then(|p| p.title().map(|(_, e)| (e, p.alpha)))
+            .and_then(|(next, alpha)| {
+                let duration = part.schedule[clip].duration_seconds;
+                let elapsed = if part.autoplay {
+                    next.tick() as f32 / ANIMATION_HZ
+                } else {
+                    let current = events
+                        .0
+                        .world
+                        .actor_for_resource(u32::from(part.resource))?;
+                    let actor = next.world.actor_for_resource(u32::from(part.resource))?;
+                    if current.instance != actor.instance || current.visible != actor.visible {
+                        return None;
+                    }
+                    let mut transform = transforms.get_mut(root).ok()?;
+                    transform.translation = Vec3::from_array(current.position)
+                        .lerp(Vec3::from_array(actor.position), alpha);
+                    let a = current.animation.as_ref()?;
+                    let b = actor.animation.as_ref()?;
+                    if (a.source, a.resource, a.slot, a.start_tick)
+                        != (b.source, b.resource, b.slot, b.start_tick)
+                    {
+                        return None;
+                    }
+                    b.sample(next.tick(), 1, duration * ANIMATION_HZ) / ANIMATION_HZ
+                };
+                let time = if repeat && elapsed > duration {
+                    let phase = elapsed % duration;
+                    if phase == 0. { duration } else { phase }
+                } else {
+                    elapsed.min(duration)
+                };
+                Some((time, alpha))
+            });
         let spec = &part.schedule[clip];
         // Include the final key before wrapping to the next animation cycle.
         let time = if repeat && elapsed > spec.duration_seconds {
@@ -223,7 +262,13 @@ pub(super) fn animate_field(
             continue;
         };
         binding
-            .sample(&clip.0, time, &mut transforms, &mut affine)
+            .sample_between(
+                &clip.0,
+                time,
+                future.map(|(t, a)| (&*clip.0, t, a)),
+                &mut transforms,
+                &mut affine,
+            )
             .expect("validated title animation must evaluate");
     }
 }
@@ -352,6 +397,10 @@ pub(super) fn prepare_field(
                 surface,
                 depth_write: p.depth_write,
                 draw_order: p.draw_order,
+                uv_scrolls: p
+                    .uv_animations
+                    .each_ref()
+                    .map(|a| a.as_ref().is_some_and(|a| a.is_scroll())),
                 uv_animations: p.uv_animations,
             });
         }
@@ -389,6 +438,7 @@ fn bind_materials(
 
 pub(super) fn update_materials(
     events: Option<Res<Events>>,
+    prediction: Option<Res<crate::field_view::Prediction>>,
     field: Res<FieldAssets>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
 ) {
@@ -404,7 +454,22 @@ pub(super) fn update_materials(
                 .as_ref()
                 .map_or([0.; 2], |animation| animation.offset(tick))
         });
-        let uv_offsets = Vec4::new(color[0], color[1], multiply[0], multiply[1]);
+        let mut uv_offsets = Vec4::new(color[0], color[1], multiply[0], multiply[1]);
+        if let Some((_, next, alpha)) = prediction
+            .as_ref()
+            .and_then(|p| p.title().map(|(s, e)| (s, e, p.alpha)))
+        {
+            let [color, multiply] = binding.uv_animations.each_ref().map(|a| {
+                a.as_ref()
+                    .map_or([0.; 2], |a| a.offset(u64::from(next.tick())))
+            });
+            uv_offsets = crate::field_view::prediction::uv_scrolls(
+                uv_offsets,
+                Vec4::new(color[0], color[1], multiply[0], multiply[1]),
+                binding.uv_scrolls,
+                alpha,
+            );
+        }
         if surfaces
             .get(&binding.surface)
             .is_some_and(|s| s.depth_write != depth_write || s.uv_offsets != uv_offsets)
@@ -445,6 +510,7 @@ mod instance_tests {
                 depth_write: order == 7,
                 draw_order: order,
                 uv_animations: [None, None],
+                uv_scrolls: [false; 2],
             });
         }
         let unrelated = world.spawn(slot).id();

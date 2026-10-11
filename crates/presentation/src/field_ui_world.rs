@@ -67,6 +67,7 @@ impl Artwork {
     pub fn render(
         &mut self,
         session: &resonance_game::overworld::Session,
+        prediction: Option<&mut crate::field_view::Prediction>,
         text: &resonance_content::session::GameText,
         resolution: crate::Resolution,
         commands: &mut Commands,
@@ -102,8 +103,24 @@ impl Artwork {
                 false,
             )?;
         }
-        self.map.render(session, &mut batch, commands, meshes)?;
+        self.map.render(
+            session,
+            prediction
+                .as_ref()
+                .and_then(|p| p.world().map(|w| (&w.session, p.alpha))),
+            &mut batch,
+            commands,
+            meshes,
+        )?;
         if let Some((line, alpha)) = session.cinematic.as_ref().and_then(|c| c.dialogue()) {
+            let alpha = prediction
+                .as_ref()
+                .and_then(|p| {
+                    let (next, b) = p.world()?.session.cinematic.as_ref()?.dialogue()?;
+                    (next.text == line.text && next.speaker == line.speaker)
+                        .then_some(alpha + (b - alpha) * p.alpha)
+                })
+                .unwrap_or(alpha);
             let lines: Vec<_> = line.text.lines().collect();
             let y = 424. - lines.len() as f32 * 26.;
             batch.quad(
@@ -188,6 +205,13 @@ impl Artwork {
         self.layer.show(!batch.indices.is_empty(), commands);
         self.common.skits.render(
             session.active_skit.as_ref(),
+            prediction.as_ref().and_then(|p| {
+                p.world()?
+                    .session
+                    .active_skit
+                    .as_ref()
+                    .map(|s| (s, p.alpha))
+            }),
             &self.common.font,
             resolution,
             commands,
@@ -206,6 +230,13 @@ impl Artwork {
             world,
             dialogue,
             world,
+            prediction.as_ref().and_then(|p| {
+                p.world()?
+                    .session
+                    .active_skit
+                    .as_ref()
+                    .map(|s| (&s.dialogue, p.alpha))
+            }),
             session
                 .active_skit
                 .as_ref()
@@ -224,6 +255,7 @@ impl Artwork {
                 .as_ref()
                 .map_or(session.events.tick(), |m| m.tick),
             resolution,
+            prediction,
             commands,
             meshes,
         )

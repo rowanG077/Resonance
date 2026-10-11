@@ -4,12 +4,14 @@ use super::*;
 pub(super) const WAKE_COUNT: usize = 24;
 pub(super) const WAKE_RATE: f32 = 1. / 12.;
 
+#[derive(Clone)]
 pub(super) struct Wake {
     pub position: Position,
     pub age: u32,
     pub duration: u32,
 }
 
+#[derive(Clone)]
 pub(super) struct Effects {
     pub wakes: [Option<Wake>; WAKE_COUNT],
     cooldown: u8,

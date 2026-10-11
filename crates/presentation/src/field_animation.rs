@@ -4,10 +4,12 @@ mod camera_tests;
 #[cfg(test)]
 mod continuity_tests;
 mod frame;
+mod prediction;
 use super::field_view::{ActorPart, Art, State};
 use super::sparse_animation::affine::{Locals, Pose};
 use bevy::prelude::*;
 use frame::Frame;
+pub(super) use prediction::present;
 
 #[derive(Component)]
 pub(super) struct Rig {
@@ -98,6 +100,7 @@ fn sample_clip<'a>(
 }
 
 /// Evaluate sparse curves before blending and script adjustments.
+#[allow(clippy::too_many_arguments)] // Independent pose, asset and prediction resources.
 pub(super) fn sample(
     state: State,
     art: Res<Art>,
@@ -301,7 +304,10 @@ pub(super) fn blend(
         let animation = actor.animation.as_ref();
         let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
         if key != rig.clip {
-            rig.from = rig.presented.clone();
+            let Rig {
+                from, presented, ..
+            } = &mut *rig;
+            from.clone_from(presented);
             rig.clip = key;
         }
         let weight = animation.map_or(1., |a| {

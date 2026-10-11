@@ -221,7 +221,66 @@ pub(super) struct Quad {
     uv: [f32; 4],
     color: [f32; 4],
 }
+
+pub(super) struct ParticlePair<'a> {
+    pub id: i32,
+    pub current: Option<&'a resonance_events::effect::BillboardEffect>,
+    pub next: Option<&'a resonance_events::effect::BillboardEffect>,
+}
+pub(super) fn particle_pairs<'a>(
+    current: &'a BTreeMap<i32, resonance_events::effect::BillboardEffect>,
+    next: Option<&'a BTreeMap<i32, resonance_events::effect::BillboardEffect>>,
+) -> impl Iterator<Item = ParticlePair<'a>> {
+    let matches = |a: &resonance_events::effect::BillboardEffect,
+                   b: &resonance_events::effect::BillboardEffect| {
+        (a.born, a.recipe, a.texture, a.uv) == (b.born, b.recipe, b.texture, b.uv)
+    };
+    current
+        .iter()
+        .map(move |(&id, p)| ParticlePair {
+            id,
+            current: Some(p),
+            next: next.and_then(|n| n.get(&id)).filter(|n| matches(p, n)),
+        })
+        .chain(
+            next.into_iter()
+                .flat_map(|n| n.iter())
+                .filter_map(move |(&id, p)| {
+                    (!current.get(&id).is_some_and(|c| matches(c, p))).then_some(ParticlePair {
+                        id,
+                        current: None,
+                        next: Some(p),
+                    })
+                }),
+        )
+}
 impl Quad {
+    /// Fade births/deaths as well as surviving particles. Interpolating already
+    /// quantized endpoint vertices preserves native sizes at tick boundaries.
+    pub(super) fn between(current: Option<Self>, next: Option<Self>, alpha: f32) -> Self {
+        match (current, next) {
+            (Some(mut a), Some(b)) => {
+                for (v, to) in a.positions.iter_mut().zip(b.positions) {
+                    *v = Vec3::from_array(*v)
+                        .lerp(Vec3::from_array(to), alpha)
+                        .to_array();
+                }
+                for (c, to) in a.color.iter_mut().zip(b.color) {
+                    *c += (to - *c) * alpha;
+                }
+                a
+            }
+            (Some(mut a), None) => {
+                a.color[3] *= 1. - alpha;
+                a
+            }
+            (None, Some(mut b)) => {
+                b.color[3] *= alpha;
+                b
+            }
+            (None, None) => unreachable!("particle pair contains an endpoint"),
+        }
+    }
     pub(super) fn new(
         center: Vec3,
         rotation: Quat,
@@ -298,6 +357,7 @@ pub(super) fn effect_rotation(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render(
+    mut prediction: Option<ResMut<crate::field_view::Prediction>>,
     mut commands: Commands,
     state: State,
     mut art: ResMut<Artwork>,
@@ -327,29 +387,69 @@ pub(super) fn render(
         }
         return;
     }
-    let camera = super::field_view::camera_transform(camera);
+    let future_emotes = prediction.as_deref_mut().and_then(|p| {
+        p.scratch(|n, alpha| {
+            let next = &n.events.world;
+            let sprites = world
+                .emotes
+                .iter()
+                .filter_map(|(&id, e)| {
+                    let target = next.emotes.get(&id)?;
+                    if (target.actor, target.kind, target.start_tick)
+                        != (e.actor, e.kind, e.start_tick)
+                    {
+                        return None;
+                    }
+                    Some((
+                        id,
+                        (
+                            resonance_events::emote::sprites(
+                                target.kind,
+                                next.tick.saturating_sub(target.start_tick),
+                                target.phase,
+                            ),
+                            target.offset,
+                        ),
+                    ))
+                })
+                .collect::<BTreeMap<_, _>>();
+            (sprites, alpha)
+        })
+    });
+    let camera = prediction.as_ref().map_or_else(
+        || super::field_view::camera_transform(camera),
+        |p| p.camera_transform(camera),
+    );
     let side = Vec3::new(camera.right().x, camera.right().y, 0.).normalize_or_zero();
     let forward = Vec3::Z.cross(side);
     let brightness = world.brightness();
+    let future = prediction
+        .as_ref()
+        .and_then(|p| p.field().map(|f| (&f.events.world, p.alpha)));
     let mut quads = Vec::new();
-    let mut particles: Vec<_> = world.billboards.iter().collect();
-    particles.sort_unstable_by_key(|(_, effect)| effect.draw_order);
+    let mut particles: Vec<_> =
+        particle_pairs(&world.billboards, future.map(|(w, _)| &w.billboards)).collect();
+    particles.sort_unstable_by_key(|p| {
+        (
+            p.current.or(p.next).unwrap().draw_order,
+            p.current.is_none(),
+            p.id,
+        )
+    });
     let mut previous_blend = Blend::Additive;
-    for (&id, effect) in particles {
-        if world.tick < effect.born {
+    for pair in particles {
+        let effect = pair.current.or(pair.next).unwrap();
+        let tick = if pair.current.is_some() {
+            world.tick
+        } else {
+            future.unwrap().0.tick
+        };
+        if tick < effect.born {
             continue;
         }
         let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
             continue;
         };
-        let rotation = effect_rotation(
-            effect.orientation,
-            effect.rotation,
-            effect.rotation_order,
-            camera.rotation,
-        );
-        let rgba = effect.rgba;
-        let rgb = rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
         let mut mode = effect.blend.unwrap_or(if recipe.additive {
             Blend::Additive
         } else {
@@ -367,25 +467,31 @@ pub(super) fn render(
         } else {
             (
                 &art.sprite_materials[&effect.recipe],
-                recipe.uv_at(world.tick.saturating_sub(effect.born) + effect.texture_phase),
+                recipe.uv_at(tick.saturating_sub(effect.born) + effect.texture_phase),
             )
         };
         let layer = materials[mode as usize][usize::from(effect.field_fog)];
-        let quad = Quad::new(
-            Vec3::from_array(effect.position),
-            rotation,
-            effect.size,
-            effect.uv.unwrap_or(uv),
-            [
-                rgb[0],
-                rgb[1],
-                rgb[2],
-                effect.alpha(world.tick).clamp(0., 255.) / 255.,
-            ],
-            effect.anchor,
-        );
+        let endpoint = |p: &resonance_events::effect::BillboardEffect, tick, brightness| {
+            let rgb = p.rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
+            Quad::new(
+                Vec3::from_array(p.position),
+                effect_rotation(p.orientation, p.rotation, p.rotation_order, camera.rotation),
+                p.size,
+                effect.uv.unwrap_or(uv),
+                [rgb[0], rgb[1], rgb[2], p.alpha(tick).clamp(0., 255.) / 255.],
+                p.anchor,
+            )
+        };
+        let current = pair.current.map(|p| endpoint(p, world.tick, brightness));
+        let next = pair.next.map(|p| {
+            let (w, _) = future.unwrap();
+            endpoint(p, w.tick, w.brightness())
+        });
+        let quad = Quad::between(current, next, future.map_or(0., |(_, a)| a));
         quads.push((EFFECTS, layer, quad));
-        applied.ack(Request::Billboard(id));
+        if pair.current.is_some() {
+            applied.ack(Request::Billboard(pair.id));
+        }
     }
     let roots: BTreeMap<_, _> = actors
         .iter()
@@ -439,21 +545,35 @@ pub(super) fn render(
         else {
             continue;
         };
-        for sprite in sprites.iter() {
+        for (index, sprite) in sprites.iter().enumerate() {
+            let future = future_emotes.as_ref().and_then(|(sprites, a)| {
+                let Request::Emote(id) = request else {
+                    return None;
+                };
+                let (sprites, offset) = sprites.get(&id)?;
+                let next = sprites.get(index)?;
+                (next.uv == sprite.uv).then_some((next, offset, *a))
+            });
             let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
-            let center = (anchor + side * x + forward * y + Vec3::Z * z).trunc();
-            let rotation = Quat::from_rotation_z(sprite.rotation.to_radians());
+            let mut center = (anchor + side * x + forward * y + Vec3::Z * z).trunc();
+            let mut rotation = Quat::from_rotation_z(sprite.rotation.to_radians());
+            let mut size = sprite.size;
+            let mut alpha = f32::from(sprite.alpha) / 255.;
+            if let Some((next, offset, a)) = future {
+                let [x, y, z] = std::array::from_fn(|i| next.offset[i] + offset[i]);
+                center = center.lerp((anchor + side * x + forward * y + Vec3::Z * z).trunc(), a);
+                rotation = rotation.slerp(Quat::from_rotation_z(next.rotation.to_radians()), a);
+                for (i, s) in size.iter_mut().enumerate() {
+                    *s += (next.size[i] - *s) * a;
+                }
+                alpha += (f32::from(next.alpha) / 255. - alpha) * a;
+            }
             let mut quad = Quad::new(
                 Vec3::ZERO,
                 rotation,
-                sprite.size,
+                size,
                 sprite.uv,
-                [
-                    brightness,
-                    brightness,
-                    brightness,
-                    f32::from(sprite.alpha) / 255.,
-                ],
+                [brightness, brightness, brightness, alpha],
                 sprite.vertical_anchor,
             );
             for vertex in &mut quad.positions {

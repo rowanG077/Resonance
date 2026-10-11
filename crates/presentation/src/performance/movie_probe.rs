@@ -28,6 +28,7 @@ pub fn run_movie_probe(root: &Path, output: &Path, stalls: bool) -> Result<()> {
             allow_incomplete_scripts: false,
             record_playthrough: None,
             record_title_ticks: 1000,
+            speculative: false,
         },
         "1920x1080".parse().map_err(anyhow::Error::msg)?,
     )?;

@@ -5,7 +5,7 @@ use crate::sparse_animation::affine::{Helper as TransformHelper, Locals};
 
 #[allow(clippy::type_complexity)] // Snapshot authored world poses before writing local bones.
 pub(super) fn apply(
-    mut state: State,
+    state: State,
     viewer: Res<Viewer>,
     mut rigs: Query<&mut Rig>,
     mut transforms: ParamSet<(TransformHelper, (Query<&mut Transform>, ResMut<Locals>))>,

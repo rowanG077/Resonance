@@ -109,12 +109,7 @@ impl Artwork {
         self.prepared = false;
     }
 
-    pub fn render(
-        &mut self,
-        world: &GameWorld,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<Vec<i32>> {
+    fn sample(&self, world: &GameWorld) -> Result<(Vec<Draw>, Vec<i32>)> {
         ensure!(self.prepared, "field overlays were not prepared");
         let mut draws = Vec::new();
         let mut handled = Vec::new();
@@ -185,6 +180,32 @@ impl Artwork {
                 }
             }
             handled.push(id);
+        }
+        sort(&mut draws);
+        Ok((draws, handled))
+    }
+    pub fn render(
+        &mut self,
+        world: &GameWorld,
+        prediction: Option<&mut crate::field_view::Prediction>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<Vec<i32>> {
+        let (mut draws, handled) = self.sample(world)?;
+        if let Some(prediction) = prediction {
+            let future =
+                prediction.scratch(|p, a| self.sample(&p.events.world).map(|(d, _)| (d, a)));
+            if let Some((future, alpha)) = future.transpose()?
+                && draws.len() == future.len()
+            {
+                for (draw, next) in draws.iter_mut().zip(&future) {
+                    if (draw.instance, draw.resource, draw.texture)
+                        == (next.instance, next.resource, next.texture)
+                    {
+                        draw.batch.interpolate(&next.batch, alpha);
+                    }
+                }
+            }
         }
         // Native positive Z is farther away. Keep authored sprite order at
         // equal depth; resource IDs never affect composition. The UI blend

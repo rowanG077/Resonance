@@ -84,6 +84,7 @@ pub(super) fn app_with_saves(
             boot_frame: None,
             record_playthrough: None,
             record_title_ticks: 0,
+            speculative: false,
         },
         resolution,
     )?;
