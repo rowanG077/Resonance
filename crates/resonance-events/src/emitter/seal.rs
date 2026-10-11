@@ -28,6 +28,7 @@ pub(crate) struct Seal {
     pub size: f32,
     pub spark_size: f32,
     pub spark_lifetime: u32,
+    pub spark_speed: f32,
     pub phase: Phase,
 }
 
@@ -69,10 +70,12 @@ impl Seal {
                 ));
                 // The recurring spark has its own birth sample before color and motion.
                 random(rng);
-                out.push(
-                    self.spark(center, born, STAR_SPRITE, self.spark_lifetime, rng)
-                        .0,
-                );
+                let (mut spark, direction) =
+                    self.spark(center, born, STAR_SPRITE, self.spark_lifetime, rng);
+                spark.velocity = direction;
+                spark.speed = self.spark_speed / 100.;
+                spark.normalize_velocity = true;
+                out.push(spark);
                 if clock.is_multiple_of(IDLE_BURST_INTERVAL) {
                     self.burst(center, born, false, rng, out);
                 }
@@ -122,7 +125,7 @@ impl Seal {
         };
         let mut direction = [1.; 3];
         for axis in [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]] {
-            direction = rotated(direction, axis, random(rng) as f32);
+            direction = rotated(direction, axis, (random(rng) % 360) as f32);
         }
         let mut p = particle(center, born, color, lifetime + 1);
         p.recipe = sprite;
@@ -156,6 +159,13 @@ impl Seal {
             let distance = super::stream::spread(rng, (self.size / 2.) as u32) as f32;
             for i in 0..3 {
                 p.position[i] += direction[i] * distance;
+            }
+            if release {
+                // The release scatters ten times faster than the travelling tail.
+                // Periodic idle bursts only scatter their starting positions.
+                p.velocity = direction;
+                p.speed = self.spark_speed / 10.;
+                p.normalize_velocity = true;
             }
             out.push(p);
         }

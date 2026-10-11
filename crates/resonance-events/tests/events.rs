@@ -1286,6 +1286,67 @@ fn converging_effects_approach_the_center_and_expire() {
 }
 
 #[test]
+fn crystal_sparks_spread_during_travel_and_scatter_faster_on_release() {
+    // HOL_D03's crystal handoff: palette, glow, spark size, lifetime, speed.
+    let setup = script(&[
+        (
+            Call::CreateEffectEmitter,
+            &emitter(49, 0, &[73, 50, 5, 50, 25]),
+        ),
+        (Call::MoveActor, &[500, 200, 0, 0, 2]),
+    ]);
+    let release = script(&[
+        (Call::SetActorProperty, &[500, 33, 1]),
+        (Call::YieldCommand, &[0, 20]),
+        (Call::DespawnActor, &[500]),
+    ]);
+    let mut events = interactive_effect(&setup, &release);
+    steps(&mut events, 5);
+    let (&id, spark) = events
+        .world
+        .billboards
+        .iter()
+        .find(|(_, p)| p.recipe == 7 && p.lifetime == 51)
+        .unwrap();
+    let position = spark.position;
+    let center = events.world.actors[&500].position;
+    let distance = |a: [f32; 3], b: [f32; 3]| {
+        a.into_iter()
+            .zip(b)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    };
+    steps(&mut events, 10);
+    assert!((distance(events.world.billboards[&id].position, position) - 2.5).abs() < 0.001);
+    assert!(distance(events.world.actors[&500].position, center) > 10.);
+
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 2);
+    let born = events
+        .world
+        .billboards
+        .values()
+        .filter(|p| matches!(p.recipe, 7 | 69))
+        .map(|p| p.born)
+        .max()
+        .unwrap();
+    let burst: Vec<_> = events
+        .world
+        .billboards
+        .iter()
+        .filter(|(_, p)| p.born == born && matches!(p.recipe, 7 | 69))
+        .map(|(&id, p)| (id, p.position))
+        .collect();
+    assert_eq!(burst.len(), 250);
+    steps(&mut events, 10);
+    for (id, position) in burst {
+        assert!((distance(events.world.billboards[&id].position, position) - 25.).abs() < 0.001);
+    }
+    finish_effects(&mut events);
+}
+
+#[test]
 fn seal_blessing_descends_then_releases_an_expanding_sphere() {
     let mut args = emitter(31, -2, &[35, 20, 300, 1, 1, 50, 50, 255, -15, 20]);
     args[1..4].copy_from_slice(&[200, 300, 100]);
