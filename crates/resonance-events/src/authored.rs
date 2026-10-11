@@ -24,13 +24,14 @@ const fn variant(
 
 const RETAINED_TASK_LIMIT: usize = 256;
 
+#[derive(Clone)]
 struct Child {
     parent: i32,
     result: Option<Vec<i32>>,
 }
 
 /// Ownership/results only: execution remains in EventRuntime's existing slot loop.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Tasks {
     children: BTreeMap<i32, Child>,
     released: BTreeSet<i32>,

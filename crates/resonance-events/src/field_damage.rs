@@ -14,7 +14,7 @@ struct Number {
     born: u32,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DamageNumbers([Option<Number>; CAPACITY]);
 
 #[derive(Debug, PartialEq)]

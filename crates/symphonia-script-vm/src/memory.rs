@@ -3,6 +3,7 @@ use symphonia_script::Width;
 
 /// Script-addressed state, shared explicitly by the scheduler. This is the
 /// script data region. Native objects use handles.
+#[derive(Clone)]
 pub struct Memory(Box<[u8; 65536]>);
 impl Default for Memory {
     fn default() -> Self {

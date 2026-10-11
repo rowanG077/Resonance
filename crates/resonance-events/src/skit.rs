@@ -5,7 +5,7 @@ use resonance_content::skit::{
 };
 use std::collections::BTreeMap;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Scene {
     pub portraits: BTreeMap<u8, Portrait>,
     pub subtitle: String,
@@ -20,7 +20,7 @@ pub struct Request {
     pub preview: bool,
     pub operation: crate::Operation,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Media {
     pub id: u32,
     pub started: u32,
@@ -39,6 +39,7 @@ impl Media {
         (self.samples(tick) * 100 / u64::from(self.sample_rate)) as u32
     }
 }
+#[derive(Clone)]
 pub struct Portrait {
     pub id: i32,
     pub resource: u32,

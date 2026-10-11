@@ -42,9 +42,20 @@ const EARTHQUAKE_COLUMN_TICKS: u32 = 20;
 const QUAKE_TICKS: u32 = 120;
 const QUAKE_FADE_TICKS: u32 = 40;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Controller {
     casts: Vec<Cast>,
+}
+
+impl Controller {
+    pub(crate) fn fork(&self, fork: &mut crate::OperationFork) -> Self {
+        let mut result = self.clone();
+        for cast in &mut result.casts {
+            cast.operation = fork.fork(&cast.operation);
+            cast.callbacks = cast.callbacks.iter().map(|op| fork.fork(op)).collect();
+        }
+        result
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -94,6 +105,7 @@ impl Phase {
     }
 }
 
+#[derive(Clone)]
 struct Cast {
     ability: Ability,
     actor: i32,
@@ -108,6 +120,7 @@ struct Cast {
     callbacks: Vec<Operation>,
 }
 
+#[derive(Clone)]
 struct Pose {
     previous: Option<Animation>,
     scripted: bool,

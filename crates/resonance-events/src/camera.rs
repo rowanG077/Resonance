@@ -20,6 +20,7 @@ pub struct Fog {
     pub color: [u8; 3],
 }
 
+#[derive(Clone)]
 pub(crate) struct FogEffect {
     pub fog: Fog,
     pub operation: crate::Operation,
