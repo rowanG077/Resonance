@@ -1529,7 +1529,11 @@ impl NativeHost<'_> {
                 let id = if a[0] == 0 {
                     self.world.unaddressable_actor_key()?
                 } else {
-                    a[0]
+                    let key = self.world.scene_actor_key(a[0])?;
+                    if key != a[0] {
+                        self.world.duplicate_actors.insert(key, a[0]);
+                    }
+                    key
                 };
                 self.world.insert_actor(id, actor);
             }

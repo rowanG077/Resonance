@@ -6,11 +6,14 @@ use bevy::{
         visibility::{NoFrustumCulling, RenderLayers},
     },
     core_pipeline::{core_2d::Transparent2d, core_3d::Transparent3d, tonemapping::Tonemapping},
+    mesh::{BaseMeshPipelineKey, MeshVertexBufferLayoutRef, MeshVertexBufferLayouts},
     prelude::*,
     render::{
+        render_asset::RenderAssets,
         render_phase::ViewSortedRenderPhases,
         render_resource::{CachedPipelineState, CachedRenderPipelineId, TextureFormat},
         sync_world::MainEntity,
+        texture::GpuImage,
     },
     world_serialization::WorldInstanceReady,
 };
@@ -43,6 +46,7 @@ pub(super) struct Shared(Arc<Mutex<Report>>);
 struct Report {
     map: Option<u32>,
     expected: HashSet<MainEntity>,
+    images: HashSet<AssetId<Image>>,
     pipelines: HashSet<CachedRenderPipelineId>,
     armed: bool,
     submitted: bool,
@@ -61,19 +65,50 @@ struct Preparation {
     converted: usize,
     started: Instant,
     effects_copied: bool,
-    retained: Vec<Handle<TitleSurface>>,
+    retained: Bindings,
 }
 #[derive(Resource)]
 struct PreparedMaterials {
-    surfaces: HashMap<u32, Vec<Handle<TitleSurface>>>,
+    fields: HashMap<u32, Bindings>,
     sampler_misses: u64,
+}
+#[derive(Clone, Default)]
+struct Bindings {
+    surfaces: Vec<Handle<TitleSurface>>,
+    // The sampler cache holds weak handles. Hidden actors still need their
+    // sampled images retained even when another model warms their pipeline.
+    images: HashSet<Handle<Image>>,
 }
 #[derive(Component)]
 struct Scene {
-    materials: Vec<Handle<TitleSurface>>,
+    materials: Vec<Option<Handle<TitleSurface>>>,
     loaded: bool,
     converted: bool,
     draws: Vec<MainEntity>,
+}
+
+/// Pipeline specialization depends on mesh layout and material features, not
+/// the model, texture identity or number of instances using them.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct MeshKey {
+    bits: u64,
+    layout: MeshVertexBufferLayoutRef,
+}
+impl MeshKey {
+    fn new(mesh: &Mesh, layouts: &mut MeshVertexBufferLayouts) -> Self {
+        let bits = BaseMeshPipelineKey::from_primitive_topology_and_strip_index(
+            mesh.primitive_topology(),
+            mesh.indices().map(|indices| match indices {
+                bevy::mesh::Indices::U16(_) => bevy::render::render_resource::IndexFormat::Uint16,
+                bevy::mesh::Indices::U32(_) => bevy::render::render_resource::IndexFormat::Uint32,
+            }),
+        );
+        // Morph targets are disabled in the renderer's Bevy feature set.
+        Self {
+            bits: bits.bits(),
+            layout: mesh.get_mesh_vertex_buffer_layout(layouts),
+        }
+    }
 }
 
 pub(super) fn install(app: &mut App) {
@@ -138,6 +173,8 @@ fn begin(
     ui: Option<Res<super::field_ui::Artwork>>,
     session: Option<Res<super::new_game::Session>>,
     backdrop: Query<Entity, With<super::menu_backdrop::Quad>>,
+    scenes: Res<Assets<WorldAsset>>,
+    meshes: Res<Assets<Mesh>>,
 ) {
     let Some(art) = art.filter(|a| a.ready) else {
         return;
@@ -224,9 +261,47 @@ fn begin(
         entities.push(entity);
     }
     let mut roots = Vec::new();
-    let mut retained = Vec::new();
+    let mut retained = Bindings::default();
+    let mut layouts = MeshVertexBufferLayouts::default();
+    let mut prepared = HashSet::new();
     for (&resource, parts) in &art.models {
         for (index, part) in parts.iter().enumerate() {
+            let scene = scenes.get(&part.scene).expect("prepared field scene");
+            let mut geometry = vec![Vec::new(); part.spec.materials.len()];
+            if let Some(mut query) = scene
+                .world
+                .try_query::<(&Mesh3d, &super::materials::MaterialSlot)>()
+            {
+                for (mesh, slot) in query.iter(&scene.world) {
+                    let slot = slot.index(geometry.len()).expect("validated material slot");
+                    geometry[slot].push(MeshKey::new(
+                        meshes.get(&mesh.0).expect("prepared field mesh"),
+                        &mut layouts,
+                    ));
+                }
+            }
+            // Resolve every sampler once, including those needed by hidden
+            // actors. GPU warmup only needs representatives of distinct keys.
+            let actor_surfaces: Vec<_> = art
+                .surfaces(resource, index, &mut images, &mut sampled)
+                .collect();
+            let particle_surfaces = part.surfaces(&mut images, &mut sampled);
+            retained
+                .images
+                .extend(
+                    actor_surfaces
+                        .iter()
+                        .chain(&particle_surfaces)
+                        .flat_map(|surface| {
+                            surface
+                                .color
+                                .iter()
+                                .chain(&surface.sampling)
+                                .chain(&surface.multiply)
+                                .chain(&surface.toon_ramp)
+                                .cloned()
+                        }),
+                );
             // Scripts may draw any loaded model as an actor or a model particle.
             // Warm every blend/depth key, including currently hidden geometry.
             use resonance_events::effect::Blend;
@@ -261,13 +336,12 @@ fn begin(
                 )
             {
                 let source = match variant {
-                    MaterialVariant::Actor { .. } => art
-                        .surfaces(resource, index, &mut images, &mut sampled)
-                        .collect(),
-                    MaterialVariant::Override { .. } => part.surfaces(&mut images, &mut sampled),
+                    MaterialVariant::Actor { .. } => &actor_surfaces,
+                    MaterialVariant::Override { .. } => &particle_surfaces,
                 };
-                let materials = source
-                    .into_iter()
+                let materials: Vec<_> = source
+                    .iter()
+                    .cloned()
                     .enumerate()
                     .map(|(material, mut surface)| {
                         match variant {
@@ -296,11 +370,22 @@ fn begin(
                                 surface.depth_write = depth_write;
                             }
                         }
+                        let key = super::materials::SurfaceKey::from(&surface);
+                        let mut needed = false;
+                        for mesh in &geometry[material] {
+                            needed |= prepared.insert((mesh.clone(), key));
+                        }
+                        if !needed {
+                            return None;
+                        }
                         let handle = surfaces.add(surface);
-                        retained.push(handle.clone());
-                        handle
+                        retained.surfaces.push(handle.clone());
+                        Some(handle)
                     })
                     .collect();
+                if materials.iter().all(Option::is_none) {
+                    continue;
+                }
                 let root = commands
                     .spawn((
                         WorldAssetRoot(part.scene.clone()),
@@ -341,6 +426,7 @@ fn begin(
             }
         }
     }
+    report.images = retained.images.iter().map(Handle::id).collect();
     *shared.0.lock().unwrap() = report;
     let scene_count = roots.len();
     info!(
@@ -390,9 +476,13 @@ fn convert(
                         continue;
                     }
                 };
+                let Some(material) = &scene.materials[index] else {
+                    commands.entity(child).insert(Visibility::Hidden);
+                    continue;
+                };
                 commands
                     .entity(child)
-                    .insert(MeshMaterial3d(scene.materials[index].clone()));
+                    .insert(MeshMaterial3d(material.clone()));
                 report.expected.insert(child.into());
                 scene.draws.push(child.into());
             }
@@ -500,12 +590,12 @@ fn complete(
         resident.active.store(true, Ordering::Release);
         if let Some(mut retained) = retained {
             retained
-                .surfaces
+                .fields
                 .insert(preparation.map, preparation.retained.clone());
             retained.sampler_misses = sampled.misses;
         } else {
             commands.insert_resource(PreparedMaterials {
-                surfaces: [(preparation.map, preparation.retained.clone())].into(),
+                fields: [(preparation.map, preparation.retained.clone())].into(),
                 sampler_misses: sampled.misses,
             });
         }
@@ -550,6 +640,7 @@ fn guard(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Warm draws, pipelines, image uploads and GPU completion.
 fn rendered(
     shared: Res<Shared>,
     resident: Res<Resident>,
@@ -558,6 +649,7 @@ fn rendered(
     phases2: Res<ViewSortedRenderPhases<Transparent2d>>,
     queue: Res<bevy::render::renderer::RenderQueue>,
     device: Res<bevy::render::renderer::RenderDevice>,
+    images: Res<RenderAssets<GpuImage>>,
 ) {
     let mut report = shared.0.lock().unwrap();
     // The overworld also uses Resident, but never starts this field-only GPU
@@ -624,7 +716,13 @@ fn rendered(
         report.failure = Some(format!("render pipeline failed: {:?}", pipeline.state));
         return;
     }
-    if !report.expected.is_empty() && seen == report.expected {
+    if !report.expected.is_empty()
+        && seen == report.expected
+        && report
+            .images
+            .iter()
+            .all(|image| images.get(*image).is_some())
+    {
         report.prepared_pipeline_count = count;
         report.submitted = true;
         let done = report.completed.clone();
@@ -647,4 +745,134 @@ pub(super) fn draws<'a>(
             .flat_map(|p| p.items.values())
             .map(|p| (p.entity.1, p.pipeline));
     models.chain(ui)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::{asset::RenderAssetUsages, ecs::system::RunSystemOnce, mesh::PrimitiveTopology};
+
+    #[test]
+    fn warm_keys_share_geometry_but_preserve_pipeline_features() {
+        let mut layouts = MeshVertexBufferLayouts::default();
+        let mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.; 3]; 3]);
+        let moved = mesh
+            .clone()
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[10.; 3]; 3]);
+        let skin = mesh
+            .clone()
+            .with_inserted_attribute(
+                Mesh::ATTRIBUTE_JOINT_INDEX,
+                bevy::mesh::VertexAttributeValues::Uint16x4(vec![[0; 4]; 3]),
+            )
+            .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, vec![[1., 0., 0., 0.]; 3]);
+        let strip = Mesh::new(
+            PrimitiveTopology::TriangleStrip,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.; 3]; 3]);
+        let strip16 = strip
+            .clone()
+            .with_inserted_indices(bevy::mesh::Indices::U16(vec![0, 1, 2]));
+        let strip32 = strip.with_inserted_indices(bevy::mesh::Indices::U32(vec![0, 1, 2]));
+        let key = MeshKey::new(&mesh, &mut layouts);
+        assert!(key == MeshKey::new(&moved, &mut layouts));
+        assert!(key != MeshKey::new(&skin, &mut layouts));
+        assert!(key != MeshKey::new(&strip16, &mut layouts));
+        assert!(MeshKey::new(&strip16, &mut layouts) != MeshKey::new(&strip32, &mut layouts));
+
+        let surface = TitleSurface::default();
+        let mut keys = HashSet::new();
+        keys.insert((
+            key.clone(),
+            super::super::materials::SurfaceKey::from(&surface),
+        ));
+        let mut tinted = surface.clone();
+        tinted.tint = Vec4::ZERO;
+        assert!(!keys.insert((
+            key.clone(),
+            super::super::materials::SurfaceKey::from(&tinted)
+        )));
+        for variant in [
+            TitleSurface {
+                depth_write: false,
+                ..surface.clone()
+            },
+            TitleSurface {
+                blend: Some(resonance_events::effect::Blend::Alpha),
+                ..surface.clone()
+            },
+            TitleSurface {
+                cull: resonance_content::CullFace::None,
+                ..surface.clone()
+            },
+            TitleSurface {
+                toon_ramp: Some(Handle::default()),
+                ..surface
+            },
+        ] {
+            assert!(keys.insert((
+                key.clone(),
+                super::super::materials::SurfaceKey::from(&variant)
+            )));
+        }
+    }
+
+    #[test]
+    fn warm_scene_only_exposes_selected_materials() {
+        let mut world = World::new();
+        let mut surfaces = Assets::<TitleSurface>::default();
+        let surface = surfaces.add(TitleSurface::default());
+        let root = world
+            .spawn(Scene {
+                materials: vec![Some(surface), None],
+                loaded: true,
+                converted: false,
+                draws: Vec::new(),
+            })
+            .id();
+        let selected = world
+            .spawn((super::super::materials::MaterialSlot(0), ChildOf(root)))
+            .id();
+        let duplicate = world
+            .spawn((super::super::materials::MaterialSlot(1), ChildOf(root)))
+            .id();
+        world.insert_resource(Shared::default());
+        world.insert_resource(Preparation {
+            map: 340,
+            roots: vec![root],
+            entities: Vec::new(),
+            scene_count: 1,
+            converted: 0,
+            started: Instant::now(),
+            effects_copied: false,
+            retained: Bindings::default(),
+        });
+        world.run_system_once(convert).unwrap();
+        assert_eq!(
+            world.get::<Visibility>(selected),
+            Some(&Visibility::Inherited)
+        );
+        assert_eq!(
+            world.get::<Visibility>(duplicate),
+            Some(&Visibility::Hidden)
+        );
+        assert!(
+            world
+                .get::<MeshMaterial3d<TitleSurface>>(selected)
+                .is_some()
+        );
+        assert!(
+            world
+                .get::<MeshMaterial3d<TitleSurface>>(duplicate)
+                .is_none()
+        );
+        let report = world.resource::<Shared>().0.lock().unwrap();
+        assert_eq!(report.expected, HashSet::from([selected.into()]));
+        assert_eq!(world.resource::<Preparation>().converted, 1);
+    }
 }
