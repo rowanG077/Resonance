@@ -2041,10 +2041,21 @@ fn pose(
         let brightness = future.map_or(world.brightness(), |(s, _, a)| {
             world.brightness() + (s.events.world.brightness() - world.brightness()) * a
         });
-        let wing_layer = actor
-            .wings
-            .as_ref()
-            .map(|w| w.layer(instance.pass, world.effect_tick));
+        let wing_layer = actor.wings.as_ref().map(|w| {
+            let mut layer = w.layer(instance.pass, world.effect_tick);
+            if let Some((s, _, alpha)) = future {
+                // Keep the committed wing style, but follow the predicted effect
+                // clock so scrolling stays smooth through its 128-tick wrap.
+                let next = w.layer(instance.pass, s.events.world.effect_tick);
+                layer.uv_offset = prediction::uv_offsets(
+                    Vec4::splat(layer.uv_offset),
+                    Vec4::splat(next.uv_offset),
+                    alpha,
+                )
+                .x;
+            }
+            layer
+        });
         let wing_echo = wing_layer.as_ref().and_then(|layer| layer.echo);
         let echo_color = wing_echo.map(|echo| echo.rgba(tick));
         let reaction_tint = world
