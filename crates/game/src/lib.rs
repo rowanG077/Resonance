@@ -24,6 +24,7 @@ pub struct MenuInput {
 pub enum TitleAction {
     NewGame,
     Load,
+    Customize,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -95,6 +96,7 @@ impl TitleState {
             match self.selected {
                 0 => Some(TitleAction::NewGame),
                 1 => Some(TitleAction::Load),
+                2 => Some(TitleAction::Customize),
                 _ => None,
             }
         } else {
@@ -142,7 +144,7 @@ mod tests {
         assert_eq!(title.step(accept), Some(TitleAction::NewGame));
         title.selected = 1;
         assert_eq!(title.step(accept), Some(TitleAction::Load));
-        title.selected = 2;
+        title.selected = 3;
         assert_eq!(title.step(accept), None);
     }
     #[test]

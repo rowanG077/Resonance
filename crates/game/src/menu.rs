@@ -369,6 +369,10 @@ impl Menu {
         *fade != 0
     }
     fn return_to_main(&mut self) {
+        if self.direct {
+            self.closed = true;
+            return;
+        }
         self.page = Page::Main;
         self.clamp_party_view();
         self.returning = true;

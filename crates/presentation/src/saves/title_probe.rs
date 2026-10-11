@@ -120,7 +120,7 @@ impl Probe {
                 self.press(world, KeyCode::Escape);
             }
             4 => {
-                if world.contains_resource::<title::LoadMenu>() {
+                if world.contains_resource::<title::TitleMenu>() {
                     return Ok(());
                 }
                 ensure!(
@@ -145,13 +145,13 @@ impl Probe {
                 self.press(world, KeyCode::Enter);
             }
             8 => {
-                if world.resource::<title::LoadMenu>().0.confirmation != Some(true) {
+                if world.resource::<title::TitleMenu>().0.confirmation != Some(true) {
                     return Ok(());
                 }
                 self.capture(world, "title-load-confirm");
             }
             9 => {
-                if world.resource::<title::LoadMenu>().0.confirmation != Some(true) {
+                if world.resource::<title::TitleMenu>().0.confirmation != Some(true) {
                     return Ok(());
                 }
                 self.press(world, KeyCode::Enter);
@@ -172,7 +172,7 @@ impl Probe {
                     "title load changed progress, party or pose"
                 );
                 ensure!(
-                    !world.contains_resource::<title::LoadMenu>(),
+                    !world.contains_resource::<title::TitleMenu>(),
                     "load menu survived field activation"
                 );
                 let late = world
@@ -262,12 +262,15 @@ impl Probe {
     }
 }
 fn ready(world: &World, focus: SlotFocus) -> bool {
-    world.get_resource::<title::LoadMenu>().is_some_and(|menu| {
-        !menu.0.busy
-            && menu.0.tick >= 20
-            && menu.0.page == Page::Slots(Mode::Load)
-            && menu.0.focus == focus
-    }) && world
-        .get_resource::<crate::field_ui::MenuOverlay>()
-        .is_some_and(|art| art.ready(world.resource::<Assets<Image>>()))
+    world
+        .get_resource::<title::TitleMenu>()
+        .is_some_and(|menu| {
+            !menu.0.busy
+                && menu.0.tick >= 20
+                && menu.0.page == Page::Slots(Mode::Load)
+                && menu.0.focus == focus
+        })
+        && world
+            .get_resource::<crate::field_ui::MenuOverlay>()
+            .is_some_and(|art| art.ready(world.resource::<Assets<Image>>()))
 }

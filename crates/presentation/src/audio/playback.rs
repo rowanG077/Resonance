@@ -12,7 +12,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
     time::Duration,
@@ -58,16 +58,20 @@ impl PlaybackAssets {
     pub fn session(self, full_intro: bool) -> (GameAudio, SoundControl) {
         let (send, receive) = mpsc::sync_channel(64);
         let rendered = Arc::new(AtomicU64::new(0));
+        // Publish music/effects levels and stereo together for each synthesis block.
+        let settings = Arc::new(AtomicU32::new(0x1_7f7f));
         let control = SoundControl {
             cues: self.cues.clone(),
             send,
             rendered: rendered.clone(),
+            settings: settings.clone(),
         };
         let audio = GameAudio {
             music: self.music.map(|music| music.entry(full_intro)),
             cues: self.cues,
             requests: Arc::new(Mutex::new(Some(receive))),
             rendered,
+            settings,
             master_lead_ms: if full_intro { 1200 } else { 1185 },
         };
         (audio, control)
@@ -79,9 +83,19 @@ pub(crate) struct SoundControl {
     cues: Option<Arc<Loaded>>,
     send: SyncSender<Arc<Cue>>,
     rendered: Arc<AtomicU64>,
+    settings: Arc<AtomicU32>,
 }
 
 impl SoundControl {
+    pub fn settings(&self, music: u8, effects: u8, stereo: bool) {
+        self.settings.store(
+            u32::from(music.min(127))
+                | (u32::from(effects.min(127)) << 8)
+                | (u32::from(stereo) << 16),
+            Ordering::Relaxed,
+        );
+    }
+
     pub fn play(&self, name: &str) -> Result<()> {
         let bank = self.cues.as_ref().context("missing cooked cue package")?;
         let cue = bank
@@ -104,6 +118,7 @@ pub(crate) struct GameAudio {
     cues: Option<Arc<Loaded>>,
     requests: Arc<Mutex<Option<Receiver<Arc<Cue>>>>>,
     rendered: Arc<AtomicU64>,
+    settings: Arc<AtomicU32>,
     master_lead_ms: u16,
 }
 
@@ -113,6 +128,8 @@ pub(crate) struct GameFrames {
     cue_fade: Option<resonance_audio::volume::Fade>,
     requests: Option<Receiver<Arc<Cue>>>,
     rendered: Arc<AtomicU64>,
+    settings: Arc<AtomicU32>,
+    stereo: bool,
     frame: u64,
     channel: usize,
     samples: [f32; 2],
@@ -142,6 +159,8 @@ impl GameFrames {
                 .transpose()?,
             requests: Some(requests),
             rendered: audio.rendered.clone(),
+            settings: audio.settings.clone(),
+            stereo: true,
             frame: 0,
             channel: 0,
             samples: [0.; 2],
@@ -160,10 +179,18 @@ impl GameFrames {
 
     fn next_frame(&mut self) -> Result<Option<[f32; 2]>> {
         if self.frame.is_multiple_of(160) {
+            let settings = self.settings.load(Ordering::Relaxed);
+            let music_level = (settings & 0xff) as f32 / 127.;
+            let effects_level = ((settings >> 8) & 0xff) as f32 / 127.;
+            self.stereo = settings & 0x1_0000 != 0;
+            if let Some(music) = &mut self.music {
+                music.level = music_level;
+                music.mono = !self.stereo;
+            }
             if let Some(fade) = &mut self.cue_fade {
                 // Schedule cue controls at block start, then advance the group fade.
                 if let Some(studio) = &mut self.studio {
-                    studio.set_group_volume(fade.value())?;
+                    studio.set_group_volume(fade.value() * effects_level)?;
                 }
                 fade.advance_block();
             }
@@ -187,6 +214,9 @@ impl GameFrames {
             for (output, value) in output.iter_mut().zip(studio.next_frame()) {
                 *output += f32::from(value) / 32768.0;
             }
+        }
+        if !self.stereo {
+            output = [(output[0] + output[1]) * 0.5; 2];
         }
         Ok(Some(output))
     }
@@ -245,6 +275,7 @@ impl Decodable for GameAudio {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn cue_requests_follow_source_blocks_and_stop_with_the_consumer() {
         let bank = Loaded {

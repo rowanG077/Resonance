@@ -567,7 +567,11 @@ pub(super) fn enter(world: &mut World) {
 }
 
 /// A fully validated candidate can replace the title only after preparation succeeds.
-pub(super) fn activate(world: &mut World, session: Session) {
+pub(super) fn activate(world: &mut World, mut session: Session) {
+    if let Some(preferences) = world.get_resource::<super::config::Preferences>() {
+        let new_game = !session.movie_started && session.story_movie.is_some();
+        preferences.apply(&mut session, new_game);
+    }
     super::saves::title::retire(world);
     super::session_screen::retire(world);
     let files = session.files();
