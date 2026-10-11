@@ -114,14 +114,9 @@ pub(super) fn outlines(
         .iter()
         .filter(|(part, _)| part.part == 0 && part.prepared)
         .map(|(part, rig)| {
-            let matrices = (0..)
-                .map_while(|i| rig.bone_at(i))
-                .map(|bone| {
-                    helper
-                        .compute_global_transform(bone)
-                        .expect("prepared bone")
-                })
-                .collect();
+            let matrices = helper
+                .compute_global_transforms((0..).map_while(|i| rig.bone_at(i)))
+                .expect("prepared bones");
             (part.actor, matrices)
         })
         .collect();
