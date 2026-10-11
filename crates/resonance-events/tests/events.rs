@@ -3368,6 +3368,50 @@ fn loaded_motion_and_party_model_keep_their_own_resource_namespaces() {
 }
 
 #[test]
+fn duplicate_spawns_keep_the_first_script_binding_until_despawn() {
+    for id in [80, 90025] {
+        let resources = ResourceLibrary {
+            bindings: [(1, (ResourceKind::Model, 1)), (2, (ResourceKind::Model, 2))].into(),
+            models: [(1, model([12], 20)), (2, model([12], 30))].into(),
+            ..Default::default()
+        };
+        let setup = script(&[
+            (Call::SpawnActor, &[id, 10, 20, 30, 0, 1, 0, 0]),
+            (Call::SpawnActor, &[id, 40, 50, 60, 0, 2, 0, 0]),
+            (Call::SetActorPosition, &[id, 100, 200, 300]),
+        ]);
+        let replace = script(&[
+            (Call::DespawnActor, &[id]),
+            (Call::SpawnActor, &[id, 70, 80, 90, 0, 2, 0, 0]),
+            (Call::SetActorPosition, &[id, 400, 500, 600]),
+        ]);
+        let mut events = runtime(program(&setup, &replace), resources, controlled_world());
+        let first = &events.world.actors[&id];
+        assert_eq!(first.resource, 1);
+        assert_eq!(first.position, [100., 200., 300.]);
+        let instance = first.instance;
+        let duplicate = events
+            .world
+            .actors
+            .iter()
+            .find(|(key, _)| **key != id)
+            .unwrap()
+            .1;
+        assert_eq!(duplicate.resource, 2);
+        assert_eq!(duplicate.position, [40., 50., 60.]);
+        assert_ne!(instance, duplicate.instance);
+        assert_eq!(events.world.actors.len(), 2);
+        assert!(events.trigger(42, true).unwrap());
+        steps(&mut events, 2);
+        assert_eq!(events.world.actors.len(), 1);
+        let replacement = &events.world.actors[&id];
+        assert_eq!(replacement.resource, 2);
+        assert_eq!(replacement.position, [400., 500., 600.]);
+        assert_ne!(replacement.instance, instance);
+    }
+}
+
+#[test]
 fn zero_id_spawns_keep_independent_models_but_cannot_be_addressed() {
     let resources = ResourceLibrary {
         bindings: [(1, (ResourceKind::Model, 1))].into(),
