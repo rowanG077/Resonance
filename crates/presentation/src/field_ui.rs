@@ -573,9 +573,7 @@ impl Artwork {
             world,
             dialogue,
             &session.events.world,
-            prediction
-                .as_ref()
-                .and_then(|p| p.field().map(|f| (f.dialogue_scene().1, p.alpha))),
+            prediction.as_deref(),
             presentation_tick,
             heads,
             commands,
@@ -589,13 +587,20 @@ impl Artwork {
         world: &resonance_events::GameWorld,
         dialogue: &BTreeMap<u8, DialoguePlayer>,
         camera_world: &resonance_events::GameWorld,
-        future: Option<(&BTreeMap<u8, DialoguePlayer>, f32)>,
+        prediction: Option<&crate::field_view::Prediction>,
         presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
+        let future = prediction.and_then(|p| {
+            let dialogue = p
+                .field()
+                .map(|f| f.dialogue_scene().1)
+                .or_else(|| p.world()?.session.active_skit.as_ref().map(|s| &s.dialogue))?;
+            Some((dialogue, p.alpha))
+        });
         let mut used = std::collections::BTreeSet::new();
         self.head_heights.retain(|operation, _| {
             world
@@ -626,38 +631,76 @@ impl Artwork {
             else {
                 continue;
             };
-            let (rect, pointer) = layout(
+            let head_height = self
+                .head_heights
+                .get(&request.operation.id())
+                .copied()
+                .unwrap_or(170.);
+            let (rect, mut pointer) = layout(
                 &self.font,
                 request,
                 player,
                 camera_world,
                 &self.attached_positions,
-                self.head_heights
-                    .get(&request.operation.id())
-                    .copied()
-                    .unwrap_or(170.),
+                head_height,
                 self.resolution,
             )?;
-            let opening = player.opening_fraction().map(|value| {
-                future
-                    .and_then(|(players, a)| {
-                        let next = players
-                            .get(&slot)
-                            .filter(|p| p.operation.id() == player.operation.id())?;
-                        Some(value + (next.opening_fraction().unwrap_or(1.) - value) * a)
-                    })
-                    .unwrap_or(value)
-            });
-            let rect = opening.map_or(rect, |fraction| {
-                expanding_rect(
-                    rect,
-                    pointer.unwrap_or([
-                        rect[0] + ((rect[2] - rect[0]) / 2.).trunc(),
-                        rect[1] + ((rect[3] - rect[1]) / 2.).trunc(),
-                    ]),
-                    fraction,
-                )
-            });
+            let opening = player.opening_fraction();
+            let expand = |rect: [f32; 4], pointer: Option<[f32; 2]>, fraction: Option<f32>| {
+                fraction.map_or(rect, |fraction| {
+                    expanding_rect(
+                        rect,
+                        pointer.unwrap_or([
+                            rect[0] + ((rect[2] - rect[0]) / 2.).trunc(),
+                            rect[1] + ((rect[3] - rect[1]) / 2.).trunc(),
+                        ]),
+                        fraction,
+                    )
+                })
+            };
+            let mut rect = expand(rect, pointer, opening);
+            if let Some(p) = prediction
+                && let Some((players, _)) = future
+                && let Some(next) = players
+                    .get(&slot)
+                    .filter(|n| n.operation.id() == player.operation.id() && n.page == player.page)
+            {
+                let next_world = p.field().map_or(camera_world, |f| &f.events.world);
+                let same_camera = camera_world
+                    .field_camera
+                    .as_ref()
+                    .is_none_or(|c| p.camera(c).is_some());
+                let same_actor = request.speaker_actor.is_none_or(|id| {
+                    match (camera_world.actors.get(&id), next_world.actors.get(&id)) {
+                        (Some(a), Some(b)) => crate::field_view::prediction::continuous_actor(a, b),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                });
+                if same_camera && same_actor {
+                    let (target, target_pointer) = layout(
+                        &self.font,
+                        request,
+                        next,
+                        next_world,
+                        &self.attached_positions,
+                        head_height,
+                        self.resolution,
+                    )?;
+                    // Switching sides of the speaker is a discrete layout change.
+                    if box_above_speaker(request.flags, pointer)
+                        == box_above_speaker(request.flags, target_pointer)
+                    {
+                        let target = expand(target, target_pointer, next.opening_fraction());
+                        rect = std::array::from_fn(|i| rect[i] + (target[i] - rect[i]) * p.alpha);
+                        pointer = pointer.map(|from| {
+                            target_pointer.map_or(from, |to| {
+                                std::array::from_fn(|i| from[i] + (to[i] - from[i]) * p.alpha)
+                            })
+                        });
+                    }
+                }
+            }
             let mut batches: [Batch; layer::TEXTURES.len()] =
                 std::array::from_fn(|_| Batch::default());
             let mut highlight = Batch::default();
@@ -859,7 +902,14 @@ impl Artwork {
             {
                 // The continue marker’s pulse follows scene age, not window age.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
-                let phase = (presentation_tick % 90) as f32 * 4.0f32.to_radians();
+                let pulse = |tick| {
+                    let phase = (tick % 90) as f32 * 4.0f32.to_radians();
+                    (phase.sin().abs() * 255.).trunc() / 255.
+                };
+                let opacity = pulse(presentation_tick);
+                let opacity = future.map_or(opacity, |(_, a)| {
+                    opacity + (pulse(presentation_tick.wrapping_add(1)) - opacity) * a
+                });
                 batches[layer::FRAME].quad(
                     [rect[2] - 28., bottom, rect[2] - 4., bottom + 24.],
                     if preferences.is_some_and(|s| s.window == 2) {
@@ -867,7 +917,7 @@ impl Artwork {
                     } else {
                         [224., 120., 248., 144.]
                     },
-                    [1., 1., 1., (phase.sin().abs() * 255.).trunc() / 255.],
+                    [1., 1., 1., opacity],
                 );
             }
             for (index, mut batch) in batches.into_iter().enumerate() {

@@ -67,7 +67,7 @@ impl Artwork {
     pub fn render(
         &mut self,
         session: &resonance_game::overworld::Session,
-        prediction: Option<&mut crate::field_view::Prediction>,
+        mut prediction: Option<&mut crate::field_view::Prediction>,
         text: &resonance_content::session::GameText,
         resolution: crate::Resolution,
         commands: &mut Commands,
@@ -193,8 +193,12 @@ impl Artwork {
             }
             None => None,
         };
-        self.common
-            .render_world_notifications(session, commands, meshes)?;
+        self.common.render_world_notifications(
+            session,
+            prediction.as_deref_mut(),
+            commands,
+            meshes,
+        )?;
         if !batch.indices.is_empty() {
             self.layer.update_mesh(
                 batch.clone(),
@@ -230,13 +234,7 @@ impl Artwork {
             world,
             dialogue,
             world,
-            prediction.as_ref().and_then(|p| {
-                p.world()?
-                    .session
-                    .active_skit
-                    .as_ref()
-                    .map(|s| (&s.dialogue, p.alpha))
-            }),
+            prediction.as_deref(),
             session
                 .active_skit
                 .as_ref()

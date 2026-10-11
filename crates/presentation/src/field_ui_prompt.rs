@@ -132,12 +132,10 @@ impl Artwork {
         }
         self.upload_prompts(batches, commands, meshes)
     }
-    pub(super) fn render_world_notifications(
-        &mut self,
+    fn sample_world_notifications(
+        &self,
         session: &resonance_game::overworld::Session,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    ) -> Result<[Batch; 2]> {
         let mut batches = [Batch::default(), Batch::default()];
         let prompt = if session.active_skit.is_none()
             && session.menu.is_none()
@@ -153,6 +151,25 @@ impl Artwork {
             prompt,
             session.events.tick() & 32 != 0,
         )?;
+        Ok(batches)
+    }
+    pub(super) fn render_world_notifications(
+        &mut self,
+        session: &resonance_game::overworld::Session,
+        prediction: Option<&mut crate::field_view::Prediction>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        let mut batches = self.sample_world_notifications(session)?;
+        if let Some(prediction) = prediction
+            && let Some((next, alpha)) = prediction
+                .scratch_world(|p, a| self.sample_world_notifications(&p.session).map(|b| (b, a)))
+                .transpose()?
+        {
+            for (batch, target) in batches.iter_mut().zip(&next) {
+                batch.interpolate(target, alpha);
+            }
+        }
         self.upload_prompts(batches, commands, meshes)
     }
     fn upload_prompts(
