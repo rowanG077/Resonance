@@ -6,53 +6,16 @@ use resonance_game::menu::items::{Description, Focus, ItemRow, VISIBLE_ITEMS};
 
 const KEY_ITEM_CATEGORY: u8 = 45;
 
-#[derive(Default)]
-pub(super) struct Animation {
-    opened: Option<u32>,
-    target: Option<(Focus, u32)>,
-}
-
 #[derive(Clone, Copy)]
 pub(super) struct Visual {
     pub fade: u8,
     target_opacity: u8,
-    target_age: u32,
 }
-
-impl Animation {
-    const SLIDE_TICKS: u32 = 8;
-
-    pub fn settled(&self, focus: Focus, tick: u32) -> bool {
-        self.opened
-            .is_some_and(|opened| tick.wrapping_sub(opened) >= Self::SLIDE_TICKS)
-            && if matches!(focus, Focus::Target | Focus::Transform(_)) {
-                self.target.is_some_and(|(shown, started)| {
-                    shown == focus && tick.wrapping_sub(started) >= Self::SLIDE_TICKS
-                })
-            } else {
-                self.target.is_none()
-            }
-    }
-
-    pub fn sample(&mut self, focus: Focus, tick: u32) -> Visual {
-        // These transitions are purely visual; menu input always uses the current selection.
-        let opacity = |age: u32| (age.min(Self::SLIDE_TICKS) * 255 / Self::SLIDE_TICKS) as u8;
-        let opened = *self.opened.get_or_insert(tick);
-        let target_age = if matches!(focus, Focus::Target | Focus::Transform(_)) {
-            let (previous, started) = self.target.get_or_insert((focus, tick));
-            if *previous != focus {
-                *previous = focus;
-                *started = tick;
-            }
-            tick.wrapping_sub(*started)
-        } else {
-            self.target = None;
-            0
-        };
-        Visual {
-            fade: 255 - opacity(tick.wrapping_sub(opened)),
-            target_opacity: opacity(target_age),
-            target_age,
+impl Visual {
+    pub fn from_menu(menu: &Menu) -> Self {
+        Self {
+            fade: menu.inventory.page_fade,
+            target_opacity: menu.inventory.target_opacity,
         }
     }
 }
@@ -153,7 +116,9 @@ impl MenuArtwork {
         if let Some(anchor) = draw.inventory_list(&list, data)? {
             draw.cursor(anchor, 255);
         }
+        let trail = draw.trail;
         let drawing = draw.batches;
+        self.trail = trail;
         self.submit_drawing(drawing, commands, meshes)
     }
 }
@@ -281,7 +246,7 @@ impl Drawing<'_> {
             selected: (inventory.focus != Focus::Categories && !rows.is_empty())
                 .then_some(inventory.row),
             first: inventory.first,
-            scroll: 0,
+            scroll: inventory.scroll,
             fade: visual.fade,
             selection_alpha: if matches!(inventory.focus, Focus::Target | Focus::Discard(_)) {
                 127
@@ -289,8 +254,8 @@ impl Drawing<'_> {
                 255
             },
             description: menu.item_description(),
-            previous_description: Description::None,
-            description_opacity: 255,
+            previous_description: inventory.description_previous,
+            description_opacity: inventory.description_opacity,
         };
         let mut anchor = self
             .inventory_list(&list, data)?
@@ -480,8 +445,7 @@ impl Drawing<'_> {
         let party = menu.party();
         let all = menu.inventory.target_all;
         let slot = if all {
-            const GROUP_PREVIEW_TICKS: u32 = 120;
-            (visual.target_age / GROUP_PREVIEW_TICKS) as usize % party.formation.len()
+            menu.inventory.target_preview
         } else {
             menu.inventory.target
         };
@@ -736,34 +700,6 @@ impl Drawing<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn field_item_visuals_follow_elapsed_time_and_current_focus() {
-        let mut animation = Animation::default();
-        assert!(!animation.settled(Focus::List, 100));
-        assert_eq!(animation.sample(Focus::List, 100).fade, 255);
-        assert!(!animation.settled(Focus::List, 107));
-        assert_eq!(animation.sample(Focus::List, 108).fade, 0);
-        assert!(animation.settled(Focus::List, 108));
-        assert!(!animation.settled(Focus::Target, 108));
-        assert_eq!(animation.sample(Focus::Target, 108).target_opacity, 0);
-        assert_eq!(animation.sample(Focus::Target, 112).target_opacity, 127);
-        assert!(!animation.settled(Focus::Target, 112));
-        // Drawing again at the same time must not advance the slide.
-        assert_eq!(animation.sample(Focus::Target, 112).target_opacity, 127);
-        assert_eq!(animation.sample(Focus::Target, 116).target_opacity, 255);
-        assert!(animation.settled(Focus::Target, 116));
-        assert!(!animation.settled(Focus::List, 116));
-        animation.sample(Focus::List, 116);
-        assert!(animation.settled(Focus::List, 116));
-        assert_eq!(
-            animation.sample(Focus::Transform(22), 117).target_opacity,
-            0
-        );
-        assert!(!animation.settled(Focus::Transform(22), 117));
-        assert!(animation.settled(Focus::Transform(22), 125));
-        assert!(!animation.settled(Focus::Transform(23), 125));
-    }
 
     #[test]
     fn inventory_columns_fade_and_scroll() -> Result<()> {

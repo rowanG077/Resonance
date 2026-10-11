@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "updates": 1300,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 130,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 131,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 300,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 301,
+      "keys": []
+    },
+    {
+      "update": 400,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 401,
+      "keys": []
+    },
+    {
+      "update": 450,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 451,
+      "keys": []
+    },
+    {
+      "update": 500,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 501,
+      "keys": []
+    },
+    {
+      "update": 550,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 551,
+      "keys": []
+    },
+    {
+      "update": 600,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 601,
+      "keys": []
+    },
+    {
+      "update": 650,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 651,
+      "keys": []
+    },
+    {
+      "update": 700,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 701,
+      "keys": []
+    },
+    {
+      "update": 750,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 751,
+      "keys": []
+    },
+    {
+      "update": 800,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 801,
+      "keys": []
+    },
+    {
+      "update": 850,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 851,
+      "keys": []
+    },
+    {
+      "update": 900,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 901,
+      "keys": []
+    },
+    {
+      "update": 950,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 951,
+      "keys": []
+    },
+    {
+      "update": 1000,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1001,
+      "keys": []
+    },
+    {
+      "update": 1050,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 1051,
+      "keys": []
+    },
+    {
+      "update": 1100,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1101,
+      "keys": []
+    },
+    {
+      "update": 1150,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 1151,
+      "keys": []
+    },
+    {
+      "update": 1200,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1201,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "480": "cursor-next",
+    "530": "cursor-previous",
+    "740": "deleted",
+    "940": "initial",
+    "1040": "cancelled",
+    "1240": "confirmed"
+  }
+}

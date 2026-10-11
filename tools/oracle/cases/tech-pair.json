@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Tech: controller shortcuts, assignment list, second shortcut, automatic character techniques, and cannot-forget notice.",
+  "registration": "Start from the paired school grounds save with statistics observed in the Dolphin state. Compare settled Tech screens after equivalent keyboard/controller inputs, including Lloyd's shortcuts and Colette's AI technique list. Full frames retain the existing tolerance and include the paused field background.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-source-party.json",
+    "sha256": "03dd6f05c2249283fb29bbefde335753df86458e26740c98743499665b7c8a8b"
+  },
+  "native_replay": {
+    "path": "tech-keyboard.json",
+    "sha256": "1d88238b94081ca0752d9f63b5ea4b4fb8fb6c9de84b5a888deae1689b70d5b2"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 2200,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 700,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 800,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1100,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1200,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 1400,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 1600,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "shortcuts",
+      "native": "shortcuts",
+      "dolphin_vi": 200
+    },
+    {
+      "name": "assign",
+      "native": "assign",
+      "dolphin_vi": 300
+    },
+    {
+      "name": "second-slot",
+      "native": "second-slot",
+      "dolphin_vi": 480
+    },
+    {
+      "name": "auto",
+      "native": "auto",
+      "dolphin_vi": 650
+    },
+    {
+      "name": "cannot-forget",
+      "native": "cannot-forget",
+      "dolphin_vi": 780
+    },
+    {
+      "name": "auto-return",
+      "native": "auto-return",
+      "dolphin_vi": 900
+    }
+  ],
+  "audio": []
+}

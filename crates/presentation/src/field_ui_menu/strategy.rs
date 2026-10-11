@@ -232,7 +232,7 @@ impl Drawing<'_> {
             self.quad(FONT, [0., 0., 1., 1.], [0.5; 4], [0., 0., 0., 1.]);
             for (vertex, [x, y]) in self.batch(FONT).positions[start..].iter_mut().zip(points) {
                 let [x, y] = [x + offset[0], y + offset[1]];
-                let [x, y, _, _] = super::super::super::ui_coordinates::overlay_rect([x, y, x, y]);
+                let [x, y, _, _] = super::super::super::choice_cursor::overlay_rect([x, y, x, y]);
                 *vertex = [x - 320., 240. - y, 0.];
             }
         }
@@ -406,7 +406,9 @@ impl MenuArtwork {
         draw.shade(draw.screen);
         draw.plane = 1;
         draw.strategy_page(page)?;
+        let trail = draw.trail;
         let drawing = draw.batches;
+        self.trail = trail;
         self.submit_drawing(drawing, commands, meshes)
     }
 }

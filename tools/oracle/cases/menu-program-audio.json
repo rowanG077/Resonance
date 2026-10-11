@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Independent Back and empty-slot Load Error diagnostics, including complete cue decay and silence. Original Customize sets BGM to 0 and leaves SE/Voice at 127. Subtract an independently recorded identical-input baseline with the target cue omitted; this removes the original mixer's residual DC output. Compare raw stereo PCM without centering, gain fitting or resampling. Native interpolation and timing deliberately differ; these recordings are diagnostic evidence, not a sample-identity acceptance contract. These cases verify isolated cues, not outdoor music or shared-mix equivalence. Nondefault SE cases distinguish draft and committed preferences: menu cues retain saved SE until Customize commits. Per-case volume is the source-applied value, not a fitted amplitude. Missing recordings were independently recaptured in Dolphin on 2026-10-15 using the unchanged pinned disc, emulator, states, input prefixes, replay polls and comparison windows; each reference directory retains its capture.json provenance.",
+  "description": "Back and empty-slot Load Error, including complete cue decay and silence. Original Customize sets BGM to 0 and leaves SE/Voice at 127. Subtract an independently recorded identical-input baseline with the target cue omitted; this removes the original mixer's residual DC output. Compare raw stereo PCM without centering, gain fitting or resampling. At most one PCM unit of error per sample is allowed. These cases verify isolated cues, not outdoor music or shared-mix equivalence. Nondefault SE cases distinguish draft and committed preferences: menu cues retain saved SE until Customize commits. Per-case volume is the source-applied value, not a fitted amplitude.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "dolphin_version": "Dolphin [master] 2606",
   "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
@@ -8,12 +8,12 @@
     {
       "cue": "back",
       "reference": {
-        "path": "local/findings-fixes-20261015/recovered-menu-back-reference/user/Dump/Audio/GQSEAF_2026-10-15_01-56-55_dspdump.wav",
-        "sha256": "30c9e1d040efe88e0dd396a51a61b838ad79a5aac5f01e9e22ce2a37e4beb3da"
+        "path": "local/milestone-3/oracle-audio-exit-volume/user/Dump/Audio/GQSEAF_2026-09-09_15-32-48_dspdump.wav",
+        "sha256": "88d43d2ab494336e8adb5343b6a7da6d923a18e1ed0f85d999adefcbd16c3420"
       },
       "baseline": {
-        "path": "local/findings-fixes-20261015/recovered-menu-back-baseline/user/Dump/Audio/GQSEAF_2026-10-15_01-56-55_dspdump.wav",
-        "sha256": "ed8e09f61bc88395275e13a3f046548e43bb2f0def9ded70842bc5f4bf812169"
+        "path": "local/milestone-3/oracle-audio-muted-baseline/user/Dump/Audio/GQSEAF_2026-09-09_15-33-10_dspdump.wav",
+        "sha256": "593e4f1b8ffb4406bd3d763aa72fdf59f3ac58850252c8dc39bbf8f692bc7493"
       },
       "window": {
         "reference_start_frame": 22664,
@@ -56,12 +56,12 @@
     {
       "cue": "error",
       "reference": {
-        "path": "local/findings-fixes-20261015/recovered-menu-error-reference/user/Dump/Audio/GQSEAF_2026-10-15_01-56-55_dspdump.wav",
-        "sha256": "7279676f699126e9056754ac930eb191bc27c14d07c87833f679e9a797926278"
+        "path": "local/milestone-3/oracle-audio-muted-error/user/Dump/Audio/GQSEAF_2026-09-09_15-34-31_dspdump.wav",
+        "sha256": "01c7f5a3a7a9cadd74582564c90eb0a7988ad55063fccf5837174f5c4a5eb74c"
       },
       "baseline": {
-        "path": "local/findings-fixes-20261015/recovered-menu-error-baseline/user/Dump/Audio/GQSEAF_2026-10-15_01-56-56_dspdump.wav",
-        "sha256": "31ba2e2270a0ce64d6766364b657309ca0fc9d73b6f5b48fef54815bb7c7bf0b"
+        "path": "local/milestone-3/oracle-audio-muted-error-baseline/user/Dump/Audio/GQSEAF_2026-09-09_15-35-06_dspdump.wav",
+        "sha256": "f40eb6f517773361fd5ccceebc43370aa894035fa008a4eb1948fa094dc28538"
       },
       "window": {
         "reference_start_frame": 188384,
@@ -127,12 +127,12 @@
       "volume": 127,
       "draft_effects": 64,
       "reference": {
-        "path": "local/findings-fixes-20261015/recovered-menu-back-effects-draft-reference/user/Dump/Audio/GQSEAF_2026-10-15_01-56-56_dspdump.wav",
-        "sha256": "e15caa2569b49a161f672b35bdcea39bb7915d3ef030b4fdb2d3f926536b4be5"
+        "path": "local/findings-menu/effects64-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-30-58_dspdump.wav",
+        "sha256": "8b35b7cd84ededb415e1e1c4133df6f0cd77c9b8670b083e3e616d8593e3aa4e"
       },
       "baseline": {
-        "path": "local/findings-fixes-20261015/recovered-menu-back-effects-draft-baseline/user/Dump/Audio/GQSEAF_2026-10-15_01-56-57_dspdump.wav",
-        "sha256": "e9d1c65292cbfd9e4e50ee9db492c22684ab2f1749098ab927c10c132eb233db"
+        "path": "local/findings-menu/effects64-baseline-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-31-02_dspdump.wav",
+        "sha256": "3ee3c8ce488b42f1e9f269745c27f3a32c212f104ee5e88c6544d6745750bfb5"
       },
       "window": {
         "reference_start_frame": 241704,
@@ -233,12 +233,12 @@
       "volume": 64,
       "draft_effects": 64,
       "reference": {
-        "path": "local/findings-fixes-20261015/recovered-menu-back-effects-committed-reference/user/Dump/Audio/GQSEAF_2026-10-15_01-56-58_dspdump.wav",
-        "sha256": "8781bca5e305f4c5f55e68526fe40a0053e9d3fdb463bcfc7ad311b329783419"
+        "path": "local/findings-menu/effects64-commit-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-34-56_dspdump.wav",
+        "sha256": "526b539a51e961376f71a82faa5efbeb0e87dba96224cc3760359b28fe142298"
       },
       "baseline": {
-        "path": "local/findings-fixes-20261015/recovered-menu-back-effects-draft-reference/user/Dump/Audio/GQSEAF_2026-10-15_01-56-56_dspdump.wav",
-        "sha256": "e15caa2569b49a161f672b35bdcea39bb7915d3ef030b4fdb2d3f926536b4be5"
+        "path": "local/findings-menu/effects64-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-30-58_dspdump.wav",
+        "sha256": "8b35b7cd84ededb415e1e1c4133df6f0cd77c9b8670b083e3e616d8593e3aa4e"
       },
       "window": {
         "reference_start_frame": 455464,

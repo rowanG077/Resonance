@@ -4522,6 +4522,7 @@ dependencies = [
  "clap",
  "hound",
  "image",
+ "libloading",
  "resonance-content",
  "resonance-media",
  "serde",

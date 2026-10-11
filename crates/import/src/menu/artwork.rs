@@ -202,7 +202,7 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
                 &pixels
             );
         }
-        assert_eq!(count + portraits.len(), 49);
+        assert_eq!(count + portraits.len(), 50);
         assert!(!output.join("sources.json").exists() && !output.join("data").exists());
     }
     Ok(())

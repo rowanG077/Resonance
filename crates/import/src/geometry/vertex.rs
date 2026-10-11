@@ -90,8 +90,8 @@ impl Formats {
             vcd: [0; 2],
             revision: None,
         };
-        // GPL defaults enable fractional scaling for byte coordinates. Explicit
-        // display-list format writes may override this bit.
+        // SDK initialization enables byte dequantization as a revision bit;
+        // all public attribute-format setters preserve it.
         for vat in &mut result.tables {
             vat.set(0, 30, 1, 1);
         }

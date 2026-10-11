@@ -28,11 +28,10 @@ fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow:
                 rotation: Quat::from_array(bone.bind.rotation),
                 scale: Vec3::from_array(bone.bind.scale),
             };
-            (world.spawn(rest).id(), rest)
+            (world.spawn_empty().id(), rest)
         })
         .collect();
-    let rig_entity = world.spawn(Rig::new(bones)).id();
-    world.init_resource::<Locals>();
+    let mut rig = Rig::new(bones);
     let tube = usize::from(skeleton.bone("Tube25").unwrap());
     let cylinder = usize::from(skeleton.bone("Cylinder02").unwrap());
     // FIR_D03 plays 80 (rise), 84 (hold), then 88 (lower). Clip 84
@@ -46,32 +45,20 @@ fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow:
             .unwrap();
         let motion = Motion::decode(&std::fs::read(root.join(&clip.motion))?)?;
         for frame in 0..=motion.duration_frames as usize {
-            use bevy::ecs::system::RunSystemOnce;
-            let motion = motion.clone();
-            world
-                .run_system_once(
-                    move |mut rigs: Query<&mut Rig>,
-                          mut nodes: Query<&mut Transform>,
-                          mut affine: ResMut<Locals>| {
-                        rigs.get_mut(rig_entity).unwrap().sample(
-                            &motion,
-                            frame as f32,
-                            1.,
-                            &mut nodes,
-                            &mut affine,
-                        )
-                    },
-                )
-                .unwrap()?;
-            let rig = world.get::<Rig>(rig_entity).unwrap();
+            rig.authored_channels.fill(0);
+            let poses = rig.sample_tracks(&motion, frame as f32)?;
+            for (i, mut pose) in poses {
+                rig.blend_bone(i, &mut pose, 1., true);
+            }
             if slot == 84 {
                 assert_eq!(
-                    rig.previous[tube].global().translation().z,
+                    rig.presented[tube].pose.global().translation().z,
                     raised.unwrap(),
                     "barrier dropped during its hold animation"
                 );
                 assert!(
-                    (rig.previous[cylinder]
+                    (rig.presented[cylinder]
+                        .pose
                         .global()
                         .affine()
                         .matrix3
@@ -84,14 +71,13 @@ fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow:
                 );
             }
         }
-        let rig = world.get::<Rig>(rig_entity).unwrap();
         if slot == 80 {
-            raised = Some(rig.previous[tube].global().translation().z);
+            raised = Some(rig.presented[tube].pose.global().translation().z);
         }
     }
-    let rig = world.get::<Rig>(rig_entity).unwrap();
     assert!(
-        rig.previous[cylinder]
+        rig.presented[cylinder]
+            .pose
             .global()
             .affine()
             .matrix3

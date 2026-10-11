@@ -91,6 +91,7 @@ pub struct DialogueArt {
     pub version: u32,
     pub font: String,
     pub textures: Vec<UiTexture>,
+    pub cursor: UiTexture,
     pub selection: SelectionArt,
     pub source_sha256: String,
 }
@@ -116,11 +117,13 @@ pub struct SelectionArt {
     pub mode: u8,
     pub color: [u8; 4],
     pub row_offsets: [i8; 9],
+    pub bob_amplitude: f32,
+    pub bob_step: f32,
 }
 impl DialogueArt {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 3 && self.textures.len() == 9,
+            self.version == 2 && self.textures.len() == 9,
             "invalid dialogue art manifest"
         );
         crate::validate_asset_path(&self.font)?;
@@ -130,10 +133,14 @@ impl DialogueArt {
                     .selection
                     .row_offsets
                     .iter()
-                    .all(|v| (0..=32).contains(v)),
+                    .all(|v| (0..=32).contains(v))
+                && self.selection.bob_amplitude.is_finite()
+                && (0. ..=16.).contains(&self.selection.bob_amplitude)
+                && self.selection.bob_step.is_finite()
+                && (0. ..=1.).contains(&self.selection.bob_step),
             "invalid selection artwork"
         );
-        for texture in &self.textures {
+        for texture in self.textures.iter().chain([&self.cursor]) {
             texture.validate()?;
         }
         ensure!(

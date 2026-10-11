@@ -165,7 +165,7 @@ fn advance(world: &mut World) {
                 discard_field(world);
                 active.art.hide(&mut world.commands());
                 world.insert_resource(menu);
-                world.insert_resource(saves::title::LoadMenu::new());
+                world.insert_resource(saves::title::TitleMenu::load());
                 active.loading = true;
                 clear_title_input(world);
             }
@@ -185,7 +185,7 @@ fn transition(world: &mut World) {
     if world
         .get_resource::<Active>()
         .is_some_and(|active| active.loading)
-        && !world.contains_resource::<saves::title::LoadMenu>()
+        && !world.contains_resource::<saves::title::TitleMenu>()
         && let Err(error) = return_to_title(world)
     {
         fail(world, error);
@@ -325,7 +325,7 @@ fn finish_return(world: &mut World) {
         return;
     };
     if let Some(audio) = audio.filter(|a| !a.is_empty()) {
-        let (source, control) = audio.session();
+        let (source, control) = audio.session(false);
         world.resource_mut::<audio::MenuSounds>().control = Some(control);
         let source = world.resource_mut::<Assets<audio::GameAudio>>().add(source);
         world.spawn(super::audio_output::Player(source));

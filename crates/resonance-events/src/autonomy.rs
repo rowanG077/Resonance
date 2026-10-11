@@ -82,9 +82,6 @@ pub struct Autonomy {
     pub floor_available: bool,
     #[serde(default)]
     pub conversing: bool,
-    /// Script dialogue owns its window slot, including a replacement operation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dialogue_slot: Option<u8>,
 }
 impl Autonomy {
     pub fn new(behavior: Behavior, speed: f32, home: [f32; 3]) -> Self {
@@ -98,27 +95,14 @@ impl Autonomy {
             initialized: false,
             floor_available: true,
             conversing: false,
-            dialogue_slot: None,
         }
     }
     fn select(&mut self, activity: Activity) {
         self.activity = activity;
         self.initialized = false;
     }
-    /// A script destination replaces the controlled PAD locomotion callback.
-    pub(crate) fn begin_scripted_motion(&mut self) {
-        if self.behavior == Behavior::Player && self.activity == Activity::Walk {
-            self.select(Activity::Select);
-        }
-    }
     pub fn begin_conversation(&mut self) {
         self.conversing = true;
-        self.dialogue_slot = None;
-    }
-    pub(crate) fn begin_dialogue(&mut self, slot: u8) {
-        self.conversing = true;
-        self.dialogue_slot = Some(slot);
-        self.initialized = false;
     }
     pub(crate) fn set_behavior(&mut self, behavior: Behavior) {
         self.behavior = behavior;
@@ -190,7 +174,6 @@ impl Actor {
         if self.pushable {
             return intent;
         }
-        let facing = self.facing_target();
         let Some(ai) = &mut self.autonomy else {
             return intent;
         };
@@ -211,26 +194,12 @@ impl Actor {
         }
         if self.motion.is_some() {
             ai.conversing = false;
-            ai.dialogue_slot = None;
-            if ai.behavior != Behavior::Player || ai.activity != Activity::Walk {
-                ai.select(Activity::Select);
-            }
+            ai.select(Activity::Select);
             return intent;
         }
         if ai.conversing {
-            if ai.dialogue_slot.is_some() && !ai.initialized {
-                // Finish facing the speaker before leaving conversation mode,
-                // even when the dialogue has already closed.
-                if !facing {
-                    return intent;
-                }
-                ai.initialized = true;
-            }
             if !conversation_active {
                 ai.conversing = false;
-                // Conversation clears its owner at the end of the callback;
-                // the next selector visit must precede a new ordinary binding.
-                intent.selecting = ai.dialogue_slot.take().is_some();
                 ai.select(Activity::Select);
             }
             // Conversation leaves the decision timer alone. Resume through a
@@ -295,11 +264,6 @@ impl Actor {
                 *position += delta * fraction;
             }
             return intent;
-        }
-        // Ending movement or losing input returns controlled actors to idle.
-        // Scripted movement and dialogue retire through Select separately.
-        if ai.behavior == Behavior::Player && ai.activity == Activity::Walk {
-            ai.select(Activity::Idle);
         }
         if ai.activity == Activity::Select {
             ai.select(match ai.behavior {
@@ -385,8 +349,8 @@ impl Actor {
                 }
                 let angle = self.target_heading.to_radians();
                 let mut delta = [angle.sin() * ai.speed, -angle.cos() * ai.speed];
-                if !self.facing_target() {
-                    delta = delta.map(|v| v / 1.5);
+                if self.heading.trunc() != self.target_heading.trunc() {
+                    delta = delta.map(|v| (f64::from(v) / 1.5) as f32);
                 }
                 for (p, delta) in self.position.iter_mut().zip(delta) {
                     *p += delta;

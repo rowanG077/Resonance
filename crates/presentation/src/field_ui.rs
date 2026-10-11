@@ -118,7 +118,8 @@ mod layer {
     pub const SPEAKER: usize = 7;
     pub const FONT: usize = 8;
     // Cooked atlas indices: fill, frame, color overlay, font and cursor.
-    pub const TEXTURES: [usize; 9] = [7, 7, 0, 1, 0, 0, 1, 0, 9];
+    pub const CURSOR: usize = 9;
+    pub const TEXTURES: [usize; 10] = [7, 7, 0, 1, 0, 0, 1, 0, 9, 10];
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -218,6 +219,7 @@ pub(super) struct Artwork {
     surfaces: Vec<Handle<Surface>>,
     layers: BTreeMap<(u8, usize), Layer>,
     head_heights: BTreeMap<u64, f32>,
+    choice_trail: super::choice_cursor::Trail,
     subtitles: Vec<resonance_content::font::SubtitleCue>,
     subtitle_layer: Option<Layer>,
     fade_surface: Handle<Surface>,
@@ -285,6 +287,7 @@ impl MenuOverlay {
             server,
             materials,
             (&surface, [font.width, font.height]),
+            &dialogue.cursor,
             diagnostics,
         )?;
         Ok(Self {
@@ -472,7 +475,7 @@ impl Artwork {
             .textures
             .iter()
             .map(|t| t.path.clone())
-            .chain([font.texture.clone()])
+            .chain([font.texture.clone(), spec.cursor.path.clone()])
             .enumerate()
             .map(|(index, path)| {
                 server
@@ -514,6 +517,7 @@ impl Artwork {
             server,
             materials,
             (&surfaces[9], [font.width, font.height]),
+            &spec.cursor,
             files.diagnostics(),
         )?;
         let skits = skit::Artwork::load(read, server, materials, &surfaces[9], image_assets)?;
@@ -530,6 +534,7 @@ impl Artwork {
             surfaces,
             layers: BTreeMap::new(),
             head_heights: BTreeMap::new(),
+            choice_trail: Default::default(),
             subtitles: Vec::new(),
             subtitle_layer: None,
             fade_surface,
@@ -564,15 +569,11 @@ impl Artwork {
     }
     pub(super) fn skit_ready(
         &self,
-        session: &FieldSession,
+        _session: &FieldSession,
         images: &Assets<Image>,
-        server: &AssetServer,
+        _server: &AssetServer,
     ) -> Result<bool> {
-        self.skits
-            .ready(session.active_skit.as_ref(), images, server)
-    }
-    pub(super) fn clear_skit(&mut self, commands: &mut Commands) {
-        self.skits.clear(commands);
+        Ok(self.skits.ready(images))
     }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_menu(
@@ -623,9 +624,6 @@ impl Artwork {
             )?;
             Ok(true)
         });
-        if !matches!(result, Ok(true)) {
-            self.clear_skit(commands);
-        }
         result
     }
     pub fn menu_settled(&self, menu: &resonance_game::menu::Menu, tick: u32) -> bool {
@@ -953,6 +951,11 @@ impl DialogueDraw<'_> {
                 .collect();
             let preferences = world.party.as_ref().map(|p| &p.settings.preferences);
             let window = preferences.map_or(self.spec.selection.mode, |p| p.window);
+            let (cursor_image, cursor_size) = self.menu.choice_cursor(window).unwrap_or((
+                &self.images[layer::TEXTURES[layer::CURSOR]],
+                [self.spec.cursor.width, self.spec.cursor.height],
+            ));
+
             if request.flags & flags::FRAMELESS == 0 {
                 frame(
                     &mut batches,
@@ -1003,11 +1006,11 @@ impl DialogueDraw<'_> {
                 && player.fully_revealed()
                 && (player.accepts_input() || !choice.operation.is_pending())
             {
-                let y =
-                    super::ui_coordinates::drawing_y(top + f32::from(lines.selected_line) * 25.);
-                let overlay = super::ui_coordinates::overlay_rect;
+                let y = super::choice_cursor::drawing_y(top + f32::from(lines.selected_line) * 25.);
+                let overlay = super::choice_cursor::overlay_rect;
                 let mut style = self.spec.selection.clone();
                 style.mode = window;
+                [style.bob_amplitude, style.bob_step] = self.menu.cursor_motion(window);
                 style.color = preferences.map_or(style.color, |p| p.colors.selection);
                 let mut color = style.color.map(|v| f32::from(v) / 255.);
                 color[3] = f32::from(u16::from(style.color[3]) * 128 / 255) / 255.;
@@ -1025,7 +1028,31 @@ impl DialogueDraw<'_> {
                         );
                     }
                 }
-                highlight.cursor([left, y], 1.);
+                let [w, h] = cursor_size.map(|v| v as f32);
+                let bob = super::choice_cursor::bob(&style, presentation_tick);
+                let x = left + bob;
+                let y = y - bob;
+                for ([tx, ty], alpha) in self
+                    .choice_trail
+                    .sample(presentation_tick, [x as i32, y as i32])
+                {
+                    let [tx, ty] = [tx as f32, ty as f32];
+                    batches[layer::CURSOR].quad(
+                        overlay([tx + 4. - w, ty + 8., tx + 4., ty + 8. + h]),
+                        [0., 0., w, h],
+                        [1., 1., 1., f32::from(alpha) / 255.],
+                    );
+                }
+                batches[layer::CURSOR].quad(
+                    overlay([x + 8. - w, y + 12., x + 8., y + 12. + h]),
+                    [0., 0., w, h],
+                    [0., 0., 0., 127. / 255.],
+                );
+                batches[layer::CURSOR].quad(
+                    overlay([x + 4. - w, y + 8., x + 4., y + 8. + h]),
+                    [0., 0., w, h],
+                    [1.; 4],
+                );
             }
             let mut x = left;
             let mut y = top;
@@ -1088,7 +1115,8 @@ impl DialogueDraw<'_> {
             }
             batches[layer::FONT].append(highlight);
             if !player.persistent
-                && player.continue_marker_visible()
+                && player.fully_revealed()
+                && player.accepts_input()
                 && request.flags & flags::FRAMELESS == 0
                 && (player.page + 1 < player.pages.len()
                     || !world
@@ -1143,6 +1171,7 @@ impl DialogueDraw<'_> {
                 };
                 let size = match index {
                     layer::FONT => [self.font.width, self.font.height],
+                    layer::CURSOR => cursor_size,
                     _ => [
                         self.spec.textures[texture_index].width,
                         self.spec.textures[texture_index].height,
@@ -1155,7 +1184,11 @@ impl DialogueDraw<'_> {
                 let material = materials
                     .get(&layer.material)
                     .context("dialogue layer material was removed")?;
-                let source = &self.images[texture_index];
+                let source = if index == layer::CURSOR {
+                    cursor_image
+                } else {
+                    &self.images[texture_index]
+                };
                 if material.coverage != coverage || material.source != *source {
                     let mut material = materials.get_mut(&layer.material).unwrap();
                     material.coverage = coverage;
@@ -1792,19 +1825,6 @@ impl Batch {
         self.colors.extend([color; 4]);
         self.indices
             .extend([start, start + 2, start + 1, start, start + 3, start + 2]);
-    }
-    fn cursor(&mut self, [x, y]: [f32; 2], alpha: f32) {
-        for (offset, color) in [(2., [0., 0., 0., alpha * 0.6]), (0., [1., 1., 1., alpha])] {
-            let start = self.positions.len() as u32;
-            for [dx, dy] in [[-14., 7.], [-4., 14.], [-14., 21.]] {
-                let [x, y, _, _] =
-                    super::ui_coordinates::overlay_rect([x + dx + offset, y + dy + offset, 0., 0.]);
-                self.positions.push([x - 320., 240. - y, 0.]);
-            }
-            self.uv.extend([[0.5; 2]; 3]);
-            self.colors.extend([color; 3]);
-            self.indices.extend([start, start + 2, start + 1]);
-        }
     }
     fn mesh(mut self, [width, height]: [u32; 2]) -> Mesh {
         for uv in &mut self.uv {

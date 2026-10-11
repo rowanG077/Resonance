@@ -608,7 +608,7 @@ impl Part {
             &entities.meshes,
         );
         if !scene.secondary_motion.is_empty() {
-            let rig = crate::secondary_motion::Rig::new(scene, &names)?
+            let rig = crate::secondary_motion::Rig::new(root, scene, &names)
                 .context("preview secondary-motion rig is incomplete")?;
             commands.entity(root).insert(rig);
         }

@@ -52,7 +52,6 @@ impl Prepared {
             resources.skits.clone().unwrap(),
             &files,
             &resources,
-            files.diagnostics(),
         )?);
         let story_rules =
             super::scripts::Rules::prepare(&mut Default::default(), &files.script_sources()?)?;

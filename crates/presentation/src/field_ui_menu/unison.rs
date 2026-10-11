@@ -213,7 +213,9 @@ impl MenuArtwork {
         draw.shade(draw.screen);
         draw.plane = 1;
         draw.unison_page(page)?;
+        let trail = draw.trail;
         let drawing = draw.batches;
+        self.trail = trail;
         self.submit_drawing(drawing, commands, meshes)
     }
 }

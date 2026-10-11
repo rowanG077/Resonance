@@ -118,9 +118,6 @@ impl GameWorld {
                     target: exit.door.approach,
                     speed: APPROACH_SPEED,
                 });
-                if let Some(autonomy) = &mut actor.autonomy {
-                    autonomy.begin_scripted_motion();
-                }
                 exit.phase = Phase::Walking(self.tick);
             }
             Phase::Walking(start) => {
@@ -132,7 +129,7 @@ impl GameWorld {
                 }
             }
             Phase::Facing => {
-                if actor.facing_target() {
+                if actor.heading == actor.target_heading {
                     exit.phase = Phase::StartAnimation;
                 }
             }

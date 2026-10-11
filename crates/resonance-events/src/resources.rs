@@ -306,7 +306,7 @@ pub struct ModelResource {
     pub collision: std::sync::Arc<resonance_content::field::ModelCollision>,
     pub has_eyes: bool,
     pub toon_lighting: bool,
-    /// Authored-curve sampling delay for VM attachment queries; unrelated to rendered cross-fades.
+    /// Attachment queries observe the scene's last evaluated model pose.
     pub attachment_pose_delay: u32,
     pub names: Vec<String>,
     pub hidden_nodes: BTreeSet<u16>,

@@ -23,7 +23,6 @@ pub(super) struct AnimatedPart {
     clips: Vec<Handle<super::sparse_animation::Clip>>,
     bone_names: Vec<String>,
     binding: Option<super::sparse_animation::Binding>,
-    disabled: bool,
     schedule: Vec<SceneClip>,
 }
 
@@ -124,12 +123,6 @@ impl FieldAssets {
                 WorldAssetRoot(handle),
                 Transform::from_translation(Vec3::from_array(part.translation)),
             ));
-            root.observe(
-                |event: On<bevy::world_serialization::WorldInstanceReady>,
-                 mut commands: Commands| {
-                    commands.entity(event.entity).insert(Instantiated);
-                },
-            );
             if !part.clips.is_empty() {
                 root.insert(AnimatedPart {
                     resource,
@@ -141,9 +134,14 @@ impl FieldAssets {
                         .collect(),
                     bone_names: part.bone_names.clone(),
                     binding: None,
-                    disabled: false,
                     schedule: part.clips.clone(),
-                });
+                })
+                .observe(
+                    |event: On<bevy::world_serialization::WorldInstanceReady>,
+                     mut commands: Commands| {
+                        commands.entity(event.entity).insert(Instantiated);
+                    },
+                );
             }
             let load = |binding: &TextureBinding| {
                 let image = server
@@ -178,132 +176,97 @@ pub(super) fn bind_animated(
     children: Query<&Children>,
     nodes: Query<(&Transform, &bevy::gltf::GltfExtras)>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
-    diagnostics: Option<Res<super::diagnostics::Diagnostics>>,
-    mut commands: Commands,
-    mut exit: MessageWriter<AppExit>,
 ) {
-    let policy = diagnostics.map_or_else(
-        || resonance_content::diagnostics::Diagnostics::new(true),
-        |d| d.0.clone(),
-    );
     for (root, mut part) in &mut roots {
-        if part.disabled
-            || part.binding.is_some()
-            || !part.clips.iter().all(|clip| clips.contains(clip))
-        {
-            continue;
-        }
-        let result = (|| -> anyhow::Result<_> {
+        if part.binding.is_none() {
+            if !part.clips.iter().all(|clip| clips.contains(clip)) {
+                continue;
+            }
             for clip in &part.clips {
                 clips
                     .get(clip)
                     .unwrap()
                     .0
-                    .validate_bones(part.bone_names.len())?;
+                    .validate_bones(part.bone_names.len())
+                    .expect("title animation must match its prepared skeleton");
             }
-            super::sparse_animation::Binding::new(root, part.bone_names.len(), &children, &nodes)
-        })();
-        match result {
-            Ok(binding) => part.binding = Some(binding),
-            Err(error) => {
-                if policy.report("title animation binding", error).is_err() {
-                    exit.write(AppExit::error());
-                    return;
-                }
-                part.disabled = true;
-                commands.entity(root).insert(Visibility::Hidden);
-            }
+            part.binding = Some(
+                super::sparse_animation::Binding::new(
+                    root,
+                    part.bone_names.len(),
+                    &children,
+                    &nodes,
+                )
+                .expect("instantiated title skeleton must contain every bone"),
+            );
         }
     }
 }
 
-#[allow(clippy::too_many_arguments)] // Title animation and the session error policy.
 pub(super) fn animate_field(
     events: Option<Res<Events>>,
-    mut roots: Query<(Entity, &mut AnimatedPart)>,
+    roots: Query<(Entity, &AnimatedPart)>,
     mut transforms: Query<&mut Transform>,
     mut affine: ResMut<super::sparse_animation::affine::Locals>,
     mut visibility: Query<&mut Visibility>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
-    diagnostics: Option<Res<super::diagnostics::Diagnostics>>,
-    mut exit: MessageWriter<AppExit>,
 ) {
     let Some(events) = events else {
         return;
     };
-    let policy = diagnostics.map_or_else(
-        || resonance_content::diagnostics::Diagnostics::new(true),
-        |d| d.0.clone(),
-    );
-    for (root, mut part) in &mut roots {
-        if part.disabled {
+    for (root, part) in &roots {
+        let Some(binding) = &part.binding else {
             continue;
-        }
-        let result = (|| -> anyhow::Result<()> {
-            let Some(binding) = &part.binding else {
-                return Ok(());
-            };
-            let mut visibility = visibility.get_mut(root)?;
-            let (clip, elapsed, repeat) = if part.autoplay {
-                (0, events.0.tick() as f32 / ANIMATION_HZ, true)
-            } else {
-                let Some(actor) = events.0.world.actor_for_resource(part.resource) else {
-                    *visibility = Visibility::Hidden;
-                    return Ok(());
-                };
-                *visibility = if actor.visible {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                };
-                transforms.get_mut(root)?.translation = Vec3::from_array(actor.position);
-                let Some(animation) = &actor.animation else {
-                    return Ok(());
-                };
-                let clip = part
-                    .schedule
-                    .iter()
-                    .position(|c| c.resource_slot == animation.slot)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("missing title animation slot {}", animation.slot)
-                    })?;
-                // Actor controllers start one update after event initialization;
-                // static field groups advance immediately and have no such delay.
-                let sampled = animation.sample(
-                    events.0.tick(),
-                    1,
-                    part.schedule[clip].duration_seconds * ANIMATION_HZ,
-                ) / ANIMATION_HZ;
-                (clip, sampled, false)
-            };
-            let spec = &part.schedule[clip];
-            // Sample the final key before wrapping the animation.
-            let time = if repeat && elapsed > spec.duration_seconds {
-                let phase = elapsed % spec.duration_seconds;
-                if phase == 0. {
-                    spec.duration_seconds
-                } else {
-                    phase
-                }
-            } else {
-                elapsed.min(spec.duration_seconds)
-            };
-            let Some(clip) = clips.get(&part.clips[clip]) else {
-                return Ok(());
-            };
-            binding.sample(&clip.0, time, &mut transforms, &mut affine)?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            if policy.report("title animation", error).is_err() {
-                exit.write(AppExit::error());
-                return;
-            }
-            part.disabled = true;
-            if let Ok(mut visibility) = visibility.get_mut(root) {
+        };
+        let mut visibility = visibility.get_mut(root).unwrap();
+        let (clip, elapsed, repeat) = if part.autoplay {
+            (0, events.0.tick() as f32 / ANIMATION_HZ, true)
+        } else {
+            let Some(actor) = events.0.world.actor_for_resource(part.resource) else {
                 *visibility = Visibility::Hidden;
+                continue;
+            };
+            *visibility = if actor.visible {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            transforms.get_mut(root).unwrap().translation = Vec3::from_array(actor.position);
+            let Some(animation) = &actor.animation else {
+                continue;
+            };
+            let clip = part
+                .schedule
+                .iter()
+                .position(|c| c.resource_slot == animation.slot)
+                .expect("validated event animation slot");
+            // Actor controllers start one update after event initialization;
+            // static field groups advance immediately and have no such delay.
+            let sampled = animation.sample(
+                events.0.tick(),
+                1,
+                part.schedule[clip].duration_seconds * ANIMATION_HZ,
+            ) / ANIMATION_HZ;
+            (clip, sampled, false)
+        };
+        let spec = &part.schedule[clip];
+        // Include the final key before wrapping to the next animation cycle.
+        let time = if repeat && elapsed > spec.duration_seconds {
+            let phase = elapsed % spec.duration_seconds;
+            if phase == 0. {
+                spec.duration_seconds
+            } else {
+                phase
             }
-        }
+        } else {
+            elapsed.min(spec.duration_seconds)
+        };
+        let Some(clip) = clips.get(&part.clips[clip]) else {
+            continue;
+        };
+        binding
+            .sample(&clip.0, time, &mut transforms, &mut affine)
+            .expect("validated title animation must evaluate");
     }
 }
 
@@ -383,88 +346,25 @@ pub(super) fn prepare_field(
     mut sampled: ResMut<SampledImages>,
     meshes: Query<(Entity, &MaterialSlot), Without<MeshMaterial3d<TitleSurface>>>,
     parents: Query<&ChildOf>,
-    roots: Query<(Entity, Option<&WorldAssetRoot>), With<PartRoot>>,
-    mut animated: Query<(Entity, &mut AnimatedPart)>,
+    roots: Query<(), With<PartRoot>>,
+    animated: Query<&AnimatedPart>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
     mut exit: MessageWriter<AppExit>,
-    diagnostics: Option<Res<super::diagnostics::Diagnostics>>,
 ) {
-    let policy = diagnostics.map_or_else(
-        || resonance_content::diagnostics::Diagnostics::new(true),
-        |d| d.0.clone(),
-    );
     if !field.ready {
-        for (root, mut part) in &mut animated {
-            if part.disabled {
-                continue;
-            }
+        for part in &animated {
             for clip in &part.clips {
                 if let Some(bevy::asset::LoadState::Failed(error)) =
                     server.get_load_state(clip.id())
                 {
-                    if policy
-                        .report("title animation load", anyhow::anyhow!("{error}"))
-                        .is_err()
-                    {
-                        exit.write(AppExit::error());
-                        return;
-                    }
-                    part.disabled = true;
-                    commands.entity(root).insert(Visibility::Hidden);
-                    break;
-                }
-            }
-        }
-        let mut failed_roots = std::collections::HashSet::new();
-        for (root, scene) in &roots {
-            let Some(scene) = scene else {
-                continue;
-            };
-            let failure = match server.get_load_states(scene.0.id()) {
-                Some(
-                    (bevy::asset::LoadState::Failed(error), _, _)
-                    | (_, _, bevy::asset::RecursiveDependencyLoadState::Failed(error)),
-                ) => Some(error),
-                _ => None,
-            };
-            if let Some(error) = failure {
-                if policy
-                    .report("title scene load", anyhow::anyhow!("{error}"))
-                    .is_err()
-                {
+                    error!("Title animation failed to load: {error}");
                     exit.write(AppExit::error());
                     return;
                 }
-                commands
-                    .entity(root)
-                    .insert(Visibility::Hidden)
-                    .remove::<AnimatedPart>()
-                    .remove::<WorldAssetRoot>();
-                failed_roots.insert(root);
-                field.scenes.retain(|handle| handle.id() != scene.0.id());
             }
         }
-        field.pending.retain(|p| !failed_roots.contains(&p.root));
-        if let Err(error) = super::battle_view::recover_images(
-            field.pending.iter_mut().flat_map(|pending| {
-                pending
-                    .color
-                    .iter_mut()
-                    .chain(&mut pending.multiply)
-                    .map(|(image, _)| image)
-            }),
-            &server,
-            &mut images,
-            &policy,
-            "title scene texture",
-        ) {
-            error!("title texture preparation failed: {error:#}");
-            exit.write(AppExit::error());
-            return;
-        }
-        if !animated.iter().all(|(_, part)| {
-            part.disabled
-                || (part.binding.is_some() && part.clips.iter().all(|clip| clips.contains(clip)))
+        if !animated.iter().all(|part| {
+            part.binding.is_some() && part.clips.iter().all(|clip| clips.contains(clip))
         }) || !field
             .scenes
             .iter()
@@ -501,10 +401,7 @@ pub(super) fn prepare_field(
         field.ready = true;
     }
     // World assets can instantiate after their dependencies finish loading.
-    if let Err(error) = bind_materials(&field, &mut commands, &meshes, &parents, &roots, &policy) {
-        let _ = policy.report("title materials", error);
-        exit.write(AppExit::error());
-    }
+    bind_materials(&field, &mut commands, &meshes, &parents, &roots);
 }
 
 fn bind_materials(
@@ -512,9 +409,8 @@ fn bind_materials(
     commands: &mut Commands,
     meshes: &Query<(Entity, &MaterialSlot), Without<MeshMaterial3d<TitleSurface>>>,
     parents: &Query<&ChildOf>,
-    roots: &Query<(Entity, Option<&WorldAssetRoot>), With<PartRoot>>,
-    diagnostics: &resonance_content::diagnostics::Diagnostics,
-) -> anyhow::Result<()> {
+    roots: &Query<(), With<PartRoot>>,
+) {
     for (entity, material) in meshes {
         let Some(root) = parents
             .iter_ancestors(entity)
@@ -522,24 +418,16 @@ fn bind_materials(
         else {
             continue;
         };
-        let Some(binding) = field
+        let binding = field
             .materials
             .iter()
             .find(|b| b.root == root && b.slot == material.0)
-        else {
-            diagnostics.report(
-                "title material",
-                anyhow::anyhow!("missing title material slot {}", material.0),
-            )?;
-            commands.entity(entity).insert(Visibility::Hidden);
-            continue;
-        };
+            .expect("title mesh must have a declared material slot");
         commands.entity(entity).insert((
             MeshMaterial3d(binding.surface.clone()),
             DrawOrder(crate::draw_order::Layer::Scene(binding.draw_order), 0, 0),
         ));
     }
-    Ok(())
 }
 
 pub(super) fn update_materials(

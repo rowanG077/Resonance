@@ -206,15 +206,19 @@ impl Plugin for FieldRendering {
                 (
                     super::field_pose::restore,
                     super::secondary_motion::restore,
+                    super::field_animation::restore,
                     super::field_animation::sample.run_if(resource_exists::<Art>),
                 )
                     .chain()
+                    .before(super::field_animation::blend)
                     .run_if(has_session)
                     .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
                 (
+                    super::field_animation::blend,
+                    super::field_animation::face_camera,
                     super::field_pose::bones,
                     super::secondary_motion::apply,
                     super::field_pose::attachments,
@@ -454,7 +458,6 @@ impl Part {
 
 #[derive(Component)]
 pub(super) struct ActorPart {
-    pub(super) creation: Option<resonance_events::ActorCreation>,
     pub(super) actor: i32,
     instance: u64,
     pub(super) resource: u32,
@@ -976,13 +979,8 @@ pub(super) fn advance_live(
             return;
         }
         Err(error) => {
-            ui.clear_skit(&mut failures.commands);
             controls.clear_actions();
-            if failures.skip("field skit artwork", error)
-                && let Err(error) = session.field_mut().cancel_skit()
-            {
-                failures.fatal("field skit recovery", error);
-            }
+            failures.fatal("field skit artwork", error);
             return;
         }
     }
@@ -1242,13 +1240,8 @@ fn ui(
             return;
         }
         Err(error) => {
-            if !failures.skip("field skit rendering", error) {
-                return;
-            }
-            if let Err(error) = field.cancel_skit() {
-                failures.fatal("field skit recovery", error);
-                return;
-            }
+            failures.fatal("field skit rendering", error);
+            return;
         }
     }
     match art.render(field, &heads, &mut commands, &mut meshes, &mut materials) {
@@ -1535,9 +1528,6 @@ fn instances(
                         WorldAssetRoot(part.scene.clone()),
                         Transform::default(),
                         ActorPart {
-                            creation: actor
-                                .creation
-                                .filter(|p| p.tick == session.get().events.tick()),
                             actor: id,
                             instance: actor.instance,
                             resource: actor.model_resource(),
@@ -1745,9 +1735,7 @@ fn pose(
             Vec4::new(64., 64., 64., 0.)
         };
         let light_position = match light.position {
-            LightPosition::Relative(p) => {
-                Vec3::from_array(p) + Vec3::from_array(actor.presented_position())
-            }
+            LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
             LightPosition::World(p) => Vec3::from_array(p),
             LightPosition::Actor { id, height } => world.actors.get(&id).map_or(Vec3::ZERO, |a| {
                 Vec3::from_array(a.position) + Vec3::Z * height
@@ -2097,6 +2085,77 @@ fn pose(
 #[path = "field_view/input_tests.rs"]
 mod input_tests;
 
+pub fn capture_classroom(root: &Path, output: &Path, tick: Option<u32>) -> Result<()> {
+    capture_field(
+        root,
+        output,
+        CaptureTarget {
+            at: tick.map_or(CaptureMoment::Control, |update| CaptureMoment::Tick {
+                update,
+            }),
+            ..Default::default()
+        },
+    )
+}
+
+pub fn capture_classroom_probe(
+    root: &Path,
+    output: &Path,
+    probe: &super::ClassroomProbe,
+) -> Result<()> {
+    capture_field(
+        root,
+        output,
+        CaptureTarget {
+            probe: Some(probe),
+            ..Default::default()
+        },
+    )
+}
+
+pub fn capture_setup(
+    root: &Path,
+    output: &Path,
+    tick: u32,
+    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
+) -> Result<()> {
+    capture_field(
+        root,
+        output,
+        CaptureTarget {
+            scene: FieldScene::NewGame,
+            at: CaptureMoment::Tick { update: tick },
+            preferences,
+            ..Default::default()
+        },
+    )
+}
+
+pub fn capture_dialogue(
+    root: &Path,
+    output: &Path,
+    prefix: &str,
+    hold_ticks: u32,
+    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
+) -> Result<()> {
+    capture_field(
+        root,
+        output,
+        CaptureTarget {
+            at: CaptureMoment::Dialogue {
+                prefix: prefix.into(),
+                hold_updates: hold_ticks,
+            },
+            preferences,
+            ..Default::default()
+        },
+    )
+}
+
+fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Result<()> {
+    capture_field_cached(root, output, target, &mut BTreeMap::new())
+}
+
 /// Consecutive frames from real scripts; no audio device or movie decoder.
 pub fn capture_field_sequence(root: &Path, output: &Path, sequence: &FieldSequence) -> Result<()> {
     FieldSequenceRenderer::new(root)?.capture(output, sequence)
@@ -2375,17 +2434,12 @@ fn capture_field_cached(
     super::renderer::configure(&mut app);
     let ready = super::RenderReady::default();
     app.insert_resource(ready.clone());
-    app.add_systems(
-        PostUpdate,
-        crate::timing::prepare_draws
-            .after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
-    );
     app.get_sub_app_mut(bevy::render::RenderApp)
         .context("render application unavailable")?
         .insert_resource(ready)
         .add_systems(
             bevy::render::Render,
-            super::timing::rendered.in_set(bevy::render::RenderSystems::Cleanup),
+            super::check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
         );
     let failure = target
         .sequence
@@ -2576,12 +2630,7 @@ fn capture(
     if !art.ready
         || parts.is_empty()
         || parts.iter().any(|p| !p.prepared)
-        || !ready
-            .0
-            .lock()
-            .unwrap()
-            .completed
-            .load(std::sync::atomic::Ordering::Acquire)
+        || !ready.0.load(std::sync::atomic::Ordering::Acquire)
         || !refraction.get()
     {
         checkpoint.settled = 0;

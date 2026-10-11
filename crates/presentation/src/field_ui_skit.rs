@@ -102,32 +102,11 @@ impl Artwork {
             warm: Vec::new(),
         })
     }
-    pub fn ready(
-        &self,
-        playback: Option<&resonance_game::field::SkitPlayback>,
-        images: &Assets<Image>,
-        server: &AssetServer,
-    ) -> Result<bool> {
-        let Some(scene) = playback.and_then(|playback| playback.events.world.skit.as_ref()) else {
-            return Ok(true);
-        };
-        let mut ready = true;
-        for portrait in scene.portraits.values() {
-            for image in self
-                .images
-                .get(&portrait.resource)
-                .context("uncooked skit portrait")?
-            {
-                ready &= crate::field_view::image_ready(server, images, image)?;
-            }
-        }
-        Ok(ready)
-    }
-    pub fn clear(&mut self, commands: &mut Commands) {
-        for layer in &mut self.layers {
-            layer.show(false, commands);
-            layer.uploaded = None;
-        }
+    pub fn ready(&self, images: &Assets<Image>) -> bool {
+        self.images
+            .values()
+            .flatten()
+            .all(|image| images.contains(image.id()))
     }
     pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
         if !self.layers.is_empty() {
@@ -426,7 +405,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires cook-all and prepared skits; no graphics or audio device"]
-    fn shared_portraits_decode_and_compose_without_atlases() -> Result<()> {
+    fn original_shared_portraits_decode_and_compose_without_atlases() -> Result<()> {
         use bevy::image::{CompressedImageFormats, ImageType};
         let root = std::env::var_os("RESONANCE_WORLD_ASSETS")
             .map(std::path::PathBuf::from)

@@ -29,7 +29,7 @@ pub(crate) use movie::cook_directory as cook_movie_directory;
 pub(crate) use movie::cook_movie_file;
 pub(crate) use movie::is_movie;
 pub use music_score::inspect_title_audio;
-pub use music_voice::{MusicVoiceOptions, render_music_voice};
+pub use music_voice::{MusicVoiceOptions, render_music_voice, render_title_audio_preview};
 pub use pitched_sample::{PitchedSampleOptions, render_pitched_sample};
 pub use sound_buses::{render_sound_buses, render_sound_sequence};
 pub(crate) use sounds::prepare_title_sounds;

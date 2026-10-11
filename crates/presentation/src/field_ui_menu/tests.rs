@@ -387,10 +387,9 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
         party.items = [(id, 1)].into();
         party.members[0].hp = 1;
         let before = serde_json::to_vec(party)?;
-        let mut animation = items::Animation::default();
         fixture
             .drawing(0)
-            .items(&menu, animation.sample(menu.inventory.focus, 0))?;
+            .items(&menu, items::Visual::from_menu(&menu))?;
         assert_eq!(
             menu.step(FieldInput {
                 pressed_buttons: [resonance_events::input::Button::Accept].into(),
@@ -409,10 +408,9 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
         menu.inventory.target_all = true;
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
-            let mut animation = items::Animation::default();
             let result = fixture
                 .drawing(0)
-                .items(&menu, animation.sample(menu.inventory.focus, 0));
+                .items(&menu, items::Visual::from_menu(&menu));
             assert!(result.is_err());
             assert_eq!(
                 diagnostics.attempt("item target prompt", result).is_err(),
@@ -435,10 +433,9 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
             Some(2)
         );
         assert_eq!(menu.inventory.focus, Focus::Target);
-        let mut animation = items::Animation::default();
         fixture
             .drawing(1)
-            .items(&menu, animation.sample(menu.inventory.focus, 1))?;
+            .items(&menu, items::Visual::from_menu(&menu))?;
         assert_eq!(
             serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress().party)?,
             before

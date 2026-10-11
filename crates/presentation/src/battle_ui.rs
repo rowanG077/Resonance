@@ -219,6 +219,7 @@ impl Artwork {
             server,
             materials,
             (&ui.results[1].material, [font.width, font.height]),
+            &dialogue.cursor,
             diagnostics,
         )?;
         Ok(Self {

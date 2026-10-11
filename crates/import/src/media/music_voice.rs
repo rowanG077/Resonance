@@ -176,6 +176,69 @@ fn render_instrument(
     }
 }
 
+pub fn render_title_audio_preview(
+    extracted: &Path,
+    output: &Path,
+    frames: u32,
+    master_fade_lead_ms: Option<u16>,
+) -> Result<()> {
+    let workspace = Workspace::open(extracted, output)?;
+    let _publications = crate::publication::Session::start_if_needed(output)?;
+    let executable_bytes = fs::read(workspace.extracted.join("sys/main.dol"))?;
+    let bank_bytes = fs::read(workspace.extracted.join("files/S/inst.snd"))?;
+    let song_bytes = fs::read(workspace.extracted.join("files/S/bgm_etc000.song"))?;
+    let coefficient_bytes = resonance_audio_cook::interpolation::coefficients();
+    let tables = tables(&executable_bytes)?;
+    let bank = Bank::parse(&bank_bytes)?;
+    let song = resonance_audio_cook::song::Song::parse(&song_bytes)?;
+    let parameters = super::music::title_reverbs(&executable_bytes)?;
+    let setup = bank.music_setup(0, 1)?;
+    let (resources, score) =
+        resonance_audio_cook::compile::music(&bank, &song, &setup, &sustains(&executable_bytes)?)?;
+    let loaded = Arc::new(Loaded::new(resources, score, tables, parameters)?);
+    let preview = if let Some(lead) = master_fade_lead_ms {
+        let mut fade = resonance_audio::volume::Startup::new(2000, 100, lead)?;
+        resonance_audio::sequence::render_preview_with_volume(
+            loaded,
+            parameters,
+            frames,
+            |frame| fade.value_at(u64::from(frame)),
+        )?
+    } else {
+        resonance_audio::sequence::render_preview(loaded, parameters, frames)?
+    };
+    let path = workspace.output.join("title-preview.wav");
+    let temporary = crate::temporary_path(&path);
+    write_pcm16(&temporary, 2, super::PLAYBACK_RATE, preview.pcm)?;
+    crate::publication::install(&temporary, &path, &hash_file(&temporary)?)?;
+    write_json(
+        &path.with_extension("json"),
+        &json!({
+        "version":1,"renderer":"resonance-audio-cook","audio_device":false,
+        "renderer_sha256":hash_file(&std::env::current_exe()?)?,
+            "bank_sha256":crate::digest(&bank_bytes),"song_sha256":crate::digest(&song_bytes),
+            "executable_sha256":crate::digest(&executable_bytes),"coefficients_sha256":crate::digest(&coefficient_bytes),
+            "notes_started":preview.notes,"maximum_voices":preview.maximum_voices,"final_tick":preview.final_tick,
+            "voice_lifetimes":preview.voice_lifetimes.iter().map(|v| json!({
+                "slot":v.slot,"start_frame":v.start_frame,"end_frame":v.end_frame,
+                "macro":v.macro_id,"key":v.key,
+            })).collect::<Vec<_>>(),
+            "auxiliary_reverbs":parameters,"synthesis_rate":SOURCE_RATE,
+            "loop_restart_implemented":true,"loop_start_frames":preview.loop_starts,"oracle_accepted":false,
+            "startup_fades":master_fade_lead_ms.map(|lead| json!({
+                "master_ms":2000,"sequence_ms":100,"master_lead_ms":lead,
+            })),
+            "asset":{"path":"title-preview.wav","sha256":hash_file(&path)?,"frames":frames,
+                "channels":2,"sample_rate":super::PLAYBACK_RATE},
+        }),
+    )?;
+    println!(
+        "Rendered {} score notes to {frames} diagnostic frames without playback",
+        preview.notes
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

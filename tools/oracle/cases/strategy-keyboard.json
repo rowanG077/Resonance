@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "updates": 1100,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 130,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 131,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 300,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 301,
+      "keys": []
+    },
+    {
+      "update": 400,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 401,
+      "keys": []
+    },
+    {
+      "update": 500,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 501,
+      "keys": []
+    },
+    {
+      "update": 600,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 601,
+      "keys": []
+    },
+    {
+      "update": 700,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 701,
+      "keys": []
+    },
+    {
+      "update": 800,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 801,
+      "keys": []
+    },
+    {
+      "update": 900,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 901,
+      "keys": []
+    },
+    {
+      "update": 1000,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 1001,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "259": "overview",
+    "350": "setting",
+    "450": "options",
+    "560": "option-preview",
+    "650": "changed",
+    "760": "changed-overview",
+    "860": "presets",
+    "960": "return",
+    "1100": "settled"
+  }
+}

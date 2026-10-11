@@ -347,7 +347,7 @@ impl AnimatedPose {
         suppress_root: [bool; 3],
     ) -> Result<(resonance_content::animation::Pose, [f32; 3])> {
         let root = self.local[0].translation();
-        let matrices = self
+        let matrices: Vec<_> = self
             .local
             .iter()
             .enumerate()
@@ -359,7 +359,13 @@ impl AnimatedPose {
                 pose.matrix()
             })
             .collect();
-        Ok((skeleton.pose(matrices)?, root))
+        Ok((
+            skeleton.pose_with_matrices(
+                skeleton.bones.iter().map(|bone| bone.bind).collect(),
+                &matrices,
+            )?,
+            root,
+        ))
     }
 }
 

@@ -6,6 +6,8 @@ pub(crate) fn run_options(assets: impl Into<std::path::PathBuf>) -> crate::RunOp
         assets: assets.into(),
         script_root: None,
         saves: Default::default(),
+        presentation_start: None,
+        replay: None,
         capture_at: None,
         capture: None,
         reveal: false,

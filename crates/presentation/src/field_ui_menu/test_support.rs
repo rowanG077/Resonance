@@ -70,6 +70,7 @@ impl Fixture {
             app.world().resource::<AssetServer>(),
             &mut materials,
             (&shared, [self.font.width, self.font.height]),
+            &self.dialogue.cursor,
             &resonance_content::diagnostics::Diagnostics::new(true),
         )?;
         world.insert_resource(app.world_mut().remove_resource::<Assets<Image>>().unwrap());
@@ -82,6 +83,8 @@ impl Fixture {
             spec: &self.art,
             font: &self.font,
             selection: &self.dialogue.selection,
+            cursor_texture: &self.dialogue.cursor,
+            trail: Default::default(),
             preferences: Some(&self.party.settings.preferences),
             experience: &self.session.experience,
             tick,

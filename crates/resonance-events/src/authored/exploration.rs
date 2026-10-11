@@ -68,7 +68,7 @@ pub(super) const fn register(
     bindings: NativeBindings<FieldHost<'_>>,
 ) -> NativeBindings<FieldHost<'_>> {
     bindings
-        .register_authored(
+        .function(
             "game::treasure::actor",
             &[CHEST],
             Some(ACTOR),
@@ -78,14 +78,14 @@ pub(super) const fn register(
                 Ok(NativeResult::Continue(Some(h.world.authored_actor(id)?)))
             },
         )
-        .register_authored(
+        .function(
             "game::treasure::kind",
             &[CHEST],
             Some(KIND),
             false,
             |h, a, _| Ok(NativeResult::Continue(Some(chest(h, a[0])?.kind as i32))),
         )
-        .register_authored(
+        .function(
             "game::treasure::reward",
             &[CHEST],
             Some(REWARD),
@@ -97,7 +97,7 @@ pub(super) const fn register(
                 }))
             },
         )
-        .register_authored(
+        .function(
             "game::treasure::mark_opened",
             &[CHEST],
             None,
@@ -114,7 +114,7 @@ pub(super) const fn register(
                 Ok(NativeResult::Continue(None))
             },
         )
-        .register_authored(
+        .function(
             "game::actors::animate",
             &[ACTOR, Type::F32, Type::Bool],
             None,
@@ -134,7 +134,7 @@ pub(super) const fn register(
                 Ok(NativeResult::Continue(None))
             },
         )
-        .register_authored(
+        .function(
             "game::actors::animation_finished",
             &[ACTOR],
             Some(Type::Bool),
@@ -150,7 +150,7 @@ pub(super) const fn register(
                 Ok(NativeResult::Continue(Some(i32::from(done))))
             },
         )
-        .register_authored(
+        .function(
             "game::actors::stop_animation",
             &[ACTOR],
             None,
@@ -164,14 +164,14 @@ pub(super) const fn register(
                 Ok(NativeResult::Continue(None))
             },
         )
-        .register_authored(
+        .function(
             "game::audio::sound",
             &[Type::I32],
             None,
             false,
             |h, a, _| sound(h, a[0], 127),
         )
-        .register_authored(
+        .function(
             "game::party::give_item",
             &[ITEM, Type::I32],
             Some(Type::Bool),
@@ -196,7 +196,7 @@ pub(super) const fn register(
                 Ok(NativeResult::Continue(Some(i32::from(received))))
             },
         )
-        .register_authored(
+        .function(
             "game::party::give_gald",
             &[Type::I32],
             Some(Type::Bool),
@@ -213,7 +213,7 @@ pub(super) const fn register(
                 Ok(NativeResult::Continue(Some(i32::from(received))))
             },
         )
-        .register_authored(
+        .function(
             "game::field::instant_notice",
             &[Type::Message],
             None,

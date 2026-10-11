@@ -116,7 +116,7 @@ impl Session {
         let mut cache = super::loading::Cache::default();
         let files = Arc::new(Files::load(
             root,
-            &[&manifest_path(5)],
+            &[&manifest_path(5), &manifest_path(340)],
             &mut cache.bytes,
             || false,
         )?);
