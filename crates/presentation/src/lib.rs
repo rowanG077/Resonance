@@ -27,6 +27,7 @@ mod audio_output;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
 mod camera;
+mod config;
 mod debug_font;
 mod display;
 mod dungeons;
@@ -316,7 +317,7 @@ fn build_app_with_display(
     }
     let audio = PlaybackAssets::load(&assets)?;
     let music = (!audio.is_empty()).then_some(audio);
-    let movie = movie::Playback::load(&assets, &options)?;
+    let mut movie = movie::Playback::load(&assets, &options)?;
     let boot = boot::Playback::load(&assets, &options)?;
     let mut app = App::new();
     app.insert_resource(session_screen::Title {
@@ -327,7 +328,16 @@ fn build_app_with_display(
         audio: music.clone(),
     });
     app.insert_resource(prepared_clips);
-    saves::install(&mut app, &options.saves)?;
+    saves::install(
+        &mut app,
+        &options.saves,
+        !options.headless() && options.replay.is_none(),
+    )?;
+    movie.mono = !app
+        .world()
+        .resource::<config::Preferences>()
+        .settings
+        .stereo;
     loading::install(&mut app, &assets);
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
@@ -836,12 +846,12 @@ fn advance(
     recording: Option<Res<playthrough::Recording>>,
     new_game: Option<Res<new_game::Session>>,
     loading: Option<Res<loading::Pending>>,
-    load_menu: Option<Res<saves::title::LoadMenu>>,
+    title_menu: Option<Res<saves::title::TitleMenu>>,
     game_over: Option<Res<session_screen::GameOver>>,
 ) {
     if new_game.is_some()
         || game_over.is_some()
-        || load_menu.is_some()
+        || title_menu.is_some()
         || loading.is_some()
         || movie.active
         || boot.active()
@@ -863,8 +873,18 @@ fn advance(
         Some(resonance_game::TitleAction::NewGame) => {
             commands.insert_resource(new_game::Request(None));
         }
-        Some(resonance_game::TitleAction::Load) => {
-            commands.insert_resource(saves::title::LoadMenu::new());
+        Some(
+            action @ (resonance_game::TitleAction::Load | resonance_game::TitleAction::Customize),
+        ) => {
+            commands.queue(move |world: &mut World| {
+                let menu = match action {
+                    resonance_game::TitleAction::Load => saves::title::TitleMenu::load(),
+                    _ => saves::title::TitleMenu::customize(
+                        &world.resource::<config::Preferences>().settings,
+                    ),
+                };
+                world.insert_resource(menu);
+            });
             if let Some(control) = &sounds.control
                 && let Err(error) = control.play("confirm")
             {
@@ -892,11 +912,11 @@ fn layout(
     mut outputs: ResMut<Assets<TitleOutput>>,
     movie: Res<movie::Playback>,
     boot: Res<boot::Playback>,
-    load_menu: Option<Res<saves::title::LoadMenu>>,
+    title_menu: Option<Res<saves::title::TitleMenu>>,
 ) {
     let state = &menu.0;
     TitleOutput::update(&mut outputs, |b| {
-        b.x = if movie.active || boot.active() || load_menu.is_some() {
+        b.x = if movie.active || boot.active() || title_menu.is_some() {
             1.
         } else {
             events.as_ref().map_or(1., |e| e.0.world.brightness())

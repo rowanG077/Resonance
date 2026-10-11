@@ -130,7 +130,7 @@ impl Drop for Persistence {
     }
 }
 
-pub(super) fn install(app: &mut App, options: &SaveOptions) -> Result<()> {
+pub(super) fn install(app: &mut App, options: &SaveOptions, user_config: bool) -> Result<()> {
     let directory = options
         .directory
         .clone()
@@ -145,6 +145,11 @@ pub(super) fn install(app: &mut App, options: &SaveOptions) -> Result<()> {
             frames: 0,
             requested: false,
         });
+    }
+    if user_config {
+        app.insert_resource(crate::config::Preferences::load(
+            directory.join("config.toml"),
+        )?);
     }
     app.insert_resource(Persistence {
         store: Store::new(directory),
@@ -349,6 +354,7 @@ fn load(world: &mut World) -> Result<String> {
 }
 
 pub(super) fn reset_scene(world: &mut World, changing_field: bool) {
+    crate::config::restore(world);
     if let Some(mut menu) = world.get_resource_mut::<super::dungeons::Menu>() {
         menu.testing = false;
     }
@@ -406,6 +412,7 @@ pub(super) fn release_retained_frame(world: &mut World) {
 }
 
 pub(super) fn update(world: &mut World) {
+    crate::config::update(world);
     if let Some(pending) = world.get_resource::<WorldLoad>() {
         let result = match pending.0.poll() {
             Ok(None) => return,
@@ -441,7 +448,7 @@ pub(super) fn update(world: &mut World) {
     }
 }
 
-fn report(world: &mut World, result: Result<String>) {
+pub(crate) fn report(world: &mut World, result: Result<String>) {
     let message = match result {
         Ok(message) => {
             info!("{message}");

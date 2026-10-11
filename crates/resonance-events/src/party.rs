@@ -297,10 +297,21 @@ pub(crate) mod tests {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
-    #[serde(flatten)]
+    // Runtime consumers share one view of settings. Save files only own the
+    // difficulty; deserialization still accepts the former global preferences.
+    #[serde(flatten, serialize_with = "save_difficulty")]
     pub preferences: resonance_content::menu_data::CustomizeSettings,
     /// Manual 0, semi-auto 1, auto 2; one entry per battle controller.
     pub battle_controls: [u8; 4],
+}
+fn save_difficulty<S: serde::Serializer>(
+    preferences: &resonance_content::menu_data::CustomizeSettings,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(Some(1))?;
+    map.serialize_entry("battle_rank", &preferences.battle_rank)?;
+    map.end()
 }
 impl Default for Settings {
     fn default() -> Self {

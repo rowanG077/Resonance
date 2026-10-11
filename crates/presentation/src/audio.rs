@@ -77,6 +77,8 @@ pub(super) struct MusicFrames {
     pcm: [i16; 320],
     cursor: usize,
     stopped: bool,
+    level: f32,
+    mono: bool,
 }
 
 impl MusicFrames {
@@ -89,6 +91,8 @@ impl MusicFrames {
             pcm: [0; 320],
             cursor: 320,
             stopped: false,
+            level: 1.,
+            mono: false,
         })
     }
     fn stop(&mut self) -> Result<()> {
@@ -97,7 +101,8 @@ impl MusicFrames {
     }
     fn render(&mut self) -> Result<()> {
         let controls = std::array::from_fn(|i| sequence::LiveControls {
-            volume: self.fade.value_at(self.frame + i as u64 * 32),
+            volume: self.fade.value_at(self.frame + i as u64 * 32) * self.level,
+            mono: self.mono,
             ..Default::default()
         });
         let mut buses = [[[0; 2]; 3]; 160];

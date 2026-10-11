@@ -282,7 +282,7 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF menus/classroom; no devices"]
-fn customization_drafts_commit_to_field_and_save_without_changing_battle_control_modes() {
+fn customization_drafts_commit_to_field_but_only_difficulty_is_saved() {
     use resonance_game::menu::{Page, customize::Focus};
     let data = Arc::new(cooked("game/session-data.json"));
     let party = Party::new(&data, Default::default()).unwrap();
@@ -361,7 +361,10 @@ fn customization_drafts_commit_to_field_and_save_without_changing_battle_control
     settle_menu_motion(&mut session);
     let checkpoint = session.checkpoint().unwrap();
     let restored: FieldCheckpoint = roundtrip(&checkpoint);
-    assert_eq!(restored.progress.party.settings.preferences, expected);
+    assert_eq!(
+        restored.progress.party.settings.preferences.battle_rank,
+        expected.battle_rank
+    );
     restored.progress.party.validate(&data).unwrap();
     let mut invalid = restored.progress.party;
     invalid.settings.preferences.button_map[0] = invalid.settings.preferences.button_map[1];
