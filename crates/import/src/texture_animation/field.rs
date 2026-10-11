@@ -19,6 +19,7 @@ const SYLVARANT_BASE_HALL: u32 = 270;
 const MARTEL_SEAL: u32 = 307;
 const MANA_LAMPS: u32 = 362;
 const MANA_BRIDGES: u32 = 366;
+const MANA_SEAL: u32 = 369;
 const BALACRUF_WIND: u32 = 510;
 const TOWER_OF_SALVATION: u32 = 535;
 
@@ -128,6 +129,13 @@ pub(crate) fn profiles() -> BTreeMap<u32, Vec<FieldTextureAnimation>> {
                 })
                 .collect(),
         ),
+        (
+            MANA_SEAL,
+            // LIG_D08's callback (8003CC24) scrolls both seal-cylinder textures.
+            (0..=1)
+                .map(|texture| scroll(Setting(2), Setting(texture), [0., -0.002]))
+                .collect(),
+        ),
     ]);
     for map in [
         THODA_OUTSIDE,
@@ -198,6 +206,21 @@ mod tests {
             assert_eq!(track.offset(60, 100), track.offset(60, 0));
         }
         assert_eq!(profiles[&MANA_BRIDGES][0].offset(1000, 0), [0., -2.]);
+        let mana_settings = BTreeMap::from([(0, 3), (1, 0), (2, 2800)]);
+        assert_eq!(
+            profiles[&MANA_SEAL]
+                .iter()
+                .map(|track| (
+                    track.actor.resolve(&mana_settings),
+                    track.texture.resolve(&mana_settings),
+                ))
+                .collect::<Vec<_>>(),
+            [(2800, 3), (2800, 0)]
+        );
+        for track in &profiles[&MANA_SEAL] {
+            assert!((track.offset(60, 0)[1] + 0.12).abs() < 1e-6);
+            assert_eq!(track.offset(60, 100), track.offset(60, 0));
+        }
         let lamps = &profiles[&MANA_LAMPS][0];
         assert_ne!(lamps.offset(7, 0), lamps.offset(0, 0));
         assert_eq!(lamps.offset(35, 0), lamps.offset(0, 0));
