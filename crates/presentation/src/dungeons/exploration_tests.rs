@@ -84,6 +84,34 @@ fn walk_to(field: &mut Scene, target: [f32; 2], confirm: bool) -> Result<()> {
 }
 
 #[test]
+#[ignore = "requires RESONANCE_WORLD_ASSETS; original Fooji summit event"]
+fn yuan_keeps_his_wings_when_the_departure_script_reuses_their_id() -> Result<()> {
+    let mut field = Scene::story(&root()?, 416, 10_502_000, |entry| {
+        entry.position = [3044., -963., 379.];
+        entry.persistent.event_flags.insert(63);
+        entry.persistent.party.as_mut().unwrap().formation = vec![1, 2, 3, 5, 6, 7, 8, 9];
+        Ok(())
+    })?;
+    field.advance_until(FieldSession::player_has_control)?;
+    assert!(field.events.trigger(2500, false)?);
+    let mut saw_wings = false;
+    let mut saw_duplicate = false;
+    let battles = field.replay(|field| {
+        if let Some(wings) = field.events.world.actors.get(&90025) {
+            assert_eq!(wings.resource, 0xffee0002);
+            saw_wings = true;
+            saw_duplicate |= field.events.world.actors.iter().any(|(&id, actor)| {
+                id < 0 && actor.wings.is_some() && actor.resource == 0xffee0000
+            });
+        }
+        Ok(field.player_has_control() && mission(field, 0x40) == 10_602_000)
+    })?;
+    assert!(saw_wings && saw_duplicate);
+    assert_eq!(battles, 1);
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_WORLD_ASSETS; cooked Salvation stair ramp and exits"]
 fn salvation_stairs_and_world_exits_are_walkable() -> Result<()> {
     let root = root()?;

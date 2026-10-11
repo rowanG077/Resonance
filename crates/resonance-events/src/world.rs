@@ -960,7 +960,8 @@ impl TreasureReward {
 }
 impl GameWorld {
     pub(crate) fn scene_actor_key(&self, script: i32) -> Result<i32, String> {
-        if !self.actors.contains_key(&script) {
+        // Retired models survive one presentation, but no longer own the script ID.
+        if self.actors.get(&script).is_none_or(|actor| actor.retiring) {
             return Ok(script);
         }
         self.unaddressable_actor_key()
