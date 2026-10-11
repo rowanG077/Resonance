@@ -504,6 +504,7 @@ impl Emitter {
                 1 => setting!(seal.size, value),
                 2 => setting!(seal.spark_size, value),
                 3 => setting!(seal.spark_lifetime, value, nonnegative),
+                4 => setting!(seal.spark_speed, value),
                 _ => Ok(0),
             },
             Kind::Stream(stream) => stream.property(slot, value),
