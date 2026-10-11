@@ -145,7 +145,7 @@ fn return_to_title(world: &mut World, load: bool) -> Result<()> {
         }
     }
     if load {
-        world.insert_resource(saves::title::LoadMenu::new());
+        world.insert_resource(saves::title::TitleMenu::load());
     }
     Ok(())
 }
@@ -380,7 +380,7 @@ mod tests {
                 Visibility::Inherited
             );
             assert_eq!(
-                world.contains_resource::<saves::title::LoadMenu>(),
+                world.contains_resource::<saves::title::TitleMenu>(),
                 selected == 0
             );
             assert!(!world.resource::<PendingInput>().pressed.accept);

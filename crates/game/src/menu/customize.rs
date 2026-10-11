@@ -19,6 +19,8 @@ pub struct Customize {
     #[serde(flatten)]
     pub transition: super::Transition,
     pub draft: CustomizeSettings,
+    #[serde(skip)]
+    original: CustomizeSettings,
     pub focus: Focus,
     pub row: usize,
     pub first: usize,
@@ -36,6 +38,16 @@ pub struct Customize {
     pub preview_opacity: u8,
 }
 impl Customize {
+    fn opening(preferences: CustomizeSettings) -> Self {
+        Self {
+            transition: super::Transition::opening(),
+            preview_shown: 1,
+            original: preferences.clone(),
+            draft: preferences,
+            ..Default::default()
+        }
+    }
+
     pub fn options_cursor(&self) -> [f32; 2] {
         let fade = u32::from(self.transition.page_fade);
         if self.row == CUSTOMIZE_OPTIONS {
@@ -52,6 +64,14 @@ impl Customize {
     }
 }
 impl Menu {
+    /// Open the shared editor without a field or party checkpoint.
+    pub fn title_customize(preferences: CustomizeSettings) -> Self {
+        let mut menu = Self::new(Page::Customize, None, false);
+        menu.customize = Customize::opening(preferences);
+        menu.direct = true;
+        menu
+    }
+
     pub fn preferences(&self) -> Option<&CustomizeSettings> {
         if self.page == Page::Customize {
             Some(&self.customize.draft)
@@ -62,12 +82,7 @@ impl Menu {
         }
     }
     pub(super) fn open_customize(&mut self) {
-        self.customize = Customize {
-            transition: super::Transition::opening(),
-            preview_shown: 1,
-            draft: self.party().settings.preferences.clone(),
-            ..Default::default()
-        };
+        self.customize = Customize::opening(self.party().settings.preferences.clone());
         self.entering = Some(Page::Customize);
     }
     pub(super) fn step_customize_preview(&mut self) {
@@ -117,14 +132,10 @@ impl Menu {
         }
         if input.pressed(Button::Cancel) {
             if state.focus == Focus::Options {
-                self.checkpoint
-                    .as_mut()
-                    .unwrap()
-                    .progress
-                    .party
-                    .settings
-                    .preferences = state.draft.clone();
-                self.party_changed = true;
+                if let Some(checkpoint) = &mut self.checkpoint {
+                    checkpoint.progress.party.settings.preferences = state.draft.clone();
+                    self.party_changed = true;
+                }
                 state.transition.page_closing = true;
                 self.select_main(Page::System);
             } else {
@@ -189,14 +200,7 @@ impl Menu {
                                 .defaults
                                 .clone()
                         } else {
-                            self.checkpoint
-                                .as_ref()
-                                .unwrap()
-                                .progress
-                                .party
-                                .settings
-                                .preferences
-                                .clone()
+                            state.original.clone()
                         };
                         return Some(2);
                     }

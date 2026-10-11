@@ -70,9 +70,9 @@ pub(super) fn update(world: &mut World) {
 }
 
 fn current(world: &mut World) -> Option<Mut<'_, Menu>> {
-    if world.contains_resource::<title::LoadMenu>() {
+    if world.contains_resource::<title::TitleMenu>() {
         return world
-            .get_resource_mut::<title::LoadMenu>()
+            .get_resource_mut::<title::TitleMenu>()
             .map(|menu| menu.map_unchanged(|m| &mut m.0));
     }
     world
