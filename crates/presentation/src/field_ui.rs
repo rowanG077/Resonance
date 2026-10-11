@@ -132,7 +132,7 @@ struct Layer {
     visible: bool,
 }
 
-/// The same slot renderer can be used before a field session exists.
+/// The same menu renderer can be used before a field session exists.
 #[derive(Resource)]
 pub(super) struct MenuOverlay {
     font: BitmapFont,
@@ -205,7 +205,7 @@ impl MenuOverlay {
             menu::Source::Title(menu),
             &self.font,
             &self.dialogue,
-            0,
+            menu.map_or(0, |menu| menu.tick),
             resolution,
             commands,
             meshes,
