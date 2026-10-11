@@ -1,5 +1,9 @@
 //! Affine local poses for authored matrix keys and their attached scene instances.
-use bevy::{ecs::system::SystemParam, math::Affine3A, prelude::*};
+use bevy::{
+    ecs::{entity::EntityHashMap, system::SystemParam},
+    math::Affine3A,
+    prelude::*,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -160,9 +164,10 @@ impl Helper<'_, '_> {
 
     pub fn has_affine(&self, entity: Entity) -> bool {
         self.affine.as_ref().is_some_and(|affine| {
-            std::iter::once(entity)
-                .chain(self.parents.iter_ancestors(entity))
-                .any(|e| affine.poses.contains_key(&e))
+            !affine.poses.is_empty()
+                && std::iter::once(entity)
+                    .chain(self.parents.iter_ancestors(entity))
+                    .any(|e| affine.poses.contains_key(&e))
         })
     }
 
@@ -197,6 +202,47 @@ impl Helper<'_, '_> {
         entity: Entity,
     ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
         self.global_with(entity, &BTreeMap::new())
+    }
+
+    /// Resolve a batch against this unchanged pose, sharing ancestor products.
+    /// The cache is local to the batch: bone adjustments between systems must
+    /// always be visible to subsequent attachment and outline queries.
+    pub fn compute_global_transforms(
+        &self,
+        entities: impl IntoIterator<Item = Entity>,
+    ) -> Result<Vec<GlobalTransform>, bevy::ecs::query::QueryEntityError> {
+        let mut cache = EntityHashMap::default();
+        entities
+            .into_iter()
+            .map(|entity| {
+                self.cached_global(entity, &mut cache)
+                    .map(|pose| self.translated(entity, pose))
+            })
+            .collect()
+    }
+
+    fn cached_global(
+        &self,
+        entity: Entity,
+        cache: &mut EntityHashMap<GlobalTransform>,
+    ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
+        if let Some(&pose) = cache.get(&entity) {
+            return Ok(pose);
+        }
+        let pose = if let Some(pose) = self.world_override(entity) {
+            pose
+        } else {
+            let local = self.local(entity)?.global();
+            if let Ok(parent) = self.parents.get(entity) {
+                self.cached_global(parent.parent(), cache)? * local
+            } else {
+                local
+            }
+        };
+        // Keep translation boundaries outside the cached product: a child may
+        // override its parent's world-space offset with a different (or zero) one.
+        cache.insert(entity, pose);
+        Ok(pose)
     }
 
     /// Parent overrides let attached actors resolve in dependency order.
@@ -255,6 +301,7 @@ fn propagate(
     mut globals: Query<&mut GlobalTransform>,
 ) {
     let mut seen = BTreeSet::new();
+    let mut entities = Vec::new();
     for &root in affine
         .poses
         .keys()
@@ -263,14 +310,17 @@ fn propagate(
     {
         for entity in std::iter::once(root).chain(children.iter_descendants(root)) {
             if seen.insert(entity) {
-                let pose = helper
-                    .compute_global_transform(entity)
-                    .expect("affine hierarchy must have local transforms");
-                *globals
-                    .get_mut(entity)
-                    .expect("affine hierarchy must have global transforms") = pose;
+                entities.push(entity);
             }
         }
+    }
+    let poses = helper
+        .compute_global_transforms(entities.iter().copied())
+        .expect("affine hierarchy must have local transforms");
+    for (entity, pose) in entities.into_iter().zip(poses) {
+        *globals
+            .get_mut(entity)
+            .expect("affine hierarchy must have global transforms") = pose;
     }
 }
 
@@ -334,6 +384,11 @@ mod tests {
         }
         app.world_mut()
             .run_system_once(move |helper: Helper| {
+                let entities = [mesh, child, platform, effect, child];
+                let batch = helper.compute_global_transforms(entities).unwrap();
+                for (entity, pose) in entities.into_iter().zip(batch) {
+                    assert_eq!(pose, helper.compute_global_transform(entity).unwrap());
+                }
                 assert_eq!(
                     helper
                         .compute_global_transform(effect)
@@ -352,6 +407,12 @@ mod tests {
             .run_system_once(move |helper: Helper| {
                 assert_eq!(helper.compute_global_transform(effect).unwrap(), driven);
                 assert_eq!(helper.compute_global_transform(mesh).unwrap(), driven);
+                assert_eq!(
+                    helper
+                        .compute_global_transforms([mesh, effect, mesh])
+                        .unwrap(),
+                    [driven; 3]
+                );
             })
             .unwrap();
         // Controllers do not modify local poses, and releasing them restores

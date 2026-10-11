@@ -312,27 +312,6 @@ pub(super) fn render(
         return;
     }
     let world = &state.get().events.world;
-    if art.draws.is_empty() {
-        // Prepare each material before the first visible particle.
-        let warm = meshes.get(&art.warm_mesh).unwrap().clone();
-        art.draws = art
-            .materials
-            .iter()
-            .map(|material| {
-                let mesh = meshes.add(warm.clone());
-                let entity = commands
-                    .spawn((
-                        Mesh3d(mesh.clone()),
-                        MeshMaterial3d(material.clone()),
-                        Transform::default(),
-                        NoFrustumCulling,
-                        EffectDraw,
-                    ))
-                    .id();
-                vec![(entity, mesh)]
-            })
-            .collect();
-    }
     let Some(camera) = &world.field_camera else {
         return;
     };
@@ -484,12 +463,33 @@ pub(super) fn render(
         }
         applied.ack(request);
     }
+    let art = &mut *art;
+    sync_draws(
+        &mut commands,
+        &mut meshes,
+        &art.materials,
+        &mut art.draws,
+        &quads,
+    );
+}
+
+fn sync_draws(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &[Handle<TitleSurface>],
+    draws: &mut Vec<Vec<(Entity, Handle<Mesh>)>>,
+    quads: &[(u32, usize, Quad)],
+) {
+    // field_warm prepares every binding offscreen. Live draws only need meshes
+    // for actual effects; rewriting placeholder meshes would upload all unused
+    // material variants every frame, even in fields without any particles.
+    draws.resize_with(materials.len(), Vec::new);
     // Only adjacent, compatible draws may merge; translucent overlap is ordered.
-    let mut used = vec![0; art.materials.len()];
+    let mut used = vec![0; materials.len()];
     for (order, run) in quads.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)).enumerate() {
         let (pass, layer, _) = run[0];
         let batch = Quad::mesh(run.iter().map(|(_, _, quad)| quad));
-        let (entity, mesh) = if let Some((entity, mesh)) = art.draws[layer].get(used[layer]) {
+        let (entity, mesh) = if let Some((entity, mesh)) = draws[layer].get(used[layer]) {
             *meshes.get_mut(mesh).unwrap() = batch;
             (*entity, mesh.clone())
         } else {
@@ -497,22 +497,20 @@ pub(super) fn render(
             let entity = commands
                 .spawn((Transform::default(), NoFrustumCulling, EffectDraw))
                 .id();
-            art.draws[layer].push((entity, mesh.clone()));
+            draws[layer].push((entity, mesh.clone()));
             (entity, mesh)
         };
         commands.entity(entity).insert((
             Mesh3d(mesh),
-            MeshMaterial3d(art.materials[layer].clone()),
+            MeshMaterial3d(materials[layer].clone()),
             Visibility::Inherited,
             DrawOrder(pass, order),
         ));
         used[layer] += 1;
     }
-    let warm = meshes.get(&art.warm_mesh).unwrap().clone();
-    for (draws, used) in art.draws.iter().zip(used) {
-        for (entity, mesh) in draws.iter().skip(used) {
-            *meshes.get_mut(mesh).unwrap() = warm.clone();
-            commands.entity(*entity).insert(Visibility::Inherited);
+    for (draws, used) in draws.iter().zip(used) {
+        for (entity, _) in draws.iter().skip(used) {
+            commands.entity(*entity).insert(Visibility::Hidden);
         }
     }
 }
@@ -537,6 +535,107 @@ fn anchor_position(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inactive_effects_stop_uploading_and_reused_draws_preserve_order() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Mesh>();
+        let mut surfaces = Assets::<TitleSurface>::default();
+        let materials: Vec<_> = (0..3)
+            .map(|_| surfaces.add(TitleSurface::default()))
+            .collect();
+        let mut draws = Vec::new();
+        let quad = |layer, x| {
+            (
+                EFFECTS,
+                layer,
+                Quad::new(
+                    Vec3::new(x, 0., 0.),
+                    Quat::IDENTITY,
+                    [16.; 2],
+                    [0., 0., 1., 1.],
+                    [1.; 4],
+                    VerticalAnchor::Center,
+                ),
+            )
+        };
+        let mut update = |app: &mut App, quads: &[_]| {
+            app.world_mut()
+                .resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                    sync_draws(
+                        &mut world.commands(),
+                        &mut meshes,
+                        &materials,
+                        &mut draws,
+                        quads,
+                    );
+                });
+            app.world_mut().flush();
+            app.update();
+            app.world_mut()
+                .resource_mut::<Messages<AssetEvent<Mesh>>>()
+                .drain()
+                .collect::<Vec<_>>()
+        };
+        assert!(update(&mut app, &[]).is_empty());
+        assert!(app.world().resource::<Assets<Mesh>>().is_empty());
+        update(&mut app, &[quad(1, 0.), quad(0, 10.), quad(1, 20.)]);
+        let mut query = app
+            .world_mut()
+            .query::<(Entity, &Mesh3d, &MeshMaterial3d<TitleSurface>, &DrawOrder)>();
+        let mut original: Vec<_> = query
+            .iter(app.world())
+            .map(|(e, mesh, material, order)| (order.1, e, mesh.0.clone(), material.0.clone()))
+            .collect();
+        original.sort_by_key(|(order, ..)| *order);
+        assert_eq!(original.len(), 3);
+        assert_eq!(
+            original.iter().map(|(_, _, _, m)| m).collect::<Vec<_>>(),
+            [&materials[1], &materials[0], &materials[1]]
+        );
+        for _ in 0..3 {
+            assert!(
+                update(&mut app, &[]).is_empty(),
+                "inactive meshes must not be uploaded"
+            );
+            for (_, entity, mesh, _) in &original {
+                assert_eq!(
+                    app.world().get::<Visibility>(*entity),
+                    Some(&Visibility::Hidden)
+                );
+                assert_eq!(
+                    app.world()
+                        .resource::<Assets<Mesh>>()
+                        .get(mesh)
+                        .unwrap()
+                        .count_vertices(),
+                    4
+                );
+            }
+        }
+        update(
+            &mut app,
+            &[quad(1, 30.), quad(1, 40.), quad(0, 50.), quad(1, 60.)],
+        );
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 3);
+        for (order, entity, mesh, _) in &original {
+            assert_eq!(
+                app.world().get::<Visibility>(*entity),
+                Some(&Visibility::Inherited)
+            );
+            assert_eq!(app.world().get::<Mesh3d>(*entity).unwrap().0, *mesh);
+            assert_eq!(app.world().get::<DrawOrder>(*entity).unwrap().1, *order);
+            let mesh = app.world().resource::<Assets<Mesh>>().get(mesh).unwrap();
+            assert_eq!(mesh.count_vertices(), if *order == 0 { 8 } else { 4 });
+            let bevy::mesh::VertexAttributeValues::Float32x3(positions) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+            else {
+                panic!("positions")
+            };
+            assert_eq!(positions[0][0], [22., 42., 52.][*order]);
+        }
+    }
 
     #[test]
     fn rotation_order_changes_the_bolt_axis_before_camera_orientation() {

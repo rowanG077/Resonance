@@ -1286,6 +1286,67 @@ fn converging_effects_approach_the_center_and_expire() {
 }
 
 #[test]
+fn crystal_sparks_spread_during_travel_and_scatter_faster_on_release() {
+    // HOL_D03's crystal handoff: palette, glow, spark size, lifetime, speed.
+    let setup = script(&[
+        (
+            Call::CreateEffectEmitter,
+            &emitter(49, 0, &[73, 50, 5, 50, 25]),
+        ),
+        (Call::MoveActor, &[500, 200, 0, 0, 2]),
+    ]);
+    let release = script(&[
+        (Call::SetActorProperty, &[500, 33, 1]),
+        (Call::YieldCommand, &[0, 20]),
+        (Call::DespawnActor, &[500]),
+    ]);
+    let mut events = interactive_effect(&setup, &release);
+    steps(&mut events, 5);
+    let (&id, spark) = events
+        .world
+        .billboards
+        .iter()
+        .find(|(_, p)| p.recipe == 7 && p.lifetime == 51)
+        .unwrap();
+    let position = spark.position;
+    let center = events.world.actors[&500].position;
+    let distance = |a: [f32; 3], b: [f32; 3]| {
+        a.into_iter()
+            .zip(b)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    };
+    steps(&mut events, 10);
+    assert!((distance(events.world.billboards[&id].position, position) - 2.5).abs() < 0.001);
+    assert!(distance(events.world.actors[&500].position, center) > 10.);
+
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 2);
+    let born = events
+        .world
+        .billboards
+        .values()
+        .filter(|p| matches!(p.recipe, 7 | 69))
+        .map(|p| p.born)
+        .max()
+        .unwrap();
+    let burst: Vec<_> = events
+        .world
+        .billboards
+        .iter()
+        .filter(|(_, p)| p.born == born && matches!(p.recipe, 7 | 69))
+        .map(|(&id, p)| (id, p.position))
+        .collect();
+    assert_eq!(burst.len(), 250);
+    steps(&mut events, 10);
+    for (id, position) in burst {
+        assert!((distance(events.world.billboards[&id].position, position) - 25.).abs() < 0.001);
+    }
+    finish_effects(&mut events);
+}
+
+#[test]
 fn seal_blessing_descends_then_releases_an_expanding_sphere() {
     let mut args = emitter(31, -2, &[35, 20, 300, 1, 1, 50, 50, 255, -15, 20]);
     args[1..4].copy_from_slice(&[200, 300, 100]);
@@ -1865,6 +1926,33 @@ fn actor_sounds_attenuate_pan_and_ignore_removed_emitters() {
         }
     ));
     assert!(matches!(commands[2], AudioCommand::Sound { volume: 0, .. }));
+}
+
+#[test]
+fn sewer_actor_sound_sentinel_preserves_the_preceding_cue() {
+    // SEW_D00's background event plays cue 318, then immediately issues
+    // PlayActorSound(actor, -1, 0, 0). Actor audio uses an unbound voice:
+    // the sentinel neither starts a sound nor releases the preceding cue.
+    for sentinel in [-1, 0xffff] {
+        let code = script(&[
+            (Call::PlayActorSound, &[10, 318, 127, 2000]),
+            (Call::PlayActorSound, &[10, sentinel, 0, 0]),
+        ]);
+        let mut world = GameWorld::default();
+        world.controlled_actor = 1;
+        world.insert_actor(1, Actor::new(1, [0.; 3]));
+        world.insert_actor(10, Actor::new(1, [0.; 3]));
+        let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        assert!(matches!(
+            events.world.audio_commands.as_slice(),
+            [AudioCommand::Sound {
+                id: 318,
+                volume: 127,
+                pan: 64,
+                slot: None,
+            }]
+        ));
+    }
 }
 
 #[test]
@@ -3337,6 +3425,50 @@ fn loaded_motion_and_party_model_keep_their_own_resource_namespaces() {
         let animation = events.world.actors[&id].animation.as_ref().unwrap();
         assert_eq!((animation.resource, animation.source), (8, source));
         assert_eq!(animation.duration_ticks, duration);
+    }
+}
+
+#[test]
+fn duplicate_spawns_keep_the_first_script_binding_until_despawn() {
+    for id in [80, 90025] {
+        let resources = ResourceLibrary {
+            bindings: [(1, (ResourceKind::Model, 1)), (2, (ResourceKind::Model, 2))].into(),
+            models: [(1, model([12], 20)), (2, model([12], 30))].into(),
+            ..Default::default()
+        };
+        let setup = script(&[
+            (Call::SpawnActor, &[id, 10, 20, 30, 0, 1, 0, 0]),
+            (Call::SpawnActor, &[id, 40, 50, 60, 0, 2, 0, 0]),
+            (Call::SetActorPosition, &[id, 100, 200, 300]),
+        ]);
+        let replace = script(&[
+            (Call::DespawnActor, &[id]),
+            (Call::SpawnActor, &[id, 70, 80, 90, 0, 2, 0, 0]),
+            (Call::SetActorPosition, &[id, 400, 500, 600]),
+        ]);
+        let mut events = runtime(program(&setup, &replace), resources, controlled_world());
+        let first = &events.world.actors[&id];
+        assert_eq!(first.resource, 1);
+        assert_eq!(first.position, [100., 200., 300.]);
+        let instance = first.instance;
+        let duplicate = events
+            .world
+            .actors
+            .iter()
+            .find(|(key, _)| **key != id)
+            .unwrap()
+            .1;
+        assert_eq!(duplicate.resource, 2);
+        assert_eq!(duplicate.position, [40., 50., 60.]);
+        assert_ne!(instance, duplicate.instance);
+        assert_eq!(events.world.actors.len(), 2);
+        assert!(events.trigger(42, true).unwrap());
+        steps(&mut events, 2);
+        assert_eq!(events.world.actors.len(), 1);
+        let replacement = &events.world.actors[&id];
+        assert_eq!(replacement.resource, 2);
+        assert_eq!(replacement.position, [400., 500., 600.]);
+        assert_ne!(replacement.instance, instance);
     }
 }
 

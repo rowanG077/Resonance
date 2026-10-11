@@ -4,6 +4,16 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::animation::{Matrix, Transform, matrix_rotation, multiply};
 use std::collections::BTreeMap;
 
+#[derive(Debug)]
+struct MissingOwner(i32);
+
+impl std::fmt::Display for MissingOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "attachment owner {} is missing", self.0)
+    }
+}
+impl std::error::Error for MissingOwner {}
+
 struct Frames<'a> {
     world: &'a GameWorld,
     resources: &'a ResourceLibrary,
@@ -12,15 +22,11 @@ struct Frames<'a> {
 
 impl Frames<'_> {
     fn root(&mut self, id: i32, depth: usize) -> Result<Matrix> {
-        ensure!(depth < self.world.actors.len(), "cyclic model attachment");
         if let Some(matrix) = self.roots.get(&id) {
             return Ok(*matrix);
         }
-        let actor = self
-            .world
-            .actors
-            .get(&id)
-            .context("attachment owner is missing")?;
+        let actor = self.world.actors.get(&id).ok_or(MissingOwner(id))?;
+        ensure!(depth < self.world.actors.len(), "cyclic model attachment");
         let local = actor.local_matrix();
         let root = match &actor.attachment {
             Some(attachment) => multiply(self.parent(attachment, depth + 1)?, local),
@@ -48,6 +54,20 @@ impl Frames<'_> {
 }
 
 impl GameWorld {
+    /// Scripts can remove a motion owner before replacing it. Presentation keeps
+    /// the last attached pose then; an unknown position must not cull its child.
+    pub(crate) fn attached_culling_position(
+        &self,
+        resources: &ResourceLibrary,
+        id: i32,
+    ) -> Result<Option<[f32; 3]>> {
+        match self.attached_position(resources, id) {
+            Ok(position) => Ok(Some(position)),
+            Err(error) if error.is::<MissingOwner>() => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(crate) fn attached_position(
         &self,
         resources: &ResourceLibrary,
@@ -126,6 +146,119 @@ mod tests {
         field::CollisionQuery,
     };
     use std::sync::Arc;
+
+    fn culling_scene() -> EventRuntime {
+        let skeleton = Arc::new(Skeleton {
+            bones: vec![Bone {
+                name: "socket".into(),
+                parent: None,
+                bind_channels: TransformChannels(0),
+                bind: Transform::default(),
+            }],
+        });
+        let resources = Arc::new(ResourceLibrary {
+            models: [(
+                1,
+                ModelResource {
+                    names: vec!["socket".into()],
+                    attachments: crate::ModelAttachments {
+                        skeleton: Some(skeleton),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        });
+        let mut world = GameWorld::default();
+        world.field_camera = Some(crate::camera::CameraRig {
+            position: [0.; 3],
+            target: [0., 1000., 0.],
+            position_settled: true,
+            target_settled: true,
+            ..Default::default()
+        });
+        for (id, parent) in [(10, None), (20, Some(10)), (30, Some(20))] {
+            let mut actor = Actor::new(1, [0.; 3]);
+            actor.grounded = false;
+            actor.attachment = parent.map(|actor| Attachment {
+                actor,
+                bone: "socket".into(),
+            });
+            if parent.is_none() {
+                actor.position = [0., -1000., 0.];
+                actor.appearance.model_hidden = true;
+            }
+            world.insert_actor(id, actor);
+        }
+        let program =
+            symphonia_script::Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap();
+        EventRuntime::with_state(Arc::new(program), resources, world, Default::default()).unwrap()
+    }
+
+    #[test]
+    fn culling_keeps_nested_children_when_a_motion_owner_is_temporarily_missing() {
+        let mut events = culling_scene();
+        events.step().unwrap();
+        assert!(events.world.actors[&30].animation_culled);
+        let mut owner = events.world.actors.remove(&10).unwrap();
+        events.step().unwrap();
+        assert!(!events.world.actors[&20].animation_culled);
+        assert!(!events.world.actors[&30].animation_culled);
+        // Collision/camera callers still require a resolvable position.
+        assert!(
+            events
+                .world
+                .attached_position(&events.resources, 30)
+                .is_err()
+        );
+        owner.position = [0., 1000., 0.];
+        events.world.insert_actor(10, owner);
+        events.step().unwrap();
+        assert!(!events.world.actors[&30].animation_culled);
+        events.world.actors.get_mut(&10).unwrap().position = [0., -1000., 0.];
+        events.step().unwrap();
+        assert!(events.world.actors[&30].animation_culled);
+    }
+
+    #[test]
+    fn culling_still_rejects_invalid_bones_and_attachment_cycles() {
+        let mut events = culling_scene();
+        let attachment = events
+            .world
+            .actors
+            .get_mut(&20)
+            .unwrap()
+            .attachment
+            .as_mut()
+            .unwrap();
+        attachment.bone = "missing".into();
+        assert!(
+            events
+                .world
+                .attached_culling_position(&events.resources, 30)
+                .is_err()
+        );
+        let attachment = events
+            .world
+            .actors
+            .get_mut(&20)
+            .unwrap()
+            .attachment
+            .as_mut()
+            .unwrap();
+        attachment.bone = "socket".into();
+        attachment.actor = 30;
+        assert!(
+            events
+                .world
+                .attached_culling_position(&events.resources, 30)
+                .unwrap_err()
+                .to_string()
+                .contains("cyclic")
+        );
+    }
 
     #[test]
     fn nested_collision_follows_animated_bones_and_detaches_without_moving_script_coordinates() {

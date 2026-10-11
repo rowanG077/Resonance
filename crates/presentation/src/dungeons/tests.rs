@@ -1060,8 +1060,8 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires locally cooked Iselia fields; no devices"]
-fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> {
+#[ignore = "requires locally cooked Iselia fields and overworld; no devices"]
+fn iselia_first_tutorial_skips_both_battles_and_enters_the_overworld() -> Result<()> {
     let mut field = enter(MARTEL_START, 332, Some(2500))?;
     field.party_mut().formation = vec![1, 2, 3];
     field.advance_until(FieldSession::player_has_control)?;
@@ -1079,6 +1079,43 @@ fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> 
     }
     field.advance_until(FieldSession::player_has_control)?;
     assert!(field.events.exploration_error.is_none());
+
+    // The north gate is the first cold world load on the New Game route.
+    // Field-only checks miss stale shared dependencies in worlds/world.json.
+    assert!(field.events.trigger(1006, true)?);
+    field.advance_until(|field| field.events.world.world_transition.is_some())?;
+    let request = field.events.world.world_transition.as_ref().unwrap();
+    assert_eq!((request.location, request.direction), (2, 6));
+    let root = assets_root()?;
+    let package = resonance_game::overworld::Prepared::load(
+        &root,
+        &mut Default::default(),
+        new_game::available_fields(&root)?,
+        || false,
+    )?;
+    let progress = field.events.persistent_state()?;
+    let formation = progress.party.as_ref().unwrap().formation.clone();
+    let mut world = resonance_game::overworld::Session::return_from_field(
+        package.assets(resonance_content::overworld::World::Sylvarant, &progress)?,
+        request,
+        progress,
+        field.play_time,
+    )?;
+    for _ in 0..120 {
+        world.step(Default::default())?;
+        if world.player_has_control() {
+            break;
+        }
+    }
+    assert!(world.player_has_control());
+    assert_eq!(
+        world.events.world.party.as_ref().unwrap().formation,
+        formation
+    );
+    assert_eq!(
+        world.travel.state().world,
+        resonance_content::overworld::World::Sylvarant
+    );
     Ok(())
 }
 

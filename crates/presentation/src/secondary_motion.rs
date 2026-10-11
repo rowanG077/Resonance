@@ -4,7 +4,7 @@ use super::field_view::{ActorPart, Art, State};
 use super::sparse_animation::affine::{Helper as TransformHelper, Locals, Pose, rotation};
 use bevy::prelude::*;
 use resonance_content::secondary_motion::Chain;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const SETTLE_UPDATES: u32 = 300;
 
@@ -12,6 +12,7 @@ const SETTLE_UPDATES: u32 = 300;
 pub(super) struct Rig {
     root: Entity,
     bones: BTreeMap<u16, Bone>,
+    authored_nodes: Vec<u16>,
     chains: Vec<(Chain, Simulation)>,
     tick: Option<u32>,
     pose: BTreeMap<u16, GlobalTransform>,
@@ -75,9 +76,26 @@ impl Rig {
         }) {
             return None;
         }
+        // Dynamics only samples its joints and collision-plane anchors. Model
+        // rigs also contain many facial, limb and attachment bones that never
+        // participate in these chains; walking all their ancestors per render
+        // frame adds no information to the simulation.
+        let authored_nodes = chains
+            .iter()
+            .flat_map(|chain| {
+                chain
+                    .joints
+                    .iter()
+                    .map(|joint| joint.node)
+                    .chain(chain.collision_plane.iter().map(|plane| plane.anchor))
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
         Some(Self {
             root,
             bones,
+            authored_nodes,
             chains: chains
                 .into_iter()
                 .map(|chain| (chain, Simulation::default()))
@@ -124,9 +142,10 @@ impl Rig {
     }
 
     fn authored(&self, helper: &TransformHelper) -> Option<BTreeMap<u16, Authored>> {
-        self.bones
+        self.authored_nodes
             .iter()
-            .map(|(&node, bone)| {
+            .map(|&node| {
+                let bone = &self.bones[&node];
                 Some((
                     node,
                     Authored {
