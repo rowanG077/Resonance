@@ -1,0 +1,140 @@
+{
+  "version": 2,
+  "description": "Saved choice-window styles on the naturally reached New Game setup prompt. Separate question, choice-panel and cursor regions use tolerance 8 / 1%. Source checkpoint copies change only saved window style. The retained source sequence establishes a three-frame delay from the cursor memory observation to the dumped image. Plain dump 196 corresponds to VI 193 / UI clock 4097; ornamental/gold dump 189 corresponds to VI 186 / clock 4090. Both observations have zero trail segments. Native held ticks 305/322 use the same modulo-24 phases. Plain dumps 172 and 196 repeat the cursor region byte-for-byte one full cycle apart. This isolates artwork, compositing, highlight and position; opening timing and trails across input history remain separate checks.",
+  "capture": {
+    "kind": "setup",
+    "tick": 322
+  },
+  "regions": [
+    {
+      "name": "question",
+      "rect": [
+        150,
+        34,
+        338,
+        92
+      ]
+    },
+    {
+      "name": "choices",
+      "rect": [
+        200,
+        355,
+        227,
+        88
+      ]
+    },
+    {
+      "name": "cursor",
+      "rect": [
+        200,
+        370,
+        43,
+        52
+      ]
+    }
+  ],
+  "tolerance": 8,
+  "max_changed_fraction": 0.01,
+  "preferences": {
+    "background": 5,
+    "battle_auto_zoom": true,
+    "battle_rank": 0,
+    "battle_voiceover": true,
+    "button_map": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "colors": {
+      "choice": [
+        136,
+        40,
+        40,
+        232
+      ],
+      "dialogue": [
+        0,
+        72,
+        144,
+        232
+      ],
+      "menu": [
+        48,
+        104,
+        120,
+        216
+      ],
+      "popup": [
+        24,
+        88,
+        80,
+        232
+      ],
+      "selection": [
+        112,
+        144,
+        24,
+        128
+      ],
+      "shade_bottom": [
+        32,
+        80,
+        88,
+        216
+      ],
+      "shade_top": [
+        24,
+        48,
+        48,
+        216
+      ]
+    },
+    "event_voiceover": true,
+    "message_speed": 3,
+    "movie_subtitles": true,
+    "rumble": true,
+    "screen_position": [
+      0,
+      0
+    ],
+    "skit_notifications": true,
+    "stereo": true,
+    "volumes": {
+      "battle_effects": 127,
+      "battle_voice": 127,
+      "effects": 127,
+      "music": 127,
+      "voice": 127
+    },
+    "window": 1
+  },
+  "variants": [
+    {
+      "window": 0,
+      "background": 5,
+      "reference": "local/findings-menu/dialogue-setup-s0-oracle-v4/user/Dump/Frames/framedump_196.png",
+      "sha256": "363a8156d7c6671e11a174d72248d7fb9a7681d2b67c7dd305b9ab01922e76fc",
+      "capture": {
+        "kind": "setup",
+        "tick": 305
+      }
+    },
+    {
+      "window": 1,
+      "background": 5,
+      "reference": "local/findings-menu/dialogue-setup-s1-oracle-v4/reference.png",
+      "sha256": "0d10d0ac50cbb4ff94a772e4583cdd6c9d1d14ecd57240618bcc6adc5f94b674"
+    },
+    {
+      "window": 2,
+      "background": 5,
+      "reference": "local/findings-menu/dialogue-setup-s2-oracle-v4/reference.png",
+      "sha256": "e383ca79f8d41240313720914f188e1261442e1ce58adf024a8ef94faf475bbc"
+    }
+  ]
+}

@@ -191,6 +191,8 @@ impl Fixture {
             script_root: None,
             saves: Default::default(),
             capture: None,
+            presentation_start: None,
+            replay: None,
             capture_at: None,
             reveal: false,
             selected: 0,
@@ -220,6 +222,7 @@ impl Fixture {
                 directory: Some(directory.path().into()),
                 ..Default::default()
             },
+            false,
         )?;
         game_over::install(&mut app)?;
         app.world_mut()
@@ -533,7 +536,12 @@ impl Fixture {
 
     fn wait_slots(&mut self) -> Result<()> {
         let start = Instant::now();
-        while self.app.world().resource::<saves::title::LoadMenu>().0.busy
+        while self
+            .app
+            .world()
+            .resource::<saves::title::TitleMenu>()
+            .0
+            .busy
             || self
                 .app
                 .world()
@@ -553,7 +561,7 @@ impl Fixture {
         if self
             .app
             .world()
-            .contains_resource::<saves::title::LoadMenu>()
+            .contains_resource::<saves::title::TitleMenu>()
         {
             self.wait_slots()?;
         }
@@ -651,7 +659,7 @@ impl Fixture {
     fn assert_title(&mut self) -> Result<()> {
         let world = self.app.world_mut();
         assert!(!world.contains_resource::<game_over::Active>());
-        assert!(!world.contains_resource::<saves::title::LoadMenu>());
+        assert!(!world.contains_resource::<saves::title::TitleMenu>());
         assert!(!world.contains_resource::<crate::battle_audio::Playback>());
         assert!(!world.contains_resource::<new_game::Session>());
         let memory = world.resource::<MenuMemory>();
@@ -921,7 +929,7 @@ fn fatal_completion_keeps_request_and_music_then_loads_a_new_field_once() -> Res
         fixture
             .app
             .world()
-            .resource::<saves::title::LoadMenu>()
+            .resource::<saves::title::TitleMenu>()
             .0
             .focus,
         SlotFocus::Bank
@@ -940,7 +948,7 @@ fn fatal_completion_keeps_request_and_music_then_loads_a_new_field_once() -> Res
     }
     let world = fixture.app.world();
     assert!(!world.contains_resource::<game_over::Active>());
-    assert!(!world.contains_resource::<saves::title::LoadMenu>());
+    assert!(!world.contains_resource::<saves::title::TitleMenu>());
     assert!(!world.contains_resource::<crate::battle_audio::Playback>());
     fixture.assert_audio_retired();
     assert!(
@@ -1001,7 +1009,7 @@ fn failed_fatal_load_stays_in_menu_and_cancel_restarts_title_once() -> Result<()
     while fixture
         .app
         .world()
-        .resource::<saves::title::LoadMenu>()
+        .resource::<saves::title::TitleMenu>()
         .0
         .notice
         .is_none()
@@ -1019,7 +1027,7 @@ fn failed_fatal_load_stays_in_menu_and_cancel_restarts_title_once() -> Result<()
         !fixture
             .app
             .world()
-            .resource::<saves::title::LoadMenu>()
+            .resource::<saves::title::TitleMenu>()
             .0
             .busy
     );

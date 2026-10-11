@@ -107,12 +107,6 @@ impl Menu {
             .context("customization page has not been prepared")
     }
 
-    pub fn customize_data(&self) -> anyhow::Result<&menu_data::CustomizeData> {
-        self.customize_data
-            .as_ref()
-            .context("customization page has not been prepared")
-    }
-
     pub fn preferences(&self) -> Option<&CustomizeSettings> {
         if self.page == Page::Customize {
             Some(&self.customize.draft)

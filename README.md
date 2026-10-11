@@ -29,18 +29,16 @@ target/debug/resonance-import cook-all --jobs 6
 ```
 
 The current import profile supports North American GQSEAF revision 0.
-Battle development uses the [temporary partial cooker](docs/cooking.md), including
-integration checkpoints; do not run full cooks for battle implementation.
 Extraction is a one-time step. `cook-all` converts general assets from both discs
 into one shared `local/all-assets` library, including unused resources in supported
 formats. It also prepares startup, menus, skits and every field in the source
 catalogue through shared conversion paths. Field resources and media follow their
 source declarations; no list of Iselia fields or separate route-cooking commands
-is needed. Battle preparation is being added to this pipeline; the coverage report
-identifies remaining battle resources. Identical resources share work across discs;
-disc names remain provenance only. Cooking does not establish runtime support for
-every recovered scene or native function. Each invocation cooks the supplied discs
-again; inspect `--help` for other paths and worker limits. Keep discs, extracted files, cooked assets and
+is needed. Battle preparation is separate; the coverage report identifies deferred
+battle resources. Identical resources are reused across discs; disc names remain
+provenance only. Cooking does not establish runtime support for every recovered
+scene or native function. Cooks reuse valid outputs; inspect `--help` for
+other paths and worker limits. Keep discs, extracted files, cooked assets and
 recordings in the ignored `local/` directory. Cooking uses in-process Rust codecs,
 with no FFmpeg, vgmstream or KTX command-line tools. The
 [development flake](flake.nix) supplies the build and oracle tools.
@@ -72,18 +70,7 @@ cargo run --release -p resonance -- --silent --assets local/all-assets --resolut
 
 `--silent` permanently mutes speaker output, including after device recovery.
 Omit it to hear the game. Use `--assets PATH` for another cooked directory and
-`--skip-intro` to enter the title directly.
-
-By default, missing or unsupported content logs an error and the session continues
-with the affected item skipped or the failed scene retired. Repeated errors are
-logged once. Add `--paranoid` to stop at the first such error. Invalid command-line
-arguments, output write failures and failures that prevent application startup
-still fail in either mode. The `checkpoint_replay` example accepts the same flag;
-its `recording.json` includes `mode`, `valid` and collected `diagnostics`. A recording
-with any recovered error has `valid: false` and must not be used as passing fidelity
-evidence.
-
-The classroom's opening speech is
+`--skip-intro` to enter the title directly. The classroom's opening speech is
 intentionally shown over black; advance it to reveal the room.
 
 At startup, the title uses the host's local clock: the original day field from
@@ -123,7 +110,7 @@ clock. Simulation remains at 60000/1001 updates per second.
 | Pause / resume | F7 | — |
 | Skip current cutscene / cancel skip | F8 | — |
 
-Combat is not implemented on this branch. Battle skipping is off by default. Open **Shift+Tab** and click **Skip battles**
+Battle skipping is off by default. Open **Shift+Tab** and click **Skip battles**
 or press **B** while the menu is open to toggle it for the session. Skipped
 encounters count as victories without loot. The `--skip-battles` launch option
 starts with skipping enabled. Unsupported field scripts still report errors
@@ -203,7 +190,6 @@ and integer constants. Cooking copies it unchanged. Check source with
 check against the cooked library instead.
 
 - [Generic asset cooking](docs/cooking.md)
-- [Battle implementation and source coverage](docs/battle-status.md)
 - [SymphoniaScript and native registration](docs/symphonia-script.md)
 - [Field preparation](docs/field-preloading.md)
 - [Performance measurements and silent probes](docs/performance.md)

@@ -11,6 +11,7 @@ pub mod field;
 pub mod game_over;
 pub mod menu;
 pub mod overworld;
+pub mod replay;
 pub mod skit;
 pub mod title_events;
 pub const TITLE_REVEAL_TICKS: u32 = 843;

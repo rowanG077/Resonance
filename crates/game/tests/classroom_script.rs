@@ -3181,7 +3181,6 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
             session_data: Some(data.clone()),
             ..Default::default()
         },
-        files.diagnostics(),
     )
     .unwrap();
     for (&id, paths) in &catalog.resources {

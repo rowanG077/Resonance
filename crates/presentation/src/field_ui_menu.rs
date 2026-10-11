@@ -72,6 +72,7 @@ const WORLD_MAPS: usize = MenuArt::WORLD_MAP_TEXTURES.start;
 pub(super) enum MaterialKey {
     Texture(usize),
     Font,
+    Cursor,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum DrawRole {
@@ -264,9 +265,7 @@ pub(super) struct MenuArtwork {
     pub layers: BTreeMap<(usize, DrawRole, MaterialKey), Layer>,
     band: DepthBand,
     active_page: Option<ActivePage>,
-    items_animation: items::Animation,
     world_notice: WorldNotice,
-    ship_notice: WorldNotice,
     trail: super::super::choice_cursor::Trail,
 }
 /// Native world notices slide down from the top while their alpha approaches 255.
@@ -302,6 +301,15 @@ impl WorldNotice {
     }
 }
 impl MenuArtwork {
+    pub(super) fn choice_cursor(&self, window: u8) -> Option<(&Handle<Image>, [u32; 2])> {
+        let index = self.spec.windows.get(&usize::from(window))?.cursor?;
+        let material = self.materials.get(&MaterialKey::Texture(index))?;
+        Some((&material.image, material.size))
+    }
+    pub(super) fn cursor_motion(&self, window: u8) -> [f32; 2] {
+        self.spec.windows[&usize::from(window)].cursor_motion
+    }
+
     pub(super) fn world_map_art(&self, world: usize) -> (Handle<Surface>, [u32; 2]) {
         let material = &self.materials[&MaterialKey::Texture(WORLD_MAPS + world)];
         (material.material.clone(), material.size)
@@ -312,7 +320,6 @@ impl MenuArtwork {
         menu_label(
             &self.spec.labels,
             match action {
-                FieldAction::ToField => "to_field",
                 FieldAction::Enter => "go_in",
                 FieldAction::Talk => "talk",
                 FieldAction::Shop => "shop",
@@ -337,6 +344,7 @@ impl MenuArtwork {
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         font: (&Handle<Surface>, [u32; 2]),
+        cursor: &resonance_content::font::UiTexture,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
     ) -> Result<Self> {
         let spec = MenuArt::decode(&read("ui/menu.json")?, diagnostics)?;
@@ -366,6 +374,43 @@ impl MenuArtwork {
                 },
             );
         }
+        let cursor_image = menu_image(server, cursor.path.clone(), true);
+        let cursor_material = materials.add(Surface {
+            source: cursor_image.clone(),
+            sampling: cursor_image.clone(),
+            frame_mask: cursor_image.clone(),
+            color_mask: cursor_image.clone(),
+            coverage: Coverage::default(),
+            additive: false,
+            red_channel: false,
+            opaque: false,
+        });
+        prepared.insert(
+            MaterialKey::Cursor,
+            MenuMaterial {
+                image: cursor_image,
+                size: [cursor.width, cursor.height],
+                material: cursor_material,
+                repeat: true,
+                pending: None,
+            },
+        );
+        for window in spec.windows.values() {
+            if let Some(index) = window.cursor {
+                let entry = prepared
+                    .get_mut(&MaterialKey::Texture(index))
+                    .context("missing menu cursor")?;
+                let image = menu_image(
+                    server,
+                    entry.pending.take().context("missing cursor path")?,
+                    entry.repeat,
+                );
+                let mut material = materials.get_mut(&entry.material).unwrap();
+                material.source = image.clone();
+                material.sampling = image.clone();
+                entry.image = image;
+            }
+        }
         let (material, size) = font;
         prepared.insert(
             FONT,
@@ -391,9 +436,7 @@ impl MenuArtwork {
             layers: BTreeMap::new(),
             band: DepthBand::Field,
             active_page: None,
-            items_animation: Default::default(),
             world_notice: Default::default(),
-            ship_notice: Default::default(),
             trail: Default::default(),
         })
     }
@@ -444,7 +487,7 @@ impl MenuArtwork {
     }
 
     /// Entrance, panel and selection motion is complete; decorative pulses may continue.
-    pub(super) fn visually_settled(&self, menu: &Menu, tick: u32) -> bool {
+    pub(super) fn visually_settled(&self, menu: &Menu, _tick: u32) -> bool {
         if self.active_page != Some(ActivePage::Menu(menu.page))
             || !self.draws.ready().unwrap_or(false)
             || menu.busy
@@ -453,7 +496,17 @@ impl MenuArtwork {
             return false;
         }
         match menu.page {
-            Page::Items => self.items_animation.settled(menu.inventory.focus, tick),
+            Page::Items => {
+                !menu.inventory.page_closing
+                    && menu.inventory.page_fade == 0
+                    && menu.inventory.scroll == 0
+                    && !menu.inventory.target_closing
+                    && (!matches!(
+                        menu.inventory.focus,
+                        resonance_game::menu::items::Focus::Target
+                            | resonance_game::menu::items::Focus::Transform(_)
+                    ) || menu.inventory.target_opacity == 255)
+            }
             Page::Equip => {
                 !menu.equipment.transition.animating()
                     && menu.equipment.scroll == 0
@@ -504,7 +557,6 @@ impl MenuArtwork {
     }
     fn set_page(&mut self, page: Option<ActivePage>) {
         if self.active_page != page {
-            self.items_animation = Default::default();
             self.active_page = page;
             *self.draws.0.lock().unwrap() = Default::default();
         }
@@ -538,6 +590,8 @@ impl MenuArtwork {
             spec: &self.spec,
             font,
             selection: &dialogue.selection,
+            cursor_texture: &dialogue.cursor,
+            trail: self.trail,
             preferences,
             experience: &self.experience,
             tick,
@@ -666,11 +720,13 @@ impl MenuArtwork {
             TechFocus::CannotForget | TechFocus::Forget { .. }
         );
         let alpha = if modal { 127 } else { 255 };
-        draw.cursor(anchor, alpha);
+        draw.cursor_trail(anchor, alpha);
         if let Some(anchor) = draw.tech_popup_page(page)? {
-            draw.cursor(anchor, 255);
+            draw.cursor_trail(anchor, 255);
         }
+        let trail = draw.trail;
         let drawing = draw.batches;
+        self.trail = trail;
         self.submit_drawing(drawing, commands, meshes)
     }
 
@@ -730,10 +786,9 @@ impl MenuArtwork {
                     .or_else(|| crafting.map(|_| ActivePage::Crafting))
                     .or_else(|| notice.as_ref().map(|_| ActivePage::WorldNotice)),
             );
-            let item_visual = menu.filter(|menu| menu.page == Page::Items).map(|menu| {
-                self.items_animation
-                    .sample(menu.inventory.focus, presentation_tick)
-            });
+            let item_visual = menu
+                .filter(|menu| menu.page == Page::Items)
+                .map(|menu| items::Visual::from_menu(menu));
             let preferences = menu
                 .and_then(Menu::preferences)
                 .or_else(|| shop.map(|(_, party)| &party.settings.preferences))
@@ -917,10 +972,10 @@ impl MenuArtwork {
                             } else {
                                 techniques::target_cursor(menu, slot)
                             };
-                            draw.cursor(at, 255);
+                            draw.cursor_trail(at, 255);
                         }
                     } else {
-                        draw.cursor(anchor, alpha);
+                        draw.cursor_trail(anchor, alpha);
                     }
                 }
                 let anchor = if let Some(popup) = &menu.popup {
@@ -960,7 +1015,7 @@ impl MenuArtwork {
                     }
                 };
                 if let Some(anchor) = anchor.filter(|_| !menu.busy) {
-                    draw.cursor(
+                    draw.cursor_trail(
                         anchor,
                         menu.popup.as_ref().map_or_else(
                             || match menu.page {
@@ -976,13 +1031,13 @@ impl MenuArtwork {
                 draw.plane = 1;
                 let anchor = draw.shop(shop, party)?;
                 draw.plane = 4;
-                draw.cursor(anchor, 255 - shop.fade);
+                draw.cursor_trail(anchor, 255 - shop.fade);
             } else if let Some((crafting, party)) = crafting {
                 draw.shade(draw.screen);
                 draw.plane = 1;
                 let anchor = draw.crafting(crafting, party)?;
                 draw.plane = 4;
-                draw.cursor(anchor, 255 - crafting.fade);
+                draw.cursor_trail(anchor, 255 - crafting.fade);
             } else if let (Source::World(_, _), Some((message, acknowledgement, opacity))) =
                 (source, notice)
             {
@@ -1011,7 +1066,9 @@ impl MenuArtwork {
                     draw.world_button(8, "Leave", [504., 104.])?;
                 }
             }
+            let trail = draw.trail;
             let drawing = draw.batches;
+            self.trail = trail;
             self.submit_drawing(drawing, commands, meshes)
         })();
         if result.is_err() {
@@ -1059,7 +1116,7 @@ impl Drawing<'_> {
         [top, bottom]: [f32; 2],
     ) {
         let [_, top, _, bottom] =
-            super::super::ui_coordinates::overlay_rect([0., top, 640., bottom]);
+            super::super::choice_cursor::overlay_rect([0., top, 640., bottom]);
         let center = resonance_content::HEIGHT as f32 / 2.;
         for (key, batch) in &mut self.batches {
             if key.1 == DrawRole::Cursor {
@@ -1112,11 +1169,59 @@ impl Drawing<'_> {
         self.preferences
             .map_or(self.spec.popup_fill, |s| s.colors.popup)
     }
+    fn cursor_texture(&self) -> (MaterialKey, [f32; 2]) {
+        self.window().cursor.map_or(
+            (
+                MaterialKey::Cursor,
+                [
+                    self.cursor_texture.width as f32,
+                    self.cursor_texture.height as f32,
+                ],
+            ),
+            |index| {
+                let image = &self.spec.textures[&index];
+                (
+                    MaterialKey::Texture(index),
+                    [image.width as f32, image.height as f32],
+                )
+            },
+        )
+    }
+    fn cursor_trail(&mut self, anchor: [f32; 2], alpha: u8) {
+        let bob = if u16::from(alpha) * u16::from(self.opacity) / 255 >= 254 {
+            let [amplitude, step] = self.window().cursor_motion;
+            (amplitude * (step * 24. * (self.tick % 24) as f32 / 24.).sin()).trunc()
+        } else {
+            0.
+        };
+        let position = [anchor[0] + bob, anchor[1] - bob];
+        if alpha == 255 && self.opacity == 255 {
+            for ([x, y], alpha) in self.trail.sample(self.tick, position.map(|v| v as i32)) {
+                self.cursor_image([x as f32, y as f32], alpha);
+            }
+        }
+        self.cursor(position, alpha);
+    }
     fn cursor(&mut self, [x, y]: [f32; 2], alpha: u8) {
-        let alpha = self.alpha([1., 1., 1., f32::from(alpha) / 255.])[3];
-        let position = [x + self.offset[0], y + self.offset[1]];
-        self.batch_role(DrawRole::Cursor, FONT)
-            .cursor(position, alpha);
+        let (layer, [w, h]) = self.cursor_texture();
+        self.quad_role(
+            DrawRole::Cursor,
+            layer,
+            [x + 8. - w, y + 12., x + 8., y + 12. + h],
+            [0., 0., w, h],
+            [0., 0., 0., f32::from(alpha >> 1) / 255.],
+        );
+        self.cursor_image([x, y], alpha);
+    }
+    fn cursor_image(&mut self, [x, y]: [f32; 2], alpha: u8) {
+        let (layer, [w, h]) = self.cursor_texture();
+        self.quad_role(
+            DrawRole::Cursor,
+            layer,
+            [x + 4. - w, y + 8., x + 4., y + 8. + h],
+            [0., 0., w, h],
+            [1., 1., 1., f32::from(alpha) / 255.],
+        );
     }
     fn alpha(&self, mut color: [f32; 4]) -> [f32; 4] {
         if self.opacity != 255 {
@@ -1138,7 +1243,7 @@ impl Drawing<'_> {
         let color = self.alpha(color);
         let rect = std::array::from_fn(|i| rect[i] + self.offset[i % 2]);
         self.batch_role(role, texture).quad(
-            super::super::ui_coordinates::overlay_rect(rect),
+            super::super::choice_cursor::overlay_rect(rect),
             uv,
             color,
         );

@@ -15,8 +15,6 @@ mod checkpoint;
 mod conditions;
 pub mod crafting;
 pub mod navigation;
-#[cfg(test)]
-mod optional_notices_tests;
 mod prompt;
 pub mod replay;
 mod save_point;
@@ -207,7 +205,7 @@ impl FieldSession {
     /// Quickloads restart ambient services through ordinary field initialization.
     pub fn continue_ambient(&mut self, previous: &Self) {
         self.unison_character = previous.unison_character();
-        self.skits.continue_from(&previous.skits);
+        self.skits = previous.skits.next_field();
         self.effect_clock = previous.effect_clock;
     }
     pub fn action_prompt(&self) -> Option<ActionPrompt> {
@@ -740,15 +738,6 @@ impl FieldSession {
                         } else {
                             None
                         };
-                        if actor.motion.is_some()
-                            && let Some(autonomy) = &mut actor.autonomy
-                            && autonomy.behavior == resonance_events::Behavior::Player
-                        {
-                            // Retain the PAD callback owner after this one-step
-                            // motion, including when a later script disables input.
-                            autonomy.activity = resonance_events::Activity::Walk;
-                            autonomy.initialized = false;
-                        }
                         if input.pressed(Button::Accept)
                             && let Some(target) = interaction_target
                             && events.interact(target)?
@@ -1047,7 +1036,7 @@ impl FieldSession {
             if let Some(player) = self.dialogue.get_mut(&slot) {
                 player.sync_flags(request);
             }
-            if request.opening_ready(&self.events.world.actors)
+            if request.opening_actor.is_none()
                 && request.operation.is_pending()
                 && !self.dialogue.contains_key(&slot)
             {
@@ -1074,48 +1063,45 @@ impl FieldSession {
             .find(|(_, choice)| choice.operation.is_pending())
             .map(|(&slot, _)| slot);
         for (slot, player) in &mut self.dialogue {
-            let choosing = self
-                .events
-                .world
-                .choices
-                .get(slot)
-                .is_some_and(|choice| choice.operation.is_pending());
+            let accepts_input = choice_slot.is_none_or(|choice| choice == *slot);
             let before_selection_page = player.page + 1 < player.pages.len();
-            let voices = if input.skip_dialogue && !choosing {
+            let voices = if input.skip_dialogue && choice_slot.is_none() {
                 player.skip_step()?
             } else {
                 player.step(
                     (input.pressed(Button::Accept) || input.pressed(Button::Cancel))
-                        && (!choosing || before_selection_page),
-                    input.held_buttons.contains(Button::Accept),
+                        && (choice_slot.is_none() || before_selection_page && accepts_input),
+                    input.held_buttons.contains(Button::Accept) && accepts_input,
                 )?
             };
             for voice in voices {
-                match &voice {
-                    resonance_events::AudioCommand::Voice { resource, .. } => {
+                self.events.world.audio_commands.push(match voice {
+                    resonance_events::AudioCommand::Voice {
+                        resource: id,
+                        completion,
+                    } => {
                         self.events.world.voice = Some(resonance_events::VoicePlayback {
-                            resource: *resource,
+                            resource: id,
                             end_tick: self.events.world.tick.saturating_add(
                                 self.events
                                     .world
                                     .voice_durations
-                                    .get(resource)
+                                    .get(&id)
                                     .copied()
                                     .unwrap_or(0),
                             ),
                         });
+                        resonance_events::AudioCommand::Voice {
+                            resource: id,
+                            completion,
+                        }
                     }
-                    resonance_events::AudioCommand::StopVoice => self.events.world.voice = None,
-                    _ => {}
-                }
-                self.events.world.audio_commands.push(voice);
-            }
-        }
-        for (&slot, player) in &self.dialogue {
-            if let Some(request) = self.events.world.dialogue.get_mut(&slot)
-                && request.operation.id() == player.operation.id()
-            {
-                request.actor_activity_released = player.actor_activity_released();
+                    resonance_events::AudioCommand::StopVoice => {
+                        self.events.world.voice = None;
+                        resonance_events::AudioCommand::StopVoice
+                    }
+                    other => other,
+                });
             }
         }
         let speakers: std::collections::BTreeSet<_> = self
@@ -1768,7 +1754,6 @@ mod tests {
             unison_character: 0,
             entered_control: false,
             entry_wait_ticks: 0,
-            diagnostics: Default::default(),
             map_id: 0,
             authored_entry: None,
             menu_resources: None,
@@ -1778,7 +1763,6 @@ mod tests {
             shop: None,
             crafting: None,
             menu_operation: None,
-            unison_character: 0,
             conversation_facing: None,
             save_points: Default::default(),
             treasures: Default::default(),
@@ -2544,168 +2528,6 @@ mod tests {
         }
     }
 
-    fn player_input_owner_session(calls: &[(NativeCall, &[i32])]) -> FieldSession {
-        use resonance_events::{
-            Activity, AnimationClip, Autonomy, Behavior, GameWorld, ModelResource,
-        };
-        let mut session = choice_session();
-        let mut code = vec![4, 0, 0, 0];
-        native(&mut code, NativeCall::YieldCommand, &[0, 1]);
-        for &(call, args) in calls {
-            native(&mut code, call, args);
-        }
-        code.push(0x20ff);
-        let program = Program::decode(
-            &code
-                .into_iter()
-                .flat_map(u16::to_be_bytes)
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-        let mut world = GameWorld::default();
-        world.input_enabled = true;
-        world.controlled_actor = 1;
-        let mut actor = Actor::new(1, [0.; 3]);
-        actor.face(90.);
-        actor.grounded = false;
-        actor.collidable = false;
-        actor.autonomy = Some(Autonomy {
-            activity: Activity::Idle,
-            initialized: true,
-            remaining: 122,
-            ..Autonomy::new(Behavior::Player, 0., actor.position)
-        });
-        world.insert_actor(1, actor);
-        let model = ModelResource {
-            clips: [12, 36, 40, 44, 48, 112, 116, 120, 124]
-                .into_iter()
-                .map(|slot| {
-                    (
-                        slot,
-                        AnimationClip {
-                            duration_ticks: 60,
-                            attachments: None,
-                        },
-                    )
-                })
-                .collect(),
-            ..Default::default()
-        };
-        session.events = EventRuntime::with_state(
-            Arc::new(program),
-            Arc::new(ResourceLibrary {
-                models: [(1, model)].into(),
-                messages: vec![Message { tokens: vec![] }],
-                ..Default::default()
-            }),
-            world,
-            Default::default(),
-        )
-        .unwrap();
-        session.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
-            surface: 0,
-            vertices: vec![[-1000., -1000., 0.], [1000., -1000., 0.], [0., 1000., 0.]],
-            triangles: vec![[0, 1, 2]],
-        }])
-        .unwrap();
-        session
-    }
-
-    #[test]
-    fn keyboard_movement_stops_after_input_or_control_is_lost() {
-        use resonance_events::{Activity, animation::slot};
-        for run in [false, true] {
-            for lose_control in [false, true] {
-                let calls = if lose_control {
-                    vec![(NativeCall::DisableMappedInput, &[][..])]
-                } else {
-                    vec![]
-                };
-                let mut session = player_input_owner_session(&calls);
-                session
-                    .step(FieldInput {
-                        direction: [1., 0.],
-                        run,
-                        ..Default::default()
-                    })
-                    .unwrap();
-                let position = session.events.world.actors[&1].position;
-                assert_eq!(position, [if run { 8. } else { 4. }, 0., 0.]);
-                assert_eq!(
-                    session.events.world.actors[&1].autonomy.unwrap().activity,
-                    Activity::Walk
-                );
-                for _ in 0..8 {
-                    session.step(Default::default()).unwrap();
-                    assert_eq!(session.events.world.actors[&1].position, position);
-                }
-                let actor = &session.events.world.actors[&1];
-                assert_eq!(actor.autonomy.unwrap().activity, Activity::Idle);
-                assert!(actor.motion.is_none());
-                assert_eq!(session.events.world.input_enabled, !lose_control);
-                assert_eq!(
-                    actor.animation.as_ref().unwrap().slot,
-                    if lose_control {
-                        slot::EVENT_IDLE
-                    } else {
-                        slot::IDLE
-                    }
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn scripted_destination_replaces_keyboard_movement_then_returns_to_idle() {
-        use resonance_events::Activity;
-        let mut session = player_input_owner_session(&[
-            (NativeCall::DisableMappedInput, &[]),
-            (NativeCall::MoveActor, &[1, 8, 0, 0, 4]),
-        ]);
-        session
-            .step(FieldInput {
-                direction: [1., 0.],
-                ..Default::default()
-            })
-            .unwrap();
-        assert!(session.events.world.actors[&1].motion.is_some());
-        for _ in 0..16 {
-            session.step(Default::default()).unwrap();
-        }
-        let actor = &session.events.world.actors[&1];
-        assert_eq!(actor.position, [8., 0., 0.]);
-        assert!(actor.motion.is_none());
-        assert_eq!(actor.autonomy.unwrap().activity, Activity::Idle);
-    }
-
-    #[test]
-    fn dialogue_owns_the_actor_after_keyboard_movement() {
-        let mut session = player_input_owner_session(&[
-            (NativeCall::DisableMappedInput, &[]),
-            (NativeCall::ConfigureDialogue, &[0, 64, -1, 1, 0, 0, 0, 0]),
-            (NativeCall::YieldCommand, &[2, 0]),
-        ]);
-        session
-            .step(FieldInput {
-                direction: [1., 0.],
-                ..Default::default()
-            })
-            .unwrap();
-        let position = session.events.world.actors[&1].position;
-        for _ in 0..8 {
-            session
-                .step(FieldInput {
-                    direction: [1., 0.],
-                    ..Default::default()
-                })
-                .unwrap();
-            let actor = &session.events.world.actors[&1];
-            assert_eq!(actor.position, position);
-            assert!(actor.autonomy.unwrap().conversing);
-            assert!(session.events.world.dialogue[&0].operation.is_pending());
-        }
-    }
-
     #[test]
     fn scripted_door_approach_can_leave_the_floor_while_keyboard_movement_stays_bounded() {
         let start = [-2855.4521, 1513.175, 66.4043];
@@ -2770,336 +2592,40 @@ mod tests {
     }
 
     #[test]
-    fn attached_dialogue_waits_for_turning_then_closes_once() {
-        use resonance_events::dialogue::{DialogueAnchor, ResolvedMessage, TextToken};
-        let mut session = choice_session();
-        session.events = EventRuntime::new(
-            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
-            Arc::new(ResourceLibrary::default()),
-        )
-        .unwrap();
-        let operation = session
-            .events
-            .world
-            .show_notice(
-                ResolvedMessage {
-                    tokens: vec![TextToken::Text {
-                        text: "Ah, well...I owe it to\nthis thing, though.".into(),
-                    }],
-                },
-                0xc0,
-            )
-            .unwrap();
-        let request = session.events.world.dialogue.get_mut(&0).unwrap();
-        request.anchor = DialogueAnchor::Actor(1);
-        request.opening_actor = Some(1);
-        let mut actor = resonance_events::Actor::new(1, [0.; 3]);
-        actor.heading = 74.;
-        actor.target_heading = 55.;
-        session.events.world.insert_actor(1, actor);
-        session.step(FieldInput::default()).unwrap();
-        assert!(!session.dialogue.contains_key(&0));
-        for _ in 0..12 {
+    fn simultaneous_replies_close_on_the_same_confirmation() {
+        let mut code = vec![4, 0, 0, 0];
+        for slot in [0, 2] {
+            native(
+                &mut code,
+                NativeCall::ConfigureDialogue,
+                &[slot, 0, -2, 1, 0, 0, 0, 0],
+            );
+        }
+        native(&mut code, NativeCall::YieldCommand, &[3, 0]);
+        code.push(0x20ff);
+        let resources = ResourceLibrary {
+            messages: vec![Message {
+                tokens: vec![Token::Text {
+                    text: "Yeah!".into(),
+                }],
+            }],
+            ..Default::default()
+        };
+        let mut session = session(runtime(code, resources));
+        for _ in 0..60 {
             session.step(FieldInput::default()).unwrap();
-            if session.dialogue.contains_key(&0) {
-                break;
-            }
         }
-        assert!(
-            session.dialogue.contains_key(&0),
-            "the window opens after turning"
-        );
-        assert_eq!(session.events.world.dialogue[&0].opening_actor, None);
-        let actor = &session.events.world.actors[&1];
-        assert!((actor.heading - actor.target_heading).abs() < 0.01);
-        for _ in 0..300 {
-            if session.dialogue[&0].accepts_input() && session.dialogue[&0].fully_revealed() {
-                break;
-            }
-            session
-                .step(FieldInput {
-                    held_buttons: [resonance_events::input::Button::Accept].into(),
-                    ..Default::default()
-                })
-                .unwrap();
-        }
-        assert!(session.dialogue[&0].fully_revealed());
-        assert!(session.dialogue[&0].accepts_input());
-        assert!(operation.is_pending());
+        assert!(session.dialogue.values().all(|d| d.accepts_input()));
         session
             .step(FieldInput {
-                pressed_buttons: [resonance_events::input::Button::Accept].into(),
+                pressed_buttons: [Button::Accept].into(),
                 ..Default::default()
             })
             .unwrap();
-        for _ in 0..20 {
+        for _ in 0..10 {
             session.step(FieldInput::default()).unwrap();
         }
-        assert!(!operation.is_pending());
-        assert_eq!(
-            session
-                .events
-                .world
-                .audio_commands
-                .iter()
-                .filter(|command| matches!(command, resonance_events::AudioCommand::StopVoice))
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn scripted_dialogue_holds_the_actor_and_releases_its_waiting_caller() {
-        use resonance_events::Activity;
-        let mut session = player_input_owner_session(&[
-            (NativeCall::DisableMappedInput, &[]),
-            (NativeCall::ConfigureDialogue, &[0, 64, -1, 1, 0, 0, 0, 0]),
-            (NativeCall::YieldCommand, &[2, 0]),
-        ]);
-        session.step(FieldInput::default()).unwrap();
-        let operation = session.events.world.dialogue[&0].operation.clone();
-        for _ in 0..30 {
-            session.step(FieldInput::default()).unwrap();
-            assert!(session.events.world.actors[&1].autonomy.unwrap().conversing);
-            assert!(operation.is_pending());
-            if session
-                .dialogue
-                .get(&0)
-                .is_some_and(|page| page.accepts_input())
-            {
-                break;
-            }
-        }
-        assert!(session.dialogue[&0].accepts_input());
-        assert_eq!(session.events.active_instances(), 1);
-        session
-            .step(FieldInput {
-                pressed_buttons: [resonance_events::input::Button::Accept].into(),
-                ..Default::default()
-            })
-            .unwrap();
-        for _ in 0..30 {
-            session.step(FieldInput::default()).unwrap();
-            let ai = session.events.world.actors[&1].autonomy.unwrap();
-            if !operation.is_pending()
-                && session.events.active_instances() == 0
-                && !ai.conversing
-                && ai.activity == Activity::Idle
-            {
-                break;
-            }
-        }
-        let ai = session.events.world.actors[&1].autonomy.unwrap();
-        assert!(!ai.conversing);
-        assert_eq!(ai.dialogue_slot, None);
-        assert_eq!(ai.activity, Activity::Idle);
-        assert!(!operation.is_pending());
-        assert_eq!(session.events.active_instances(), 0);
-        for _ in 0..5 {
-            session.step(FieldInput::default()).unwrap();
-            assert_eq!(
-                session.events.active_instances(),
-                0,
-                "caller must not restart"
-            );
-        }
-    }
-
-    #[test]
-    fn dialogue_turn_readiness_uses_angular_distance() {
-        use resonance_events::dialogue::ResolvedMessage;
-        let mut session = choice_session();
-        session.events.world = Default::default();
-        session
-            .events
-            .world
-            .show_notice(ResolvedMessage { tokens: vec![] }, 0)
-            .unwrap();
-        let request = session.events.world.dialogue.get_mut(&0).unwrap();
-        request.opening_actor = Some(7);
-        let mut actors = BTreeMap::new();
-        assert!(
-            request.opening_ready(&actors),
-            "a missing speaker cannot keep the window blocked"
-        );
-        let mut actor = resonance_events::Actor::new(1, [0.; 3]);
-        for (heading, target, ready) in [
-            (55.9, 55.1, false),
-            (54.9, 55.1, false),
-            (55.101, 55.1, true),
-            (-55.1, -55.1, true),
-            (359.999, 0.001, true),
-        ] {
-            actor.heading = heading;
-            actor.target_heading = target;
-            actors.insert(7, actor.clone());
-            assert_eq!(
-                request.opening_ready(&actors),
-                ready,
-                "{heading} -> {target}"
-            );
-        }
-        request.opening_actor = None;
-        actors.get_mut(&7).unwrap().heading = 100.;
-        assert!(request.opening_ready(&actors));
-    }
-
-    #[test]
-    fn shared_press_closes_both_ordinary_windows_but_keeps_persistent_text() {
-        use resonance_events::dialogue::{ResolvedMessage, TextToken, flags};
-        for cancel in [false, true] {
-            let mut session = choice_session();
-            session.events.world = Default::default();
-            let operations: Vec<_> = [flags::PERSISTENT, 0, 0]
-                .into_iter()
-                .map(|kind| {
-                    session
-                        .events
-                        .world
-                        .show_notice(
-                            ResolvedMessage {
-                                tokens: vec![TextToken::Text { text: "A".into() }],
-                            },
-                            flags::INSTANT | kind,
-                        )
-                        .unwrap()
-                })
-                .collect();
-            session.step_dialogue(FieldInput::default()).unwrap();
-            session.events.world.audio_commands.clear();
-            assert!(
-                session
-                    .step_dialogue(FieldInput {
-                        pressed_buttons: (resonance_events::input::Buttons::default())
-                            .with(resonance_events::input::Button::Accept, !cancel)
-                            .with(resonance_events::input::Button::Cancel, cancel),
-                        ..Default::default()
-                    })
-                    .unwrap()
-            );
-            assert!(session.dialogue[&0].accepts_input());
-            assert!(!session.dialogue[&1].accepts_input());
-            assert!(!session.dialogue[&2].accepts_input());
-            assert_eq!(
-                session
-                    .events
-                    .world
-                    .audio_commands
-                    .iter()
-                    .filter(|command| {
-                        matches!(command, resonance_events::AudioCommand::StopVoice)
-                    })
-                    .count(),
-                2
-            );
-            assert!(operations.iter().all(|operation| operation.is_pending()));
-            for _ in 0..4 {
-                session.step_dialogue(FieldInput::default()).unwrap();
-            }
-            assert!(operations[0].is_pending());
-            assert!(!operations[1].is_pending());
-            assert!(!operations[2].is_pending());
-        }
-    }
-
-    #[test]
-    fn shared_hold_accelerates_each_window_except_automatic_pages() {
-        use resonance_events::dialogue::{ResolvedMessage, TextToken, flags};
-        let mut session = choice_session();
-        session.events.world = Default::default();
-        for kind in [flags::PERSISTENT, 0, flags::AUTO_PAGES] {
-            session
-                .events
-                .world
-                .show_notice(
-                    ResolvedMessage {
-                        tokens: vec![
-                            TextToken::Control {
-                                opcode: 2,
-                                value: 6,
-                            },
-                            TextToken::Text {
-                                text: "ABCDEFGHIJ".into(),
-                            },
-                        ],
-                    },
-                    flags::INSTANT | kind,
-                )
-                .unwrap();
-        }
-        for _ in 0..9 {
-            session
-                .step_dialogue(FieldInput {
-                    held_buttons: [resonance_events::input::Button::Accept].into(),
-                    ..Default::default()
-                })
-                .unwrap();
-        }
-        // Opcode 2 keeps delay 6 even with INSTANT. Held input changes the
-        // running delay to 1, consumed by the same visit's reveal loop, so
-        // ordinary/persistent windows reveal one glyph per held visit.
-        assert!(
-            session
-                .dialogue
-                .values()
-                .all(|player| { player.current().glyphs.iter().all(|glyph| glyph.delay == 6) })
-        );
-        assert_eq!(session.dialogue[&0].visible, 9);
-        assert_eq!(session.dialogue[&1].visible, 9);
-        assert_eq!(session.dialogue[&2].visible, 2);
-        assert!(
-            session
-                .dialogue
-                .values()
-                .all(|player| player.operation.is_pending())
-        );
-    }
-
-    #[test]
-    fn choice_confirm_also_reaches_an_independent_ordinary_window() {
-        use resonance_events::dialogue::{ResolvedMessage, TextToken, flags};
-        let mut session = choice_session();
-        reveal_choices(&mut session);
-        let ordinary = session
-            .events
-            .world
-            .show_notice(
-                ResolvedMessage {
-                    tokens: vec![TextToken::Text { text: "A".into() }],
-                },
-                flags::INSTANT,
-            )
-            .unwrap();
-        session.step_dialogue(FieldInput::default()).unwrap();
-        session.events.world.audio_commands.clear();
-        session
-            .step_dialogue(FieldInput {
-                pressed_buttons: [resonance_events::input::Button::Accept].into(),
-                ..Default::default()
-            })
-            .unwrap();
-        assert!(session.dialogue[&0].operation.is_pending());
-        assert!(!session.events.world.choices[&1].operation.is_pending());
-        assert!(!session.dialogue[&2].accepts_input());
-        assert!(
-            ordinary.is_pending(),
-            "window retirement still precedes VM completion"
-        );
-        assert_eq!(
-            session
-                .events
-                .world
-                .audio_commands
-                .iter()
-                .filter(|command| { matches!(command, resonance_events::AudioCommand::StopVoice) })
-                .count(),
-            2,
-            "one close per ordinary/choice window"
-        );
-        for _ in 0..4 {
-            session.step_dialogue(FieldInput::default()).unwrap();
-        }
-        assert!(!ordinary.is_pending());
+        assert!(session.dialogue.values().all(|d| !d.window_visible()));
     }
 
     #[test]
@@ -3386,7 +2912,6 @@ mod tests {
         assert_eq!(player.step(choice, up, true), (None, true));
         assert_eq!(choice.selection.lines().unwrap().selected_line, 1);
     }
-
     #[test]
     #[ignore = "requires prepared session/menu data; no devices"]
     fn unison_selection_survives_menu_and_field_owners_while_main_character_resets() {

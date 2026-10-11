@@ -21,10 +21,6 @@ pub(crate) struct Scatter {
     turn: f32,
 }
 impl Scatter {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Emission borrows actor state, clocks, randomness and its output batch."
-    )]
     pub(super) fn emit(
         &mut self,
         center: [f32; 3],

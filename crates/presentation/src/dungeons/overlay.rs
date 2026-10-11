@@ -99,10 +99,6 @@ pub(super) fn battle_button_at(cursor: Vec2, size: Vec2) -> Option<usize> {
     .then(|| ((point.x - 16.) / ((WIDTH - 32) as f32 / 2.)) as usize)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Bevy injects each independently accessed resource and query as a system parameter."
-)]
 pub(super) fn update(
     menu: Res<Menu>,
     testing: Res<super::super::testing::Controls>,

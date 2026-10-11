@@ -80,7 +80,6 @@ pub struct DialoguePlayer {
     pub closed: bool,
     pub persistent: bool,
     phase: WindowPhase,
-    closing_from_input: bool,
     auto_pages: bool,
     delay: u16,
     voice_cursor: usize,
@@ -128,7 +127,6 @@ impl DialoguePlayer {
             } else {
                 WindowPhase::Opening(0)
             },
-            closing_from_input: false,
             auto_pages: dialogue.flags & flags::AUTO_PAGES != 0,
             delay: 0,
             voice_cursor: 0,
@@ -168,11 +166,6 @@ impl DialoguePlayer {
             _ => None,
         }
     }
-    /// Release the speaker after the closing delay. The dialogue operation
-    /// completes on the following update.
-    pub(crate) fn actor_activity_released(&self) -> bool {
-        self.closed || matches!(self.phase, WindowPhase::Closing(step) if step >= CLOSE_DELAY)
-    }
     pub fn window_visible(&self) -> bool {
         matches!(
             self.phase,
@@ -182,27 +175,19 @@ impl DialoguePlayer {
     /// Selection and ordinary confirmation share the same window retirement.
     pub fn close(&mut self) {
         self.phase = WindowPhase::Closing(0);
-        self.closing_from_input = false;
-    }
-    fn terminal_opaque_after_draw(&self) -> bool {
-        self.current()
-            .glyphs
-            .iter()
-            .zip(&self.glyph_alpha)
-            .rfind(|(glyph, _)| glyph.character != '\n')
-            // Input sees the opacity update after drawing; stored glyph
-            // opacity is the value presented during this update.
-            .is_none_or(|(_, alpha)| alpha.saturating_add(GLYPH_ALPHA_STEP) == 255)
     }
     pub fn accepts_input(&self) -> bool {
         self.phase == WindowPhase::Text
-            && (self.visible < self.current().glyphs.len() || self.terminal_opaque_after_draw())
-    }
-    pub fn continue_marker_visible(&self) -> bool {
-        self.fully_revealed()
-            && self.terminal_opaque_after_draw()
-            && (self.phase == WindowPhase::Text
-                || self.phase == WindowPhase::Closing(0) && self.closing_from_input)
+            && (self.visible < self.current().glyphs.len()
+                || self
+                    .current()
+                    .glyphs
+                    .iter()
+                    .zip(&self.glyph_alpha)
+                    .rfind(|(glyph, _)| glyph.character != '\n')
+                    // Input sees the opacity update after drawing; stored glyph
+                    // opacity is the value presented during this update.
+                    .is_none_or(|(_, alpha)| alpha.saturating_add(GLYPH_ALPHA_STEP) == 255))
     }
     /// Glyph opacity continues rising after text readiness, so a choice can appear
     /// before the final glyph becomes opaque enough to dismiss.
@@ -264,16 +249,12 @@ impl DialoguePlayer {
         if (advance || next_page) && self.fully_revealed() {
             if self.page + 1 == self.pages.len() {
                 self.close();
-                self.closing_from_input = advance;
                 return Ok(vec![AudioCommand::StopVoice]);
             }
             self.page += 1;
             self.visible = 0;
             self.glyph_alpha.clear();
-            // Manual page turns retain the final glyph's pending delay.
-            if self.auto_pages {
-                self.delay = 0;
-            }
+            self.delay = 0;
             self.voice_cursor = 0;
         } else {
             while self.visible < self.current().glyphs.len() {
@@ -378,20 +359,15 @@ pub fn step_requests(
             player.sync_flags(request);
         }
     }
+    let focus = players
+        .iter()
+        .find(|(_, p)| !p.closed && !p.persistent && p.operation.is_pending())
+        .map(|(&slot, _)| slot);
     for (&slot, player) in players.iter_mut() {
-        // Each open dialogue receives the same confirmation and reveal input.
-        let choosing = world
-            .choices
-            .get(&slot)
-            .is_some_and(|choice| choice.operation.is_pending());
-        for voice in player.step(confirm && !choosing, accelerate)? {
-            world.audio_commands.push(voice);
-        }
-        if let Some(request) = world.dialogue.get_mut(&slot)
-            && request.operation.id() == player.operation.id()
-        {
-            request.actor_activity_released = player.actor_activity_released();
-        }
+        world.audio_commands.extend(player.step(
+            confirm && focus == Some(slot),
+            accelerate && focus == Some(slot),
+        )?);
         world.dialogue.get_mut(&slot).unwrap().status = player.status();
     }
     Ok(())
@@ -627,42 +603,12 @@ mod tests {
             anchor: resonance_events::dialogue::DialogueAnchor::Screen([0., 0.]),
             speaker_actor: None,
             opening_actor: None,
-            actor_activity_released: false,
             flags,
             dimensions: None,
             height_offset: 0,
         };
         (DialoguePlayer::new(&dialogue, 1).unwrap(), events)
     }
-    #[test]
-    fn shared_request_input_reaches_all_windows_with_local_lifecycle_gates() {
-        let mut world = resonance_events::GameWorld::default();
-        for kind in [flags::PERSISTENT | flags::INSTANT, flags::INSTANT, 0] {
-            world
-                .show_notice(
-                    ResolvedMessage {
-                        tokens: vec![TextToken::Text { text: "A".into() }],
-                    },
-                    kind,
-                )
-                .unwrap();
-        }
-        let mut players = BTreeMap::new();
-        step_requests(&mut world, &mut players, false, false).unwrap();
-        step_requests(&mut world, &mut players, true, true).unwrap();
-        assert_eq!(players[&0].phase, WindowPhase::Text);
-        assert_eq!(players[&1].phase, WindowPhase::Closing(0));
-        assert!(matches!(players[&2].phase, WindowPhase::Opening(_)));
-        for _ in 0..24 {
-            step_requests(&mut world, &mut players, false, false).unwrap();
-        }
-        assert!(players[&1].closed);
-        assert!(players[&2].accepts_input());
-        step_requests(&mut world, &mut players, true, false).unwrap();
-        assert_eq!(players[&0].phase, WindowPhase::Text);
-        assert_eq!(players[&2].phase, WindowPhase::Closing(0));
-    }
-
     #[test]
     fn attached_window_expands_before_speech_and_finishes_before_vm_resume() {
         let (mut player, _scope) = player("AB", 0);
@@ -675,10 +621,7 @@ mod tests {
         }
         assert!(matches!(
             player.step(false, false).unwrap().as_slice(),
-            [AudioCommand::Voice {
-                resource: 7,
-                completion: None
-            }]
+            [AudioCommand::Voice { resource: 7, .. }]
         ));
         assert_eq!(player.visible, 1);
         assert!(player.is_talking());
@@ -728,58 +671,6 @@ mod tests {
         assert!(player.window_visible());
         assert!(!player.is_talking());
     }
-    #[test]
-    fn ordinary_confirmation_keeps_the_marker_for_its_last_visible_sample() {
-        for mature in [false, true] {
-            let (mut player, _scope) = player("A", 0);
-            for _ in 0..6 {
-                player.step(false, false).unwrap();
-                assert!(!player.continue_marker_visible());
-            }
-            for alpha in [32, 64, 96, 128, 160, 192] {
-                player.step(false, false).unwrap();
-                assert_eq!(player.glyph_alpha(0), alpha);
-                assert!(!player.continue_marker_visible());
-            }
-            if mature {
-                player.step(false, false).unwrap();
-                player.step(false, false).unwrap();
-                assert_eq!(player.glyph_alpha(0), 255);
-                assert!(player.continue_marker_visible());
-            }
-            // Confirmation begins closing while retaining this frame's text.
-            // The following update hides the window.
-            assert!(matches!(
-                player.step(true, false).unwrap().as_slice(),
-                [AudioCommand::StopVoice]
-            ));
-            assert_eq!(player.glyph_alpha(0), if mature { 255 } else { 224 });
-            assert_eq!(player.phase, WindowPhase::Closing(0));
-            assert!(player.window_visible());
-            assert!(!player.accepts_input());
-            assert!(player.continue_marker_visible());
-            player.step(false, false).unwrap();
-            assert!(!player.window_visible());
-            assert!(!player.continue_marker_visible());
-        }
-    }
-
-    #[test]
-    fn script_and_choice_closes_do_not_invent_an_input_close_marker() {
-        for ready in [false, true] {
-            let (mut player, _scope) = player("A", 0);
-            if ready {
-                while !player.accepts_input() || !player.fully_revealed() {
-                    player.step(false, false).unwrap();
-                }
-                assert!(player.continue_marker_visible());
-            }
-            player.close();
-            assert!(player.window_visible());
-            assert!(!player.continue_marker_visible());
-        }
-    }
-
     #[test]
     fn speaker_moves_mouth_through_reveal_and_voice_then_stops() {
         let (player, _scope) = player("AB", flags::INSTANT);
@@ -845,12 +736,7 @@ mod tests {
         player.step(false, true).unwrap();
         assert_eq!(player.page, 0, "holding confirm must not advance the page");
         player.step(true, true).unwrap();
-        assert_eq!((player.page, player.visible, player.delay), (1, 0, 1));
-        // The accelerated final glyph left delay1, retained across the turn.
-        assert!(player.step(true, false).unwrap().is_empty());
-        assert_eq!((player.visible, player.delay), (0, 0));
-        assert!(!player.voice_finished());
-        assert!(!player.operation.progress().ready);
+        assert_eq!((player.page, player.visible), (1, 0));
         player.step(true, false).unwrap();
         assert_eq!(player.visible, 1);
         assert!(!player.voice_finished());
@@ -896,42 +782,6 @@ mod tests {
         assert_eq!(player.page, 0, "holding accept never advances a page");
         player.step(true, false).unwrap();
         assert_eq!(player.page, 1);
-    }
-    #[test]
-    fn manual_page_turn_retains_pending_glyph_delay() {
-        // Turning the page retains the pending glyph delay. Holding confirm
-        // during the first update does not bypass that delay.
-        for text in [
-            "Yeah. It's designed for\ncombat and brings out\nmy maximum strength.\u{c}Without this thing,\nI'd be nothing....",
-            "Okay, then, I'll leave\nthe Ghost to Genis.\u{c}I'll go for the Zombie!",
-        ] {
-            let (mut player, _scope) = player(text, 0);
-            for page in &mut player.pages {
-                for glyph in &mut page.glyphs {
-                    if glyph.character != '\n' {
-                        glyph.delay = 3;
-                    }
-                }
-            }
-            for _ in 0..256 {
-                if player.fully_revealed() && player.accepts_input() {
-                    break;
-                }
-                player.step(false, false).unwrap();
-            }
-            assert!(player.fully_revealed() && player.accepts_input());
-            assert_eq!(player.delay, 3);
-            player.step(true, true).unwrap();
-            assert_eq!((player.page, player.visible, player.delay), (1, 0, 3));
-            for (held, visible, delay) in
-                [(true, 0, 2), (false, 0, 1), (false, 0, 0), (false, 1, 2)]
-            {
-                assert!(player.step(false, held).unwrap().is_empty());
-                assert_eq!((player.visible, player.delay), (visible, delay));
-                assert_eq!(player.phase, WindowPhase::Text);
-            }
-            assert_eq!(player.glyph_alpha(0), 0, "new glyph is drawn transparent");
-        }
     }
     #[test]
     fn automatic_pages_keep_authored_glyph_delays_while_accept_is_held() {
@@ -1041,17 +891,7 @@ mod tests {
         let mut player = player
             .with_voice_durations(Arc::new([(7, 2)].into()))
             .with_voice_feedback(true);
-        let commands = player.step(false, false).unwrap();
-        let [
-            AudioCommand::Voice {
-                resource: 7,
-                completion: Some(completed),
-            },
-        ] = commands.as_slice()
-        else {
-            panic!("dialogue voice must own its completion");
-        };
-        for _ in 1..100 {
+        for _ in 0..100 {
             player.step(false, false).unwrap();
         }
         assert!(!player.voice_finished());

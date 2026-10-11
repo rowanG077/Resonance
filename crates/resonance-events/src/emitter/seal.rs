@@ -157,8 +157,8 @@ impl Seal {
                 rng,
             );
             let distance = super::stream::spread(rng, (self.size / 2.) as u32) as f32;
-            for (position, direction) in p.position.iter_mut().zip(direction) {
-                *position += direction * distance;
+            for i in 0..3 {
+                p.position[i] += direction[i] * distance;
             }
             if release {
                 // The release scatters ten times faster than the travelling tail.

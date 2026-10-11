@@ -195,14 +195,14 @@ pub(crate) enum ItemsFocus {
 
 fn current_menu(world: &World) -> Option<&resonance_game::menu::Menu> {
     world
-        .get_resource::<title::LoadMenu>()
+        .get_resource::<title::TitleMenu>()
         .map(|menu| &menu.0)
         .or_else(|| world.get_resource::<new_game::Session>()?.menu())
 }
 
 fn menu_settled(world: &World, menu: &resonance_game::menu::Menu) -> bool {
     let tick = world.resource::<Clock>().0.tick();
-    if world.contains_resource::<title::LoadMenu>() {
+    if world.contains_resource::<title::TitleMenu>() {
         world
             .get_resource::<crate::field_ui::MenuOverlay>()
             .is_some_and(|art| art.menu_settled(menu, tick))
@@ -684,6 +684,7 @@ impl ScenarioInput {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn install_scenario_input(app: &mut App, mut scenario: CheckpointReplay) -> Result<()> {
     scenario.validate()?;
     scenario
@@ -1601,7 +1602,7 @@ mod tests {
     fn items_focus_requires_the_requested_panel() {
         use resonance_game::menu::{Menu, Page, items::Focus};
         let mut world = World::new();
-        world.insert_resource(title::LoadMenu(Menu::new(Page::Items, None, false)));
+        world.insert_resource(title::TitleMenu(Menu::new(Page::Items, None, false)));
         let list = Event::ItemsFocus {
             focus: ItemsFocus::List,
         };
@@ -1610,10 +1611,10 @@ mod tests {
         };
         assert!(list.matches(&world).unwrap());
         assert!(!target.matches(&world).unwrap());
-        world.resource_mut::<title::LoadMenu>().0.inventory.focus = Focus::Target;
+        world.resource_mut::<title::TitleMenu>().0.inventory.focus = Focus::Target;
         assert!(!list.matches(&world).unwrap());
         assert!(target.matches(&world).unwrap());
-        world.resource_mut::<title::LoadMenu>().0.page = Page::Main;
+        world.resource_mut::<title::TitleMenu>().0.page = Page::Main;
         assert!(!target.matches(&world).unwrap());
     }
 
@@ -1646,7 +1647,6 @@ mod tests {
         for scenario in [
             include_str!("../../examples/scenarios/new-game.json"),
             include_str!("../../examples/scenarios/field-route.json"),
-            include_str!("../../../../tools/oracle/cases/native-navigation.json"),
             include_str!("../../examples/scenarios/field-menus.json"),
         ] {
             let spec: CheckpointReplay = serde_json::from_str(scenario).unwrap();

@@ -110,6 +110,8 @@ pub(super) fn app_with_saves_mode(
             assets: root.into(),
             reveal: saves.load.is_none(),
             saves,
+            presentation_start: None,
+            replay: None,
             capture_at: None,
             capture: Some(output.join("unused.png")),
             silent: true,

@@ -88,7 +88,7 @@ pub(super) fn phase(world: &World) -> Result<Phase> {
         game_over_loading: world
             .get_resource::<crate::game_over::Active>()
             .map(|active| active.loading()),
-        load: world.contains_resource::<super::super::title::LoadMenu>(),
+        load: world.contains_resource::<super::super::title::TitleMenu>(),
         starting: world.contains_resource::<loading::Pending>()
             || world.contains_resource::<new_game::Request>()
             || world.contains_resource::<crate::game_over::Returning>()
@@ -111,7 +111,7 @@ pub(super) fn ready(world: &mut World, phase: Phase) -> bool {
                 .get_resource::<crate::field_ui::MenuOverlay>()
                 .is_some_and(|art| art.ready(world.resource::<Assets<Image>>()))
                 && world
-                    .get_resource::<super::super::title::LoadMenu>()
+                    .get_resource::<super::super::title::TitleMenu>()
                     .is_some_and(|menu| !menu.0.busy)
         }
         Phase::Field | Phase::World | Phase::Battle | Phase::GameOver => {
@@ -160,7 +160,7 @@ pub(crate) fn diagnostic(world: &World) -> Result<serde_json::Value> {
         "battle_entry":world.get_resource::<crate::battle::Owner>()
             .and_then(|battle| battle.entry_diagnostic()),
         "game_over":world.get_resource::<crate::game_over::Active>().map(|active|active.diagnostic()),
-        "load":world.get_resource::<super::super::title::LoadMenu>().map(|load| {
+        "load":world.get_resource::<super::super::title::TitleMenu>().map(|load| {
             let menu = &load.0;
             serde_json::json!({"page":format!("{:?}",menu.page), "bank":menu.bank,
                 "slot":menu.slot, "focus":format!("{:?}",menu.focus), "tick":menu.tick,
@@ -279,7 +279,7 @@ mod tests {
         world.insert_resource(new_game::Request(None));
         assert_eq!(phase(&world).unwrap(), Phase::Loading);
         world.remove_resource::<new_game::Request>();
-        world.insert_resource(super::super::super::title::LoadMenu::new());
+        world.insert_resource(super::super::super::title::TitleMenu::load());
         assert_eq!(phase(&world).unwrap(), Phase::Load);
         let metadata = diagnostic(&world).unwrap();
         assert_eq!(metadata["phase"], "load");

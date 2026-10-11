@@ -30,7 +30,7 @@ impl MovieStream {
             match event {
                 MovieEvent::Audio(chunk) => audio.push_back(chunk),
                 MovieEvent::Video(frame) => video.push_back(frame),
-                MovieEvent::End => {}
+                MovieEvent::End => anyhow::bail!("movie ended during preparation"),
             }
         }
         let shared = Arc::new(Shared {

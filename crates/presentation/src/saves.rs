@@ -15,8 +15,8 @@ pub use replay::{
     CheckpointRecordingOptions, CheckpointReplay, record_checkpoint, record_new_game,
 };
 pub(crate) use replay::{
-    Event as ScenarioEvent, ScenarioInput, Step as ScenarioStep, capture_image,
-    install_scenario_input, record_app, recording_scene, scenario_consumed,
+    Event as ScenarioEvent, ScenarioInput, Step as ScenarioStep, capture_image, record_app,
+    recording_scene, scenario_consumed,
 };
 pub(super) mod title;
 mod title_probe;

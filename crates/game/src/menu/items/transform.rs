@@ -32,17 +32,25 @@ impl Menu {
         };
         state.row = 0;
         state.first = 0;
+        state.target_closing = false;
         2
     }
 
     pub(super) fn close_transformation(&mut self) {
         let state = &mut self.inventory;
-        state.focus = Focus::List;
+        state.target_closing = true;
         state.row = state.transform.original_row;
         state.first = state.transform.original_first;
-        state.notice = None;
-        state.transform.result = None;
         self.inventory.clamp(self.inventory_items().len());
+        if self.inventory.transform.result.is_some() {
+            // The result stays visible over the restored row during the closing slide.
+            let id = self
+                .inventory_items()
+                .get(self.inventory.row)
+                .copied()
+                .unwrap_or(0);
+            self.inventory.notice = self.transformation_message(id).ok();
+        }
     }
 
     fn transformation_message(&self, id: u16) -> anyhow::Result<String> {

@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "updates": 1200,
+  "inputs": [
+    {
+      "update": 1,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 61,
+      "keys": []
+    },
+    {
+      "update": 121,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 221,
+      "keys": []
+    },
+    {
+      "update": 241,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 721,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 801,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 841,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 881,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 981,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 982,
+      "keys": []
+    },
+    {
+      "update": 1061,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1081,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1082,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "initial",
+    "60": "exit",
+    "120": "arrival",
+    "180": "returning",
+    "240": "returned",
+    "720": "school-approach",
+    "800": "door-approach",
+    "850": "door",
+    "880": "school-path",
+    "980": "entrance",
+    "1060": "classroom",
+    "1080": "classroom-door",
+    "1200": "school-return"
+  }
+}

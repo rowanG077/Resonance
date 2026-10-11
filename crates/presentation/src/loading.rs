@@ -219,9 +219,16 @@ impl Pending {
                 .map(|bytes| resonance_persistence::decode::<super::saves::SceneCheckpoint>(&bytes))
                 .transpose()?;
             let paths = match checkpoint.as_ref().map(|save| &save.state) {
-                None => vec![super::new_game::manifest_path(5)],
+                None => vec![
+                    super::new_game::manifest_path(5),
+                    super::new_game::manifest_path(340),
+                ],
                 Some(super::saves::SceneCheckpoint::Field(saved)) => {
-                    vec![super::new_game::manifest_path(saved.map_id)]
+                    let mut paths = vec![super::new_game::manifest_path(saved.map_id)];
+                    if saved.map_id == 5 {
+                        paths.push(super::new_game::manifest_path(340));
+                    }
+                    paths
                 }
                 Some(super::saves::SceneCheckpoint::World(_)) => Vec::new(),
             };

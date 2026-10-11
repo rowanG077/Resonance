@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "updates": 900,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 130,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 131,
+      "keys": []
+    },
+    {
+      "update": 250,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 251,
+      "keys": []
+    },
+    {
+      "update": 350,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 351,
+      "keys": []
+    },
+    {
+      "update": 400,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 401,
+      "keys": []
+    },
+    {
+      "update": 450,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 451,
+      "keys": []
+    },
+    {
+      "update": 550,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 551,
+      "keys": []
+    },
+    {
+      "update": 600,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 601,
+      "keys": []
+    },
+    {
+      "update": 700,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 701,
+      "keys": []
+    },
+    {
+      "update": 800,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 801,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "200": "shortcuts",
+    "300": "assign",
+    "480": "second-slot",
+    "650": "auto",
+    "780": "cannot-forget",
+    "900": "auto-return"
+  }
+}

@@ -9,7 +9,6 @@ const FADE_TICKS: u8 = 20;
 pub enum FieldAction {
     Enter = 1,
     Talk = 2,
-    ToField = 3,
     Shop = 4,
     Examine = 5,
     Open = 6,
@@ -38,7 +37,6 @@ impl FieldAction {
             0 => None,
             1 => Some(Self::Enter),
             2 => Some(Self::Talk),
-            3 => Some(Self::ToField),
             4 => Some(Self::Shop),
             5 => Some(Self::Examine),
             6 => Some(Self::Open),
@@ -52,7 +50,7 @@ impl FieldAction {
             14 => Some(Self::Hit),
             15 => Some(Self::Read),
             16 => Some(Self::Rest),
-            18 => Some(Self::Leave),
+            3 | 18 => Some(Self::Leave),
             19 => Some(Self::Move),
             20 => Some(Self::Grab),
             21 => Some(Self::Question),
@@ -104,13 +102,7 @@ impl super::FieldSession {
         };
         let actor = &self.events.world.actors[&id];
         // Actor property 17 selects its interaction label; zero suppresses it.
-        Ok(self
-            .diagnostics
-            .attempt(
-                "field action hint",
-                FieldAction::from_id(actor.interaction_label as u32),
-            )?
-            .flatten())
+        FieldAction::from_id(actor.interaction_label as u32)
     }
 }
 
@@ -160,18 +152,6 @@ impl ActionHints {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn overworld_hint_keeps_its_original_id_distinct_from_leaving_a_building() {
-        let action = FieldAction::from_id(3).unwrap().unwrap();
-        assert_eq!(action, FieldAction::ToField);
-        assert_eq!(action as u8, 3);
-        assert_eq!(FieldAction::from_id(18).unwrap(), Some(FieldAction::Leave));
-        let mut hints = ActionHints::default();
-        hints.step(Some(action), true);
-        assert_eq!(hints.prompt.unwrap().action, FieldAction::ToField);
-        assert_eq!(hints.prompt.unwrap().text_opacity, 255);
-    }
 
     #[test]
     fn shared_hint_changes_label_without_restarting_opacity_and_expires_during_events() {

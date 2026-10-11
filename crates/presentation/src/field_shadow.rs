@@ -62,10 +62,7 @@ pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
             )
         })
         .collect();
-    let Some(session) = world
-        .get_resource::<crate::new_game::Session>()
-        .filter(|s| s.is_field())
-    else {
+    let Some(session) = world.get_resource::<crate::new_game::Session>() else {
         return serde_json::Value::Null;
     };
     let collision = session.field().collision();
@@ -95,7 +92,7 @@ pub(super) fn sync(
     mut meshes: ResMut<Assets<Mesh>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
 ) {
-    if !art.ready || art.disabled_shadows {
+    if !art.ready {
         return;
     }
     let shadows = &mut art.shadows;
@@ -171,7 +168,6 @@ pub(super) fn pose(
     )>,
     mut applied: ResMut<Applied>,
     mut materials: ResMut<Assets<TitleSurface>>,
-    mut failures: super::Failures,
 ) {
     // Animation has run, but propagation has not. Compute this tick's joint
     // transforms explicitly so moving characters do not leave a delayed shadow.
@@ -184,7 +180,7 @@ pub(super) fn pose(
     }
     let anchors: BTreeMap<_, _> = actors
         .iter()
-        .filter(|part| part.part == 0 && !part.disabled)
+        .filter(|part| part.part == 0)
         .filter_map(|part| {
             Some((
                 part.actor,
@@ -208,23 +204,14 @@ pub(super) fn pose(
             materials.get_mut(&material.0).unwrap().tint.w = alpha;
         }
         // Overlapping black-alpha quads still round differently when reordered.
-        let Some(actor_order) = state
+        let actor_order = state
             .get()
             .events
             .world
             .actor_order()
             .iter()
             .position(|id| *id == shadow.0)
-        else {
-            *visibility = Visibility::Hidden;
-            if !failures.skip(
-                "field shadow",
-                anyhow::anyhow!("actor {} has no submission order", shadow.0),
-            ) {
-                return;
-            }
-            continue;
-        };
+            .expect("shadow actor has a submission order");
         order.set_if_neq(DrawOrder(crate::draw_order::Layer::Shadows, actor_order, 0));
         let anchor = anchors.get(&shadow.0);
         *visibility = Visibility::Hidden;
@@ -240,8 +227,7 @@ pub(super) fn pose(
             transform.translation = Vec3::new(
                 anchor.x,
                 anchor.y,
-                surface.map_or(actor.presented_position()[2], |s| s.height)
-                    + art.shadows.spec.height_offset,
+                surface.map_or(actor.position[2], |s| s.height) + art.shadows.spec.height_offset,
             );
             if let Some(surface) = surface {
                 transform.rotation =
