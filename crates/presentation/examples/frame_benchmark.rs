@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
     let seconds = args.next().unwrap_or_else(|| "120".into()).parse()?;
     let profile = args.next().is_some_and(|arg| arg == "profile");
     resonance_presentation::run_frame_benchmark(
-        std::path::Path::new("local/cooked"),
+        std::path::Path::new("local/all-assets"),
         std::path::Path::new(&output),
         size,
         seconds,
