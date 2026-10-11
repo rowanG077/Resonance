@@ -1868,6 +1868,33 @@ fn actor_sounds_attenuate_pan_and_ignore_removed_emitters() {
 }
 
 #[test]
+fn sewer_actor_sound_sentinel_preserves_the_preceding_cue() {
+    // SEW_D00's background event plays cue 318, then immediately issues
+    // PlayActorSound(actor, -1, 0, 0). Actor audio uses an unbound voice:
+    // the sentinel neither starts a sound nor releases the preceding cue.
+    for sentinel in [-1, 0xffff] {
+        let code = script(&[
+            (Call::PlayActorSound, &[10, 318, 127, 2000]),
+            (Call::PlayActorSound, &[10, sentinel, 0, 0]),
+        ]);
+        let mut world = GameWorld::default();
+        world.controlled_actor = 1;
+        world.insert_actor(1, Actor::new(1, [0.; 3]));
+        world.insert_actor(10, Actor::new(1, [0.; 3]));
+        let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        assert!(matches!(
+            events.world.audio_commands.as_slice(),
+            [AudioCommand::Sound {
+                id: 318,
+                volume: 127,
+                pan: 64,
+                slot: None,
+            }]
+        ));
+    }
+}
+
+#[test]
 fn scripted_sound_minus_one_releases_only_an_explicit_slot() {
     let code = script(&[
         (Call::PlaySound, &[164, 0, 255, 0]),

@@ -1105,6 +1105,30 @@ mod tests {
     use resonance_events::input::{Button, Buttons};
 
     #[test]
+    #[ignore = "requires RESONANCE_WORLD_ASSETS; original Meltokio sewer script and PCM synthesis without a device"]
+    fn meltokio_sewer_background_audio_survives_idle_updates() -> Result<()> {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        );
+        let mut scene = crate::field_test::Scene::story(&root, 466, 1_304_000, |entry| {
+            entry.position = [472.98508, 3736.6846, 1170.];
+            entry.persistent.event_flags.insert(65);
+            Ok(())
+        })?;
+        scene.advance_until(resonance_game::field::FieldSession::player_has_control)?;
+        scene.ticks(1800, Default::default())?;
+        ensure!(scene.player_has_control(), "sewer idle scene lost control");
+        let cues = scene
+            .audio
+            .commands
+            .iter()
+            .filter(|(_, _, command)| matches!(command, AudioCommand::Sound { id: 318, .. }))
+            .count();
+        ensure!(cues >= 2, "sewer background audio did not repeat: {cues}");
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires RESONANCE_WORLD_ASSETS; synthesizes native world music and vehicles without a device"]
     fn original_world_music_and_vehicle_sounds_render_from_verified_assets() -> Result<()> {
         let root = std::path::PathBuf::from(
