@@ -128,14 +128,9 @@ fn return_to_title(world: &mut World, load: bool) -> Result<()> {
     for entity in entities {
         world.entity_mut(entity).insert(Visibility::Inherited);
     }
-    if let Some(scene) = &world.resource::<crate::Art>().manifest.scene {
-        let projection = Projection::custom(crate::TitleProjection(PerspectiveProjection {
-            fov: scene.fov_degrees.to_radians(),
-            aspect_ratio: world.resource::<crate::display::Display>().0.aspect(),
-            near: 100.,
-            far: 40000.,
-            ..default()
-        }));
+    if world.contains_resource::<crate::title_field::Scene>() {
+        let projection =
+            crate::title_field::projection(world.resource::<crate::display::Display>().0.aspect());
         for (mut camera, mut fog) in world
             .query_filtered::<(&mut Projection, &mut DistanceFog), With<crate::FieldCamera>>()
             .iter_mut(world)

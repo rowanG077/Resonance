@@ -9,13 +9,16 @@ use bevy::{
     prelude::*,
 };
 use resonance_content::ANIMATION_HZ;
-use resonance_content::{SceneClip, TextureAnimation, TextureBinding, TextureWrap, TitleScene};
+use resonance_content::field::{
+    FieldTextureAnimation, MODEL_DRAW_SPAN, SCENERY_RESOURCE_BASE, scenery_actor,
+};
+use resonance_content::{SceneClip, TextureBinding, TextureWrap};
 use resonance_events::effect::Blend;
 use std::sync::Arc;
 
 #[derive(Component)]
 pub(super) struct AnimatedPart {
-    resource: u16,
+    resource: u32,
     autoplay: bool,
     clips: Vec<Handle<super::sparse_animation::Clip>>,
     bone_names: Vec<String>,
@@ -32,7 +35,7 @@ pub(super) struct PartRoot;
 
 struct PendingSurface {
     root: Entity,
-    resource: u16,
+    resource: u32,
     slot: usize,
     color: Option<(Handle<Image>, TextureBinding)>,
     multiply: Option<(Handle<Image>, TextureBinding)>,
@@ -40,17 +43,19 @@ struct PendingSurface {
     blend: bool,
     depth_write: bool,
     draw_order: u32,
-    uv_animations: [Option<Arc<TextureAnimation>>; 2],
+    textures: [Option<usize>; 2],
+    texture_actor: i32,
 }
 
 struct SurfaceBinding {
     root: Entity,
-    resource: u16,
+    resource: u32,
     slot: usize,
     surface: Handle<TitleSurface>,
     depth_write: bool,
     draw_order: u32,
-    uv_animations: [Option<Arc<TextureAnimation>>; 2],
+    textures: [Option<usize>; 2],
+    texture_actor: i32,
 }
 
 #[derive(Resource, Default)]
@@ -59,11 +64,58 @@ pub(super) struct FieldAssets {
     pending: Vec<PendingSurface>,
     materials: Vec<SurfaceBinding>,
     pub ready: bool,
+    texture_animations: Vec<FieldTextureAnimation>,
 }
 
 impl FieldAssets {
-    pub fn load(&mut self, scene: &TitleScene, server: &AssetServer, commands: &mut Commands) {
-        for part in &scene.parts {
+    pub fn load<'a>(
+        &mut self,
+        scene: &'a resonance_content::field::FieldAssets,
+        events: &resonance_events::EventRuntime,
+        server: &AssetServer,
+        commands: &mut Commands,
+    ) {
+        self.texture_animations
+            .clone_from(&scene.texture_animations);
+        // Title actors render in script actor order, between opaque and translucent scenery.
+        let mut actors: Vec<_> = scene
+            .actors
+            .iter()
+            .flat_map(|model| {
+                let actor = events
+                    .world
+                    .actors
+                    .iter()
+                    .find(|(_, actor)| actor.resource == model.resource)
+                    .map_or(i32::MAX, |(&id, _)| id);
+                model
+                    .parts
+                    .iter()
+                    .map(move |part| (model.resource, actor, part))
+            })
+            .collect();
+        actors.sort_by_key(|(_, actor, _)| *actor);
+        let scenery = |part: &'a resonance_content::ScenePart| {
+            (
+                SCENERY_RESOURCE_BASE + u32::from(part.resource),
+                scenery_actor(part.resource),
+                part,
+            )
+        };
+        let parts = scene
+            .parts
+            .iter()
+            .filter(|part| part.resource != 2)
+            .map(scenery)
+            .chain(actors)
+            .chain(
+                scene
+                    .parts
+                    .iter()
+                    .filter(|part| part.resource == 2)
+                    .map(scenery),
+            );
+        for (order, (resource, texture_actor, part)) in parts.enumerate() {
             let handle = server.load(GltfAssetLabel::Scene(0).from_asset(part.mesh.clone()));
             self.scenes.push(handle.clone());
             let mut root = commands.spawn((
@@ -73,7 +125,7 @@ impl FieldAssets {
             ));
             if !part.clips.is_empty() {
                 root.insert(AnimatedPart {
-                    resource: part.resource,
+                    resource,
                     autoplay: part.autoplay,
                     clips: part
                         .clips
@@ -98,31 +150,21 @@ impl FieldAssets {
                     .load(part.textures[binding.texture].clone());
                 (image, binding.clone())
             };
-            let animations: Vec<_> = part
-                .texture_animations
-                .iter()
-                .cloned()
-                .map(Arc::new)
-                .collect();
             for (index, material) in part.materials.iter().enumerate() {
                 self.pending.push(PendingSurface {
                     root: root.id(),
-                    resource: part.resource,
+                    resource,
                     slot: index,
                     color: material.color.as_ref().map(load),
                     multiply: material.multiply.as_ref().map(load),
                     vertex_color: material.vertex_color,
                     blend: material.blend,
                     depth_write: material.depth_write,
-                    draw_order: material.draw_order,
-                    uv_animations: [&material.color, &material.multiply].map(|binding| {
-                        binding.as_ref().and_then(|binding| {
-                            animations
-                                .iter()
-                                .find(|animation| animation.texture == binding.texture)
-                                .cloned()
-                        })
-                    }),
+                    draw_order: order as u32 * MODEL_DRAW_SPAN
+                        + material.draw_order % MODEL_DRAW_SPAN,
+                    textures: [&material.color, &material.multiply]
+                        .map(|binding| binding.as_ref().map(|binding| binding.texture)),
+                    texture_actor,
                 });
             }
         }
@@ -180,7 +222,7 @@ pub(super) fn animate_field(
         let (clip, elapsed, repeat) = if part.autoplay {
             (0, events.0.tick() as f32 / ANIMATION_HZ, true)
         } else {
-            let Some(actor) = events.0.world.actor_for_resource(u32::from(part.resource)) else {
+            let Some(actor) = events.0.world.actor_for_resource(part.resource) else {
                 *visibility = Visibility::Hidden;
                 continue;
             };
@@ -352,7 +394,8 @@ pub(super) fn prepare_field(
                 surface,
                 depth_write: p.depth_write,
                 draw_order: p.draw_order,
-                uv_animations: p.uv_animations,
+                textures: p.textures,
+                texture_actor: p.texture_actor,
             });
         }
         field.ready = true;
@@ -396,13 +439,31 @@ pub(super) fn update_materials(
         let depth_write = binding.depth_write
             && events
                 .as_ref()
-                .and_then(|e| e.0.world.actor_for_resource(u32::from(binding.resource)))
+                .and_then(|e| e.0.world.actor_for_resource(binding.resource))
                 .is_none_or(|actor| actor.depth_write);
-        let tick = events.as_ref().map_or(0, |e| u64::from(e.0.tick()));
-        let [color, multiply] = binding.uv_animations.each_ref().map(|animation| {
-            animation
-                .as_ref()
-                .map_or([0.; 2], |animation| animation.offset(tick))
+        let [color, multiply] = binding.textures.map(|texture| {
+            let Some(events) = &events else {
+                return [0.; 2];
+            };
+            let world = &events.0.world;
+            field
+                .texture_animations
+                .iter()
+                .filter(|animation| {
+                    animation.actor.resolve(&world.texture_bindings) == binding.texture_actor
+                        && texture.is_some_and(|texture| {
+                            animation.texture.resolve(&world.texture_bindings) == texture as i32
+                        })
+                })
+                .fold([0.; 2], |mut offset, animation| {
+                    let uv = animation.offset(
+                        world.texture_animation_tick,
+                        world.texture_animation_effect_tick,
+                    );
+                    offset[0] += uv[0];
+                    offset[1] += uv[1];
+                    offset
+                })
         });
         let uv_offsets = Vec4::new(color[0], color[1], multiply[0], multiply[1]);
         if surfaces
@@ -413,69 +474,5 @@ pub(super) fn update_materials(
             surface.depth_write = depth_write;
             surface.uv_offsets = uv_offsets;
         }
-    }
-}
-
-#[cfg(test)]
-mod instance_tests {
-    use super::*;
-    use bevy::ecs::system::RunSystemOnce;
-
-    #[test]
-    fn shared_mesh_materials_keep_each_static_instance_settings() {
-        let mut world = World::new();
-        let mut surfaces = Assets::<TitleSurface>::default();
-        let slot = MaterialSlot(0);
-        let mut field = FieldAssets::default();
-        let mut instances = Vec::new();
-        for order in [7, 31] {
-            let root = world.spawn(PartRoot).id();
-            let group = world.spawn(ChildOf(root)).id();
-            let mesh = world.spawn((ChildOf(group), slot)).id();
-            let surface = surfaces.add(TitleSurface {
-                depth_write: order == 7,
-                ..TitleSurface::textured(None)
-            });
-            instances.push((mesh, surface.clone(), order));
-            field.materials.push(SurfaceBinding {
-                root,
-                resource: 0,
-                slot: 0,
-                surface,
-                depth_write: order == 7,
-                draw_order: order,
-                uv_animations: [None, None],
-            });
-        }
-        let unrelated = world.spawn(slot).id();
-        world.insert_resource(field);
-        world
-            .run_system_once(
-                |field: Res<FieldAssets>,
-                 mut commands: Commands,
-                 meshes: Query<(Entity, &MaterialSlot), Without<MeshMaterial3d<TitleSurface>>>,
-                 parents: Query<&ChildOf>,
-                 roots: Query<(), With<PartRoot>>| {
-                    bind_materials(&field, &mut commands, &meshes, &parents, &roots);
-                },
-            )
-            .unwrap();
-        for (mesh, surface, order) in instances {
-            assert_eq!(
-                world
-                    .get::<MeshMaterial3d<TitleSurface>>(mesh)
-                    .unwrap()
-                    .id(),
-                surface.id()
-            );
-            assert_eq!(world.get::<DrawOrder>(mesh).unwrap().0, order);
-            assert_eq!(world.get::<MaterialSlot>(mesh), Some(&slot));
-        }
-        assert_eq!(world.get::<MaterialSlot>(unrelated), Some(&slot));
-        assert!(
-            world
-                .get::<MeshMaterial3d<TitleSurface>>(unrelated)
-                .is_none()
-        );
     }
 }

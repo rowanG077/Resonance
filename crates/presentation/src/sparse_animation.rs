@@ -6,38 +6,13 @@ use bevy::{
     prelude::*,
 };
 use resonance_content::animation::{FRAME_HZ, Motion, Transform as PoseTransform};
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Asset, TypePath, Debug)]
 pub(super) struct Clip(pub Arc<Motion>);
 
-/// Startup script queries and rendered skeletons share one decoded clip.
-#[derive(Resource, Default, Clone)]
-pub(super) struct Prepared(BTreeMap<String, Arc<Motion>>);
-impl Prepared {
-    pub fn load(&mut self, root: &Path, path: &str) -> Result<Arc<Motion>> {
-        if let Some(motion) = self.0.get(path) {
-            return Ok(motion.clone());
-        }
-        resonance_content::validate_asset_path(path)?;
-        let motion = Arc::new(Motion::decode(&std::fs::read(root.join(path))?)?);
-        self.0.insert(path.to_owned(), motion.clone());
-        Ok(motion)
-    }
-}
-
-#[derive(TypePath)]
-struct Loader(Prepared);
-impl FromWorld for Loader {
-    fn from_world(world: &mut World) -> Self {
-        Self(
-            world
-                .get_resource::<Prepared>()
-                .cloned()
-                .unwrap_or_default(),
-        )
-    }
-}
+#[derive(Default, TypePath)]
+struct Loader;
 impl AssetLoader for Loader {
     type Asset = Clip;
     type Settings = ();
@@ -46,17 +21,8 @@ impl AssetLoader for Loader {
         &self,
         reader: &mut dyn Reader,
         _: &(),
-        context: &mut LoadContext<'_>,
+        _context: &mut LoadContext<'_>,
     ) -> Result<Clip> {
-        if let Some(motion) = self.0.0.get(
-            context
-                .path()
-                .path()
-                .to_str()
-                .context("invalid clip path")?,
-        ) {
-            return Ok(Clip(motion.clone()));
-        }
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
         let motion = Motion::decode(&bytes)?;

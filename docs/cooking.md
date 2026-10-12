@@ -79,6 +79,9 @@ model path.
 - `fields/map-{id}.json`, `fields/map-{id}-audio.json` and
   `fields/map-{id}.preload.json` bind each field's scene, audio and dependencies.
 - `movies/{id}.json` binds the movie catalogue to shared converted streams.
+- `title.json` contains the title menu artwork. The day and night backgrounds use
+  ordinary field packages 474 and 531, including their native UV animation tracks.
+  The player selects the background using local time.
 - `scripts/` contains immutable authored SymphoniaScript published from embedded sources.
 - `data/` and `embedded/` hold parsed records and their provenance.
 - The `overworld-tiles` catalogue binds every terrain coordinate and available

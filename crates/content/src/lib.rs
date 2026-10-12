@@ -24,7 +24,7 @@ pub mod skit;
 pub mod source;
 pub mod texture;
 
-pub const CONTENT_VERSION: u32 = 5;
+pub const CONTENT_VERSION: u32 = 6;
 pub const WIDTH: u32 = 640;
 pub const HEIGHT: u32 = 480;
 /// Authored animation time unit; simulation runs at its separate NTSC cadence.
@@ -178,8 +178,6 @@ pub struct TitleAssets {
     pub revision: u8,
     pub source_sha256: String,
     pub textures: Vec<TitleTexture>,
-    #[serde(default)]
-    pub scene: Option<TitleScene>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,7 +251,7 @@ impl<Texture> TextureAnimation<Texture> {
         Ok(())
     }
 
-    /// Requires a validated animation, as supplied by `TitleAssets::validate`.
+    /// Requires an animation checked with `Self::validate`.
     pub fn offset(&self, tick: u64) -> [f32; 2] {
         let elapsed = tick.saturating_sub(u64::from(self.delay_ticks));
         let length = self.offsets.len() as u64;
@@ -350,25 +348,6 @@ pub struct CameraKey {
     pub target: [f32; 3],
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TitleScene {
-    pub script: ScriptAsset,
-    pub source_sha256: String,
-    pub code_source_sha256: String,
-    pub parts: Vec<ScenePart>,
-    pub glow: TitleGlow,
-    pub cameras: Vec<Vec<CameraKey>>,
-    pub fov_degrees: f32,
-}
-
-/// Static model bindings for script-driven attachments; clips retain sparse curves.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TitleGlow {
-    pub texture: String,
-    pub source_sha256: String,
-    pub skeletons: std::collections::BTreeMap<u16, animation::Skeleton>,
-}
-
 impl TitleAssets {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
@@ -393,128 +372,7 @@ impl TitleAssets {
             );
             validate_asset_path(&texture.path)?;
         }
-        if let Some(scene) = &self.scene {
-            validate_asset_path(&scene.script.path)?;
-            anyhow::ensure!(
-                scene.script.sha256.len() == 64
-                    && scene.script.sha256.bytes().all(|b| b.is_ascii_hexdigit()),
-                "invalid script digest"
-            );
-            validate_asset_path(&scene.glow.texture)?;
-            for part in scene
-                .parts
-                .iter()
-                .filter(|part| !part.autoplay && !part.clips.is_empty())
-            {
-                let skeleton =
-                    scene.glow.skeletons.get(&part.resource).ok_or_else(|| {
-                        anyhow::anyhow!("missing title skeleton {}", part.resource)
-                    })?;
-                skeleton.validate()?;
-                anyhow::ensure!(
-                    skeleton.bones.iter().map(|b| &b.name).eq(&part.bone_names),
-                    "title skeleton names differ from scene"
-                );
-            }
-            anyhow::ensure!(!scene.parts.is_empty(), "title scene has no parts");
-            anyhow::ensure!(
-                scene.fov_degrees.is_finite() && (1.0..179.0).contains(&scene.fov_degrees),
-                "invalid field of view"
-            );
-            anyhow::ensure!(
-                scene.cameras.len() == 2,
-                "title scene needs two camera tracks"
-            );
-            let mut draw_orders = std::collections::BTreeSet::new();
-            for part in &scene.parts {
-                let mut animated_textures = std::collections::BTreeSet::new();
-                for animation in &part.texture_animations {
-                    animation.validate()?;
-                    anyhow::ensure!(
-                        animation.texture < part.textures.len()
-                            && animated_textures.insert(animation.texture),
-                        "invalid or duplicate animated texture index"
-                    );
-                }
-                anyhow::ensure!(
-                    part.translation.iter().all(|v| v.is_finite()),
-                    "non-finite scene translation"
-                );
-                for (index, clip) in part.clips.iter().enumerate() {
-                    anyhow::ensure!(
-                        clip.duration_seconds.is_finite()
-                            && (0.0..=600.0).contains(&clip.duration_seconds)
-                            && clip.duration_seconds > 0.,
-                        "invalid clip duration"
-                    );
-                    anyhow::ensure!(
-                        if index == 0 {
-                            clip.resource_slot == if part.autoplay { 0 } else { 12 }
-                        } else {
-                            clip.resource_slot > part.clips[index - 1].resource_slot
-                        },
-                        "invalid animation slots"
-                    );
-                }
-                anyhow::ensure!(
-                    !part.materials.is_empty(),
-                    "scene part has no materials; recook title assets"
-                );
-                for material in &part.materials {
-                    anyhow::ensure!(
-                        material.image != SceneImage::Capture
-                            || material.color.is_none() && material.multiply.is_none(),
-                        "scene capture cannot also bind a palette"
-                    );
-                    anyhow::ensure!(
-                        draw_orders.insert(material.draw_order),
-                        "duplicate authored scene draw order"
-                    );
-                    anyhow::ensure!(
-                        material.draw_order < 1 << 24,
-                        "scene draw order exceeds exact sort range"
-                    );
-                    anyhow::ensure!(
-                        material.multiply.is_none() || material.color.is_some(),
-                        "multiply texture requires a color texture"
-                    );
-                    for binding in material.color.iter().chain(&material.multiply) {
-                        anyhow::ensure!(
-                            binding.texture < part.textures.len(),
-                            "material texture index exceeds scene textures"
-                        );
-                    }
-                }
-                for name in std::iter::once(&part.mesh)
-                    .chain(&part.textures)
-                    .chain(part.clips.iter().map(|clip| &clip.motion))
-                {
-                    validate_asset_path(name)?;
-                }
-            }
-            for track in &scene.cameras {
-                anyhow::ensure!(track.len() >= 2, "camera track needs at least two keys");
-                let mut previous = -1.0;
-                for key in track {
-                    anyhow::ensure!(
-                        key.time.is_finite() && key.time >= 0.0 && key.time > previous,
-                        "camera key times must increase"
-                    );
-                    anyhow::ensure!(
-                        key.position
-                            .iter()
-                            .chain(&key.target)
-                            .all(|v| v.is_finite()),
-                        "non-finite camera coordinate"
-                    );
-                    anyhow::ensure!(
-                        key.position != key.target,
-                        "camera looks at its own position"
-                    );
-                    previous = key.time;
-                }
-            }
-        }
+
         Ok(())
     }
 }

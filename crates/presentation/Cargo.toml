@@ -16,7 +16,7 @@ resonance-persistence.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
 serde.workspace = true
-time.workspace = true
+time = { workspace = true, features = ["local-offset"] }
 resonance-events.workspace = true
 sha2.workspace = true
 resonance-media.workspace = true
