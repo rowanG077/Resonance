@@ -29,7 +29,6 @@ mod figurines;
 mod font;
 mod font_directory;
 mod geometry;
-mod glow;
 mod item;
 pub mod media;
 pub mod menu;
@@ -170,14 +169,14 @@ pub fn extract(disc_path: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Decode original title resources and publish their completed runtime assets.
-pub(crate) fn cook_title(extracted: &Path, output: &Path) -> Result<()> {
+/// Publish title menu artwork; backgrounds use the ordinary field packages.
+pub(crate) fn cook_title_art(extracted: &Path, output: &Path) -> Result<()> {
     let _publications = publication::Session::start_if_needed(output)?;
     disc_number(extracted)?;
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let recipe = scene::title::Recipe::read(extracted, &executable)?;
     let images = recipe.images.textures(extracted)?;
-    let textures = images
+    let textures: Vec<TitleTexture> = images
         .catalogue
         .textures
         .iter()
@@ -193,24 +192,17 @@ pub(crate) fn cook_title(extracted: &Path, output: &Path) -> Result<()> {
         })
         .collect::<Result<_>>()?;
     images.write(output)?;
-    let scene = Some(scene::bind_title(extracted, output, &recipe, &executable)?);
     let manifest = TitleAssets {
         version: CONTENT_VERSION,
         game_id: recipe.game_id,
         revision: recipe.revision,
         source_sha256: recipe.images.sha256,
         textures,
-        scene,
     };
     manifest.validate()?;
     write_atomic(
         &output.join("title.json"),
         &serde_json::to_vec_pretty(&manifest)?,
     )?;
-    println!(
-        "Bound {} shared title textures in {}",
-        manifest.textures.len(),
-        output.display()
-    );
     Ok(())
 }

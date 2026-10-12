@@ -36,8 +36,6 @@ pub(crate) struct Recipe {
     pub revision: u8,
     pub executable_sha256: String,
     pub images: Resource,
-    pub field: Resource,
-    pub effects: Resource,
 }
 
 impl Recipe {
@@ -47,7 +45,6 @@ impl Recipe {
             boot.get(..6) == Some(b"GQSEAF") && boot.get(7) == Some(&0),
             "expected GQSEAF revision 0"
         );
-        let roles = crate::all_assets::roles::effects_declaration(executable)?;
         Ok(Self {
             game_id: String::from_utf8(boot[..6].to_vec())?,
             revision: boot[7],
@@ -55,11 +52,6 @@ impl Recipe {
             images: Resource::read(
                 extracted,
                 crate::all_assets::roles::title_path(extracted, executable)?,
-            )?,
-            field: Resource::read(extracted, super::title_source(extracted, executable)?)?,
-            effects: Resource::read(
-                extracted,
-                crate::all_assets::roles::declared_path(&extracted.join("files"), &roles)?,
             )?,
         })
     }

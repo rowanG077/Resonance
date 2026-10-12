@@ -66,6 +66,17 @@ impl DrawStage {
         }
     }
 }
+/// Reserved script actor ID for an authored scenery section.
+pub fn scenery_actor(section: u16) -> i32 {
+    match section {
+        0 => 0xF423C,
+        10 => 0xF423D,
+        2 => 0xF423E,
+        12 => 0xF422C,
+        _ => -((SCENERY_RESOURCE_BASE + u32::from(section)) as i32),
+    }
+}
+
 pub fn metadata_path(map: u32) -> String {
     format!("fields/map-{map}.json")
 }

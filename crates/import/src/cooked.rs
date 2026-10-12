@@ -122,18 +122,6 @@ impl<'a> Source<'a> {
         crate::texture::bind(self.root, directory)
     }
 
-    /// The common effect loader accepts one decompressed texture payload.
-    #[cfg(test)]
-    pub(crate) fn cabinet_textures(&self) -> Result<Vec<crate::texture::Texture>> {
-        let (directory, bytes) = self.resolve("cabinet.json")?;
-        let members: Vec<String> = serde_json::from_slice(&bytes)?;
-        let [member] = members.as_slice() else {
-            anyhow::bail!("effect archive needs one texture payload");
-        };
-        validate_asset_path(member)?;
-        crate::texture::bind(self.root, &format!("{directory}/{member}"))
-    }
-
     pub(crate) fn verify_file(&self, directories: &[&str], path: &str) -> Result<()> {
         validate_asset_path(path)?;
         let directory = directories[0];

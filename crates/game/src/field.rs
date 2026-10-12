@@ -1297,36 +1297,15 @@ fn bind_clips(
     Ok(())
 }
 
-fn start_with_entry(
-    script: &[u8],
-    messages: Vec<symphonia_script::message::Message>,
-    assets: &FieldAssets,
-    mut entry: FieldEntry,
-) -> Result<EventRuntime> {
-    assets.validate()?;
-    if let (Some(data), Some(menu)) = (&mut entry.data, &entry.menu_data) {
-        if data.ex_skills.is_none() {
-            Arc::make_mut(data).ex_skills = Some(Arc::new(menu.ex_skills.clone()));
-        }
-        if let Some(party) = &mut entry.persistent.party {
-            party.bind_ex_skills(data);
-        }
-    }
+/// Bind cooked models, cameras and effects independently of the field controller.
+pub(crate) fn resources(assets: &FieldAssets) -> Result<ResourceLibrary> {
     let mut resources = ResourceLibrary {
-        rising_light_destination: entry.rising_light_destination,
-        station_script: entry
-            .services
-            .as_ref()
-            .map(|s| s.station.module().program.clone()),
         memory_circle_text: resonance_events::MemoryCircleText {
             tutorial: assets.save_point_tutorial.clone(),
             unlock: assets.save_point_unlock.clone(),
             no_gem: assets.save_point_no_gem.clone(),
         },
         blink: Some(assets.blink.clone()),
-        menu_data: entry.menu_data,
-        text: entry.text,
-        skits: entry.skits.clone(),
         doors: assets.doors.clone(),
         camera_tracks: assets.camera_tracks.clone(),
         particles: assets
@@ -1339,10 +1318,6 @@ fn start_with_entry(
                 )
             })
             .collect(),
-        messages,
-        session_data: entry.data,
-        fields: entry.available_fields,
-        movies: entry.available_movies,
         actor_names: ResourceLibrary::character_names(),
         ..Default::default()
     };
@@ -1388,6 +1363,72 @@ fn start_with_entry(
         );
         bind_clips(&mut resources, resource, &model.clips)?;
     }
+    for part in &assets.parts {
+        let resource = SCENERY_RESOURCE_BASE + u32::from(part.resource);
+        resources.models.insert(
+            resource,
+            ModelResource {
+                names: part.bone_names.clone(),
+                ..Default::default()
+            },
+        );
+        bind_clips(&mut resources, resource, &part.clips)?;
+    }
+    Ok(resources)
+}
+
+pub(crate) fn bind_attachments(
+    resources: &mut ResourceLibrary,
+    attachments: attachments::Attachments,
+) -> Result<()> {
+    for (model, poses) in attachments {
+        for &(source, resource, slot) in poses.clips.keys() {
+            ensure!(
+                resources
+                    .clips(resource, source)
+                    .is_some_and(|clips| clips.contains_key(&slot)),
+                "prepared attachment clip is missing"
+            );
+        }
+        resources
+            .models
+            .get_mut(&model)
+            .context("prepared attachment model is missing")?
+            .attachments = poses;
+    }
+    Ok(())
+}
+
+fn start_with_entry(
+    script: &[u8],
+    messages: Vec<symphonia_script::message::Message>,
+    assets: &FieldAssets,
+    mut entry: FieldEntry,
+) -> Result<EventRuntime> {
+    assets.validate()?;
+    if let (Some(data), Some(menu)) = (&mut entry.data, &entry.menu_data) {
+        if data.ex_skills.is_none() {
+            Arc::make_mut(data).ex_skills = Some(Arc::new(menu.ex_skills.clone()));
+        }
+        if let Some(party) = &mut entry.persistent.party {
+            party.bind_ex_skills(data);
+        }
+    }
+    let mut resources = ResourceLibrary {
+        rising_light_destination: entry.rising_light_destination,
+        station_script: entry
+            .services
+            .as_ref()
+            .map(|s| s.station.module().program.clone()),
+        menu_data: entry.menu_data,
+        text: entry.text,
+        skits: entry.skits.clone(),
+        messages,
+        session_data: entry.data,
+        fields: entry.available_fields,
+        movies: entry.available_movies,
+        ..resources(assets)?
+    };
     let (mut world, memory) = entry.persistent.into_world();
     world.played_ticks = entry.play_time.total();
     world.effect_palette = entry.effect_palette;
@@ -1445,21 +1486,7 @@ fn start_with_entry(
     for part in &assets.parts {
         let resource = SCENERY_RESOURCE_BASE + u32::from(part.resource);
         // Reserved script actor IDs address the scenery layers directly.
-        let actor = match part.resource {
-            0 => 0xF423C,
-            10 => 0xF423D,
-            2 => 0xF423E,
-            12 => 0xF422C,
-            _ => -(resource as i32),
-        };
-        resources.models.insert(
-            resource,
-            ModelResource {
-                names: part.bone_names.clone(),
-                ..Default::default()
-            },
-        );
-        bind_clips(&mut resources, resource, &part.clips)?;
+        let actor = resonance_content::field::scenery_actor(part.resource);
         let mut instance = Actor::new(resource, [0.; 3]);
         instance.cull_outside_view = false;
         instance.grounded = false;
@@ -1480,21 +1507,7 @@ fn start_with_entry(
         }
         world.insert_actor(actor, instance);
     }
-    for (model, poses) in entry.attachments {
-        for &(source, resource, slot) in poses.clips.keys() {
-            ensure!(
-                resources
-                    .clips(resource, source)
-                    .is_some_and(|clips| clips.contains_key(&slot)),
-                "prepared attachment clip is missing"
-            );
-        }
-        resources
-            .models
-            .get_mut(&model)
-            .context("prepared attachment model is missing")?
-            .attachments = poses;
-    }
+    bind_attachments(&mut resources, entry.attachments)?;
     if entry.kind == EntryKind::Arrival {
         // Resolve the entrance before scripts configure the live camera.
         // Saved scenes resolve their view after setup and player placement.

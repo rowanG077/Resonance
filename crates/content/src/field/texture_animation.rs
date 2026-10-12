@@ -19,6 +19,10 @@ pub enum TextureClock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TextureMotion {
+    /// Sampled native counters preserve their original rounding and wrap timing.
+    Sampled {
+        animation: crate::TextureAnimation<()>,
+    },
     Scroll {
         velocity: [f32; 2],
         vertical_wave: Option<FieldTextureWave>,
@@ -45,6 +49,7 @@ impl FieldTextureAnimation {
             );
         }
         match &self.motion {
+            TextureMotion::Sampled { animation } => animation.validate()?,
             TextureMotion::Scroll {
                 velocity,
                 vertical_wave,
@@ -82,6 +87,7 @@ impl FieldTextureAnimation {
             TextureClock::Effect => u64::from(effect_tick),
         };
         match &self.motion {
+            TextureMotion::Sampled { animation } => animation.offset(tick),
             TextureMotion::Scroll {
                 velocity,
                 vertical_wave,

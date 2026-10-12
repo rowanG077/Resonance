@@ -72,9 +72,11 @@ pub(crate) fn prepare(
     )
     .map(|path| Ok((path.clone(), crate::media::hash_file(&output.join(path))?)))
     .collect::<Result<_>>()?;
+    let mut texture_animations = crate::texture_animation::field::profiles();
+    texture_animations.extend(crate::texture_animation::title_profiles(executable)?);
     Ok(Prepared {
         catalogue: catalogue.clone(),
-        texture_animations: crate::texture_animation::field::profiles(),
+        texture_animations,
         resource_catalogue,
         font,
         effects,
