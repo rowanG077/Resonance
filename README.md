@@ -73,6 +73,10 @@ Omit it to hear the game. Use `--assets PATH` for another cooked directory and
 `--skip-intro` to enter the title directly. The classroom's opening speech is
 intentionally shown over black; advance it to reveal the room.
 
+At startup, the title uses the host's local clock: the original day field from
+07:00 until 19:00, and the original night field from 19:00 until 07:00. Rerun
+`cook-all` to prepare both fields.
+
 Resolution defaults to 640×480 and stays fixed until restart. Resizing and
 maximizing are disabled; compositor-imposed sizes letterbox the retained image.
 Wide resolutions expand the camera horizontally and keep UI in a centered 4:3

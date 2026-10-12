@@ -195,6 +195,7 @@ impl<'a> Map<'a> {
     ) -> Result<std::collections::BTreeMap<u32, Vec<resonance_content::CameraKey>>> {
         self.archive.camera_tracks()
     }
+    #[cfg(test)]
     pub(crate) fn open(root: &'a Path, source: &Path) -> Result<Self> {
         let archive = Arc::new(crate::field::MapArchive::open(source)?);
         let decoded = super::decoded::Package::cook(
@@ -288,10 +289,6 @@ impl<'a> Map<'a> {
         Ok(Mesh::read(self.archive.section(index)?, Format::Detect)?.groups)
     }
 
-    pub(crate) fn camera(&self, index: usize) -> Result<crate::all_assets::CameraTrack> {
-        crate::all_assets::camera(self.archive.section(index)?)
-    }
-
     pub(crate) fn models(&self) -> Result<Vec<(u16, &[u8])>> {
         let Some(bytes) = self.archive.optional_section(7) else {
             return Ok(Vec::new());
@@ -355,68 +352,6 @@ impl<'a> Map<'a> {
             .finish()
             .pop()
             .context("missing prepared field layer")?;
-        Ok((layer.part, layer.glb))
-    }
-
-    pub(super) fn title_part(
-        &self,
-        index: usize,
-        order: u32,
-    ) -> Result<(ScenePart, std::sync::Arc<Glb>)> {
-        let source = self.archive.section(index)?;
-        let slots: &[u16] = match index {
-            0 | 2 => &[],
-            17 | 18 | 21 => &[12, 36],
-            20 | 22 => &[12],
-            _ => anyhow::bail!("unsupported title section {index}"),
-        };
-        let mut clips = Vec::new();
-        let model = if slots.is_empty() {
-            clips.push((0, self.read_animation(self.archive.section(index + 1)?)?));
-            source
-        } else {
-            let members = crate::field::sections(source)?;
-            let member = |index| -> Result<&[u8]> {
-                Ok(&source[members
-                    .get(index)
-                    .and_then(Clone::clone)
-                    .context("missing title package member")?])
-            };
-            for &slot in slots {
-                clips.push((
-                    slot,
-                    self.read_animation(member(usize::from(slot / 4 - 1))?)?,
-                ));
-            }
-            member(0)?
-        };
-        let mut models = super::source::Models::new(self.root, &self.decoded);
-        models.add(
-            &format!("title/{index}"),
-            model,
-            model,
-            move |geometry, _, part, glb| {
-                field_layer(part, index, order)?;
-                let bindings = geometry
-                    .bindings
-                    .as_ref()
-                    .context("title model lacks bindings")?;
-                for (slot, animation) in &clips {
-                    part.clips.push(SceneClip {
-                        resource_slot: *slot,
-                        secondary_pose_nodes: Vec::new(),
-                        ..glb.animate(animation.motion(bindings)?)?
-                    });
-                }
-                part.autoplay = slots.is_empty();
-                part.translation[2] = if index == 17 { 5. } else { 0. };
-                Ok(())
-            },
-        )?;
-        let layer = models
-            .finish()
-            .pop()
-            .context("missing prepared title layer")?;
         Ok((layer.part, layer.glb))
     }
 
@@ -487,19 +422,14 @@ mod tests {
 
     #[test]
     #[ignore = "requires original disc 1; no prior cooked assets"]
-    fn original_title_and_field_layers_need_no_physical_intermediates() -> Result<()> {
+    fn original_field_layers_need_no_physical_intermediates() -> Result<()> {
         let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
-        let executable = fs::read(extracted.join("sys/main.dol"))?;
-        let title = extracted
-            .join("files")
-            .join(crate::scene::title_source(&extracted, &executable)?);
-        for (source, title) in [
-            (title, true),
-            (crate::field::source_for_id(&extracted, 332)?, false),
-            (crate::field::source_for_id(&extracted, 340)?, false),
-            (crate::field::source_for_id(&extracted, 344)?, false),
-            (crate::field::source_for_id(&extracted, 372)?, false),
-            (extracted.join("files/MAP/_custom.bin"), false),
+        for source in [
+            crate::field::source_for_id(&extracted, 332)?,
+            crate::field::source_for_id(&extracted, 340)?,
+            crate::field::source_for_id(&extracted, 344)?,
+            crate::field::source_for_id(&extracted, 372)?,
+            extracted.join("files/MAP/_custom.bin"),
         ] {
             let output = tempfile::tempdir()?;
             fs::write(
@@ -507,20 +437,11 @@ mod tests {
                 b"not a cooked catalogue",
             )?;
             let map = Map::open(output.path(), &source)?;
-            let indices: &[usize] = if title {
-                &[0, 2, 17, 18, 20, 21, 22]
-            } else {
-                &FIELD_LAYERS
-            };
-            for (order, &index) in indices.iter().enumerate() {
+            for index in FIELD_LAYERS {
                 if map.archive.optional_section(index).is_none() {
                     continue;
                 }
-                let (part, glb) = if title {
-                    map.title_part(index, order as u32)?
-                } else {
-                    map.part(index, &[])?
-                };
+                let (part, glb) = map.part(index, &[])?;
                 assert!(part.mesh.starts_with("meshes/"));
                 assert!(glb.json.get("animations").is_none());
                 assert_eq!(Glb::read(&output.path().join(&part.mesh))?.json, glb.json);
@@ -531,17 +452,14 @@ mod tests {
                     motion.validate_bones(part.bone_names.len())?;
                 }
             }
-            if !title {
-                for part in map.layers(&[])?.0 {
-                    let stage =
-                        DrawStage::scenery(part.resource).context("unknown scenery layer")?;
-                    assert!(part.materials.iter().all(|material| {
-                        material.draw_order / MODEL_DRAW_SPAN == stage as u32
-                            && !(DrawStage::Actors.offset()..DrawStage::Foreground.offset())
-                                .contains(&material.draw_order)
-                            && material.depth_write == (part.resource != 2)
-                    }));
-                }
+            for part in map.layers(&[])?.0 {
+                let stage = DrawStage::scenery(part.resource).context("unknown scenery layer")?;
+                assert!(part.materials.iter().all(|material| {
+                    material.draw_order / MODEL_DRAW_SPAN == stage as u32
+                        && !(DrawStage::Actors.offset()..DrawStage::Foreground.offset())
+                            .contains(&material.draw_order)
+                        && material.depth_write == (part.resource != 2)
+                }));
             }
             let [script, messages] = map.publish_script()?;
             assert_eq!(

@@ -42,7 +42,7 @@ struct Args {
     /// Add a cue request to recording, e.g. --audio-cue 487360:navigate.
     #[arg(long, requires = "record_music")]
     audio_cue: Vec<resonance_presentation::CueEvent>,
-    /// Render one deterministic title tick to a PNG without a window or audio device.
+    /// Render one title tick to a PNG without a window or audio device.
     #[arg(long, requires = "capture")]
     tick: Option<u32>,
     /// Original counter at title entry for a checkpoint or title-only recording.

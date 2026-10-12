@@ -90,12 +90,12 @@ pub use field_view::{
     capture_setup,
 };
 mod timing;
+mod title_field;
 use audio::{GameAudio, PlaybackAssets};
 use audio_output::Player as AudioPlayer;
 use scene::{FieldAssets, animate_field, prepare_field, update_materials};
 #[derive(Resource)]
 struct PendingAudio(Option<PlaybackAssets>);
-use camera::TitleProjection;
 use materials::{TitleOutput, TitleText};
 
 #[derive(Resource)]
@@ -237,7 +237,7 @@ fn build_app_with_display(
         .context("missing cooked assets; run resonance-import cook-all first")?;
     let title_path = assets.join("title.json");
     let manifest: TitleAssets = serde_json::from_slice(
-        &fs::read(&title_path).with_context(|| format!("reading {}", title_path.display()))?,
+        &fs::read(&title_path).with_context(|| format!("missing cooked title at {}; rerun resonance-import cook-all", title_path.display()))?,
     )
     .with_context(|| {
         format!(
@@ -253,37 +253,7 @@ fn build_app_with_display(
             texture.path
         );
     }
-    if let Some(scene) = &manifest.scene {
-        anyhow::ensure!(
-            assets.join(&scene.glow.texture).is_file(),
-            "missing glow texture; recook title assets"
-        );
-        for part in &scene.parts {
-            for path in std::iter::once(&part.mesh).chain(&part.textures) {
-                anyhow::ensure!(
-                    assets.join(path).is_file(),
-                    "missing cooked scene asset {path}"
-                );
-            }
-        }
-    }
-    let mut prepared_clips = sparse_animation::Prepared::default();
-    let mut events = if let Some(scene) = &manifest.scene {
-        use sha2::{Digest, Sha256};
-        let bytes = fs::read(assets.join(&scene.script.path))
-            .context("missing SymphoniaScript title resource; recook title assets")?;
-        anyhow::ensure!(
-            format!("{:x}", Sha256::digest(&bytes)) == scene.script.sha256,
-            "title script digest mismatch"
-        );
-        Some(resonance_game::title_events::start(
-            &bytes,
-            scene,
-            |path| prepared_clips.load(&assets, path),
-        )?)
-    } else {
-        None
-    };
+    let (scene, mut events) = title_field::load(&assets)?;
     let replay = options
         .replay
         .as_ref()
@@ -309,9 +279,7 @@ fn build_app_with_display(
             if let Some(replay) = &replay {
                 pending.record_replay(replay, state.tick + 1);
             }
-            if let Some(events) = &mut events {
-                events.step()?;
-            }
+            events.step()?;
             state.step(pending.consume(clock));
         }
     }
@@ -321,13 +289,9 @@ fn build_app_with_display(
     let boot = boot::Playback::load(&assets, &options)?;
     let mut app = App::new();
     app.insert_resource(session_screen::Title {
-        events: events
-            .as_ref()
-            .map(resonance_events::EventRuntime::fresh)
-            .transpose()?,
+        events: Some(events.fresh()?),
         audio: music.clone(),
     });
-    app.insert_resource(prepared_clips);
     saves::install(
         &mut app,
         &options.saves,
@@ -369,9 +333,7 @@ fn build_app_with_display(
             .disable::<bevy::winit::WinitPlugin>()
             .disable::<bevy::gilrs::GilrsPlugin>();
     }
-    if let Some(events) = events {
-        app.insert_resource(Events(events));
-    }
+    app.insert_resource(Events(events));
     let render_ready = RenderReady::default();
     app.insert_resource(render_ready.clone())
         .insert_resource(display::Display(resolution))
@@ -393,6 +355,7 @@ fn build_app_with_display(
         .insert_resource(options)
         .insert_resource(Menu(state))
         .insert_resource(Clock(clock))
+        .insert_resource(scene)
         .insert_resource(Art {
             manifest,
             images: Vec::new(),
@@ -522,6 +485,8 @@ fn setup(
     mut commands: Commands,
     server: Res<AssetServer>,
     mut art: ResMut<Art>,
+    scene: Res<title_field::Scene>,
+    events: Res<Events>,
     mut images: ResMut<Assets<Image>>,
     mut field: ResMut<FieldAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -649,32 +614,24 @@ fn setup(
                 .load(t.path.clone())
         })
         .collect();
-    if let Some(scene) = &art.manifest.scene {
-        commands.spawn((
-            Camera3d {
-                depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT
-                    | TextureUsages::TEXTURE_BINDING)
-                    .into(),
-                ..default()
-            },
-            Tonemapping::None,
-            Msaa::Off,
-            Camera {
-                order: -4,
-                ..default()
-            },
-            RenderTarget::Image(source.into()),
-            Projection::custom(TitleProjection(PerspectiveProjection {
-                fov: scene.fov_degrees.to_radians(),
-                aspect_ratio: size.aspect(),
-                near: 100.,
-                far: 40000.,
-                ..default()
-            })),
-            FieldCamera,
-        ));
-        field.load(scene, &server, &mut commands);
-    }
+    commands.spawn((
+        Camera3d {
+            depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::TEXTURE_BINDING)
+                .into(),
+            ..default()
+        },
+        Tonemapping::None,
+        Msaa::Off,
+        Camera {
+            order: -4,
+            ..default()
+        },
+        RenderTarget::Image(source.into()),
+        title_field::projection(size.aspect()),
+        FieldCamera,
+    ));
+    field.load(&scene.assets, &events.0, &server, &mut commands);
     let quad = meshes.add(Rectangle::new(1., 1.));
     for (index, row, top) in [
         (2, None, 24.),
@@ -752,20 +709,17 @@ fn skin_bounds(
 }
 
 fn field_camera(
-    art: Res<Art>,
+    scene: Res<title_field::Scene>,
     events: Option<Res<Events>>,
     mut cameras: Query<&mut Transform, With<FieldCamera>>,
 ) {
-    let Some(scene) = &art.manifest.scene else {
-        return;
-    };
     let Some(events) = events else {
         return;
     };
     let Some(camera) = &events.0.world.camera else {
         return;
     };
-    let track = &scene.cameras[camera.resource as usize];
+    let track = &scene.assets.camera_tracks[&camera.resource];
     // The title camera samples two updates behind the title counter.
     let Some((position, target)) = camera.sample(events.0.tick().saturating_sub(2), track) else {
         return;
@@ -959,6 +913,7 @@ fn capture(
     mut commands: Commands,
     options: Res<RunOptions>,
     art: Res<Art>,
+    scene: Res<title_field::Scene>,
     server: Res<AssetServer>,
     mut ready: ResMut<ReadyFrames>,
     menu: Res<Menu>,
@@ -1015,7 +970,7 @@ fn capture(
         let world = &events.0.world;
         metadata["events"] = serde_json::json!({
             "runtime": "SymphoniaScript",
-            "script_sha256": art.manifest.scene.as_ref().map(|s| &s.script.sha256),
+            "script_sha256": scene.assets.script.sha256,
             "tick": events.0.tick(),
             "active_instances": events.0.active_instances(),
             "camera": world.camera.as_ref().map(|c| serde_json::json!({"resource":c.resource,"start_tick":c.start_tick})),
