@@ -48,6 +48,27 @@ impl Files {
     pub fn json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         serde_json::from_slice(&self.read(path)?).with_context(|| format!("decode {path}"))
     }
+    /// Read a field through its verified preparation inventory.
+    pub fn field(&self, map: u32) -> Result<crate::field::FieldAssets> {
+        let manifest = self
+            .manifests
+            .get(&map)
+            .context("field inventory is missing")?;
+        let assets: crate::field::FieldAssets = self.json(&manifest.inputs.field)?;
+        assets.validate()?;
+        ensure!(
+            assets.map_id == map,
+            "field inventory has the wrong map binding"
+        );
+        for (path, hash) in &assets.files {
+            ensure!(
+                manifest.files.get(path).is_some_and(|f| f.sha256 == *hash),
+                "field dependency differs from its preparation inventory: {path}"
+            );
+        }
+        Ok(assets)
+    }
+
     pub fn load(
         root: &Path,
         paths: &[&str],

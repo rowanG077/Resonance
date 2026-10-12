@@ -206,7 +206,7 @@ pub(super) fn finish(
     let discs = super::source_discs(options.discs)?;
     let primary = *discs.first_key_value().context("no source disc")?.1;
     crate::cook_boot(primary, options.output)?;
-    crate::cook_title(primary, options.output)?;
+    crate::cook_title_art(primary, options.output)?;
     crate::media::bind_all_movies(options.discs, options.output, sources)?;
     // Audio caches are owned by each source environment. All fields select
     // references into the same library; no output device is opened.
@@ -254,6 +254,16 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
     let documents = super::read_documents(&discs)?;
     let mut sources = BTreeMap::new();
     let mut report = Report::default();
+    // Shared presentation also resolves non-field sources such as credits.
+    for (&disc, extracted) in &discs {
+        let files = extracted.join("files");
+        for path in super::walk(&files, &mut report) {
+            sources.insert(
+                format!("disc{disc}/{}", crate::relative_source_path(&files, &path)?),
+                crate::media::hash_file(&path)?,
+            );
+        }
+    }
     let fields = discover(&discs, &documents, &mut sources, &mut report)?;
     eprintln!(
         "Preparing {} catalogue fields; {} dependency failures",

@@ -30,7 +30,6 @@ fn fixture() -> App {
                 revision: 0,
                 source_sha256: String::new(),
                 textures: Vec::new(),
-                scene: None,
             },
             images: Vec::new(),
         })

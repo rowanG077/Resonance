@@ -43,18 +43,7 @@ impl FieldPackage {
             .manifests
             .get(&map)
             .context("field inventory is missing")?;
-        let assets: FieldAssets = files.json(&manifest.inputs.field)?;
-        assets.validate()?;
-        ensure!(
-            assets.map_id == map,
-            "field inventory has the wrong map binding"
-        );
-        for (path, hash) in &assets.files {
-            ensure!(
-                manifest.files.get(path).is_some_and(|f| f.sha256 == *hash),
-                "field dependency differs from its preparation inventory: {path}"
-            );
-        }
+        let assets = files.field(map)?;
         ensure!(
             manifest.inputs.audio.len() == 1,
             "field needs one combined audio bank"
