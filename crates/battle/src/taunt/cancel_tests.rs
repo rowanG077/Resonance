@@ -121,12 +121,17 @@ fn taunt_cancel_blocks_contact_immediately_without_preventing_lethal_damage() {
         let (result, _) = contact(
             &mut battle,
             HitRule {
+                sound: None,
                 kind: DamageKind::Slash,
                 arte: false,
+                effect_on_guard: false,
+                effect: None,
                 overlimit_pause: false,
                 power: Power::Fixed(9),
                 element: HitElement::Neutral,
                 prevents_defeat: false,
+                finisher_grade: false,
+                hp_drain: false,
                 guard: GuardRule::default(),
                 reaction: ReactionRule {
                     hitstun: 5,

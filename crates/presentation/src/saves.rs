@@ -12,7 +12,8 @@ pub use overworld_test::{prepare_overworld_test_fixture, run_overworld_field_pro
 #[cfg(test)]
 pub(crate) use replay::assert_checkpoint;
 pub use replay::{
-    CheckpointRecordingOptions, CheckpointReplay, record_checkpoint, record_new_game,
+    CheckpointRecordingOptions, CheckpointReplay, record_battle, record_checkpoint,
+    record_checkpoint_window, record_new_game,
 };
 pub(crate) use replay::{
     Event as ScenarioEvent, ScenarioInput, Step as ScenarioStep, capture_image, record_app,

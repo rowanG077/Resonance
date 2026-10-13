@@ -50,6 +50,9 @@ fn casting_technique(action: crate::ActionKey, catalogue: u16) -> crate::Prepare
 
 fn prepared_cast(control: Control, duration: u16, tp: u16) -> PreparedBattle {
     let casting = crate::CastingDefinition {
+        chant: vec![],
+        release_pose: Default::default(),
+        hide_primary_weapons: false,
         duration: u32::from(duration),
 
         recovery: 90,
@@ -92,7 +95,7 @@ fn request() -> BattleInput {
 }
 
 #[test]
-fn unavailable_learning_candidates_do_not_interrupt_casting() -> anyhow::Result<()> {
+fn cast_learning_replaces_only_available_commit_selected_spells() -> anyhow::Result<()> {
     let mut table = resonance_content::arte::Catalogue {
         definitions: vec![Default::default(); 3],
         learning: vec![vec![1, 2]],
@@ -116,42 +119,195 @@ fn unavailable_learning_candidates_do_not_interrupt_casting() -> anyhow::Result<
         airborne: false,
     };
     assert_eq!(member.select_after_count(attempt, |_| true, || 0)?, Some(1));
-    let mut prepared = prepared_cast(Control::Manual, 1, CASTER_TP);
-    prepared.resources.actor_setup[0].techniques[0].catalogue = 2;
-    let mut battle = prepared
-        .with_technique_learning_members(vec![crate::learning::TechniqueLearningMember {
-            actor: ActorId(0),
-            member,
-        }])?
-        .finish()?;
-    let tp = battle.actors[0].tp;
-    battle.step(request())?;
-    let mut releases = 0;
-    for _ in 0..180 {
-        releases += battle
-            .step(BattleInput::default())?
-            .cues
-            .iter()
-            .filter(|cue| matches!(cue, Cue::Released { .. }))
-            .count();
+    for available in [false, true] {
+        let mut prepared = prepared_cast(Control::Manual, 1, 7);
+        prepared.resources.actor_setup[0].techniques[0].catalogue = 2;
+        if available {
+            let mut learned = prepared.resources.actions[CAST].as_ref().clone();
+            learned.tp_cost = 9;
+            let cast = native_cast(&mut learned);
+            cast.recovery = 3;
+            let spell = Arc::make_mut(&mut cast.release);
+            spell.projectiles.clear();
+            spell.recovery = vec![crate::SpellRecovery {
+                at: 0,
+                benefit: crate::SpellBenefit::Stat {
+                    condition: crate::conditions::Condition::AttackUp,
+                    percent: 15,
+                    duration: 30,
+                },
+                targets: crate::RecoveryTargets::Target,
+                effect: None,
+            }];
+            let learned = prepared.resources.actions.insert(learned);
+            assert_eq!(learned, ALTERNATE);
+            let mut technique = casting_technique(learned, 1);
+            technique.capabilities.target = crate::TechniqueTarget::Ally;
+            prepared.resources.actor_setup[0].techniques.push(technique);
+        }
+        let mut battle = prepared
+            .with_camera(crate::CameraDefinition {
+                leader: ActorId(0),
+                stage_pitch: 0.,
+                auto_zoom: false,
+            })?
+            .with_technique_learning_members(vec![crate::learning::TechniqueLearningMember {
+                actor: ActorId(0),
+                member: member.clone(),
+            }])?
+            .finish()?;
+        battle.actors[1].overlimit = crate::OverLimit::active(1000)?;
+        let parent = battle.step(request())?.actions[0].0;
+        battle.step(BattleInput::default())?;
+        assert_eq!(battle.casting_remaining(ActorId(0)), Some(0));
+        // Select the eligible base spell at the completed chant's actual commit.
+        battle.random = crate::state::Random::new(0);
+        let expected = if available { ALTERNATE } else { CAST };
+        let mut releases = Vec::new();
+        let mut residents = 0;
+        let mut learning_start = None;
+        for tick in 0..180 {
+            let frame = battle.step(BattleInput::default())?;
+            releases.extend(frame.cues.iter().filter_map(|cue| match cue {
+                Cue::Casting {
+                    action,
+                    phase: CastPhase::Released,
+                    ..
+                } => Some(*action),
+                _ => None,
+            }));
+            residents += frame
+                .cues
+                .iter()
+                .filter(|cue| matches!(cue, Cue::Released { .. }))
+                .count();
+            if tick == 0 {
+                let sequence = battle.sequence(&parent).unwrap();
+                assert_eq!(sequence.action, expected);
+                assert_eq!(sequence.definition.tp_cost, if available { 9 } else { 7 });
+                assert_eq!(
+                    battle.action_recovery_remaining(parent),
+                    if available { None } else { Some(90) }
+                );
+                if available {
+                    learning_start = Some((
+                        sequence.age,
+                        battle.actors[1].overlimit.remaining(),
+                        battle.ledger.elapsed_ticks,
+                        frame.camera,
+                    ));
+                    assert_eq!(battle.timed_hold_remaining(), Some(60));
+                }
+            }
+            if available && tick <= 60 {
+                assert!(releases.is_empty());
+                assert_eq!(residents, 0);
+                assert!(battle.projectiles.is_empty());
+                assert_eq!(
+                    battle.actors[0]
+                        .conditions
+                        .magnitude(crate::conditions::Condition::AttackUp),
+                    0
+                );
+                let (age, enemy_timer, elapsed, camera) = learning_start.unwrap();
+                assert_eq!(battle.sequence(&parent).unwrap().age, age);
+                assert_eq!(battle.actors[1].overlimit.remaining(), enemy_timer);
+                assert_eq!(battle.ledger.elapsed_ticks, elapsed + tick);
+                if tick > 0 {
+                    assert_eq!(frame.clock, crate::BattleClock::Learning(ActorId(0)));
+                }
+                if tick == 30 {
+                    assert_ne!(frame.camera, camera);
+                    let remaining = battle.timed_hold_remaining();
+                    let paused = battle.step(BattleInput {
+                        paused: true,
+                        ..Default::default()
+                    })?;
+                    assert_eq!(paused.camera, frame.camera);
+                    assert_eq!(battle.timed_hold_remaining(), remaining);
+                    assert_eq!(battle.ledger.elapsed_ticks, elapsed + tick);
+                }
+            }
+            if available && tick == 61 {
+                assert_eq!(frame.clock, crate::BattleClock::Running);
+                assert_eq!(battle.action_recovery_remaining(parent), Some(3));
+                assert_eq!(
+                    battle.actors[0]
+                        .conditions
+                        .magnitude(crate::conditions::Condition::AttackUp),
+                    15
+                );
+                assert!(battle.projectiles.is_empty());
+                assert_eq!(releases, [ALTERNATE]);
+            }
+        }
+        assert_eq!(releases, [expected]);
+        assert_eq!(residents, 1);
+        assert_eq!(battle.actors[0].tp, if available { 7 } else { 0 });
+        assert_eq!(
+            battle.actors[0].casting_state.previous_spell,
+            Some(expected)
+        );
+        assert!(!battle.is_diagnostic());
+        assert_eq!(battle.technique_uses(ActorId(0), 2), Some(50));
+        if available {
+            assert_eq!(battle.technique_acquisitions().len(), 1);
+            assert_eq!(battle.technique_acquisitions()[0].action, ALTERNATE);
+            assert_eq!(battle.current_techniques(ActorId(0)), Some(&[1, 2].into()));
+            assert_eq!(battle.technique_uses(ActorId(0), 1), Some(0));
+        } else {
+            assert!(battle.technique_acquisitions().is_empty());
+            assert_eq!(battle.current_techniques(ActorId(0)), Some(&[2].into()));
+            assert_eq!(battle.technique_counts(ActorId(0)), Some(&[(2, 50)].into()));
+        }
     }
-    assert_eq!(releases, 1);
-    assert_eq!(battle.actors[0].tp, tp - 7);
-    assert!(!battle.is_diagnostic());
-    assert!(battle.technique_acquisitions().is_empty());
-    assert_eq!(battle.current_techniques(ActorId(0)), Some(&[2].into()));
-    assert_eq!(battle.technique_counts(ActorId(0)), Some(&[(2, 50)].into()));
     Ok(())
 }
 
 #[test]
 fn casting_advances_through_local_hit_stop_but_menu_holds_the_cast() {
-    let mut battle = battle(Control::Auto, 20, CASTER_TP);
+    let has_phase = |frame: &crate::BattleFrame, phase| {
+        frame.cues.iter().any(|cue| {
+            matches!(cue,
+            Cue::Casting { phase: actual, .. } if *actual == phase)
+        })
+    };
+    let mut prepared = prepared_cast(Control::Auto, 20, CASTER_TP);
+    casting_definition(&mut prepared).chant = [0, 5, 12]
+        .map(|at| {
+            (
+                at,
+                crate::AttackPose {
+                    motion: crate::MotionBinding { model: 7, clip: at },
+                    start: 0.,
+                    end: None,
+                    rate: 0.5,
+                    blend: 2,
+                    repeat: at == 12,
+                },
+            )
+        })
+        .into();
+    let mut battle = prepared.finish().unwrap();
     battle.actors[0].hit_stop = 20;
-    battle.step(request()).unwrap();
+    let started = battle.step(request()).unwrap();
+    assert!(has_phase(&started, CastPhase::Started));
+    assert!(!has_phase(&started, CastPhase::Chanting));
+    assert!(
+        started
+            .model_requests
+            .iter()
+            .any(|request| matches!(request,
+        crate::ModelRequest::Play { motion, .. } if motion.clip == 0))
+    );
+    let mut poses = vec![0];
+    let mut pulses = Vec::new();
     let initial = cast_remaining(&battle);
-    for _ in 0..2 {
-        battle.step(BattleInput::default()).unwrap();
+    for update in 1..=2 {
+        let frame = battle.step(BattleInput::default()).unwrap();
+        if has_phase(&frame, CastPhase::Chanting) {
+            pulses.push(update);
+        }
     }
     assert!(cast_remaining(&battle) < initial);
     assert!(battle.actors[0].hit_stop > 0);
@@ -165,10 +321,27 @@ fn casting_advances_through_local_hit_stop_but_menu_holds_the_cast() {
             .unwrap();
         assert_eq!(cast_remaining(&battle), remaining);
         assert_eq!(frame.actors[0].tp, 47);
+        assert!(frame.model_requests.is_empty());
+        assert!(
+            !frame
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Casting { .. }))
+        );
     }
     let mut releases = 0;
-    for _ in 0..220 {
+    for update in 3..223 {
         let frame = battle.step(BattleInput::default()).unwrap();
+        for request in &frame.model_requests {
+            if let crate::ModelRequest::Play { motion, .. } = request {
+                poses.push(update);
+                assert_eq!(u32::from(motion.clip), update);
+            }
+        }
+        if has_phase(&frame, CastPhase::Chanting) {
+            pulses.push(update);
+        }
+        assert!(!has_phase(&frame, CastPhase::Started));
         releases += frame
             .cues
             .iter()
@@ -176,6 +349,8 @@ fn casting_advances_through_local_hit_stop_but_menu_holds_the_cast() {
             .count();
     }
     assert_eq!(releases, 1);
+    assert_eq!(pulses, [1, 9, 17]);
+    assert_eq!(poses, [0, 5, 12]);
     assert_eq!(battle.actors[0].tp, 40);
 }
 
@@ -370,4 +545,338 @@ fn spell_admission_and_payment_share_repeat_and_physical_modifiers() {
         assert_eq!(releases, 1);
         assert_eq!(battle.actors[0].tp, 0);
     }
+}
+
+#[test]
+fn zero_hp_revival_releases_before_cast_pose_finishes() -> anyhow::Result<()> {
+    let mut prepared = prepared_cast(Control::Manual, 1, CASTER_TP);
+    let spell = Arc::make_mut(&mut casting_definition(&mut prepared).release);
+    spell.projectiles.clear();
+    spell.origin = crate::SpellOrigin::Target;
+    spell.duration = 1;
+    spell.recovery = vec![crate::SpellRecovery {
+        at: 1,
+        benefit: crate::SpellBenefit::Resurrect(0),
+        targets: crate::RecoveryTargets::Target,
+        effect: None,
+    }];
+    prepared.resources.actor_setup[0].techniques[0]
+        .capabilities
+        .target = crate::TechniqueTarget::Ally;
+    prepared.actors[1].side = Side::Party;
+    prepared.actors[1].hp = 0;
+    let mut actors: Vec<_> = prepared
+        .actors
+        .into_iter()
+        .zip(prepared.resources.actor_setup)
+        .collect();
+    actors.push((crate::tests::actor(Side::Enemy), Default::default()));
+    let mut battle = PreparedBattle::new(actors, prepared.resources.actions, 1)?.finish()?;
+    let mut model = crate::tests::model_definition(7, [(0, 1.), (1, 15.)]);
+    model.reactions.chant = Some(0);
+    model.reactions.cast = Some(1);
+    battle.set_models(crate::Models::new(
+        battle.actors(),
+        vec![Some(Arc::new(model)), None, None],
+        Default::default(),
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?);
+    battle.step(request())?;
+    battle.step(BattleInput::default())?;
+    let paid = battle.step(BattleInput::default())?;
+    assert_eq!(paid.actors[0].tp, CASTER_TP - 7);
+    assert!(
+        paid.cues
+            .iter()
+            .any(|cue| matches!(cue, Cue::Released { .. }))
+    );
+    assert!(!battle.actors[1].available());
+    let next = battle.step(BattleInput::default())?;
+    assert_eq!(next.actors[0].tp, CASTER_TP - 7);
+    assert!(battle.actors[1].available());
+    assert_eq!(battle.actors[1].hp, 0);
+    let pose = battle
+        .models()
+        .unwrap()
+        .main_motion_observation(ActorId(0))
+        .unwrap();
+    assert_eq!(pose.clip, 1);
+    assert!(pose.frame < pose.end);
+    Ok(())
+}
+
+#[test]
+fn release_opening_keeps_scene_timing_and_respects_interruption() -> anyhow::Result<()> {
+    use resonance_content::animation::{
+        Track, TransformChannels, VectorCurve, VectorInterpolation,
+    };
+
+    for interrupt_at in [None, Some(10), Some(40)] {
+        let mut prepared = prepared_cast(Control::Manual, 1, CASTER_TP);
+        let cast = casting_definition(&mut prepared);
+        cast.hide_primary_weapons = true;
+        cast.release_pose = CastReleasePose::SustainAfter {
+            opening: crate::MotionBinding { model: 7, clip: 13 },
+            hold_ticks: 26,
+        };
+        let release = Arc::make_mut(&mut cast.release);
+        release.origin = crate::SpellOrigin::SceneFixed { position: [0.; 3] };
+        release.transition_ticks = 60;
+        release.duration = 70;
+        release.projectiles.truncate(1);
+        release.projectiles[0].at = 62;
+        let mut battle = prepared.finish()?;
+        let mut model = crate::tests::model_definition(7, [(0, 1.), (12, 15.), (13, 1.)]);
+        model.reactions.chant = Some(0);
+        model.reactions.cast = Some(12);
+        for slot in 0..3 {
+            model.weapons.push(Arc::new(crate::WeaponDefinition::new(
+                slot,
+                0,
+                vec![crate::WeaponLayerDefinition {
+                    resource: 20 + u32::from(slot),
+                    skeleton: model.skeleton.clone(),
+                    motions: Default::default(),
+                    playback: crate::WeaponPlayback::Rigid,
+                    secondary_motion: vec![],
+                    texture_animation: None,
+                }],
+                vec![],
+            )?));
+        }
+        model.motions.get_mut(&12).unwrap().tracks.push(Track {
+            bone: 0,
+            bind_channels: TransformChannels(8),
+            period_frames: 15.,
+            times: vec![0., 15.],
+            translation: Some(VectorCurve {
+                interpolation: VectorInterpolation::Linear,
+                values: vec![[0.; 3], [15., 0., 0.]],
+                incoming: vec![],
+                outgoing: vec![],
+                ease: vec![],
+            }),
+            scale: None,
+            rotation: None,
+            euler_degrees: None,
+            matrices: None,
+        });
+        battle.set_models(crate::Models::new(
+            battle.actors(),
+            vec![
+                Some(Arc::new(model)),
+                Some(Arc::new(crate::tests::model_definition(8, [(0, 100.)]))),
+            ],
+            Default::default(),
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?);
+        let clip = |battle: &Battle| {
+            battle
+                .models()
+                .unwrap()
+                .main_motion_observation(ActorId(0))
+                .unwrap()
+                .clip
+        };
+        let mut chanting = battle.step(request())?;
+        let clock = chanting.clock;
+        battle.advance_models(&mut chanting, clock, clock == crate::BattleClock::Running)?;
+        assert!(
+            chanting
+                .weapons
+                .iter()
+                .all(|weapon| weapon.visible == (weapon.slot >= 2))
+        );
+        battle.step(BattleInput::default())?;
+        let paid = battle.step(BattleInput::default())?;
+        let (resident, parent) = paid
+            .cues
+            .iter()
+            .find_map(|cue| match cue {
+                Cue::Released {
+                    action,
+                    parent: Some(parent),
+                    ..
+                } => Some((*action, *parent)),
+                _ => None,
+            })
+            .expect("payment must release the scene immediately");
+        assert_eq!(paid.actors[0].tp, CASTER_TP - 7);
+        assert_eq!(clip(&battle), 13);
+        assert_eq!(battle.volleys[&resident].age, 1);
+        let held = battle.step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })?;
+        assert!(held.cues.is_empty());
+        assert_eq!(battle.volleys[&resident].age, 1);
+        let enemy_frame = battle
+            .models()
+            .unwrap()
+            .main_motion_observation(ActorId(1))
+            .unwrap()
+            .frame;
+        let mut interrupted_frame = None;
+        let mut births = 0;
+        for elapsed in 1..=62 {
+            if interrupt_at == Some(elapsed) {
+                // Use the same ownership cancellation as reactions; gameplay input waits
+                // for scene framing, whereas this check must survive any lost parent.
+                interrupted_frame = Some(
+                    battle
+                        .models()
+                        .unwrap()
+                        .main_motion_observation(ActorId(0))
+                        .unwrap()
+                        .frame,
+                );
+                battle.interrupt_actor(ActorId(0), &mut Vec::new());
+                battle.enter_idle(ActorId(0));
+            }
+            let mut frame = battle.step(BattleInput::default())?;
+            assert_eq!(
+                frame.model_requests.contains(&crate::ModelRequest::Common {
+                    actor: ActorId(0),
+                    pose: crate::CommonPose::SustainedCast,
+                }),
+                elapsed == 26 && interrupt_at.is_none_or(|at| at > elapsed)
+            );
+            // The host consumes published pose requests even while scene framing
+            // freezes playback; there is no contact-sampling advance in this phase.
+            let clock = frame.clock;
+            battle.advance_models(&mut frame, clock, clock == crate::BattleClock::Running)?;
+            assert!(frame.weapons.iter().all(|weapon| {
+                weapon.visible == (weapon.slot >= 2 || interrupted_frame.is_some())
+            }));
+            let pose = battle
+                .models()
+                .unwrap()
+                .main_motion_observation(ActorId(0))
+                .unwrap();
+            if elapsed <= 60 {
+                assert_eq!(frame.models[1].frame, enemy_frame);
+                if let Some(held_frame) = interrupted_frame {
+                    assert_eq!(pose.frame, held_frame);
+                } else if elapsed == 27 {
+                    assert!(frame.models[0].blend_weight > 0.);
+                } else if elapsed == 40 || elapsed == 60 {
+                    assert!(pose.frame > 0.);
+                    assert!(frame.models[0].bones[0][3][0] > 0.);
+                    // The host can republish a frame without advancing it twice.
+                    battle.advance_models(&mut frame, clock, false)?;
+                    assert_eq!(
+                        battle
+                            .models()
+                            .unwrap()
+                            .main_motion_observation(ActorId(0))
+                            .unwrap()
+                            .frame,
+                        pose.frame
+                    );
+                }
+            }
+            births += frame
+                .cues
+                .iter()
+                .filter(|cue| matches!(cue, Cue::ProjectileStarted { .. }))
+                .count();
+            assert_eq!(frame.actors[0].tp, CASTER_TP - 7);
+            if interrupt_at.is_some_and(|at| at < 26) {
+                assert_ne!(clip(&battle), 12);
+            } else {
+                assert_eq!(clip(&battle), if elapsed < 26 { 13 } else { 12 });
+                if elapsed <= 60 && interrupted_frame.is_none() {
+                    assert!(matches!(
+                        &battle.sequence(&parent).unwrap().execution,
+                        crate::action::Execution::Recovering { remaining: 90 }
+                    ));
+                }
+            }
+            assert_eq!(births, usize::from(elapsed == 62));
+        }
+        assert!(battle.spell_active(ActorId(0), crate::SpellSlot::Primary));
+        // Returning to idle restores held equipment even while the scene survives.
+        battle.enter_idle(ActorId(0));
+        let mut idle = battle.step(BattleInput::default())?;
+        let clock = idle.clock;
+        battle.advance_models(&mut idle, clock, clock == crate::BattleClock::Running)?;
+        assert!(idle.weapons.iter().all(|weapon| weapon.visible));
+    }
+    Ok(())
+}
+
+#[test]
+fn resident_cast_pays_once_then_waits_for_its_release_pose_endpoint() -> anyhow::Result<()> {
+    for clip_frames in [3., 15.] {
+        let mut battle = battle(Control::Manual, 1, CASTER_TP);
+        let mut model = crate::tests::model_definition(7, [(0, 1.), (1, clip_frames)]);
+        model.reactions.chant = Some(0);
+        model.reactions.cast = Some(1);
+        battle.set_models(crate::Models::new(
+            battle.actors(),
+            vec![Some(Arc::new(model)), None],
+            Default::default(),
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?);
+        let observation = |battle: &Battle| {
+            battle
+                .models()
+                .unwrap()
+                .main_motion_observation(ActorId(0))
+                .unwrap()
+        };
+        let released = |frame: &crate::BattleFrame| {
+            frame
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Released { .. }))
+        };
+        battle.step(request())?;
+        battle.step(BattleInput::default())?;
+        let paid = battle.step(BattleInput::default())?;
+        assert_eq!(paid.actors[0].tp, CASTER_TP - 7);
+        assert!(!released(&paid));
+        let announcement = Cue::Casting {
+            actor: ActorId(0),
+            action: CAST,
+            phase: CastPhase::Released,
+        };
+        assert!(!paid.cues.contains(&announcement));
+        assert_eq!(observation(&battle).clip, 1);
+        assert_eq!(observation(&battle).frame, 0.);
+        let held = battle.step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })?;
+        assert!(!released(&held));
+        assert_eq!(observation(&battle).frame, 0.);
+
+        // The start frame and four blend updates precede the half-frame clock.
+        // A shorter clip must shorten release too; no spell-specific delay is used.
+        for _ in 0..4 + (clip_frames * 2.) as u32 {
+            let frame = battle.step(BattleInput::default())?;
+            assert!(!released(&frame));
+            assert!(!frame.cues.contains(&announcement));
+            assert!(!battle.spell_active(ActorId(0), crate::SpellSlot::Primary));
+            assert_eq!(frame.actors[0].tp, CASTER_TP - 7);
+        }
+        assert_eq!(observation(&battle).frame, clip_frames);
+        assert!(!observation(&battle).finished);
+        let release = battle.step(BattleInput::default())?;
+        assert!(released(&release));
+        assert!(release.cues.contains(&announcement));
+        assert!(battle.spell_active(ActorId(0), crate::SpellSlot::Primary));
+        assert_eq!(release.actors[0].tp, CASTER_TP - 7);
+        assert_eq!(observation(&battle).clip, 1);
+        let next = battle.step(BattleInput::default())?;
+        assert!(!released(&next));
+        assert_eq!(next.actors[0].tp, CASTER_TP - 7);
+        assert_eq!(observation(&battle).frame, clip_frames);
+        assert_eq!(
+            observation(&battle).clip,
+            1,
+            "recovery retains the completed cast pose"
+        );
+    }
+    Ok(())
 }

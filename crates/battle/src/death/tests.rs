@@ -47,6 +47,7 @@ fn unavailable_members_settle_without_admitting_commands() {
         .push(Arc::new(crate::ActionDefinition {
             normal: None,
             execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+                contact_recovery: None,
                 chain_at: None,
                 end_at: 1,
                 opening: None,
@@ -233,12 +234,17 @@ fn lethal_contact_can_be_revived_without_retaining_its_recoil() {
             crate::ActionId(99),
             &crate::MeleeDefinition {
                 hit: crate::HitRule {
+                    sound: None,
                     kind: crate::DamageKind::Slash,
                     arte: true,
+                    effect_on_guard: false,
+                    effect: None,
                     overlimit_pause: false,
                     power: crate::Power::Fixed(999),
                     element: crate::HitElement::Neutral,
                     prevents_defeat: false,
+                    finisher_grade: false,
+                    hp_drain: false,
                     guard: Default::default(),
                     condition: None,
                     reaction: crate::ReactionRule {
@@ -252,7 +258,7 @@ fn lethal_contact_can_be_revived_without_retaining_its_recoil() {
                     },
                 },
                 trail: None,
-                volume: crate::MeleeVolume {
+                volume: crate::MeleeVolume::Fixed {
                     offset: [0.; 3],
                     radius: 20.,
                     half_height: 20.,
@@ -262,7 +268,7 @@ fn lethal_contact_can_be_revived_without_retaining_its_recoil() {
         )
         .unwrap();
     let mut cues = vec![];
-    contacts.resolve(&mut battle, &mut cues).unwrap();
+    contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
     assert!(cues.iter().any(|cue| matches!(
         cue,
         crate::Cue::Hit {

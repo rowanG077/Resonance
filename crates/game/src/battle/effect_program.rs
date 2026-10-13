@@ -1,5 +1,5 @@
 //! Bind selected effect timelines to shared particle and audio resources.
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use resonance_battle::{EffectBank, EffectDefinition, ParticleDefinition, Sound};
 use resonance_content::{
     battle_effect::{EffectOperation, SourceBank, TINTS_PATH, Tints, declaration::Declaration},
@@ -22,6 +22,43 @@ pub fn load_tints(files: &Files) -> Result<Option<Tints>> {
     files
         .diagnostics()
         .attempt(TINTS_PATH, files.json(TINTS_PATH))
+}
+
+pub(super) fn validate_owner(
+    resource: &super::EffectResource,
+    model: Option<&resonance_battle::ModelDefinition>,
+) -> Result<()> {
+    let Some(bank) = &resource.bank else {
+        return Ok(());
+    };
+    for &member in &resource.members {
+        for event in bank.program(usize::from(member))? {
+            if let EffectOperation::Spawn {
+                particle, birth, ..
+            } = &event.operation
+            {
+                let template = bank.particle(usize::from(*particle))?;
+                for bone in [
+                    birth.origin_bone,
+                    birth
+                        .attachment_bone
+                        .or(template.follow_bone)
+                        .or(template.owner_bone),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    let model = model.context("effect attachment owner has no prepared body")?;
+                    ensure!(
+                        usize::from(bone) < model.skeleton.bones.len(),
+                        "effect {}:{member} bone {bone} is outside owner body",
+                        resource.resource
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn prepare(

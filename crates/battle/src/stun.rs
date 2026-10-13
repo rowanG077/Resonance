@@ -36,6 +36,19 @@ fn chance_percent(owner: &Actor, target: &Actor, base: u8) -> u16 {
 }
 
 impl Battle {
+    pub(crate) fn enter_action_stun(&mut self, id: ActorId, cues: &mut Vec<Cue>) {
+        self.enter_stun(id, cues);
+        // The command's entry visit precedes the ordinary stun countdown.
+        if let ActorTask::Stunned { remaining } = self.runtime[id.index()].task() {
+            self.set_task(
+                id.index(),
+                ActorTask::Stunned {
+                    remaining: remaining + 1,
+                },
+            );
+        }
+    }
+
     pub(crate) fn enter_stun(&mut self, id: ActorId, cues: &mut Vec<Cue>) {
         let index = id.index();
         self.interrupt_actor(id, cues);

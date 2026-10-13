@@ -3,14 +3,14 @@ use anyhow::{Result, ensure};
 
 pub const CENTER_PAN: u8 = 64;
 
-#[derive(serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct Spatial {
     pub pan_scale: f32,
     #[serde(with = "crate::package::array")]
     pub left_delay: [u8; 128],
 }
 
-#[derive(serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct Tables {
     #[serde(with = "crate::package::array")]
     pub volume: [f32; 129],

@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
-    battle_victory::{Condition, Group, ORDINARY_GROUPS, Ordinary, Performances},
+    battle_victory::{Condition, Event, GROUP_COUNT, Group, Ordinary, Performances},
     field_preload::{File, Role},
 };
 use std::{collections::BTreeMap, fs, path::Path};
@@ -25,12 +25,10 @@ pub fn inputs(extracted: &Path) -> Result<BTreeMap<String, String>> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let catalogue = crate::resource::read(&executable)?;
     let mut paths = vec![module_path];
-    for at in [0x1d0, 0x1e4] {
-        paths.push(crate::all_assets::roles::declared_path(
-            &files,
-            &module.text((4, at))?,
-        )?);
-    }
+    paths.push(crate::all_assets::roles::declared_path(
+        &files,
+        &module.text((4, 0x1e4))?,
+    )?);
     for character in 1..=9 {
         paths.push(crate::field_resources::resolve_path(
             &files,
@@ -57,9 +55,7 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
         "US_r_Top2Btl.rel",
     )?))?;
     let archive_path = crate::all_assets::roles::declared_path(&paths, &module.text((4, 0x1e4))?)?;
-    let groups_path = crate::all_assets::roles::declared_path(&paths, &module.text((4, 0x1d0))?)?;
     let archive = fs::read(paths.join(archive_path))?;
-    let group_archive = fs::read(paths.join(groups_path))?;
     let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
     let mut ordinary = Vec::new();
     let mut files = BTreeMap::new();
@@ -92,9 +88,13 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
                 start >= 12 && start < motion && motion < bytes.len(),
                 "invalid victory package members"
             );
-            let motion = crate::animation::read_member(&bytes[motion..])?
-                .motion(&bindings)?
-                .encode()?;
+            let clip = crate::animation::read_member(&bytes[motion..])?.motion(&bindings)?;
+            let (timeline, unsupported_reason) =
+                match timeline(&bytes[start..motion], clip.duration_frames) {
+                    Ok(events) => (Some(events), None),
+                    Err(error) => (None, Some(format!("{error:#}"))),
+                };
+            let motion = clip.encode()?;
             let path = format!("clips/{}.motion", crate::digest(&motion));
             crate::write_atomic(&output.join(&path), &motion)?;
             files.insert(
@@ -111,23 +111,20 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
                 source_sha256: crate::digest(bytes),
                 body_sha256: body_sha256.clone(),
                 motion: path,
+                timeline,
+                unsupported_reason,
             });
         }
     }
-    let groups = ORDINARY_GROUPS
-        .into_iter()
+    let groups = (1..=GROUP_COUNT)
         .map(|id| {
             let index = usize::from(id);
-            group_archive
-                .get(index * 0x800..(index + 1) * 0x800)
-                .context("missing group victory package")?;
             group(id, module.at((5, 0x5ea8 + (index - 1) * 8))?)
         })
         .collect::<Result<_>>()?;
     let record: Performances = Performances {
         module_sha256: crate::digest(&module.bytes),
         archive_sha256: crate::digest(&archive),
-        group_archive_sha256: crate::digest(&group_archive),
         ordinary,
         groups,
         files,
@@ -135,6 +132,100 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
     let path = format!("{prefix}/victory.json");
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&record)?)?;
     Ok(path)
+}
+
+/// These short streams select the packaged clip or change facial atlas layers.
+fn timeline(bytes: &[u8], duration: f32) -> Result<Vec<(u16, Event)>> {
+    const ROW_BYTES: usize = 12;
+    const MOTION: u8 = 8;
+    const REPEAT: u8 = 0x40;
+    const VICTORY_CLIP: u8 = 23;
+    let mut events = Vec::new();
+    let mut cursor = 0;
+    let mut completed_at = None;
+    loop {
+        let at = half(bytes, cursor)? as i16;
+        if at == -2 {
+            ensure!(!events.is_empty(), "empty victory timeline");
+            return Ok(events);
+        }
+        let row = bytes
+            .get(cursor..cursor + ROW_BYTES)
+            .context("truncated victory timeline")?;
+        if at == -3 {
+            ensure!(
+                row[2] == 0
+                    && row[4..8] == [0, 0, MOTION | REPEAT, u8::MAX]
+                    && crate::read::f32(row, 8)? == 0.5,
+                "unsupported victory completion posture"
+            );
+            let at = completed_at
+                .take()
+                .context("victory completion needs a finite pose")?;
+            ensure!(
+                events.last().is_none_or(|(previous, _)| *previous <= at),
+                "unordered victory completion"
+            );
+            events.push((at, Event::Idle { blend: row[3] }));
+            cursor += ROW_BYTES;
+            continue;
+        }
+        let at = u16::try_from(at).context("victory timeline control is not prepared")?;
+        ensure!(
+            events.last().is_none_or(|(previous, _)| *previous <= at),
+            "unordered victory timeline"
+        );
+        let event = if row[2] == u8::MAX {
+            ensure!(
+                row[7..].iter().all(|&byte| byte == 0),
+                "unsupported victory expression fields"
+            );
+            Event::Expression(row[3..7].try_into().unwrap())
+        } else {
+            ensure!(
+                row[2] == VICTORY_CLIP && row[7] == u8::MAX,
+                "unsupported victory clip binding"
+            );
+            ensure!(
+                row[6] & !REPEAT == MOTION,
+                "unsupported victory motion flags {:#x}",
+                row[6]
+            );
+            let rate = crate::read::f32(row, 8)?;
+            ensure!(
+                rate.is_finite() && (0.01..=4.).contains(&rate),
+                "invalid victory motion rate"
+            );
+            let start = f32::from(row[4]) * 0.5;
+            let end = (row[5] != 0).then_some(f32::from(row[5]) * 0.5);
+            ensure!(
+                end.is_none_or(|end| end > start),
+                "invalid victory motion interval"
+            );
+            completed_at = if row[6] & REPEAT == 0 {
+                let completion = f32::from(at)
+                    + f32::from(row[3])
+                    + ((end.unwrap_or(duration) - start) / rate).floor()
+                    + 1.;
+                ensure!(
+                    completion.is_finite() && (0. ..=f32::from(u16::MAX)).contains(&completion),
+                    "victory completion exceeds timeline"
+                );
+                Some(completion as u16)
+            } else {
+                None
+            };
+            Event::Pose {
+                start,
+                end,
+                rate,
+                blend: row[3],
+                repeat: row[6] & REPEAT != 0,
+            }
+        };
+        events.push((at, event));
+        cursor += ROW_BYTES;
+    }
 }
 
 fn group(id: u8, row: &[u8]) -> Result<Group> {
@@ -209,6 +300,57 @@ mod tests {
     use super::*;
 
     #[test]
+    fn victory_timeline_keeps_expression_and_delayed_loop() -> Result<()> {
+        let mut rows = vec![
+            0, 0, 23, 15, 0, 0, 8, 255, 0x3f, 0, 0, 0, 0, 0, 255, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            111, 23, 0, 96, 0, 0x48, 255, 0x3f, 0, 0, 0, 255, 254,
+        ];
+        let events = timeline(&rows, 88.)?;
+        assert_eq!(events[1], (0, Event::Expression([4, 0, 0, 0])));
+        assert_eq!(
+            events[2],
+            (
+                111,
+                Event::Pose {
+                    start: 48.,
+                    end: None,
+                    rate: 0.5,
+                    blend: 0,
+                    repeat: true,
+                }
+            )
+        );
+        rows[24..26].copy_from_slice(&(-4_i16).to_be_bytes());
+        assert!(
+            timeline(&rows, 88.)
+                .unwrap_err()
+                .to_string()
+                .contains("control")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn completed_colette_celebrations_resume_idle_after_the_blended_clip() -> Result<()> {
+        let mut rows = vec![
+            0, 0, 23, 12, 0, 0, 8, 255, 0x3f, 0x80, 0, 0, 0, 0, 255, 4, 0, 0, 0, 0, 0, 0, 0, 0,
+            255, 253, 0, 4, 0, 0, 0x48, 255, 0x3f, 0, 0, 0, 255, 254,
+        ];
+        for blend in [4, 0] {
+            rows[27] = blend;
+            let events = timeline(&rows, 252.)?;
+            assert_eq!(events[1], (0, Event::Expression([4, 0, 0, 0])));
+            assert_eq!(events[2], (265, Event::Idle { blend }));
+        }
+        rows[6] |= 0x40;
+        assert!(
+            timeline(&rows, 252.).is_err(),
+            "a loop has no completion deadline"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn group_members_are_validated_at_import() -> Result<()> {
         let mut parsed = group(38, &[0x12, 0x34, 0, 3, 2, 3, 9, 0])?;
         assert_eq!(
@@ -253,9 +395,14 @@ mod tests {
                     .iter()
                     .map(|group| group.id)
                     .collect::<Vec<_>>(),
-                ORDINARY_GROUPS
+                (1..=GROUP_COUNT).collect::<Vec<_>>()
             );
             for performance in &value.ordinary {
+                assert!(
+                    performance.timeline.is_some(),
+                    "undecoded victory stream: {performance:?}"
+                );
+                assert!(performance.unsupported_reason.is_none());
                 let motion = fs::read(output.path().join(&performance.motion))?;
                 let declared = &value.files[&performance.motion];
                 assert_eq!(declared.sha256, crate::digest(&motion));

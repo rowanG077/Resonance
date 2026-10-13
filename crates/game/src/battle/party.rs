@@ -232,6 +232,7 @@ pub fn loadout(menus: &MenuData, member: &Member, character: usize) -> Result<Lo
             max_hp: i32::from(stats.hp),
             max_tp: stats.tp,
             luck: stats.luck,
+            guaranteed_steal: compound(ex::STEAL_SUCCESS),
             stats: CombatStats {
                 slash: i32::from(stats.slash),
                 thrust: i32::from(stats.thrust),
@@ -355,6 +356,7 @@ pub fn loadout(menus: &MenuData, member: &Member, character: usize) -> Result<Lo
                 endure: member.ex_skills.contains(&ex::ENDURE),
                 hard_hit: compound(ex::HARD_HIT),
                 air_brake: compound(ex::AIR_BRAKE),
+                prolong: member.ex_skills.contains(&ex::PROLONG),
             },
             control_ex: resonance_battle::ControlExTraits {
                 counter: compound(ex::COUNTER),
@@ -503,6 +505,7 @@ pub(super) fn actor(
         heading,
         facing_direction: resonance_battle::direction_from_heading(heading),
         effect_scale: 1.,
+        secondary_wind: Default::default(),
         body: Default::default(),
         movement: Default::default(),
         reaction: Default::default(),

@@ -3,6 +3,8 @@ use crate::conditions::{ConditionSet, PHYSICAL_AILMENTS};
 use crate::{ActorId, Battle, BattlePhase, PreparedBattle, Side};
 use anyhow::{Result, ensure};
 
+const FINISHER_GRADE_BONUS: i64 = 50;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ledger {
     pub assist_commands: u8,
@@ -28,6 +30,7 @@ pub struct Ledger {
     pub technique_acquisitions: Vec<crate::learning::TechniqueAcquisition>,
     /// Most distinct normal attacks chained into a technique by each actor.
     pub normal_variety: Vec<u8>,
+    reward_exclusions: Vec<ActorId>,
     grade: i16,
     rank: u8,
     finalized: bool,
@@ -52,6 +55,7 @@ impl Ledger {
             items: vec![0; actors],
             technique_acquisitions: Vec::new(),
             normal_variety: vec![0; actors],
+            reward_exclusions: Vec::new(),
             grade: 0,
             rank,
             finalized: false,
@@ -60,6 +64,16 @@ impl Ledger {
 
     pub fn grade(&self) -> i16 {
         self.grade
+    }
+
+    pub fn reward_eligible(&self, actor: ActorId) -> bool {
+        !self.reward_exclusions.contains(&actor)
+    }
+
+    pub(crate) fn exclude_reward(&mut self, actor: ActorId) {
+        if self.reward_eligible(actor) {
+            self.reward_exclusions.push(actor);
+        }
     }
 
     pub(crate) fn item_effect(&mut self) {
@@ -102,7 +116,11 @@ impl Ledger {
         }
     }
 
-    /// Kills award credit; grade comes from combo contacts.
+    pub(crate) fn finisher(&mut self) {
+        self.adjust(FINISHER_GRADE_BONUS);
+    }
+
+    /// Kill credit is separate from contact and finisher grade.
     pub(crate) fn kill(&mut self, owner: ActorId) {
         self.last_party_killer = Some(owner);
         self.kills[owner.index()] = self.kills[owner.index()].saturating_add(1).min(5_000);

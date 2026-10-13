@@ -6,6 +6,8 @@ fn spawns(count: usize) -> Vec<Spawn> {
         .map(|index| Spawn {
             resource: 0,
             variant: index,
+            texture_variant: 0,
+            weapon_variant: 0,
             unsupported_reason: None,
             position: None,
         })
@@ -13,13 +15,33 @@ fn spawns(count: usize) -> Vec<Spawn> {
 }
 
 #[test]
-fn automatic_rows_face_each_other_and_stagger_members_in_formation_order() -> Result<()> {
+fn party_formation_positions_match_recorded_entries() {
+    for (lanes, expected) in [
+        (
+            vec![0, 1, 2],
+            vec![[-300., 0.], [-500., -150.], [-700., 150.]],
+        ),
+        (
+            vec![0, 0, 0, 0],
+            vec![[-300., 0.], [-350., -250.], [-400., 250.], [-450., -450.]],
+        ),
+        (
+            vec![2, 0, 2, 0],
+            vec![[-700., 0.], [-300., 200.], [-750., -250.], [-350., -200.]],
+        ),
+        (
+            vec![2, 0, 0, 0],
+            vec![[-700., 0.], [-300., 200.], [-350., -200.], [-400., -600.]],
+        ),
+    ] {
+        assert_eq!(party_rows(&lanes), expected);
+    }
+}
+
+#[test]
+fn automatic_enemy_rows_stagger_members_in_formation_order() -> Result<()> {
     let choices = [Back, Front, Back, Middle];
     let enemies = enemy_positions(&spawns(4), &choices, || panic!("fixed row"))?;
-    let party = row_positions(&[2, 0, 2, 1], Side::Party);
-    for ([enemy_x, enemy_z], [party_x, party_z]) in enemies.iter().zip(party) {
-        assert!(*enemy_x > 0. && party_x == -enemy_x && party_z == *enemy_z);
-    }
     assert!(enemies[0][0] > enemies[3][0] && enemies[3][0] > enemies[1][0]);
     assert!(enemies[0][0] < enemies[2][0]);
     assert!(enemies[0][1] < 0. && enemies[2][1] == -enemies[0][1]);

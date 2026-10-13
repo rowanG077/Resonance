@@ -10,6 +10,7 @@ use resonance_content::{
 pub(super) struct Placement {
     pub world: Matrix,
     pub rotation: Quat,
+    pub acceleration: Vec3,
 }
 
 impl Placement {
@@ -18,6 +19,7 @@ impl Placement {
             world: super::world(actor),
             rotation: Quat::from_rotation_y(actor.heading.to_radians())
                 * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2),
+            acceleration: Vec3::from_array(actor.secondary_wind.force),
         }
     }
 }
@@ -71,7 +73,7 @@ pub(super) fn apply(
             u32::from(advance),
             Environment {
                 up: UpAxis::Y,
-                acceleration: Vec3::ZERO,
+                acceleration: placement.acceleration,
                 floor: Some(5.),
             },
         );
@@ -159,6 +161,7 @@ mod tests {
         let placement = Placement {
             world: Mat4::IDENTITY.to_cols_array_2d(),
             rotation: Quat::IDENTITY,
+            acceleration: Vec3::ZERO,
         };
         let mut simulations = vec![Simulation::default()];
         let mut expected = Simulation::default();

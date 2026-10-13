@@ -190,7 +190,7 @@ fn constrain(actor: &mut Actor) {
     if actor.movement.steering.unrestricted_arena || actor.movement.steering.leaving_arena {
         return;
     }
-    let radius = (ARENA_RADIUS - actor.body_radius()).max(0.);
+    let radius = ARENA_RADIUS + if actor.side == Side::Enemy { 35. } else { 0. };
     let length = planar_length(actor.position);
     if length > radius {
         let scale = radius / length;

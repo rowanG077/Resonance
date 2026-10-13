@@ -119,6 +119,12 @@ impl Battle {
                 recipient.availability == crate::ActorAvailability::Dead
             } else {
                 recipient.available()
+                    || self.prepared.casting(action).is_some_and(|cast| {
+                        cast.release
+                            .recovery
+                            .iter()
+                            .any(|pulse| pulse.benefit.accepts(recipient))
+                    })
             }
     }
 

@@ -15,7 +15,7 @@ pub fn read_inputs(
     party: &Party,
     prepared: &[Actor],
     roster: &[(ActorId, u8)],
-    story3: bool,
+    colette_learning_unlocked: bool,
 ) -> Result<Vec<TechniqueLearningMember>> {
     let policy = LearningCatalogue::new(catalogue.clone());
     ensure!(
@@ -60,7 +60,7 @@ pub fn read_inputs(
             character,
             level: saved.level,
             balance: admitted.equipment.contact.technique_balance,
-            story_unlocked: story3,
+            story_unlocked: colette_learning_unlocked,
             current: saved.techniques.clone(),
             counts: saved.technique_uses.clone(),
         })?;

@@ -15,6 +15,14 @@ pub enum BattlePhase {
     Finished,
 }
 
+/// Why the party leaves without victory rewards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DepartureReason {
+    Escape,
+    ForcedEscape,
+    EnemyRetreat,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransitionKind {
     FadeOut,
@@ -40,7 +48,7 @@ pub(crate) struct Terminal {
     // matrices.
     pub ordinary_camera_finished: bool,
     retired: bool,
-    escape: Option<bool>,
+    departure: Option<DepartureReason>,
     transition: Option<Transition>,
     completion: Option<Arc<()>>,
 }
@@ -53,7 +61,9 @@ impl Battle {
             BattlePhase::Results
         } else if self.terminal.result.is_some() {
             BattlePhase::Ending
-        } else if self.entry_remaining > 0 {
+        } else if self.enemy_presentation.opening()
+            || self.entry_remaining > crate::prepare::ENTRY_SETTLE_UPDATES
+        {
             BattlePhase::Entry
         } else {
             BattlePhase::Combat
@@ -71,8 +81,32 @@ impl Battle {
         }
         // Only an active spell transition postpones recognition; a released spell slot alone
         // does not.
-        if self.target_selector_active() {
+        if self.target_selector_active() || self.unison.active() {
             return None;
+        }
+        if self.enemy_presentation.delays_result(&self.actors) {
+            return None;
+        }
+        if self.terminal.departure.is_none()
+            && self.phase() == BattlePhase::Combat
+            && !self.clock.paused()
+            && !self.is_paused()
+            && self
+                .actors
+                .iter()
+                .zip(&self.prepared.actor_setup)
+                .any(|(actor, setup)| {
+                    actor.side == Side::Enemy
+                        && actor.available()
+                        && setup.enemy_decision.as_ref().is_some_and(|decision| {
+                            matches!(decision.behavior.as_ref(),
+                                Some(crate::EnemyBehavior::Retreat { hp_percent, after_ticks })
+                                if actor.hp_percent() <= i16::from(*hp_percent)
+                                    || self.ledger.elapsed_ticks >= *after_ticks)
+                        })
+                })
+        {
+            self.terminal.departure = Some(DepartureReason::EnemyRetreat);
         }
         let unavailable = |side| {
             self.actors.iter().any(|actor| actor.side == side)
@@ -82,13 +116,16 @@ impl Battle {
                     .filter(|actor| actor.side == side)
                     .all(|actor| !actor.available())
         };
-        self.terminal.result = if self.terminal.escape == Some(true) {
+        self.terminal.result = if matches!(
+            self.terminal.departure,
+            Some(DepartureReason::ForcedEscape | DepartureReason::EnemyRetreat)
+        ) {
             Some(BattleResult::Escaped)
         } else if unavailable(Side::Party) {
             Some(BattleResult::Defeat)
         } else if unavailable(Side::Enemy) {
             Some(BattleResult::Victory)
-        } else if self.terminal.escape == Some(false) {
+        } else if self.terminal.departure == Some(DepartureReason::Escape) {
             Some(BattleResult::Escaped)
         } else {
             None
@@ -109,6 +146,9 @@ impl Battle {
         if self.terminal.result == Some(BattleResult::Escaped) {
             self.enter_escape();
         }
+        if self.terminal.result == Some(BattleResult::Victory) {
+            self.enemy_presentation.victory();
+        }
         self.terminal.result
     }
 
@@ -118,12 +158,20 @@ impl Battle {
             self.phase() == BattlePhase::Combat,
             "battle is already ending"
         );
-        self.terminal.escape = Some(forced);
+        self.terminal.departure = Some(if forced {
+            DepartureReason::ForcedEscape
+        } else {
+            DepartureReason::Escape
+        });
         Ok(())
     }
 
     pub fn forced_escape(&self) -> bool {
-        self.terminal.escape == Some(true)
+        self.terminal.departure == Some(DepartureReason::ForcedEscape)
+    }
+
+    pub fn departure_reason(&self) -> Option<DepartureReason> {
+        self.terminal.departure
     }
 
     /// Retire combat effects and released spells while retaining actor commands, models, voices,
@@ -283,6 +331,33 @@ impl Battle {
         Ok(())
     }
 
+    /// Keep the encounter's boss alive until its event owner releases the hold.
+    /// This also runs while the event has paused combat.
+    pub fn hold_event_boss_hp(&mut self, actor: Option<ActorId>) -> Result<()> {
+        ensure!(!self.ended, "event health hold after battle completion");
+        if let Some(id) = actor {
+            let actor = self.actor(id)?;
+            ensure!(
+                actor.side == crate::Side::Enemy && actor.equipment.max_hp >= 2,
+                "invalid event health hold actor"
+            );
+        }
+        self.event_boss = actor;
+        if let Some(actor) = actor {
+            self.restore_event_boss_hp(actor);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn restore_event_boss_hp(&mut self, actor: ActorId) -> bool {
+        if self.event_boss != Some(actor) {
+            return false;
+        }
+        let actor = &mut self.actors[actor.index()];
+        actor.hp = actor.hp.max(actor.equipment.max_hp / 2);
+        true
+    }
+
     pub fn set_actor_vitals(
         &mut self,
         actor: ActorId,
@@ -383,6 +458,7 @@ impl Battle {
     /// Stop active work and invalidate any outcome. A successful finish issues
     /// its completion only after this cleanup; a failed update stays terminal.
     pub fn invalidate(&mut self) {
+        self.summon_entry = Default::default();
         self.terminal.completion = None;
         self.items.pending = None;
         self.pending_cues.clear();
@@ -401,6 +477,110 @@ impl Battle {
 mod tests {
     use super::*;
     use crate::tests::{actor, prepared};
+
+    #[test]
+    fn enemy_retreat_uses_health_or_elapsed_time_and_waits_while_paused() -> Result<()> {
+        use crate::{ActionKey, ActionRequest, BattleInput, EnemyBehavior, PreparedBattle};
+
+        for (maximum, hp, retreats) in [
+            (40_000, 20_400, false),
+            (40_000, 20_399, true),
+            (80_000, 20_400, true),
+        ] {
+            let mut enemy = actor(Side::Enemy);
+            enemy.hp = maximum;
+            enemy.equipment.max_hp = maximum;
+            let mut prepared = PreparedBattle::new(
+                vec![
+                    (actor(Side::Party), Default::default()),
+                    (enemy, Default::default()),
+                ],
+                vec![crate::tests::cast(80, 0)].into(),
+                1,
+            )?;
+            crate::tests::assign_action(&mut prepared, 1, ActionKey(0));
+            prepared.resources.actor_setup[1]
+                .enemy_decision
+                .as_mut()
+                .unwrap()
+                .behavior = Some(EnemyBehavior::Retreat {
+                hp_percent: 50,
+                after_ticks: 3600,
+            });
+            let mut battle = prepared.with_entry().finish()?;
+            for _ in 0..crate::prepare::ENTRY_RESUME_UPDATE {
+                battle.step(BattleInput::default())?;
+            }
+            assert_eq!(
+                battle.ledger.elapsed_ticks,
+                u32::from(crate::prepare::ENTRY_RESUME_UPDATE)
+            );
+            assert!(battle.ledger.combat_ticks < battle.ledger.elapsed_ticks);
+            battle.step(BattleInput {
+                actions: vec![ActionRequest {
+                    actor: ActorId(1),
+                    action: ActionKey(0),
+                    target: ActorId(0),
+                }],
+                ..Default::default()
+            })?;
+            assert!(battle.casting_remaining(ActorId(1)).is_some());
+            battle.actors[1].hp = hp;
+            battle.step(BattleInput {
+                paused: true,
+                ..Default::default()
+            })?;
+            assert_eq!(battle.recognize_result(), None);
+            assert!(battle.casting_remaining(ActorId(1)).is_some());
+
+            let party_hp = battle.actors[0].hp;
+            let combat_ticks = battle.ledger().combat_ticks;
+            battle.step(BattleInput::default())?;
+            assert_eq!(
+                battle.recognize_result(),
+                retreats.then_some(BattleResult::Escaped)
+            );
+            assert_eq!(
+                battle.departure_reason(),
+                retreats.then_some(DepartureReason::EnemyRetreat)
+            );
+            assert_eq!(battle.casting_remaining(ActorId(1)).is_none(), retreats);
+            assert_eq!(battle.actors[0].hp, party_hp);
+            assert_eq!(
+                battle.ledger().combat_ticks,
+                combat_ticks + u32::from(!retreats)
+            );
+            assert!(battle.ledger().ordinary_escape.is_none());
+            assert!(!battle.forced_escape());
+
+            if !retreats {
+                battle.ledger.elapsed_ticks = 3599;
+                assert_eq!(battle.recognize_result(), None);
+                battle.step(BattleInput {
+                    paused: true,
+                    ..Default::default()
+                })?;
+                assert_eq!(battle.ledger.elapsed_ticks, 3599);
+                assert_eq!(battle.recognize_result(), None);
+                battle.step(BattleInput::default())?;
+                assert_eq!(battle.ledger.elapsed_ticks, 3600);
+                assert_eq!(battle.recognize_result(), Some(BattleResult::Escaped));
+                assert_eq!(
+                    battle.departure_reason(),
+                    Some(DepartureReason::EnemyRetreat)
+                );
+                assert_eq!(battle.phase(), BattlePhase::Ending);
+                assert!(battle.casting_remaining(ActorId(1)).is_some());
+                let combat_ticks = battle.ledger.combat_ticks;
+                battle.step(BattleInput::default())?;
+                assert!(battle.casting_remaining(ActorId(1)).is_none());
+                assert_eq!(battle.ledger.combat_ticks, combat_ticks);
+                assert_eq!(battle.actors[0].hp, party_hp);
+                assert!(battle.ledger.ordinary_escape.is_none());
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn cooking_member_reload_preserves_movement_and_restores_availability() {

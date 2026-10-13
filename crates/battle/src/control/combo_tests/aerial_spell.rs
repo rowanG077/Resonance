@@ -30,6 +30,9 @@ fn prepared_fixture(mode: Control, enabled: bool) -> PreparedBattle {
     let cast = &mut prepared.resources.actions.entries[8];
     let cast = Arc::make_mut(cast);
     cast.execution = crate::ActionExecution::Casting(Arc::new(crate::CastingDefinition {
+        chant: vec![],
+        release_pose: Default::default(),
+        hide_primary_weapons: false,
         duration: 0,
 
         recovery: 0,

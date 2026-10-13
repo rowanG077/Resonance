@@ -47,6 +47,23 @@ impl Battle {
         Some(catalogue)
     }
 
+    /// Unison records the selected arte at launch, without rolling a new technique.
+    pub(crate) fn record_unison_use(
+        &mut self,
+        actor: ActorId,
+        action: crate::ActionKey,
+    ) -> Result<()> {
+        let casting = matches!(
+            &self.prepared.actions[action].execution,
+            crate::ActionExecution::Casting(_)
+        );
+        ensure!(
+            self.record_technique_use(actor, action, casting).is_some(),
+            "Unison arte has no learning member"
+        );
+        Ok(())
+    }
+
     pub(crate) fn record_immediate_spell_use(
         &mut self,
         actor: ActorId,
@@ -64,12 +81,12 @@ impl Battle {
         actor: ActorId,
         current_catalogue: Option<u16>,
         mode: crate::learning::LearningMode,
-    ) -> Result<()> {
+    ) -> Result<Option<crate::ActionKey>> {
         if self.phase() != crate::BattlePhase::Combat {
-            return Ok(());
+            return Ok(None);
         }
         let Some(row) = self.learning_members.iter().find(|row| row.actor == actor) else {
-            return Ok(());
+            return Ok(None);
         };
         let attempt = crate::learning::LearningAttempt {
             mode,
@@ -83,10 +100,9 @@ impl Battle {
             |id| capacity.iter().any(|technique| technique.catalogue == id),
             || u32::from(random.next_u16()),
         )?;
-        if let Some(selected) = selected {
-            self.record_technique_acquisition(actor, selected)?;
-        }
-        Ok(())
+        selected
+            .map(|selected| self.record_technique_acquisition(actor, selected))
+            .transpose()
     }
 
     /// Learning updates future commands; the selected attack retains its identity and cost.
@@ -97,14 +113,15 @@ impl Battle {
     ) -> Result<()> {
         let current = self.record_technique_use(actor, action, false);
         self.learn_after_use(actor, current, crate::learning::LearningMode::Martial)
+            .map(|_| ())
     }
 
-    /// Learning changes the next command; the paid cast keeps its selected spell.
+    /// Return only the acquisition selected by this completed chant.
     pub(crate) fn commit_cast_use(
         &mut self,
         actor: ActorId,
         action: crate::ActionKey,
-    ) -> Result<()> {
+    ) -> Result<Option<crate::ActionKey>> {
         let current = self.record_technique_use(actor, action, true);
         self.learn_after_use(actor, current, crate::learning::LearningMode::Casting)
     }

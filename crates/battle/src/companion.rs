@@ -409,16 +409,22 @@ impl Battle {
         {
             return Ok(false);
         }
-        let (allowed, fallback) = normal.continuations(equipment.combo_traits.jump_combo);
-        let choices: Vec<_> = allowed
-            .iter()
-            .copied()
+        let definition = self.prepared.actor_setup[index]
+            .control
+            .as_ref()
+            .context("companion combo has no normal controls")?;
+        let continuation = normal.continuations(definition, equipment.combo_traits.jump_combo);
+        let choices: Vec<_> = NormalAttack::ALL
+            .into_iter()
+            .filter(|&choice| continuation.directions & (1 << choice as u8) != 0)
             .filter(|&choice| {
                 choice != NormalAttack::Rising || self.actors[target.index()].position[1] >= 100.
             })
             .collect();
         let next = if choices.is_empty() {
-            fallback
+            continuation
+                .fallback
+                .map(|index| NormalAttack::ALL[index as usize])
         } else {
             Some(choices[usize::from(self.random.next_u16()) % choices.len()])
         };

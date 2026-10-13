@@ -2,7 +2,7 @@
 //! preparation never advances the retained field's random stream or VM.
 use super::model::MotionRole;
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{Playback, Random};
+use resonance_battle::{Playback, Random, Side};
 use resonance_content::{
     animation::Motion,
     battle_profile::{Entry, Profile},
@@ -13,6 +13,7 @@ pub fn initial_playback(
     random: &mut Random,
     entry: &Entry,
     profile: &Profile,
+    side: Side,
     motions: &BTreeMap<u16, Motion>,
     hp: i32,
     max_hp: i32,
@@ -39,7 +40,7 @@ pub fn initial_playback(
         (MotionRole::Defeated.id(), false, false)
     } else if petrified {
         (idle, true, false)
-    } else if i64::from(hp) * 4 < i64::from(max_hp) {
+    } else if side == Side::Party && i64::from(hp) * 4 < i64::from(max_hp) {
         (MotionRole::WeakIdle.id(), true, false)
     } else if motions.contains_key(&MotionRole::Entry.id()) {
         (MotionRole::Entry.id(), false, false)

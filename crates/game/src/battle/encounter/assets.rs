@@ -1,10 +1,10 @@
 //! Owned, verified encounter inputs. Loading never changes the retained field.
-use super::{Enemies, enemies, placement::party_positions};
+use super::{Enemies, PrepareOptions, Prepared, enemies, placement::party_positions};
 use crate::battle::{audio, effect_program, model, stage};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     arte,
-    battle_audio::Audio,
+    battle_audio::{Audio, Selection},
     battle_effect::{self, SourceBank},
     battle_enemy, battle_model, battle_profile,
     battle_stage::Stage,
@@ -42,10 +42,13 @@ pub(super) enum EquipmentKind {
 /// A live encounter resolves available audio before binding simulation requests.
 pub struct Inputs {
     pub setup: Setup,
+    pub(super) events: Option<crate::battle::event::Plan>,
+    event_audio: Selection,
     pub files: Files,
     pub stage: Stage,
     pub ui: Art,
     pub catalogue: Arc<arte::Catalogue>,
+    pub unison: Arc<resonance_content::battle_unison::Catalogue>,
     pub(super) recoil: crate::battle::recoil::Parameters,
     pub(crate) victory: resonance_content::battle_victory::Performances,
     pub game_over: Option<crate::game_over::Assets>,
@@ -64,7 +67,10 @@ pub struct Inputs {
     >,
     pub common_effects: Option<Arc<SourceBank>>,
     pub technique_effects: Option<Arc<SourceBank>>,
+    pub stage_effects: Option<Arc<SourceBank>>,
     pub enemy_effects: BTreeMap<u8, Arc<SourceBank>>,
+    pub spell_scenes: BTreeMap<u16, Arc<SourceBank>>,
+    pub skill_scenes: BTreeMap<u16, Arc<SourceBank>>,
 }
 
 pub(super) struct PartyInput {
@@ -87,15 +93,36 @@ impl Assets {
         session: &SessionData,
         party: &Party,
         setup: Setup,
+        options: PrepareOptions,
         cache: &mut Cache,
         cancelled: impl Fn() -> bool,
-    ) -> Result<Self> {
+    ) -> Result<(Self, Prepared)> {
         let mut inputs = Inputs::load(
             root, retained, menus, session, party, setup, cache, &cancelled,
         )?;
-        let (files, audio) = audio::prepare(root, inputs.files, cache, &cancelled)?;
+        let catalogue = audio::read(&inputs.files)?;
+        let mut selected = inputs.event_audio.clone();
+        let prepared = inputs.prepare(menus, options, |sound| {
+            audio::collect(
+                catalogue.as_ref(),
+                &mut selected,
+                inputs.files.diagnostics(),
+                sound,
+            )
+        })?;
+        selected.music.insert(prepared.music);
+        selected
+            .music
+            .insert(crate::battle::lifecycle::DEFEAT_MUSIC);
+        if prepared.results.style.play_music {
+            selected
+                .music
+                .insert(crate::battle::lifecycle::VICTORY_MUSIC);
+        }
+        let (files, audio) =
+            audio::prepare(root, inputs.files, catalogue, &selected, cache, &cancelled)?;
         inputs.files = files;
-        Ok(Self { inputs, audio })
+        Ok((Self { inputs, audio }, prepared))
     }
 }
 
@@ -117,7 +144,39 @@ impl Inputs {
         cache: &mut Cache,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
-        ensure!(setup.route == [0; 5], "unsupported battle route overrides");
+        let event_scenes = if setup.route == [0; 5] {
+            Vec::new()
+        } else {
+            ensure!(
+                setup.formation()? == 4
+                    && setup.arena == 26
+                    && setup.route == [2, 3, 600, 0, 3]
+                    && setup.music == Some(91)
+                    && setup.defeat == resonance_events::battle::DefeatPolicy::GameOver,
+                "unsupported battle route overrides"
+            );
+            ensure!(
+                party
+                    .formation
+                    .iter()
+                    .take(4)
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                    == BTreeSet::from([1, 2, 3, 9])
+                    && party.formation.get(3) == Some(&9),
+                "Vidarr event requires its initialized party"
+            );
+            [2, 3]
+                .into_iter()
+                .map(|id| {
+                    retained
+                        .json::<resonance_content::battle_event::Scene>(
+                            &resonance_content::battle_event::path(id),
+                        )
+                        .map(Arc::new)
+                })
+                .collect::<Result<Vec<_>>>()?
+        };
         ensure!(
             !party.battle_rules.coliseum
                 && party.battle_rules.attack_adjustment == 0
@@ -254,6 +313,9 @@ impl Inputs {
             });
         }
         let mut inventory = BTreeMap::new();
+        for scene in &event_scenes {
+            model::merge_dependencies(&mut inventory, scene.files.clone())?;
+        }
         model::merge_dependencies(
             &mut inventory,
             party_actors
@@ -261,7 +323,7 @@ impl Inputs {
                 .filter_map(|actor| actor.source.as_ref())
                 .flat_map(|source| source.files.clone()),
         )?;
-        let mut enemy_definitions = BTreeMap::new();
+        let mut enemy_definitions = BTreeMap::<u8, battle_enemy::Definition>::new();
         let mut enemy_models = BTreeMap::new();
         for resource in &enemies.resources {
             let id = resource.monster.id;
@@ -280,6 +342,12 @@ impl Inputs {
                 enemy_models.insert(id, (source, BTreeMap::new()));
             }
         }
+        ensure!(
+            enemy_definitions
+                .values()
+                .all(|enemy| !enemy.actions.policy.event_hp_hold || !event_scenes.is_empty()),
+            "enemy requires a prepared battle event route"
+        );
         let mut files =
             retained
                 .clone()
@@ -335,9 +403,22 @@ impl Inputs {
         };
         let ui = Art::load(&files)?;
         let catalogue = Arc::new(files.json(arte::PATH)?);
+        let unison: resonance_content::battle_unison::Catalogue =
+            files.json(resonance_content::battle_unison::PATH)?;
+        unison.validate()?;
+        let unison = Arc::new(unison);
         let recoil = crate::battle::recoil::Parameters::load(&files)?;
         let common_effects = effect_program::load(&files, battle_effect::COMMON_PATH)?;
         let technique_effects = effect_program::load(&files, battle_effect::TECHNIQUES_PATH)?;
+        let mut stage_effects = if stage.recurring_interval.is_some() {
+            let path = stage
+                .effects
+                .as_deref()
+                .context("recurring arena has no effect bank")?;
+            effect_program::load(&files, path)?
+        } else {
+            None
+        };
         let mut enemy_effects = BTreeMap::new();
         for resource in &enemies.resources {
             let enemy = &resource.monster;
@@ -348,10 +429,93 @@ impl Inputs {
                 enemy_effects.insert(enemy.id, bank);
             }
         }
-        for bank in [common_effects.as_ref(), technique_effects.as_ref()]
-            .into_iter()
-            .flatten()
-            .chain(enemy_effects.values())
+        let mut scene_ids = BTreeSet::new();
+        let mut skill_ids = BTreeSet::new();
+        let mut party_artes = BTreeSet::new();
+        for actor in &party_actors {
+            for catalogue in
+                super::resources::party_techniques(&catalogue, actor.character)?.into_keys()
+            {
+                if crate::battle::skill_scene::contains(catalogue) {
+                    skill_ids.insert(catalogue);
+                }
+                scene_ids.extend(
+                    crate::battle::stored_spells::scene(catalogue)
+                        .or_else(|| crate::battle::summons::scene(catalogue)),
+                );
+                if let Some(placement) = unison.placements.get(usize::from(catalogue)) {
+                    party_artes.insert(placement.native_id);
+                }
+            }
+        }
+        for enemy in enemy_definitions.values() {
+            for native in crate::battle::enemy::technique_ids(enemy) {
+                if let Some(catalogue) = crate::battle::enemy::catalogue_id(&unison, native) {
+                    scene_ids.extend(
+                        crate::battle::stored_spells::scene(catalogue)
+                            .or_else(|| crate::battle::summons::scene(catalogue)),
+                    );
+                    if crate::battle::skill_scene::contains(catalogue) {
+                        skill_ids.insert(catalogue);
+                    }
+                }
+            }
+        }
+        scene_ids.extend(unison.combinations.iter().filter_map(|combination| {
+            combination
+                .recipes
+                .iter()
+                .any(|recipe| {
+                    recipe
+                        .iter()
+                        .all(|ingredient| party_artes.contains(ingredient))
+                })
+                .then_some(combination.native_id)
+        }));
+        let mut spell_scenes = BTreeMap::new();
+        for technique in scene_ids {
+            files = model::load_files(
+                root,
+                files,
+                &[model::ModelSource::Scene(technique)],
+                cache,
+                &cancelled,
+            )?;
+            let scene: resonance_content::battle_scene::Scene =
+                files.json(&resonance_content::battle_scene::path(technique))?;
+            if let Some(bank) = effect_program::load(&files, &scene.effects)? {
+                spell_scenes.insert(technique, bank);
+            }
+        }
+        let (loaded, mut skill_scenes) =
+            crate::battle::skill_scene::load(root, files, skill_ids, cache, &cancelled)?;
+        files = loaded;
+        for bank in stage_effects
+            .iter_mut()
+            .chain(enemy_effects.values_mut())
+            .chain(spell_scenes.values_mut())
+            .chain(skill_scenes.values_mut())
+        {
+            if let (Some(art), Some(common)) = (
+                Arc::make_mut(bank).art.as_mut(),
+                common_effects.as_ref().and_then(|bank| bank.art.as_ref()),
+            ) {
+                for (&slot, textures) in &common.textures {
+                    art.textures.entry(slot).or_insert_with(|| textures.clone());
+                }
+                art.files.extend(common.files.clone());
+            }
+        }
+        for bank in [
+            common_effects.as_ref(),
+            technique_effects.as_ref(),
+            stage_effects.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(enemy_effects.values())
+        .chain(spell_scenes.values())
+        .chain(skill_scenes.values())
         {
             if let Some(art) = &bank.art {
                 files = files.with_dependencies(root, art.files.clone(), cache, &cancelled)?;
@@ -398,12 +562,30 @@ impl Inputs {
                 )?
                 .unwrap_or_default();
         }
+        let mut event_audio = Selection::default();
+        for scene in &event_scenes {
+            event_audio.sounds.extend(&scene.audio.sounds);
+            event_audio.streams.extend(&scene.audio.streams);
+            event_audio.voices.extend(&scene.audio.voices);
+            event_audio.music.extend(&scene.audio.music);
+        }
+        let events = if event_scenes.is_empty() {
+            None
+        } else {
+            Some(crate::battle::event::Plan::vidarr(
+                super::event_assets::load(&files, event_scenes[0].clone())?,
+                super::event_assets::load(&files, event_scenes[1].clone())?,
+            ))
+        };
         Ok(Self {
             setup,
+            events,
+            event_audio,
             files,
             stage,
             ui,
             catalogue,
+            unison,
             recoil,
             victory,
             game_over,
@@ -416,7 +598,10 @@ impl Inputs {
             enemy_models,
             common_effects,
             technique_effects,
+            stage_effects,
             enemy_effects,
+            spell_scenes,
+            skill_scenes,
         })
     }
 }

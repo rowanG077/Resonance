@@ -8,6 +8,7 @@ use anyhow::{Context, Result, ensure};
 pub(crate) const RUN_ACCELERATION: f32 = 0.5;
 pub(crate) const GROUND_TOLERANCE: f32 = 0.1;
 pub(crate) const GRAVITY: f32 = -1.;
+const STOP_SPEED: f32 = 0.55;
 
 /// Ordinary floating actors settle before selecting another action. Bobbing
 /// uses the shared actor-common clock, independently of action and motion clocks.
@@ -39,6 +40,7 @@ pub struct Movement {
     pub braking: f32,
     pub flying: bool,
     pub fixed_height: bool,
+    /// Preserve facing; enemies also begin selected actions without approaching their target.
     pub turning_disabled: bool,
     pub hover_height: f32,
     pub hover: Hover,
@@ -163,7 +165,12 @@ impl Movement {
         }
         let grounded = self.flying || height <= GROUND_TOLERANCE;
         if grounded {
-            self.forward = self.forward.signum() * (self.forward.abs() - self.braking).max(0.);
+            let speed = self.forward.abs() - self.braking;
+            self.forward = if speed > STOP_SPEED {
+                self.forward.signum() * speed
+            } else {
+                0.
+            };
         }
         self.forward == 0.
     }
@@ -206,7 +213,7 @@ impl Battle {
         let hover = &actor.movement.hover;
         if bob && hover.settled && hover.bobbing {
             let phase = f32::from(hover.phase) * 4.;
-            actor.position[1] = actor.movement.hover_height + 0.5 * phase.to_radians().sin();
+            actor.position[1] += 0.5 * phase.to_radians().sin();
         }
         Ok(())
     }

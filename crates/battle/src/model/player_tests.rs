@@ -6,6 +6,88 @@ use crate::{
 };
 
 #[test]
+fn action_tint_restores_stage_color_during_hit_stop_but_not_global_pause() -> Result<()> {
+    let mut battle = crate::tests::prepared(vec![actor(Side::Party)], 1).finish()?;
+    let mut definition = crate::tests::model_definition(7, [(0, 100.)]);
+    definition.tint = [61, 60, 58, 255];
+    let mut models = Models::new(
+        battle.actors(),
+        vec![Some(Arc::new(definition))],
+        BTreeMap::new(),
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    battle.model_requests.push(ModelRequest::Tint {
+        actor: ActorId(0),
+        color: [64, 0, 0],
+    });
+    let mut frame = battle.publish(Vec::new());
+    frame.paused_actors.push(ActorId(0));
+    models.advance(&mut frame, BattleClock::Held, false)?;
+    assert_eq!(frame.models[0].tint, [64, 0, 0, 255]);
+    for tick in 1_u8..=60 {
+        frame.update += 1;
+        models.advance(&mut frame, BattleClock::Running, false)?;
+        let expected = [(64 - tick).max(61), tick.min(60), tick.min(58), 255];
+        assert_eq!(frame.models[0].tint, expected);
+        models.advance(&mut frame, BattleClock::Running, false)?;
+        assert_eq!(frame.models[0].tint, expected);
+    }
+    assert!(models.models[0].as_ref().unwrap().tint_flash.is_none());
+    Ok(())
+}
+
+#[test]
+fn hit_stop_resumes_actor_before_model_playback() -> Result<()> {
+    let step = |battle: &mut crate::Battle| -> Result<crate::BattleFrame> {
+        let mut frame = battle.step(BattleInput::default())?;
+        battle.advance_models(&mut frame, BattleClock::Running, false)?;
+        Ok(frame)
+    };
+    let mut battle = PreparedBattle::new(
+        vec![
+            (actor(Side::Party), Default::default()),
+            (actor(Side::Enemy), Default::default()),
+        ],
+        Default::default(),
+        1,
+    )?
+    .finish()?;
+    battle.set_models(Models::new(
+        battle.actors(),
+        vec![
+            Some(Arc::new(crate::tests::model_definition(7, [(0, 100.)]))),
+            None,
+        ],
+        BTreeMap::new(),
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?);
+    battle.request_pose(
+        ActorId(0),
+        Some(MotionBinding { model: 7, clip: 0 }),
+        Pose {
+            frame: 8.5,
+            blend: 0,
+            ..Default::default()
+        },
+    );
+    assert_eq!(step(&mut battle)?.models[0].frame, 8.5);
+    assert_eq!(step(&mut battle)?.models[0].frame, 9.);
+    battle.actors[0].hit_stop = 2;
+    // Recorded half-frame playback: two actor holds, then one model resume hold.
+    for expected in [9., 9., 9., 9.5] {
+        let mut frame = step(&mut battle)?;
+        assert_eq!(frame.models[0].frame, expected);
+        battle.advance_models(&mut frame, BattleClock::Running, false)?;
+        assert_eq!(frame.models[0].frame, expected);
+    }
+    battle.actors[0].time_stop = 2;
+    for expected in [9.5, 10.] {
+        assert_eq!(step(&mut battle)?.models[0].frame, expected);
+    }
+    Ok(())
+}
+
+#[test]
 fn equipment_publication_composes_available_art_without_blocking_stats() -> anyhow::Result<()> {
     let owner = ActorId(0);
     let prepared = PreparedBattle::new(
@@ -19,6 +101,7 @@ fn equipment_publication_composes_available_art_without_blocking_stats() -> anyh
             slot,
             attachment: 0,
             layers: vec![crate::WeaponLayerDefinition {
+                texture_animation: None,
                 resource,
                 skeleton: model.skeleton.clone(),
                 motions: BTreeMap::new(),
@@ -30,6 +113,7 @@ fn equipment_publication_composes_available_art_without_blocking_stats() -> anyh
     };
     let weapon = part(0, 10);
     let shield = part(1, 11);
+    let temporary = part(0, 12);
     Arc::make_mut(&mut model).weapons.push(weapon.clone());
     let mut battle = prepared.finish()?;
     let mut models = crate::Models::new(
@@ -67,6 +151,46 @@ fn equipment_publication_composes_available_art_without_blocking_stats() -> anyh
         equipment: Some([1, 2]),
     }])?;
     assert_eq!(battle.actors[0].equipment, attributes);
+
+    let mut frame = battle.publish(Vec::new());
+    models.advance(&mut frame, BattleClock::Held, false)?;
+    models.models[0]
+        .as_mut()
+        .unwrap()
+        .weapon_visible(0, false)?;
+    let ordinary = models.models[0].as_ref().unwrap().weapon_frames();
+    models.begin_unison_weapons();
+    models.override_unison_weapons(owner, std::slice::from_ref(&temporary))?;
+    let shown = models.models[0].as_ref().unwrap().weapon_frames();
+    assert_eq!(shown[0].resource, 12);
+    assert!(shown[0].visible);
+    assert_eq!(shown[1], ordinary[1]);
+    models.restore_unison_weapons(owner);
+    assert_eq!(models.models[0].as_ref().unwrap().weapon_frames(), ordinary);
+
+    models.override_unison_weapons(owner, &[temporary])?;
+    battle.replace_equipment_batch(vec![EquipmentReplacement {
+        actor: owner,
+        attributes: battle.actors[0].equipment.clone(),
+        conditions: battle.actors[0].conditions.clone(),
+        equipment: Some([0, 2]),
+    }])?;
+    let mut frame = battle.publish(Vec::new());
+    models.advance(&mut frame, BattleClock::Held, false)?;
+    assert_eq!(
+        frame
+            .weapons
+            .iter()
+            .map(|weapon| weapon.resource)
+            .collect::<Vec<_>>(),
+        [12, 11]
+    );
+    models.end_unison_weapons();
+    assert_eq!(
+        models.models[0].as_ref().unwrap().weapon_frames(),
+        vec![ordinary[1].clone()]
+    );
+    models.end_unison_weapons();
     Ok(())
 }
 
@@ -86,10 +210,12 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
     .finish()?;
     let mut definition = crate::tests::model_definition(7, [(0, 100.), (1, 100.)]);
     definition.initial.rate = 0.5;
+    definition.idle_motions[0] = Some(0);
     definition.weapons.push(Arc::new(WeaponDefinition {
         slot: 0,
         attachment: 0,
         layers: vec![WeaponLayerDefinition {
+            texture_animation: None,
             resource: 8,
             skeleton: definition.skeleton.clone(),
             motions: BTreeMap::new(),
@@ -110,6 +236,7 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
         Some(MotionBinding { model: 7, clip: 1 }),
         Pose {
             frame: 2.,
+            blend: 0,
             ..Default::default()
         },
     );
@@ -125,10 +252,12 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
         models.advance(&mut frame, BattleClock::Held, false)?;
         assert_eq!(frame.models, held);
     }
+    frame.update += 1;
     models.advance(&mut frame, BattleClock::Rescue(owner), false)?;
     assert_eq!(frame.models[0].frame, 2.5);
     assert_eq!(frame.models[1], held[1]);
     frame.actors[1].availability = ActorAvailability::Active;
+    frame.update += 1;
     models.advance(&mut frame, BattleClock::Running, false)?;
     assert!(frame.models[1].frame > held[1].frame);
 
@@ -145,6 +274,27 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
     frame.weapon_flights.clear();
     models.advance(&mut frame, BattleClock::Held, false)?;
     assert_ne!(frame.weapons[0].world[3], [100., 40., 0., 1.]);
+
+    models.models[0].as_mut().unwrap().play(
+        MotionBinding { model: 7, clip: 1 },
+        100.,
+        0.5,
+        false,
+        0,
+    )?;
+    frame.actors[0].activity = crate::Activity::Recovering;
+    for _ in 0..3 {
+        frame.update += 1;
+        models.advance(&mut frame, BattleClock::Running, true)?;
+        assert_eq!(frame.models[0].clip, 1, "common recovery retains its pose");
+    }
+    frame.actions.push((crate::ActionId(1), owner, 0));
+    frame.update += 1;
+    models.advance(&mut frame, BattleClock::Running, true)?;
+    assert_eq!(
+        frame.models[0].clip, 0,
+        "authored action recovery can settle"
+    );
 
     assert_eq!(battle.recognize_result(), Some(BattleResult::Victory));
     battle.retire_combat()?;
@@ -239,10 +389,12 @@ fn appearance_follows_casting_defeat_holds_revival_and_results() -> Result<()> {
     assert!(!frame.models[0].depth_write);
     assert_eq!(frame.models[0].light, Some([10., 0., 20.]));
     frame.actors[0].activity = crate::Activity::Idle;
+    frame.update += 1;
     models.advance(&mut frame, BattleClock::Running, true)?;
     assert_eq!(frame.models[0].light, None);
     frame.actors[0].availability = ActorAvailability::Dead;
     frame.actors[0].activity = crate::Activity::Defeated;
+    frame.update += 1;
     models.advance(&mut frame, BattleClock::Running, false)?;
     assert_eq!(
         frame.models[0].clip, 1,
@@ -255,12 +407,14 @@ fn appearance_follows_casting_defeat_holds_revival_and_results() -> Result<()> {
         assert_eq!(frame.models[0], held);
     }
     for _ in 0..30 {
+        frame.update += 1;
         models.advance(&mut frame, BattleClock::Running, false)?;
     }
     assert_eq!(frame.models[0].tint[3], 0);
     assert!(!frame.models[0].visible);
     frame.actors[0].availability = ActorAvailability::Active;
     frame.actors[0].activity = crate::Activity::GettingUp;
+    frame.update += 1;
     models.advance(&mut frame, BattleClock::Running, true)?;
     assert_eq!(frame.models[0].clip, 2);
     assert_eq!(frame.models[0].tint, [40, 50, 60, 173]);

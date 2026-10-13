@@ -28,6 +28,152 @@ pub struct RenderModel {
     pub suppressed_nodes: BTreeSet<usize>,
 }
 
+/// Colette's visual attachment shares the ordinary sampled-model renderer.
+pub struct WingAccessory {
+    pub owner: resonance_battle::ActorId,
+    pub resource: u32,
+    pub attachment: usize,
+    pub skeleton: Skeleton,
+    pub motion: resonance_content::animation::Motion,
+    pub sparkle_texture: resonance_content::battle_effect::EffectTexture,
+}
+
+impl WingAccessory {
+    pub const SPARKLE_PALETTES: [u8; 5] = [27, 28, 29, 30, 31];
+}
+
+pub(super) fn wings(
+    files: &resonance_content::prepared::Files,
+    source: &resonance_content::battle_model::Party,
+    owner: resonance_battle::ActorId,
+    resource: u32,
+    common: &SourceBank,
+) -> Result<(WingAccessory, RenderModel)> {
+    let sparkle_texture = common
+        .art
+        .as_ref()
+        .and_then(|art| art.textures.get(&0))
+        .and_then(|textures| textures.first())
+        .context("wing sparkle atlas is not prepared")?
+        .clone();
+    for palette in WingAccessory::SPARKLE_PALETTES {
+        let page = sparkle_texture.palette_image(0, palette)?;
+        let image = &sparkle_texture.images[page];
+        ensure!(
+            image.width == 512 && image.height == 512,
+            "invalid wing sparkle atlas dimensions"
+        );
+    }
+    let scene = source
+        .wings
+        .as_ref()
+        .context("Colette wings are not prepared; refresh party artwork")?;
+    let skeleton = Skeleton::from_glb(&files.read(&scene.mesh)?)?;
+    ensure!(
+        skeleton
+            .bones
+            .iter()
+            .map(|bone| &bone.name)
+            .eq(scene.bone_names.iter()),
+        "wing mesh skeleton differs from its descriptor"
+    );
+    let clip = scene
+        .clips
+        .iter()
+        .find(|clip| {
+            clip.resource_slot == resonance_events::animation::slot::IDLE
+                && clip.animation_resource.is_none()
+        })
+        .context("wing flight motion is missing")?;
+    let motion = resonance_content::animation::Motion::decode(&files.read(&clip.motion)?)?;
+    motion.validate(&skeleton)?;
+    ensure!(
+        motion.duration_frames > 0.,
+        "wing flight motion has no duration"
+    );
+    let attachment = source
+        .body
+        .skeleton
+        .bones
+        .iter()
+        .position(|bone| bone.name == resonance_events::Wings::ATTACHMENT_BONE)
+        .context("Colette wing attachment bone is missing")?;
+    let model = RenderModel {
+        resource,
+        skeleton: skeleton.clone(),
+        parts: vec![PreviewPart {
+            scene: scene.clone(),
+            animation: None,
+            attached_to: None,
+            additive: true,
+            uv_offsets: vec![],
+        }],
+        capacity: usize::from(resonance_events::Wings::LAYERS),
+        lit: false,
+        effect: false,
+        texture_channels: vec![],
+        weapon_style: None,
+        suppressed_nodes: BTreeSet::new(),
+    };
+    Ok((
+        WingAccessory {
+            owner,
+            resource,
+            attachment,
+            skeleton,
+            motion,
+            sparkle_texture,
+        },
+        model,
+    ))
+}
+
+/// Select a persistent body-atlas row without replacing textures or expression channels.
+pub(super) fn enemy_body_parts(
+    parts: &[PreviewPart],
+    channel: Option<resonance_content::battle_profile::TextureChannel>,
+    row: u8,
+) -> Result<Vec<PreviewPart>> {
+    let mut parts = parts
+        .iter()
+        .filter(|part| part.attached_to.is_none())
+        .cloned()
+        .collect::<Vec<_>>();
+    let Some(channel) = channel else {
+        ensure!(row == 0, "enemy has no prepared body atlas variants");
+        return Ok(parts);
+    };
+    ensure!(
+        row < channel.frames,
+        "enemy body atlas row exceeds its frame count"
+    );
+    let primary = parts
+        .first_mut()
+        .context("enemy has no primary body artwork")?;
+    ensure!(
+        usize::from(channel.texture) < primary.scene.textures.len(),
+        "enemy body atlas texture is absent"
+    );
+    primary
+        .uv_offsets
+        .resize(primary.scene.materials.len(), [0.; 4]);
+    let y = f32::from(row) / f32::from(channel.frames);
+    for (offset, material) in primary.uv_offsets.iter_mut().zip(&primary.scene.materials) {
+        for (stage, binding) in [&material.color, &material.multiply]
+            .into_iter()
+            .enumerate()
+        {
+            if binding
+                .as_ref()
+                .is_some_and(|binding| binding.texture == usize::from(channel.texture))
+            {
+                offset[stage * 2 + 1] += y;
+            }
+        }
+    }
+    Ok(parts)
+}
+
 /// Publish the sampled model and its drawing resources together, or omit this effect.
 pub(super) fn effect_model(
     files: &resonance_content::prepared::Files,
@@ -62,6 +208,30 @@ pub(super) fn effect_model(
         )
     });
     files.diagnostics().attempt("battle effect model", prepared)
+}
+
+/// Stored spells and physical skills share the same prepared model/effect bank.
+pub(super) fn scene_bank(
+    files: &resonance_content::prepared::Files,
+    bank: &Arc<SourceBank>,
+    resource: u32,
+    mut next_resource: impl FnMut() -> u32,
+    models: &mut Vec<RenderModel>,
+) -> Result<crate::battle::EffectResource> {
+    let mut prepared = BTreeMap::new();
+    for (&slot, part) in bank.art.iter().flat_map(|art| &art.models) {
+        if let Some((model, mut render)) = effect_model(files, part, next_resource())? {
+            render.suppressed_nodes = suppressed_body_nodes(&part.rig.skeleton, false);
+            prepared.insert(slot, model);
+            models.push(render);
+        }
+    }
+    Ok(crate::battle::EffectResource {
+        bank: Some(Arc::clone(bank)),
+        resource,
+        members: Vec::new(),
+        models: prepared,
+    })
 }
 
 /// Suppress body attachments unless the profile retains them; keep their transforms available.
@@ -124,7 +294,8 @@ pub struct RenderTrail {
     pub resource: u32,
     pub bones: Vec<u16>,
     pub material: TrailMaterial,
-    pub texture: Option<(UiTexture, Sampler)>,
+    /// Default material, then the highlighted material for party weapons.
+    pub textures: Vec<Option<(UiTexture, Sampler)>>,
 }
 
 pub(super) fn effects(
@@ -160,21 +331,20 @@ pub(super) fn effects(
                 if birth.element_tint {
                     tinted_members.insert(member);
                 }
-                if let Some(range) = birth.palette {
-                    let low = range.min.round().clamp(0., 255.) as u8;
-                    let high = range.max.round().clamp(0., 255.) as u8;
-                    for palette in low..=high {
-                        palettes.entry(member).or_default().insert([
-                            palette,
-                            source.particle(usize::from(*particle))?.state.palettes[1],
-                        ]);
+                if birth.palette.is_some() || birth.alpha_palette.is_some() || palette.is_some() {
+                    let initial = source.particle(usize::from(*particle))?.state.palettes;
+                    let choices = |range: Option<resonance_content::battle_effect::ValueRange>,
+                                   fallback| {
+                        range.map_or(fallback..=fallback, |range| {
+                            range.min.round().clamp(0., 255.) as u8
+                                ..=range.max.round().clamp(0., 255.) as u8
+                        })
+                    };
+                    for color in choices(birth.palette, palette.unwrap_or(initial[0])) {
+                        for alpha in choices(birth.alpha_palette, initial[1]) {
+                            palettes.entry(member).or_default().insert([color, alpha]);
+                        }
                     }
-                }
-                if let Some(palette) = palette {
-                    palettes.entry(member).or_default().insert([
-                        *palette,
-                        source.particle(usize::from(*particle))?.state.palettes[1],
-                    ]);
                 }
                 if let Some(blend) = blend {
                     blends.entry(member).or_default().insert(*blend);
@@ -222,6 +392,7 @@ pub(super) fn weapon_trail(
     skeleton: &Skeleton,
     resource: u32,
     material: TrailMaterial,
+    party_weapon: bool,
     common: Option<&SourceBank>,
     enemy: Option<&SourceBank>,
 ) -> Result<Option<RenderTrail>> {
@@ -229,7 +400,11 @@ pub(super) fn weapon_trail(
         let Some(bones) = crate::battle::trail::weapon_endpoints(skeleton)? else {
             return Ok(None);
         };
-        let texture = if let Some(texture) = material.texture {
+        let mut palettes = vec![material.palette];
+        if party_weapon {
+            palettes.push(1);
+        }
+        let textures = if let Some(texture) = material.texture {
             let (bank, slot) = match texture {
                 TrailTexture::Common { slot } => (common, slot),
                 TrailTexture::Enemy { slot } => (enemy, slot),
@@ -241,16 +416,21 @@ pub(super) fn weapon_trail(
                 .and_then(|art| art.textures.get(&slot))
                 .and_then(|textures| textures.first())
                 .context("missing weapon trail texture")?;
-            let page = image.palette_image(0, material.palette)?;
-            Some((image.images[page].clone(), image.sampler.clone()))
+            palettes
+                .into_iter()
+                .map(|palette| {
+                    let page = image.palette_image(0, palette)?;
+                    Ok(Some((image.images[page].clone(), image.sampler.clone())))
+                })
+                .collect::<Result<Vec<_>>>()?
         } else {
-            None
+            vec![None; palettes.len()]
         };
         Ok(Some(RenderTrail {
             resource,
             bones,
             material,
-            texture,
+            textures,
         }))
     })();
     Ok(diagnostics
@@ -288,6 +468,58 @@ mod tests {
                 lod: TextureLod::default(),
             },
         }
+    }
+
+    #[test]
+    fn enemy_atlas_rows_offset_only_the_primary_body_and_reject_invalid_rows() -> Result<()> {
+        use resonance_content::battle_profile::TextureChannel;
+        let part: PreviewPart = serde_json::from_value(serde_json::json!({
+            "scene": {
+                "resource": 0, "mesh": "body.glb", "textures": ["face", "body"],
+                "materials": [{
+                    "color": {"texture": 1, "wrap_u": "repeat", "wrap_v": "repeat", "nearest_min": false, "nearest_mag": false},
+                    "multiply": {"texture": 0, "wrap_u": "repeat", "wrap_v": "repeat", "nearest_min": false, "nearest_mag": false},
+                    "vertex_color": true, "blend": false, "depth_write": true, "draw_order": 0
+                }],
+                "translation": [0.,0.,0.], "clips": [], "autoplay": false, "texture_animations": []
+            },
+            "animation": null, "attached_to": null, "additive": false,
+            "uv_offsets": [[0.125, 0., 0.25, 0.5]]
+        }))?;
+        let parts = [part.clone(), part];
+        let channel = Some(TextureChannel {
+            texture: 1,
+            frames: 4,
+        });
+        let selected = enemy_body_parts(&parts, channel, 1)?;
+        assert_eq!(selected[0].uv_offsets, [[0.125, 0.25, 0.25, 0.5]]);
+        assert_eq!(selected[1].uv_offsets, parts[1].uv_offsets);
+        assert_eq!(parts[0].uv_offsets, [[0.125, 0., 0.25, 0.5]]);
+        assert!(enemy_body_parts(&parts, channel, 4).is_err());
+        assert!(
+            enemy_body_parts(
+                &parts,
+                Some(TextureChannel {
+                    texture: 1,
+                    frames: 0
+                }),
+                0
+            )
+            .is_err()
+        );
+        assert!(
+            enemy_body_parts(
+                &parts,
+                Some(TextureChannel {
+                    texture: 2,
+                    frames: 4
+                }),
+                1
+            )
+            .is_err()
+        );
+        assert!(enemy_body_parts(&parts, None, 1).is_err());
+        Ok(())
     }
 
     #[test]
@@ -332,7 +564,21 @@ mod tests {
                 uv_offsets: vec![],
             }],
         };
-        let files = Files::new(Diagnostics::default());
+        let mut files = Files::new(Diagnostics::default());
+        let mut node = serde_json::to_value(Transform::default())?;
+        node["name"] = "root".into();
+        node["extras"] = serde_json::json!({"resonance_bone": 0});
+        let mut json = serde_json::to_vec(&serde_json::json!({
+            "asset": {"version": "2.0"}, "nodes": [node],
+        }))?;
+        json.resize(json.len().next_multiple_of(4), b' ');
+        let mut mesh = b"glTF".to_vec();
+        for word in [2_u32, 20 + json.len() as u32, json.len() as u32] {
+            mesh.extend(word.to_le_bytes());
+        }
+        mesh.extend(b"JSON");
+        mesh.extend(json);
+        files.insert("effect.glb".into(), mesh.into());
         let (model, render) = effect_model(&files, &part, 1)?.unwrap();
         assert_eq!(model.resource(), render.resource);
         part.layers[0].scene.bone_names.clear();
@@ -506,10 +752,18 @@ mod tests {
         };
         let diagnostics = Diagnostics::default();
         let prepare = |diagnostics: &Diagnostics, enemy| {
-            weapon_trail(diagnostics, &skeleton, 1, material, Some(&common), enemy)
+            weapon_trail(
+                diagnostics,
+                &skeleton,
+                1,
+                material,
+                false,
+                Some(&common),
+                enemy,
+            )
         };
         let render = prepare(&diagnostics, Some(&enemy))?.unwrap();
-        assert_eq!(render.texture.unwrap().0.path, "owner-1.ktx2");
+        assert_eq!(render.textures[0].as_ref().unwrap().0.path, "owner-1.ktx2");
         assert!(prepare(&diagnostics, None)?.is_none());
         assert_eq!(diagnostics.entries().len(), 1);
         assert!(prepare(&Diagnostics::new(true), None).is_err());

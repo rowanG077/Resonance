@@ -62,7 +62,10 @@ pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
             )
         })
         .collect();
-    let Some(session) = world.get_resource::<crate::new_game::Session>() else {
+    let Some(session) = world
+        .get_resource::<crate::new_game::Session>()
+        .filter(|session| session.is_field())
+    else {
         return serde_json::Value::Null;
     };
     let collision = session.field().collision();

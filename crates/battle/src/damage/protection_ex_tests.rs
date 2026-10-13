@@ -5,12 +5,17 @@ use crate::{Activity, ChargeLevel, Control, HitProtection, ProtectionMode, Side,
 
 fn fixed(kind: DamageKind, element: HitElement) -> HitRule {
     HitRule {
+        sound: None,
         kind,
         arte: false,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: true,
         power: Power::Fixed(201),
         element,
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         guard: GuardRule::default(),
         reaction: crate::ReactionRule {
             hitstun: 60,
@@ -97,7 +102,8 @@ fn stability_checks_contact_kind_element_guard_and_probability() {
         false,
     );
     assert_eq!(result.protection, HitProtection::Armored);
-    assert_eq!(target.reaction.armor.received, 0);
+    // Stability suppresses hurt, but the contact still consumes hit armor.
+    assert_eq!(target.reaction.armor.received, 2);
     assert_eq!(target.reaction.stagger.received, 0);
 }
 
@@ -268,6 +274,85 @@ fn stability_keeps_down_shift_ailment_admission_and_lethal_normalization() {
 }
 
 #[test]
+fn forced_reaction_preserves_mitigation_rng_and_earlier_condition_decisions() {
+    for (defense, allowed) in [
+        ("guard", true),
+        ("armor", true),
+        ("protected", true),
+        ("nullified", true),
+        ("suppressed", true),
+        ("overlimit", false),
+        ("special", false),
+        ("immune", false),
+        ("absorb", false),
+    ] {
+        let mut states = Vec::new();
+        for force in [false, true] {
+            let mut target = defender();
+            target.hp = 500;
+            let mut rule = fixed(DamageKind::Slash, HitElement::Neutral);
+            rule.reaction.force = force;
+            rule.guard.pressure = 2;
+            rule.condition = Some(HitCondition {
+                condition: Condition::Weak,
+                chance: 100,
+                value: 0,
+            });
+            match defense {
+                "guard" | "special" => {
+                    target.guard.active = true;
+                    target.guard.pressure = 3;
+                    if defense == "special" {
+                        target.guard.kind = GuardKind::Special;
+                    }
+                }
+                "armor" => target.reaction.armor.threshold = 10,
+                "protected" => target.reaction.protection.mode = ProtectionMode::Recovery,
+                "nullified" => target.equipment.damage.nullify_damage = true,
+                "suppressed" => rule.reaction.suppress = true,
+                "overlimit" => target.overlimit = crate::OverLimit::active(90).unwrap(),
+                "immune" => target.equipment.affinities[0] = Affinity::Immune,
+                "absorb" => target.equipment.affinities[0] = Affinity::Absorb,
+                _ => unreachable!(),
+            }
+            let mut draws = Vec::new();
+            let (result, _) = hit(&mut target, rule, |draw| {
+                draws.push(draw as u8);
+                0
+            });
+            assert_eq!(result.reaction_forced, force && allowed, "{defense}");
+            if force && allowed {
+                assert_eq!(result.guard, GuardResult::None);
+                assert!(!result.suppresses_reaction());
+                assert!(matches!(
+                    crate::reaction::respond(
+                        &actor(Side::Enemy),
+                        &mut target,
+                        rule.reaction,
+                        result,
+                        [1., 0., 0.],
+                        false
+                    ),
+                    Some(crate::reaction::ContactReaction::Hurt { .. })
+                ));
+                if matches!(defense, "protected" | "nullified") {
+                    assert_eq!((result.amount, result.hp_change), (201, 0));
+                }
+            }
+            states.push((
+                target.hp,
+                target.guard.pressure,
+                target.reaction.armor.received,
+                target.reaction.stagger.received,
+                target.conditions.base(),
+                draws,
+            ));
+        }
+        assert_eq!(states[0], states[1], "{defense}");
+    }
+}
+
+#[test]
 fn low_health_special_guard_avoids_damage_without_building_gauges() {
     for (hp, avoided) in [(100, true), (101, false)] {
         let mut target = defender();
@@ -284,6 +369,13 @@ fn low_health_special_guard_avoids_damage_without_building_gauges() {
         assert_eq!(result.amount, if avoided { 0 } else { 40 });
         assert_eq!(result.protection == HitProtection::Avoided, avoided);
         assert!(target.guard.active);
+        assert_eq!(
+            result.guard,
+            GuardResult::Blocked {
+                first: false,
+                special: true
+            }
+        );
         assert!(!result.is_unblocked_damage());
         assert_eq!(label, None);
     }

@@ -17,7 +17,7 @@ enum Action {
     Menu,
     DelaySpell,
     Target,
-    Taunt,
+    Unison,
 }
 const NAVIGATION: NavigationPolicy = NavigationPolicy {
     dead_zone: 40,
@@ -121,7 +121,8 @@ impl LocalControls {
             open: action(Action::Menu),
             delay_spell: action(Action::DelaySpell),
             target: action(Action::Target),
-            taunt: action(Action::Taunt),
+            unison: action(Action::Unison),
+            selection: self.buttons[..4].try_into().unwrap(),
             confirm,
             cancel,
             cancel_selector,
@@ -223,7 +224,8 @@ struct ControllerSample {
     open: BattleButton,
     delay_spell: BattleButton,
     target: BattleButton,
-    taunt: BattleButton,
+    unison: BattleButton,
+    selection: [BattleButton; 4],
     confirm: BattleButton,
     cancel: BattleButton,
     cancel_selector: BattleButton,
@@ -253,7 +255,9 @@ impl ControllerSample {
                 attack: self.attack,
                 technique: self.technique,
                 delay_spell: self.delay_spell,
-                taunt: self.taunt,
+                // Taunt is the same command when its EX skill is equipped and
+                // the gauge is not full; the core applies those conditions.
+                taunt: self.unison,
                 guard: self.guard,
                 target: self.target,
                 assist: self.assist,
@@ -298,6 +302,40 @@ pub(super) struct Frame {
     connected: [bool; 4],
 }
 impl Frame {
+    pub fn unison_input(
+        &self,
+        actors: &[Actor],
+        frame: Option<&resonance_battle::UnisonFrame>,
+    ) -> Option<resonance_battle::UnisonInput> {
+        if let Some(frame) = frame {
+            let owner = actors.get(frame.initiator.index())?;
+            let sample = self.slots.get(usize::from(owner.control_slot))?;
+            let pressed_slots = sample
+                .selection
+                .iter()
+                .enumerate()
+                .fold(0, |bits, (slot, button)| {
+                    bits | (u8::from(button.pressed) << slot)
+                });
+            return (pressed_slots != 0).then_some(resonance_battle::UnisonInput::Select {
+                pressed_slots,
+                shortcut: resonance_battle::NormalAttack::from_input(sample.stick, false) as u8,
+            });
+        }
+        actors.iter().enumerate().find_map(|(index, actor)| {
+            (actor.side == Side::Party
+                && matches!(actor.control, Control::Manual | Control::SemiAuto)
+                && self
+                    .slots
+                    .get(usize::from(actor.control_slot))?
+                    .unison
+                    .pressed)
+                .then(|| {
+                    resonance_battle::UnisonInput::Activate(ActorId::from_index(index).unwrap())
+                })
+        })
+    }
+
     pub fn confirm(&self) -> bool {
         self.slots[0].confirm.pressed
     }
@@ -474,9 +512,20 @@ pub(super) fn gather(
         f32::from(positive.into_iter().any(|key| keys.pressed(key)))
             - f32::from(negative.into_iter().any(|key| keys.pressed(key)))
     };
+    let battle_key = |key: KeyCode| {
+        key != KeyCode::Tab || !keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+    };
     let keyboard = Sample {
-        held: bindings.map(|buttons| buttons.iter().any(|key| keys.pressed(*key))),
-        pressed: bindings.map(|buttons| buttons.iter().any(|key| keys.just_pressed(*key))),
+        held: bindings.map(|buttons| {
+            buttons
+                .iter()
+                .any(|key| battle_key(*key) && keys.pressed(*key))
+        }),
+        pressed: bindings.map(|buttons| {
+            buttons
+                .iter()
+                .any(|key| battle_key(*key) && keys.just_pressed(*key))
+        }),
         extra_held: [false, false, false, false, keys.pressed(KeyCode::Home)],
         extra_pressed: [false, false, false, false, keys.just_pressed(KeyCode::Home)],
         stick: Vec2::new(
@@ -546,6 +595,43 @@ mod tests {
     }
 
     #[test]
+    fn shift_tab_does_not_open_battle_commands() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Controls>()
+            .add_systems(Update, gather);
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::ShiftLeft);
+            keys.press(KeyCode::Tab);
+        }
+        app.update();
+        assert!(
+            !app.world_mut()
+                .resource_mut::<Controls>()
+                .sample(&Default::default())
+                .slots[0]
+                .open
+                .pressed
+        );
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Tab);
+        app.update();
+        assert!(
+            app.world_mut()
+                .resource_mut::<Controls>()
+                .sample(&Default::default())
+                .slots[0]
+                .open
+                .pressed
+        );
+    }
+
+    #[test]
     fn remapped_actions_latch_short_presses_once_and_results_keep_physical_buttons() {
         let settings = CustomizeSettings {
             button_map: [2, 5, 1, 0, 3, 4, 6],
@@ -566,7 +652,7 @@ mod tests {
                 sample.open,
                 sample.delay_spell,
                 sample.target,
-                sample.taunt,
+                sample.unison,
             ];
             for (logical, button) in actions.iter().enumerate() {
                 assert_eq!(
@@ -578,6 +664,15 @@ mod tests {
             }
             assert_eq!(frame.confirm(), physical == 0);
             assert_eq!(frame.cook(), physical == 2);
+            assert_eq!(
+                frame.unison_input(&[actor(0, Control::Manual)], None),
+                (settings.button_map[physical] == Action::Unison as u8).then_some(
+                    resonance_battle::UnisonInput::Activate(ActorId::from_index(0).unwrap())
+                )
+            );
+            for (slot, button) in sample.selection.iter().enumerate() {
+                assert_eq!(button.pressed, slot == physical);
+            }
             let next = controls.sample(&settings).slots[0];
             assert!(
                 [
@@ -587,7 +682,7 @@ mod tests {
                     next.open,
                     next.delay_spell,
                     next.target,
-                    next.taunt
+                    next.unison
                 ]
                 .iter()
                 .all(|b| *b == BattleButton::default())

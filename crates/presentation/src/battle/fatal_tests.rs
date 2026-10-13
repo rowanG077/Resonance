@@ -588,9 +588,11 @@ impl Fixture {
                 anyhow::bail!("battle scene missing");
             };
             let mut queue = bevy::ecs::world::CommandQueue::default();
-            scene
-                .hud
-                .prepare(&mut Commands::new(&mut queue, world), &mut meshes);
+            scene.hud.prepare(
+                &mut Commands::new(&mut queue, world),
+                &mut meshes,
+                Default::default(),
+            );
             queue.apply(world);
             let result = render_menu(
                 scene,
@@ -642,14 +644,16 @@ impl Fixture {
         let Phase::Scene(scene) = &mut owner.phase else {
             unreachable!()
         };
-        scene
-            .hud
-            .prepare(&mut Commands::new(&mut queue, world), &mut meshes);
+        scene.hud.prepare(
+            &mut Commands::new(&mut queue, world),
+            &mut meshes,
+            Default::default(),
+        );
         // The ordinary HUD dismisses the shared page before drawing selectors.
         scene.hud.clear_menu(&mut Commands::new(&mut queue, world));
         queue.apply(world);
         let result =
-            render_command_strip(scene, &mut Commands::new(&mut queue, world), &mut meshes);
+            render_command_strip(scene, 0, &mut Commands::new(&mut queue, world), &mut meshes);
         queue.apply(world);
         world.insert_resource(meshes);
         world.insert_resource(owner);

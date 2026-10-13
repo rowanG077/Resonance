@@ -2,21 +2,46 @@
 use super::*;
 use resonance_game::battle::results::{ResultNotice, Results as Model};
 
-const ROWS_PER_PAGE: usize = 3;
+const ITEMS_PER_PAGE: usize = 2;
+const STAT_ADVANCE: f32 = 18.;
+
+#[derive(serde::Serialize)]
+struct Row {
+    text: String,
+    overflow: bool,
+    character: Option<u8>,
+}
 
 pub(super) struct Results {
     pub(super) model: Model,
-    rows: Vec<(String, bool)>,
+    rows: Vec<Row>,
+    item_count: usize,
     chef: Option<String>,
     page: usize,
     sounds: Vec<u16>,
 }
 impl Results {
     fn pages(&self) -> usize {
-        self.rows.len().div_ceil(ROWS_PER_PAGE).max(1)
+        (self.item_count.div_ceil(ITEMS_PER_PAGE) + self.rows.len() - self.item_count).max(1)
+    }
+    fn page_rows(&self) -> (&[Row], bool) {
+        let item_pages = self.item_count.div_ceil(ITEMS_PER_PAGE);
+        if self.page < item_pages {
+            let first = self.page * ITEMS_PER_PAGE;
+            (
+                &self.rows[first..(first + ITEMS_PER_PAGE).min(self.item_count)],
+                true,
+            )
+        } else {
+            let first = self.item_count + self.page - item_pages;
+            (&self.rows[first..(first + 1).min(self.rows.len())], false)
+        }
     }
     fn ready(&self) -> bool {
         self.page + 1 == self.pages()
+    }
+    pub(super) fn page_character(&self) -> Option<u8> {
+        self.page_rows().0.first().and_then(|row| row.character)
     }
 }
 
@@ -30,6 +55,37 @@ fn character_name(model: &Model, character: u8) -> Result<&str> {
         ))
         .map(String::as_str)
         .context("invalid result character")
+}
+
+fn result_text(
+    batch: &mut Batch,
+    font: &BitmapFont,
+    text: &str,
+    [x, y]: [f32; 2],
+    colors: [[u8; 4]; 2],
+) -> Result<()> {
+    for (offset, gradient) in [
+        (2., [[16, 16, 24, 220]; 4]),
+        (0., [colors[0], colors[0], colors[1], colors[1]]),
+    ] {
+        for (column, character) in text.chars().enumerate() {
+            let glyph = font
+                .glyphs
+                .get(&character)
+                .context("missing result glyph")?;
+            let [u, v, w, h] = glyph.rect.map(|value| value as f32);
+            let left = x + column as f32 * STAT_ADVANCE + offset;
+            let top = y + offset;
+            party::slanted_quad(
+                batch,
+                [left, top, left + 20., top + 28.],
+                [u, v, u + w, v + h],
+                12.,
+                gradient,
+            );
+        }
+    }
+    Ok(())
 }
 
 impl Artwork {
@@ -67,23 +123,22 @@ impl Artwork {
         let mut rows = Vec::new();
         for (award, &overflow) in model.rewards.items.iter().zip(&model.overflow) {
             let name = &self.menu_data.item_text(award.item)?.name;
-            rows.push((
-                format!(
-                    "Found: {name} x{}{}",
-                    award.count,
-                    if overflow { " (inventory full)" } else { "" }
-                ),
+            rows.push(Row {
+                text: if award.count == 1 {
+                    name.clone()
+                } else {
+                    format!("{name} x{}", award.count)
+                },
                 overflow,
-            ));
+                character: None,
+            });
         }
         for notice in &model.notices {
             let (character, message) = match *notice {
                 ResultNotice::Level { character, level } => {
                     (character, format!("Level up: {level}"))
                 }
-                ResultNotice::TpRecovery { character, amount } => {
-                    (character, format!("Recovered {amount} TP"))
-                }
+                ResultNotice::TpRecovery { .. } => continue,
                 ResultNotice::MaximumVital {
                     character,
                     vital,
@@ -117,7 +172,7 @@ impl Artwork {
                 ResultNotice::Title { character, title } => (
                     character,
                     format!(
-                        "Earned title: {}",
+                        "Earned the title, \"{}\"",
                         self.menu_data.title_text(character, title)?.name
                     ),
                 ),
@@ -140,19 +195,24 @@ impl Artwork {
                     ),
                 ),
             };
-            rows.push((
-                format!("{}: {message}", character_name(model, character)?),
-                false,
-            ));
+            character_name(model, character)?;
+            rows.push(Row {
+                text: message,
+                overflow: false,
+                character: Some(character),
+            });
         }
         let chef = model
             .cook_prompt
             .map(|character| character_name(model, character).map(str::to_owned))
             .transpose()?;
-        for text in rows.iter().map(|(text, _)| text).chain(chef.iter()) {
+        for text in rows.iter().map(|row| &row.text).chain(chef.iter()) {
             self.font.validate_text(text)?;
         }
-        self.font.validate_text("TOTAL EXP COMBO BONUS MAX COMBO LOOT GALD TIME GRADE REWARDS Continue Cook: 0123456789+-.()/% ")?;
+        self.font.validate_text("Cook")?;
+        self.art
+            .font
+            .validate_text("EXP GALD TIME GRADE ITEM(S) FOUND INFO +-.\"'0123456789")?;
         let previous_notices = self
             .results
             .as_ref()
@@ -169,6 +229,7 @@ impl Artwork {
         if let Some(state) = &mut self.results {
             state.model = model.clone();
             state.rows = rows;
+            state.item_count = model.rewards.items.len();
             state.chef = chef;
             state.page = state.page.min(state.pages() - 1);
             state.sounds.extend(sounds);
@@ -176,6 +237,7 @@ impl Artwork {
             self.results = Some(Results {
                 model: model.clone(),
                 rows,
+                item_count: model.rewards.items.len(),
                 chef,
                 page: 0,
                 sounds,
@@ -191,99 +253,114 @@ impl Artwork {
             state.sounds.push(1);
         }
     }
-    fn draw_results(&self) -> Result<[Batch; 2]> {
-        let mut batches: [Batch; 2] = Default::default();
+    fn draw_results(&self) -> Result<[Batch; 3]> {
+        let mut batches: [Batch; 3] = Default::default();
         let Some(state) = &self.results else {
             return Ok(batches);
         };
         let model = &state.model;
-        for rect in [[12., 16., 628., 120.], [12., 266., 628., 380.]] {
-            batches[0].quad(rect, [0.5; 4], [0.04, 0.05, 0.08, 0.9]);
+        for top in [28., 64., 100.] {
+            batches[0].quad(
+                [0., top, 640., top + 24.],
+                [0.5; 4],
+                [0.28, 0.28, 0.72, 0.6],
+            );
         }
-        let frames = model.combat_ticks;
+        let [red, blue, heading] = self.art.result_colors;
+        for (label, position, color) in [
+            ("EXP", [56., 20.], red),
+            ("GALD", [332., 20.], blue),
+            ("TIME", [332., 56.], blue),
+            ("GRADE", [332., 92.], blue),
+        ] {
+            result_text(&mut batches[2], &self.art.font, label, position, color)?;
+        }
+        let ticks = model.combat_ticks;
         let grade = model.grade.unsigned_abs();
-        let lines = [
-            format!(
-                "TOTAL EXP {}",
+        for (value, right, top, color) in [
+            (
                 model
                     .rewards
                     .experience
                     .saturating_add(model.rewards.combo_experience)
+                    .to_string(),
+                290.,
+                20.,
+                red,
             ),
-            format!("GALD {}", model.rewards.gald),
-            format!("COMBO BONUS +{}", model.rewards.combo_experience),
-            format!(
-                "TIME {:02}:{:02}.{:02}",
-                frames / 3600,
-                frames / 60 % 60,
-                frames % 60 * 100 / 60
+            (model.rewards.gald.to_string(), 586., 20., blue),
+            (
+                format!(
+                    "{:02}'{:02}\"{:02}",
+                    ticks / 3600,
+                    ticks / 60 % 60,
+                    ticks % 60 * 100 / 60
+                ),
+                586.,
+                56.,
+                blue,
             ),
-            format!(
-                "MAX COMBO {} / LOOT +{}%",
-                model.maximum_combo,
-                resonance_game::battle::rewards::combo_drop_bonus(model.maximum_combo)
+            (
+                format!(
+                    "{}{}.{:02}",
+                    if model.grade < 0 { '-' } else { '+' },
+                    grade / 100,
+                    grade % 100
+                ),
+                586.,
+                92.,
+                blue,
             ),
-            format!(
-                "GRADE {}{}.{:02}",
-                if model.grade < 0 { '-' } else { '+' },
-                grade / 100,
-                grade % 100
-            ),
-        ];
-        for (index, line) in lines.iter().enumerate() {
+        ] {
+            result_text(
+                &mut batches[2],
+                &self.art.font,
+                &value,
+                [right - value.len() as f32 * STAT_ADVANCE, top],
+                color,
+            )?;
+        }
+        let (rows, items) = state.page_rows();
+        if !rows.is_empty() {
+            text::glyph_gradient(
+                &mut batches[2],
+                &self.art.font,
+                if items { "ITEM(S) FOUND" } else { "INFO" },
+                [if items { 98. } else { 108. }, 340.],
+                [13., 18.],
+                heading,
+            )?;
+            for (column, row) in rows.iter().enumerate() {
+                text::fit(
+                    &mut batches[1],
+                    &self.font,
+                    &row.text,
+                    [
+                        if items {
+                            108. + column as f32 * 260.
+                        } else {
+                            136.
+                        },
+                        362.,
+                        if items { 242. } else { 472. },
+                        24.,
+                    ],
+                    if row.overflow {
+                        [128, 85, 70, 255]
+                    } else {
+                        [128, 128, 128, 255]
+                    },
+                )?;
+            }
+        }
+        if state.chef.is_some() {
+            batches[2].quad([508., 418., 532., 450.], [456., 64., 476., 96.], [1.; 4]);
             text::fit(
                 &mut batches[1],
                 &self.font,
-                line,
-                [
-                    24. + (index % 2) as f32 * 306.,
-                    28. + (index / 2) as f32 * 30.,
-                    286.,
-                    22.,
-                ],
+                "Cook",
+                [536., 420., 84., 32.],
                 [128, 128, 128, 255],
-            )?;
-        }
-        text::fit(
-            &mut batches[1],
-            &self.font,
-            &format!("REWARDS  {}/{}", state.page + 1, state.pages()),
-            [24., 272., 270., 16.],
-            [120, 100, 50, 255],
-        )?;
-        for (index, (line, overflow)) in state
-            .rows
-            .iter()
-            .skip(state.page * ROWS_PER_PAGE)
-            .take(ROWS_PER_PAGE)
-            .enumerate()
-        {
-            text::fit(
-                &mut batches[1],
-                &self.font,
-                line,
-                [24., 292. + index as f32 * 21., 592., 20.],
-                if *overflow {
-                    [128, 85, 70, 255]
-                } else {
-                    [128, 128, 128, 255]
-                },
-            )?;
-        }
-        text::fit(
-            &mut batches[1],
-            &self.font,
-            "Continue",
-            [24., 358., 170., 16.],
-            [100, 100, 100, 255],
-        )?;
-        if let Some(chef) = &state.chef {
-            text::fit(
-                &mut batches[1],
-                &self.font,
-                &format!("Cook: {chef}"),
-                [330., 358., 286., 16.],
-                [100, 120, 128, 255],
             )?;
         }
         Ok(batches)
@@ -295,6 +372,19 @@ impl Artwork {
     ) -> Result<()> {
         let result = (|| {
             let batches = self.draw_results()?;
+            if self
+                .results
+                .as_ref()
+                .is_some_and(|state| !state.page_rows().0.is_empty())
+            {
+                self.windows.render_battle_results_panel(
+                    &self.font,
+                    &self.dialogue,
+                    &self.settings,
+                    commands,
+                    meshes,
+                )?;
+            }
             for (layer, batch) in self.ui.results.iter_mut().zip(batches) {
                 layer.upload(batch, commands, meshes)?;
             }
@@ -302,6 +392,7 @@ impl Artwork {
         })();
         if result.is_err() {
             self.results = None;
+            self.windows.clear_page(commands);
             for layer in &mut self.ui.results {
                 layer.show(false, commands);
             }
@@ -373,21 +464,15 @@ mod tests {
         let (mut hud, materials, _app) = test_artwork()?;
         let diagnostics = Diagnostics::new(true);
         hud.synchronize_results(&model, &diagnostics)?;
-        assert_eq!(
-            hud.results.as_ref().unwrap().rows[1].0,
-            "R%s: Learned Mirage"
-        );
-        assert!(
-            hud.results.as_ref().unwrap().rows[0]
-                .0
-                .contains("inventory full")
-        );
+        assert_eq!(hud.results.as_ref().unwrap().rows[1].text, "Learned Mirage");
+        assert!(hud.results.as_ref().unwrap().rows[0].overflow);
         assert!(!hud.results_on_last_page());
-        hud.next_result_page();
-        assert!(!hud.results_on_last_page());
-        hud.next_result_page();
+        let pages = hud.results.as_ref().unwrap().pages();
+        for _ in 1..pages {
+            hud.next_result_page();
+        }
         assert!(hud.results_on_last_page());
-        assert_eq!(hud.take_result_sounds(), [1, 1]);
+        assert_eq!(hud.take_result_sounds(), vec![1; pages - 1]);
         model.notices.push(ResultNotice::Cooking {
             character: 8,
             recipe: 0,
@@ -408,8 +493,8 @@ mod tests {
                 .rows
                 .last()
                 .unwrap()
-                .0
-                .starts_with("R%s: Failed to cook ")
+                .text
+                .starts_with("Failed to cook ")
         );
         model.maximum_combo = u16::MAX;
         hud.synchronize_results(&model, &diagnostics)?;
@@ -420,14 +505,18 @@ mod tests {
             assert!(
                 draw.iter()
                     .flat_map(|b| &b.positions)
-                    .all(|p| (-308. ..=308.).contains(&p[0]) && (-140. ..=224.).contains(&p[1]))
+                    .all(|p| (-320. ..=320.).contains(&p[0]) && (-240. ..=240.).contains(&p[1]))
             );
         }
         let mut world = World::new();
         world.insert_resource(materials);
         let mut meshes = Assets::<Mesh>::default();
         let mut queue = bevy::ecs::world::CommandQueue::default();
-        hud.prepare(&mut Commands::new(&mut queue, &world), &mut meshes);
+        hud.prepare(
+            &mut Commands::new(&mut queue, &world),
+            &mut meshes,
+            crate::Resolution::default(),
+        );
         queue.apply(&mut world);
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
@@ -443,7 +532,7 @@ mod tests {
             hud.synchronize_results(&model, &Diagnostics::new(true))?;
             hud.render_results(&mut Commands::new(&mut queue, &world), &mut meshes)?;
             queue.apply(&mut world);
-            let glyph = hud.font.glyphs.remove(&'T').unwrap();
+            let glyph = hud.font.glyphs.remove(&'C').unwrap();
             let rendered = hud.render_results(&mut Commands::new(&mut queue, &world), &mut meshes);
             queue.apply(&mut world);
             assert_eq!(
@@ -455,7 +544,7 @@ mod tests {
                 world.get::<Visibility>(layer.rendered.as_ref().unwrap().entity)
                     == Some(&Visibility::Hidden)
             }));
-            hud.font.glyphs.insert('T', glyph);
+            hud.font.glyphs.insert('C', glyph);
         }
         Ok(())
     }

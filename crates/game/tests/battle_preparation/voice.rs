@@ -34,11 +34,17 @@ fn snapshot(paranoid: bool) -> (Files, battle_profile::Table) {
     (
         files,
         battle_profile::Table {
+            normal_attacks: vec![],
+            martial_attacks: resonance_content::battle_martial::Catalogue {
+                members: Default::default(),
+                bindings: Default::default(),
+            },
             lethal_rescue_names: Default::default(),
             overlimit_voices: [None; 9],
             default_strategy: [[0; 3]; 10],
             companion_policy: Default::default(),
             entry: Default::default(),
+            chant_sequences: Default::default(),
             source_sha256: "a".repeat(64),
             voice_sequences,
             death_voice_pairs: vec![],

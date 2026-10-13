@@ -292,6 +292,7 @@ fn caption_suppression_does_not_remove_equipment_gameplay() -> Result<()> {
         normal: None,
         tp_cost: 12,
         execution: resonance_battle::ActionExecution::Attack(resonance_battle::PreparedAttack {
+            contact_recovery: None,
             opening: None,
             events: vec![],
             chain_at: None,

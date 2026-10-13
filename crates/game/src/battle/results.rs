@@ -13,7 +13,10 @@ use resonance_battle::{
 };
 use resonance_content::{arte::Catalogue, menu_data::MenuData, session::SessionData};
 use resonance_events::party::Party;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 #[cfg(test)]
 mod condition_refresh_tests;
 mod cooking;
@@ -71,6 +74,8 @@ pub struct PreparedEnemy {
     pub actor: ActorId,
     pub level: u8,
     pub grade: i16,
+    pub steal: Option<u16>,
+    pub steal_chance: u8,
     pub reward: EnemyReward,
 }
 
@@ -198,8 +203,9 @@ pub struct Candidate {
     setup: Setup,
     party: Party,
     party_members: BTreeMap<ActorId, usize>,
-    /// Equipment edits remain private until one validated publication at page close.
-    equipment_draft: Option<Party>,
+    /// Shared menu pages see only actors currently present in battle.
+    menu_party: Option<Party>,
+    menu_actors: Vec<(ActorId, u8)>,
     gameplay_random: resonance_events::GameplayRandom,
     cosmetic_random: resonance_battle::Random,
     session: Arc<SessionData>,
@@ -207,10 +213,12 @@ pub struct Candidate {
     catalogue: Arc<Catalogue>,
     new_ex_skills: Vec<(u8, u8)>,
     selection: Option<Selection>,
+    performance: Option<super::victory::Playing>,
     results: Option<Results>,
     accepted: bool,
     recorded_escape: bool,
     recorded_ordinary_escape: bool,
+    stolen_enemies: BTreeSet<ActorId>,
 }
 
 /// Borrowed pending state for checkpoint observation; this does not commit it.
@@ -287,12 +295,80 @@ impl Candidate {
         &self.party
     }
 
+    pub(in crate::battle) fn refresh_menu_roster(&mut self, battle: &Battle) {
+        self.menu_actors = self
+            .setup
+            .actors
+            .iter()
+            .copied()
+            .filter(|(id, _)| {
+                battle.actors()[id.index()].availability
+                    != resonance_battle::ActorAvailability::Absent
+            })
+            .collect();
+    }
+
+    fn menu_party(&self) -> &Party {
+        self.menu_party.as_ref().unwrap_or(&self.party)
+    }
+
+    fn begin_menu(&mut self, battle: &Battle) -> Result<()> {
+        self.sync_party(battle)?;
+        self.refresh_menu_roster(battle);
+        ensure!(
+            !self.menu_actors.is_empty(),
+            "battle menu has no present party"
+        );
+        let mut party = self.party.clone();
+        party.formation.retain(|character| {
+            !self.setup.actors.iter().any(|&(actor, member)| {
+                member == *character
+                    && battle.actors()[actor.index()].availability
+                        == resonance_battle::ActorAvailability::Absent
+            })
+        });
+        for (slot, &(actor, _)) in self.menu_actors.iter().enumerate() {
+            let original = self
+                .setup
+                .actors
+                .iter()
+                .position(|&(id, _)| id == actor)
+                .unwrap();
+            party.settings.battle_controls[slot] = self.party.settings.battle_controls[original];
+        }
+        self.menu_party = Some(party);
+        Ok(())
+    }
+
+    /// Page slots may be compacted; saved formation and controller slots never are.
+    fn restore_menu_roster(&self, party: &mut Party) {
+        let selected = party.settings.battle_controls;
+        party.settings.battle_controls = self.party.settings.battle_controls;
+        for (slot, &(actor, _)) in self.menu_actors.iter().enumerate() {
+            let original = self
+                .setup
+                .actors
+                .iter()
+                .position(|&(id, _)| id == actor)
+                .unwrap();
+            party.settings.battle_controls[original] = selected[slot];
+        }
+        party.formation.clone_from(&self.party.formation);
+    }
+
+    fn publish_menu_edits(&mut self) {
+        if let Some(mut party) = self.menu_party.clone() {
+            self.restore_menu_roster(&mut party);
+            self.party = party;
+        }
+    }
+
     pub fn items(&self) -> super::items::Inventory<'_> {
         super::items::Inventory {
             counts: &self.party.items,
             definitions: &self.menus.items,
             recent: &self.party.recent_items,
-            roster: &self.setup.actors,
+            roster: &self.menu_actors,
             names: std::array::from_fn(|index| {
                 self.party.members[index]
                     .name
@@ -309,7 +385,7 @@ impl Candidate {
     ) -> crate::menu::equipment::Page<'a> {
         crate::menu::equipment::Page {
             state,
-            party: self.equipment_draft.as_ref().unwrap_or(&self.party),
+            party: self.menu_party.as_ref().unwrap_or(&self.party),
             session: &self.session,
             data: &self.menus,
             names: &self.menus.initial_names,
@@ -376,11 +452,8 @@ impl Candidate {
         battle: &mut Battle,
         remembered: usize,
     ) -> Result<(crate::menu::equipment::Equipment, usize)> {
-        let count = self.party.formation.len().min(4);
-        ensure!(count != 0, "equipment page has no active party");
-        // Snapshot current vitals before opening equipment so recent damage and TP use are retained.
-        self.sync_party(battle)?;
-        self.equipment_draft = Some(self.party.clone());
+        self.begin_menu(battle)?;
+        let count = self.menu_party().formation.len();
         Ok((
             crate::menu::equipment::Equipment::opening(),
             remembered.min(count - 1),
@@ -395,13 +468,13 @@ impl Candidate {
         input: crate::menu::Input,
     ) -> Result<crate::menu::equipment::Visit> {
         let draft = self
-            .equipment_draft
+            .menu_party
             .as_mut()
             .context("equipment page has no draft")?;
         let visit = state.step_shared(input, draft, &self.session, &self.menus, character)?;
         if visit.closed {
             let next = self
-                .equipment_draft
+                .menu_party
                 .take()
                 .context("equipment page has no draft")?;
             if let Err(error) = self.commit_equipment(battle, next) {
@@ -412,10 +485,11 @@ impl Candidate {
     }
 
     pub(in crate::battle) fn cancel_equipment(&mut self) {
-        self.equipment_draft = None;
+        self.menu_party = None;
     }
 
     fn commit_equipment(&mut self, battle: &mut Battle, mut next: Party) -> Result<()> {
+        self.restore_menu_roster(&mut next);
         let magic_mist = super::escape::magic_mist(
             &next,
             &self.menus,
@@ -575,11 +649,13 @@ impl Candidate {
             .iter()
             .map(|&(actor, character)| (actor, usize::from(character - 1)))
             .collect();
+        let menu_actors = setup.actors.clone();
         Ok(Self {
             setup,
             party,
             party_members,
-            equipment_draft: None,
+            menu_party: None,
+            menu_actors,
             cosmetic_random: resonance_battle::Random::new(!gameplay_random.state()),
             gameplay_random,
             session,
@@ -587,10 +663,12 @@ impl Candidate {
             catalogue,
             new_ex_skills,
             selection: None,
+            performance: None,
             results: None,
             accepted: false,
             recorded_escape: false,
             recorded_ordinary_escape: false,
+            stolen_enemies: BTreeSet::new(),
         })
     }
 
@@ -695,6 +773,7 @@ impl Candidate {
             .setup
             .enemies
             .iter()
+            .filter(|enemy| battle.ledger().reward_eligible(enemy.actor))
             .map(|enemy| enemy.reward.clone())
             .collect();
         let super::rewards::Awarded {
@@ -916,7 +995,11 @@ impl Candidate {
                     || victory_selection::ColetteState::from(self.setup.colette_state)
                         != victory_selection::ColetteState::Sealed
                 {
-                    battle.play_victory_pose(selection.actor, performance.motion)?;
+                    self.performance = Some(super::victory::Playing::start(
+                        battle,
+                        selection.actor,
+                        performance,
+                    )?);
                 }
             }
             let can_speak = selection.character != Character::Colette as u8
@@ -952,14 +1035,17 @@ impl Candidate {
                 self.results.is_some() && self.accepted,
                 "victory lifecycle is incomplete"
             ),
-            BattleResult::Escaped => {
+            BattleResult::Escaped
+                if battle.departure_reason()
+                    != Some(resonance_battle::DepartureReason::EnemyRetreat) =>
+            {
                 ensure!(self.recorded_escape, "escape lifecycle is incomplete");
                 ensure!(
                     battle.ledger().ordinary_escape.is_none() || self.recorded_ordinary_escape,
                     "ordinary escape history is incomplete"
                 )
             }
-            BattleResult::Defeat => {}
+            BattleResult::Escaped | BattleResult::Defeat => {}
         }
         self.sync_party(battle)?;
         let ledger = battle.ledger();
@@ -996,6 +1082,52 @@ impl Candidate {
 }
 
 impl resonance_battle::item::Provider for Candidate {
+    fn steal(&mut self, request: resonance_battle::item::StealRequest) -> Result<Option<String>> {
+        self.item_character(request.user)?;
+        let enemy = self
+            .setup
+            .enemies
+            .iter()
+            .find(|enemy| enemy.actor == request.target)
+            .context("steal target has no prepared monster")?;
+        ensure!(enemy.steal_chance <= 100, "invalid enemy steal chance");
+        if enemy.steal.is_none() && !request.gald {
+            return Ok(None);
+        }
+        if self.stolen_enemies.contains(&request.target)
+            || (!request.guaranteed && request.adjusted_roll >= u16::from(enemy.steal_chance))
+        {
+            return Ok(None);
+        }
+        let name = enemy
+            .steal
+            .map(|item| self.menus.item_text(item).map(|text| text.name.clone()))
+            .transpose()?;
+        let gald = request.gald.then_some(enemy.reward.gald / 10);
+        let description = match (name, gald) {
+            (Some(name), Some(gald)) => format!("{name} + {gald} Gald"),
+            (Some(name), None) => name,
+            (None, Some(gald)) => format!("{gald} Gald"),
+            (None, None) => unreachable!(),
+        };
+        // Capacity affects acquisition, not the successful attempt or depletion.
+        if let Some(item) = enemy.steal {
+            self.party
+                .change_item(&self.session, item, 1)
+                .map_err(anyhow::Error::msg)?;
+        }
+        if let Some(gald) = gald {
+            self.party.add_gald(gald as i32);
+        }
+        self.stolen_enemies.insert(request.target);
+        self.party
+            .monsters
+            .entry(enemy.reward.monster)
+            .or_default()
+            .steal = true;
+        Ok(Some(description))
+    }
+
     fn acquire_item(
         &mut self,
         request: resonance_battle::item::Release,
@@ -1066,7 +1198,14 @@ impl Candidate {
         battle: &mut Battle,
         input: resonance_battle::BattleInput,
     ) -> Result<Vec<Cue>> {
+        let advance_performance = !input.paused;
         let cues = battle.update(input, self)?;
+        if advance_performance
+            && battle.phase() == BattlePhase::Results
+            && let Some(performance) = &mut self.performance
+        {
+            performance.advance(battle)?;
+        }
         self.sync_escape_history(battle)?;
         Ok(cues)
     }
@@ -1075,8 +1214,10 @@ impl Candidate {
     }
 
     pub(crate) fn choose_victory(&mut self, battle: &mut Battle) -> Result<()> {
-        let sample = self.cosmetic_random.next_u16();
-        let selection = victory_selection::select(&self.victory_context(battle)?, sample);
+        let mut random = self.cosmetic_random;
+        let selection =
+            victory_selection::select(&self.victory_context(battle)?, || random.next_u16());
+        self.cosmetic_random = random;
         self.select_victory(battle, selection.group, selection.pose)
     }
 
@@ -1112,6 +1253,7 @@ impl Candidate {
             .collect::<Result<Vec<_>>>()?;
         Ok(Context {
             leader: Character::try_from(candidate.leader(battle)?.1)?,
+            formation: candidate.setup.formation,
             party,
             colette: ColetteState::from(candidate.setup.colette_state),
             presea_recovered: candidate.setup.victory_story_flags[1],
@@ -1181,7 +1323,7 @@ impl Candidate {
         // Award titles before hiding enemies and arranging the result scene.
         battle.hide_result_enemies()?;
         let selection = self.selection.context("unselected result construction")?;
-        battle.arrange_result_actors()?;
+        battle.arrange_result_actors(selection.actor)?;
         cues.extend(super::victory::construct_result_actors(
             battle,
             selection.actor,

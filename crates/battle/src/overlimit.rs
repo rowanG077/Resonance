@@ -66,7 +66,14 @@ impl Battle {
     }
 
     pub fn is_paused(&self) -> bool {
-        self.target_selector_active() || self.timed_hold.is_some()
+        self.summon_entry.active()
+            || self.enemy_presentation.holding()
+            || self.target_selector_active()
+            || self.timed_hold.is_some()
+            || self
+                .volleys
+                .values()
+                .any(crate::release::Volley::transitioning)
     }
 
     pub(crate) fn gain_overlimit(&mut self, id: ActorId, delta: i8) {

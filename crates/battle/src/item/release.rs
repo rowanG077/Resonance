@@ -45,6 +45,11 @@ impl Battle {
         let policy = *self
             .item_policy(request.item)
             .context("unprepared battle item")?;
+        self.prepare_item_effect(request, policy).map(Some)
+    }
+
+    fn prepare_item_effect(&self, request: Release, policy: Policy) -> Result<LiveEffect> {
+        let user = request.user;
         let effect = policy.effect;
         let recipients: Vec<_> = if matches!(effect, Effect::PartyRecover { .. }) {
             self.actors
@@ -99,12 +104,12 @@ impl Battle {
         } else {
             None
         };
-        Ok(Some(LiveEffect {
+        Ok(LiveEffect {
             request,
             policy,
             recoveries,
             buff,
-        }))
+        })
     }
 
     pub(super) fn release_item(
@@ -140,12 +145,53 @@ impl Battle {
             false
         };
         self.ledger.item_consumed(user);
+        self.ledger.item_effect();
+        self.items.cooldown = ITEM_COOLDOWN_TICKS;
+        cues.push(Cue::ItemNotice {
+            actor: request.user,
+            item: request.item,
+            duration: 90,
+        });
         cues.push(Cue::ItemReleased {
             user,
             target: request.target,
             effect: kind,
             discovered,
         });
+        Ok(())
+    }
+
+    pub(crate) fn release_enemy_item(
+        &mut self,
+        user: ActorId,
+        target: ActorId,
+        item: u16,
+        cues: &mut Vec<Cue>,
+    ) -> Result<()> {
+        ensure!(
+            self.actor(user)?.side == Side::Enemy,
+            "enemy item has a party user"
+        );
+        if !self.actors[user.index()].available() {
+            return Ok(());
+        }
+        let policy = *self.item_policy(item).context("unprepared enemy item")?;
+        let recipient = self.actor(target)?;
+        let eligible = match policy.effect {
+            Effect::Revive => {
+                recipient.hp <= 0 && recipient.availability == crate::ActorAvailability::Dead
+            }
+            Effect::Recover { .. } | Effect::Buff(_) => recipient.available(),
+            Effect::Hourglass => true,
+            _ => anyhow::bail!("unsupported enemy item benefit"),
+        };
+        if !eligible
+            || (!matches!(policy.effect, Effect::Hourglass) && recipient.side != Side::Enemy)
+        {
+            return Ok(());
+        }
+        let effect = self.prepare_item_effect(Release { user, target, item }, policy)?;
+        self.commit_item_effect(effect, cues);
         Ok(())
     }
 
@@ -212,12 +258,5 @@ impl Battle {
                 }
             }
         }
-        self.ledger.item_effect();
-        self.items.cooldown = ITEM_COOLDOWN_TICKS;
-        cues.push(Cue::ItemNotice {
-            actor: request.user,
-            item: request.item,
-            duration: 90,
-        });
     }
 }

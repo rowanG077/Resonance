@@ -95,6 +95,7 @@ fn metadata(
         drop_chances: record.drop_chances,
         grade: record.grade,
         steal: item(record.steal),
+        steal_chance: record.steal_chance,
         attack_element: record
             .attack_element
             .checked_sub(1)

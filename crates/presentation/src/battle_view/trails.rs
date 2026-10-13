@@ -13,8 +13,8 @@ use std::collections::VecDeque;
 struct Ribbon {
     bones: Vec<u16>,
     material: TrailMaterial,
-    texture: Option<(Handle<Image>, UiTexture, Sampler)>,
-    draw: Option<Draw>,
+    textures: Vec<Option<(Handle<Image>, UiTexture, Sampler)>>,
+    draws: Vec<Draw>,
 }
 struct Draw {
     entity: Entity,
@@ -42,24 +42,33 @@ impl Trails {
                     "invalid weapon trail endpoints"
                 );
                 ensure!(
-                    asset.material.texture.is_some() == asset.texture.is_some(),
+                    (1..=2).contains(&asset.textures.len())
+                        && asset
+                            .textures
+                            .iter()
+                            .all(|texture| asset.material.texture.is_some() == texture.is_some()),
                     "battle ribbon texture is missing"
                 );
-                let texture = asset
-                    .texture
-                    .map(|(image, sampler)| -> Result<_> {
-                        image.validate()?;
-                        sampler.validate()?;
-                        let handle = server
-                            .load_builder()
-                            .with_settings(|s: &mut ImageLoaderSettings| {
-                                s.is_srgb = false;
-                                s.sampler = ImageSampler::linear();
+                let textures = asset
+                    .textures
+                    .into_iter()
+                    .map(|texture| {
+                        texture
+                            .map(|(image, sampler)| -> Result<_> {
+                                image.validate()?;
+                                sampler.validate()?;
+                                let handle = server
+                                    .load_builder()
+                                    .with_settings(|s: &mut ImageLoaderSettings| {
+                                        s.is_srgb = false;
+                                        s.sampler = ImageSampler::linear();
+                                    })
+                                    .load(image.path.clone());
+                                Ok((handle, image, sampler))
                             })
-                            .load(image.path.clone());
-                        Ok((handle, image, sampler))
+                            .transpose()
                     })
-                    .transpose()?;
+                    .collect::<Result<Vec<_>>>()?;
                 ensure!(
                     ribbons
                         .insert(
@@ -67,8 +76,8 @@ impl Trails {
                             Ribbon {
                                 bones: asset.bones,
                                 material: asset.material,
-                                texture,
-                                draw: None,
+                                textures,
+                                draws: Vec::new(),
                             }
                         )
                         .is_none(),
@@ -91,17 +100,19 @@ impl Trails {
     pub fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
         self.ribbons
             .values()
-            .filter_map(|r| r.texture.as_ref().map(|(h, _, _)| h))
+            .flat_map(|r| &r.textures)
+            .filter_map(|texture| texture.as_ref().map(|(h, _, _)| h))
     }
     pub fn images_mut(&mut self) -> impl Iterator<Item = &mut Handle<Image>> {
         self.ribbons
             .values_mut()
-            .filter_map(|r| r.texture.as_mut().map(|(h, _, _)| h))
+            .flat_map(|r| &mut r.textures)
+            .filter_map(|texture| texture.as_mut().map(|(h, _, _)| h))
     }
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.ribbons
             .values()
-            .filter_map(|r| r.draw.as_ref())
+            .flat_map(|r| &r.draws)
             .chain(&self.ropes)
             .map(|d| d.entity)
     }
@@ -115,38 +126,42 @@ impl Trails {
             return Ok(());
         }
         for ribbon in self.ribbons.values_mut() {
-            let color = ribbon.texture.as_ref().map(|(image, _, sampler)| {
-                let binding = resonance_content::TextureBinding {
-                    texture: 0,
-                    wrap_u: sampler.wrap[0],
-                    wrap_v: sampler.wrap[1],
-                    nearest_min: matches!(
-                        sampler.min_filter,
-                        Filter::Nearest
-                            | Filter::NearestMipmapNearest
-                            | Filter::NearestMipmapLinear
-                    ),
-                    nearest_mag: matches!(sampler.mag_filter, Filter::Nearest),
-                };
-                crate::scene::sampled_image(
-                    Some((image.clone(), binding)),
-                    &mut assets.images,
-                    sampled,
-                )
-                .unwrap()
-            });
-            let surface = assets.surfaces.add(TitleSurface {
-                blend: Some(if ribbon.material.additive {
-                    Blend::Additive
-                } else {
-                    Blend::Alpha
-                }),
-                depth_write: false,
-                depth_equal: true,
-                cull: resonance_content::CullFace::None,
-                ..TitleSurface::textured(color)
-            });
-            ribbon.draw = Some(Draw::prepare(commands, &mut assets.meshes, surface));
+            for texture in &ribbon.textures {
+                let color = texture.as_ref().map(|(image, _, sampler)| {
+                    let binding = resonance_content::TextureBinding {
+                        texture: 0,
+                        wrap_u: sampler.wrap[0],
+                        wrap_v: sampler.wrap[1],
+                        nearest_min: matches!(
+                            sampler.min_filter,
+                            Filter::Nearest
+                                | Filter::NearestMipmapNearest
+                                | Filter::NearestMipmapLinear
+                        ),
+                        nearest_mag: matches!(sampler.mag_filter, Filter::Nearest),
+                    };
+                    crate::scene::sampled_image(
+                        Some((image.clone(), binding)),
+                        &mut assets.images,
+                        sampled,
+                    )
+                    .unwrap()
+                });
+                let surface = assets.surfaces.add(TitleSurface {
+                    blend: Some(if ribbon.material.additive {
+                        Blend::Additive
+                    } else {
+                        Blend::Alpha
+                    }),
+                    depth_write: false,
+                    depth_equal: true,
+                    cull: resonance_content::CullFace::None,
+                    ..TitleSurface::textured(color)
+                });
+                ribbon
+                    .draws
+                    .push(Draw::prepare(commands, &mut assets.meshes, surface));
+            }
         }
         let surface = assets.surfaces.add(TitleSurface {
             blend: Some(Blend::Alpha),
@@ -188,13 +203,16 @@ impl Trails {
             commands.entity(entity).insert(Visibility::Hidden);
         }
         for (&(actor, slot), trail) in &self.history {
-            if trail.samples.len() < 2 {
+            if trail.samples.len() < 2 || !super::actor_visible(frame, actor) {
                 continue;
             }
             let result = (|| -> Result<()> {
                 let ribbon = &self.ribbons[&trail.resource];
+                let variant = usize::from(trail.highlighted);
                 let size = ribbon
-                    .texture
+                    .textures
+                    .get(variant)
+                    .context("weapon trail material was not prepared")?
                     .as_ref()
                     .map_or([1, 1], |(_, image, _)| [image.width, image.height]);
                 let style = models
@@ -202,11 +220,17 @@ impl Trails {
                     .context("missing trail weapon model")?
                     .weapon_style;
                 ribbon
-                    .draw
-                    .as_ref()
+                    .draws
+                    .get(variant)
                     .context("weapon trail was not prepared")?
                     .apply(
-                        ribbon_mesh(&trail.samples, &ribbon.material, size)?,
+                        ribbon_mesh(
+                            &trail.samples,
+                            &ribbon.material,
+                            size,
+                            trail.highlighted,
+                            trail.fade,
+                        )?,
                         DrawOrder(weapon_layer(order.get(actor)?, slot, style, true), 0, 0),
                         commands,
                         meshes,
@@ -224,7 +248,10 @@ impl Trails {
             .rotation;
         let mut rope_slot = 0;
         for weapon in &frame.weapons {
-            if !weapon.visible || weapon.links.is_empty() {
+            if !weapon.visible
+                || !super::actor_visible(frame, weapon.owner)
+                || weapon.links.is_empty()
+            {
                 continue;
             }
             let result = (|| -> Result<()> {
@@ -260,6 +287,9 @@ impl Trails {
                         Ok((world * Mat4::from_cols_array_2d(bone)).transform_point3(Vec3::ZERO))
                     };
                     data.line(endpoint(a)?, endpoint(b)?, eye, rotation, width);
+                }
+                if data.positions.is_empty() {
+                    return Ok(());
                 }
                 draw.apply(
                     data.mesh(),
@@ -383,16 +413,20 @@ impl Vertices {
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
     }
 }
-// A tenth of a second at 60 updates/second.
-const FADE_UPDATES: u8 = 6;
+const HISTORY_SAMPLES: usize = 8;
+// Sub-tenth-unit endpoint drift is a held pose, not a new motion sample.
+const STILL_DISTANCE: f32 = 0.1;
+// Sixteen opacity steps fade the retained path after its activation ends.
+const FADE_UPDATES: u8 = 16;
 
 struct Sample {
     points: Vec<Vec3>,
-    age: u8,
 }
 struct Trail {
     resource: u32,
     remaining: u16,
+    highlighted: bool,
+    fade: u8,
     samples: VecDeque<Sample>,
 }
 
@@ -417,6 +451,13 @@ impl Ribbon {
 impl Trails {
     /// Consume a completed frame once. Commands and gameplay pauses hold all trail feedback.
     pub fn advance(&mut self, frame: &BattleFrame, paused: bool) -> Result<()> {
+        if frame
+            .cues
+            .iter()
+            .any(|cue| matches!(cue, Cue::ClearEffects))
+        {
+            self.history.clear();
+        }
         if frame.recognized_result.is_some() || frame.outcome.is_some() {
             self.history.clear();
             return Ok(());
@@ -433,6 +474,7 @@ impl Trails {
                 actor,
                 slot,
                 duration,
+                highlighted,
             } = *cue
                 && duration > 0
                 && let Some(weapon) = weapon(actor, slot)
@@ -440,9 +482,12 @@ impl Trails {
                 let trail = self.history.entry((actor, slot)).or_insert_with(|| Trail {
                     resource: weapon.resource,
                     remaining: 0,
+                    highlighted,
+                    fade: 0,
                     samples: VecDeque::new(),
                 });
                 trail.remaining = trail.remaining.max(duration);
+                trail.highlighted = highlighted;
             }
         }
         for (&(actor, slot), trail) in &mut self.history {
@@ -454,24 +499,41 @@ impl Trails {
             if trail.resource != weapon.resource {
                 trail.resource = weapon.resource;
                 trail.samples.clear();
+                trail.fade = 0;
             }
-            if paused {
+            if paused || frame.paused_actors.contains(&actor) {
                 continue;
             }
-            for sample in &mut trail.samples {
-                sample.age += 1;
-            }
-            trail.samples.retain(|sample| sample.age < FADE_UPDATES);
             if trail.remaining > 0 {
                 trail.remaining -= 1;
+                trail.fade = 0;
                 match self.ribbons[&trail.resource].sample(weapon) {
-                    Ok(points) => trail.samples.push_front(Sample { points, age: 0 }),
+                    Ok(points) => {
+                        let held = trail.samples.front().is_some_and(|sample| {
+                            sample
+                                .points
+                                .iter()
+                                .zip(&points)
+                                .all(|(a, b)| (*a - *b).abs().max_element() < STILL_DISTANCE)
+                        });
+                        if held {
+                            // Keep distinct poses across the swing. Repeated points
+                            // would consume its UV span and erase the visible arc.
+                            trail.samples.pop_back();
+                        } else {
+                            trail.samples.push_front(Sample { points });
+                            trail.samples.truncate(HISTORY_SAMPLES);
+                        }
+                    }
                     Err(error) => {
                         trail.remaining = 0;
                         trail.samples.clear();
                         self.diagnostics.report("battle weapon trail pose", error)?;
                     }
                 }
+            } else {
+                trail.fade = trail.fade.saturating_add(1);
+                trail.samples.pop_back();
             }
         }
         self.history
@@ -484,6 +546,8 @@ fn ribbon_mesh(
     samples: &VecDeque<Sample>,
     material: &TrailMaterial,
     size: [u32; 2],
+    highlighted: bool,
+    fade: u8,
 ) -> Result<Mesh> {
     let endpoints = samples.front().map_or(0, |sample| sample.points.len());
     ensure!(
@@ -496,41 +560,72 @@ fn ribbon_mesh(
         "invalid battle ribbon geometry"
     );
     let [u, v, width, height] = material.uv.map(f32::from);
-    let du = width / (samples.len() - 1) as f32;
+    // Subdivide each pose interval so fast spins form a curve, not a polygon.
+    const CURVE_STEPS: usize = 3;
+    let du = width / ((samples.len() - 1) * CURVE_STEPS) as f32;
     let dv = height / (endpoints - 1) as f32;
-    let rgb = material.color.map(|v| f32::from(v) / 128.);
+    let rgb = if highlighted {
+        [1.; 3]
+    } else {
+        material.color.map(|v| f32::from(v) / 128.)
+    };
     let mut data = Vertices::default();
     for row in 0..endpoints - 1 {
         let top = v + height - row as f32 * dv;
         let bottom = top - dv;
         for column in 0..samples.len() - 1 {
-            let left = u + column as f32 * du;
-            let right = left + du;
             let a = &samples[column];
             let b = &samples[column + 1];
-            let color = |sample: &Sample| {
-                [
-                    rgb[0],
-                    rgb[1],
-                    rgb[2],
-                    1. - f32::from(sample.age) / f32::from(FADE_UPDATES),
-                ]
+            let point = |row: usize, t: f32| {
+                let start = a.points[row];
+                let end = b.points[row];
+                let previous = column
+                    .checked_sub(1)
+                    .map_or(start * 2. - end, |i| samples[i].points[row]);
+                let next = samples
+                    .get(column + 2)
+                    .map_or(end * 2. - start, |sample| sample.points[row]);
+                curved_edge(previous, start, end, next, t)
             };
-            let uv = [[left, top], [right, top], [left, bottom], [right, bottom]]
-                .map(|[u, v]| [u / size[0] as f32, v / size[1] as f32]);
-            data.quad(
-                [
-                    a.points[row],
-                    b.points[row],
-                    a.points[row + 1],
-                    b.points[row + 1],
-                ],
-                uv,
-                [color(a), color(b), color(a), color(b)],
-            );
+            let color = |t: f32| {
+                let along = (column as f32 + t) / (samples.len() - 1) as f32;
+                let alpha = (1. - along - f32::from(fade) / f32::from(FADE_UPDATES)).max(0.);
+                [rgb[0], rgb[1], rgb[2], alpha]
+            };
+            for step in 0..CURVE_STEPS {
+                let from = step as f32 / CURVE_STEPS as f32;
+                let to = (step + 1) as f32 / CURVE_STEPS as f32;
+                let left = u + (column * CURVE_STEPS + step) as f32 * du;
+                let right = left + du;
+                let uv = [[left, top], [right, top], [left, bottom], [right, bottom]]
+                    .map(|[u, v]| [u / size[0] as f32, v / size[1] as f32]);
+                data.quad(
+                    [
+                        point(row, from),
+                        point(row, to),
+                        point(row + 1, from),
+                        point(row + 1, to),
+                    ],
+                    uv,
+                    [color(from), color(to), color(from), color(to)],
+                );
+            }
         }
     }
     Ok(data.mesh())
+}
+
+// Cubic Hermite interpolation keeps every sampled pose and joins their tangents.
+fn curved_edge(previous: Vec3, start: Vec3, end: Vec3, next: Vec3, t: f32) -> Vec3 {
+    if start == end {
+        return start;
+    }
+    let first = (end - previous) * 0.5;
+    let last = (next - start) * 0.5;
+    start
+        + t * (first
+            + t * (3. * (end - start) - 2. * first - last
+                + t * (2. * (start - end) + first + last)))
 }
 
 #[cfg(test)]
@@ -557,7 +652,7 @@ mod tests {
             texture: None,
             palette: 0,
             additive: false,
-            color: [128; 3],
+            color: [64, 32, 32],
             uv: [0, 0, 64, 64],
         };
         let mut trails = Trails {
@@ -570,8 +665,8 @@ mod tests {
                         Ribbon {
                             bones,
                             material,
-                            texture: None,
-                            draw: None,
+                            textures: vec![None, None],
+                            draws: Vec::new(),
                         },
                     )
                 })
@@ -581,6 +676,7 @@ mod tests {
             ready: false,
         };
         frame.weapons.push(WeaponFrame {
+            texture_scroll: None,
             owner: actor,
             slot: 0,
             visible: true,
@@ -601,6 +697,7 @@ mod tests {
             actor,
             slot: 0,
             duration: 20,
+            highlighted: false,
         };
         frame.cues = vec![request.clone()];
         trails.advance(&frame, false)?;
@@ -608,7 +705,14 @@ mod tests {
         frame.weapons[0].world[3][0] += 2.;
         trails.advance(&frame, false)?;
         let mesh = |trails: &Trails| {
-            ribbon_mesh(&trails.history[&(actor, 0)].samples, &material, [256, 256])
+            let trail = &trails.history[&(actor, 0)];
+            ribbon_mesh(
+                &trail.samples,
+                &material,
+                [256, 256],
+                trail.highlighted,
+                trail.fade,
+            )
         };
         let before = mesh(&trails)?;
         let Some(VertexAttributeValues::Float32x3(positions)) =
@@ -628,6 +732,60 @@ mod tests {
         for attribute in [Mesh::ATTRIBUTE_POSITION, Mesh::ATTRIBUTE_COLOR] {
             assert_eq!(before.attribute(attribute), held.attribute(attribute));
         }
+        frame.cues = vec![Cue::WeaponTrail {
+            actor,
+            slot: 0,
+            duration: 20,
+            highlighted: true,
+        }];
+        trails.advance(&frame, true)?;
+        assert!(trails.history[&(actor, 0)].highlighted);
+        let bright = mesh(&trails)?;
+        let Some(VertexAttributeValues::Float32x4(colors)) =
+            bright.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("missing trail color")
+        };
+        assert_eq!(colors[0][..3], [1.; 3]);
+        let Some(VertexAttributeValues::Float32x4(colors)) =
+            before.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("missing trail color")
+        };
+        assert_eq!(colors[0][..3], [0.5, 0.25, 0.25]);
+        assert_eq!(trails.history[&(actor, 0)].samples.len(), 2);
+        frame.cues.clear();
+        // Finishing the swing must retain a visible arc across a held pose.
+        for _ in 0..6 {
+            frame.weapons[0].world[3][2] += 2.;
+            trails.advance(&frame, false)?;
+        }
+        for _ in 0..4 {
+            trails.advance(&frame, false)?;
+        }
+        let held_swing = mesh(&trails)?;
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            held_swing.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("missing held ribbon positions");
+        };
+        assert!(positions.chunks_exact(3).any(|triangle| {
+            let [a, b, c] = std::array::from_fn(|i| Vec3::from_array(triangle[i]));
+            (b - a).cross(c - a).length_squared() > 0.01
+        }));
+        let remaining = trails.history[&(actor, 0)].remaining;
+        frame.paused_actors.push(actor);
+        trails.advance(&frame, false)?;
+        assert_eq!(trails.history[&(actor, 0)].remaining, remaining);
+        assert_eq!(
+            mesh(&trails)?.attribute(Mesh::ATTRIBUTE_POSITION),
+            held_swing.attribute(Mesh::ATTRIBUTE_POSITION)
+        );
+        frame.paused_actors.clear();
+        for _ in 0..4 {
+            trails.advance(&frame, false)?;
+        }
+        assert!(trails.history[&(actor, 0)].samples.len() < 2);
         // Switching a held weapon must never connect its new pose to the old blade.
         frame.weapons[0].resource = 8;
         frame.weapons[0].world[3][0] = 300.;
@@ -642,6 +800,10 @@ mod tests {
             panic!("missing replacement ribbon");
         };
         assert!(positions.iter().all(|p| p[0] >= 300.));
+        // A third ribbon endpoint can move while its first two remain fixed.
+        Arc::make_mut(&mut frame.weapons[0].bones)[1][3][2] += 2.;
+        trails.advance(&frame, false)?;
+        assert_eq!(trails.history[&(actor, 0)].samples.len(), 3);
         for _ in 0..30 {
             trails.advance(&frame, false)?;
         }

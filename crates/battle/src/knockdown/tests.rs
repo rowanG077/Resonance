@@ -6,6 +6,9 @@ use crate::{
 
 fn hit() -> HitRule {
     HitRule {
+        sound: None,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: false,
         condition: None,
         arte: false,
@@ -13,6 +16,8 @@ fn hit() -> HitRule {
         power: Power::Fixed(32),
         element: HitElement::Neutral,
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         guard: GuardRule::default(),
         reaction: ReactionRule {
             stagger: 5,
@@ -279,7 +284,7 @@ fn reaching_threshold_precedes_stun_even_for_knockdown_immune_profiles() {
         let melee = MeleeDefinition {
             hit: rule,
             trail: None,
-            volume: crate::MeleeVolume {
+            volume: crate::MeleeVolume::Fixed {
                 offset: [0.; 3],
                 radius: 2.,
                 half_height: 2.,
@@ -290,7 +295,7 @@ fn reaching_threshold_precedes_stun_even_for_knockdown_immune_profiles() {
             .melee(ActorId(0), ActionId(0), &melee, &[])
             .unwrap();
         let mut cues = vec![];
-        contacts.resolve(&mut battle, &mut cues).unwrap();
+        contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
         let target = &battle.actors[1];
         assert!(cues.iter().any(|c| matches!(c, Cue::Hit { .. })));
         assert_eq!(
@@ -381,7 +386,7 @@ fn stagger_interrupts_actor_tasks_but_preserves_released_work() {
             &MeleeDefinition {
                 hit: hit(),
                 trail: None,
-                volume: crate::MeleeVolume {
+                volume: crate::MeleeVolume::Fixed {
                     offset: [0.; 3],
                     radius: 2.,
                     half_height: 2.,
@@ -391,7 +396,7 @@ fn stagger_interrupts_actor_tasks_but_preserves_released_work() {
         )
         .unwrap();
     let mut cues = vec![];
-    contacts.resolve(&mut battle, &mut cues).unwrap();
+    contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
     assert_eq!(
         cues.iter()
             .filter(|c| matches!(c, Cue::Interrupted { .. }))
@@ -474,7 +479,7 @@ fn submit_contact_with_impulse(
     let melee = MeleeDefinition {
         hit: rule,
         trail: None,
-        volume: crate::MeleeVolume {
+        volume: crate::MeleeVolume::Fixed {
             offset: [0.; 3],
             radius: 2.,
             half_height: 2.,
@@ -485,7 +490,7 @@ fn submit_contact_with_impulse(
         .melee(ActorId(0), ActionId(0), &melee, &[])
         .unwrap();
     let mut cues = vec![];
-    contacts.resolve(battle, &mut cues).unwrap();
+    contacts.resolve(battle, &mut cues, &[]).unwrap();
     assert!(cues.iter().any(|cue| matches!(cue, Cue::Hit { .. })));
     cues
 }

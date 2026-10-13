@@ -5,9 +5,8 @@ use resonance_battle::conditions::ConditionLabel;
 
 const HOLD_TICKS: u32 = 60;
 const FADE_TICKS: u64 = 20;
-const TEXT_SIZE: [f32; 2] = [10., 16.];
-const PADDING: f32 = 4.;
-const MAX_WIDTH: f32 = 240.;
+const CONDITION_HOLD_TICKS: u32 = 45;
+const COLLAPSE_TICKS: u64 = 12;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum LabelKind {
@@ -16,14 +15,16 @@ pub(super) enum LabelKind {
     ExSkill,
     StatusDown,
     Custom,
+    StatUp,
     EquipmentEffect,
     Revive,
+    RevivalEffect,
 }
 
 pub(super) struct ActorLabel {
     pub position: [f32; 3],
     kind: LabelKind,
-    custom_text: Option<String>,
+    lines: [String; 2],
     age: u64,
     duration: u32,
 }
@@ -34,12 +35,30 @@ pub(super) fn condition(
     kind: ConditionLabel,
     position: [f32; 3],
 ) {
+    if let ConditionLabel::StatUp(condition) = kind {
+        use resonance_battle::conditions::Condition::*;
+        let stat = match condition {
+            AttackUp => "ATTACK",
+            DefenseUp => "DEFENSE",
+            AccuracyUp => "ACCURACY",
+            MagicAttackUp => "MAGIC ATTACK",
+            MagicDefenseUp => "MAGIC DEFENSE",
+            _ => return,
+        };
+        let mut label = ActorLabel::new(LabelKind::StatUp, position);
+        label.lines = [stat.into(), "UP".into()];
+        label.duration = CONDITION_HOLD_TICKS;
+        replace(labels, owner, label);
+        return;
+    }
     let kind = match kind {
+        ConditionLabel::StatUp(_) => unreachable!(),
         ConditionLabel::Applied => LabelKind::Applied,
         ConditionLabel::StatusDown => LabelKind::StatusDown,
         ConditionLabel::ExSkillEffect => LabelKind::ExSkill,
         ConditionLabel::EquipmentEffect => LabelKind::EquipmentEffect,
         ConditionLabel::Revive => LabelKind::Revive,
+        ConditionLabel::RevivalEffect => LabelKind::RevivalEffect,
     };
     request_at(labels, owner, kind, position)
 }
@@ -75,7 +94,7 @@ pub(super) fn request_custom(
     }
     let mut label = ActorLabel::new(LabelKind::Custom, position);
     label.duration = duration;
-    label.custom_text = Some(lines.join(" "));
+    label.lines = lines;
     replace(labels, owner, label)
 }
 
@@ -84,9 +103,22 @@ impl ActorLabel {
         Self {
             position,
             kind,
-            custom_text: None,
+            lines: match kind {
+                LabelKind::OverLimit => ["OVER", "LIMIT"],
+                LabelKind::Applied => ["STATUS", "EFFECT"],
+                LabelKind::ExSkill => ["EX SKILL", "EFFECT"],
+                LabelKind::StatusDown => ["STATUS", "DOWN"],
+                LabelKind::EquipmentEffect => ["ITEM", "EFFECT"],
+                LabelKind::Revive => ["MAGIC", "EFFECT"],
+                LabelKind::RevivalEffect => ["REVIVAL", "EFFECT"],
+                LabelKind::Custom | LabelKind::StatUp => ["", ""],
+            }
+            .map(str::to_owned),
             age: 0,
-            duration: HOLD_TICKS,
+            duration: match kind {
+                LabelKind::OverLimit | LabelKind::Custom => HOLD_TICKS,
+                _ => CONDITION_HOLD_TICKS,
+            },
         }
     }
 
@@ -96,6 +128,9 @@ impl ActorLabel {
 
     fn alpha(&self) -> u8 {
         let fading = self.age.saturating_sub(u64::from(self.duration));
+        if matches!(self.kind, LabelKind::Applied) {
+            return if fading < COLLAPSE_TICKS { 255 } else { 0 };
+        }
         (255 * FADE_TICKS.saturating_sub(fading) / FADE_TICKS) as u8
     }
 
@@ -103,21 +138,15 @@ impl ActorLabel {
         self.alpha() != 0
     }
 
-    fn text(&self) -> &str {
-        self.custom_text.as_deref().unwrap_or(match self.kind {
-            LabelKind::Applied => "STATUS EFFECT",
-            LabelKind::OverLimit => "OVER LIMIT",
-            LabelKind::ExSkill => "EX SKILL",
-            LabelKind::StatusDown => "STATUS DOWN",
-            LabelKind::EquipmentEffect => "EQUIPMENT EFFECT",
-            LabelKind::Revive => "REVIVED",
-            LabelKind::Custom => "",
-        })
+    fn text(&self) -> String {
+        self.lines.join(" ")
     }
 
     pub fn draw(
         &self,
         font: &BitmapFont,
+        stat_colors: [[u8; 4]; 2],
+        stat_backdrops: [[[u8; 4]; 4]; 2],
         projected: [f32; 2],
         solid: &mut Batch,
         text_batch: &mut Batch,
@@ -125,58 +154,107 @@ impl ActorLabel {
         if !self.visible() {
             return Ok(());
         }
-        let text = self.text();
-        let columns = text.chars().count().max(1) as f32;
-        let width = TEXT_SIZE[0].min(MAX_WIDTH / columns);
-        let size = [columns * width + PADDING * 2., TEXT_SIZE[1] + PADDING * 2.];
-        let [x, y] = super::floating_origin([projected[0], projected[1] - 24.], size);
-        let alpha = self.alpha();
-        solid.quad(
-            [x, y, x + size[0], y + size[1]],
-            [0.5; 4],
-            [0.04, 0.05, 0.08, f32::from(alpha) / 255. * 0.85],
+        let lines = &self.lines;
+        const GLYPH: [f32; 2] = [18., 24.];
+        const ADVANCE: f32 = 14.;
+        const SKEW: f32 = 12.;
+        const ROW_OFFSET: [f32; 2] = [12., 22.];
+        const ECHO_TICKS: u64 = 8;
+        const ECHO_STEP: f32 = 4.;
+        const ECHO_START_ALPHA: u64 = 128;
+        const STRIP_WIDTH: f32 = 100.;
+        const STRIP_OFFSET: f32 = 60.;
+        const STRIP_SKEW: f32 = 12.;
+        const STRIP_LEAD: f32 = 24.;
+        const STRIP_GROWTH: f32 = 4.;
+        let line_width =
+            |columns: usize| columns.saturating_sub(1) as f32 * ADVANCE + GLYPH[0] + SKEW;
+        let columns = lines
+            .iter()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0);
+        let width = line_width(columns).max(STRIP_WIDTH);
+        let [x, y] = super::floating_origin(
+            [projected[0] - STRIP_LEAD, projected[1] - GLYPH[1]],
+            [width + STRIP_OFFSET + STRIP_SKEW, ROW_OFFSET[1] + GLYPH[1]],
         );
-        text::glyphs(
-            text_batch,
-            font,
-            text,
-            [x + PADDING, y + PADDING],
-            [width, TEXT_SIZE[1]],
-            [128, 128, 128, alpha],
-        )
-    }
-}
-
-/// A brief wash over the scene, below the HUD. Drawing never advances it.
-#[derive(Clone, Copy)]
-pub(super) struct Flash {
-    pub age: u32,
-    pub color: [f32; 3],
-}
-
-impl Flash {
-    pub fn alpha(&self) -> f32 {
-        const DURATION: u32 = 24;
-        const OPACITY: f32 = 0.18;
-        let remaining = DURATION.saturating_sub(self.age);
-        OPACITY * (remaining as f32 / DURATION as f32).powi(2)
-    }
-
-    pub fn draw(&self, batch: &mut Batch) {
-        let alpha = self.alpha();
-        if alpha > 0. {
-            let [r, g, b] = self.color;
-            batch.quad([0., 0., 640., 480.], [0.5; 4], [r, g, b, alpha]);
+        let right = x + width + STRIP_LEAD;
+        let collapse = if matches!(self.kind, LabelKind::Applied) {
+            self.age
+                .saturating_sub(u64::from(self.duration))
+                .min(COLLAPSE_TICKS) as f32
+        } else {
+            0.
+        };
+        let height = GLYPH[1] * (1. - collapse / COLLAPSE_TICKS as f32);
+        let mut colors = stat_colors;
+        for color in &mut colors {
+            color[3] = self.alpha();
         }
+        for (row, line) in lines.iter().enumerate() {
+            let top = y + row as f32 * ROW_OFFSET[1];
+            let baseline = top + GLYPH[1];
+            let text_left = right - line_width(line.chars().count()) + row as f32 * ROW_OFFSET[0];
+            let left = x + width - STRIP_WIDTH + row as f32 * STRIP_OFFSET;
+            let expansion = collapse * STRIP_GROWTH;
+            let strip = if row == 0 {
+                [left - expansion, left + STRIP_WIDTH]
+            } else {
+                [left, left + STRIP_WIDTH + expansion]
+            };
+            let mut backdrop = stat_backdrops[row];
+            for (corner, color) in backdrop.iter_mut().enumerate() {
+                color[3] = if corner < 2 {
+                    0
+                } else {
+                    (u16::from(self.alpha()) * 128 / 255) as u8
+                };
+            }
+            super::party::slanted_quad(
+                solid,
+                [strip[0], baseline - height, strip[1], baseline],
+                [0.5; 4],
+                STRIP_SKEW,
+                backdrop,
+            );
+            text::italic(
+                text_batch,
+                font,
+                line,
+                [text_left, baseline - height],
+                [GLYPH[0], height],
+                ADVANCE,
+                SKEW,
+                colors,
+            )?;
+            if self.age <= ECHO_TICKS {
+                let extra = (ECHO_TICKS - self.age) as f32 * ECHO_STEP;
+                let opacity =
+                    (ECHO_START_ALPHA + ECHO_START_ALPHA * self.age / ECHO_TICKS).min(255) as u16;
+                let mut echo_colors = colors;
+                for color in &mut echo_colors {
+                    color[3] = (u16::from(color[3]) * opacity / 255) as u8;
+                }
+                text::italic(
+                    text_batch,
+                    font,
+                    line,
+                    [text_left, top],
+                    [GLYPH[0] + extra, GLYPH[1] + extra],
+                    ADVANCE + extra,
+                    (GLYPH[1] + extra) / 2.,
+                    echo_colors,
+                )?;
+            }
+        }
+        Ok(())
     }
 }
 
 impl super::Artwork {
     pub(crate) fn overlays_diagnostic(&self) -> serde_json::Value {
         serde_json::json!({
-            "flash": self.flash.map(|flash| serde_json::json!({
-                "age": flash.age, "color": flash.color, "alpha": flash.alpha(),
-            })),
             "actor_labels": self.labels.iter().map(|(actor, label)| serde_json::json!({
                 "actor": actor, "kind": format!("{:?}", label.kind), "position": label.position,
                 "age": label.age, "duration": label.duration,
@@ -212,6 +290,7 @@ mod tests {
             10,
         );
         assert_eq!(labels[0].1.text(), "CUSTOM LABEL");
+        assert_eq!(labels[0].1.lines, ["CUSTOM", "LABEL"]);
         request_custom(&mut labels, 2, Default::default(), [0.; 3], 0);
         assert!(labels.is_empty());
     }

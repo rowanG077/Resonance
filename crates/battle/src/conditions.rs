@@ -107,6 +107,7 @@ struct ConditionTick {
 const POISON_INTERVAL: u32 = 30;
 const REGENERATION_INTERVAL: u32 = 360;
 const DEFAULT_STAT_CONDITION_DURATION: u32 = 1800;
+const ACCURACY_CONDITIONS: ConditionSet = ConditionSet::of(&[AccuracyUp, AccuracyDown]);
 /// Check paralysis before admitting grounded controls.
 ///
 /// Grounded paralysis uses a percentage chance reduced by luck.
@@ -123,6 +124,7 @@ pub(crate) fn paralysis_controller_roll(actor: &Actor, random: &mut crate::state
 /// Condition labels last 45 updates. Weak uses a distinct presentation category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConditionLabel {
+    StatUp(Condition),
     Applied,
     StatusDown,
     /// Native category9, shared by EX13 resistance and other EX activations.
@@ -131,6 +133,8 @@ pub enum ConditionLabel {
     EquipmentEffect,
     /// Native category14 MAGIC/EFFECT, selected by the Revive rescue owner.
     Revive,
+    /// A one-use revival has been granted.
+    RevivalEffect,
 }
 
 /// Supported condition requests.
@@ -142,6 +146,8 @@ pub enum Buff {
     PhysicalAilmentGuard { persistent: bool },
     MagicalAilmentGuard { persistent: bool },
     Quartz(Element),
+    Revive,
+    HolySong,
 }
 
 /// Cure requests inspect mutable ailments independently of equipment layers and availability.
@@ -191,8 +197,6 @@ fn opposing_stat_condition(condition: Condition) -> Option<Condition> {
         AttackDown => AttackUp,
         DefenseUp => DefenseDown,
         DefenseDown => DefenseUp,
-        AccuracyUp => AccuracyDown,
-        AccuracyDown => AccuracyUp,
         MagicAttackUp => MagicAttackDown,
         MagicAttackDown => MagicAttackUp,
         MagicDefenseUp => MagicDefenseDown,
@@ -206,7 +210,8 @@ impl Conditions {
         let remaining = match condition {
             Paralysis | Heavy => Some(600),
             Flare | Guard | Acuity | Quartz => Some(1200),
-            PhysicalProtection | MagicalProtection => Some(900),
+            PhysicalProtection | MagicalProtection | RecoveryDown => Some(900),
+            HolySong => Some(DEFAULT_STAT_CONDITION_DURATION),
             condition if STAT_CONDITIONS.contains(condition) => {
                 Some(DEFAULT_STAT_CONDITION_DURATION)
             }
@@ -302,10 +307,9 @@ impl Conditions {
 
     /// Keep retained mutable effects intact; equipment never becomes mutable state.
     pub(crate) fn reload(&mut self, layers: Layers) {
-        self.effects
-            .retain(|effect| layers.base.contains(effect.condition));
+        self.remove(self.base().without(layers.base));
         for condition in layers.base.without(self.base()).iter() {
-            self.effects.push(self.initial_effect(condition));
+            self.set_effect(self.initial_effect(condition));
         }
         self.effects.sort_by_key(|effect| effect.condition);
         self.intrinsic = layers.intrinsic;
@@ -328,12 +332,27 @@ impl Conditions {
             self.effects.push(effect);
             self.effects.sort_by_key(|effect| effect.condition);
         }
+        // Accuracy's two flags have independent lifetimes but one signed amount.
+        if ACCURACY_CONDITIONS.contains(effect.condition) {
+            for current in &mut self.effects {
+                if ACCURACY_CONDITIONS.contains(current.condition) {
+                    current.magnitude = effect.magnitude;
+                }
+            }
+        }
         self.sync_periodic();
     }
     fn remove(&mut self, removed_conditions: ConditionSet) -> bool {
         let removed = self.base().intersection(removed_conditions);
         self.effects
             .retain(|effect| !removed_conditions.contains(effect.condition));
+        if removed.intersects(ACCURACY_CONDITIONS) {
+            for effect in &mut self.effects {
+                if ACCURACY_CONDITIONS.contains(effect.condition) {
+                    effect.magnitude = 0;
+                }
+            }
+        }
         self.sync_periodic();
         removed.intersects(ConditionSet::of(&[Quartz, Enchanted]))
             && !self
@@ -368,7 +387,7 @@ impl Conditions {
         }
     }
     pub fn apply_hit(&mut self, hit: crate::HitCondition) -> Option<ConditionLabel> {
-        let condition = hit.condition.into();
+        let condition = hit.condition;
         if STAT_CONDITIONS.contains(condition) {
             return self
                 .apply_stat_condition(
@@ -382,11 +401,7 @@ impl Conditions {
         if self.rejects(condition) {
             return None;
         }
-        self.set_effect(ActiveEffect {
-            condition,
-            remaining: (condition == Paralysis).then(|| self.duration(600, false)),
-            magnitude: 0,
-        });
+        self.set_effect(self.initial_effect(condition));
         Some(if condition == Weak {
             ConditionLabel::StatusDown
         } else {
@@ -414,13 +429,31 @@ impl Conditions {
             return false;
         }
         let strength = i32::from(value).abs();
+        let requested = (strength.min(i32::from(i16::MAX)) as i16) * sign;
         let strength = if strength_boost {
             strength * 120 / 100
         } else {
             strength
         };
         let magnitude = (strength.min(i32::from(i16::MAX)) as i16) * sign;
-        let retained = self.magnitude(condition);
+        let accuracy = ACCURACY_CONDITIONS.contains(condition);
+        let retained = if accuracy {
+            self.effects
+                .iter()
+                .find(|effect| ACCURACY_CONDITIONS.contains(effect.condition))
+                .map_or(0, |effect| effect.magnitude)
+        } else {
+            self.magnitude(condition)
+        };
+        let keep_retained = if accuracy {
+            if sign > 0 {
+                retained >= requested
+            } else {
+                retained <= requested
+            }
+        } else {
+            retained.unsigned_abs() > magnitude.unsigned_abs()
+        };
         self.set_effect(ActiveEffect {
             condition,
             remaining: Some(self.duration(
@@ -431,13 +464,27 @@ impl Conditions {
                 },
                 false,
             )),
-            magnitude: if retained.unsigned_abs() > magnitude.unsigned_abs() {
-                retained
-            } else {
-                magnitude
-            },
+            magnitude: if keep_retained { retained } else { magnitude },
         });
         true
+    }
+
+    pub(crate) fn bless_stat(&mut self, condition: Condition, amount: u8) {
+        if self.apply_stat_condition(condition, i16::from(amount), 0, false)
+            && let Some(effect) = self.effects.iter_mut().find(|e| e.condition == condition)
+        {
+            effect.remaining = None;
+        }
+    }
+
+    pub(crate) fn bless_speed(&mut self) {
+        if !self.immunity().contains(MovementBoost) {
+            self.set_effect(ActiveEffect {
+                condition: MovementBoost,
+                remaining: None,
+                magnitude: 0,
+            });
+        }
     }
 
     fn stat_with_conditions(
@@ -448,8 +495,16 @@ impl Conditions {
     ) -> i32 {
         let percent = i32::from(positive.map_or(0, |condition| self.magnitude(condition)))
             + i32::from(self.magnitude(negative));
-        (i64::from(base) + i64::from(base) * i64::from(percent) / 100).clamp(0, i64::from(i32::MAX))
-            as i32
+        let value = (i64::from(base) + i64::from(base) * i64::from(percent) / 100).max(0);
+        let value = if matches!(positive, Some(AttackUp | DefenseUp))
+            && self.effective().contains(HolySong)
+        {
+            // Holy Song's ten-percent physical bonus compounds with ordinary modifiers.
+            value + value / 10
+        } else {
+            value
+        };
+        value.min(i64::from(i32::MAX)) as i32
     }
     pub(crate) fn attack_with_conditions(&self, base: i32) -> i32 {
         self.stat_with_conditions(base, Some(AttackUp), AttackDown)
@@ -463,7 +518,12 @@ impl Conditions {
         self.stat_with_conditions(base, Some(DefenseUp), DefenseDown)
     }
     pub(crate) fn accuracy_with_conditions(&self, base: i32) -> i32 {
-        self.stat_with_conditions(base, Some(AccuracyUp), AccuracyDown)
+        let condition = if self.base().contains(AccuracyUp) {
+            AccuracyUp
+        } else {
+            AccuracyDown
+        };
+        self.stat_with_conditions(base, None, condition)
     }
     pub(crate) fn evasion_with_conditions(&self, base: i32) -> i32 {
         self.stat_with_conditions(base, None, EvasionDown)
@@ -480,6 +540,8 @@ impl Conditions {
                 (MagicalProtection, (!persistent).then_some(900), None)
             }
             Buff::Quartz(element) => (Quartz, Some(1200), Some(element)),
+            Buff::Revive => (Revive, None, None),
+            Buff::HolySong => (HolySong, Some(DEFAULT_STAT_CONDITION_DURATION), None),
         };
         PreparedBuff {
             effect: (!self.immunity().contains(condition)).then(|| ActiveEffect {
@@ -581,7 +643,11 @@ impl PreparedBuff {
                 magnitude: 0,
             });
         }
-        Some(ConditionLabel::Applied)
+        Some(if effect.condition == Revive {
+            ConditionLabel::RevivalEffect
+        } else {
+            ConditionLabel::Applied
+        })
     }
 }
 

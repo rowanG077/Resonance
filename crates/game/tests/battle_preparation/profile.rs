@@ -43,6 +43,8 @@ pub(super) fn profile() -> battle_profile::Profile {
         camera_category: 3,
         voices: None,
         death_motion: 0,
+        overlimit_bone: 0,
+        overlimit_scale: 1.,
         overlimit_gain: 0,
         initial_overlimit: 0,
         ground_offset: 50.,

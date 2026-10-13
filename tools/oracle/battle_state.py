@@ -44,7 +44,7 @@ def inspect_battle(ram):
         raise ValueError("invalid loaded battle REL BSS index")
     pool_pointer = sections[bss_index]["address"] + 0x540
     pool = read(pool_pointer)
-    result.update(pool_pointer=pool_pointer, pool=pool)
+    result.update(bss_index=bss_index, pool_pointer=pool_pointer, pool=pool)
     if not pool:
         return result
     offset(pool, 0x98980)
@@ -119,6 +119,20 @@ def inspect_battle(ram):
     return result
 
 
+def presentation_locations(pointer="8035a86c 10 30 540"):
+    """Scene camera and tint fields verified across two active scene snapshots."""
+    return {f"{pointer} {offset:x}": name for offset, name in [
+        (0xb0, "battle_scene_minimum_distance_bits"),
+        (0xb4, "battle_scene_minimum_elevation_bits"),
+        (0xbc, "battle_scene_camera_remaining_word"),
+        (0x3376c, "battle_scene_tint_rgba"),
+        (0x33770, "battle_scene_secondary_tint_rgba"),
+        (0x33774, "battle_scene_tint_remaining_word"),
+        (0x32004, "battle_stage_tint_rg_word"),
+        (0x32008, "battle_stage_tint_ba_word"),
+    ]}
+
+
 def watch_locations(battle):
     """Follow observed storage; retain pointer words so relocation is detectable."""
     locations = {"8035a760": "global_mode_word", "802cb554": "battle_route_flags_word",
@@ -127,7 +141,10 @@ def watch_locations(battle):
                  "8035a86c": "battle_module", "8035a768 ea5": "party_control_types_word"}
     if not battle.get("pool"):
         return locations
-    pointer = f'{battle["pool_pointer"]:x}'
+    # Reloading a battle may relocate its module and BSS. Follow the section
+    # table instead of watching the previous battle's absolute pool pointer.
+    pointer = f'8035a86c 10 {battle["bss_index"] * 8:x} 540'
+    locations.update(presentation_locations(pointer))
     locations[pointer] = "battle_pool"
     for at, name in [(0x15564, "dispatch"), (0x156d8, "phase"), (0x156fc, "presentation_tick"),
                      (0x15700, "gameplay_tick"), (0x15704, "combat_tick"),

@@ -58,12 +58,15 @@ fn command_view(view: &View) -> Value {
 }
 
 impl Owner {
-    pub(crate) fn replay_phase(&self) -> Option<(u16, BattlePhase)> {
+    pub(crate) fn replay_phase(&self) -> Option<(u16, BattlePhase, u32)> {
         let Phase::Scene(scene) = &self.phase else {
             return None;
         };
-        (self.presenting() && scene.entry_remaining == 0)
-            .then_some((self.request.setup.formation().ok()?, scene.core.phase()))
+        (self.presenting() && scene.entry_remaining == 0).then_some((
+            self.request.setup.formation().ok()?,
+            scene.core.phase(),
+            scene.core.ledger().combat_ticks,
+        ))
     }
 
     /// Screenshot readback starts only after the scene is fully submitted.
@@ -163,6 +166,7 @@ impl Owner {
                         Control::Auto => "auto", Control::Enemy => "enemy",
                     },
                     "activity": format!("{:?}", actor.activity),
+                    "clock_paused": frame.paused_actors.iter().any(|id| id.index() == index),
                     "casting": ActorId::from_index(index).ok()
                         .and_then(|actor| scene.core.casting_remaining(actor))
                         .map(|remaining| json!({"remaining": remaining})),
@@ -209,15 +213,15 @@ impl Owner {
                     "visible": model.visible, "clip": model.clip, "frame": model.frame,
                     // Live post-callback flag; the pose above can be held from an
                     // earlier drawing boundary. Terminal stop uses this flag too.
-                    "current_main": scene.models.main_motion_observation(model.actor).map(main_motion),
+                    "current_main": scene.core.models().and_then(|models| models.main_motion_observation(model.actor)).map(main_motion),
                     "blend_weight": model.blend_weight,
                     "root_translation": model.root_translation,
                     "world": model.world, "bones": model.bones.as_ref(),
                     "tint": model.tint, "material": model_material(model.material),
-                    "outline_tint": super::appearance::outline(&frame.actors[model.actor.index()], frame.recognized_result.is_none(), model.tint[3]), "texture_layers": model.texture_layers,
+                    "outline_tint": super::appearance::outline(&frame.actors[model.actor.index()], frame.recognized_result.is_none() && !frame.clock.paused(), frame.update, model.tint[3]), "texture_layers": model.texture_layers,
                     "light": model.light,
                     "shadow": model.shadow.map(|shadow| json!({
-                        "position": shadow.position, "radius": shadow.radius,
+                        "position": shadow.position, "scale": shadow.scale,
                         "color": shadow.color,
                     })),
                 })
@@ -246,12 +250,14 @@ impl Owner {
                 "actor": weapon.owner.index(), "slot": weapon.slot,
                 "resource": weapon.resource, "visible": weapon.visible,
                 "clip": weapon.clip, "frame": weapon.frame,
+                "texture_offset": weapon.texture_scroll,
                 "world": weapon.world, "bones": weapon.bones.as_ref(),
                 "tint": weapon.tint, "material": model_material(weapon.material), "links": weapon.links,
             })).collect::<Vec<_>>(),
             "camera": frame.camera.map(|camera| json!({
                 "eye": camera.eye, "target": camera.focus,
                 "pitch": camera.pitch, "yaw": camera.yaw, "radius": camera.radius,
+                "fov_degrees": frame.camera_fov_degrees.unwrap_or(resonance_battle::VERTICAL_FOV_DEGREES),
             })),
             "actions": frame.actions.iter().map(|(id, actor, age)| json!({
                 "handle": format!("{id:?}"), "actor": actor.index(), "age": age,
@@ -261,6 +267,11 @@ impl Owner {
                 "handle": format!("{:?}", particle.id), "actor": particle.owner.index(),
                 "resource": particle.resource, "member": particle.member,
                 "origin": particle.origin, "offset": particle.state.offset,
+                "owner_bone": particle.owner_bone,
+                "model": particle.model.as_ref().map(|model| json!({
+                    "resource": model.resource, "world": model.world,
+                    "clip": model.clip, "frame": model.frame,
+                })),
             })).collect::<Vec<_>>(),
             "projectile_shadows": frame.projectile_shadows.iter().map(|shadow| json!({
                 "handle": format!("{:?}", shadow.projectile), "position": shadow.position,
@@ -278,7 +289,70 @@ impl Owner {
             "paused": frame.clock.paused(),
             "timed_hold_remaining": scene.core.timed_hold_remaining(),
         });
+        diagnostic["unison_gauge"] = json!(scene.core.unison_gauge());
+        diagnostic["unison"] = json!(frame.unison.as_ref().map(|unison| json!({
+            "generation": unison.generation,
+            "phase": format!("{:?}", unison.phase),
+            "elapsed": unison.elapsed,
+            "initiator": unison.initiator.index(),
+            "target": unison.target.map(|actor| actor.index()),
+            "blocked_slots": unison.blocked_slots,
+            "selected": unison.selected.iter().map(|actor| actor.index()).collect::<Vec<_>>(),
+            "selected_actions": unison.selected_actions.iter().map(|(actor, action)| json!({
+                "actor": actor.index(), "action": action.0,
+            })).collect::<Vec<_>>(),
+            "hidden": unison.hidden.iter().map(|actor| actor.index()).collect::<Vec<_>>(),
+            "stage_color": unison.stage_color,
+            "completion": unison.completion.as_ref().map(|completion| format!("{completion:?}")),
+            "combination": unison.combination.as_ref().map(|combination| json!({
+                "id": combination.id, "native_id": combination.native_id,
+                "actors": combination.actors.map(|actor| actor.index()),
+            })),
+        })));
+        diagnostic["last_unison_completion"] = json!(
+            scene
+                .core
+                .last_unison_completion()
+                .map(|completion| format!("{completion:?}"))
+        );
         diagnostic["overlays"] = scene.hud.overlays_diagnostic();
+        diagnostic["event"] = json!(scene.lifecycle.event().map(|event| json!({
+            "tick": event.events.tick(),
+            "fade": frame.event_fade.as_ref().map(|fade| json!({"color": fade.color, "alpha": fade.alpha})),
+            "actors": event.events.world.actors.iter().map(|(id, actor)| json!({
+                "id": id, "position": actor.position, "heading": actor.heading,
+                "visible": actor.visible,
+                "animation": actor.animation.as_ref().map(|animation| json!({
+                    "resource": animation.resource, "source": format!("{:?}", animation.source),
+                    "slot": animation.slot, "duration_ticks": animation.duration_ticks,
+                    "sample_tick": animation.sample(event.events.tick(), 0, animation.duration_ticks as f32),
+                    "loop_start": animation.loop_start, "repeat": animation.repeat,
+                    "rate": animation.rate, "blend_ticks": animation.blend_ticks,
+                    "start_tick": animation.start_tick, "phase_tick": animation.phase_tick,
+                })),
+            })).collect::<Vec<_>>(),
+            "dialogue": event.dialogue.iter().map(|(slot, player)| json!({
+                "slot": slot, "operation": player.operation.id(), "page": player.page,
+                "visible": player.visible, "closed": player.closed,
+                "text": player.pages.get(player.page).map(|page| page.text()),
+            })).collect::<Vec<_>>(),
+        })));
+        diagnostic["combat_actors"] = json!(
+            scene
+                .core
+                .actors()
+                .iter()
+                .enumerate()
+                .map(|(index, actor)| json!({
+                    "actor": index,
+                    "character": scene.characters.get(index),
+                    "availability": format!("{:?}", actor.availability),
+                    "hp": actor.hp, "max_hp": actor.equipment.max_hp,
+                    "tp": actor.tp, "max_tp": actor.equipment.max_tp,
+                    "position": actor.position, "heading": actor.heading,
+                }))
+                .collect::<Vec<_>>()
+        );
         diagnostic["pending_item"] = json!(scene.core.pending_item().map(|item| json!({
             "user": item.user.index(), "target": item.target.index(), "item": item.item,
         })));

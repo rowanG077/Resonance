@@ -25,6 +25,7 @@ fn controlled_fixture(distance: f32, minimum: f32, maximum: f32, control: Contro
             normal: None,
             tp_cost: 7,
             execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+                contact_recovery: None,
                 chain_at: None,
                 end_at: 60,
                 opening: None,
@@ -122,30 +123,95 @@ fn approach_enters_range_and_commits_payment_and_learning_once() -> Result<()> {
 
 #[test]
 fn minimum_range_retreats_and_then_attacks() -> Result<()> {
-    let mut battle = fixture(50., 100., 150.);
-    let mut started = false;
-    for _ in 0..UPDATE_BUDGET {
-        started |= step(&mut battle)?.cues.iter().any(|cue| {
-            matches!(
-                cue,
-                Cue::Started {
-                    actor: ActorId(0),
-                    ..
-                }
-            )
-        });
-        if started {
-            break;
+    for (control, minimum, maximum) in [
+        (Control::Auto, 100., 150.),
+        (Control::Auto, 200., 220.),
+        (Control::Enemy, 300., 280.),
+        (Control::Enemy, 500., 500.),
+        (Control::Enemy, 200., 200.),
+    ] {
+        let mut battle = controlled_fixture(50., minimum, maximum, control);
+        let turning_body = control == Control::Enemy || minimum == 200.;
+        if turning_body {
+            let mut owner = crate::tests::model_definition(7, [(99, 10.)]);
+            owner.body_spheres = vec![crate::BodySphere {
+                bone: 0,
+                radius: 10.,
+            }];
+            let target = owner.clone();
+            // The forward body marker moves toward the victim when the retreating actor turns.
+            owner.skeleton.bones[0].bind.translation = [0., -10., 0.];
+            battle.set_models(crate::Models::new(
+                &battle.actors,
+                vec![
+                    Some(std::sync::Arc::new(owner)),
+                    Some(std::sync::Arc::new(target)),
+                ],
+                Default::default(),
+                resonance_content::diagnostics::Diagnostics::new(true),
+            )?);
         }
+        let tp = battle.actors[0].tp;
+        let mut started = false;
+        let mut reached_range = false;
+        let mut alignment_position = None;
+        for _ in 0..UPDATE_BUDGET {
+            reached_range |= battle.body_gap(ActorId(0), ActorId(1)) >= minimum;
+            started |= step(&mut battle)?.cues.iter().any(|cue| {
+                matches!(
+                    cue,
+                    Cue::Started {
+                        actor: ActorId(0),
+                        ..
+                    }
+                )
+            });
+            if let Some(position) = alignment_position {
+                assert_eq!(battle.actors[0].position, position);
+            } else if battle.actors[0].movement.locomotion == crate::Locomotion::Action {
+                alignment_position = Some(battle.actors[0].position);
+            }
+            if started {
+                break;
+            }
+        }
+        assert!(started, "{control:?} thresholds {minimum}/{maximum}");
+        assert!(reached_range);
+        assert!(battle.actors[0].position[0] < 0.);
+        if turning_body {
+            assert!(battle.body_gap(ActorId(0), ActorId(1)) < minimum);
+        } else {
+            assert!(battle.body_gap(ActorId(0), ActorId(1)) >= minimum);
+        }
+        assert_eq!(battle.actors[0].tp, tp - 7);
+        assert!(battle.runtime[0].task().approach().is_none());
     }
-    assert!(started);
-    assert!(battle.actors[0].position[0] < 0.);
+    let mut party = fixture(50., 100., 150.);
+    let mut parameters = party.runtime[0].task().approach().unwrap().parameters;
+    parameters.maximum = parameters.minimum;
+    assert!(
+        party
+            .request_approach(ActorId(0), ActorId(1), crate::ActionKey(0), parameters)
+            .is_err()
+    );
     Ok(())
 }
 
 #[test]
 fn opposite_initial_direction_recovers_and_reaches_a_moving_target() -> Result<()> {
     let mut battle = fixture(300., 0., 100.);
+    let parameters = battle.runtime[0].task().approach().unwrap().parameters;
+    battle.actors[0].movement.direction = [-1., 0., 0.];
+    assert!(battle.request_approach(
+        ActorId(0),
+        ActorId(1),
+        crate::ActionKey(0),
+        parameters,
+    )?);
+    step(&mut battle)?;
+    assert!(battle.actors[0].position[0] > 0.);
+    assert_eq!(battle.actors[0].heading, 90.);
+
     battle.actors[0].movement.direction = [-1., 0., 0.];
     battle.actors[0].heading = -90.;
     step(&mut battle)?;

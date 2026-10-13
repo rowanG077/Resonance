@@ -113,11 +113,7 @@ fn petrified_actor_publishes_current_body_after_physics() -> Result<()> {
     battle.step(BattleInput::default())?;
     assert_eq!(battle.actors[0].target_center()[0], 12.);
     assert_eq!(battle.actors[0].position[0], 12.);
-    crate::tests::assert_close(
-        crate::control::body_gap(&battle.actors[0], &battle.actors[1]),
-        368.,
-        0.001,
-    );
+    crate::tests::assert_close(battle.body_gap(ActorId(0), ActorId(1)), 368., 0.001);
     Ok(())
 }
 

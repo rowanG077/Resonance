@@ -40,7 +40,7 @@ fn equipped_arm_item_transfers_between_members_and_commits_without_inventory_sto
         candidate.step_equipment(&mut battle, &mut page, &mut character, Some(action))?;
     }
     assert_eq!(character, 1);
-    let draft = candidate.equipment_draft.as_ref().unwrap();
+    let draft = candidate.menu_party.as_ref().unwrap();
     assert_eq!(
         [0, 6].map(|member| draft.members[member].equipment[5]),
         [0, 367]
@@ -205,7 +205,7 @@ fn weapon_swap_preserves_active_contacts_and_native_state() -> Result<()> {
     let conditions_before = battle.actors()[actor.index()].conditions.clone();
     assert!(
         candidate
-            .equipment_draft
+            .menu_party
             .as_mut()
             .unwrap()
             .equip_slot(&candidate.session, 0, 0, 136)
@@ -315,7 +315,7 @@ fn missing_actor_art_allows_stats_contacts_and_result_commit() -> Result<()> {
                     Input::default(),
                 )?;
             }
-            let draft = candidate.equipment_draft.as_mut().unwrap();
+            let draft = candidate.menu_party.as_mut().unwrap();
             assert!(
                 draft
                     .equip_slot(&candidate.session, 0, 0, 136)

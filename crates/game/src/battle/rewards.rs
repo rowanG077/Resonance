@@ -216,8 +216,7 @@ impl Rewards {
             modifiers,
         } = *input;
         ensure!(
-            !enemies.is_empty()
-                && enemies.len() <= resonance_battle::ENEMY_CAPACITY
+            enemies.len() <= resonance_battle::ENEMY_CAPACITY
                 && (-8..=8).contains(&level_difference)
                 && enemies.iter().all(|enemy| enemy
                     .drops
@@ -612,6 +611,38 @@ pub(super) mod tests {
             drops: [None; 2],
             drop_chances: [0; 2],
         }
+    }
+
+    #[test]
+    fn excluded_enemies_award_nothing_and_consume_no_reward_randomness() {
+        let (session, techniques, titles, party) = reward_fixture();
+        let random = GameplayRandom::new(1);
+        let awarded = award(
+            party.clone(),
+            &session,
+            &techniques,
+            &titles,
+            input(&[]),
+            random,
+        )
+        .unwrap();
+        assert_eq!((awarded.rewards.experience, awarded.rewards.gald), (0, 0));
+        assert!(awarded.rewards.items.is_empty());
+        assert_eq!(awarded.party.gald, party.gald);
+        assert_eq!(
+            awarded
+                .party
+                .members
+                .iter()
+                .map(|member| member.experience)
+                .collect::<Vec<_>>(),
+            party
+                .members
+                .iter()
+                .map(|member| member.experience)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(awarded.random, random);
     }
 
     #[test]

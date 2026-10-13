@@ -163,13 +163,14 @@ pub struct ModelSetup {
     pub suppress_root_translation: [bool; 3],
 }
 
-/// Shared roles in the source animation catalogue. Resolve these only at preparation.
+/// Named roles in battle animation catalogues. Resolve these only at preparation.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum MotionRole {
     Idle = 0,
     Walk = 1,
     Hurt = 3,
     Defeated = 7,
+    Revival = 9,
     Chant = 11,
     Cast = 12,
     Jump = 14,
@@ -297,7 +298,13 @@ pub(super) fn body(
             airborne: clip(MotionRole::Fall.id()),
             landing: clip(MotionRole::Landing.id()),
             rising: clip(5),
+            rising_blend: 4,
             falling: clip(6),
+            falling_blend: if matches!(profile.weight, 2 | 3) {
+                12
+            } else {
+                16
+            },
             down: clip(8).or_else(|| clip(MotionRole::Defeated.id())),
             get_up: clip(10).or_else(|| clip(9)),
             defeated: (profile.death_motion != 0)
@@ -324,14 +331,18 @@ pub(super) fn body(
         initial: setup.initial,
         suppress_root_translation: setup.suppress_root_translation,
         reactions,
-        idle_motions: [
-            clip(MotionRole::Idle.id()),
-            if actor.side == Side::Party {
-                clip(MotionRole::WeakIdle.id())
-            } else {
-                None
-            },
-        ],
+        idle_motions: if profile.traits.body_motion_disabled {
+            [None; 2]
+        } else {
+            [
+                clip(MotionRole::Idle.id()),
+                if actor.side == Side::Party {
+                    clip(MotionRole::WeakIdle.id())
+                } else {
+                    None
+                },
+            ]
+        },
         idle_expression: profile.idle_expression,
         blink,
         shadow: if actor.side == resonance_battle::Side::Enemy && profile.traits.hide_enemy_shadow {
@@ -344,9 +355,54 @@ pub(super) fn body(
         },
         weapons: vec![],
         skeleton: rig.skeleton.clone(),
+        body_spheres: marker_spheres(&rig.skeleton, actor.body.scale, &[b"mo"])?,
+        reception_spheres: Some(marker_spheres(
+            &rig.skeleton,
+            actor.body.scale,
+            &[b"mo", b"dm"],
+        )?),
         motions,
     };
     Ok(Arc::new(model))
+}
+
+/// Body and reception markers encode their radius in ten-unit steps.
+fn marker_spheres(
+    skeleton: &resonance_content::animation::Skeleton,
+    scale: f32,
+    prefixes: &[&[u8; 2]],
+) -> Result<Vec<resonance_battle::BodySphere>> {
+    let mut spheres = Vec::new();
+    for (bone, definition) in skeleton.bones.iter().enumerate() {
+        let name = definition.name.as_bytes();
+        if name.len() < 3
+            || !prefixes
+                .iter()
+                .any(|prefix| name[..2].eq_ignore_ascii_case(*prefix))
+        {
+            continue;
+        }
+        let digits = name[2..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if digits == 0 {
+            continue;
+        }
+        let units: u8 = definition.name[2..2 + digits]
+            .parse()
+            .with_context(|| format!("invalid body marker {}", definition.name))?;
+        ensure!(
+            (1..=15).contains(&units),
+            "unsupported body marker {}",
+            definition.name
+        );
+        spheres.push(resonance_battle::BodySphere {
+            bone: bone.try_into().context("too many battle body bones")?,
+            radius: f32::from(units) * 10. * scale,
+        });
+    }
+    Ok(spheres)
 }
 
 /// Prepare one verified ordinary or stored model, sharing its presentation resource.
@@ -361,13 +417,15 @@ pub fn effect(
         .context("missing effect model layer")?
         .scene;
     for layer in &part.layers {
+        let skeleton =
+            resonance_content::animation::Skeleton::from_glb(&files.read(&layer.scene.mesh)?)?;
         ensure!(
-            part.rig
-                .skeleton
+            skeleton
                 .bones
                 .iter()
                 .map(|bone| &bone.name)
                 .eq(layer.scene.bone_names.iter())
+                && shares_indexed_pose(&part.rig.skeleton, &skeleton)
                 && primary
                     .clips
                     .iter()
@@ -401,4 +459,32 @@ pub fn effect(
         },
     ))?;
     Ok(model)
+}
+
+/// Effect layers consume indexed poses. Labels may differ between the body and
+/// outline, but every index must represent the same rest transform and parent.
+fn shares_indexed_pose(
+    primary: &resonance_content::animation::Skeleton,
+    layer: &resonance_content::animation::Skeleton,
+) -> bool {
+    // Independently exported body/outline matrices acquire small differences
+    // when decomposed into TRS. Compare their pose, not float serialization.
+    const REST_POSE_TOLERANCE: f32 = 0.00001;
+    primary.bones.len() == layer.bones.len()
+        && primary.bones.iter().zip(&layer.bones).all(|(a, b)| {
+            a.parent == b.parent
+                && a.bind
+                    .translation
+                    .iter()
+                    .chain(&a.bind.rotation)
+                    .chain(&a.bind.scale)
+                    .zip(
+                        b.bind
+                            .translation
+                            .iter()
+                            .chain(&b.bind.rotation)
+                            .chain(&b.bind.scale),
+                    )
+                    .all(|(a, b)| (a - b).abs() <= REST_POSE_TOLERANCE)
+        })
 }

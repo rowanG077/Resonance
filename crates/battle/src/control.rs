@@ -93,7 +93,7 @@ impl NormalAttack {
         matches!(self, Self::AerialSlash | Self::AerialThrust)
     }
 
-    pub(crate) fn from_input([x, y]: [i8; 2], airborne: bool) -> Self {
+    pub fn from_input([x, y]: [i8; 2], airborne: bool) -> Self {
         const DIRECTION_THRESHOLD: i8 = 48;
         if airborne {
             if y < -DIRECTION_THRESHOLD {
@@ -116,6 +116,7 @@ impl NormalAttack {
 #[derive(Debug, Clone, Copy)]
 pub struct NormalControl {
     pub action: crate::ActionKey,
+    pub continuation: resonance_content::battle_normal::Continuation,
     pub reach: f32,
     pub minimum_reach: f32,
 }
@@ -175,16 +176,20 @@ impl NormalState {
 
     pub(crate) fn continuations(
         self,
+        definition: &ControlDefinition,
         jump_combo: bool,
-    ) -> (&'static [NormalAttack], Option<NormalAttack>) {
+    ) -> resonance_content::battle_normal::Continuation {
         use NormalAttack::*;
         match self {
-            Self::Attack(Neutral) => (&[Rising, Thrust, Low], Some(Finisher)),
-            Self::Attack(Thrust | Low) => (&[Neutral, Rising, Thrust, Low], None),
-            Self::Attack(Rising) => (&[AerialSlash, AerialThrust], Some(AerialSlash)),
-            Self::Attack(AerialSlash | AerialThrust) => (&[AerialSlash, AerialThrust], None),
-            Self::Landing if jump_combo => (&[Neutral, Rising, Thrust, Low], None),
-            Self::Attack(Finisher) | Self::Landing => (&[], None),
+            Self::Attack(attack) => definition.normals[attack as usize].continuation,
+            Self::Landing if jump_combo => resonance_content::battle_normal::Continuation {
+                directions: (1 << Neutral as u8)
+                    | (1 << Rising as u8)
+                    | (1 << Thrust as u8)
+                    | (1 << Low as u8),
+                fallback: None,
+            },
+            Self::Landing => Default::default(),
         }
     }
 }
@@ -273,6 +278,14 @@ impl PreparedBattle {
                 "invalid prepared control movement"
             );
             for (kind, normal) in NormalAttack::ALL.into_iter().zip(definition.normals) {
+                ensure!(
+                    normal.continuation.directions & 0x80 == 0
+                        && normal
+                            .continuation
+                            .fallback
+                            .is_none_or(|fallback| fallback < 7),
+                    "invalid normal continuation"
+                );
                 ensure!(
                     normal.reach.is_finite()
                         && normal.reach > 0.
@@ -1030,11 +1043,16 @@ impl Battle {
                 return;
             }
             let direction = NormalAttack::from_input(input.stick, owner.airborne());
-            let (allowed, fallback) = normal.continuations(owner.equipment.combo_traits.jump_combo);
-            let next = allowed
-                .contains(&direction)
+            let definition = self.prepared.actor_setup[index].control.as_ref().unwrap();
+            let continuation =
+                normal.continuations(definition, owner.equipment.combo_traits.jump_combo);
+            let next = (continuation.directions & (1 << direction as u8) != 0)
                 .then_some(direction)
-                .or(fallback);
+                .or_else(|| {
+                    continuation
+                        .fallback
+                        .map(|index| NormalAttack::ALL[index as usize])
+                });
             next.map(BufferedAction::Normal)
         } else if input.technique.pressed {
             let direction = NormalAttack::from_input(input.stick, false) as usize;
@@ -1127,7 +1145,10 @@ impl Battle {
                     return Ok(false);
                 }
                 let owner = &mut self.actors[index];
-                owner.attack_power = owner.attack_power.saturating_sub(15).max(10);
+                owner.attack_power = owner
+                    .attack_power
+                    .saturating_sub(crate::damage::CHAIN_POWER_REDUCTION)
+                    .max(crate::damage::MIN_ATTACK_POWER);
                 if owner.equipment.combo_traits.combo_force {
                     owner.attack_power = owner.attack_power.saturating_add(5);
                 }
@@ -1400,7 +1421,7 @@ impl Battle {
         let center = self.actors[actor.index()].target_center();
         self.camera
             .as_ref()
-            .map_or(center[0], |camera| project_screen_x(camera.pose, center))
+            .map_or(center[0], |camera| project_screen_x(camera.frame(), center))
     }
 
     pub(crate) fn control_target_selector(&mut self, inputs: &[ControlInput]) -> Result<()> {
@@ -1559,7 +1580,7 @@ pub(crate) fn face(actor: &mut crate::Actor, direction: [f32; 3], step: f32) -> 
     ready
 }
 
-pub(crate) fn body_gap(actor: &crate::Actor, target: &crate::Actor) -> f32 {
+pub(crate) fn capsule_gap(actor: &crate::Actor, target: &crate::Actor) -> f32 {
     let distance = |a: [f32; 3], b: [f32; 3]| {
         (f64::from(a[0]) - f64::from(b[0])).hypot(f64::from(a[2]) - f64::from(b[2]))
     };

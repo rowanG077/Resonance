@@ -159,6 +159,7 @@ impl crate::Battle {
                         actor: owner,
                         slot,
                         duration: 1,
+                        highlighted: false,
                     });
                 }
                 contacts.weapon(owner, flight)

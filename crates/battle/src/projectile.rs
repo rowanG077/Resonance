@@ -1,7 +1,6 @@
 //! Projectile motion, contacts, and retirement.
 use crate::{ActionId, ActorId, Cue, HitShape};
 use anyhow::{Result, ensure};
-use glam::{Quat, Vec3};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -14,7 +13,8 @@ pub struct EffectAppearance {
 }
 
 pub use resonance_content::battle_projectile::{
-    ProjectileMotion, ProjectileResponse, ProjectileShadow, ProjectileSteering,
+    ProjectileBoneDirection, ProjectileDeparture, ProjectileMotion, ProjectileOrigin,
+    ProjectileResponse, ProjectileShadow, ProjectileSteering, ProjectileVelocityReset,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,12 +24,24 @@ pub struct ProjectileShadowFrame {
     pub appearance: ProjectileShadow,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ProjectileContactFeedback {
+    pub appearance: EffectAppearance,
+    pub on_guard: bool,
+    pub sound: Option<crate::Sound>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ProjectileEffects {
     pub trail: Option<(EffectAppearance, u32)>,
     pub ground: Option<EffectAppearance>,
     pub shadow: Option<ProjectileShadow>,
     pub clash: Option<EffectAppearance>,
+    pub contact: Option<ProjectileContactFeedback>,
+    pub seal: Option<crate::SealDefinition>,
+    /// Emit once at the first struck actor when this projectile ricochets.
+    pub rebound_projectile: Option<Arc<ProjectileDefinition>>,
+    pub spin_on_rebound: bool,
 }
 
 /// Prepared contact parameters for the standard projectile group.
@@ -82,6 +94,40 @@ impl ProjectileDefinition {
         );
         self.motion.validate_velocity_jitter()?;
         ensure!(
+            self.motion.departure.is_none_or(|departure| {
+                [
+                    departure.return_speed,
+                    departure.jump_speed,
+                    departure.ground_speed,
+                ]
+                .into_iter()
+                .all(|value| value.is_finite() && value > 0.)
+                    && departure
+                        .ground_reference
+                        .iter()
+                        .all(|value| value.is_finite())
+                    && self.contact.is_some()
+                    && self.motion.response.is_none()
+                    && self.motion.speed.is_none()
+                    && self.motion.steering.is_none()
+                    && self.clamp_ground
+            }),
+            "invalid projectile departure"
+        );
+        ensure!(
+            self.motion.velocity_reset.is_none_or(|reset| reset.age > 0
+                && reset.acceleration_scale.is_finite()
+                && self.motion.speed.is_none()),
+            "invalid projectile velocity reset"
+        );
+        ensure!(
+            (self.motion.contact_path.is_empty() || self.contact.is_some())
+                && self.motion.contact_path.iter().all(|points| {
+                    !points.is_empty() && points.iter().flatten().all(|v| v.is_finite())
+                }),
+            "invalid projectile contact path"
+        );
+        ensure!(
             self.velocity
                 .iter()
                 .zip(self.motion.velocity_jitter)
@@ -90,11 +136,21 @@ impl ProjectileDefinition {
         );
         ensure!(
             self.motion.response.is_none_or(|response| {
-                (response.bounce || response.ricochet)
+                (response.bounce
+                    || response.ricochet
+                    || response.ricochet_on_deflect
+                    || response.ground_ricochet)
                     && response.restitution.is_finite()
-                    && (!response.ricochet || self.contact.is_some())
+                    && (!(response.ricochet || response.ricochet_on_deflect)
+                        || self.contact.is_some())
             }),
             "invalid projectile response"
+        );
+        ensure!(
+            self.motion.bone_direction.is_none_or(
+                |direction| direction.from != direction.to && !self.motion.aim_at_target
+            ),
+            "invalid projectile bone direction"
         );
         ensure!(
             self.motion
@@ -104,7 +160,7 @@ impl ProjectileDefinition {
                     .motion
                     .steering
                     .is_none_or(|steering| steering.blend.is_finite()
-                        && (0.0..=1.0).contains(&steering.blend)
+                        && steering.blend >= 0.
                         && steering.end.is_none_or(|end| steering.start < end)),
             "invalid projectile steering"
         );
@@ -133,6 +189,19 @@ impl ProjectileDefinition {
                 "invalid projectile contact"
             );
         }
+        if let Some(seal) = self.effects.seal {
+            seal.validate()?;
+            ensure!(self.contact.is_some(), "projectile seal has no contact");
+        }
+        if let Some(projectile) = &self.effects.rebound_projectile {
+            ensure!(
+                self.motion
+                    .response
+                    .is_some_and(|response| response.ricochet),
+                "follow-up projectile requires a contact ricochet"
+            );
+            projectile.validate()?;
+        }
         Ok(())
     }
 }
@@ -143,6 +212,8 @@ pub struct ProjectileFrame {
     pub owner: ActorId,
     pub target: ActorId,
     pub position: [f32; 3],
+    /// Current world-space flight vector for attached effect orientation.
+    pub velocity: [f32; 3],
     pub heading: f32,
     /// The age just observed by this update, independent of the action's age.
     pub age: u32,
@@ -163,14 +234,24 @@ pub(crate) struct Projectile {
     pub radius: f32,
     pub height: f32,
     contact_received: bool,
+    deflected: bool,
+    seal_target: Option<ActorId>,
+    rebound_target: Option<ActorId>,
     bounce: bool,
     ricocheted: bool,
+    departed: bool,
+    rebound: Option<bool>,
     pub attack_power: u16,
     pub target_point: [f32; 3],
+    pub pending_launch: bool,
     ground_emitted: bool,
     cooldowns: [u8; crate::ACTOR_CAPACITY],
     hits: [u8; crate::ACTOR_CAPACITY],
 }
+
+const AQUA_EDGE_TURN_TICKS: u32 = 30;
+const AQUA_EDGE_BRAKING: f32 = 0.5;
+const AQUA_EDGE_ACCELERATION: f32 = 0.75;
 
 impl Projectile {
     pub fn new(
@@ -180,7 +261,11 @@ impl Projectile {
     ) -> Self {
         Self {
             velocity: rotate(definition.velocity, frame.heading),
-            acceleration: rotate(definition.acceleration, frame.heading),
+            acceleration: if definition.motion.world_direction {
+                definition.acceleration
+            } else {
+                rotate(definition.acceleration, frame.heading)
+            },
             radius: definition.contact.as_ref().map_or(0., |c| c.radius),
             height: definition.contact.as_ref().map_or(0., |c| c.height),
             bounce: definition
@@ -188,14 +273,20 @@ impl Projectile {
                 .response
                 .is_some_and(|response| response.bounce),
             ricocheted: false,
+            departed: false,
+            rebound: None,
             definition,
             action,
             frame,
             age: 0,
             retiring: false,
             contact_received: false,
+            deflected: false,
+            seal_target: None,
+            rebound_target: None,
             attack_power: 100,
             target_point: [0.; 3],
+            pending_launch: false,
             ground_emitted: false,
             cooldowns: [0; crate::ACTOR_CAPACITY],
             hits: [0; crate::ACTOR_CAPACITY],
@@ -207,23 +298,58 @@ impl Projectile {
         &mut self,
         cues: &mut Vec<Cue>,
         random: &mut crate::Random,
+        direction: Option<[f32; 3]>,
     ) -> Option<crate::EffectRequest> {
-        let mut local_velocity = self.definition.velocity;
-        for (velocity, amplitude) in local_velocity
-            .iter_mut()
-            .zip(self.definition.motion.velocity_jitter)
+        if direction.is_none() {
+            self.prepare_velocity(random);
+        }
+        self.finish_launch(cues, direction)
+    }
+
+    /// Consume authored jitter in emission order, before any deferred bone sampling.
+    pub(crate) fn prepare_velocity(&mut self, random: &mut crate::Random) {
+        if self.definition.motion.bone_direction.is_none() && !self.definition.motion.aim_at_target
         {
-            if amplitude != 0. {
-                let sample = f32::from(random.next_u16()) / f32::from(u16::MAX) * 2. - 1.;
-                *velocity += sample * amplitude.abs();
+            let mut local_velocity = self.definition.velocity;
+            for (velocity, amplitude) in local_velocity
+                .iter_mut()
+                .zip(self.definition.motion.velocity_jitter)
+            {
+                if amplitude != 0. {
+                    let sample = f32::from(random.next_u16()) / f32::from(u16::MAX) * 2. - 1.;
+                    *velocity += sample * amplitude.abs();
+                }
+            }
+            self.velocity = if self.definition.motion.world_direction {
+                local_velocity
+            } else {
+                rotate(local_velocity, self.frame.heading)
+            };
+            if self.definition.motion.aqua_edge {
+                self.velocity = rotate(self.velocity, self.frame.heading);
             }
         }
-        self.velocity = rotate(local_velocity, self.frame.heading);
+    }
+
+    pub(crate) fn finish_launch(
+        &mut self,
+        cues: &mut Vec<Cue>,
+        direction: Option<[f32; 3]>,
+    ) -> Option<crate::EffectRequest> {
+        self.pending_launch = false;
+        if let Some(direction) = direction {
+            self.velocity = direction;
+        } else if self.definition.motion.aim_at_target {
+            self.velocity = crate::distance::normalize(std::array::from_fn(|axis| {
+                self.target_point[axis] - self.frame.position[axis]
+            }));
+        }
         let offset = rotate(self.definition.offset, self.frame.heading);
         for (value, delta) in self.frame.position.iter_mut().zip(offset) {
             *value += delta;
         }
         self.frame.shadow = self.definition.effects.shadow;
+        self.frame.velocity = self.velocity;
         cues.push(Cue::ProjectileStarted {
             projectile: self.frame.id,
             action: self.action,
@@ -243,6 +369,19 @@ impl Projectile {
             })
     }
 
+    pub(crate) fn contact_origins(&self, offset: [f32; 3]) -> impl Iterator<Item = [f32; 3]> {
+        const ORIGIN: [[f32; 3]; 1] = [[0.; 3]];
+        let path = &self.definition.motion.contact_path;
+        let points = path.get(self.frame.age as usize).or_else(|| path.last());
+        points
+            .map_or(ORIGIN.as_slice(), Vec::as_slice)
+            .iter()
+            .map(move |&point| {
+                let point = rotate(point, self.frame.heading);
+                std::array::from_fn(|i| self.frame.position[i] + point[i] + offset[i])
+            })
+    }
+
     pub(crate) fn shadow_frame(&self) -> Option<ProjectileShadowFrame> {
         let appearance = self.frame.shadow?;
         (self.frame.position[1] >= 0.).then_some(ProjectileShadowFrame {
@@ -252,14 +391,42 @@ impl Projectile {
         })
     }
 
+    pub fn take_rebound(&mut self) -> Option<bool> {
+        self.rebound.take()
+    }
+
+    pub fn take_rebound_projectile(&mut self) -> Option<(ActorId, Arc<ProjectileDefinition>)> {
+        if !self.ricocheted {
+            return None;
+        }
+        self.rebound_target
+            .take()
+            .zip(self.definition.effects.rebound_projectile.clone())
+    }
+
     pub fn step(&mut self) -> Result<()> {
         let fresh = self.age == 0;
         for axis in 0..3 {
-            if let Some(speed) = self.definition.motion.speed {
+            if let Some(mut speed) = self.definition.motion.speed {
+                if self.definition.motion.aqua_edge {
+                    speed -= AQUA_EDGE_BRAKING * self.age.min(AQUA_EDGE_TURN_TICKS - 1) as f32;
+                    speed += AQUA_EDGE_ACCELERATION
+                        * self.age.saturating_sub(AQUA_EDGE_TURN_TICKS) as f32;
+                }
                 self.frame.position[axis] += self.velocity[axis] * speed;
             } else {
                 self.frame.position[axis] += self.velocity[axis];
                 self.velocity[axis] += self.acceleration[axis];
+            }
+        }
+        if self.definition.motion.aqua_edge && self.age + 1 == AQUA_EDGE_TURN_TICKS {
+            let direction = [
+                self.target_point[0] - self.frame.position[0],
+                0.,
+                self.target_point[2] - self.frame.position[2],
+            ];
+            if crate::distance::length(direction) >= 0.5 {
+                self.velocity = crate::distance::normalize(direction);
             }
         }
         if let Some(steering) = self.definition.motion.steering
@@ -274,12 +441,37 @@ impl Projectile {
             );
         }
 
+        if self.definition.motion.face_velocity && (self.velocity[0] > 0. || self.velocity[2] > 0.)
+        {
+            self.frame.heading = self.velocity[0].atan2(self.velocity[2]).to_degrees();
+        }
+        if let Some(departure) = self.definition.motion.departure
+            && !self.departed
+            && self.frame.position[1] < 0.1
+        {
+            let [x, _, z] = self.frame.position;
+            let direction = crate::distance::normalize([
+                z - departure.ground_reference[1],
+                0.,
+                departure.ground_reference[0] - x,
+            ]);
+            self.velocity = direction.map(|value| value * departure.ground_speed);
+            self.departed = true;
+        }
         if self.bounce && self.frame.position[1] < 0.1 {
             self.frame.position[1] = 0.;
             self.velocity[1] *= -self.definition.motion.response.unwrap().restitution;
+            if self.ricocheted && self.definition.effects.spin_on_rebound {
+                self.rebound = Some(false);
+            }
         }
-        if self.definition.clamp_ground && self.frame.position[1] < 0.1 {
+        if (self.definition.clamp_ground || self.definition.motion.stop_on_ground)
+            && self.frame.position[1] < 0.1
+        {
             self.frame.position[1] = 0.;
+            if self.definition.motion.stop_on_ground {
+                self.velocity = [0.; 3];
+            }
         }
         ensure!(
             self.frame
@@ -290,42 +482,76 @@ impl Projectile {
             "projectile motion overflow"
         );
         self.frame.age = self.age;
+        if let Some(reset) = self.definition.motion.velocity_reset
+            && self.age == reset.age
+        {
+            self.velocity = self
+                .acceleration
+                .map(|value| value * reset.acceleration_scale);
+        }
         let active = self
             .definition
             .active
             .is_none_or(|[start, end]| (start..=end).contains(&self.age));
-        if active
+        if let Some(departure) = self.definition.motion.departure
+            && active
             && self.contact_received
             && !self.ricocheted
-            && self
-                .definition
-                .motion
-                .response
-                .is_some_and(|response| response.ricochet)
+            && !self.departed
         {
+            let direction = crate::distance::normalize([
+                self.target_point[0] - self.frame.position[0],
+                0.,
+                self.target_point[2] - self.frame.position[2],
+            ]);
+            self.velocity = direction.map(|value| value * departure.return_speed);
+            self.velocity[1] = departure.jump_speed;
+            self.ricocheted = true;
+        }
+        if active
+            && let Some(response) = self.definition.motion.response
+            && ((((response.ricochet && self.contact_received)
+                || (response.ricochet_on_deflect && self.deflected))
+                && !self.ricocheted)
+                || (response.ground_ricochet && self.frame.position[1] < 0.1))
+        {
+            let contact = ((response.ricochet && self.contact_received)
+                || (response.ricochet_on_deflect && self.deflected))
+                && !self.ricocheted;
             let mut planar = [self.velocity[0], 0., self.velocity[2]];
             if crate::distance::length(planar) >= 0.1 {
                 planar = crate::distance::normalize(planar);
             }
-            self.velocity = planar.map(|value| value * -2.);
+            self.velocity = planar.map(|value| value * if contact { -2. } else { 2. });
             self.velocity[1] = 9.;
             ensure!(
                 self.velocity.iter().all(|value| value.is_finite()),
                 "projectile response overflow"
             );
             self.acceleration = [0., -0.3, 0.];
-            self.bounce = true;
             self.ricocheted = true;
-            self.frame.disarmed = true;
+            if contact {
+                self.bounce = true;
+                if self.definition.effects.spin_on_rebound {
+                    self.rebound = Some(true);
+                }
+                self.frame.disarmed = true;
+            }
         }
+        self.frame.velocity = self.velocity;
         self.frame.contact_active = active && self.age != 0 && !self.frame.disarmed;
-        let contact_retirement = active
-            && self.contact_received
-            && self
-                .definition
-                .contact
-                .as_ref()
-                .is_some_and(|c| !c.survives_contact);
+        let contact_retirement =
+            active
+                && self.contact_received
+                && (self.ricocheted
+                    || self.definition.motion.response.is_none_or(|response| {
+                        !response.ricochet && !response.ricochet_on_deflect
+                    }))
+                && self
+                    .definition
+                    .contact
+                    .as_ref()
+                    .is_some_and(|c| !c.survives_contact);
         if let Some(contact) = &self.definition.contact {
             self.radius += contact.radius_growth;
             self.height += contact.height_growth;
@@ -345,7 +571,8 @@ impl Projectile {
                     .definition
                     .lifetime
                     .is_some_and(|duration| self.age >= duration)
-                || self.frame.position[0].hypot(self.frame.position[2]) > 1350.
+                || (!self.definition.motion.unlimited_range
+                    && self.frame.position[0].hypot(self.frame.position[2]) > 1350.)
                 || self.frame.position[1] < -49.9);
         self.age = self.age.saturating_add(1);
         Ok(())
@@ -387,6 +614,7 @@ impl Projectile {
         self.frame.disarmed = true;
         self.frame.contact_active = false;
         self.contact_received = true;
+        self.deflected = true;
     }
 
     pub fn can_hit(&self, actor: ActorId) -> bool {
@@ -397,52 +625,45 @@ impl Projectile {
             })
     }
 
-    pub fn hit(&mut self, actor: ActorId) {
+    pub fn hit(&mut self, actor: ActorId, guarded: bool) {
+        if !self.contact_received && self.definition.effects.rebound_projectile.is_some() {
+            self.rebound_target = Some(actor);
+        }
         self.cooldowns[actor.index()] = self.definition.contact.as_ref().unwrap().cooldown;
         self.hits[actor.index()] = self.hits[actor.index()].saturating_add(1);
         self.contact_received = true;
+        self.deflected |= guarded;
+    }
+
+    pub fn seal_contact(&mut self, actor: ActorId, effective: bool) {
+        if !self.contact_received && effective && self.definition.effects.seal.is_some() {
+            self.seal_target = Some(actor);
+        }
+    }
+
+    pub fn take_seal(&mut self) -> Option<(ActorId, crate::SealDefinition)> {
+        self.seal_target.take().zip(self.definition.effects.seal)
     }
 }
 
-/// Turn through a fraction of the remaining angle without changing speed.
-fn steer_velocity(velocity: [f32; 3], offset: [f32; 3], fraction: f32, planar: bool) -> [f32; 3] {
-    let mut current = Vec3::from_array(velocity);
-    let mut desired = Vec3::from_array(offset);
+/// Blend toward the retained target, then restore a unit flight direction.
+fn steer_velocity(direction: [f32; 3], mut offset: [f32; 3], blend: f32, planar: bool) -> [f32; 3] {
+    const MINIMUM_DIRECTION_LENGTH: f32 = 0.1;
     if planar {
-        current.y = 0.;
-        desired.y = 0.;
+        offset[1] = 0.;
     }
-    let speed = crate::distance::length(current.to_array());
-    let distance = crate::distance::length(desired.to_array());
-    if fraction == 0. || speed <= f32::EPSILON || distance <= f32::EPSILON {
-        return velocity;
+    let distance = crate::distance::length(offset);
+    if distance < MINIMUM_DIRECTION_LENGTH {
+        return direction;
     }
-    let current = current / speed;
-    let desired = desired / distance;
-    let cross = current.cross(desired);
-    let sine = cross.length();
-    let angle = sine.atan2(current.dot(desired).clamp(-1., 1.));
-    let axis = if sine > f32::EPSILON {
-        cross / sine
-    } else if planar {
-        Vec3::Y
+    let desired = offset.map(|value| value / distance);
+    let next = std::array::from_fn(|axis| direction[axis] * (1. - blend) + desired[axis] * blend);
+    let length = crate::distance::length(next);
+    if length < MINIMUM_DIRECTION_LENGTH {
+        direction
     } else {
-        // Opposite directions have no unique turn plane. Choose a stable one.
-        let absolute = current.abs();
-        let basis = if absolute.x <= absolute.y && absolute.x <= absolute.z {
-            Vec3::X
-        } else if absolute.y <= absolute.z {
-            Vec3::Y
-        } else {
-            Vec3::Z
-        };
-        current.cross(basis).normalize()
-    };
-    let mut turned = Quat::from_axis_angle(axis, angle * fraction) * current * speed;
-    if planar {
-        turned.y = velocity[1];
+        next.map(|value| value / length)
     }
-    turned.to_array()
 }
 
 fn rotate([x, y, z]: [f32; 3], heading: f32) -> [f32; 3] {
@@ -473,6 +694,7 @@ mod tests {
                 owner: ActorId(0),
                 target: ActorId(1),
                 position: [0., 5., 0.],
+                velocity: [0.; 3],
                 heading: 0.,
                 age: 0,
                 contact_active: false,
@@ -480,6 +702,161 @@ mod tests {
                 shadow: None,
             },
         )
+    }
+
+    #[test]
+    fn launch_policy_samples_target_or_bones_once_and_retains_actor_offset() -> Result<()> {
+        use resonance_content::animation::{Bone, Transform, TransformChannels};
+        let bone_direction = Some(ProjectileBoneDirection { from: 0, to: 1 });
+        for (origin, bone_direction, expected) in [
+            (ProjectileOrigin::Actor, None, [90., -10., 50.]),
+            (ProjectileOrigin::TargetFloor, None, [290., -10., -40.]),
+            (ProjectileOrigin::Bone(1), None, [90., 30., 70.]),
+            (ProjectileOrigin::Bone(1), bone_direction, [90., 30., 70.]),
+            (ProjectileOrigin::Actor, bone_direction, [90., -10., 50.]),
+        ] {
+            let mut owner = crate::tests::actor(crate::Side::Party);
+            owner.position = [100., 0., 50.];
+            owner.heading = -90.;
+            owner.body.scale = 2.;
+            let mut target = crate::tests::actor(crate::Side::Enemy);
+            target.position = [300., 80., -40.];
+            let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
+            let mut body = crate::tests::model_definition(7, [(0, 30.)]);
+            body.skeleton.bones.push(Bone {
+                name: "tip".into(),
+                parent: Some(0),
+                bind_channels: TransformChannels(8),
+                bind: Transform {
+                    translation: [10., 0., 20.],
+                    ..Default::default()
+                },
+            });
+            battle.set_models(crate::Models::new(
+                battle.actors(),
+                vec![Some(Arc::new(body)), None],
+                Default::default(),
+                resonance_content::diagnostics::Diagnostics::new(true),
+            )?);
+            let mut definition = instance(
+                [0., -5., 5.],
+                ProjectileMotion {
+                    origin,
+                    bone_direction,
+                    speed: Some(30.),
+                    ..Default::default()
+                },
+            )
+            .definition;
+            Arc::make_mut(&mut definition).offset = [0., -10., 10.];
+            definition.validate()?;
+            let id = battle.emit(
+                definition,
+                ActionId(1),
+                ActorId(0),
+                ActorId(1),
+                [100., 0., 50.],
+            )?;
+            let projectile = &battle.projectiles[&id];
+            for (actual, expected) in projectile.frame.position.into_iter().zip(expected) {
+                assert!((actual - expected).abs() < 0.0001);
+            }
+            let direction = projectile.velocity;
+            if bone_direction.is_some() {
+                for (actual, expected) in direction.into_iter().zip([0., 0.8944272, 0.4472136]) {
+                    assert!((actual - expected).abs() < 0.0001);
+                }
+            } else {
+                for (actual, expected) in direction.into_iter().zip([-5., -5., 0.]) {
+                    assert!((actual - expected).abs() < 0.0001);
+                }
+            }
+            battle.actors[0].position = [-1000., 0., 0.];
+            battle.actors[1].position = [900., 0., 900.];
+            let mut frame = battle.publish(Vec::new());
+            battle.advance_models(&mut frame, crate::BattleClock::Running, false)?;
+            let projectile = battle.projectiles.get_mut(&id).unwrap();
+            let position = projectile.frame.position;
+            projectile.step()?;
+            assert_eq!(projectile.velocity, direction);
+            assert_eq!(
+                projectile.frame.position,
+                std::array::from_fn(|i| position[i] + direction[i] * 30.)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn velocity_reset_runs_after_motion_without_stopping_acceleration() -> Result<()> {
+        let mut projectile = instance(
+            [4., 0., 0.],
+            ProjectileMotion {
+                world_direction: true,
+                face_velocity: true,
+                velocity_reset: Some(ProjectileVelocityReset {
+                    age: 2,
+                    acceleration_scale: 0.25,
+                }),
+                ..Default::default()
+            },
+        );
+        projectile.frame.heading = 180.;
+        projectile.acceleration = [2., 0., 0.];
+        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(0), None);
+        for _ in 0..3 {
+            projectile.step()?;
+        }
+        assert_eq!(projectile.frame.position, [18., 5., 0.]);
+        assert_eq!(projectile.frame.heading, 90.);
+        assert_eq!(projectile.velocity, [0.5, 0., 0.]);
+        assert!(projectile.frame.contact_active && !projectile.retiring);
+        projectile.step()?;
+        assert_eq!(projectile.frame.position, [18.5, 5., 0.]);
+        assert_eq!(projectile.velocity, [2.5, 0., 0.]);
+        Ok(())
+    }
+
+    #[test]
+    fn water_blade_brakes_then_turns_once_and_accelerates_beyond_the_arena() -> Result<()> {
+        let mut projectile = instance(
+            [0., 0., 1.],
+            ProjectileMotion {
+                aqua_edge: true,
+                unlimited_range: true,
+                speed: Some(15.),
+                ..Default::default()
+            },
+        );
+        projectile.frame.position = [-700., 0., 0.];
+        projectile.frame.heading = 90.;
+        Arc::make_mut(&mut projectile.definition).offset = [0., 35., 0.];
+        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(0), None);
+        projectile.target_point = [1200., 100., 0.];
+        for _ in 0..30 {
+            projectile.step()?;
+        }
+        assert!((projectile.frame.position[0] + 700.).abs() < 0.001);
+        assert!((projectile.frame.position[2] + 232.5).abs() < 0.001);
+        assert_eq!(projectile.frame.position[1], 35.);
+        let heading = projectile.velocity;
+        projectile.target_point = [-1200., 0., 0.];
+        let previous = projectile.frame.position;
+        projectile.step()?;
+        assert!(
+            (crate::distance::length(std::array::from_fn(
+                |i| projectile.frame.position[i] - previous[i]
+            )) - 0.5)
+                .abs()
+                < 0.001
+        );
+        assert_eq!(projectile.velocity, heading);
+        for _ in 0..89 {
+            projectile.step()?;
+        }
+        assert!(projectile.frame.position[0] > 2200.);
+        assert!(!projectile.retiring);
+        Ok(())
     }
 
     #[test]
@@ -499,7 +876,7 @@ mod tests {
         );
         Arc::get_mut(&mut projectile.definition).unwrap().lifetime = Some(12);
         projectile.target_point = [50., 25., 50.];
-        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(1));
+        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(1), None);
         for age in 0..=12 {
             let before = projectile.frame.position;
             let direction = projectile.velocity;
@@ -520,68 +897,101 @@ mod tests {
     }
 
     #[test]
-    fn homing_reverses_without_changing_speed_or_planar_vertical_motion() {
-        for (planar, velocity) in [(false, [4., 0., 0.]), (true, [4., 3., 0.])] {
-            for speed in [None, Some(2.)] {
-                let mut projectile = instance(
-                    velocity,
-                    ProjectileMotion {
-                        speed,
-                        steering: Some(ProjectileSteering {
-                            blend: 0.25,
-                            start: 0,
-                            end: None,
-                            planar,
-                        }),
-                        ..Default::default()
-                    },
-                );
-                projectile.target_point = [-100., 5., 0.];
-                for _ in 0..8 {
-                    let before = projectile.frame.position;
-                    let heading = Vec3::from_array(projectile.velocity).normalize();
-                    projectile.step().unwrap();
-                    let travelled =
-                        Vec3::from_array(projectile.frame.position) - Vec3::from_array(before);
-                    let expected_speed = crate::distance::length(velocity);
-                    assert!(
-                        (travelled.length() - expected_speed * speed.unwrap_or(1.)).abs() < 0.0001
-                    );
-                    assert!(
-                        (crate::distance::length(projectile.velocity) - expected_speed).abs()
-                            < 0.0001
-                    );
-                    let next = Vec3::from_array(projectile.velocity).normalize();
-                    assert!(
-                        heading.dot(next) >= std::f32::consts::FRAC_1_SQRT_2 - 0.0001,
-                        "homing turned more than a quarter of a half-circle in one update"
-                    );
-                    if planar {
-                        assert_eq!(projectile.velocity[1], velocity[1]);
-                    }
-                }
-                assert!(
-                    projectile.velocity[0] < 0.,
-                    "projectile never turned back toward its target"
-                );
+    fn extrapolating_steering_preserves_observed_guardian_transitions() -> Result<()> {
+        for (position, velocity, next_position, next_velocity) in [
+            (
+                [-164.4708, 133.07022, -124.24034],
+                [0.; 3],
+                [-164.4708, 133.07022, -124.24034],
+                [0.79792905, 0., 0.60275126],
+            ),
+            (
+                [-154.89658, 133.07022, -117.00611],
+                [0.8185776, 0., 0.57439584],
+                [-151.62227, 133.07022, -114.70853],
+                [-0.32153502, 0., 0.9468977],
+            ),
+        ] {
+            let mut projectile = instance(
+                velocity,
+                ProjectileMotion {
+                    speed: Some(4.),
+                    steering: Some(ProjectileSteering {
+                        blend: 90.,
+                        start: 0,
+                        end: None,
+                        planar: true,
+                    }),
+                    ..Default::default()
+                },
+            );
+            projectile.definition.validate()?;
+            projectile.frame.position = position;
+            projectile.target_point = [0., 80., 0.];
+            projectile.initialize(&mut Vec::new(), &mut crate::Random::new(0), None);
+            projectile.step()?;
+            for (actual, expected) in projectile
+                .frame
+                .position
+                .into_iter()
+                .zip(next_position)
+                .chain(projectile.velocity.into_iter().zip(next_velocity))
+            {
+                assert!((actual - expected).abs() < 0.00002);
             }
         }
+        Ok(())
     }
 
     #[test]
-    fn homing_preserves_stationary_and_coincident_velocities() {
-        for planar in [false, true] {
-            assert_eq!(
-                steer_velocity([0.; 3], [10., 0., 0.], 0.25, planar),
-                [0.; 3]
-            );
-            let velocity = [3., 4., 5.];
-            assert_eq!(steer_velocity(velocity, [0.; 3], 0.25, planar), velocity);
-            assert_eq!(
-                steer_velocity(velocity, [-3., -4., -5.], 0., planar),
-                velocity
-            );
+    fn feather_trajectory_matches_the_observed_launch_turn_and_ground_exit() -> Result<()> {
+        let mut projectile = instance(
+            [-0.3, -0.2, 0.5],
+            ProjectileMotion {
+                speed: Some(30.),
+                steering: Some(ProjectileSteering {
+                    blend: 0.1,
+                    start: 0,
+                    end: Some(30),
+                    planar: false,
+                }),
+                ..Default::default()
+            },
+        );
+        projectile.frame.position = [-500., 240., 0.];
+        projectile.frame.heading = 90.00002;
+        projectile.target_point = [-126.93901, 50., 45.05799];
+        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(0), None);
+        // Observed positions after 1, 2, 10 and 23 movements, including the turn past the target.
+        let anchors = [
+            (1, [-485., 234., 8.999994]),
+            (2, [-460.03058, 223.54453, 21.931]),
+            (10, [-251.61644, 126.721504, 87.97628]),
+            (23, [50.626827, -62.1069, -28.518032]),
+        ];
+        let mut moved = 0;
+        for (at, expected) in anchors {
+            while moved < at {
+                projectile.step()?;
+                moved += 1;
+            }
+            for (actual, expected) in projectile.frame.position.into_iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() < 0.002,
+                    "movement {at}: {actual} != {expected}"
+                );
+            }
         }
+        assert!(projectile.retiring);
+        assert_eq!(
+            steer_velocity([1., 0., 0.], [0.; 3], 0.1, false),
+            [1., 0., 0.]
+        );
+        assert_eq!(
+            steer_velocity([1., 0., 0.], [-1., 0., 0.], 0.5, false),
+            [1., 0., 0.]
+        );
+        Ok(())
     }
 
     #[test]
@@ -592,12 +1002,17 @@ mod tests {
                 Arc::get_mut(&mut projectile.definition).unwrap().contact =
                     Some(ProjectileContact {
                         hit: crate::HitRule {
+                            sound: None,
                             kind: crate::DamageKind::Slash,
                             arte: false,
+                            effect_on_guard: false,
+                            effect: None,
                             overlimit_pause: false,
                             power: crate::Power::Normal,
                             element: crate::HitElement::Inherited,
                             prevents_defeat: false,
+                            finisher_grade: false,
+                            hp_drain: false,
                             guard: Default::default(),
                             reaction: Default::default(),
                             condition: None,
@@ -622,7 +1037,7 @@ mod tests {
                 };
                 for _ in 0..admitted_hits {
                     assert!(projectile.can_hit(target));
-                    projectile.hit(target);
+                    projectile.hit(target, false);
                     if cooldown != 0 {
                         assert!(!projectile.can_hit(target));
                         for _ in 1..cooldown {

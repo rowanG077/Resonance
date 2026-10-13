@@ -8,6 +8,8 @@ fn hit(amount: i32) -> HitResult {
         hp_change: -amount,
         critical: false,
         boosted: false,
+        reaction_suppressed: false,
+        reaction_forced: false,
         affinity: Affinity::Normal,
         guard: GuardResult::None,
         protection: HitProtection::None,
@@ -32,15 +34,21 @@ fn battle(actors: Vec<Actor>) -> Battle {
 
 fn rule() -> crate::HitRule {
     crate::HitRule {
+        sound: None,
         kind: crate::DamageKind::Slash,
         arte: true,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: false,
         power: crate::Power::Fixed(7),
         element: crate::HitElement::Neutral,
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         reaction: Default::default(),
         guard: crate::GuardRule {
             enabled: false,
+            suppress_sound: false,
             pressure: 0,
             breaks: false,
             unbreakable: false,
@@ -69,7 +77,7 @@ fn melee_contact_counts_once_and_applies_retaliation_only_to_survivors() -> Resu
             &crate::MeleeDefinition {
                 hit: rule(),
                 trail: None,
-                volume: crate::MeleeVolume {
+                volume: crate::MeleeVolume::Fixed {
                     offset: [0.; 3],
                     radius: 20.,
                     half_height: 20.,
@@ -78,7 +86,7 @@ fn melee_contact_counts_once_and_applies_retaliation_only_to_survivors() -> Resu
             &[],
         )?;
         let mut cues = vec![];
-        contacts.resolve(&mut battle, &mut cues)?;
+        contacts.resolve(&mut battle, &mut cues, &[])?;
         assert_eq!(
             battle.actors[1].reaction.contributor_hits[0],
             initial.saturating_add(1)

@@ -76,12 +76,12 @@ fn magic_mist_equipment_page_refresh_preserves_all_divide_and_rng() -> Result<()
             )?;
         }
         assert_eq!(
-            candidate.equipment_draft.as_ref().unwrap().members[0].equipment[3],
+            candidate.menu_party.as_ref().unwrap().members[0].equipment[3],
             if equipped { MAGIC_MIST } else { 0 }
         );
         assert_eq!(
             candidate
-                .equipment_draft
+                .menu_party
                 .as_ref()
                 .unwrap()
                 .items
@@ -92,11 +92,11 @@ fn magic_mist_equipment_page_refresh_preserves_all_divide_and_rng() -> Result<()
         );
         assert_eq!(candidate.party.members[0].equipment, committed_equipment);
         assert_eq!(candidate.party.items, committed_inventory);
-        assert!(candidate.equipment_draft.is_some());
+        assert!(candidate.menu_party.is_some());
         close_equipment(&mut candidate, &mut battle, &mut page, &mut character)?;
         assert!(battle.all_divide_active());
         assert_eq!(battle.random_state(), random);
-        assert!(candidate.equipment_draft.is_none());
+        assert!(candidate.menu_party.is_none());
         let before = step(&mut candidate, &mut battle)?.escape.unwrap().gauge;
         let after = step(&mut candidate, &mut battle)?.escape.unwrap().gauge;
         growth.push(after - before);

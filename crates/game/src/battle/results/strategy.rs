@@ -5,11 +5,11 @@ use resonance_battle::StrategyRefresh;
 
 impl Candidate {
     pub fn strategy_page<'a>(&'a self, state: &'a Strategy) -> Page<'a> {
-        state.page(&self.party, &self.menus)
+        state.page(self.menu_party(), &self.menus)
     }
 
     pub(in crate::battle) fn begin_strategy(&mut self, battle: &Battle) -> Result<()> {
-        self.sync_party(battle)
+        self.begin_menu(battle)
     }
 
     pub(in crate::battle) fn step_strategy(
@@ -17,7 +17,17 @@ impl Candidate {
         state: &mut Strategy,
         input: Input,
     ) -> Result<Visit> {
-        state.step(input, &mut self.party, &self.menus)
+        let visit = state.step(
+            input,
+            self.menu_party
+                .as_mut()
+                .context("Strategy page has no party")?,
+            &self.menus,
+        )?;
+        if visit.changed {
+            self.publish_menu_edits();
+        }
+        Ok(visit)
     }
 
     pub(in crate::battle) fn finish_strategy(&mut self, battle: &mut Battle) -> Result<()> {

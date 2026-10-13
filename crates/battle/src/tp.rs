@@ -38,6 +38,7 @@ pub(crate) fn catalogue_quote(owner: &Actor, raw: u16) -> u32 {
 
 pub(crate) fn action_quote(owner: &Actor, key: crate::ActionKey, action: &ActionDefinition) -> u32 {
     match &action.execution {
+        crate::ActionExecution::LeaveArena => 0,
         crate::ActionExecution::Attack(_) => catalogue_quote(owner, action.tp_cost),
         crate::ActionExecution::Casting(_) => spell_quote(
             owner,

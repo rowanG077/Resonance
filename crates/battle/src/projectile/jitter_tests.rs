@@ -29,6 +29,7 @@ fn projectile(definition: Arc<ProjectileDefinition>, heading: f32) -> Projectile
             owner: ActorId(0),
             target: ActorId(1),
             position: [0.; 3],
+            velocity: [0.; 3],
             heading,
             age: 0,
             contact_active: false,
@@ -48,8 +49,8 @@ fn jitter_is_deterministic_and_bounded_on_fractional_and_negative_axes() {
     for seed in [1, 7, 31] {
         let mut first = projectile(definition.clone(), 0.);
         let mut second = projectile(definition.clone(), 0.);
-        first.initialize(&mut vec![], &mut Random::new(seed));
-        second.initialize(&mut vec![], &mut Random::new(seed));
+        first.initialize(&mut vec![], &mut Random::new(seed), None);
+        second.initialize(&mut vec![], &mut Random::new(seed), None);
         assert_eq!(first.velocity, second.velocity);
         assert!(first.velocity[0].abs() <= 0.25);
         assert!(first.velocity[1].abs() <= 1.5);
@@ -64,7 +65,7 @@ fn jitter_rotates_with_the_projectile() {
     let mut local = projectile(definition(), 0.);
     let mut rotated = projectile(definition(), 90.);
     for instance in [&mut local, &mut rotated] {
-        instance.initialize(&mut vec![], &mut Random::new(7));
+        instance.initialize(&mut vec![], &mut Random::new(7), None);
     }
     crate::tests::assert_vector_close(rotated.velocity, rotate(local.velocity, 90.), 0.0001);
 }

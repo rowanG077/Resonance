@@ -130,28 +130,27 @@ pub(super) fn publish(
 pub(crate) struct PublishedTexture {
     pub effect: EffectTexture,
     capacity: u16,
-    page_step: u16,
+    palettes: BTreeMap<usize, usize>,
 }
 
 impl PublishedTexture {
-    fn selectors(&self, stride: u8) -> Vec<Option<usize>> {
-        if self.capacity == 0 {
-            return vec![Some(0); 256];
-        }
-        let stride = if stride != 0 {
+    fn selector_stride(&self, stride: u8) -> usize {
+        if stride != 0 {
             usize::from(stride)
         } else if self.capacity == 256 {
             256
         } else {
             16
-        };
-        let page_step = usize::from(self.page_step);
+        }
+    }
+
+    fn selectors(&self, stride: u8) -> Vec<Option<usize>> {
+        if self.capacity == 0 {
+            return vec![Some(0); 256];
+        }
+        let stride = self.selector_stride(stride);
         (0..=255)
-            .map(|selector| {
-                let offset = selector * stride;
-                (offset.is_multiple_of(page_step) && offset / page_step < self.effect.images.len())
-                    .then_some(offset / page_step)
-            })
+            .map(|selector| self.palettes.get(&(selector * stride)).copied())
             .collect()
     }
 }
@@ -213,6 +212,191 @@ pub(crate) fn textures_from_source(bytes: &[u8], output: &Path) -> Result<Vec<Pu
     textures_with_stride(bytes, 0, output)
 }
 
+/// Effect banks can bind small subpalettes inside a full-width indexed atlas.
+pub(crate) fn bank_textures(
+    bytes: &[u8],
+    bank: &SourceBank,
+    strides: &[u8],
+    slot: u8,
+    output: &Path,
+) -> Result<Vec<PublishedTexture>> {
+    let bytes = crate::compression::payload(bytes.to_vec())?;
+    let mut textures = textures_from_source(&bytes, output)?;
+    complete_palettes(&bytes, bank, strides, slot, &mut textures, output)?;
+    Ok(textures)
+}
+
+/// Retain prepared images and publish only newly required palette windows.
+pub(crate) fn cached_bank_textures(
+    bytes: &[u8],
+    bank: &SourceBank,
+    strides: &[u8],
+    slot: u8,
+    cached: &[EffectTexture],
+    output: &Path,
+) -> Result<Vec<PublishedTexture>> {
+    let bytes = crate::compression::payload(bytes.to_vec())?;
+    let descriptors = crate::tpl::parse_tpl(&bytes)?;
+    ensure!(
+        descriptors.len() == cached.len(),
+        "cached effect texture count differs from source"
+    );
+    let identity = crate::digest(&bytes);
+    let mut textures = descriptors
+        .iter()
+        .zip(cached)
+        .enumerate()
+        .map(|(index, (descriptor, effect))| {
+            let capacity = match descriptor.format {
+                8 => 16,
+                9 => 256,
+                10 => 16384,
+                _ => 0,
+            };
+            let prefix = format!("textures/{identity}/texture-{index}");
+            let mut palettes = BTreeMap::new();
+            for (image, prepared) in effect.images.iter().enumerate() {
+                ensure!(
+                    prepared.width == u32::from(descriptor.width)
+                        && prepared.height == u32::from(descriptor.height),
+                    "cached effect texture dimensions differ from source"
+                );
+                let suffix = prepared
+                    .path
+                    .strip_prefix(&prefix)
+                    .and_then(|path| path.strip_suffix(".ktx2"))
+                    .context("cached effect texture identity differs from source")?;
+                let offset = if capacity == 0 && suffix.is_empty() {
+                    0
+                } else if let Some(offset) = suffix.strip_prefix("-palette-offset-") {
+                    offset.parse::<usize>()?
+                } else {
+                    suffix
+                        .strip_prefix("-palette-")
+                        .context("unrecognized cached effect palette image")?
+                        .parse::<usize>()?
+                        .checked_mul(usize::from(capacity))
+                        .context("cached palette offset overflow")?
+                };
+                ensure!(
+                    palettes.insert(offset, image).is_none(),
+                    "duplicate cached effect palette window"
+                );
+            }
+            ensure!(!palettes.is_empty(), "cached effect texture has no images");
+            Ok(PublishedTexture {
+                effect: effect.clone(),
+                capacity,
+                palettes,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    complete_palettes(&bytes, bank, strides, slot, &mut textures, output)?;
+    Ok(textures)
+}
+
+fn complete_palettes(
+    bytes: &[u8],
+    bank: &SourceBank,
+    strides: &[u8],
+    slot: u8,
+    textures: &mut [PublishedTexture],
+    output: &Path,
+) -> Result<()> {
+    use resonance_content::battle_effect::{EffectOperation, UvAnimation, UvChange};
+    let declared_strides: std::collections::BTreeSet<_> = bank
+        .actors
+        .iter()
+        .zip(strides)
+        .filter_map(|(actor, &stride)| {
+            (actor.particle_visual().ok()?.texture.slot() == Some(slot)).then_some(stride)
+        })
+        .collect();
+    for (index, (texture, descriptor)) in textures
+        .iter_mut()
+        .zip(crate::tpl::parse_tpl(bytes)?)
+        .enumerate()
+    {
+        if texture.capacity == 0 {
+            continue;
+        }
+        let window = descriptor
+            .palette_entries
+            .min(usize::from(texture.capacity));
+        for &stride in &declared_strides {
+            let stride = texture.selector_stride(stride);
+            for selector in 0..=u8::MAX {
+                let offset = usize::from(selector) * stride;
+                if offset + window > descriptor.palette_entries {
+                    break;
+                }
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    texture.palettes.entry(offset)
+                {
+                    let image =
+                        crate::texture::publish_palette_window(bytes, index, offset, output)?;
+                    entry.insert(texture.effect.images.len());
+                    texture.effect.images.push(image);
+                }
+            }
+        }
+    }
+    // Keep explicitly referenced tail windows beyond the declared palette, but
+    // never infer palette storage from unrelated bytes that follow it.
+    for (member, (actor, &stride)) in bank.actors.iter().zip(strides).enumerate() {
+        let Ok(visual) = actor.particle_visual() else {
+            continue;
+        };
+        if visual.texture.slot() != Some(slot) || stride == 0 {
+            continue;
+        }
+        let template = actor.template()?;
+        let mut selectors = std::collections::BTreeSet::from(template.state.palettes);
+        if let Some(UvAnimation::Frames { frames, .. }) = &template.uv_animation {
+            for frame in frames {
+                if let UvChange::Palette { index } = &frame.change {
+                    selectors.insert(*index);
+                }
+            }
+        }
+        for event in bank.programs.iter().flatten() {
+            if let EffectOperation::Spawn {
+                particle,
+                palette,
+                birth,
+                ..
+            } = &event.operation
+                && usize::from(*particle) == member
+            {
+                selectors.extend(palette);
+                for range in [birth.palette, birth.alpha_palette].into_iter().flatten() {
+                    selectors.extend(
+                        range.min.round().clamp(0., 255.) as u8
+                            ..=range.max.round().clamp(0., 255.) as u8,
+                    );
+                }
+            }
+        }
+        for (index, texture) in textures.iter_mut().enumerate() {
+            if texture.capacity == 0 {
+                continue;
+            }
+            for &selector in &selectors {
+                let offset = usize::from(selector) * usize::from(stride);
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    texture.palettes.entry(offset)
+                {
+                    let image =
+                        crate::texture::publish_palette_window(bytes, index, offset, output)?;
+                    entry.insert(texture.effect.images.len());
+                    texture.effect.images.push(image);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn textures_with_stride(bytes: &[u8], stride: u16, output: &Path) -> Result<Vec<PublishedTexture>> {
     let expanded =
         crate::compression::payload(bytes.to_vec()).context("expand effect texture bank")?;
@@ -229,6 +413,10 @@ fn textures_with_stride(bytes: &[u8], stride: u16, output: &Path) -> Result<Vec<
                 crate::tpl::Format::Ci14 => 16384,
                 _ => 0,
             };
+            let step = crate::texture::palette_page_step(capacity.into(), stride);
+            let palettes = (0..texture.images.len())
+                .map(|page| (page * step, page))
+                .collect();
             let mut texture = PublishedTexture {
                 effect: EffectTexture {
                     images: (0..texture.images.len())
@@ -242,7 +430,7 @@ fn textures_with_stride(bytes: &[u8], stride: u16, output: &Path) -> Result<Vec<
                     palette_sets: vec![],
                 },
                 capacity,
-                page_step: crate::texture::palette_page_step(capacity.into(), stride) as u16,
+                palettes,
             };
             texture.effect.palette_sets.push(texture.selectors(0));
             Ok(texture)
@@ -332,7 +520,7 @@ mod tests {
         let mut alpha = PublishedTexture {
             effect: textures[0].effect.clone(),
             capacity: 0,
-            page_step: 0,
+            palettes: BTreeMap::new(),
         };
         alpha.effect.images.truncate(1);
         alpha.effect.palette_sets = vec![alpha.selectors(0)];
@@ -349,6 +537,82 @@ mod tests {
         assert_eq!(textures[&0][0].effect.palette_image(1, 1)?, 1);
         assert_eq!(textures[&0][1].effect.palette_image(1, 1)?, 0);
         assert_eq!(textures[&0][0].effect.palette_sets.len(), 2);
+
+        // A rejected program cannot hide declared-stride windows. An explicit
+        // tail selector still retains the full eight-bit texture indices.
+        tpl.resize(palette_at + (352 + 256) * 2, 0);
+        tpl[pixels_at..pixels_at + 2].copy_from_slice(&[0, 31]);
+        for (index, rgb565) in [(63, 0x07e0), (352, 0xf800_u16), (383, 0x07e0)] {
+            tpl[palette_at + index * 2..palette_at + index * 2 + 2]
+                .copy_from_slice(&rgb565.to_be_bytes());
+        }
+        bank.actors.truncate(1);
+        if let resonance_content::battle_effect::declaration::Declaration::Particle {
+            template,
+            visual,
+        } = &mut bank.actors[0]
+        {
+            template.state.palettes = [11, 11];
+            template.uv_animation = None;
+            visual.texture = resonance_content::battle_effect::visual::ParticleTexture::Atlas {
+                slot: 6,
+                dual: false,
+                palette_set: 0,
+            };
+        }
+        bank.programs = vec![vec![resonance_content::battle_effect::ScheduledEvent {
+            at: 0,
+            operation: resonance_content::battle_effect::EffectOperation::Unsupported {
+                reason: "unprepared controller".into(),
+            },
+        }]];
+        let mut textures =
+            BTreeMap::from([(6, bank_textures(&tpl, &bank, &[32], 6, output.path())?)]);
+        bind_palettes(&mut bank, &[32], &mut textures)?;
+        let texture = &textures[&6][0].effect;
+        assert_eq!(texture.images.len(), 10);
+        let set = bank.actors[0].particle_visual()?.texture.palette_set();
+        let declared = texture.palette_image(set, 1)?;
+        let pixels = crate::texture::pixels(&output.path().join(&texture.images[declared].path))?;
+        assert_eq!(pixels.as_raw(), &[255, 0, 0, 255, 0, 255, 0, 255]);
+        assert!(texture.palette_image(set, 9).is_err());
+        let image = texture.palette_image(set, 11)?;
+        assert_eq!(image, 9);
+        assert!(texture.palette_image(0, 2).is_err());
+        let pixels = crate::texture::pixels(&output.path().join(&texture.images[image].path))?;
+        assert_eq!(pixels.as_raw(), &[255, 0, 0, 255, 0, 255, 0, 255]);
+
+        // A metadata refresh retains the ordinary pages and fills only the
+        // missing overlapping windows, including the explicit tail selector.
+        let cached = textures_from_source(&tpl, output.path())?
+            .into_iter()
+            .map(|texture| texture.effect)
+            .collect::<Vec<_>>();
+        let supplement = tempfile::tempdir()?;
+        let refreshed = cached_bank_textures(&tpl, &bank, &[32], 6, &cached, supplement.path())?;
+        assert_eq!(refreshed[0].effect.images.len(), 10);
+        for (before, after) in cached[0].images.iter().zip(&refreshed[0].effect.images) {
+            assert_eq!(before.path, after.path);
+            assert!(!supplement.path().join(&before.path).exists());
+        }
+        let index = refreshed[0].selectors(32)[11].unwrap();
+        let pixels = crate::texture::pixels(
+            &supplement
+                .path()
+                .join(&refreshed[0].effect.images[index].path),
+        )?;
+        assert_eq!(pixels.as_raw(), &[255, 0, 0, 255, 0, 255, 0, 255]);
+
+        // For CI4, explicit stride16 is already the ordinary default layout.
+        tpl[24..28].copy_from_slice(&8_u32.to_be_bytes());
+        let cached = textures_from_source(&tpl, output.path())?
+            .into_iter()
+            .map(|texture| texture.effect)
+            .collect::<Vec<_>>();
+        let supplement = tempfile::tempdir()?;
+        let refreshed = cached_bank_textures(&tpl, &bank, &[16], 6, &cached, supplement.path())?;
+        assert_eq!(refreshed[0].selectors(16), cached[0].palette_sets[0]);
+        assert_eq!(std::fs::read_dir(supplement.path())?.count(), 0);
         Ok(())
     }
 

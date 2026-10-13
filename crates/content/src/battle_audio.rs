@@ -6,9 +6,19 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const PATH: &str = "battle/audio.json";
+
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Selection {
+    pub sounds: BTreeSet<u16>,
+    pub streams: BTreeSet<u16>,
+    #[serde(default)]
+    pub voices: BTreeSet<u32>,
+    pub music: BTreeSet<u16>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

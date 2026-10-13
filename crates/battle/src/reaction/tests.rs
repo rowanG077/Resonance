@@ -18,6 +18,26 @@ fn battle(actor: Actor) -> Battle {
 }
 
 #[test]
+fn recovery_down_adds_ten_stagger_updates_and_expires() {
+    let mut battle = battle(actor(Side::Party));
+    battle
+        .apply_recovery_down(ActorId(1), [40, 40, 112], &mut Vec::new())
+        .unwrap();
+    for (base, expected) in [(30, 40), (45, 55)] {
+        assert_eq!(
+            hitstun(&battle.actors[0], &battle.actors[1], base),
+            expected
+        );
+    }
+    for _ in 0..899 {
+        battle.actors[1].advance_conditions(true);
+    }
+    assert_eq!(hitstun(&battle.actors[0], &battle.actors[1], 30), 40);
+    battle.actors[1].advance_conditions(true);
+    assert_eq!(hitstun(&battle.actors[0], &battle.actors[1], 30), 30);
+}
+
+#[test]
 fn hurt_recovery_waits_for_movement_and_landing() {
     for flying in [false, true] {
         let mut owner = actor(Side::Party);
@@ -52,6 +72,85 @@ fn hurt_recovery_waits_for_movement_and_landing() {
         assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
         assert_eq!(battle.actors[0].hp, before.hp);
         assert_eq!(battle.actors[0].position[1] > 0., flying);
+    }
+
+    let owner = ActorId(0);
+    let mut battle = battle(actor(Side::Party));
+    battle.begin_hurt(owner, 3, &mut Vec::new());
+    for remaining in (0..3).rev() {
+        battle.step(BattleInput::default()).unwrap();
+        assert!(
+            matches!(battle.runtime[0].task(), ActorTask::Hurt { remaining: actual } if *actual == remaining)
+        );
+        assert!(!battle.actor_command_ready(owner));
+    }
+    battle.step(BattleInput::default()).unwrap();
+    assert_eq!(battle.activity(owner), Activity::Recovering);
+    assert!(matches!(
+        battle.runtime[0].task(),
+        ActorTask::Recovering {
+            remaining: 0,
+            after_hit: true
+        }
+    ));
+    assert!(!battle.actor_command_ready(owner));
+    battle.step(BattleInput::default()).unwrap();
+    assert_eq!(battle.activity(owner), Activity::Idle);
+    assert!(battle.actor_command_ready(owner));
+
+    // Local hit-stop holds movement; recovery and delayed recoil keep counting.
+    let mut delayed = self::battle(actor(Side::Party));
+    delayed.begin_hurt(owner, 4, &mut Vec::new());
+    delayed.actors[0].hit_stop = 2;
+    delayed.actors[0].reaction.recoil.delay = 3;
+    delayed.actors[0].reaction.recoil.pending = [6., 0.];
+    delayed.actors[0].reaction.direction = [1., 0., 0.];
+    let start = delayed.actors[0].position;
+    for (remaining, delay) in [(3, 2), (2, 1)] {
+        delayed.step(BattleInput::default()).unwrap();
+        assert_eq!(delayed.actors[0].position, start);
+        assert_eq!(delayed.actors[0].reaction.recoil.delay, delay);
+        assert!(
+            matches!(delayed.runtime[0].task(), ActorTask::Hurt { remaining: actual } if *actual == remaining)
+        );
+    }
+    delayed.step(BattleInput::default()).unwrap();
+    assert_eq!(delayed.actors[0].position[0], start[0] + 6.);
+    assert!(matches!(
+        delayed.runtime[0].task(),
+        ActorTask::Hurt { remaining: 1 }
+    ));
+
+    for after_hit in [false, true] {
+        let definition = crate::DecisionDefinition {
+            idle_ticks: 160,
+            idle_variation: 80,
+        };
+        let prepare = || {
+            let mut prepared = prepared(vec![actor(Side::Party), actor(Side::Enemy)], 1);
+            prepared.resources.actor_setup[1].decision = Some(definition);
+            prepared.finish().unwrap()
+        };
+        let mut reset = prepare();
+        let mut direct = prepare();
+        // An armored contact may leave combo data during ordinary action recovery.
+        reset.actors[1].reaction.combo_hits = 2;
+        direct.actors[1].reaction.combo_hits = 2;
+        reset.set_task(
+            1,
+            ActorTask::Recovering {
+                remaining: 0,
+                after_hit,
+            },
+        );
+        if after_hit {
+            direct.set_task(1, ActorTask::Hurt { remaining: 0 });
+        }
+        reset.enter_idle(ActorId(1));
+        direct.enter_idle(ActorId(1));
+        assert_eq!(reset.runtime[1].idle_timer, direct.runtime[1].idle_timer);
+        assert_eq!(reset.random_state(), direct.random_state());
+        assert_eq!(reset.actors[1].guard, direct.actors[1].guard);
     }
 }
 
@@ -198,12 +297,17 @@ fn lethal_damage_preserves_leader_suppression_operands_until_response() {
     let previous_direction = [0., 0., -1.];
     battle.actors[0].reaction.direction = previous_direction;
     let rule = crate::HitRule {
+        sound: None,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: true,
         kind: crate::DamageKind::Slash,
         arte: true,
         power: crate::Power::Fixed(25),
         element: crate::HitElement::Neutral,
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         reaction: ReactionRule {
             recoil: crate::RecoilRule {
                 impulse: [4., 0.],
@@ -269,6 +373,8 @@ fn frozen_targets_take_no_guard_or_hurt_reaction() {
             hp_change: -1,
             critical: false,
             boosted: false,
+            reaction_suppressed: false,
+            reaction_forced: false,
             affinity: crate::Affinity::Normal,
             guard,
             protection: crate::HitProtection::None,
@@ -293,6 +399,7 @@ fn frozen_targets_take_no_guard_or_hurt_reaction() {
 fn recent_hurt_timer_uses_common_visits_including_hit_stop_but_excluding_pauses() {
     let mut battle = battle(actor(Side::Party));
     battle.actors[0].guard.recent_hurt_ticks = 3;
+    battle.actors[0].reaction.hit_shake_ticks = 3;
     battle.actors[0].hit_stop = 8;
     battle
         .step(BattleInput {
@@ -301,6 +408,7 @@ fn recent_hurt_timer_uses_common_visits_including_hit_stop_but_excluding_pauses(
         })
         .unwrap();
     assert_eq!(battle.actors[0].guard.recent_hurt_ticks, 3);
+    assert_eq!(battle.actors[0].reaction.hit_shake_ticks, 3);
     battle
         .step(BattleInput {
             paused: true,
@@ -310,12 +418,15 @@ fn recent_hurt_timer_uses_common_visits_including_hit_stop_but_excluding_pauses(
     assert_eq!(battle.actors[0].guard.recent_hurt_ticks, 3);
     battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.actors[0].guard.recent_hurt_ticks, 2);
+    assert_eq!(battle.actors[0].reaction.hit_shake_ticks, 2);
     battle.actors[0].availability = crate::ActorAvailability::Petrified;
     battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.actors[0].guard.recent_hurt_ticks, 1);
+    assert_eq!(battle.actors[0].reaction.hit_shake_ticks, 1);
     battle.actors[0].availability = crate::ActorAvailability::Active;
     for _ in 0..3 {
         battle.step(BattleInput::default()).unwrap();
     }
     assert_eq!(battle.actors[0].guard.recent_hurt_ticks, 0);
+    assert_eq!(battle.actors[0].reaction.hit_shake_ticks, 0);
 }

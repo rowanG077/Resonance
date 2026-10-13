@@ -18,6 +18,11 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
         record.overlimit_gain = [15, 11, 12][index % 3];
     }
     let table = battle_profile::Table {
+        normal_attacks: vec![],
+        martial_attacks: resonance_content::battle_martial::Catalogue {
+            members: Default::default(),
+            bindings: Default::default(),
+        },
         lethal_rescue_names: ["Angel Tear", "Revive", "Resurrect", "Ring", "Doll"]
             .map(str::to_owned),
         overlimit_voices: [None; 9],
@@ -25,6 +30,7 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
         companion_policy: Default::default(),
         source_sha256: "a".repeat(64),
         entry: Default::default(),
+        chant_sequences: Default::default(),
         voice_sequences: vec![Default::default(); 3],
         records,
         contact_sounds: Default::default(),

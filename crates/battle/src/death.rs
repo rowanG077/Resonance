@@ -56,6 +56,7 @@ impl Battle {
         if self.actors[id.index()].availability == ActorAvailability::Dead {
             return;
         }
+        self.release_capture_links(id);
         self.cancel_pending_item(id);
         self.clear_technique_command(id);
         self.interrupt_actor(id, cues);
@@ -85,7 +86,18 @@ impl Battle {
         actor.reaction.protection.recover();
         actor.reaction.recoil = Default::default();
         actor.availability = ActorAvailability::Active;
-        self.enter_get_up(id);
+        if let Some((pose, ticks)) = self.prepared.actor_setup[id.index()].revival {
+            pose.play(self, id.index());
+            self.set_task(
+                id.index(),
+                crate::state::ActorTask::Recovering {
+                    remaining: ticks.max(crate::knockdown::GET_UP_DURATION) - 1,
+                    after_hit: false,
+                },
+            );
+        } else {
+            self.enter_get_up(id);
+        }
     }
 }
 

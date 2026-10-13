@@ -67,7 +67,7 @@ impl Battle {
         }
         let projected = |point: [f32; 3]| {
             self.camera.as_ref().map_or(point[0], |camera| {
-                crate::control::project_screen_x(camera.pose, [point[0], 0., point[2]])
+                crate::control::project_screen_x(camera.frame(), [point[0], 0., point[2]])
             })
         };
         let owner = projected(self.actors[index].position);

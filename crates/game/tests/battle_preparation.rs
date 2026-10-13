@@ -191,6 +191,7 @@ fn actor() -> Actor {
             dagger_reach: false,
             contact: Default::default(),
             normal_combo_limit: 3,
+            guaranteed_steal: false,
             luck: 0,
             stats: resonance_battle::CombatStats::default(),
             affinities: [resonance_battle::Affinity::Normal; 9],
@@ -223,6 +224,7 @@ fn actor() -> Actor {
         heading: 0.,
         facing_direction: [0., 0., 1.],
         effect_scale: 1.,
+        secondary_wind: Default::default(),
         movement: Default::default(),
         hit_stop: 0,
         time_stop: 0,
@@ -285,12 +287,17 @@ fn fixture_effect(files: &Files, members: Vec<u16>) -> Result<EffectResource> {
 fn fixture_hit() -> resonance_battle::HitRule {
     use resonance_battle::{DamageKind, HitElement, HitRule, Power};
     HitRule {
+        sound: None,
         kind: DamageKind::Slash,
         arte: false,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: false,
         element: HitElement::Neutral,
         power: Power::Fixed(5),
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         guard: Default::default(),
         reaction: Default::default(),
         condition: None,

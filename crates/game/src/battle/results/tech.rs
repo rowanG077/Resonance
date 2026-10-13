@@ -14,12 +14,12 @@ impl Candidate {
         battle: &'a Battle,
     ) -> Page<'a> {
         state.page(
-            &self.party,
+            self.menu_party(),
             &self.session,
             &self.menus,
             Context::Battle {
                 battle,
-                actors: &self.setup.actors,
+                actors: &self.menu_actors,
                 connected,
             },
         )
@@ -63,15 +63,15 @@ impl Candidate {
             battle.phase() == BattlePhase::Combat,
             "Tech requires active combat"
         );
-        self.sync_party(battle)?;
+        self.begin_menu(battle)?;
         let state = Tech::opening(
             remembered,
             Context::Battle {
                 battle,
-                actors: &self.setup.actors,
+                actors: &self.menu_actors,
                 connected: &connected,
             },
-            &self.party,
+            self.menu_party(),
             &self.session,
             &self.menus,
         )?;
@@ -90,11 +90,7 @@ impl Candidate {
                     slot < party.formation.len().min(4) && value < 3,
                     "invalid Tech control edit"
                 );
-                let actor = setup
-                    .actors
-                    .get(slot)
-                    .map(|&(actor, _)| actor)
-                    .context("Tech control slot has no live actor")?;
+                let actor = Self::tech_actor(setup, usize::from(party.formation[slot] - 1))?;
                 let mode = match value {
                     0 => Control::Manual,
                     1 => Control::SemiAuto,
@@ -194,28 +190,34 @@ impl Candidate {
         let focus = page.state.focus;
         let step = page.state.request_step(
             input,
-            &self.party,
+            self.menu_party(),
             &self.session,
             &self.menus,
             Context::Battle {
                 battle,
-                actors: &self.setup.actors,
+                actors: &self.menu_actors,
                 connected: &page.connected,
             },
         )?;
         let visit = match step {
             Step::Navigate(visit) => visit,
             Step::Edit(edit) => {
-                let result = Self::apply_tech_edit(&self.setup, battle, &mut self.party, edit)?;
+                let result = Self::apply_tech_edit(
+                    &self.setup,
+                    battle,
+                    self.menu_party.as_mut().context("Tech page has no party")?,
+                    edit,
+                )?;
+                self.publish_menu_edits();
                 page.state.finish_edit(
                     edit,
                     result,
-                    &self.party,
+                    self.menu_party(),
                     &self.session,
                     &self.menus,
                     Context::Battle {
                         battle,
-                        actors: &self.setup.actors,
+                        actors: &self.menu_actors,
                         connected: &page.connected,
                     },
                 )
@@ -234,7 +236,7 @@ impl Candidate {
                     let target = if kind == TargetKind::SelfTarget {
                         Some(actor)
                     } else {
-                        self.setup.actors.get(exit.target).map(|row| row.0)
+                        self.menu_actors.get(exit.target).map(|row| row.0)
                     };
                     if let Some(target) = target {
                         battle.queue_technique_target_from(

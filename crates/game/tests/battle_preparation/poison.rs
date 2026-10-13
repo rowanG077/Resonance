@@ -24,7 +24,7 @@ fn saved_poison_emits_scene_feedback_that_expires() -> Result<()> {
     party.formation = vec![1, 2, 3];
     party.members[0].ailments.poison = Poison::Mild;
     party.settings.battle_controls = [0; 4];
-    let assets = Assets::load(
+    let (_, prepared) = Assets::load(
         &root,
         &retained,
         &menus,
@@ -37,24 +37,21 @@ fn saved_poison_emits_scene_feedback_that_expires() -> Result<()> {
             defeat: DefeatPolicy::GameOver,
             music: None,
         },
-        &mut cache,
-        || false,
-    )?;
-    let prepared = assets.prepare(
-        &menus,
         PrepareOptions {
+            event_flags: Default::default(),
             devils_arms_unlocked: false,
             victory_story_flags: [false; 2],
             random_seed: 17,
             map: 332,
             world_music: 0,
             story: 2500,
-            story3: false,
             colette_state: 0,
             overlimit_boost: false,
         },
-        |request| Ok(Some(request)),
+        &mut cache,
+        || false,
     )?;
+
     let diagnostics = Diagnostics::new(true);
     let mut effects = Effects::new(
         prepared.effect_banks,

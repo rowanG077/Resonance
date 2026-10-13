@@ -98,7 +98,8 @@ fn arena_clamp_preserves_height_and_velocity_for_both_sides() {
             actor.movement.vertical = 7.;
             constrain(&mut actor);
             assert_eq!(actor.movement.steering.arena_contact(), ArenaContact::Slid);
-            assert!((actor.position[0] + actor.body_radius() - ARENA_RADIUS).abs() < 0.001);
+            let boundary = if side == Side::Party { 850. } else { 885. };
+            assert!((actor.position[0] - boundary).abs() < 0.001);
             assert_eq!(actor.position[1], height);
             assert_eq!(actor.movement.vertical, 7.);
         }

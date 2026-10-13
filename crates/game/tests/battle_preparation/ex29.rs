@@ -50,7 +50,7 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
     assert_eq!(party.members[2].ex_gems[3], 4);
     assert_eq!(party.members[2].ex_skills[3], 29);
 
-    let assets = Assets::load(
+    let (assets, prepared) = Assets::load(
         &root,
         &retained,
         &menus,
@@ -63,27 +63,24 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
             defeat: DefeatPolicy::GameOver,
             music: None,
         },
-        &mut cache,
-        || false,
-    )?;
-    let catalogue = &assets.catalogue;
-    let element = usize::from(catalogue.definition(66)?.element);
-    assert_eq!(element, 3);
-    let prepared = assets.prepare(
-        &menus,
         PrepareOptions {
+            event_flags: Default::default(),
             devils_arms_unlocked: false,
             victory_story_flags: [false; 2],
             random_seed: 0x2345,
             map: 332,
             world_music: 0,
             story: 2500,
-            story3: false,
             colette_state: 0,
             overlimit_boost: false,
         },
-        |request| Ok(Some(request)),
+        &mut cache,
+        || false,
     )?;
+    let catalogue = &assets.catalogue;
+    let element = usize::from(catalogue.definition(66)?.element);
+    assert_eq!(element, 3);
+
     let actor = prepared.results.actors[0].0;
     assert!(
         prepared.core.technique_is_current(actor, 66) == Some(false),

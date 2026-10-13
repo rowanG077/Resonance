@@ -1,13 +1,15 @@
 //! Presentation-owned damage numbers, recovery notices, and gauge trails.
-use super::{Batch, BitmapFont, party, text};
+use super::{Art, Batch, party, text};
 use anyhow::{Context, Result};
 use resonance_battle::{Affinity, BattleFrame, Cue, GuardResult, RecoveryKind, Side};
 
-const MAX_HITS: usize = 3;
-const HIT_FADE_START: u32 = 40;
-const HIT_LIFETIME: u32 = 60;
-const RECOVERY_FADE_START: u32 = 20;
-const RECOVERY_LIFETIME: u32 = 52;
+const MAX_FLOATING: usize = 4;
+const FLOATING_HOLD: u32 = 35;
+const FADE_STEP: u32 = 8;
+const FADE_DURATION: u32 = 255_u32.div_ceil(FADE_STEP);
+const FLOATING_LIFETIME: u32 = FLOATING_HOLD + FADE_DURATION;
+const RECOVERY_HOLD: u32 = 20;
+const RECOVERY_LIFETIME: u32 = RECOVERY_HOLD + FADE_DURATION;
 
 #[derive(Default)]
 pub(super) struct Numbers {
@@ -17,7 +19,8 @@ pub(super) struct Numbers {
 #[derive(Default)]
 pub(super) struct ActorNumbers {
     pub(super) trails: [i16; 2],
-    hits: Vec<FloatingNumber>,
+    floating: Vec<FloatingNumber>,
+    next_slot: usize,
     recovery: [Option<RecoveryNumber>; 2],
 }
 
@@ -25,6 +28,8 @@ struct FloatingNumber {
     value: i32,
     style: NumberStyle,
     age: u32,
+    origin: [f32; 3],
+    slot: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -32,24 +37,7 @@ enum NumberStyle {
     Normal,
     Guarded,
     Emphasized,
-}
-
-impl NumberStyle {
-    fn size(self) -> [f32; 2] {
-        match self {
-            Self::Normal => [14., 20.],
-            Self::Guarded => [12., 18.],
-            Self::Emphasized => [16., 24.],
-        }
-    }
-    fn color(self, side: Side, alpha: u8) -> [u8; 4] {
-        match self {
-            Self::Emphasized => [128, 112, 48, alpha],
-            Self::Guarded => [88, 96, 112, alpha],
-            Self::Normal if side == Side::Party => [128, 64, 64, alpha],
-            Self::Normal => [128, 128, 128, alpha],
-        }
-    }
+    Recovery(RecoveryKind),
 }
 
 struct RecoveryNumber {
@@ -62,9 +50,9 @@ impl ActorNumbers {
         for (trail, value) in self.trails.iter_mut().zip(current) {
             *trail = trail.saturating_sub(elapsed.min(100) as i16).max(value);
         }
-        self.hits.retain_mut(|number| {
+        self.floating.retain_mut(|number| {
             number.age = number.age.saturating_add(elapsed);
-            number.age < HIT_LIFETIME
+            number.age < FLOATING_LIFETIME
         });
         for number in &mut self.recovery {
             if let Some(active) = number {
@@ -76,18 +64,27 @@ impl ActorNumbers {
         }
     }
 
-    fn hit(&mut self, value: i32, style: NumberStyle) {
-        if self.hits.len() == MAX_HITS {
-            self.hits.remove(0);
+    fn float(&mut self, value: i32, style: NumberStyle, origin: [f32; 3]) {
+        if self.floating.iter().all(|hit| hit.age >= FLOATING_HOLD) {
+            self.next_slot = 0;
         }
-        self.hits.push(FloatingNumber {
+        let slot = self.next_slot;
+        self.next_slot = (slot + 1) % MAX_FLOATING;
+        self.floating.retain(|hit| hit.slot != slot);
+        self.floating.push(FloatingNumber {
             value: value.max(0),
             style,
             age: 0,
+            origin,
+            slot,
         });
     }
 
-    fn recover(&mut self, kind: RecoveryKind, value: i32) {
+    fn recover(&mut self, kind: RecoveryKind, value: i32, origin: [f32; 3], side: Side) {
+        self.float(value, NumberStyle::Recovery(kind), origin);
+        if side != Side::Party {
+            return;
+        }
         let slot = &mut self.recovery[kind as usize];
         let value = slot
             .as_ref()
@@ -108,28 +105,40 @@ impl Numbers {
                 Cue::Hit { actor, result, .. }
                     if frame.recognized_result.is_none() && result.is_damage() =>
                 {
-                    let style = if result.guard != GuardResult::None
+                    let victim = &frame.actors[actor.index()];
+                    let style = if victim.hp <= 0 {
+                        NumberStyle::Normal
+                    } else if result.guard != GuardResult::None
                         || result.affinity == Affinity::Resistant
                     {
                         NumberStyle::Guarded
-                    } else if result.critical || result.boosted || result.affinity == Affinity::Weak
-                    {
+                    } else if result.critical || result.affinity == Affinity::Weak {
                         NumberStyle::Emphasized
                     } else {
                         NumberStyle::Normal
                     };
-                    self.actors[actor.index()].hit(result.amount, style);
+                    self.actors[actor.index()].float(result.amount, style, victim.effect_origin());
                 }
                 Cue::IncidentalDamage { actor, amount } => {
-                    self.actors[actor.index()].hit(amount, NumberStyle::Normal);
+                    self.actors[actor.index()].float(
+                        amount,
+                        NumberStyle::Normal,
+                        frame.actors[actor.index()].effect_origin(),
+                    );
                 }
                 Cue::Recovered {
                     actor,
                     kind,
                     nominal,
                     ..
-                } if frame.actors[actor.index()].side == Side::Party => {
-                    self.actors[actor.index()].recover(kind, nominal);
+                } => {
+                    let recipient = &frame.actors[actor.index()];
+                    self.actors[actor.index()].recover(
+                        kind,
+                        nominal,
+                        recipient.effect_origin(),
+                        recipient.side,
+                    );
                 }
                 _ => {}
             }
@@ -137,77 +146,89 @@ impl Numbers {
     }
 }
 
-fn fade(age: u32, start: u32, end: u32) -> u8 {
-    (255 * end.saturating_sub(age).min(end - start) / (end - start)) as u8
+fn alpha(age: u32, hold: u32) -> u8 {
+    255_u32.saturating_sub(age.saturating_sub(hold) * FADE_STEP) as u8
 }
 
-fn draw_hits(
+fn draw_floating(
     batch: &mut Batch,
-    font: &BitmapFont,
-    hits: &[FloatingNumber],
+    art: &Art,
+    hit: &FloatingNumber,
     side: Side,
     projected: [f32; 2],
 ) -> Result<()> {
-    const LINE_HEIGHT: f32 = 28.;
-    let rows: Vec<_> = hits
-        .iter()
-        .map(|number| {
-            let text = number.value.to_string();
-            let width = text.len() as f32 * number.style.size()[0];
-            (number, text, width)
-        })
-        .collect();
-    let width = rows.iter().map(|row| row.2).fold(0., f32::max);
-    let [x, y] = super::floating_origin(
-        [projected[0], projected[1] - 24.],
-        [width + 1., LINE_HEIGHT * rows.len() as f32 + 1.],
-    );
-    for (row, (number, text, text_width)) in rows.iter().enumerate() {
-        let size = number.style.size();
-        let alpha = fade(number.age, HIT_FADE_START, HIT_LIFETIME);
-        for (offset, color) in [
-            (1., [0, 0, 0, alpha]),
-            (0., number.style.color(side, alpha)),
-        ] {
-            text::glyphs(
-                batch,
-                font,
-                text,
-                [
-                    x + (width - text_width) / 2. + offset,
-                    y + row as f32 * LINE_HEIGHT + offset,
-                ],
-                size,
-                color,
-            )?;
-        }
+    // Expand on contact, settle in six updates, then drift right while fading.
+    let pulse = 12_u32.saturating_sub(hit.age * 2);
+    let (size, mut colors) = match hit.style {
+        NumberStyle::Recovery(kind) => (art.damage.sizes[0], art.recovery_colors[kind as usize]),
+        style => (
+            art.damage.sizes[match style {
+                NumberStyle::Guarded => 1,
+                NumberStyle::Emphasized => 2,
+                _ => 0,
+            }],
+            art.damage.colors[usize::from(side == Side::Enemy)],
+        ),
+    };
+    let size = size.map(|value| f32::from(value) + 2. * pulse as f32);
+    for color in &mut colors {
+        color[3] = alpha(hit.age, FLOATING_HOLD).saturating_sub((pulse * 16) as u8);
     }
-    Ok(())
+    let trailing_digits = hit.value.checked_ilog10().unwrap_or(0);
+    let slot = hit.slot as f32;
+    let position = [
+        projected[0] + 8. - slot * 8. + hit.age.saturating_sub(FLOATING_HOLD) as f32
+            - trailing_digits as f32 * 14.,
+        projected[1] - slot * 12. - 32.,
+    ];
+    text::italic(
+        batch,
+        &art.font,
+        &hit.value.to_string(),
+        position,
+        size,
+        size[0],
+        10. + pulse as f32,
+        colors,
+    )
 }
 
 fn recovery(
     batch: &mut Batch,
-    font: &BitmapFont,
+    art: &Art,
     number: &RecoveryNumber,
     slot: usize,
     row: usize,
 ) -> Result<()> {
-    let [x, y] = party::recovery_position(slot, row);
-    let text = format!("+{}", number.value);
-    let width = (party::PORTRAIT_SIZE / text.len() as f32).min(10.);
-    text::glyphs(
-        batch,
-        font,
-        &text,
-        [x, y - 10. * number.age as f32 / RECOVERY_LIFETIME as f32],
-        [width, 12.],
-        [
-            64,
-            128,
-            80,
-            fade(number.age, RECOVERY_FADE_START, RECOVERY_LIFETIME),
-        ],
-    )
+    let [right, y] = party::recovery_position(slot, row);
+    let age = number.age as f32;
+    // Horizontal arc with an initial speed of 1.5 pixels per update.
+    let drift = ((24. * age - age * (age - 1.) / 2.) / 16.).floor();
+    let mut colors = art.recovery_colors[row];
+    for color in &mut colors {
+        color[3] = alpha(number.age, RECOVERY_HOLD);
+    }
+    // Draw right to left so italic digits overlap in the correct order.
+    let mut value = number.value.max(0) as u32;
+    let mut index = 0;
+    loop {
+        text::italic(
+            batch,
+            &art.font,
+            &(value % 10).to_string(),
+            [right + drift - 16. - index as f32 * 13., y],
+            [16., 24.],
+            16.,
+            12.,
+            colors,
+        )?;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+        index += 1;
+    }
+    Ok(())
 }
 
 impl super::Artwork {
@@ -221,24 +242,23 @@ impl super::Artwork {
         let mut recovered = Batch::default();
         let mut party_slot = 0;
         for (actor, numbers) in frame.actors.iter().zip(&self.numbers.actors) {
-            if !numbers.hits.is_empty() {
+            for hit in &numbers.floating {
                 let camera = frame
                     .camera
                     .context("floating number requires battle camera")?;
-                let projected =
-                    resonance_battle::project_screen_point(camera, actor.effect_origin());
-                draw_hits(
-                    &mut floating,
-                    &self.art.font,
-                    &numbers.hits,
-                    actor.side,
-                    projected,
-                )?;
+                let [x, scene_y] = resonance_battle::project_screen_point(camera, hit.origin);
+                // Floating feedback shares the scene's expanded display, like target markers.
+                let projected = [
+                    x,
+                    scene_y * resonance_content::HEIGHT as f32
+                        / resonance_content::SCENE_HEIGHT as f32,
+                ];
+                draw_floating(&mut floating, &self.art, hit, actor.side, projected)?;
             }
             if actor.side == Side::Party {
                 for (row, number) in numbers.recovery.iter().enumerate() {
                     if let Some(number) = number {
-                        recovery(&mut recovered, &self.art.font, number, party_slot, row)?;
+                        recovery(&mut recovered, &self.art, number, party_slot, row)?;
                     }
                 }
                 party_slot += 1;
@@ -255,74 +275,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn feedback_is_bounded_holds_and_expires() {
+    fn repeated_hits_keep_four_anchors_and_expire_with_their_animation() {
         let mut numbers = ActorNumbers::default();
         for value in 1..=5 {
-            numbers.hit(value, NumberStyle::Normal);
+            numbers.float(value, NumberStyle::Normal, [value as f32, 50., 0.]);
         }
         assert_eq!(
-            numbers.hits.iter().map(|n| n.value).collect::<Vec<_>>(),
-            [3, 4, 5]
+            numbers.floating.iter().map(|n| n.value).collect::<Vec<_>>(),
+            [2, 3, 4, 5]
         );
-        numbers.recover(RecoveryKind::Hp, 12);
-        numbers.recover(RecoveryKind::Hp, 7);
+        assert_eq!(numbers.floating.last().unwrap().origin, [5., 50., 0.]);
         numbers.advance([50, 25], 0);
-        assert_eq!(numbers.hits.len(), MAX_HITS);
-        assert_eq!(numbers.recovery[0].as_ref().unwrap().value, 19);
-        assert_eq!(numbers.recovery[0].as_ref().unwrap().age, 0);
-        numbers.advance([50, 25], HIT_LIFETIME);
-        assert!(numbers.hits.is_empty());
-        assert!(numbers.recovery[0].is_none());
-        numbers.recover(RecoveryKind::Hp, 5);
-        assert_eq!(numbers.recovery[0].as_ref().unwrap().value, 5);
-        numbers = ActorNumbers::default();
+        assert!(numbers.floating.iter().all(|n| n.age == 0));
+        numbers.advance([50, 25], FLOATING_HOLD);
+        assert_eq!(alpha(FLOATING_HOLD, FLOATING_HOLD), 255);
+        assert_eq!(alpha(FLOATING_HOLD + 1, FLOATING_HOLD), 247);
+        numbers.float(6, NumberStyle::Normal, [10., 50., 0.]);
+        assert_eq!(numbers.floating.last().unwrap().slot, 0);
+        numbers.advance([50, 25], FLOATING_LIFETIME);
+        assert!(numbers.floating.is_empty());
+    }
+
+    #[test]
+    fn recovery_accumulates_until_expiry_and_trails_follow_vitals() {
+        let mut numbers = ActorNumbers::default();
+        numbers.recover(RecoveryKind::Hp, 12, [10., 80., 0.], Side::Party);
+        numbers.recover(RecoveryKind::Hp, 7, [20., 80., 0.], Side::Party);
         numbers.advance([100, 80], 0);
+        assert_eq!(numbers.recovery[0].as_ref().unwrap().value, 19);
+        assert_eq!(
+            numbers.floating.iter().map(|n| n.value).collect::<Vec<_>>(),
+            [12, 7]
+        );
+        assert_eq!(numbers.floating[1].origin, [20., 80., 0.]);
+        assert!(matches!(
+            numbers.floating[1].style,
+            NumberStyle::Recovery(RecoveryKind::Hp)
+        ));
         numbers.advance([40, 30], 10);
         assert_eq!(numbers.trails, [90, 70]);
         numbers.advance([40, 30], 100);
         assert_eq!(numbers.trails, [40, 30]);
-        numbers.advance([100, 80], 1);
-        assert_eq!(numbers.trails, [100, 80]);
-        assert_eq!((fade(0, 20, 52), fade(52, 20, 52)), (255, 0));
-    }
-
-    #[test]
-    #[ignore = "requires current battle font artwork; CPU geometry only"]
-    fn floating_feedback_fits_the_play_area_at_all_edges() -> Result<()> {
-        use super::super::{
-            fixtures,
-            overlays::{ActorLabel, LabelKind},
-        };
-        let font = fixtures::battle_font()?;
-        let mut numbers = ActorNumbers::default();
-        for (value, style) in [
-            (1, NumberStyle::Normal),
-            (99999, NumberStyle::Guarded),
-            (i32::MAX, NumberStyle::Emphasized),
-        ] {
-            numbers.hit(value, style);
-        }
-        let label = ActorLabel::new(LabelKind::EquipmentEffect, [0.; 3]);
-        for point in [
-            [-1000., -1000.],
-            [1640., -1000.],
-            [-1000., 1480.],
-            [1640., 1480.],
-            [320., 240.],
-        ] {
-            let mut text = Batch::default();
-            let mut panel = Batch::default();
-            draw_hits(&mut text, &font, &numbers.hits, Side::Enemy, point)?;
-            label.draw(&font, point, &mut panel, &mut text)?;
-            assert!(!text.indices.is_empty() && !panel.indices.is_empty());
-            assert!(
-                text.positions
-                    .iter()
-                    .chain(&panel.positions)
-                    .all(|p| (-312. ..=312.).contains(&p[0]) && (-140. ..=232.).contains(&p[1])),
-                "floating text exceeded the play area at {point:?}"
-            );
-        }
-        Ok(())
+        assert!(numbers.recovery[0].is_none());
+        assert!(numbers.floating.is_empty());
+        numbers.recover(RecoveryKind::Hp, 5, [0.; 3], Side::Party);
+        assert_eq!(numbers.recovery[0].as_ref().unwrap().value, 5);
+        numbers.recover(RecoveryKind::Tp, 0, [0.; 3], Side::Enemy);
+        assert!(numbers.recovery[1].is_none());
+        let number = numbers.floating.last().unwrap();
+        assert_eq!(number.value, 0);
+        assert!(matches!(
+            number.style,
+            NumberStyle::Recovery(RecoveryKind::Tp)
+        ));
     }
 }

@@ -5,7 +5,7 @@ use resonance_battle::{ActorAvailability, ActorId, Battle, Cue, ModelDefinition,
 use resonance_content::{
     animation::Motion,
     battle_model,
-    battle_victory::{PATH, Performances},
+    battle_victory::{Event, PATH, Performances},
     prepared::{Cache, Files},
 };
 use std::{path::Path, sync::Arc};
@@ -13,11 +13,95 @@ use std::{path::Path, sync::Arc};
 const FIRST_VICTORY_CLIP: u16 = 0x100;
 const WEAK_HP_PERCENT: u8 = 25;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Performance {
     pub character: u8,
     pub selector: u8,
     pub motion: MotionBinding,
+    pub timeline: Option<Vec<(u16, Event)>>,
+}
+
+/// A result performance has one update clock and a short, ordered list of changes.
+pub struct Playing {
+    actor: ActorId,
+    performance: Performance,
+    elapsed: u16,
+    next: usize,
+}
+
+impl Playing {
+    pub fn start(battle: &mut Battle, actor: ActorId, performance: &Performance) -> Result<Self> {
+        let mut playing = Self {
+            actor,
+            performance: performance.clone(),
+            elapsed: 0,
+            next: 0,
+        };
+        if performance.timeline.is_some() {
+            playing.apply(battle)?;
+        } else {
+            battle.play_victory_pose(actor, performance.motion)?;
+        }
+        Ok(playing)
+    }
+
+    pub fn advance(&mut self, battle: &mut Battle) -> Result<()> {
+        self.elapsed = self.elapsed.saturating_add(1);
+        self.apply(battle)
+    }
+
+    fn apply(&mut self, battle: &mut Battle) -> Result<()> {
+        let Some(events) = &self.performance.timeline else {
+            return Ok(());
+        };
+        while let Some(&(at, event)) = events.get(self.next) {
+            if at > self.elapsed {
+                break;
+            }
+            match event {
+                Event::Expression(expression) => {
+                    battle.set_result_posture(self.actor, None, expression)?;
+                }
+                Event::Idle { blend } => {
+                    battle.play_result_pose(
+                        self.actor,
+                        MotionBinding {
+                            model: self.performance.motion.model,
+                            clip: super::model::MotionRole::Idle.id(),
+                        },
+                        resonance_battle::Pose {
+                            blend,
+                            repeat: true,
+                            ..Default::default()
+                        },
+                    )?;
+                }
+                Event::Pose {
+                    start,
+                    end,
+                    rate,
+                    blend,
+                    repeat,
+                } => {
+                    battle.play_result_pose(
+                        self.actor,
+                        self.performance.motion,
+                        resonance_battle::Pose {
+                            frame: start,
+                            end,
+                            rate,
+                            blend,
+                            repeat,
+                            loop_start: start,
+                            restart: true,
+                        },
+                    )?;
+                }
+            }
+            self.next += 1;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -173,7 +257,6 @@ pub fn load(
     let performances: Performances = Performances {
         module_sha256: raw.module_sha256,
         archive_sha256: raw.archive_sha256,
-        group_archive_sha256: raw.group_archive_sha256,
         ordinary,
         groups,
         files: dependencies,
@@ -241,6 +324,39 @@ pub fn prepare(
                 )?,
             )?;
             motion.validate(&candidate.skeleton)?;
+            if let Some(events) = &row.timeline {
+                ensure!(
+                    !events.is_empty() && events[0].0 == 0,
+                    "victory timeline has no opening event"
+                );
+                ensure!(
+                    events.windows(2).all(|pair| pair[0].0 <= pair[1].0),
+                    "unordered victory timeline"
+                );
+                for &(_, event) in events {
+                    if matches!(event, Event::Idle { .. }) {
+                        candidate
+                            .motions
+                            .get(&super::model::MotionRole::Idle.id())
+                            .context("victory completion idle is not prepared")?;
+                    }
+                    if let Event::Pose {
+                        start, end, rate, ..
+                    } = event
+                    {
+                        ensure!(
+                            start.is_finite()
+                                && (0. ..motion.duration_frames).contains(&start)
+                                && end.is_none_or(|end| end.is_finite()
+                                    && end > start
+                                    && end <= motion.duration_frames)
+                                && rate.is_finite()
+                                && (0.01..=4.).contains(&rate),
+                            "victory pose exceeds its clip"
+                        );
+                    }
+                }
+            }
             let clip = FIRST_VICTORY_CLIP + u16::from(row.selector);
             ensure!(
                 !candidate.motions.contains_key(&clip),
@@ -262,7 +378,102 @@ pub fn prepare(
                 model: model.resource,
                 clip,
             },
+            timeline: row.timeline.clone(),
         });
     }
     Ok((Arc::new(candidate), result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::battle::results::item_tests::native_fixture;
+    use resonance_battle::{ActorAvailability, BattleInput, ModelRequest, PreparedBattle, Side};
+
+    #[test]
+    fn result_timeline_holds_when_paused_and_emits_delayed_pose_once() -> Result<()> {
+        let mut fixture = native_fixture(
+            &[1],
+            |_, _, _| Ok(()),
+            |mut actors, setup| {
+                setup.style.celebrate = true;
+                setup.performances.push(Performance {
+                    character: 1,
+                    selector: 0,
+                    motion: MotionBinding {
+                        model: 1,
+                        clip: FIRST_VICTORY_CLIP,
+                    },
+                    timeline: Some(vec![
+                        (0, Event::Expression([4, 0, 0, 0])),
+                        (
+                            2,
+                            Event::Pose {
+                                start: 3.,
+                                end: None,
+                                rate: 1.,
+                                blend: 0,
+                                repeat: true,
+                            },
+                        ),
+                        (4, Event::Idle { blend: 4 }),
+                    ]),
+                });
+                for actor in &mut actors {
+                    if actor.side == Side::Enemy {
+                        actor.hp = 0;
+                        actor.availability = ActorAvailability::Dead;
+                    }
+                }
+                PreparedBattle::new(
+                    actors
+                        .into_iter()
+                        .map(|actor| (actor, Default::default()))
+                        .collect(),
+                    Default::default(),
+                    1,
+                )?
+                .finish()
+            },
+        )?;
+        let battle = &mut fixture.battle;
+        let candidate = &mut fixture.candidate;
+        battle.recognize_result();
+        battle.retire_combat()?;
+        candidate.select_victory(battle, 0, 0)?;
+        candidate.prepare_results(battle)?;
+        let opening = battle.publish(Vec::new());
+        assert!(opening.model_requests.iter().any(|request| matches!(
+            request,
+            ModelRequest::Expression {
+                layers: [4, 0, 0, 0],
+                ..
+            }
+        )));
+        for paused in [true, true, false] {
+            let cues = candidate.world_update(
+                battle,
+                BattleInput {
+                    paused,
+                    ..Default::default()
+                },
+            )?;
+            assert!(battle.publish(cues).model_requests.is_empty());
+        }
+        let cues = candidate.world_update(battle, BattleInput::default())?;
+        assert!(matches!(battle.publish(cues).model_requests.as_slice(),
+            [ModelRequest::Play { pose, .. }] if pose.frame == 3. && pose.rate == 1. && pose.repeat
+        ));
+        let cues = candidate.world_update(battle, BattleInput::default())?;
+        assert!(battle.publish(cues).model_requests.is_empty());
+        let cues = candidate.world_update(battle, BattleInput::default())?;
+        assert!(matches!(battle.publish(cues).model_requests.as_slice(),
+            [ModelRequest::Play { motion, pose, .. }]
+                if motion.clip == super::super::model::MotionRole::Idle.id()
+                    && pose.frame == 0. && pose.rate == 0.5 && pose.repeat && pose.blend == 4
+        ));
+        let cues = candidate.world_update(battle, BattleInput::default())?;
+        assert!(battle.publish(cues).model_requests.is_empty());
+        Ok(())
+    }
 }

@@ -1,4 +1,4 @@
-//! Replay ordinary keyboard input from a free-control save without output devices.
+//! Replay a free-control save offline or through a silent live window.
 use anyhow::{Context, Result, ensure};
 use std::path::PathBuf;
 
@@ -10,6 +10,7 @@ struct Args {
     resolution: resonance_presentation::Resolution,
     save_directory: Option<PathBuf>,
     paranoid: bool,
+    window: bool,
 }
 
 impl Args {
@@ -17,8 +18,13 @@ impl Args {
         let mut positionals = Vec::new();
         let mut save_directory = None;
         let mut paranoid = false;
+        let mut window = false;
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--window" => {
+                    ensure!(!window, "duplicate --window");
+                    window = true;
+                }
                 "--save-directory" => {
                     ensure!(save_directory.is_none(), "duplicate --save-directory");
                     let path = args.next().context("--save-directory PATH")?;
@@ -37,7 +43,7 @@ impl Args {
         }
         let mut args = positionals.into_iter();
         let save = args.next().context(
-            "SAVE REPLAY.json OUTPUT [COOKED_ROOT] [WIDTHxHEIGHT] [--save-directory PATH] [--paranoid]",
+            "SAVE REPLAY.json OUTPUT [COOKED_ROOT] [WIDTHxHEIGHT] [--save-directory PATH] [--paranoid] [--window]",
         )?.into();
         let spec = args.next().context("REPLAY.json")?.into();
         let output = args.next().context("OUTPUT")?.into();
@@ -60,13 +66,19 @@ impl Args {
             resolution,
             save_directory,
             paranoid,
+            window,
         })
     }
 }
 
 fn main() -> Result<()> {
     let args = Args::parse(std::env::args().skip(1))?;
-    resonance_presentation::record_checkpoint(
+    let record = if args.window {
+        resonance_presentation::record_checkpoint_window
+    } else {
+        resonance_presentation::record_checkpoint
+    };
+    record(
         &args.root,
         &args.save,
         &args.output,

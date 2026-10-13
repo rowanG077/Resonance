@@ -323,7 +323,13 @@ pub(super) fn prepare(
         serde_json::from_slice(&fs::read(output.join("game/menu-data.json"))?)?;
     menu.validate(data.items.len())?;
     paths.extend(["ui/dialogue.json".into(), "ui/menu.json".into()]);
-    paths.extend(dialogue.textures.iter().map(|texture| texture.path.clone()));
+    paths.extend(
+        dialogue
+            .textures
+            .iter()
+            .chain([&dialogue.cursor])
+            .map(|texture| texture.path.clone()),
+    );
     paths.extend(menu.textures.into_values().map(|texture| texture.path));
     let skits: resonance_content::skit::SkitCatalog =
         serde_json::from_slice(&fs::read(output.join("game/skits.json"))?)?;

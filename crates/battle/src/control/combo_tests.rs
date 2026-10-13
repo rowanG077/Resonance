@@ -3,12 +3,44 @@ use super::*;
 #[path = "combo_tests/aerial_spell.rs"]
 mod aerial_spell;
 
+#[test]
+fn normal_combo_uses_the_actors_authored_direction_and_fallback() -> Result<()> {
+    use resonance_content::battle_normal::Continuation;
+    for (directions, fallback, expected) in [
+        (
+            1 << NormalAttack::Thrust as u8,
+            Some(NormalAttack::Low as u8),
+            Some(NormalAttack::Thrust),
+        ),
+        (0, Some(NormalAttack::Low as u8), Some(NormalAttack::Low)),
+        (0, None, None),
+    ] {
+        let mut prepared = prepared(Control::Manual);
+        let control = Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap());
+        control.normals[NormalAttack::Neutral as usize].continuation = Continuation {
+            directions,
+            fallback,
+        };
+        let mut battle = prepared.finish()?;
+        normal(&mut battle)?;
+        battle.step(player_buttons(true, false, false, [0, -80]))?;
+        let actual = match battle.runtime[0].combo.buffered {
+            Some(BufferedAction::Normal(next)) => Some(next),
+            None => None,
+            _ => panic!("unexpected technique input"),
+        };
+        assert_eq!(actual, expected);
+    }
+    Ok(())
+}
+
 fn shared_prepared(mode: Control) -> PreparedBattle {
     let mut prepared = shortcuts_prepared(mode);
     for row in &mut prepared.resources.actions.entries[7..] {
         let row = Arc::make_mut(row);
         {
             row.execution = crate::ActionExecution::Attack(crate::PreparedAttack {
+                contact_recovery: None,
                 opening: None,
                 chain_at: Some(3),
                 end_at: 12,
@@ -211,6 +243,7 @@ fn queued_combo_revalidates_target_and_cost_after_final_contacts() -> Result<()>
         let mut prepared = shared_prepared(Control::Auto);
         let action = Arc::make_mut(&mut prepared.resources.actions.entries[0]);
         action.execution = crate::ActionExecution::Attack(crate::PreparedAttack {
+            contact_recovery: None,
             opening: None,
             chain_at: Some(15),
             end_at: 15,
@@ -221,18 +254,23 @@ fn queued_combo_revalidates_target_and_cost_after_final_contacts() -> Result<()>
                     duration: 1,
                     definition: Arc::new(crate::MeleeDefinition {
                         hit: crate::HitRule {
+                            sound: None,
                             kind: crate::DamageKind::Slash,
                             arte: false,
+                            effect_on_guard: false,
+                            effect: None,
                             overlimit_pause: pause,
                             power: crate::Power::Fixed(5),
                             element: crate::HitElement::Neutral,
                             prevents_defeat: false,
+                            finisher_grade: false,
+                            hp_drain: false,
                             guard: Default::default(),
                             reaction: Default::default(),
                             condition: None,
                         },
                         trail: None,
-                        volume: crate::MeleeVolume {
+                        volume: crate::MeleeVolume::Fixed {
                             offset: [0., 0., 20.],
                             radius: 10.,
                             half_height: 1.,

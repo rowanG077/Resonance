@@ -28,7 +28,10 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
         let mut session: SessionData = files.json("game/session-data.json")?;
         session.rules = Some(Arc::new(menus.clone()));
         let mut party = Party::new(&session, Default::default())?;
-        party.formation = vec![1];
+        party.formation = vec![1, 3];
+        party.members[2].techniques.clear();
+        party.members[2].disabled_techniques.clear();
+        party.members[2].shortcuts = [0; 4];
         party.members[0].techniques = [1, 2].into();
         party.members[0].shortcuts = [1, 2, 0, 0];
         party.members[0].technique_uses = [(1, 17), (2, 23)].into();
@@ -49,15 +52,16 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
             &mut cache,
             || false,
         )?;
+        assert!(inputs.spell_scenes.contains_key(&213));
         let result = inputs.prepare(
             &menus,
             PrepareOptions {
+                event_flags: Default::default(),
                 random_seed: 1234,
                 map: 332,
                 world_music: 0,
                 story: 2500,
                 colette_state: 0,
-                story3: false,
                 victory_story_flags: [false; 2],
                 devils_arms_unlocked: false,
                 overlimit_boost: false,
@@ -97,13 +101,21 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
             .context("dormant Special Guard capacity missing")?
             .action;
         assert_eq!(battle.technique_is_current(actor, 34), Some(false));
+        let genis = battle.actor_ids().nth(1).unwrap();
+        let stalagmite = battle
+            .prepared_technique(genis, 75)
+            .context("unlearned Stalagmite capacity missing")?
+            .action;
+        assert_eq!(battle.technique_is_current(genis, 75), Some(false));
         for _ in 0..600 {
-            if battle.phase() != resonance_battle::BattlePhase::Entry {
+            let frame = battle.step(Default::default())?;
+            if battle.phase() == resonance_battle::BattlePhase::Combat && !frame.clock.paused() {
                 break;
             }
-            battle.step(Default::default())?;
         }
         assert!(battle.phase() != resonance_battle::BattlePhase::Entry);
+        assert_eq!(battle.record_technique_acquisition(genis, 75)?, stalagmite);
+        assert_eq!(battle.technique_is_current(genis, 75), Some(true));
         assert_eq!(battle.record_technique_acquisition(actor, 34)?, guard);
         assert_eq!(battle.shortcuts(actor).unwrap(), &[1, 2, 34, 0]);
         battle.forget_technique(actor, guard)?;

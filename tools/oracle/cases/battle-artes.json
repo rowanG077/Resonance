@@ -1,0 +1,2270 @@
+{
+  "version": 1,
+  "game_id": "GQSEAF",
+  "characters": {
+    "1": "Lloyd",
+    "2": "Colette",
+    "3": "Genis",
+    "4": "Raine",
+    "5": "Sheena",
+    "6": "Zelos",
+    "7": "Presea",
+    "8": "Regal",
+    "9": "Kratos"
+  },
+  "inputs": {
+    "state": {
+      "path": "local/battle-repair-20261011/source-all/525-05/start.s01",
+      "sha256": "64541918836acdeabeb7df6317f3c5b2c4fa02390fa868682aaaf5e7ee129a58"
+    },
+    "movie": {
+      "path": "local/battle-repair-20261011/source-all/525-05/start.s01.dtm",
+      "sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600"
+    },
+    "techniques": {
+      "path": "local/all-assets/game/techniques.json",
+      "sha256": "bb295500cbf8901eee5414763d85e93abb6a9d8922ca4f01b11537d49c568faa"
+    },
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3"
+  },
+  "fixture_defaults": {
+    "formation": 399,
+    "arena": 30,
+    "level": 99,
+    "hp": 20000,
+    "tp": 500,
+    "press_after_polls": 1000,
+    "press_polls": 4,
+    "capture_frames": 1200
+  },
+  "pending_setups": {
+    "learning_trigger": "Requires the retained ordinary learning-trigger setup.",
+    "falcon_trigger": "Requires the measured low-HP/equipment/button trigger; ordinary shortcut is not equivalent.",
+    "heart_gate": "Requires its story/overlimit gate and observed Heart identity.",
+    "indignation_judgment_trigger": "Requires the mystic-specific trigger and ordinary prerequisite.",
+    "holy_judgment_trigger": "Requires the mystic-specific trigger and ordinary prerequisites."
+  },
+  "acceptance": {
+    "automatic": "Requested actor/native identity, one expected payment, action recovery and owned projectile retirement.",
+    "manual": "Review named caption/effects/contact/support outcome and retained cleanup image; automatic checks do not claim visual parity.",
+    "coverage": "Runnability is distinct from a positive source receipt. Every listed binding remains required, including pending_setup cases."
+  },
+  "capture_frames": {
+    "martial": 520,
+    "spell": 1200,
+    "recovery": 900,
+    "summon": 1500
+  },
+  "cases": [
+    {
+      "character": 1,
+      "arte": 1,
+      "name": "Demon Fang",
+      "native": 1,
+      "fixture": "martial",
+      "tp_cost": 4
+    },
+    {
+      "character": 1,
+      "arte": 2,
+      "name": "Double Demon Fang",
+      "native": 2,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 1,
+      "arte": 3,
+      "name": "Demonic Chaos",
+      "native": 3,
+      "fixture": "martial",
+      "tp_cost": 34
+    },
+    {
+      "character": 1,
+      "arte": 4,
+      "name": "Fierce Demon Fang",
+      "native": 4,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 1,
+      "arte": 5,
+      "name": "Demonic Circle",
+      "native": 5,
+      "fixture": "martial",
+      "tp_cost": 38
+    },
+    {
+      "character": 1,
+      "arte": 6,
+      "name": "Tiger Blade",
+      "native": 6,
+      "fixture": "martial",
+      "tp_cost": 8
+    },
+    {
+      "character": 1,
+      "arte": 7,
+      "name": "Tiger Rage",
+      "native": 7,
+      "fixture": "martial",
+      "tp_cost": 19
+    },
+    {
+      "character": 1,
+      "arte": 8,
+      "name": "Heavy Tiger Blade",
+      "native": 8,
+      "fixture": "martial",
+      "tp_cost": 19
+    },
+    {
+      "character": 1,
+      "arte": 9,
+      "name": "Twin Tiger Blade",
+      "native": 9,
+      "fixture": "martial",
+      "tp_cost": 35
+    },
+    {
+      "character": 1,
+      "arte": 10,
+      "name": "Sonic Thrust",
+      "native": 10,
+      "fixture": "martial",
+      "tp_cost": 5
+    },
+    {
+      "character": 1,
+      "arte": 11,
+      "name": "Hurricane Thrust",
+      "native": 11,
+      "fixture": "martial",
+      "tp_cost": 14
+    },
+    {
+      "character": 1,
+      "arte": 12,
+      "name": "Super Sonic Thrust",
+      "native": 12,
+      "fixture": "martial",
+      "tp_cost": 14
+    },
+    {
+      "character": 1,
+      "arte": 13,
+      "name": "Sword Rain",
+      "native": 13,
+      "fixture": "martial",
+      "tp_cost": 7
+    },
+    {
+      "character": 1,
+      "arte": 14,
+      "name": "Sword Rain: Alpha",
+      "native": 14,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 1,
+      "arte": 15,
+      "name": "Sword Rain: Beta",
+      "native": 15,
+      "fixture": "martial",
+      "tp_cost": 38
+    },
+    {
+      "character": 1,
+      "arte": 16,
+      "name": "Sonic Sword Rain",
+      "native": 16,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 1,
+      "arte": 17,
+      "name": "Tempest",
+      "native": 17,
+      "fixture": "martial",
+      "tp_cost": 8
+    },
+    {
+      "character": 1,
+      "arte": 18,
+      "name": "Omega Tempest",
+      "native": 18,
+      "fixture": "martial",
+      "tp_cost": 17
+    },
+    {
+      "character": 1,
+      "arte": 19,
+      "name": "Psi Tempest",
+      "native": 19,
+      "fixture": "martial",
+      "tp_cost": 17
+    },
+    {
+      "character": 1,
+      "arte": 20,
+      "name": "Beast",
+      "native": 20,
+      "fixture": "martial",
+      "tp_cost": 12
+    },
+    {
+      "character": 1,
+      "arte": 21,
+      "name": "Raging Beast",
+      "native": 21,
+      "fixture": "martial",
+      "tp_cost": 25
+    },
+    {
+      "character": 1,
+      "arte": 22,
+      "name": "Hunting Beast",
+      "native": 22,
+      "fixture": "martial",
+      "tp_cost": 24
+    },
+    {
+      "character": 1,
+      "arte": 23,
+      "name": "Demonic Tiger Blade",
+      "native": 23,
+      "fixture": "martial",
+      "tp_cost": 32
+    },
+    {
+      "character": 1,
+      "arte": 24,
+      "name": "Demonic Thrust",
+      "native": 24,
+      "fixture": "martial",
+      "tp_cost": 30
+    },
+    {
+      "character": 1,
+      "arte": 25,
+      "name": "Raining Tiger Blade",
+      "native": 25,
+      "fixture": "martial",
+      "tp_cost": 36
+    },
+    {
+      "character": 1,
+      "arte": 26,
+      "name": "Tempest Thrust",
+      "native": 26,
+      "fixture": "martial",
+      "tp_cost": 32
+    },
+    {
+      "character": 1,
+      "arte": 27,
+      "name": "Tempest Beast",
+      "native": 27,
+      "fixture": "martial",
+      "tp_cost": 35
+    },
+    {
+      "character": 1,
+      "arte": 28,
+      "name": "Beast Sword Rain",
+      "native": 28,
+      "fixture": "martial",
+      "tp_cost": 38
+    },
+    {
+      "character": 1,
+      "arte": 29,
+      "name": "Rising Falcon",
+      "native": 29,
+      "fixture": "martial",
+      "tp_cost": 32
+    },
+    {
+      "character": 1,
+      "arte": 34,
+      "name": "Guardian",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "input": "guard_down"
+    },
+    {
+      "character": 6,
+      "arte": 34,
+      "name": "Guardian",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "input": "guard_down"
+    },
+    {
+      "character": 9,
+      "arte": 34,
+      "name": "Guardian",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "input": "guard_down"
+    },
+    {
+      "character": 2,
+      "arte": 35,
+      "name": "Ray Thrust",
+      "native": 35,
+      "fixture": "martial",
+      "tp_cost": 5,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 36,
+      "name": "Dual Ray Thrust",
+      "native": 36,
+      "fixture": "martial",
+      "tp_cost": 10,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 37,
+      "name": "Triple Ray Thrust",
+      "native": 37,
+      "fixture": "martial",
+      "tp_cost": 22,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 38,
+      "name": "Ray Satellite",
+      "native": 38,
+      "fixture": "martial",
+      "tp_cost": 14,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 39,
+      "name": "Triple Ray Satellite",
+      "native": 39,
+      "fixture": "martial",
+      "tp_cost": 26,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 40,
+      "name": "Pow Hammer",
+      "native": 40,
+      "fixture": "martial",
+      "tp_cost": 8,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 41,
+      "name": "Pow Pow Hammer",
+      "native": 41,
+      "fixture": "martial",
+      "tp_cost": 15,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 42,
+      "name": "Hammer Rain",
+      "native": 42,
+      "fixture": "martial",
+      "tp_cost": 30,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 43,
+      "name": "Para Ball",
+      "native": 138,
+      "fixture": "martial",
+      "tp_cost": 14,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 44,
+      "name": "Torrential Para Ball",
+      "native": 139,
+      "fixture": "martial",
+      "tp_cost": 30,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 45,
+      "name": "Ring Whirlwind",
+      "native": 45,
+      "fixture": "martial",
+      "tp_cost": 11,
+      "colette_state": 1,
+      "pending_setup": "learning_trigger"
+    },
+    {
+      "character": 2,
+      "arte": 46,
+      "name": "Ring Cyclone",
+      "native": 46,
+      "fixture": "martial",
+      "tp_cost": 22,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 48,
+      "name": "Whirlwind Rush",
+      "native": 48,
+      "fixture": "martial",
+      "tp_cost": 22,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 50,
+      "name": "Grand Chariot",
+      "native": 50,
+      "fixture": "martial",
+      "tp_cost": 24,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 52,
+      "name": "Stardust Cross",
+      "native": 52,
+      "fixture": "martial",
+      "tp_cost": 34,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 56,
+      "name": "Angel Feathers",
+      "native": 267,
+      "fixture": "spell",
+      "tp_cost": 20,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 57,
+      "name": "Holy Song",
+      "native": 268,
+      "fixture": "recovery",
+      "tp_cost": 35,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 58,
+      "name": "Judgment",
+      "native": 269,
+      "fixture": "spell",
+      "tp_cost": 40,
+      "colette_state": 1
+    },
+    {
+      "character": 6,
+      "arte": 58,
+      "name": "Judgment",
+      "native": 269,
+      "fixture": "spell",
+      "tp_cost": 40
+    },
+    {
+      "character": 2,
+      "arte": 59,
+      "name": "Sacrifice",
+      "native": 270,
+      "fixture": "recovery",
+      "tp_cost": 150,
+      "colette_state": 1
+    },
+    {
+      "character": 3,
+      "arte": 62,
+      "name": "Aqua Edge",
+      "native": 200,
+      "fixture": "spell",
+      "tp_cost": 8
+    },
+    {
+      "character": 3,
+      "arte": 63,
+      "name": "Spread",
+      "native": 201,
+      "fixture": "spell",
+      "tp_cost": 22
+    },
+    {
+      "character": 3,
+      "arte": 64,
+      "name": "Tidal Wave",
+      "native": 202,
+      "fixture": "spell",
+      "tp_cost": 60
+    },
+    {
+      "character": 3,
+      "arte": 65,
+      "name": "Aqua Laser",
+      "native": 203,
+      "fixture": "spell",
+      "tp_cost": 20
+    },
+    {
+      "character": 3,
+      "arte": 66,
+      "name": "Fire Ball",
+      "native": 204,
+      "fixture": "spell",
+      "tp_cost": 7
+    },
+    {
+      "character": 3,
+      "arte": 67,
+      "name": "Eruption",
+      "native": 205,
+      "fixture": "spell",
+      "tp_cost": 24
+    },
+    {
+      "character": 3,
+      "arte": 68,
+      "name": "Explosion",
+      "native": 206,
+      "fixture": "spell",
+      "tp_cost": 55
+    },
+    {
+      "character": 3,
+      "arte": 69,
+      "name": "Flame Lance",
+      "native": 207,
+      "fixture": "spell",
+      "tp_cost": 24
+    },
+    {
+      "character": 3,
+      "arte": 70,
+      "name": "Wind Blade",
+      "native": 208,
+      "fixture": "spell",
+      "tp_cost": 8
+    },
+    {
+      "character": 3,
+      "arte": 71,
+      "name": "Air Thrust",
+      "native": 209,
+      "fixture": "spell",
+      "tp_cost": 22
+    },
+    {
+      "character": 3,
+      "arte": 72,
+      "name": "Cyclone",
+      "native": 210,
+      "fixture": "spell",
+      "tp_cost": 50
+    },
+    {
+      "character": 3,
+      "arte": 73,
+      "name": "Air Blade",
+      "native": 211,
+      "fixture": "spell",
+      "tp_cost": 22
+    },
+    {
+      "character": 3,
+      "arte": 74,
+      "name": "Stone Blast",
+      "native": 212,
+      "fixture": "spell",
+      "tp_cost": 7
+    },
+    {
+      "character": 3,
+      "arte": 75,
+      "name": "Stalagmite",
+      "native": 213,
+      "fixture": "spell",
+      "tp_cost": 20
+    },
+    {
+      "character": 3,
+      "arte": 76,
+      "name": "Ground Dasher",
+      "native": 214,
+      "fixture": "spell",
+      "tp_cost": 46
+    },
+    {
+      "character": 3,
+      "arte": 77,
+      "name": "Grave",
+      "native": 215,
+      "fixture": "spell",
+      "tp_cost": 22
+    },
+    {
+      "character": 3,
+      "arte": 78,
+      "name": "Lightning",
+      "native": 216,
+      "fixture": "spell",
+      "tp_cost": 9
+    },
+    {
+      "character": 3,
+      "arte": 79,
+      "name": "Spark Wave",
+      "native": 217,
+      "fixture": "spell",
+      "tp_cost": 26
+    },
+    {
+      "character": 3,
+      "arte": 80,
+      "name": "Indignation",
+      "native": 218,
+      "fixture": "spell",
+      "tp_cost": 60
+    },
+    {
+      "character": 3,
+      "arte": 81,
+      "name": "Thunder Blade",
+      "native": 219,
+      "fixture": "spell",
+      "tp_cost": 28
+    },
+    {
+      "character": 3,
+      "arte": 82,
+      "name": "Icicle",
+      "native": 220,
+      "fixture": "spell",
+      "tp_cost": 10
+    },
+    {
+      "character": 3,
+      "arte": 83,
+      "name": "Ice Tornado",
+      "native": 221,
+      "fixture": "spell",
+      "tp_cost": 30
+    },
+    {
+      "character": 3,
+      "arte": 84,
+      "name": "Freeze Lancer",
+      "native": 222,
+      "fixture": "spell",
+      "tp_cost": 29
+    },
+    {
+      "character": 3,
+      "arte": 85,
+      "name": "Raging Mist",
+      "native": 223,
+      "fixture": "spell",
+      "tp_cost": 38
+    },
+    {
+      "character": 3,
+      "arte": 86,
+      "name": "Dreaded Wave",
+      "native": 224,
+      "fixture": "spell",
+      "tp_cost": 34
+    },
+    {
+      "character": 3,
+      "arte": 88,
+      "name": "Spiral Flare",
+      "native": 226,
+      "fixture": "spell",
+      "tp_cost": 38
+    },
+    {
+      "character": 3,
+      "arte": 89,
+      "name": "Thunder Arrow",
+      "native": 227,
+      "fixture": "spell",
+      "tp_cost": 42
+    },
+    {
+      "character": 3,
+      "arte": 90,
+      "name": "Gravity Well",
+      "native": 228,
+      "fixture": "spell",
+      "tp_cost": 42
+    },
+    {
+      "character": 3,
+      "arte": 91,
+      "name": "Atlas",
+      "native": 229,
+      "fixture": "spell",
+      "tp_cost": 42
+    },
+    {
+      "character": 3,
+      "arte": 92,
+      "name": "Absolute",
+      "native": 230,
+      "fixture": "spell",
+      "tp_cost": 46
+    },
+    {
+      "character": 3,
+      "arte": 93,
+      "name": "Earth Bite",
+      "native": 231,
+      "fixture": "spell",
+      "tp_cost": 44
+    },
+    {
+      "character": 3,
+      "arte": 94,
+      "name": "Prism Sword",
+      "native": 232,
+      "fixture": "spell",
+      "tp_cost": 58
+    },
+    {
+      "character": 3,
+      "arte": 95,
+      "name": "Meteor Storm",
+      "native": 233,
+      "fixture": "spell",
+      "tp_cost": 80
+    },
+    {
+      "character": 4,
+      "arte": 98,
+      "name": "First Aid",
+      "native": 236,
+      "fixture": "recovery",
+      "tp_cost": 8
+    },
+    {
+      "character": 4,
+      "arte": 99,
+      "name": "Nurse",
+      "native": 237,
+      "fixture": "recovery",
+      "tp_cost": 28
+    },
+    {
+      "character": 4,
+      "arte": 100,
+      "name": "Heal",
+      "native": 238,
+      "fixture": "recovery",
+      "tp_cost": 20
+    },
+    {
+      "character": 4,
+      "arte": 101,
+      "name": "Recover",
+      "native": 239,
+      "fixture": "recovery",
+      "tp_cost": 12,
+      "target_condition": "poison"
+    },
+    {
+      "character": 4,
+      "arte": 102,
+      "name": "Purify",
+      "native": 240,
+      "fixture": "recovery",
+      "tp_cost": 24,
+      "target_condition": "poison"
+    },
+    {
+      "character": 4,
+      "arte": 103,
+      "name": "Restore",
+      "native": 241,
+      "fixture": "recovery",
+      "tp_cost": 24,
+      "target_condition": "poison"
+    },
+    {
+      "character": 4,
+      "arte": 104,
+      "name": "Dispel",
+      "native": 242,
+      "fixture": "recovery",
+      "tp_cost": 16,
+      "target_condition": "attack_down"
+    },
+    {
+      "character": 4,
+      "arte": 105,
+      "name": "Nullify",
+      "native": 243,
+      "fixture": "recovery",
+      "tp_cost": 28,
+      "target_condition": "attack_down"
+    },
+    {
+      "character": 4,
+      "arte": 106,
+      "name": "Anti-Magic",
+      "native": 244,
+      "fixture": "recovery",
+      "tp_cost": 28,
+      "target_condition": "attack_down"
+    },
+    {
+      "character": 4,
+      "arte": 107,
+      "name": "Sharpness",
+      "native": 245,
+      "fixture": "recovery",
+      "tp_cost": 12
+    },
+    {
+      "character": 4,
+      "arte": 108,
+      "name": "Acuteness",
+      "native": 246,
+      "fixture": "recovery",
+      "tp_cost": 32
+    },
+    {
+      "character": 4,
+      "arte": 109,
+      "name": "Keenness",
+      "native": 247,
+      "fixture": "recovery",
+      "tp_cost": 32
+    },
+    {
+      "character": 4,
+      "arte": 110,
+      "name": "Barrier",
+      "native": 248,
+      "fixture": "recovery",
+      "tp_cost": 8
+    },
+    {
+      "character": 4,
+      "arte": 111,
+      "name": "Field Barrier",
+      "native": 249,
+      "fixture": "recovery",
+      "tp_cost": 48
+    },
+    {
+      "character": 4,
+      "arte": 112,
+      "name": "Permaguard",
+      "native": 250,
+      "fixture": "recovery",
+      "tp_cost": 40
+    },
+    {
+      "character": 4,
+      "arte": 113,
+      "name": "Photon",
+      "native": 251,
+      "fixture": "spell",
+      "tp_cost": 16
+    },
+    {
+      "character": 4,
+      "arte": 114,
+      "name": "Ray",
+      "native": 252,
+      "fixture": "spell",
+      "tp_cost": 35
+    },
+    {
+      "character": 4,
+      "arte": 115,
+      "name": "Holy Lance",
+      "native": 253,
+      "fixture": "spell",
+      "tp_cost": 40
+    },
+    {
+      "character": 4,
+      "arte": 116,
+      "name": "Charge",
+      "native": 254,
+      "fixture": "recovery",
+      "tp_cost": 24
+    },
+    {
+      "character": 6,
+      "arte": 117,
+      "name": "Healing Stream",
+      "native": 255,
+      "fixture": "recovery",
+      "tp_cost": 45
+    },
+    {
+      "character": 9,
+      "arte": 117,
+      "name": "Healing Stream",
+      "native": 255,
+      "fixture": "recovery",
+      "tp_cost": 45
+    },
+    {
+      "character": 6,
+      "arte": 118,
+      "name": "Healing Wind",
+      "native": 256,
+      "fixture": "recovery",
+      "tp_cost": 35
+    },
+    {
+      "character": 9,
+      "arte": 118,
+      "name": "Healing Wind",
+      "native": 256,
+      "fixture": "recovery",
+      "tp_cost": 35
+    },
+    {
+      "character": 4,
+      "arte": 119,
+      "name": "Cure",
+      "native": 257,
+      "fixture": "recovery",
+      "tp_cost": 64
+    },
+    {
+      "character": 4,
+      "arte": 120,
+      "name": "Healing Circle",
+      "native": 258,
+      "fixture": "recovery",
+      "tp_cost": 56
+    },
+    {
+      "character": 4,
+      "arte": 121,
+      "name": "Resurrection",
+      "native": 259,
+      "fixture": "recovery",
+      "tp_cost": 48,
+      "target_dead": true
+    },
+    {
+      "character": 4,
+      "arte": 122,
+      "name": "Revitalize",
+      "native": 260,
+      "fixture": "recovery",
+      "tp_cost": 96
+    },
+    {
+      "character": 4,
+      "arte": 123,
+      "name": "Revive",
+      "native": 261,
+      "fixture": "recovery",
+      "tp_cost": 96
+    },
+    {
+      "character": 5,
+      "arte": 125,
+      "name": "Pyre Seal",
+      "native": 62,
+      "fixture": "martial",
+      "tp_cost": 15
+    },
+    {
+      "character": 5,
+      "arte": 126,
+      "name": "Power Seal",
+      "native": 63,
+      "fixture": "martial",
+      "tp_cost": 5
+    },
+    {
+      "character": 5,
+      "arte": 127,
+      "name": "Power Seal Pinion",
+      "native": 64,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 5,
+      "arte": 128,
+      "name": "Power Seal Absolute",
+      "native": 65,
+      "fixture": "martial",
+      "tp_cost": 22
+    },
+    {
+      "character": 5,
+      "arte": 129,
+      "name": "Serpent Seal",
+      "native": 66,
+      "fixture": "martial",
+      "tp_cost": 5
+    },
+    {
+      "character": 5,
+      "arte": 130,
+      "name": "Serpent Seal Pinion",
+      "native": 67,
+      "fixture": "martial",
+      "tp_cost": 12
+    },
+    {
+      "character": 5,
+      "arte": 131,
+      "name": "S. Seal Absolute",
+      "native": 68,
+      "fixture": "martial",
+      "tp_cost": 24
+    },
+    {
+      "character": 5,
+      "arte": 132,
+      "name": "Mirage Seal",
+      "native": 69,
+      "fixture": "martial",
+      "tp_cost": 5
+    },
+    {
+      "character": 5,
+      "arte": 133,
+      "name": "Mirage Seal Pinion",
+      "native": 70,
+      "fixture": "martial",
+      "tp_cost": 12
+    },
+    {
+      "character": 5,
+      "arte": 134,
+      "name": "M. Seal Absolute",
+      "native": 71,
+      "fixture": "martial",
+      "tp_cost": 20
+    },
+    {
+      "character": 5,
+      "arte": 135,
+      "name": "Life Seal",
+      "native": 72,
+      "fixture": "martial",
+      "tp_cost": 15
+    },
+    {
+      "character": 5,
+      "arte": 136,
+      "name": "Spirit Seal",
+      "native": 73,
+      "fixture": "martial",
+      "tp_cost": 15
+    },
+    {
+      "character": 5,
+      "arte": 137,
+      "name": "S. Seal: Fire",
+      "native": 276,
+      "fixture": "recovery",
+      "tp_cost": 14
+    },
+    {
+      "character": 5,
+      "arte": 138,
+      "name": "T. Seal: Earth",
+      "native": 277,
+      "fixture": "recovery",
+      "tp_cost": 14
+    },
+    {
+      "character": 5,
+      "arte": 139,
+      "name": "Summon: Corrine",
+      "native": 282,
+      "fixture": "spell",
+      "tp_cost": 30
+    },
+    {
+      "character": 5,
+      "arte": 140,
+      "name": "Force Seal",
+      "native": 77,
+      "fixture": "martial",
+      "tp_cost": 25
+    },
+    {
+      "character": 5,
+      "arte": 141,
+      "name": "Demon Seal",
+      "native": 78,
+      "fixture": "martial",
+      "tp_cost": 35
+    },
+    {
+      "character": 5,
+      "arte": 142,
+      "name": "Purgatory Seal",
+      "native": 295,
+      "fixture": "recovery",
+      "tp_cost": 40
+    },
+    {
+      "character": 5,
+      "arte": 143,
+      "name": "Cyclone Seal",
+      "native": 80,
+      "fixture": "martial",
+      "tp_cost": 35
+    },
+    {
+      "character": 6,
+      "arte": 145,
+      "name": "Light Spear",
+      "native": 81,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 9,
+      "arte": 145,
+      "name": "Light Spear",
+      "native": 81,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 6,
+      "arte": 146,
+      "name": "Victory Light Spear",
+      "native": 82,
+      "fixture": "martial",
+      "tp_cost": 26
+    },
+    {
+      "character": 9,
+      "arte": 146,
+      "name": "Victory Light Spear",
+      "native": 82,
+      "fixture": "martial",
+      "tp_cost": 26
+    },
+    {
+      "character": 6,
+      "arte": 147,
+      "name": "Light Spear Cannon",
+      "native": 83,
+      "fixture": "martial",
+      "tp_cost": 26
+    },
+    {
+      "character": 9,
+      "arte": 147,
+      "name": "Light Spear Cannon",
+      "native": 83,
+      "fixture": "martial",
+      "tp_cost": 26
+    },
+    {
+      "character": 6,
+      "arte": 148,
+      "name": "Hell Pyre",
+      "native": 84,
+      "fixture": "martial",
+      "tp_cost": 22
+    },
+    {
+      "character": 9,
+      "arte": 148,
+      "name": "Hell Pyre",
+      "native": 84,
+      "fixture": "martial",
+      "tp_cost": 22
+    },
+    {
+      "character": 6,
+      "arte": 149,
+      "name": "Lightning Blade",
+      "native": 85,
+      "fixture": "martial",
+      "tp_cost": 22
+    },
+    {
+      "character": 9,
+      "arte": 149,
+      "name": "Lightning Blade",
+      "native": 85,
+      "fixture": "martial",
+      "tp_cost": 22
+    },
+    {
+      "character": 6,
+      "arte": 150,
+      "name": "Demon Spear",
+      "native": 86,
+      "fixture": "martial",
+      "tp_cost": 30
+    },
+    {
+      "character": 9,
+      "arte": 150,
+      "name": "Demon Spear",
+      "native": 86,
+      "fixture": "martial",
+      "tp_cost": 30
+    },
+    {
+      "character": 6,
+      "arte": 151,
+      "name": "S. Lightning Blade",
+      "native": 87,
+      "fixture": "martial",
+      "tp_cost": 34
+    },
+    {
+      "character": 9,
+      "arte": 151,
+      "name": "S. Lightning Blade",
+      "native": 87,
+      "fixture": "martial",
+      "tp_cost": 34
+    },
+    {
+      "character": 7,
+      "arte": 154,
+      "name": "Destruction",
+      "native": 90,
+      "fixture": "martial",
+      "tp_cost": 6
+    },
+    {
+      "character": 7,
+      "arte": 155,
+      "name": "Deadly Destruction",
+      "native": 91,
+      "fixture": "martial",
+      "tp_cost": 10
+    },
+    {
+      "character": 7,
+      "arte": 156,
+      "name": "Infinite Destruction",
+      "native": 92,
+      "fixture": "martial",
+      "tp_cost": 38
+    },
+    {
+      "character": 7,
+      "arte": 157,
+      "name": "Fiery Destruction",
+      "native": 93,
+      "fixture": "martial",
+      "tp_cost": 12
+    },
+    {
+      "character": 7,
+      "arte": 159,
+      "name": "Punishment",
+      "native": 95,
+      "fixture": "martial",
+      "tp_cost": 5
+    },
+    {
+      "character": 7,
+      "arte": 160,
+      "name": "Dual Punishment",
+      "native": 96,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 7,
+      "arte": 161,
+      "name": "Rising Punishment",
+      "native": 97,
+      "fixture": "martial",
+      "tp_cost": 28
+    },
+    {
+      "character": 7,
+      "arte": 162,
+      "name": "Finality Punishment",
+      "native": 98,
+      "fixture": "martial",
+      "tp_cost": 12
+    },
+    {
+      "character": 7,
+      "arte": 163,
+      "name": "Infliction",
+      "native": 99,
+      "fixture": "martial",
+      "tp_cost": 4
+    },
+    {
+      "character": 7,
+      "arte": 164,
+      "name": "Dual Infliction",
+      "native": 100,
+      "fixture": "martial",
+      "tp_cost": 13
+    },
+    {
+      "character": 7,
+      "arte": 165,
+      "name": "Resolute Infliction",
+      "native": 101,
+      "fixture": "martial",
+      "tp_cost": 15
+    },
+    {
+      "character": 7,
+      "arte": 167,
+      "name": "Devastation",
+      "native": 103,
+      "fixture": "martial",
+      "tp_cost": 8
+    },
+    {
+      "character": 7,
+      "arte": 168,
+      "name": "Finite Devastation",
+      "native": 104,
+      "fixture": "martial",
+      "tp_cost": 11
+    },
+    {
+      "character": 7,
+      "arte": 169,
+      "name": "Mass Devastation",
+      "native": 105,
+      "fixture": "martial",
+      "tp_cost": 12
+    },
+    {
+      "character": 7,
+      "arte": 170,
+      "name": "Fiery Infliction",
+      "native": 106,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 7,
+      "arte": 171,
+      "name": "Eternal Damnation",
+      "native": 107,
+      "fixture": "martial",
+      "tp_cost": 20
+    },
+    {
+      "character": 7,
+      "arte": 172,
+      "name": "Beast",
+      "native": 108,
+      "fixture": "martial",
+      "tp_cost": 14
+    },
+    {
+      "character": 7,
+      "arte": 173,
+      "name": "Endless Infliction",
+      "native": 109,
+      "fixture": "martial",
+      "tp_cost": 28
+    },
+    {
+      "character": 7,
+      "arte": 175,
+      "name": "Eternal Devastation",
+      "native": 111,
+      "fixture": "martial",
+      "tp_cost": 26
+    },
+    {
+      "character": 8,
+      "arte": 176,
+      "name": "Crescent Moon",
+      "native": 112,
+      "fixture": "martial",
+      "tp_cost": 8
+    },
+    {
+      "character": 8,
+      "arte": 177,
+      "name": "Spin Kick",
+      "native": 113,
+      "fixture": "martial",
+      "tp_cost": 6
+    },
+    {
+      "character": 8,
+      "arte": 178,
+      "name": "Triple Kick",
+      "native": 114,
+      "fixture": "martial",
+      "tp_cost": 14
+    },
+    {
+      "character": 8,
+      "arte": 179,
+      "name": "Wolverine",
+      "native": 115,
+      "fixture": "martial",
+      "tp_cost": 28
+    },
+    {
+      "character": 8,
+      "arte": 180,
+      "name": "Heel Kick",
+      "native": 116,
+      "fixture": "martial",
+      "tp_cost": 14
+    },
+    {
+      "character": 8,
+      "arte": 181,
+      "name": "Dragon Fang",
+      "native": 117,
+      "fixture": "martial",
+      "tp_cost": 28
+    },
+    {
+      "character": 8,
+      "arte": 182,
+      "name": "Swallow Kick",
+      "native": 118,
+      "fixture": "martial",
+      "tp_cost": 8
+    },
+    {
+      "character": 8,
+      "arte": 183,
+      "name": "Swallow Dance",
+      "native": 119,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 8,
+      "arte": 184,
+      "name": "Dragon Dance",
+      "native": 120,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 8,
+      "arte": 185,
+      "name": "Eagle Dive",
+      "native": 121,
+      "fixture": "martial",
+      "tp_cost": 8,
+      "input": "aerial"
+    },
+    {
+      "character": 8,
+      "arte": 186,
+      "name": "Eagle Rage",
+      "native": 122,
+      "fixture": "martial",
+      "tp_cost": 18,
+      "input": "aerial"
+    },
+    {
+      "character": 8,
+      "arte": 187,
+      "name": "Eagle Fall",
+      "native": 123,
+      "fixture": "martial",
+      "tp_cost": 18,
+      "input": "aerial"
+    },
+    {
+      "character": 8,
+      "arte": 188,
+      "name": "Rising Dragon",
+      "native": 124,
+      "fixture": "martial",
+      "tp_cost": 10
+    },
+    {
+      "character": 8,
+      "arte": 189,
+      "name": "Dragon Fury",
+      "native": 125,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 8,
+      "arte": 190,
+      "name": "Dragon Rage",
+      "native": 126,
+      "fixture": "martial",
+      "tp_cost": 24
+    },
+    {
+      "character": 8,
+      "arte": 191,
+      "name": "Heaven's Charge",
+      "native": 127,
+      "fixture": "martial",
+      "tp_cost": 14
+    },
+    {
+      "character": 8,
+      "arte": 192,
+      "name": "Healer",
+      "native": 273,
+      "fixture": "recovery",
+      "tp_cost": 15
+    },
+    {
+      "character": 8,
+      "arte": 193,
+      "name": "Chi Healer",
+      "native": 274,
+      "fixture": "recovery",
+      "tp_cost": 25
+    },
+    {
+      "character": 8,
+      "arte": 194,
+      "name": "Grand Healer",
+      "native": 275,
+      "fixture": "recovery",
+      "tp_cost": 30
+    },
+    {
+      "character": 8,
+      "arte": 195,
+      "name": "Triple Rage Kick",
+      "native": 131,
+      "fixture": "martial",
+      "tp_cost": 26,
+      "input": "aerial"
+    },
+    {
+      "character": 8,
+      "arte": 197,
+      "name": "Crescent Dark Moon",
+      "native": 133,
+      "fixture": "martial",
+      "tp_cost": 30
+    },
+    {
+      "character": 8,
+      "arte": 201,
+      "name": "Mirage",
+      "native": 137,
+      "fixture": "martial",
+      "tp_cost": 12
+    },
+    {
+      "character": 2,
+      "arte": 202,
+      "name": "Damage Guard",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "colette_state": 1,
+      "input": "guard_down"
+    },
+    {
+      "character": 3,
+      "arte": 203,
+      "name": "Force Field",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "input": "guard_down"
+    },
+    {
+      "character": 4,
+      "arte": 203,
+      "name": "Force Field",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "input": "guard_down"
+    },
+    {
+      "character": 5,
+      "arte": 204,
+      "name": "Guardian Seal",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "input": "guard_down"
+    },
+    {
+      "character": 7,
+      "arte": 205,
+      "name": "Earthly Protection",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "input": "guard_down"
+    },
+    {
+      "character": 8,
+      "arte": 206,
+      "name": "Bastion",
+      "native": 34,
+      "fixture": "martial",
+      "tp_cost": 2,
+      "input": "guard_down"
+    },
+    {
+      "character": 6,
+      "arte": 207,
+      "name": "Demon Fang",
+      "native": 1,
+      "fixture": "martial",
+      "tp_cost": 4
+    },
+    {
+      "character": 9,
+      "arte": 207,
+      "name": "Demon Fang",
+      "native": 1,
+      "fixture": "martial",
+      "tp_cost": 4
+    },
+    {
+      "character": 6,
+      "arte": 208,
+      "name": "Double Demon Fang",
+      "native": 2,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 9,
+      "arte": 208,
+      "name": "Double Demon Fang",
+      "native": 2,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 6,
+      "arte": 209,
+      "name": "Fierce Demon Fang",
+      "native": 4,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 9,
+      "arte": 209,
+      "name": "Fierce Demon Fang",
+      "native": 4,
+      "fixture": "martial",
+      "tp_cost": 16
+    },
+    {
+      "character": 6,
+      "arte": 210,
+      "name": "Sonic Thrust",
+      "native": 10,
+      "fixture": "martial",
+      "tp_cost": 5
+    },
+    {
+      "character": 9,
+      "arte": 210,
+      "name": "Sonic Thrust",
+      "native": 10,
+      "fixture": "martial",
+      "tp_cost": 5
+    },
+    {
+      "character": 6,
+      "arte": 211,
+      "name": "Hurricane Thrust",
+      "native": 11,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 9,
+      "arte": 211,
+      "name": "Hurricane Thrust",
+      "native": 11,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 6,
+      "arte": 212,
+      "name": "Super Sonic Thrust",
+      "native": 12,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 9,
+      "arte": 212,
+      "name": "Super Sonic Thrust",
+      "native": 12,
+      "fixture": "martial",
+      "tp_cost": 18
+    },
+    {
+      "character": 6,
+      "arte": 213,
+      "name": "Fire Ball",
+      "native": 204,
+      "fixture": "spell",
+      "tp_cost": 7
+    },
+    {
+      "character": 9,
+      "arte": 213,
+      "name": "Fire Ball",
+      "native": 204,
+      "fixture": "spell",
+      "tp_cost": 7
+    },
+    {
+      "character": 6,
+      "arte": 214,
+      "name": "Eruption",
+      "native": 205,
+      "fixture": "spell",
+      "tp_cost": 24
+    },
+    {
+      "character": 9,
+      "arte": 214,
+      "name": "Eruption",
+      "native": 205,
+      "fixture": "spell",
+      "tp_cost": 24
+    },
+    {
+      "character": 6,
+      "arte": 215,
+      "name": "Wind Blade",
+      "native": 208,
+      "fixture": "spell",
+      "tp_cost": 8
+    },
+    {
+      "character": 9,
+      "arte": 215,
+      "name": "Wind Blade",
+      "native": 208,
+      "fixture": "spell",
+      "tp_cost": 8
+    },
+    {
+      "character": 6,
+      "arte": 216,
+      "name": "Air Thrust",
+      "native": 209,
+      "fixture": "spell",
+      "tp_cost": 22
+    },
+    {
+      "character": 9,
+      "arte": 216,
+      "name": "Air Thrust",
+      "native": 209,
+      "fixture": "spell",
+      "tp_cost": 22
+    },
+    {
+      "character": 6,
+      "arte": 217,
+      "name": "Stone Blast",
+      "native": 212,
+      "fixture": "spell",
+      "tp_cost": 7
+    },
+    {
+      "character": 9,
+      "arte": 217,
+      "name": "Stone Blast",
+      "native": 212,
+      "fixture": "spell",
+      "tp_cost": 7
+    },
+    {
+      "character": 6,
+      "arte": 218,
+      "name": "Grave",
+      "native": 215,
+      "fixture": "spell",
+      "tp_cost": 22
+    },
+    {
+      "character": 9,
+      "arte": 218,
+      "name": "Grave",
+      "native": 215,
+      "fixture": "spell",
+      "tp_cost": 22
+    },
+    {
+      "character": 6,
+      "arte": 219,
+      "name": "Lightning",
+      "native": 216,
+      "fixture": "spell",
+      "tp_cost": 9
+    },
+    {
+      "character": 9,
+      "arte": 219,
+      "name": "Lightning",
+      "native": 216,
+      "fixture": "spell",
+      "tp_cost": 9
+    },
+    {
+      "character": 6,
+      "arte": 220,
+      "name": "Thunder Blade",
+      "native": 219,
+      "fixture": "spell",
+      "tp_cost": 28
+    },
+    {
+      "character": 9,
+      "arte": 220,
+      "name": "Thunder Blade",
+      "native": 219,
+      "fixture": "spell",
+      "tp_cost": 28
+    },
+    {
+      "character": 6,
+      "arte": 221,
+      "name": "First Aid",
+      "native": 236,
+      "fixture": "recovery",
+      "tp_cost": 8
+    },
+    {
+      "character": 9,
+      "arte": 221,
+      "name": "First Aid",
+      "native": 236,
+      "fixture": "recovery",
+      "tp_cost": 8
+    },
+    {
+      "character": 4,
+      "arte": 222,
+      "name": "Sacred Light",
+      "native": 263,
+      "fixture": "spell",
+      "tp_cost": 150
+    },
+    {
+      "character": 2,
+      "arte": 223,
+      "name": "Item Thief",
+      "native": 43,
+      "fixture": "martial",
+      "tp_cost": 10,
+      "colette_state": 1
+    },
+    {
+      "character": 2,
+      "arte": 224,
+      "name": "Item Rover",
+      "native": 44,
+      "fixture": "martial",
+      "tp_cost": 22,
+      "colette_state": 1
+    },
+    {
+      "character": 1,
+      "arte": 228,
+      "name": "Falcon's Crest",
+      "native": 140,
+      "fixture": "martial",
+      "tp_cost": 100,
+      "pending_setup": "falcon_trigger"
+    },
+    {
+      "character": 5,
+      "arte": 229,
+      "name": "S. Seal: Water",
+      "native": 276,
+      "fixture": "recovery",
+      "tp_cost": 14
+    },
+    {
+      "character": 5,
+      "arte": 230,
+      "name": "S. Seal: Wind",
+      "native": 276,
+      "fixture": "recovery",
+      "tp_cost": 14
+    },
+    {
+      "character": 5,
+      "arte": 231,
+      "name": "S. Seal: Light",
+      "native": 276,
+      "fixture": "recovery",
+      "tp_cost": 14
+    },
+    {
+      "character": 5,
+      "arte": 232,
+      "name": "T. Seal: Ice",
+      "native": 277,
+      "fixture": "recovery",
+      "tp_cost": 14
+    },
+    {
+      "character": 5,
+      "arte": 233,
+      "name": "T. Seal: Lightning",
+      "native": 277,
+      "fixture": "recovery",
+      "tp_cost": 14
+    },
+    {
+      "character": 5,
+      "arte": 234,
+      "name": "T. Seal: Darkness",
+      "native": 277,
+      "fixture": "recovery",
+      "tp_cost": 14
+    },
+    {
+      "character": 5,
+      "arte": 235,
+      "name": "Summon: Fire",
+      "native": 284,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 236,
+      "name": "Summon: Water",
+      "native": 285,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 237,
+      "name": "Summon: Wind",
+      "native": 286,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 238,
+      "name": "Summon: Light",
+      "native": 290,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 239,
+      "name": "Summon: Earth",
+      "native": 287,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 240,
+      "name": "Summon: Ice",
+      "native": 288,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 241,
+      "name": "Summon: Lightning",
+      "native": 289,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 242,
+      "name": "Summon: Darkness",
+      "native": 291,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 243,
+      "name": "Summon: Origin",
+      "native": 293,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 244,
+      "name": "Summon: Birth",
+      "native": 292,
+      "fixture": "summon",
+      "tp_cost": 100
+    },
+    {
+      "character": 5,
+      "arte": 245,
+      "name": "Summon: Heart",
+      "native": 282,
+      "fixture": "spell",
+      "tp_cost": 100,
+      "pending_setup": "heart_gate"
+    },
+    {
+      "character": 4,
+      "arte": 246,
+      "name": "Dark Sphere",
+      "native": 278,
+      "fixture": "spell",
+      "tp_cost": 8
+    },
+    {
+      "character": 3,
+      "arte": 248,
+      "name": "Indignation Judg.",
+      "native": 280,
+      "fixture": "spell",
+      "tp_cost": 100,
+      "pending_setup": "indignation_judgment_trigger"
+    },
+    {
+      "character": 4,
+      "arte": 250,
+      "name": "Bloody Lance",
+      "native": 283,
+      "fixture": "spell",
+      "tp_cost": 8
+    },
+    {
+      "character": 2,
+      "arte": 251,
+      "name": "-????-",
+      "native": 296,
+      "fixture": "spell",
+      "tp_cost": 100,
+      "colette_state": 1,
+      "pending_setup": "holy_judgment_trigger"
+    },
+    {
+      "character": 9,
+      "arte": 252,
+      "name": "Judgment",
+      "native": 269,
+      "fixture": "spell",
+      "tp_cost": 40
+    }
+  ],
+  "inactive_authored_slots": [
+    {
+      "character": 1,
+      "arte": 30,
+      "name": "Final Justice",
+      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
+    },
+    {
+      "character": 1,
+      "arte": 31,
+      "name": "Sonic Burst",
+      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
+    },
+    {
+      "character": 1,
+      "arte": 32,
+      "name": "Aurora Slash",
+      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
+    },
+    {
+      "character": 1,
+      "arte": 33,
+      "name": "Holy Guardian",
+      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
+    },
+    {
+      "character": 2,
+      "arte": 47,
+      "name": "Listra",
+      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
+    },
+    {
+      "character": 2,
+      "arte": 49,
+      "name": "Listra",
+      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
+    },
+    {
+      "character": 2,
+      "arte": 51,
+      "name": "Grand Fall",
+      "reason": "Unreachable level256 with no learning/parent/story/Unison route; all942 authored scripts parsed and all43 literal LearnTechnique grants resolved, none51. Forced named execution remains uninitialized. Named content alone does not establish playable scope."
+    },
+    {
+      "character": 2,
+      "arte": 53,
+      "name": "Mirage Saber",
+      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
+    },
+    {
+      "character": 2,
+      "arte": 54,
+      "name": "Dancing Sickles",
+      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
+    },
+    {
+      "character": 2,
+      "arte": 55,
+      "name": "Final Fury",
+      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
+    },
+    {
+      "character": 2,
+      "arte": 60,
+      "name": "Grand Cross",
+      "reason": "Unavailable target, level256, self prerequisite, and no physical scene; distinct from required GrandFall51 and mystic251."
+    },
+    {
+      "character": 2,
+      "arte": 61,
+      "name": "Sephiroth",
+      "reason": "Unavailable target, level256, self prerequisite, and no physical scene; distinct from required GrandFall51 and mystic251."
+    },
+    {
+      "character": 3,
+      "arte": 96,
+      "name": "Divine Power",
+      "reason": "Unavailable target, level256, self-parent96,999 parent uses; native scene234 absent. Family owner confirms inactive authored slot; name preserved from authored localized menu."
+    },
+    {
+      "character": 3,
+      "arte": 97,
+      "name": "Tetraspell",
+      "reason": "Unavailable target, level256, self-parent97,999 parent uses; native scene235 absent. Family owner confirms inactive authored slot; name preserved from authored localized menu."
+    },
+    {
+      "character": 4,
+      "arte": 124,
+      "name": "Magic Shell",
+      "reason": "Native262,target unavailable,level256,self-parent124,parent uses999,empty description,no physical scene. Root applies same authored-inactivity rule as87/96/97. No Dolphin claim; positive physical/entry evidence distinguishes real required mystics."
+    },
+    {
+      "character": 6,
+      "arte": 152,
+      "name": "Spirit of the Earth",
+      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
+    },
+    {
+      "character": 6,
+      "arte": 153,
+      "name": "Eternal Chaos",
+      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
+    },
+    {
+      "character": 6,
+      "arte": 87,
+      "name": "Gungnir",
+      "reason": "Unavailable target, level256, self-parent87,999 parent uses; native scene225 absent. Family owner confirms inactive authored slot; name preserved from authored localized menu."
+    },
+    {
+      "character": 7,
+      "arte": 158,
+      "name": "Ultimate",
+      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
+    },
+    {
+      "character": 7,
+      "arte": 166,
+      "name": "Finality Infliction",
+      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
+    },
+    {
+      "character": 7,
+      "arte": 174,
+      "name": "Eternal Wind",
+      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
+    },
+    {
+      "character": 8,
+      "arte": 196,
+      "name": "Dragon Strike",
+      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
+    },
+    {
+      "character": 8,
+      "arte": 198,
+      "name": "Heaven Rising",
+      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
+    },
+    {
+      "character": 8,
+      "arte": 199,
+      "name": "Dragon's Talon",
+      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
+    },
+    {
+      "character": 8,
+      "arte": 200,
+      "name": "Rage",
+      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
+    },
+    {
+      "character": 9,
+      "arte": 152,
+      "name": "Spirit of the Earth",
+      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
+    },
+    {
+      "character": 9,
+      "arte": 153,
+      "name": "Eternal Chaos",
+      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
+    },
+    {
+      "character": 9,
+      "arte": 87,
+      "name": "Gungnir",
+      "reason": "Unavailable target, level256, self-parent87,999 parent uses; native scene225 absent. Family owner confirms inactive authored slot; name preserved from authored localized menu."
+    }
+  ]
+}

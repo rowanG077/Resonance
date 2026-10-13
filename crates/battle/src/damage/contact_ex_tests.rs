@@ -3,12 +3,17 @@ use crate::{Activity, Control, HitProtection, Side, tests::actor};
 
 fn rule(kind: DamageKind, power: Power) -> HitRule {
     HitRule {
+        sound: None,
         kind,
         power,
         arte: false,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: true,
         element: HitElement::Neutral,
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         guard: GuardRule::default(),
         reaction: Default::default(),
         condition: None,
@@ -93,6 +98,7 @@ fn counter_guarantees_physical_criticals_against_attacking_opponents() {
 fn physical_bonuses_add_without_affecting_fixed_power_or_consuming_charge() {
     let mut owner = actor(Side::Party);
     owner.equipment.stats.slash = 200;
+    owner.equipment.stats.accuracy = 25;
     owner.equipment.contact.technique_balance = 100;
     owner.control_ex_state.charge = crate::ChargeLevel::Strong;
     owner.equipment.damage.elemental_physical_boost = true;

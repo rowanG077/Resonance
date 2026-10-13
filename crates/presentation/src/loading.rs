@@ -351,30 +351,23 @@ impl BattlePending {
                 gameplay_random,
             } = entry;
             let mut cache = cache.lock().unwrap();
-            let (files, descriptor) = resonance_game::battle::audio::prepare(
+            let entry_seed = options.random_seed;
+            let (assets, prepared) = resonance_game::battle::encounter::Assets::load(
                 &root,
-                (*retained).clone(),
-                &mut cache.bytes,
-                || stop.load(Ordering::Relaxed),
-            )?;
-            let audio =
-                super::battle_audio::Assets::load(&files, descriptor.as_ref(), &mut cache.audio)?;
-            let inputs = resonance_game::battle::encounter::Inputs::load(
-                &root,
-                &files,
+                &retained,
                 &menus,
                 &data,
                 &party,
                 setup,
+                options,
                 &mut cache.bytes,
                 || stop.load(Ordering::Relaxed),
             )?;
-            let assets = resonance_game::battle::encounter::Assets {
-                inputs,
-                audio: descriptor,
-            };
-            let entry_seed = options.random_seed;
-            let prepared = assets.prepare(&menus, options, |sound| audio.bind(sound))?;
+            let audio = super::battle_audio::Assets::load(
+                &assets.files,
+                assets.audio.as_ref(),
+                &mut cache.audio,
+            )?;
             let catalogue = assets.catalogue.clone();
             Ok(super::battle::Package {
                 assets: Arc::new(assets),

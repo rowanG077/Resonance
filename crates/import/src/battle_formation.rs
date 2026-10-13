@@ -1,6 +1,8 @@
 //! Decode `gp3` battle formation records.
 use anyhow::{Context, Result, ensure};
-use resonance_content::battle_formation::{Actor, Formation, Formations, Resource, Settings};
+use resonance_content::battle_formation::{
+    Actor, Formation, Formations, Resource, Settings, WeightedFormation,
+};
 
 pub(crate) fn read(usual: &[u8]) -> Result<Formations> {
     let bytes = crate::source_assets::section(usual, 1)?;
@@ -39,10 +41,10 @@ pub(crate) fn read(usual: &[u8]) -> Result<Formations> {
                     .map(|i| Actor {
                         resource: row[16 + i],
                         variant: row[32 + i],
+                        texture_variant: row[24 + i],
+                        weapon_variant: row[40 + i],
                         position: (row[6] & 2 == 0).then(|| [half(56 + i * 4), half(58 + i * 4)]),
-                        unsupported_reason: (row[24 + i] != 0
-                            || row[40 + i] != 0
-                            || row[48 + i] != 0)
+                        unsupported_reason: (row[48 + i] != 0)
                             .then(|| "encounter appearance override is not prepared".into()),
                     })
                     .collect(),
@@ -52,9 +54,36 @@ pub(crate) fn read(usual: &[u8]) -> Result<Formations> {
     let formations = Formations {
         source_sha256: crate::digest(usual),
         records,
+        pools: pools(crate::source_assets::section(usual, 0)?)?,
     };
     formations.validate()?;
     Ok(formations)
+}
+
+fn pools(bytes: &[u8]) -> Result<Vec<Vec<WeightedFormation>>> {
+    const RECORD_BYTES: usize = 32;
+    const CHOICES: usize = 6;
+    ensure!(
+        bytes.len().is_multiple_of(RECORD_BYTES),
+        "misaligned encounter pools"
+    );
+    bytes
+        .chunks_exact(RECORD_BYTES)
+        .map(|row| {
+            let half = |at| u16::from_be_bytes([row[at], row[at + 1]]);
+            let count = usize::from(half(2));
+            ensure!(
+                half(0) == 0 && (1..=CHOICES).contains(&count),
+                "invalid encounter pool header"
+            );
+            Ok((0..count)
+                .map(|slot| WeightedFormation {
+                    formation: half(4 + slot * 2),
+                    weight: half(16 + slot * 2),
+                })
+                .collect())
+        })
+        .collect()
 }
 
 pub fn publish(usual: &[u8], path: &std::path::Path) -> Result<()> {
@@ -67,9 +96,13 @@ mod tests {
 
     fn usual(row: &[u8]) -> Vec<u8> {
         let mut bytes = vec![];
-        for word in [2_u32, 12, 12] {
+        for word in [2_u32, 12, 44] {
             bytes.extend(word.to_be_bytes());
         }
+        let mut pool = [0; 32];
+        pool[3] = 1;
+        pool[17] = 100;
+        bytes.extend(pool);
         bytes.extend(row);
         bytes
     }
@@ -81,6 +114,30 @@ mod tests {
         row[8..10].copy_from_slice(&36_i16.to_be_bytes());
         row[56..60].copy_from_slice(&[0xff, 0xfe, 0, 40]);
         row
+    }
+
+    #[test]
+    fn encounter_pools_preserve_formations_and_weights() {
+        let mut row = [0; 32];
+        row[3] = 2;
+        row[4..8].copy_from_slice(&[0, 7, 1, 44]);
+        row[16..20].copy_from_slice(&[0, 60, 0, 50]);
+        assert_eq!(
+            pools(&row).unwrap(),
+            vec![vec![
+                WeightedFormation {
+                    formation: 7,
+                    weight: 60
+                },
+                WeightedFormation {
+                    formation: 300,
+                    weight: 50
+                },
+            ]]
+        );
+        assert!(pools(&row[..31]).is_err());
+        row[3] = 7;
+        assert!(pools(&row).is_err());
     }
 
     #[test]
@@ -125,12 +182,17 @@ mod tests {
         );
         assert!(record.actors[0].position.is_none());
         assert!(record.actors[0].unsupported_reason.is_none());
-        for offset in [24, 40, 48] {
-            let mut changed = row;
-            changed[offset] = 1;
-            let record = read(&usual(&changed)).unwrap().records.remove(0);
-            assert!(record.actors[0].unsupported_reason.is_some());
-        }
+        row[40] = 1;
+        let selected = read(&usual(&row)).unwrap().records.remove(0);
+        assert_eq!(selected.actors[0].weapon_variant, 1);
+        assert!(selected.actors[0].unsupported_reason.is_none());
+        row[24] = 2;
+        let selected = read(&usual(&row)).unwrap().records.remove(0);
+        assert_eq!(selected.actors[0].texture_variant, 2);
+        assert!(selected.actors[0].unsupported_reason.is_none());
+        row[48] = 1;
+        let record = read(&usual(&row)).unwrap().records.remove(0);
+        assert!(record.actors[0].unsupported_reason.is_some());
     }
 
     #[test]

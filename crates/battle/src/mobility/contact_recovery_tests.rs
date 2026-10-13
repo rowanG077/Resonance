@@ -10,6 +10,7 @@ fn recovery_battle(mode: Control) -> Battle {
             normal: Some(crate::NormalAttack::ALL[index]),
             tp_cost: 0,
             execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+                contact_recovery: None,
                 chain_at: None,
                 end_at: 90,
                 opening: None,
@@ -50,6 +51,9 @@ fn recovery_battle(mode: Control) -> Battle {
                         shortcuts: [0; 4],
                         normals: std::array::from_fn(|index| NormalControl {
                             action: crate::ActionKey(index),
+                            continuation: crate::tests::normal_continuation(
+                                crate::NormalAttack::ALL[index],
+                            ),
 
                             reach: 120.,
                             minimum_reach: 0.,
@@ -91,12 +95,17 @@ fn hit_recoil(battle: &mut Battle, delay: u8, launch: bool) {
             ActionId(99),
             &MeleeDefinition {
                 hit: HitRule {
+                    sound: None,
                     kind: DamageKind::Slash,
                     arte: true,
+                    effect_on_guard: false,
+                    effect: None,
                     overlimit_pause: false,
                     power: Power::Fixed(9),
                     element: HitElement::Neutral,
                     prevents_defeat: false,
+                    finisher_grade: false,
+                    hp_drain: false,
                     guard: GuardRule::default(),
                     condition: None,
                     reaction: ReactionRule {
@@ -113,7 +122,7 @@ fn hit_recoil(battle: &mut Battle, delay: u8, launch: bool) {
                     },
                 },
                 trail: None,
-                volume: crate::MeleeVolume {
+                volume: crate::MeleeVolume::Fixed {
                     offset: [0.; 3],
                     radius: 20.,
                     half_height: 20.,
@@ -123,7 +132,7 @@ fn hit_recoil(battle: &mut Battle, delay: u8, launch: bool) {
         )
         .unwrap();
     let mut cues = vec![];
-    contacts.resolve(battle, &mut cues).unwrap();
+    contacts.resolve(battle, &mut cues, &[]).unwrap();
     assert!(cues.iter().any(|cue| matches!(
         cue,
         Cue::Hit {

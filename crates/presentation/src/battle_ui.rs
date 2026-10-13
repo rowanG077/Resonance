@@ -2,10 +2,7 @@
 use super::*;
 use anyhow::ensure;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use resonance_battle::{
-    Activity, BattleFrame, Side,
-    conditions::{Condition, ConditionSet},
-};
+use resonance_battle::{Activity, BattleFrame, Side};
 use resonance_content::battle_ui::Art;
 #[path = "battle_ui/layers.rs"]
 mod layers;
@@ -19,14 +16,14 @@ pub(super) fn menu_depth() -> f32 {
     Depth::Menus.value()
 }
 
-const POISON: ConditionSet = ConditionSet::of(&[Condition::PoisonMild, Condition::PoisonSevere]);
-
 #[path = "battle_ui/combat.rs"]
 mod combat;
 #[path = "battle_ui/combat_numbers.rs"]
 mod combat_numbers;
 #[path = "battle_ui/command_strip.rs"]
 mod command_strip;
+#[path = "battle_ui/cutin.rs"]
+mod cutin;
 #[path = "battle_ui/equipment.rs"]
 mod equipment;
 #[cfg(test)]
@@ -44,8 +41,6 @@ mod overlays;
 mod party;
 #[path = "battle_ui/results.rs"]
 mod results;
-#[path = "battle_ui/selector.rs"]
-mod selector;
 #[path = "battle_ui/strategy.rs"]
 mod strategy;
 #[path = "battle_ui/techniques.rs"]
@@ -73,6 +68,7 @@ pub(crate) struct PartyHudInput<'a> {
 
 #[derive(Resource)]
 pub(crate) struct Artwork {
+    resolution: crate::Resolution,
     art: Art,
     ui: UiLayers,
     font: BitmapFont,
@@ -83,10 +79,12 @@ pub(crate) struct Artwork {
     results: Option<results::Results>,
     notices: notice::Notices,
     labels: Vec<(usize, overlays::ActorLabel)>,
-    flash: Option<overlays::Flash>,
     combat: combat::Hud,
     numbers: combat_numbers::Numbers,
     scan: Option<items::Scan>,
+    unison: unison::State,
+    cutin: cutin::State,
+    command_motion: command_strip::Motion,
 }
 
 impl Artwork {
@@ -135,13 +133,11 @@ impl Artwork {
         let font: BitmapFont = serde_json::from_slice(&read(&dialogue.font)?)?;
         font.validate()?;
         art.validate_required_dialogue(&font)?;
-        command_strip::validate_font(&font)?;
-        items::validate_font(&font)?;
+        command_strip::validate_font(&art.commands, &font)?;
         for enemy in enemies {
             font.validate_text(&enemy.name)?;
         }
-        art.font
-            .validate_text("HP TP +0123456789. DOWN STONE POISON WEAK QUEUED STORED READY")?;
+        art.font.validate_text("HP TP +0123456789.")?;
         let atlas = image_assets.add(ui_image(
             &art.font.texture,
             [art.font.width, art.font.height],
@@ -155,9 +151,13 @@ impl Artwork {
             &read,
         )?);
         let palette = Palette {
-            solid: LayerDefinition::new(white, [1, 1], Depth::Flash),
-            font: LayerDefinition::new(atlas, [art.font.width, art.font.height], Depth::Flash),
-            main_font: LayerDefinition::new(main_font, [font.width, font.height], Depth::Flash),
+            solid: LayerDefinition::new(white, [1, 1], Depth::Background),
+            font: LayerDefinition::new(atlas, [art.font.width, art.font.height], Depth::Background),
+            main_font: LayerDefinition::new(
+                main_font,
+                [font.width, font.height],
+                Depth::Background,
+            ),
             nearest,
         };
         let solid = |depth| palette.solid.clone().at(depth);
@@ -189,28 +189,57 @@ impl Artwork {
             };
             portraits.push(layer);
         }
+        let stat_icons = art
+            .stat_icons
+            .iter()
+            .enumerate()
+            .map(|(index, texture)| {
+                let image = load(texture, false)?.context("battle stat icon atlas is missing")?;
+                let definition =
+                    LayerDefinition::new(image, [texture.width, texture.height], Depth::Vitals);
+                Ok(if index == 2 {
+                    definition.foreground()
+                } else {
+                    definition
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let notice = notice::layers(&art, enemies, &palette, materials, &mut load)?;
+        let unison = unison::layers(&art, &palette, &notice, materials, &mut load)?;
+        let scan = items::layers(&art, &palette, materials, &mut load)?;
+        let command_texture =
+            load(&art.commands.texture, false)?.context("battle command atlas is missing")?;
         let mut make = |definition| palette.layer(definition, materials);
         let ui = UiLayers {
-            flash: make(solid(Depth::Flash)),
-            notice: [make(solid(Depth::Notice)), make(main_text(Depth::Notice))],
+            notice,
             labels: [make(solid(Depth::Labels)), make(text(Depth::Labels))],
-            gauges: make(solid(Depth::Party)),
+            gauges: make(solid(Depth::Vitals)),
             font: make(text(Depth::Vitals)),
-            party_names: make(main_text(Depth::Names)),
             floating: make(text(Depth::Meters)),
             recovery: make(text(Depth::Recovery)),
-            selector: [
-                make(solid(Depth::Selector)),
-                make(main_text(Depth::Selector)),
-            ],
-            scan: [make(solid(Depth::Scan)), make(main_text(Depth::Scan))],
+            scan,
             transition: make(solid(Depth::Transition)),
             commands: [
                 make(solid(Depth::Commands)),
-                make(main_text(Depth::Commands)),
+                make(
+                    LayerDefinition::new(
+                        command_texture,
+                        [art.commands.texture.width, art.commands.texture.height],
+                        Depth::Commands,
+                    )
+                    .foreground(),
+                ),
+                make(main_text(Depth::Commands).foreground()),
+                make(text(Depth::Commands).foreground()),
             ],
-            results: [make(solid(Depth::Results)), make(main_text(Depth::Results))],
+            results: [
+                make(solid(Depth::Results)),
+                make(main_text(Depth::Results)),
+                make(text(Depth::Results)),
+            ],
             portraits: palette.layers(portraits, materials),
+            stat_icons: palette.layers(stat_icons, materials),
+            unison,
         };
         let combat = combat::Hud::load(&art, enemies, &palette, materials, &mut load)?;
         let windows = menu::MenuArtwork::load(
@@ -223,6 +252,7 @@ impl Artwork {
             diagnostics,
         )?;
         Ok(Self {
+            resolution: Default::default(),
             art,
             ui,
             font,
@@ -233,19 +263,27 @@ impl Artwork {
             results: None,
             notices: Default::default(),
             labels: Vec::new(),
-            flash: None,
             combat,
             numbers: Default::default(),
             scan: None,
+            unison: Default::default(),
+            cutin: Default::default(),
+            command_motion: Default::default(),
         })
     }
 
     /// Call before activation; the scene loader owns GPU readiness and warmup.
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub fn prepare(
+        &mut self,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        resolution: crate::Resolution,
+    ) {
+        self.resolution = resolution;
         for layer in self.layers_mut() {
             layer.prepare(commands, meshes);
         }
-        self.windows.prepare_windows();
+        self.windows.prepare_windows(resolution);
     }
 
     pub(crate) fn menu_images_ready(
@@ -256,10 +294,16 @@ impl Artwork {
         self.windows.drawn_images_ready(images, server)
     }
     fn layers(&self) -> impl Iterator<Item = &HudLayer> {
-        self.ui.iter().chain(&self.combat.layers)
+        self.ui
+            .iter()
+            .chain(&self.combat.layers)
+            .chain(self.cutin.layers.values())
     }
     fn layers_mut(&mut self) -> impl Iterator<Item = &mut HudLayer> {
-        self.ui.iter_mut().chain(&mut self.combat.layers)
+        self.ui
+            .iter_mut()
+            .chain(&mut self.combat.layers)
+            .chain(self.cutin.layers.values_mut())
     }
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.layers()
@@ -282,14 +326,24 @@ impl Artwork {
             "battle HUD was not prepared"
         );
         self.clear_menu(commands);
+        if frame.summon.as_ref().is_some_and(|summon| summon.hide_hud)
+            || frame
+                .enemy_presentation
+                .as_ref()
+                .is_some_and(|scene| scene.hide_hud)
+        {
+            self.hide_for_event(commands);
+            return Ok(());
+        }
         self.render_party(frame, party, commands, meshes)?;
         self.render_results(commands, meshes)?;
         if self.results.is_some() {
-            for layer in self.ui.labels.iter_mut().chain([
-                &mut self.ui.flash,
-                &mut self.ui.floating,
-                &mut self.ui.recovery,
-            ]) {
+            for layer in self
+                .ui
+                .labels
+                .iter_mut()
+                .chain([&mut self.ui.floating, &mut self.ui.recovery])
+            {
                 layer.show(false, commands);
             }
         } else {
@@ -297,16 +351,63 @@ impl Artwork {
             self.render_numbers(frame, commands, meshes)?;
         }
         self.render_notices(frame, party, commands, meshes)?;
-        self.render_combat(frame, commands, meshes)?;
-        self.render_selector(frame, command, commands, meshes)?;
-        if command.is_none() {
-            self.render_scan(frame, commands, meshes)?;
-        } else {
-            for layer in &mut self.ui.scan {
-                layer.show(false, commands);
-            }
-        }
+        self.render_combat(frame, command, commands, meshes)?;
+        self.render_scan(frame, command, commands, meshes)?;
+        self.render_unison_attack(frame, party, commands, meshes)?;
+        self.cutin.render(commands, meshes)?;
         Ok(())
+    }
+
+    pub(crate) fn load_event_dialogue(
+        &self,
+        files: &resonance_content::prepared::Files,
+        materials: &mut Assets<Surface>,
+        images: &mut Assets<Image>,
+    ) -> Result<DialogueOverlay> {
+        DialogueOverlay::load(&self.dialogue, &self.font, files, materials, images)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_event_dialogue(
+        &self,
+        overlay: &mut DialogueOverlay,
+        world: &resonance_events::GameWorld,
+        dialogue: &BTreeMap<u8, DialoguePlayer>,
+        frame: &BattleFrame,
+        heads: &BTreeMap<i32, Vec3>,
+        resolution: crate::Resolution,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<Surface>,
+    ) -> Result<()> {
+        DialogueDraw {
+            resolution,
+            attached_positions: &BTreeMap::new(),
+            font: &self.font,
+            spec: &self.dialogue,
+            images: &overlay.images,
+            layers: &mut overlay.layers,
+            head_heights: &mut overlay.head_heights,
+            choice_trail: &mut overlay.choice_trail,
+            menu: &self.windows,
+        }
+        .render(
+            world,
+            dialogue,
+            DialogueCamera::battle(world, frame)?,
+            world.tick,
+            heads,
+            commands,
+            meshes,
+            materials,
+        )
+    }
+
+    pub(crate) fn hide_for_event(&mut self, commands: &mut Commands) {
+        for layer in self.layers_mut() {
+            layer.show(false, commands);
+        }
+        self.clear_menu(commands);
     }
 
     pub fn settings(&mut self, settings: resonance_content::menu_data::CustomizeSettings) {
@@ -322,10 +423,11 @@ impl Artwork {
         let layer = &mut self.ui.transition;
         let mut batch = Batch::default();
         if let Some(frame) = frame.filter(|frame| frame.alpha != 0) {
+            let [r, g, b] = frame.color.map(|channel| f32::from(channel) / 255.);
             batch.quad(
-                [0., 0., 640., 480.],
+                self.resolution.ui_rect(),
                 [0.5; 4],
-                hud_color([frame.color[0], frame.color[1], frame.color[2], frame.alpha]),
+                [r, g, b, f32::from(frame.alpha) / 255.],
             );
         }
         layer.upload(batch, commands, meshes)?;
@@ -358,10 +460,7 @@ impl Artwork {
     /// Consume a completed update once. Drawing never ages feedback.
     pub fn advance(&mut self, frame: &BattleFrame, paused: bool) -> Result<()> {
         let elapsed = u32::from(!paused);
-        self.flash = self.flash.and_then(|mut flash| {
-            flash.age += elapsed;
-            (flash.alpha() > 0.).then_some(flash)
-        });
+        self.cutin.advance(frame)?;
         self.advance_scan(frame, elapsed);
         self.numbers.advance(frame, elapsed);
         self.combat.advance(frame, elapsed)?;
@@ -395,16 +494,6 @@ impl Artwork {
                         overlays::LabelKind::OverLimit,
                         *position,
                     );
-                    self.flash = Some(overlays::Flash {
-                        age: 0,
-                        color: [1., 0.8, 0.35],
-                    });
-                }
-                resonance_battle::Cue::Rescued { .. } => {
-                    self.flash = Some(overlays::Flash {
-                        age: 0,
-                        color: [0.6, 0.85, 1.],
-                    });
                 }
                 resonance_battle::Cue::ExSkillLabel { actor, position } => {
                     ensure!(
@@ -449,14 +538,8 @@ impl Artwork {
     ) -> Result<()> {
         use resonance_game::battle::lifecycle::Request::*;
         match kind {
-            VictoryBanner => {
-                self.flash = Some(overlays::Flash {
-                    age: 0,
-                    color: [1., 0.95, 0.75],
-                })
-            }
-            DefeatNotice => self.notices.banner = Some("PARTY DEFEATED"),
-            EscapeNotice => self.notices.banner = Some("ESCAPED"),
+            // Scene transitions and prepared effects already own outcome presentation.
+            VictoryBanner | DefeatNotice | EscapeNotice => {}
             _ => anyhow::bail!("request is not a battle overlay"),
         }
         Ok(())
@@ -467,17 +550,19 @@ impl Artwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        let mut flash = Batch::default();
-        if let Some(state) = &self.flash {
-            state.draw(&mut flash);
-        }
-        self.ui.flash.upload(flash, commands, meshes)?;
         let mut panel = Batch::default();
         let mut text = Batch::default();
         for (_, label) in &self.labels {
             let camera = frame.camera.as_ref().context("actor label has no camera")?;
             let projected = resonance_battle::project_screen_point(*camera, label.position);
-            label.draw(&self.art.font, projected, &mut panel, &mut text)?;
+            label.draw(
+                &self.art.font,
+                self.art.stat_colors,
+                self.art.stat_backdrops,
+                projected,
+                &mut panel,
+                &mut text,
+            )?;
         }
         for (layer, batch) in self.ui.labels.iter_mut().zip([panel, text]) {
             layer.upload(batch, commands, meshes)?;

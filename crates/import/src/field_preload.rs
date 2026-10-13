@@ -168,7 +168,7 @@ fn close_shared(inventory: &mut Inventory<'_>) -> Result<()> {
     let font: BitmapFont = inventory.json(&ui.font, None, Role::Data)?;
     font.validate()?;
     inventory.add(&font.texture, None, Role::Texture)?;
-    for texture in &ui.textures {
+    for texture in ui.textures.iter().chain([&ui.cursor]) {
         inventory.add(&texture.path, None, Role::Texture)?;
     }
     let menu: resonance_content::menu::MenuArt =

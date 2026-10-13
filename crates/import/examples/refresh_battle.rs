@@ -45,6 +45,26 @@ fn write(root: &Path, path: &str, bytes: &[u8]) -> Result<()> {
     fs::write(target, bytes)?;
     Ok(())
 }
+fn refresh_inventory(
+    files: &mut BTreeMap<String, File>,
+    identities: &BTreeMap<String, File>,
+    retired: &BTreeSet<String>,
+) -> bool {
+    let mut changed = false;
+    for path in retired {
+        changed |= files.remove(path).is_some();
+    }
+    for (path, identity) in identities {
+        if let Some(file) = files.get_mut(path)
+            && (file.sha256 != identity.sha256 || file.bytes != identity.bytes)
+        {
+            file.sha256.clone_from(&identity.sha256);
+            file.bytes = identity.bytes;
+            changed = true;
+        }
+    }
+    changed
+}
 fn main() -> Result<()> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -93,7 +113,7 @@ fn main() -> Result<()> {
     publications.insert(battle_profile::publish_party(
         &rel, &common, stage, "battle",
     )?);
-    publications.insert(battle_projectile::publish(&common, stage, "battle")?);
+    publications.insert(battle_projectile::publish(&common, &rel, stage, "battle")?);
     battle_formation::publish(&common, &stage.join("battle/formations.json"))?;
     publications.insert("battle/formations.json".into());
     publications.extend(battle_effect::publish(&common, stage, "battle")?);
@@ -215,25 +235,20 @@ fn main() -> Result<()> {
             continue;
         }
         let mut manifest: Manifest = serde_json::from_slice(&fs::read(entry.path())?)?;
-        let mut changed = false;
-        for path in &retired {
-            changed |= manifest.files.remove(path).is_some();
-        }
-        for (path, identity) in &identities {
-            if let Some(file) = manifest.files.get_mut(path)
-                && (file.sha256 != identity.sha256 || file.bytes != identity.bytes)
-            {
-                file.sha256.clone_from(&identity.sha256);
-                file.bytes = identity.bytes;
-                changed = true;
-            }
-        }
-        if changed {
+        if refresh_inventory(&mut manifest.files, &identities, &retired) {
             manifest.validate()?;
             let path = format!("fields/{name}");
             write(stage, &path, &serde_json::to_vec_pretty(&manifest)?)?;
             refreshed.push(path);
         }
+    }
+    let world_path = resonance_content::overworld::PACKAGE_PATH;
+    let mut world: resonance_content::overworld::Package =
+        serde_json::from_slice(&fs::read(output.join(world_path))?)?;
+    if refresh_inventory(&mut world.files, &identities, &retired) {
+        world.validate()?;
+        write(stage, world_path, &serde_json::to_vec(&world)?)?;
+        refreshed.push(world_path.into());
     }
     let report = serde_json::json!({
         "scope": "primary-battle-development-refresh",

@@ -262,7 +262,6 @@ pub(super) fn finish(
     prepared: &BTreeMap<u32, BTreeSet<String>>,
     shared_paths: &BTreeSet<String>,
     session: &Arc<crate::media::OutputSession>,
-    battle_audio: &crate::battle_audio::Selection,
     sources: &mut BTreeMap<String, Vec<String>>,
 ) -> Result<()> {
     let discs = super::source_discs(options.discs)?;
@@ -289,20 +288,19 @@ pub(super) fn finish(
     }
     crate::media::prepare_title_audio(session.workspace(primary)?)?;
     crate::media::prepare_title_sounds(session.workspace(primary)?)?;
-    let audio = crate::battle_audio::publish_in(
-        &session.workspace(primary)?,
-        options.output,
-        battle_audio,
-    )?;
+    crate::battle_audio::publish_all_in(options.discs, session, sources)?;
     let disc = crate::disc_number(primary)?;
-    for source in audio.inputs.keys() {
-        let source = source.strip_prefix("files/").unwrap_or(source);
+    let events = crate::battle_event::publish(primary, options.output, options.output)?;
+    let mut shared_paths = shared_paths.clone();
+    shared_paths.extend(events.paths.iter().cloned());
+    for input in events.inputs {
+        let source = input.strip_prefix("files/").unwrap_or(&input);
         let aliases = sources.entry(format!("disc{disc}/{source}")).or_default();
-        aliases.push(resonance_content::battle_audio::PATH.into());
+        aliases.extend(events.paths.iter().cloned());
         aliases.sort();
         aliases.dedup();
     }
-    crate::field::finish(options.output, prepared, shared_paths)?;
+    crate::field::finish(options.output, prepared, &shared_paths)?;
     ensure!(
         !fields.is_empty(),
         "field catalogue produced no scripted fields"
@@ -649,12 +647,18 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
             &output.join(resonance_content::battle_formation::PATH),
         )?;
         crate::battle_effect::publish(&usual, output, "battle")?;
-        crate::battle_projectile::publish(&usual, output, "battle")?;
         let module = paths[0].join("files").join(&battle_sources.module);
+        crate::battle_projectile::publish(&usual, &module, output, "battle")?;
         crate::battle_recoil::publish(&module, output, "battle")?;
         crate::battle_profile::publish_party(&module, &usual, output, "battle")?;
         crate::battle_effect::publish_tints(&module, output, "battle")?;
-        crate::battle_scene::publish(&paths[0], 237, output)?;
+        let scenes =
+            crate::battle_scene::publish_all_source(&paths[0], &battle_sources, output, "battle")?;
+        ensure!(
+            scenes.failures.is_empty(),
+            "battle scene cooking failed: {:?}",
+            scenes.failures
+        );
         crate::battle_stage::publish(&paths[0], 13, output)?;
         crate::battle_ui::publish(&paths[0], output)?;
         crate::shared::prepare(

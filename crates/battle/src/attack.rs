@@ -3,8 +3,13 @@ use crate::{
     ActionExecution, ActionId, Battle, Cue, MeleeDefinition, MotionBinding, Sound,
     WeaponFlightDefinition,
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use std::sync::Arc;
+
+mod hammer;
+mod shot;
+pub use hammer::{HammerProjectile, HammerRing};
+pub use shot::{ProjectileScatter, ProjectileShot};
 
 const ATTACK_BRAKING: f32 = 0.4125;
 const RECOVERY_PER_LINK: u32 = 4;
@@ -13,27 +18,56 @@ const RECOVERY_PER_LINK: u32 = 4;
 pub struct AttackPose {
     pub motion: MotionBinding,
     pub start: f32,
+    pub end: Option<f32>,
+    pub repeat: bool,
     pub rate: f32,
     pub blend: u8,
 }
 
 impl AttackPose {
-    fn play(self, battle: &mut Battle, index: usize) {
+    fn playback(self) -> crate::Pose {
+        crate::Pose {
+            frame: self.start,
+            end: self.end,
+            repeat: self.repeat,
+            rate: self.rate,
+            blend: self.blend,
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn play(self, battle: &mut Battle, index: usize) {
         battle.request_pose(
             crate::ActorId(index as u8),
             Some(self.motion),
-            crate::Pose {
-                frame: self.start,
-                rate: self.rate,
-                blend: self.blend,
-                ..Default::default()
-            },
+            self.playback(),
         );
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum AttackEvent {
+    /// Emission has its own clock, but interruption cancels its pending births.
+    ActionEffect {
+        appearance: crate::EffectAppearance,
+        origin: AttackOrigin,
+    },
+    UnisonFeedback {
+        duration: u16,
+        limit: u8,
+    },
+    StageTint(crate::StageTint),
+    SceneCamera(crate::SpellCamera),
+    CameraDistance {
+        distance: f32,
+        duration: u16,
+    },
+    Cutin {
+        catalogue: u16,
+        duration: u16,
+    },
+    TemporaryWeapons(Vec<Arc<crate::WeaponDefinition>>),
+    RestoreWeapons,
     Contact {
         definition: Arc<MeleeDefinition>,
         /// Number of active gameplay updates, including this event's update.
@@ -41,6 +75,56 @@ pub enum AttackEvent {
     },
     Throw(Arc<WeaponFlightDefinition>),
     Projectile(Arc<crate::ProjectileDefinition>),
+    GroundProjectiles {
+        definitions: [Arc<crate::ProjectileDefinition>; 2],
+        retreat: f32,
+    },
+    HammerProjectile(Arc<HammerProjectile>),
+    ProjectileShot(Arc<ProjectileShot>),
+    /// Release independently of this attack; an occupied slot consumes the event silently.
+    ReleaseSpell {
+        definition: Arc<crate::PreparedSpell>,
+        slot: crate::SpellSlot,
+        effect: Option<crate::EffectAppearance>,
+        tint: crate::effect::EffectTint,
+        sound: Option<Sound>,
+    },
+    ProjectileAt {
+        definition: Arc<crate::ProjectileDefinition>,
+        origin: AttackOrigin,
+        heading: Option<f32>,
+        height: Option<f32>,
+    },
+    /// Burst once at the last melee victim's current ground position; misses do nothing.
+    ContactBurst {
+        definition: Arc<crate::ProjectileDefinition>,
+        appearance: crate::EffectAppearance,
+    },
+    EffectAt {
+        appearance: crate::EffectAppearance,
+        origin: AttackOrigin,
+        heading: Option<f32>,
+        /// None adopts the actor's effect scale.
+        scale: Option<f32>,
+        follow: bool,
+    },
+    /// Select the single hammer once on paid entry: plain, ice, or poison.
+    ChooseHammer([Arc<crate::ActionDefinition>; 3]),
+    /// Select Grave Blade once on paid entry with Earth and at least 200 uses.
+    ChooseGraveBlade([Arc<crate::ActionDefinition>; 2]),
+    /// Select ground or airborne entry once after payment.
+    ChooseAirborne([Arc<crate::ActionDefinition>; 2]),
+    StealBonus(Arc<crate::ProjectileDefinition>),
+    UseItem(u16),
+    Steal(Arc<StealDefinition>),
+    Seal(crate::SealDefinition),
+    RecoveryDown {
+        color: [u8; 3],
+    },
+    Drain {
+        kind: crate::RecoveryKind,
+        percent: u8,
+    },
     Notice {
         duration: u16,
     },
@@ -48,21 +132,89 @@ pub enum AttackEvent {
         slot: u8,
         duration: u16,
     },
-    Voice(Sound),
+    Voice {
+        sound: Sound,
+        priority: crate::VoicePriority,
+    },
     Sound(Option<Sound>),
     Move {
         forward: Option<f32>,
         vertical: Option<f32>,
     },
-    PassThrough(bool),
+    Acceleration(f32),
+    Gravity(f32),
+    Braking(f32),
+    Turn(f32),
+    TurnMotion(f32),
+    FaceTarget,
+    SetPosition([f32; 3]),
+    PositionFromTarget {
+        height: f32,
+        retreat: f32,
+    },
+    OffsetPosition {
+        height: f32,
+        retreat: f32,
+    },
+    SecondaryWind {
+        enabled: bool,
+        duration: u16,
+    },
+    PrimaryWeapons(bool),
+    Tint([u8; 3]),
+    /// Defeat the owner without damage; released projectiles remain independent.
+    Defeat {
+        rewards: bool,
+    },
+    PassThrough {
+        enabled: bool,
+        /// Zero lasts until the action ends; otherwise shared actor updates count down.
+        duration: u8,
+    },
     SpecialGuard,
     Armor(u8),
+    ReactionArmor(u16),
+    StatUp {
+        condition: crate::conditions::Condition,
+        amount: i16,
+    },
+    Stun,
+    /// Pause event timing until melee contact, without extending a missed action.
+    WaitForHit {
+        deadline: u16,
+        recovery: Option<AttackPose>,
+    },
+    WaitForEffectiveHit {
+        deadline: u16,
+    },
+    ReleaseCaptured {
+        hitstun: u16,
+    },
+    CapturedVisibility(bool),
+    CapturedForward(f32),
+    CapturedVertical(f32),
     /// Wait for the ground before consuming this event or those after it.
     Land {
         pose: Option<AttackPose>,
         effect: Option<crate::EffectAppearance>,
+        /// Terminal landing tail; its deadline uses the existing action age.
+        settle: Option<u16>,
+        /// Pose selected at the terminal settling deadline.
+        recovery_pose: Option<AttackPose>,
     },
     Pose(AttackPose),
+    PartialPose {
+        pose: AttackPose,
+        bones: Vec<u16>,
+    },
+    PoseKeepingParts(AttackPose),
+    AnimationRate(f32),
+    CarriedPose {
+        slot: u8,
+        clip: u16,
+        rate: f32,
+        repeat: bool,
+    },
     WeaponVisibility(Vec<(u8, bool)>),
     Effect {
         appearance: crate::EffectAppearance,
@@ -72,8 +224,63 @@ pub enum AttackEvent {
     },
 }
 
+/// Resolve the live participant or target transform at the event's gameplay age.
+#[derive(Debug, Clone, Copy)]
+pub enum AttackOrigin {
+    ActorRoot,
+    ActorAim,
+    TargetRoot,
+    TargetAim,
+    Bone(crate::MeleeAnchor),
+}
+
+impl AttackOrigin {
+    fn resolve(
+        self,
+        battle: &Battle,
+        actor: crate::ActorId,
+        target: crate::ActorId,
+    ) -> Result<([f32; 3], Option<crate::EffectFollow>)> {
+        Ok(match self {
+            Self::ActorRoot => (
+                battle.actor(actor)?.position,
+                Some(crate::EffectFollow::Actor(actor)),
+            ),
+            Self::ActorAim => (
+                battle.actor(actor)?.effect_origin(),
+                Some(crate::EffectFollow::Center(actor)),
+            ),
+            Self::TargetRoot => (
+                battle.actor(target)?.position,
+                Some(crate::EffectFollow::Actor(target)),
+            ),
+            Self::TargetAim => (
+                battle.actor(target)?.effect_origin(),
+                Some(crate::EffectFollow::Center(target)),
+            ),
+            Self::Bone(anchor) => (
+                battle
+                    .models
+                    .as_ref()
+                    .context("action effect has no model")?
+                    .anchor(actor, anchor)?,
+                None,
+            ),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StealDefinition {
+    pub gald: bool,
+    pub success: Arc<crate::ActionDefinition>,
+    pub success_voice: Option<Sound>,
+    pub failure_voice: Option<Sound>,
+}
+
 #[derive(Debug, Clone)]
 pub struct PreparedAttack {
+    pub contact_recovery: Option<crate::ContactRecovery>,
     /// Technique chaining opens at this age; ordinary combos come from the controller.
     pub chain_at: Option<u16>,
     /// Gameplay age at which recovery may begin, after the last event.
@@ -87,6 +294,9 @@ pub struct PreparedAttack {
 
 impl PreparedAttack {
     pub(crate) fn validate(&self) -> Result<()> {
+        if let Some(recovery) = self.contact_recovery {
+            recovery.validate()?;
+        }
         ensure!(
             self.events.windows(2).all(|pair| pair[0].0 <= pair[1].0),
             "unordered attack events"
@@ -96,7 +306,7 @@ impl PreparedAttack {
             "attack chain opens after recovery"
         );
         let mut contact_end = None;
-        for (at, event) in &self.events {
+        for (index, (at, event)) in self.events.iter().enumerate() {
             match event {
                 AttackEvent::Contact {
                     definition,
@@ -110,35 +320,231 @@ impl PreparedAttack {
                     );
                     contact_end = Some(u32::from(*at) + u32::from(*duration));
                 }
+                AttackEvent::WaitForHit { deadline, .. }
+                | AttackEvent::WaitForEffectiveHit { deadline } => ensure!(
+                    *at <= *deadline && *deadline <= self.end_at,
+                    "contact wait deadline outside attack"
+                ),
+                AttackEvent::Land {
+                    settle: Some(_), ..
+                } => {
+                    ensure!(
+                        index + 1 == self.events.len(),
+                        "settling landing must be terminal"
+                    );
+                }
                 AttackEvent::Move {
                     forward, vertical, ..
                 } => ensure!(
                     forward.is_none_or(f32::is_finite) && vertical.is_none_or(f32::is_finite),
                     "invalid attack movement"
                 ),
-                AttackEvent::Projectile(projectile) => projectile.validate()?,
+                AttackEvent::ChooseHammer(_)
+                | AttackEvent::ChooseGraveBlade(_)
+                | AttackEvent::ChooseAirborne(_) => {
+                    let variants: &[Arc<crate::ActionDefinition>] = match event {
+                        AttackEvent::ChooseHammer(variants) => variants,
+                        AttackEvent::ChooseGraveBlade(variants) => variants,
+                        AttackEvent::ChooseAirborne(variants) => variants,
+                        _ => unreachable!(),
+                    };
+                    ensure!(
+                        *at == 0 && self.events.len() == 1,
+                        "attack choice must be the entry event"
+                    );
+                    for variant in variants {
+                        let ActionExecution::Attack(attack) = &variant.execution else {
+                            anyhow::bail!("attack choice requires attacks");
+                        };
+                        ensure!(
+                            attack.events.iter().all(|(_, event)| !matches!(
+                                event,
+                                AttackEvent::ChooseHammer(_)
+                                    | AttackEvent::ChooseGraveBlade(_)
+                                    | AttackEvent::ChooseAirborne(_)
+                            )),
+                            "nested attack choice"
+                        );
+                        attack.validate()?;
+                    }
+                }
+                AttackEvent::Steal(recipe) => {
+                    let ActionExecution::Attack(success) = &recipe.success.execution else {
+                        anyhow::bail!("steal success requires an attack");
+                    };
+                    ensure!(
+                        success.events.iter().all(|(age, event)| *age >= *at
+                            && !matches!(
+                                event,
+                                AttackEvent::Steal(_)
+                                    | AttackEvent::StealBonus(_)
+                                    | AttackEvent::ChooseHammer(_)
+                                    | AttackEvent::ChooseGraveBlade(_)
+                                    | AttackEvent::ChooseAirborne(_)
+                            )),
+                        "invalid steal success continuation"
+                    );
+                    success.validate()?;
+                }
+                AttackEvent::Projectile(projectile)
+                | AttackEvent::StealBonus(projectile)
+                | AttackEvent::ContactBurst {
+                    definition: projectile,
+                    ..
+                } => projectile.validate()?,
+                AttackEvent::GroundProjectiles {
+                    definitions,
+                    retreat,
+                } => {
+                    ensure!(
+                        retreat.is_finite() && *retreat >= 0.,
+                        "invalid ground projectile retreat"
+                    );
+                    for definition in definitions {
+                        definition.validate()?;
+                    }
+                }
+                AttackEvent::ReleaseSpell { definition, .. } => definition.validate()?,
+                AttackEvent::HammerProjectile(definition) => definition.validate()?,
+                AttackEvent::ProjectileShot(definition) => definition.validate()?,
+                AttackEvent::Seal(definition) => definition.validate()?,
+                AttackEvent::Drain { percent, .. } => ensure!(
+                    (1..=100).contains(percent),
+                    "invalid contact drain percentage"
+                ),
+                AttackEvent::StatUp { condition, amount } => ensure!(
+                    *amount >= 0
+                        && matches!(
+                            condition,
+                            crate::conditions::Condition::AttackUp
+                                | crate::conditions::Condition::DefenseUp
+                        ),
+                    "unsupported action stat increase"
+                ),
+                AttackEvent::ProjectileAt {
+                    definition,
+                    heading,
+                    height,
+                    ..
+                } => {
+                    definition.validate()?;
+                    ensure!(
+                        heading.is_none_or(f32::is_finite) && height.is_none_or(f32::is_finite),
+                        "invalid targeted projectile transform"
+                    );
+                }
+                AttackEvent::EffectAt { heading, scale, .. } => {
+                    ensure!(
+                        heading.is_none_or(f32::is_finite)
+                            && scale.is_none_or(|v| v.is_finite() && v > 0.),
+                        "invalid targeted effect transform"
+                    );
+                }
+                AttackEvent::Acceleration(value)
+                | AttackEvent::Gravity(value)
+                | AttackEvent::Turn(value)
+                | AttackEvent::TurnMotion(value)
+                | AttackEvent::CapturedForward(value)
+                | AttackEvent::CapturedVertical(value) => {
+                    ensure!(value.is_finite(), "invalid attack acceleration")
+                }
+                AttackEvent::SetPosition(value) => {
+                    ensure!(
+                        value.iter().all(|v| v.is_finite()),
+                        "invalid action position"
+                    )
+                }
+                AttackEvent::PositionFromTarget { height, retreat }
+                | AttackEvent::OffsetPosition { height, retreat } => ensure!(
+                    height.is_finite() && retreat.is_finite(),
+                    "invalid action position offset"
+                ),
+                AttackEvent::Braking(value) => {
+                    ensure!(value.is_finite() && *value >= 0., "invalid attack braking")
+                }
                 AttackEvent::Throw(definition) => definition.validate()?,
-                AttackEvent::Voice(_)
+                AttackEvent::CarriedPose { rate, .. } => ensure!(
+                    rate.is_finite() && (0.01..=4.).contains(rate),
+                    "invalid carried animation rate"
+                ),
+                AttackEvent::UseItem(item) => ensure!(*item != 0, "empty enemy item identity"),
+                AttackEvent::Voice { .. }
+                | AttackEvent::FaceTarget
                 | AttackEvent::Notice { .. }
                 | AttackEvent::Trail { .. }
                 | AttackEvent::Pose(_)
+                | AttackEvent::PartialPose { .. }
+                | AttackEvent::PoseKeepingParts(_)
+                | AttackEvent::AnimationRate(_)
                 | AttackEvent::WeaponVisibility(_)
-                | AttackEvent::PassThrough(_)
+                | AttackEvent::PrimaryWeapons(_)
+                | AttackEvent::Tint(_)
+                | AttackEvent::RecoveryDown { .. }
+                | AttackEvent::Defeat { .. }
+                | AttackEvent::Stun
+                | AttackEvent::PassThrough { .. }
                 | AttackEvent::SpecialGuard
                 | AttackEvent::Armor(_)
+                | AttackEvent::ReactionArmor(_)
+                | AttackEvent::ReleaseCaptured { .. }
+                | AttackEvent::CapturedVisibility(_)
+                | AttackEvent::SecondaryWind { .. }
                 | AttackEvent::Land { .. }
                 | AttackEvent::Sound(_)
-                | AttackEvent::Effect { .. } => {}
+                | AttackEvent::Effect { .. }
+                | AttackEvent::ActionEffect { .. } => {}
+                AttackEvent::UnisonFeedback { .. } => {}
+                AttackEvent::CameraDistance { distance, duration } => ensure!(
+                    distance.is_finite() && *distance > 0. && *duration != 0,
+                    "invalid attack camera distance"
+                ),
+                AttackEvent::StageTint(_)
+                | AttackEvent::SceneCamera(_)
+                | AttackEvent::Cutin { .. }
+                | AttackEvent::TemporaryWeapons(_)
+                | AttackEvent::RestoreWeapons => {}
             }
         }
         Ok(())
     }
 }
 
+fn steal_roll(luck: u16, random: &mut crate::Random) -> u16 {
+    (random.next_u16() % 100).saturating_sub(luck / 10)
+}
+
+fn steal_bonus_count(uses: u16, luck: u16, random: &mut crate::Random) -> u16 {
+    const EXPERIENCED_USES: u16 = 200;
+    // Paid attempts consume this draw before the use threshold is checked.
+    let chance = steal_roll(luck, random);
+    if uses >= EXPERIENCED_USES && chance < 10 {
+        random.next_u16() % 3 + 1
+    } else {
+        0
+    }
+}
+
+fn hammer_choice(
+    uses: u16,
+    luck: u16,
+    element: Option<crate::Element>,
+    random: &mut crate::Random,
+) -> usize {
+    const ALTERNATE_USES: u16 = 200;
+    if uses < ALTERNATE_USES {
+        0
+    } else if random.next_u16() % 100 < luck / 8 {
+        2
+    } else {
+        usize::from(element == Some(crate::Element::Ice))
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AttackRun {
     Starting,
-    Active { next_event: usize },
+    Active { next_event: usize, delay: u32 },
+    Settling { recover_at: u32 },
 }
 
 pub(crate) fn step(
@@ -147,6 +553,7 @@ pub(crate) fn step(
     sequence: &mut crate::action::Sequence,
     run: AttackRun,
     contacts: &mut crate::contact::Contacts,
+    items: &mut dyn crate::item::Provider,
     cues: &mut Vec<Cue>,
 ) -> Result<Option<u32>> {
     let definition = Arc::clone(&sequence.definition);
@@ -155,7 +562,63 @@ pub(crate) fn step(
     };
     let actor = sequence.actor;
     let index = actor.index();
-    let mut next_event = match run {
+    if run == AttackRun::Starting
+        && let Some((0, AttackEvent::ChooseAirborne(variants))) = attack.events.first()
+    {
+        sequence.definition = Arc::clone(&variants[usize::from(battle.actors[index].airborne())]);
+        return step(battle, id, sequence, run, contacts, items, cues);
+    }
+    if run == AttackRun::Starting
+        && let Some((0, AttackEvent::ChooseGraveBlade(variants))) = attack.events.first()
+    {
+        let uses = battle
+            .technique_catalogue_for_action(actor, sequence.action)
+            .and_then(|catalogue| battle.technique_uses(actor, catalogue))
+            .unwrap_or(0);
+        let element =
+            crate::damage::resolve_element(crate::HitElement::Inherited, &battle.actors[index]);
+        let grave = uses >= 200 && element == Some(crate::Element::Earth);
+        if grave {
+            cues.push(Cue::EffectNotice {
+                actor,
+                text: "Grave Blade".into(),
+                duration: 90,
+            });
+        }
+        sequence.definition = Arc::clone(&variants[usize::from(grave)]);
+        return step(battle, id, sequence, run, contacts, items, cues);
+    }
+    if run == AttackRun::Starting
+        && let Some((0, AttackEvent::ChooseHammer(variants))) = attack.events.first()
+    {
+        let uses = battle
+            .technique_catalogue_for_action(actor, sequence.action)
+            .and_then(|catalogue| battle.technique_uses(actor, catalogue))
+            .unwrap_or(0);
+        let owner = &battle.actors[index];
+        let element = crate::damage::resolve_element(crate::HitElement::Inherited, owner);
+        let choice = hammer_choice(uses, owner.equipment.luck, element, &mut battle.random);
+        if let Some(text) = [None, Some("Ice Hammer"), Some("Toss Hammer")][choice] {
+            cues.push(Cue::EffectNotice {
+                actor,
+                text: text.into(),
+                duration: 90,
+            });
+        }
+        sequence.definition = Arc::clone(&variants[choice]);
+        return step(battle, id, sequence, run, contacts, items, cues);
+    }
+    let highlighted_trail = battle
+        .prepared
+        .technique(actor, sequence.action)
+        .is_some_and(|row| row.capabilities.spell || row.capabilities.family.is_some());
+    let combo_recovery = if sequence.normal.is_some() && !battle.actors[index].airborne() {
+        u32::from(battle.runtime[index].combo.normal_links) * RECOVERY_PER_LINK
+    } else {
+        0
+    };
+    let recovery = u32::from(attack.recovery) + combo_recovery;
+    let (mut next_event, mut delay) = match run {
         AttackRun::Starting => {
             let movement = &mut battle.actors[index].movement;
             movement.braking = ATTACK_BRAKING;
@@ -168,16 +631,138 @@ pub(crate) fn step(
             if let Some(pose) = attack.opening {
                 pose.play(battle, index);
             }
-            0
+            (0, 0)
         }
-        AttackRun::Active { next_event } => next_event,
+        AttackRun::Active { next_event, delay } => (next_event, delay),
+        AttackRun::Settling { recover_at } => {
+            sequence.execution = crate::action::Execution::Attack(run);
+            if sequence.age < recover_at {
+                return Ok(None);
+            }
+            if let Some((
+                _,
+                AttackEvent::Land {
+                    recovery_pose: Some(pose),
+                    ..
+                },
+            )) = attack.events.last()
+            {
+                pose.play(battle, index);
+            }
+            return Ok(Some(recovery));
+        }
     };
-    let combo = battle.runtime[index].combo.normal_links;
+    // A delayed continuation must not push pending movement past the action deadline.
+    // An already-entered landing settlement keeps its own outer-age deadline above.
+    if delay != 0 && sequence.age >= u32::from(attack.end_at) {
+        if let Some(pose) = attack.events.iter().find_map(|(_, event)| match event {
+            AttackEvent::WaitForHit { recovery, .. } => *recovery,
+            _ => None,
+        }) {
+            pose.play(battle, index);
+        }
+        sequence.melee = None;
+        return Ok(Some(recovery));
+    }
+    let event_age = sequence.age - delay;
+    let mut waiting = false;
     while let Some((at, event)) = attack.events.get(next_event) {
-        if u32::from(*at) > sequence.age {
+        if u32::from(*at) > event_age {
             break;
         }
         match event {
+            AttackEvent::UseItem(item) => {
+                battle.release_enemy_item(actor, sequence.target, *item, cues)?;
+            }
+            AttackEvent::WaitForEffectiveHit { deadline } => {
+                if sequence.struck_target.is_none() {
+                    if sequence.age >= u32::from(*deadline) {
+                        sequence.melee = None;
+                        return Ok(Some(recovery));
+                    }
+                    delay += 1;
+                    waiting = true;
+                    break;
+                }
+            }
+            AttackEvent::ReleaseCaptured { hitstun } => {
+                battle.release_captured(actor, *hitstun);
+            }
+            AttackEvent::CapturedVisibility(visible) => {
+                battle.captured_visibility(actor, *visible);
+            }
+            AttackEvent::CapturedForward(value) => {
+                battle.captured_velocity(actor, Some(*value), None);
+            }
+            AttackEvent::CapturedVertical(value) => {
+                battle.captured_velocity(actor, None, Some(*value));
+            }
+            AttackEvent::WaitForHit {
+                deadline,
+                recovery: pose,
+            } => {
+                if sequence.contact_target.is_none() {
+                    if sequence.age >= u32::from(*deadline) {
+                        if let Some(pose) = pose {
+                            pose.play(battle, index);
+                        }
+                        sequence.melee = None;
+                        return Ok(Some(recovery));
+                    }
+                    delay += 1;
+                    waiting = true;
+                    break;
+                }
+            }
+            AttackEvent::ActionEffect { appearance, origin } => {
+                let (position, follow) = origin.resolve(battle, actor, sequence.target)?;
+                let owner = &battle.actors[index];
+                cues.push(Cue::ActionEffect {
+                    action: id,
+                    request: crate::EffectRequest {
+                        owner: actor,
+                        target: sequence.target,
+                        appearance: *appearance,
+                        origin: position,
+                        heading: owner.heading,
+                        follow,
+                        scale: 1.,
+                        tint: Default::default(),
+                    },
+                });
+            }
+            AttackEvent::UnisonFeedback { duration, limit } => {
+                battle.unison_feedback(*duration, *limit)
+            }
+            AttackEvent::StageTint(tint) => cues.push(Cue::StageTint(*tint)),
+            AttackEvent::SceneCamera(request) => {
+                if let Some(camera) = &mut battle.camera {
+                    camera.request_scene(*request);
+                }
+            }
+            AttackEvent::CameraDistance { distance, duration } => {
+                if let Some(camera) = &mut battle.camera {
+                    camera.request_distance(*distance, *duration);
+                }
+            }
+            AttackEvent::Cutin {
+                catalogue,
+                duration,
+            } => cues.push(Cue::Cutin {
+                action: id,
+                catalogue: *catalogue,
+                duration: *duration,
+            }),
+            AttackEvent::TemporaryWeapons(definitions) => battle
+                .models
+                .as_mut()
+                .context("temporary weapon action has no models")?
+                .override_action_weapons(actor, id, definitions)?,
+            AttackEvent::RestoreWeapons => battle
+                .models
+                .as_mut()
+                .context("temporary weapon action has no models")?
+                .restore_action_weapons(actor, id),
             AttackEvent::Contact {
                 definition: contact,
                 duration,
@@ -185,8 +770,98 @@ pub(crate) fn step(
                 sequence.melee = Some(crate::melee::Window {
                     definition: Arc::clone(contact),
                     remaining: *duration,
+                    positions: Vec::new(),
                     struck: Vec::new(),
                 });
+            }
+            AttackEvent::ChooseHammer(_)
+            | AttackEvent::ChooseGraveBlade(_)
+            | AttackEvent::ChooseAirborne(_) => {
+                unreachable!("attack variant is selected before its event loop")
+            }
+            AttackEvent::SecondaryWind { enabled, duration } => {
+                battle.actors[index].secondary_wind.set(*enabled, *duration);
+            }
+            AttackEvent::StealBonus(projectile) => {
+                let uses = battle
+                    .technique_catalogue_for_action(actor, sequence.action)
+                    .and_then(|catalogue| battle.technique_uses(actor, catalogue))
+                    .unwrap_or(0);
+                let count = steal_bonus_count(
+                    uses,
+                    battle.actors[index].equipment.luck,
+                    &mut battle.random,
+                );
+                for _ in 0..count {
+                    battle.emit(
+                        Arc::clone(projectile),
+                        id,
+                        actor,
+                        sequence.target,
+                        battle.actors[index].position,
+                    )?;
+                }
+            }
+            AttackEvent::Steal(recipe) => {
+                let owner = &battle.actors[index];
+                let luck = owner.equipment.luck;
+                let guaranteed = owner.equipment.guaranteed_steal;
+                let item = match sequence.struck_target {
+                    Some(target) => items.steal(crate::item::StealRequest {
+                        user: actor,
+                        target,
+                        guaranteed,
+                        gald: recipe.gald,
+                        adjusted_roll: steal_roll(luck, &mut battle.random),
+                    })?,
+                    None => None,
+                };
+                if let Some(name) = item {
+                    battle.actors[index].reaction.protection.armor(60);
+                    if let Some(voice) = recipe.success_voice {
+                        battle.request_voice(actor, voice, crate::VoicePriority::Action);
+                    }
+                    cues.push(Cue::EffectNotice {
+                        actor,
+                        text: format!("Stole {name}"),
+                        duration: 90,
+                    });
+                    sequence.definition = Arc::clone(&recipe.success);
+                    sequence.combo = None;
+                    sequence.melee = None;
+                    return step(
+                        battle,
+                        id,
+                        sequence,
+                        AttackRun::Active {
+                            next_event: 0,
+                            delay: 0,
+                        },
+                        contacts,
+                        items,
+                        cues,
+                    );
+                }
+                if battle.random.next_u16() & 1 != 0
+                    && let Some(voice) = recipe.failure_voice
+                {
+                    battle.request_voice(actor, voice, crate::VoicePriority::Action);
+                }
+            }
+            AttackEvent::Seal(definition) => {
+                battle.attempt_seal(
+                    actor,
+                    sequence.struck_target,
+                    *definition,
+                    battle.actors[index].equipment.contact.prolong,
+                    cues,
+                )?;
+            }
+            AttackEvent::Drain { kind, percent } => {
+                battle.drain_contact(actor, sequence.struck_damage, *kind, *percent, cues)?;
+            }
+            AttackEvent::RecoveryDown { color } => {
+                battle.apply_recovery_down(sequence.target, *color, cues)?;
             }
             AttackEvent::Throw(flight) => battle.throw_weapon(actor, id, Arc::clone(flight)),
             AttackEvent::Projectile(projectile) => {
@@ -198,6 +873,152 @@ pub(crate) fn step(
                     battle.actors[index].position,
                 )?;
             }
+            AttackEvent::HammerProjectile(definition) => {
+                definition.emit(battle, id, actor, sequence.target)?;
+            }
+            AttackEvent::GroundProjectiles {
+                definitions,
+                retreat,
+            } => {
+                let owner = &battle.actors[index];
+                let heading = owner.heading;
+                let mut targets: Vec<_> = battle
+                    .actors
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| {
+                        candidate.side != owner.side && candidate.available() && candidate.hp > 0
+                    })
+                    .map(|(index, _)| crate::ActorId(index as u8))
+                    .collect();
+                let offset = crate::geometry::rotate([0., 0., -*retreat], heading);
+                for definition in definitions {
+                    if targets.is_empty() {
+                        break;
+                    }
+                    let choice = usize::from(battle.random.next_u16()) % targets.len();
+                    let target = targets.swap_remove(choice);
+                    let [x, _, z] = battle.actors[target.index()].position;
+                    battle.emit_at(
+                        Arc::clone(definition),
+                        id,
+                        actor,
+                        target,
+                        [x + offset[0], 0., z + offset[2]],
+                        heading,
+                    )?;
+                }
+            }
+            AttackEvent::ProjectileShot(definition) => {
+                definition.emit(battle, id, actor, sequence.target)?;
+            }
+            AttackEvent::ReleaseSpell {
+                definition,
+                slot,
+                effect,
+                tint,
+                sound,
+            } => {
+                if battle
+                    .release_volley(
+                        Arc::clone(definition),
+                        actor,
+                        sequence.target,
+                        *slot,
+                        Some(id),
+                        cues,
+                    )?
+                    .is_some()
+                {
+                    let owner = &battle.actors[index];
+                    if let Some(appearance) = effect {
+                        cues.push(Cue::Effect(crate::EffectRequest {
+                            owner: actor,
+                            target: sequence.target,
+                            appearance: *appearance,
+                            origin: owner.effect_origin(),
+                            heading: owner.heading,
+                            follow: Some(crate::EffectFollow::Center(actor)),
+                            scale: owner.effect_scale,
+                            tint: *tint,
+                        }));
+                    }
+                    if let Some(sound) = sound {
+                        cues.push(Cue::Sound {
+                            actor,
+                            sound: *sound,
+                            position: owner.position,
+                            priority: 1,
+                        });
+                    }
+                }
+            }
+            AttackEvent::ProjectileAt {
+                definition,
+                origin,
+                heading,
+                height,
+            } => {
+                let (mut position, _) = origin.resolve(battle, actor, sequence.target)?;
+                if let Some(height) = height {
+                    position[1] = *height;
+                }
+                battle.emit_at(
+                    Arc::clone(definition),
+                    id,
+                    actor,
+                    sequence.target,
+                    position,
+                    heading.unwrap_or(battle.actors[index].heading),
+                )?;
+            }
+            AttackEvent::ContactBurst {
+                definition,
+                appearance,
+            } => {
+                if let Some(victim) = sequence.contact_target {
+                    let [x, _, z] = battle.actor(victim)?.position;
+                    let origin = [x, 0., z];
+                    let heading = battle.actors[index].heading;
+                    battle.emit_at(
+                        Arc::clone(definition),
+                        id,
+                        actor,
+                        sequence.target,
+                        origin,
+                        heading,
+                    )?;
+                    cues.push(Cue::Effect(crate::EffectRequest {
+                        owner: actor,
+                        target: sequence.target,
+                        appearance: *appearance,
+                        origin,
+                        heading,
+                        scale: 1.,
+                        follow: None,
+                        tint: Default::default(),
+                    }));
+                }
+            }
+            AttackEvent::EffectAt {
+                appearance,
+                origin,
+                heading,
+                scale,
+                follow,
+            } => {
+                let (position, attachment) = origin.resolve(battle, actor, sequence.target)?;
+                cues.push(Cue::Effect(crate::EffectRequest {
+                    owner: actor,
+                    target: sequence.target,
+                    appearance: *appearance,
+                    origin: position,
+                    heading: heading.unwrap_or(battle.actors[index].heading),
+                    scale: scale.unwrap_or(battle.actors[index].effect_scale),
+                    follow: if *follow { attachment } else { None },
+                    tint: Default::default(),
+                }));
+            }
             AttackEvent::Notice { duration } => cues.push(Cue::Notice {
                 actor,
                 action: sequence.action,
@@ -208,10 +1029,11 @@ pub(crate) fn step(
                     actor,
                     slot: *slot,
                     duration: *duration,
+                    highlighted: highlighted_trail,
                 });
             }
-            AttackEvent::Voice(line) => {
-                battle.request_voice(actor, *line, crate::VoicePriority::Action);
+            AttackEvent::Voice { sound, priority } => {
+                battle.request_voice(actor, *sound, *priority);
             }
             AttackEvent::Sound(sound) => {
                 if let Some(sound) = sound {
@@ -232,8 +1054,74 @@ pub(crate) fn step(
                     movement.vertical = *vertical;
                 }
             }
-            AttackEvent::PassThrough(enabled) => sequence.collision_bypass = *enabled,
-            AttackEvent::Land { pose, effect } => {
+            AttackEvent::Acceleration(value) => battle.actors[index].movement.acceleration = *value,
+            AttackEvent::Gravity(value) => battle.actors[index].movement.gravity = *value,
+            AttackEvent::Braking(value) => battle.actors[index].movement.braking = *value,
+            AttackEvent::Turn(degrees) => battle.actors[index].heading += *degrees,
+            AttackEvent::TurnMotion(degrees) => {
+                let owner = &mut battle.actors[index];
+                owner.heading += *degrees;
+                let [x, y, z] = owner.movement.target_direction;
+                let (sin, cos) = degrees.to_radians().sin_cos();
+                owner.movement.direction = [x * cos + z * sin, y, z * cos - x * sin];
+            }
+            AttackEvent::FaceTarget => {
+                let owner = &mut battle.actors[index];
+                let direction = owner.movement.target_direction;
+                crate::control::snap_heading(owner, direction);
+                owner.movement.direction = direction;
+            }
+            AttackEvent::SetPosition(position) => battle.actors[index].position = *position,
+            AttackEvent::PositionFromTarget { height, retreat }
+            | AttackEvent::OffsetPosition { height, retreat } => {
+                let origin = if matches!(event, AttackEvent::PositionFromTarget { .. }) {
+                    battle.actors[sequence.target.index()].position
+                } else {
+                    battle.actors[index].position
+                };
+                let owner = &mut battle.actors[index];
+                let direction = owner.movement.target_direction;
+                owner.position = [
+                    origin[0] - direction[0] * retreat,
+                    *height,
+                    origin[2] - direction[2] * retreat,
+                ];
+            }
+            AttackEvent::PrimaryWeapons(visible) => {
+                battle
+                    .model_requests
+                    .push(crate::ModelRequest::PrimaryWeapons {
+                        actor,
+                        visible: *visible,
+                    })
+            }
+            AttackEvent::PassThrough { enabled, duration } => {
+                sequence.collision_bypass = *enabled && *duration == 0;
+                battle.runtime[index].body_bypass_ticks = if *enabled { *duration } else { 0 };
+            }
+            AttackEvent::Tint(color) => battle.model_requests.push(crate::ModelRequest::Tint {
+                actor,
+                color: *color,
+            }),
+            AttackEvent::Defeat { rewards } => {
+                if !rewards {
+                    battle.ledger.exclude_reward(actor);
+                }
+                battle.enter_death(actor, cues);
+                return Ok(None);
+            }
+            AttackEvent::Stun => {
+                battle.enter_action_stun(actor, cues);
+                sequence.melee = None;
+                sequence.execution = crate::action::Execution::Finished;
+                return Ok(None);
+            }
+            AttackEvent::Land {
+                pose,
+                effect,
+                settle,
+                recovery_pose,
+            } => {
                 if battle.actors[index].airborne() {
                     break;
                 }
@@ -254,9 +1142,47 @@ pub(crate) fn step(
                         tint: Default::default(),
                     }));
                 }
+                if let Some(settle) = settle {
+                    sequence.melee = None;
+                    sequence.collision_bypass = false;
+                    sequence.execution = crate::action::Execution::Attack(AttackRun::Settling {
+                        recover_at: sequence.age + u32::from(*settle),
+                    });
+                    if *settle == 0
+                        && let Some(pose) = recovery_pose
+                    {
+                        pose.play(battle, index);
+                    }
+                    return Ok((*settle == 0).then_some(recovery));
+                }
             }
             AttackEvent::SpecialGuard => {
                 battle.begin_special_guard(actor, sequence.action)?;
+            }
+            AttackEvent::ReactionArmor(duration) => {
+                let protection = &mut battle.actors[index].reaction.protection;
+                if *duration == 0 {
+                    if protection.mode == crate::ProtectionMode::Armor {
+                        *protection = Default::default();
+                    }
+                } else {
+                    protection.armor(u32::from(*duration));
+                }
+            }
+            AttackEvent::StatUp { condition, amount } => {
+                let owner = &mut battle.actors[index];
+                if owner
+                    .conditions
+                    .apply_stat_condition(*condition, *amount, 0, false)
+                {
+                    cues.push(Cue::ConditionLabel {
+                        actor,
+                        kind: crate::conditions::ConditionLabel::Applied,
+                        position: std::array::from_fn(|i| {
+                            owner.position[i] + 2. * owner.body.center_offset[i]
+                        }),
+                    });
+                }
             }
             AttackEvent::Armor(threshold) => {
                 let armor = &mut battle.actors[index].reaction.armor;
@@ -264,6 +1190,44 @@ pub(crate) fn step(
                 armor.received = 0;
             }
             AttackEvent::Pose(pose) => pose.play(battle, index),
+            AttackEvent::PartialPose { pose, bones } => {
+                battle
+                    .model_requests
+                    .push(crate::ModelRequest::PartialPose {
+                        actor,
+                        motion: pose.motion,
+                        pose: pose.playback(),
+                        bones: bones.clone(),
+                    });
+            }
+            AttackEvent::PoseKeepingParts(pose) => {
+                battle
+                    .model_requests
+                    .push(crate::ModelRequest::PlayKeepingParts {
+                        actor,
+                        motion: pose.motion,
+                        pose: pose.playback(),
+                    });
+            }
+            AttackEvent::AnimationRate(rate) => {
+                battle
+                    .model_requests
+                    .push(crate::ModelRequest::AnimationRate { actor, rate: *rate });
+            }
+            AttackEvent::CarriedPose {
+                slot,
+                clip,
+                rate,
+                repeat,
+            } => battle
+                .model_requests
+                .push(crate::ModelRequest::CarriedPose {
+                    actor,
+                    slot: *slot,
+                    clip: *clip,
+                    rate: *rate,
+                    repeat: *repeat,
+                }),
             AttackEvent::WeaponVisibility(slots) => {
                 for &(slot, visible) in slots {
                     battle.model_requests.push(crate::ModelRequest::Weapon {
@@ -305,22 +1269,41 @@ pub(crate) fn step(
         }
         next_event += 1;
     }
-    sequence.execution = crate::action::Execution::Attack(AttackRun::Active { next_event });
+    sequence.execution = crate::action::Execution::Attack(AttackRun::Active { next_event, delay });
     if let Some(window) = &mut sequence.melee {
+        for (_, remaining) in &mut window.struck {
+            *remaining = remaining.saturating_sub(1);
+        }
+        window.struck.retain(|(_, remaining)| *remaining != 0);
         if let Some(slot) = window.definition.trail {
             cues.push(Cue::WeaponTrail {
                 actor,
                 slot,
                 duration: 1,
+                highlighted: highlighted_trail,
             });
         }
-        contacts.melee(actor, id, &window.definition, &window.struck)?;
-        window.remaining -= 1;
-        if window.remaining == 0 {
-            sequence.melee = None;
+        let struck: Vec<_> = window.struck.iter().map(|&(actor, _)| actor).collect();
+        if waiting {
+            contacts.melee_at(
+                actor,
+                id,
+                &window.definition,
+                &struck,
+                Some(&window.positions),
+            )?;
+        } else {
+            window.positions.clear();
+            contacts.melee(actor, id, &window.definition, &struck)?;
+        }
+        if !waiting {
+            window.remaining -= 1;
+            if window.remaining == 0 {
+                sequence.melee = None;
+            }
         }
     }
-    // Trailing feedback cannot extend gameplay; pending contacts and landing still can.
+    // Feedback and redundant cleanup cannot extend gameplay; contacts and landing can.
     if sequence.age >= u32::from(attack.end_at)
         && sequence.melee.is_none()
         && attack.events[next_event..].iter().all(|(_, event)| {
@@ -328,20 +1311,24 @@ pub(crate) fn step(
                 event,
                 AttackEvent::Notice { .. }
                     | AttackEvent::Trail { .. }
-                    | AttackEvent::Voice(_)
+                    | AttackEvent::Voice { .. }
                     | AttackEvent::Sound(_)
                     | AttackEvent::Pose(_)
+                    | AttackEvent::PartialPose { .. }
+                    | AttackEvent::PoseKeepingParts(_)
+                    | AttackEvent::AnimationRate(_)
                     | AttackEvent::WeaponVisibility(_)
+                    | AttackEvent::PrimaryWeapons(_)
+                    | AttackEvent::Tint(_)
+                    | AttackEvent::PassThrough { enabled: false, .. }
                     | AttackEvent::Effect { .. }
+                    | AttackEvent::EffectAt { .. }
+                    | AttackEvent::ActionEffect { .. }
+                    | AttackEvent::UnisonFeedback { .. }
             )
         })
     {
-        let combo_recovery = if sequence.normal.is_some() && !battle.actors[index].airborne() {
-            u32::from(combo) * RECOVERY_PER_LINK
-        } else {
-            0
-        };
-        return Ok(Some(u32::from(attack.recovery) + combo_recovery));
+        return Ok(Some(recovery));
     }
     Ok(None)
 }
@@ -352,6 +1339,773 @@ mod tests {
     use crate::{ActorId, ActorSetup, BattleInput, HitCondition, Side, conditions::Condition};
 
     #[test]
+    fn self_stun_replaces_the_action_and_counts_its_entry_visit() -> Result<()> {
+        let mut action = crate::tests::action(30);
+        crate::tests::attack_mut(&mut action).events = vec![
+            (
+                0,
+                AttackEvent::Voice {
+                    sound: Sound::Cue(809),
+                    priority: crate::VoicePriority::Announcement,
+                },
+            ),
+            (0, AttackEvent::Stun),
+            (0, AttackEvent::Sound(Some(Sound::Cue(1)))),
+        ];
+        let mut battle = crate::PreparedBattle::new(
+            vec![
+                (crate::tests::actor(Side::Enemy), ActorSetup::default()),
+                (crate::tests::actor(Side::Party), ActorSetup::default()),
+            ],
+            vec![action].into(),
+            1,
+        )?
+        .finish()?;
+        let actor = ActorId(0);
+        battle.start_admitted_action(
+            crate::ActionRequest {
+                actor,
+                action: crate::ActionKey(0),
+                target: ActorId(1),
+            },
+            &mut Vec::new(),
+        )?;
+        let frame = battle.step(BattleInput::default())?;
+        assert_eq!(battle.activity(actor), crate::Activity::Stunned);
+        assert!(frame.cues.iter().any(|cue| matches!(
+            cue,
+            Cue::Voice {
+                priority: crate::VoicePriority::Announcement,
+                ..
+            }
+        )));
+        assert!(!frame.cues.iter().any(|cue| matches!(
+            cue,
+            Cue::Sound {
+                sound: Sound::Cue(1),
+                ..
+            }
+        )));
+        for _ in 0..180 {
+            battle.step(BattleInput::default())?;
+            assert_eq!(battle.activity(actor), crate::Activity::Stunned);
+        }
+        battle.step(BattleInput::default())?;
+        assert_eq!(battle.activity(actor), crate::Activity::Idle);
+        Ok(())
+    }
+
+    #[test]
+    fn direct_spell_slots_release_once_without_chanting_or_repaying_and_outlive_the_attack()
+    -> Result<()> {
+        let release = |slot| AttackEvent::ReleaseSpell {
+            definition: Arc::new(crate::tests::volley()),
+            slot,
+            effect: Some(crate::EffectAppearance {
+                resource: 1,
+                member: 7,
+            }),
+            tint: Default::default(),
+            sound: Some(Sound::Cue(123)),
+        };
+        let mut action = crate::tests::action(2);
+        action.tp_cost = 7;
+        crate::tests::attack_mut(&mut action).events = vec![
+            (0, release(crate::SpellSlot::Primary)),
+            (0, release(crate::SpellSlot::Secondary)),
+            (1, release(crate::SpellSlot::Primary)),
+            (1, release(crate::SpellSlot::Secondary)),
+        ];
+        let mut owner = crate::tests::actor(Side::Enemy);
+        owner.equipment.max_tp = 50;
+        owner.tp = 50;
+        let mut battle = crate::PreparedBattle::new(
+            vec![
+                (owner, ActorSetup::default()),
+                (crate::tests::actor(Side::Party), ActorSetup::default()),
+            ],
+            vec![action].into(),
+            1,
+        )?
+        .finish()?;
+        battle.start_admitted_action(
+            crate::ActionRequest {
+                actor: ActorId(0),
+                action: crate::ActionKey(0),
+                target: ActorId(1),
+            },
+            &mut Vec::new(),
+        )?;
+        let mut released = 0;
+        let mut projectiles = 0;
+        let mut sounds = 0;
+        let mut effects = 0;
+        for tick in 0..40 {
+            let frame = battle.step(BattleInput::default())?;
+            for cue in &frame.cues {
+                match cue {
+                    Cue::Released { actor, slot, .. } => {
+                        assert_eq!(*actor, ActorId(0));
+                        assert!(matches!(
+                            slot,
+                            crate::SpellSlot::Primary | crate::SpellSlot::Secondary
+                        ));
+                        released += 1;
+                    }
+                    Cue::ProjectileStarted { .. } => projectiles += 1,
+                    Cue::Sound {
+                        sound: Sound::Cue(123),
+                        ..
+                    } => sounds += 1,
+                    Cue::Effect(_) => effects += 1,
+                    Cue::Casting { .. } => panic!("direct release entered casting"),
+                    _ => {}
+                }
+            }
+            assert_eq!(battle.actors[0].tp, 43);
+            if tick == 5 {
+                assert_eq!(battle.activity(ActorId(0)), crate::Activity::Idle);
+                assert!(battle.spell_active(ActorId(0), crate::SpellSlot::Primary));
+            }
+        }
+        assert_eq!((released, projectiles, sounds, effects), (2, 6, 2, 2));
+        assert!(!battle.spell_active(ActorId(0), crate::SpellSlot::Primary));
+        assert!(!battle.spell_active(ActorId(0), crate::SpellSlot::Secondary));
+        Ok(())
+    }
+
+    #[test]
+    fn airborne_entry_is_selected_once_without_repaying() -> Result<()> {
+        for airborne in [false, true] {
+            let variant = |sound| {
+                let mut action = crate::tests::action(3);
+                action.tp_cost = 7;
+                crate::tests::attack_mut(&mut action).events = vec![
+                    (0, AttackEvent::Sound(Some(Sound::Cue(sound)))),
+                    (1, AttackEvent::Sound(Some(Sound::Cue(sound + 10)))),
+                ];
+                Arc::new(action)
+            };
+            let mut entry = crate::tests::action(3);
+            entry.tp_cost = 7;
+            crate::tests::attack_mut(&mut entry).events =
+                vec![(0, AttackEvent::ChooseAirborne([variant(1), variant(2)]))];
+            let mut owner = crate::tests::actor(Side::Party);
+            owner.position[1] = if airborne { 100. } else { 0. };
+            let mut battle = crate::PreparedBattle::new(
+                vec![
+                    (owner, ActorSetup::default()),
+                    (crate::tests::actor(Side::Enemy), ActorSetup::default()),
+                ],
+                vec![entry].into(),
+                1,
+            )?
+            .finish()?;
+            battle.start_admitted_action(
+                crate::ActionRequest {
+                    actor: ActorId(0),
+                    action: crate::ActionKey(0),
+                    target: ActorId(1),
+                },
+                &mut Vec::new(),
+            )?;
+            let chosen = if airborne { 2 } else { 1 };
+            for sound in [chosen, chosen + 10] {
+                let frame = battle.step(BattleInput::default())?;
+                let sounds: Vec<_> = frame
+                    .cues
+                    .iter()
+                    .filter_map(|cue| match cue {
+                        Cue::Sound {
+                            sound: Sound::Cue(value),
+                            ..
+                        } => Some(*value),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(sounds, [sound]);
+                assert_eq!(battle.actors[0].tp, 33);
+                // A changed height cannot replace the already selected action.
+                battle.actors[0].position[1] = if airborne { 0. } else { 100. };
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn grave_blade_selects_once_after_payment_and_wind_uses_the_common_clock() {
+        for (uses, element, grave) in [
+            (198, Some(crate::Element::Earth), false),
+            (199, Some(crate::Element::Earth), true),
+            (200, None, false),
+        ] {
+            let variant = |sound| {
+                let mut definition = crate::tests::action(12);
+                definition.tp_cost = 16;
+                crate::tests::attack_mut(&mut definition).events = vec![
+                    (1, AttackEvent::Sound(Some(Sound::Cue(sound)))),
+                    (
+                        1,
+                        AttackEvent::SecondaryWind {
+                            enabled: true,
+                            duration: 2,
+                        },
+                    ),
+                ];
+                Arc::new(definition)
+            };
+            let mut entry = (*variant(1)).clone();
+            crate::tests::attack_mut(&mut entry).events =
+                vec![(0, AttackEvent::ChooseGraveBlade([variant(1), variant(2)]))];
+            let mut owner = crate::tests::actor(Side::Party);
+            owner.equipment.base_element = element;
+            owner.tp = 15;
+            let mut battle = crate::PreparedBattle::new(
+                vec![
+                    (
+                        owner,
+                        ActorSetup {
+                            techniques: vec![crate::tests::technique(crate::ActionKey(0), 4)],
+                            ..Default::default()
+                        },
+                    ),
+                    (crate::tests::actor(Side::Enemy), ActorSetup::default()),
+                ],
+                vec![entry].into(),
+                1,
+            )
+            .unwrap()
+            .with_technique_learning_members(vec![crate::tests::counted_techniques(
+                ActorId(0),
+                &[4],
+                &[(4, uses)],
+            )])
+            .unwrap()
+            .finish()
+            .unwrap();
+            let request = crate::ActionRequest {
+                actor: ActorId(0),
+                action: crate::ActionKey(0),
+                target: ActorId(1),
+            };
+            battle
+                .step(BattleInput {
+                    actions: vec![request],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(battle.technique_uses(ActorId(0), 4), Some(uses));
+            assert_eq!(battle.actors[0].tp, 15);
+            battle.actors[0].tp = 40;
+            let frame = battle
+                .step(BattleInput {
+                    actions: vec![request],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(
+                frame
+                    .cues
+                    .iter()
+                    .filter(|cue| matches!(cue, Cue::EffectNotice { .. }))
+                    .count(),
+                usize::from(grave)
+            );
+            // Changing equipment after admission cannot replace the selected variant.
+            battle.actors[0].equipment.base_element = if grave {
+                None
+            } else {
+                Some(crate::Element::Earth)
+            };
+            let frame = battle.step(BattleInput::default()).unwrap();
+            let sounds: Vec<_> = frame
+                .cues
+                .iter()
+                .filter_map(|cue| match cue {
+                    Cue::Sound {
+                        sound: Sound::Cue(id),
+                        ..
+                    } => Some(*id),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(sounds, vec![if grave { 2 } else { 1 }]);
+            assert_eq!(battle.actors[0].secondary_wind.force[1], 0.2);
+            let wind = battle.actors[0].secondary_wind;
+            battle
+                .step(BattleInput {
+                    paused: true,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(battle.actors[0].secondary_wind, wind);
+            battle.actors[0].hit_stop = 3;
+            for tick in 0..3 {
+                let frame = battle.step(BattleInput::default()).unwrap();
+                assert!(
+                    !frame
+                        .cues
+                        .iter()
+                        .any(|cue| matches!(cue, Cue::Sound { .. } | Cue::EffectNotice { .. }))
+                );
+                assert_eq!(
+                    battle.actors[0].secondary_wind.force[1],
+                    if tick < 2 { 0.2 } else { 0. }
+                );
+            }
+            assert_eq!(battle.technique_uses(ActorId(0), 4), Some(uses + 1));
+            assert_eq!(battle.actors[0].tp, 24);
+        }
+    }
+
+    #[test]
+    fn hit_wait_preserves_event_spacing_pause_and_miss_deadline() {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        enum Contact {
+            Miss,
+            Ordinary,
+            Survives,
+            Armored,
+            Guarded,
+            GuardBreak,
+        }
+        for (effective, contact) in [
+            (false, Contact::Miss),
+            (false, Contact::Ordinary),
+            (true, Contact::Miss),
+            (true, Contact::Ordinary),
+            (true, Contact::Survives),
+            (true, Contact::Armored),
+            (true, Contact::Guarded),
+            (true, Contact::GuardBreak),
+        ] {
+            let hit = contact != Contact::Miss;
+            let continues =
+                hit && (!effective || matches!(contact, Contact::Ordinary | Contact::Survives));
+            let mut target = crate::tests::actor(Side::Enemy);
+            if contact == Contact::Survives {
+                target.hp = 1;
+            }
+            target.position[0] = 1000.;
+            target.body.collider = Some(crate::Collider::sphere(1.));
+            let mut rule = crate::tests::contact_projectile(false, true)
+                .contact
+                .unwrap()
+                .hit;
+            rule.power = crate::Power::Fixed(1);
+            rule.prevents_defeat = contact == Contact::Survives;
+            rule.guard.breaks = contact == Contact::GuardBreak;
+            let mut definition = crate::tests::action(8);
+            let attack = crate::tests::attack_mut(&mut definition);
+            attack.recovery = 2;
+            attack.events = vec![
+                (
+                    0,
+                    AttackEvent::Contact {
+                        definition: Arc::new(MeleeDefinition {
+                            hit: rule,
+                            trail: None,
+                            volume: crate::MeleeVolume::Fixed {
+                                offset: [0.; 3],
+                                radius: 5.,
+                                half_height: 5.,
+                            },
+                        }),
+                        duration: 6,
+                    },
+                ),
+                (
+                    1,
+                    if effective {
+                        AttackEvent::WaitForEffectiveHit { deadline: 6 }
+                    } else {
+                        AttackEvent::WaitForHit {
+                            deadline: 6,
+                            recovery: None,
+                        }
+                    },
+                ),
+                (1, AttackEvent::Sound(Some(Sound::Cue(1)))),
+                (3, AttackEvent::Sound(Some(Sound::Cue(2)))),
+                (
+                    7,
+                    AttackEvent::Move {
+                        forward: Some(10.),
+                        vertical: None,
+                    },
+                ),
+            ];
+            let mut prepared = crate::PreparedBattle::new(
+                vec![
+                    (crate::tests::actor(Side::Party), Default::default()),
+                    (target, Default::default()),
+                ],
+                vec![definition].into(),
+                1,
+            )
+            .unwrap();
+            crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
+            let mut battle = prepared.finish().unwrap();
+            let first = battle
+                .step(BattleInput {
+                    actions: vec![crate::ActionRequest {
+                        actor: ActorId(0),
+                        target: ActorId(1),
+                        action: crate::ActionKey(0),
+                    }],
+                    ..Default::default()
+                })
+                .unwrap();
+            let action = first.actions[0].0;
+            for _ in 0..3 {
+                let frame = battle.step(BattleInput::default()).unwrap();
+                assert!(
+                    !frame
+                        .cues
+                        .iter()
+                        .any(|cue| matches!(cue, Cue::Sound { .. }))
+                );
+            }
+            assert_eq!(battle.action_age(action), Some(4));
+            for _ in 0..3 {
+                battle
+                    .step(BattleInput {
+                        paused: true,
+                        ..Default::default()
+                    })
+                    .unwrap();
+                assert_eq!(battle.action_age(action), Some(4));
+            }
+            let last_contact_position = battle.actors[0].position;
+            battle.actors[0].position[0] += 100.;
+            if hit {
+                // A waiting window keeps its last geometry while the owner moves.
+                battle.actors[1].position = last_contact_position;
+            }
+            let target = &mut battle.actors[1];
+            if contact == Contact::Armored {
+                target.reaction.armor.threshold = 1;
+            }
+            if matches!(contact, Contact::Guarded | Contact::GuardBreak) {
+                target.guard.active = true;
+                target.guard.break_pressure = 10;
+                target.facing_direction = [0., 0., -1.];
+            }
+            let mut sounds = Vec::new();
+            for _ in 0..30 {
+                let frame = battle.step(BattleInput::default()).unwrap();
+                for cue in frame.cues {
+                    if let Cue::Sound {
+                        sound: Sound::Cue(id @ (1 | 2)),
+                        ..
+                    } = cue
+                    {
+                        sounds.push((id, battle.action_age(action).unwrap()));
+                    }
+                }
+                if battle.activity(ActorId(0)) == crate::Activity::Recovering {
+                    break;
+                }
+            }
+            assert_eq!(battle.activity(ActorId(0)), crate::Activity::Recovering);
+            assert_eq!(
+                battle.action_age(action),
+                Some(if continues { 8 } else { 6 })
+            );
+            assert_eq!(
+                sounds,
+                if continues {
+                    vec![(1, 6), (2, 8)]
+                } else {
+                    vec![]
+                }
+            );
+            assert_eq!(
+                battle.actors[1].hp,
+                if contact == Contact::Survives {
+                    1
+                } else if hit {
+                    49
+                } else {
+                    50
+                }
+            );
+            assert_eq!(battle.actors[0].movement.forward, 0.);
+        }
+    }
+
+    #[test]
+    fn ground_projectiles_choose_distinct_living_targets_at_release() {
+        for living in [1, 3] {
+            let mut owner = crate::tests::actor(Side::Party);
+            owner.position = [1000., 0., 0.];
+            owner.heading = -90.;
+            let mut actors = vec![(owner, Default::default())];
+            for index in 0..4 {
+                let mut target = crate::tests::actor(Side::Enemy);
+                target.control = crate::Control::Manual;
+                target.position = [-300. - 200. * index as f32, 0., 0.];
+                if index >= living {
+                    target.hp = 0;
+                    target.availability = crate::ActorAvailability::Dead;
+                }
+                actors.push((target, Default::default()));
+            }
+            let mut projectile = crate::tests::contact_projectile(false, true);
+            projectile.contact = None;
+            projectile.lifetime = Some(2);
+            let projectile = Arc::new(projectile);
+            let mut definition = crate::tests::action(4);
+            crate::tests::attack_mut(&mut definition).events = vec![(
+                2,
+                AttackEvent::GroundProjectiles {
+                    definitions: [Arc::clone(&projectile), projectile],
+                    retreat: 225.,
+                },
+            )];
+            let mut prepared =
+                crate::PreparedBattle::new(actors, vec![definition].into(), 1).unwrap();
+            crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
+            let mut battle = prepared.finish().unwrap();
+            let opening = battle
+                .step(BattleInput {
+                    actions: vec![crate::ActionRequest {
+                        actor: ActorId(0),
+                        target: ActorId(1),
+                        action: crate::ActionKey(0),
+                    }],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(opening.projectiles.is_empty());
+            for (index, target) in battle.actors.iter_mut().enumerate().skip(1) {
+                target.position = [-500. * index as f32, 40., 100. * index as f32];
+            }
+            let mut births = std::collections::BTreeMap::new();
+            for _ in 0..10 {
+                for projectile in battle.step(BattleInput::default()).unwrap().projectiles {
+                    births.entry(projectile.id).or_insert(projectile);
+                }
+            }
+            assert_eq!(births.len(), living.min(2));
+            let mut targets = std::collections::BTreeSet::new();
+            for projectile in births.values() {
+                let target = projectile.target.index();
+                assert!((1..=living).contains(&target));
+                assert!(targets.insert(target));
+                assert_eq!(projectile.heading, -90.);
+                assert_eq!(projectile.position[0], -500. * target as f32 + 225.);
+                assert_eq!(projectile.position[1], 0.);
+                assert!((projectile.position[2] - 100. * target as f32).abs() < 0.0001);
+            }
+            assert!(battle.projectiles.is_empty());
+        }
+    }
+
+    #[test]
+    fn contact_burst_requires_hit_and_samples_moved_victim_once() {
+        for connects in [false, true] {
+            let mut victim = crate::tests::actor(Side::Enemy);
+            victim.control = crate::Control::Manual;
+            victim.body.collider = Some(crate::Collider::sphere(1.));
+            victim.position[0] = if connects { 0. } else { 1000. };
+            let mut selected = crate::tests::actor(Side::Enemy);
+            selected.control = crate::Control::Manual;
+            selected.position[0] = 500.;
+            let mut projectile = crate::tests::contact_projectile(false, true);
+            let mut hit = projectile.contact.take().unwrap().hit;
+            hit.power = crate::Power::Fixed(1);
+            projectile.lifetime = Some(2);
+            projectile.velocity = [0.; 3];
+            let appearance = crate::EffectAppearance {
+                resource: 1,
+                member: 7,
+            };
+            let mut definition = crate::tests::action(4);
+            crate::tests::attack_mut(&mut definition).events = vec![
+                (
+                    0,
+                    AttackEvent::Contact {
+                        definition: Arc::new(MeleeDefinition {
+                            hit,
+                            trail: None,
+                            volume: crate::MeleeVolume::Fixed {
+                                offset: [0.; 3],
+                                radius: 5.,
+                                half_height: 5.,
+                            },
+                        }),
+                        duration: 1,
+                    },
+                ),
+                (
+                    2,
+                    AttackEvent::ContactBurst {
+                        definition: Arc::new(projectile),
+                        appearance,
+                    },
+                ),
+            ];
+            let mut prepared = crate::PreparedBattle::new(
+                vec![
+                    (crate::tests::actor(Side::Party), Default::default()),
+                    (victim, Default::default()),
+                    (selected, Default::default()),
+                ],
+                vec![definition].into(),
+                1,
+            )
+            .unwrap();
+            crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
+            let mut battle = prepared.finish().unwrap();
+            let first = battle
+                .step(BattleInput {
+                    actions: vec![crate::ActionRequest {
+                        actor: ActorId(0),
+                        target: ActorId(2),
+                        action: crate::ActionKey(0),
+                    }],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(
+                battle.sequence(&first.actions[0].0).unwrap().contact_target,
+                connects.then_some(ActorId(1))
+            );
+            // Use the moved victim, not the opening impact or selected target.
+            battle.actors[1].position = [120., 40., 25.];
+            let mut effects = Vec::new();
+            let mut births = 0;
+            for _ in 0..20 {
+                let frame = battle.step(BattleInput::default()).unwrap();
+                for cue in frame.cues {
+                    match cue {
+                        Cue::Effect(effect) => effects.push(effect),
+                        Cue::ProjectileStarted { .. } => births += 1,
+                        _ => {}
+                    }
+                }
+                for projectile in frame.projectiles {
+                    assert_eq!(projectile.position, [120., 0., 25.]);
+                }
+            }
+            assert_eq!(births, usize::from(connects));
+            assert_eq!(effects.len(), usize::from(connects));
+            if let Some(effect) = effects.first() {
+                assert_eq!(effect.origin, [120., 0., 25.]);
+                assert_eq!(effect.target, ActorId(2));
+                assert_eq!(effect.appearance, appearance);
+                assert_eq!(effect.follow, None);
+                assert_eq!(effect.scale, 1.);
+            }
+        }
+    }
+
+    #[test]
+    fn direct_defeat_preserves_hp_and_released_projectile_contacts() {
+        for rewards in [true, false] {
+            let owner = crate::tests::actor(Side::Enemy);
+            let owner_hp = owner.hp;
+            let mut target = crate::tests::actor(Side::Party);
+            target.body.collider = Some(crate::Collider::sphere(1.));
+            let target_hp = target.hp;
+            let mut projectile = crate::tests::contact_projectile(false, true);
+            projectile.lifetime = Some(6);
+            projectile.active = Some([2, 3]);
+            let contact = projectile.contact.as_mut().unwrap();
+            contact.radius = 100.;
+            contact.hit.power = crate::Power::Fixed(1);
+            let mut prepared = crate::PreparedBattle::new(
+                vec![(owner, Default::default()), (target, Default::default())],
+                vec![crate::ActionDefinition {
+                    normal: None,
+                    tp_cost: 0,
+                    execution: ActionExecution::Attack(PreparedAttack {
+                        contact_recovery: None,
+                        opening: None,
+                        chain_at: None,
+                        end_at: 4,
+                        recovery: 2,
+                        events: vec![
+                            (1, AttackEvent::Projectile(Arc::new(projectile))),
+                            (1, AttackEvent::Defeat { rewards }),
+                            (2, AttackEvent::Sound(Some(Sound::Cue(1)))),
+                        ],
+                    }),
+                }]
+                .into(),
+                1,
+            )
+            .unwrap();
+            crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
+            let mut battle = prepared.finish().unwrap();
+            battle
+                .step(BattleInput {
+                    actions: vec![crate::ActionRequest {
+                        actor: ActorId(0),
+                        target: ActorId(1),
+                        action: crate::ActionKey(0),
+                    }],
+                    ..Default::default()
+                })
+                .unwrap();
+            let mut defeats = 0;
+            for _ in 0..8 {
+                let frame = battle.step(BattleInput::default()).unwrap();
+                let defeated = frame
+                    .cues
+                    .iter()
+                    .any(|cue| matches!(cue, Cue::Defeated { actor: ActorId(0) }));
+                if defeated {
+                    defeats += 1;
+                    assert_eq!(frame.projectiles.len(), 1);
+                    assert!(frame.actions.is_empty());
+                    assert_eq!(battle.actors[1].hp, target_hp);
+                }
+                assert!(
+                    !frame
+                        .cues
+                        .iter()
+                        .any(|cue| matches!(cue, Cue::Sound { .. }))
+                );
+            }
+            assert_eq!(defeats, 1);
+            assert_eq!(battle.actors[0].hp, owner_hp);
+            assert!(!battle.actors[0].available());
+            assert_eq!(battle.actors[1].hp, target_hp - 1);
+            assert_eq!(battle.ledger.reward_eligible(ActorId(0)), rewards);
+            assert!(battle.ledger.reward_eligible(ActorId(1)));
+        }
+    }
+
+    fn landing_contact() -> Arc<MeleeDefinition> {
+        Arc::new(MeleeDefinition {
+            hit: crate::HitRule {
+                sound: None,
+                kind: crate::DamageKind::Slash,
+                arte: true,
+                effect_on_guard: false,
+                effect: None,
+                overlimit_pause: false,
+                power: crate::Power::Fixed(1),
+                element: crate::HitElement::Neutral,
+                prevents_defeat: false,
+                finisher_grade: false,
+                hp_drain: false,
+                guard: Default::default(),
+                reaction: Default::default(),
+                condition: None,
+            },
+            trail: None,
+            volume: crate::MeleeVolume::Fixed {
+                offset: [0.; 3],
+                radius: 5.,
+                half_height: 5.,
+            },
+        })
+    }
+
+    #[test]
     fn landing_and_contacts_delay_recovery_but_trailing_feedback_does_not() {
         let mut owner = crate::tests::actor(Side::Party);
         owner.position[1] = 2000.;
@@ -359,31 +2113,14 @@ mod tests {
         let mut target = crate::tests::actor(Side::Enemy);
         target.position[0] = 1000.;
         target.body.collider = Some(crate::Collider::sphere(1.));
-        let contact = Arc::new(MeleeDefinition {
-            hit: crate::HitRule {
-                kind: crate::DamageKind::Slash,
-                arte: true,
-                overlimit_pause: false,
-                power: crate::Power::Fixed(1),
-                element: crate::HitElement::Neutral,
-                prevents_defeat: false,
-                guard: Default::default(),
-                reaction: Default::default(),
-                condition: None,
-            },
-            trail: None,
-            volume: crate::MeleeVolume {
-                offset: [0.; 3],
-                radius: 5.,
-                half_height: 5.,
-            },
-        });
+        let contact = landing_contact();
         let mut prepared = crate::PreparedBattle::new(
             vec![(owner, Default::default()), (target, Default::default())],
             (vec![crate::ActionDefinition {
                 normal: None,
                 tp_cost: 8,
                 execution: ActionExecution::Attack(PreparedAttack {
+                    contact_recovery: None,
                     opening: None,
                     chain_at: None,
                     end_at: 0,
@@ -394,6 +2131,8 @@ mod tests {
                             AttackEvent::Land {
                                 pose: None,
                                 effect: None,
+                                settle: None,
+                                recovery_pose: None,
                             },
                         ),
                         (
@@ -404,6 +2143,13 @@ mod tests {
                             },
                         ),
                         (u16::MAX, AttackEvent::Sound(Some(Sound::Cue(1)))),
+                        (
+                            u16::MAX,
+                            AttackEvent::PassThrough {
+                                enabled: false,
+                                duration: 0,
+                            },
+                        ),
                     ],
                 }),
             }])
@@ -467,6 +2213,127 @@ mod tests {
     }
 
     #[test]
+    fn terminal_landing_keeps_action_age_and_settles_before_recovery() {
+        let mut owner = crate::tests::actor(Side::Party);
+        owner.position[1] = 2000.;
+        let mut prepared = crate::PreparedBattle::new(
+            vec![
+                (owner, Default::default()),
+                (crate::tests::actor(Side::Enemy), Default::default()),
+            ],
+            vec![crate::ActionDefinition {
+                normal: None,
+                tp_cost: 8,
+                execution: ActionExecution::Attack(PreparedAttack {
+                    contact_recovery: None,
+                    opening: None,
+                    chain_at: None,
+                    end_at: 100,
+                    recovery: 3,
+                    events: vec![
+                        (
+                            0,
+                            AttackEvent::PassThrough {
+                                enabled: true,
+                                duration: 0,
+                            },
+                        ),
+                        (
+                            0,
+                            AttackEvent::Contact {
+                                definition: landing_contact(),
+                                duration: 50,
+                            },
+                        ),
+                        (
+                            2,
+                            AttackEvent::Land {
+                                pose: None,
+                                effect: None,
+                                settle: Some(4),
+                                recovery_pose: Some(AttackPose {
+                                    motion: MotionBinding { model: 1, clip: 0 },
+                                    start: 0.,
+                                    end: None,
+                                    repeat: true,
+                                    rate: 0.5,
+                                    blend: 3,
+                                }),
+                            },
+                        ),
+                    ],
+                }),
+            }]
+            .into(),
+            1,
+        )
+        .unwrap();
+        crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
+        prepared.resources.actor_setup[0].techniques[0]
+            .capabilities
+            .aerial = true;
+        prepared.actors[0].equipment.combo_traits.aerial_arte = true;
+        let mut battle = prepared.finish().unwrap();
+        let first = battle
+            .step(BattleInput {
+                actions: vec![crate::ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(1),
+                    action: crate::ActionKey(0),
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let action = first.actions[0].0;
+        for _ in 0..10 {
+            battle.step(BattleInput::default()).unwrap();
+            assert_eq!(battle.activity(ActorId(0)), crate::Activity::Action);
+        }
+        let landed_age = battle.action_age(action).unwrap();
+        assert!(battle.sequence(&action).unwrap().melee.is_some());
+        assert!(battle.sequence(&action).unwrap().collision_bypass);
+        battle.actors[0].position[1] = 0.;
+        battle.actors[0].movement.vertical = 0.;
+        for elapsed in 0..4 {
+            assert_eq!(battle.action_age(action), Some(landed_age + elapsed));
+            battle
+                .step(BattleInput {
+                    paused: true,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(battle.action_age(action), Some(landed_age + elapsed));
+            battle.step(BattleInput::default()).unwrap();
+            assert_eq!(battle.activity(ActorId(0)), crate::Activity::Action);
+            assert!(battle.sequence(&action).unwrap().melee.is_none());
+            assert!(!battle.sequence(&action).unwrap().collision_bypass);
+        }
+        let frame = battle.step(BattleInput::default()).unwrap();
+        assert!(frame.model_requests.iter().any(|request| matches!(request,
+            crate::ModelRequest::Play { actor: ActorId(0), motion: MotionBinding { model: 1, clip: 0 }, pose } if pose.repeat && pose.blend == 3
+        )));
+        assert_eq!(battle.action_age(action), Some(landed_age + 4));
+        assert_eq!(battle.action_recovery_remaining(action), Some(3));
+        assert_eq!(battle.actors[0].tp, 32);
+        for remaining in (0..3).rev() {
+            battle.step(BattleInput::default()).unwrap();
+            assert_eq!(battle.action_recovery_remaining(action), Some(remaining));
+            assert!(!battle.actor_command_ready(ActorId(0)));
+        }
+        let completed = battle.step(BattleInput::default()).unwrap();
+        assert!(
+            completed
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Completed { action: id } if *id == action))
+        );
+        assert_eq!(battle.activity(ActorId(0)), crate::Activity::Recovering);
+        assert!(!battle.actor_command_ready(ActorId(0)));
+        battle.step(BattleInput::default()).unwrap();
+        assert!(battle.actor_command_ready(ActorId(0)));
+    }
+
+    #[test]
     fn late_contact_applies_the_condition_to_the_hit_target_and_recovers_once() {
         let owner = crate::tests::actor(Side::Party);
 
@@ -475,12 +2342,17 @@ mod tests {
         enemy.body.collider = Some(crate::Collider::sphere(1.));
         enemy.equipment.luck = 0;
         let hit = crate::HitRule {
+            sound: None,
             kind: crate::DamageKind::Slash,
             arte: true,
+            effect_on_guard: false,
+            effect: None,
             overlimit_pause: false,
             power: crate::Power::Fixed(1),
             element: crate::HitElement::Neutral,
             prevents_defeat: false,
+            finisher_grade: false,
+            hp_drain: false,
             guard: Default::default(),
             reaction: Default::default(),
             condition: Some(HitCondition {
@@ -490,6 +2362,7 @@ mod tests {
             }),
         };
         let attack = PreparedAttack {
+            contact_recovery: None,
             chain_at: None,
             opening: None,
             end_at: 24,
@@ -500,7 +2373,7 @@ mod tests {
                     definition: Arc::new(MeleeDefinition {
                         hit,
                         trail: None,
-                        volume: crate::MeleeVolume {
+                        volume: crate::MeleeVolume::Fixed {
                             offset: [0.; 3],
                             radius: 5.,
                             half_height: 5.,
@@ -599,5 +2472,24 @@ mod tests {
                 .unwrap()
                 < duration
         );
+    }
+}
+
+#[cfg(test)]
+mod steal_tests {
+    use super::*;
+    #[test]
+    fn steal_bonus_draw_precedes_use_gate_and_only_success_draws_count() {
+        let mut random = crate::Random::new(0);
+        let mut expected = random;
+        expected.next_u16();
+        assert_eq!(steal_bonus_count(199, 1000, &mut random), 0);
+        assert_eq!(random.state(), expected.state());
+        let expected_count = {
+            expected.next_u16();
+            expected.next_u16() % 3 + 1
+        };
+        assert_eq!(steal_bonus_count(200, 1000, &mut random), expected_count);
+        assert_eq!(random.state(), expected.state());
     }
 }

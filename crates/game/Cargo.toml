@@ -3,6 +3,9 @@ name = "resonance-game"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+[features]
+test-support = ["resonance-battle/test-support"]
+
 [dependencies]
 resonance-battle.workspace = true
 serde.workspace = true

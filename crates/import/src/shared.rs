@@ -47,6 +47,7 @@ pub(crate) fn prepare(
     )?;
     let weapons = crate::battle_model::weapon::publish_source(extracted, battle_sources, output)?;
     let techniques = crate::arte::publish(&catalogues.menu.arte, output)?;
+    let unison = crate::battle_unison::publish(extracted, output)?;
     let session = crate::session::cook(executable, &catalogues.menu, output)?;
     let text = crate::session::cook_text(executable, &catalogues.menu, output)?;
     let skits = skits.publish(extracted, output)?;
@@ -101,10 +102,10 @@ pub(crate) fn prepare(
         resonance_content::battle_recoil::PATH.into(),
         resonance_content::battle_profile::PARTY_PATH.into(),
         weapons,
-        resonance_content::battle_scene::path(237),
-        resonance_content::battle_stage::path(13),
         techniques,
+        unison,
         art.font,
+        art.cursor.path,
         font.texture.clone(),
         effects.path.clone(),
         toon_ramp.clone(),
@@ -113,6 +114,7 @@ pub(crate) fn prepare(
         skits,
     ]
     .into_iter()
+    .chain(crate::battle_scene::catalogue_paths(output, "battle")?)
     .chain(
         (0..resonance_content::monster::MONSTER_COUNT).flat_map(|id| {
             [

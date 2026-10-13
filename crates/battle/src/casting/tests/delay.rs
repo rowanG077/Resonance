@@ -61,14 +61,30 @@ fn held_spell_charges_to_a_cap_and_pays_once_on_release() {
     let mut battle = controlled(Control::Manual, 2);
     battle.step(request()).unwrap();
     let tp = battle.actors[0].tp;
-    for _ in 0..360 {
-        battle.step(held(ActorId(0), true, false)).unwrap();
+    let mut charged_pulses = Vec::new();
+    for update in 1..=360 {
+        let frame = battle.step(held(ActorId(0), true, false)).unwrap();
+        if frame.cues.iter().any(|cue| {
+            matches!(
+                cue,
+                Cue::Casting {
+                    phase: CastPhase::Charged,
+                    ..
+                }
+            )
+        }) {
+            charged_pulses.push(update);
+        }
     }
+    assert_eq!(
+        charged_pulses,
+        [33, 65, 97, 129, 161, 193, 225, 257, 289, 321, 353]
+    );
     assert!(matches!(
         battle.activity(ActorId(0)),
         crate::Activity::Casting { held: true }
     ));
-    assert_eq!(battle.actors[0].attack_power, 150);
+    assert_eq!(battle.actors[0].casting_state.power_percent, 150);
     assert_eq!(battle.actors[0].tp, tp);
     let released = battle.step(BattleInput::default()).unwrap();
     assert_eq!(released.actors[0].tp, tp - 7);

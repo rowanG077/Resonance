@@ -1,0 +1,108 @@
+//! Seal follow-ups retain the character's authored pose and contact sequence.
+use super::{ActionDefinition, Sound, Technique};
+use anyhow::{Context, Result, bail};
+use resonance_battle::{
+    ActionExecution, AttackEvent, EffectAppearance, RecoveryKind, SealDefinition,
+    conditions::Condition,
+};
+use std::sync::Arc;
+
+// The prepared timeline includes the opening pose's four blend updates.
+const FOLLOW_UP_TICK: u16 = 19;
+const PINION_RELEASE_TICK: u16 = 44;
+const PINION_PROJECTILE: usize = 12;
+const STAT_REDUCTION_DURATION: u16 = 900;
+
+impl Technique {
+    pub(super) fn prepare_seal<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+        self,
+        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        model: Option<&resonance_battle::ModelDefinition>,
+        tp_cost: u16,
+    ) -> Result<ActionDefinition> {
+        let timeline = resources
+            .voices
+            .party_table()
+            .martial_attack(self.catalogue, self.character as u8)?
+            .clone();
+        let mut definition =
+            self.prepare_authored_attack(resources, model, tp_cost, timeline.clone())?;
+        let ActionExecution::Attack(attack) = &mut definition.execution else {
+            unreachable!()
+        };
+        match self.catalogue {
+            125 => {}
+            126..=134 => {
+                let (condition, effect) = match self.catalogue {
+                    126..=128 => (Condition::DefenseDown, 134),
+                    129..=131 => (Condition::EvasionDown, 59),
+                    132..=134 => (Condition::AccuracyDown, 135),
+                    _ => unreachable!(),
+                };
+                resources.effect(true, &[effect])?;
+                let [red, green, blue, _] = resources
+                    .tints
+                    .context("missing seal feedback colors")?
+                    .actors
+                    .debuff;
+                let seal = SealDefinition {
+                    condition,
+                    duration: STAT_REDUCTION_DURATION,
+                    effect: EffectAppearance {
+                        resource: resources.techniques.resource,
+                        member: effect,
+                    },
+                    tint: [red, green, blue],
+                    guaranteed: matches!(self.catalogue, 128 | 131 | 134),
+                };
+                attack
+                    .events
+                    .push((FOLLOW_UP_TICK, AttackEvent::Seal(seal)));
+                if matches!(self.catalogue, 127 | 130 | 133) {
+                    let hit = timeline
+                        .callback_hits
+                        .get(&1)
+                        .context("missing Pinion Seal projectile hit")?;
+                    let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+                    let row = resources
+                        .projectiles
+                        .records
+                        .get(PINION_PROJECTILE)
+                        .context("missing Pinion Seal projectile")?;
+                    let mut projectile = resources.prepared.projectile(
+                        resources.files,
+                        row,
+                        crate::battle::hit::authored(hit, &recoil)?,
+                        &[(1, &resources.techniques)],
+                    )?;
+                    let prepared = Arc::make_mut(&mut projectile);
+                    prepared.effects.seal = Some(seal);
+                    prepared
+                        .contact
+                        .as_mut()
+                        .context("Pinion Seal projectile has no contact")?
+                        .cooldown = hit.cooldown;
+                    attack
+                        .events
+                        .push((PINION_RELEASE_TICK, AttackEvent::Projectile(projectile)));
+                }
+            }
+            135 | 136 => {
+                attack.events.push((
+                    FOLLOW_UP_TICK,
+                    AttackEvent::Drain {
+                        kind: if self.catalogue == 135 {
+                            RecoveryKind::Hp
+                        } else {
+                            RecoveryKind::Tp
+                        },
+                        percent: if self.catalogue == 135 { 10 } else { 3 },
+                    },
+                ));
+            }
+            _ => bail!("unsupported seal follow-up"),
+        }
+        attack.events.sort_by_key(|(at, _)| *at);
+        Ok(definition)
+    }
+}

@@ -44,6 +44,125 @@ struct Display {
     fail_present: bool,
     pages_remaining: u8,
 }
+
+#[test]
+fn enemy_retreat_returns_after_departure_without_rewards_or_escape_history() -> Result<()> {
+    use resonance_battle::{
+        ActionDefinition, ActionExecution, ActionKey, ActorSetup, EnemyBehavior, EnemyChoice,
+        EnemyDecisionDefinition, PreparedAttack, TargetPolicy,
+    };
+    let mut fixture = native_fixture(
+        &[1],
+        |_, _, _| Ok(()),
+        |mut actors, setup| {
+            setup.enemies[0].reward.gald = 50;
+            setup.enemies[0].reward.experience = 100;
+            let enemy = actors.last_mut().unwrap();
+            enemy.hp = 1;
+            enemy.equipment.max_hp = 2;
+            let decision = EnemyDecisionDefinition {
+                enemy_id: 0,
+                disabled_choices: Vec::new(),
+                strategy: TargetPolicy::Nearest,
+                difficulty: 0,
+                choices: vec![EnemyChoice {
+                    action: ActionKey(0),
+                    weight: 0,
+                    chain_group: 0,
+                    followup_chance: 0,
+                    requirements: Default::default(),
+                    target_policy: None,
+                    target_allies: false,
+                    return_to_formation: false,
+                    guard_chance: 0,
+                    range: [0, 1],
+                    tp: 0,
+                    approach_minimum: 0.,
+                    approach_range: 1.,
+                    approach: None,
+                }],
+                back_row: vec![],
+                walk_speed: 1.,
+                walk_override: None,
+                behavior: Some(EnemyBehavior::Retreat {
+                    hp_percent: 50,
+                    after_ticks: 3600,
+                }),
+                walk_motion: None,
+                turn_ticks: 1,
+            };
+            PreparedBattle::new(
+                actors
+                    .into_iter()
+                    .map(|actor| {
+                        let setup = ActorSetup {
+                            enemy_decision: (actor.side == Side::Enemy).then(|| decision.clone()),
+                            ..Default::default()
+                        };
+                        (actor, setup)
+                    })
+                    .collect(),
+                vec![ActionDefinition {
+                    normal: None,
+                    tp_cost: 0,
+                    execution: ActionExecution::Attack(PreparedAttack {
+                        contact_recovery: None,
+                        chain_at: None,
+                        end_at: 0,
+                        opening: None,
+                        events: vec![],
+                        recovery: 0,
+                    }),
+                }]
+                .into(),
+                1,
+            )?
+            .finish()
+        },
+    )?;
+    let mut display = Display::default();
+    let mut outcome = None;
+    for visit in 0..=65 {
+        let frame = fixture.lifecycle.step(
+            &mut fixture.battle,
+            Input::default(),
+            &mut fixture.candidate,
+            &mut display,
+        )?;
+        assert_eq!(frame.outcome.is_some(), visit == 65);
+        if frame.outcome.is_some() {
+            outcome = frame.outcome;
+        }
+    }
+    let outcome = outcome.expect("health retreat must complete");
+    assert_eq!(outcome.result, BattleResult::Escaped);
+    assert_eq!(fixture.battle.ledger().elapsed_ticks, 65);
+    assert_eq!(fixture.battle.ledger().combat_ticks, 0);
+    assert!(fixture.battle.ledger().ordinary_escape.is_none());
+    assert!(fixture.candidate.pending_results().is_none());
+    assert!(display.requests.is_empty());
+    let completed = fixture.candidate.finish(&fixture.battle, &outcome)?;
+    assert_eq!(
+        completed.party.battles.escaped,
+        fixture.field.battles.escaped
+    );
+    assert_eq!(
+        completed.party.battles.ordinary_escape_used,
+        fixture.field.battles.ordinary_escape_used
+    );
+    assert_eq!(completed.party.items, fixture.field.items);
+    assert_eq!(completed.party.gald, fixture.field.gald);
+    let vitals = |party: &resonance_events::party::Party| {
+        party
+            .members
+            .iter()
+            .map(|member| (member.hp, member.tp, member.experience))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(vitals(&completed.party), vitals(&fixture.field));
+    Ok(())
+}
+
 impl Presentation for Display {
     fn present(&mut self, frame: &BattleFrame) -> Result<()> {
         self.paused = frame.clock.paused();
@@ -225,4 +344,107 @@ fn victory_pages_confirm_and_commit_once_without_notice_or_performance_delays() 
         }
     }
     anyhow::bail!("result pages or confirmation stalled")
+}
+
+#[test]
+fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Result<()> {
+    use crate::battle::event::{Plan, Prepared};
+    use std::sync::Arc;
+    let prepared = || -> Result<Prepared> {
+        let words: [u16; 12] = [
+            4, 0, 0, 0, 0, 0x3000, 0x4000, 2, 0x3000, 0x4000, 0x2064, 0x20ff,
+        ];
+        let bytes: Vec<_> = words.into_iter().flat_map(u16::to_be_bytes).collect();
+        Ok(Prepared::new(
+            Arc::new(symphonia_script::Program::decode(&bytes)?),
+            Arc::new(resonance_events::ResourceLibrary::default()),
+        ))
+    };
+    let mut f = fixture(None)?;
+    let boss = f
+        .battle
+        .actor_ids()
+        .find(|id| f.battle.actors()[id.index()].side == Side::Enemy)
+        .unwrap();
+    f.lifecycle = Lifecycle::new(None).with_events(
+        Plan::vidarr(prepared()?, prepared()?),
+        f.field.clone(),
+        boss,
+        &f.battle,
+    )?;
+    f.battle.set_actor_vitals(boss, 20, 101, 0, 0)?;
+    let mut display = Display::default();
+    for tick in 0..2 {
+        f.lifecycle.step(
+            &mut f.battle,
+            Input::default(),
+            &mut f.candidate,
+            &mut display,
+        )?;
+        assert_eq!(f.lifecycle.event().is_some(), tick == 0);
+        assert_eq!(f.battle.ledger().combat_ticks, 0);
+        assert_eq!(f.battle.actors()[boss.index()].hp, 50);
+    }
+    for _ in 0..600 {
+        f.lifecycle.step(
+            &mut f.battle,
+            Input::default(),
+            &mut f.candidate,
+            &mut display,
+        )?;
+    }
+    assert!(f.lifecycle.event().is_none());
+    assert_eq!(
+        (
+            f.battle.ledger().combat_ticks,
+            f.battle.ledger().elapsed_ticks
+        ),
+        (600, 600)
+    );
+    f.battle.set_actor_vitals(boss, 20, 101, 0, 0)?;
+    f.lifecycle.step(
+        &mut f.battle,
+        Input::default(),
+        &mut f.candidate,
+        &mut display,
+    )?;
+    assert_eq!(
+        (
+            f.battle.ledger().combat_ticks,
+            f.battle.ledger().elapsed_ticks
+        ),
+        (600, 601)
+    );
+    assert_eq!(f.battle.actors()[boss.index()].hp, 20);
+    for tick in 0..4 {
+        f.lifecycle.step(
+            &mut f.battle,
+            Input::default(),
+            &mut f.candidate,
+            &mut display,
+        )?;
+        assert_eq!(f.lifecycle.event().is_some(), matches!(tick, 1 | 2));
+        assert_eq!(
+            (
+                f.battle.ledger().combat_ticks,
+                f.battle.ledger().elapsed_ticks
+            ),
+            (600, 602)
+        );
+    }
+    f.lifecycle.step(
+        &mut f.battle,
+        Input::default(),
+        &mut f.candidate,
+        &mut display,
+    )?;
+    assert!(f.lifecycle.event().is_none());
+    assert_eq!(
+        (
+            f.battle.ledger().combat_ticks,
+            f.battle.ledger().elapsed_ticks
+        ),
+        (601, 603)
+    );
+    Ok(())
 }

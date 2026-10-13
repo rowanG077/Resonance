@@ -31,10 +31,8 @@ impl Artwork {
             images,
         )?;
         common.prepare(commands, meshes, materials);
-        common
-            .images
-            .extend(common.menu.prepare_world_maps(materials)?);
-        let map = map::Artwork::prepare(&common.menu, commands, meshes)?;
+        common.images.extend(common.menu.prepare_world_maps(materials)?);
+        let map = map::Artwork::prepare(&common.menu, commands, meshes);
         let mut placeholder = Batch::default();
         placeholder.quad([0., 0., 1., 1.], [0.5; 4], [0.; 4]);
         let mesh = meshes.add(placeholder.mesh([common.font.width, common.font.height]));

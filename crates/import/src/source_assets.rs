@@ -19,7 +19,7 @@ pub(crate) struct Sources {
     pub weapons: String,
     pub magic: String,
     pub stages: String,
-    archive: String,
+    pub skill: String,
 }
 
 impl Sources {
@@ -39,7 +39,7 @@ impl Sources {
             weapons: declaration(0xdfc)?,
             magic: declaration(0x1f34)?,
             stages: declaration(0x24b4)?,
-            archive: declaration(0x1f4c)?,
+            skill: declaration(0x1f4c)?,
         })
     }
 
@@ -48,7 +48,7 @@ impl Sources {
     pub(crate) fn deferred_paths(&self) -> BTreeSet<String> {
         [&self.usual, &self.enemy, &self.weapons, &self.magic]
             .into_iter()
-            .chain([&self.archive, &self.stages])
+            .chain([&self.skill, &self.stages])
             .cloned()
             .collect()
     }

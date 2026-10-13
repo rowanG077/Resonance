@@ -76,7 +76,18 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
         "selected enemy data must still validate"
     );
     for formation in [1, 2] {
-        let mut assets = Assets::load(
+        let options = || PrepareOptions {
+            event_flags: Default::default(),
+            devils_arms_unlocked: false,
+            victory_story_flags: [false; 2],
+            random_seed: 0x2345,
+            map: 332,
+            world_music: 0,
+            story: 2500,
+            colette_state: 0,
+            overlimit_boost: false,
+        };
+        let (mut assets, prepared) = Assets::load(
             &root,
             &retained,
             &menus,
@@ -89,20 +100,11 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
                 defeat: DefeatPolicy::GameOver,
                 music: None,
             },
+            options(),
             &mut file_cache,
             || false,
         )?;
-        let options = || PrepareOptions {
-            devils_arms_unlocked: false,
-            victory_story_flags: [false; 2],
-            random_seed: 0x2345,
-            map: 332,
-            world_music: 0,
-            story: 2500,
-            story3: false,
-            colette_state: 0,
-            overlimit_boost: false,
-        };
+
         let audio = assets.audio.as_ref().context("missing battle audio")?;
         let sound = |request| -> Result<_> {
             match request {
@@ -130,7 +132,6 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
                 .expect("changed selected equipment must be checked before deriving stats");
             assert!(error.to_string().contains("missing equipped item"));
         }
-        let prepared = assets.prepare(&menus, options(), sound)?;
         assert_eq!(prepared.characters, [1, 2, 3]);
         assert_eq!(prepared.results.formation, formation);
         assert_eq!(prepared.results.enemies.len(), usize::from(formation));

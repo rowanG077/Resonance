@@ -10,7 +10,27 @@ use std::{
     path::{Path, PathBuf},
 };
 mod binding;
+pub(crate) use binding::voices as bind_voices;
 mod resources;
+
+/// Reuse the ordinary scenario/message inventory for battle-owned event scenes.
+pub(crate) fn event_requirements(
+    extracted: &Path,
+    executable: &[u8],
+    script: &[u8],
+) -> Result<resonance_content::battle_audio::Selection> {
+    let resources = resources::Catalogue::read(extracted, executable)?.resources(script)?;
+    Ok(resonance_content::battle_audio::Selection {
+        music: resources.music,
+        voices: resources.voices,
+        sounds: resources
+            .banks
+            .into_iter()
+            .flat_map(|(_, ids)| ids)
+            .collect(),
+        streams: Default::default(),
+    })
+}
 
 /// Resolve the saved setting through CRI attenuation and the stream mixer.
 /// The runtime consumes amplitudes, without executable addresses or codec tables.
@@ -263,6 +283,15 @@ fn voice_writer(
 }
 
 pub(crate) fn write_package(output: &Path, path: &str, package: &Package) -> Result<Asset> {
+    write_package_from(output, output, path, package)
+}
+
+pub(crate) fn write_package_from(
+    library: &Path,
+    output: &Path,
+    path: &str,
+    package: &Package,
+) -> Result<Asset> {
     resonance_content::validate_asset_path(path)?;
     let bytes = serde_json::to_vec(package)?;
     // Validate the candidate and its complete sample closure before replacing
@@ -274,7 +303,7 @@ pub(crate) fn write_package(output: &Path, path: &str, package: &Package) -> Res
                 return Ok(bytes.clone());
             }
             let mut sample = Vec::new();
-            fs::File::open(output.join(requested))?
+            fs::File::open(library.join(requested))?
                 .take(limit as u64 + 1)
                 .read_to_end(&mut sample)?;
             Ok(sample)

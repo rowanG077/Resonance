@@ -16,6 +16,7 @@ fn prepared(control: Control) -> PreparedBattle {
         .map(|index| crate::ActionDefinition {
             normal: Some(crate::NormalAttack::ALL[index]),
             execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+                contact_recovery: None,
                 chain_at: Some(15),
                 end_at: 90,
                 opening: None,
@@ -49,6 +50,7 @@ fn prepared(control: Control) -> PreparedBattle {
         shortcuts: [0; 4],
         normals: std::array::from_fn(|i| NormalControl {
             action: crate::ActionKey(i),
+            continuation: crate::tests::normal_continuation(crate::NormalAttack::ALL[i]),
 
             reach: 120.,
             minimum_reach: 0.,
@@ -677,6 +679,9 @@ fn landing_cancels_the_airborne_attack_and_finishes_recovery() -> Result<()> {
         let action = Arc::make_mut(&mut prepared.resources.actions.entries[5]);
         let contact = Arc::new(crate::MeleeDefinition {
             hit: crate::HitRule {
+                sound: None,
+                effect_on_guard: false,
+                effect: None,
                 overlimit_pause: false,
                 condition: None,
                 arte: false,
@@ -688,10 +693,12 @@ fn landing_cancels_the_airborne_attack_and_finishes_recovery() -> Result<()> {
                 power: crate::Power::Fixed(5),
                 element: crate::HitElement::Neutral,
                 prevents_defeat: false,
+                finisher_grade: false,
+                hp_drain: false,
                 guard: Default::default(),
             },
             trail: None,
-            volume: crate::MeleeVolume {
+            volume: crate::MeleeVolume::Fixed {
                 offset: [0.; 3],
                 radius: 120.,
                 half_height: 0.1,
@@ -1145,22 +1152,30 @@ fn airborne_party_and_turn_disabled_actions_do_not_wait_for_facing() -> Result<(
             let setup = &mut candidate.resources.actor_setup[0];
             setup.control = None;
             setup.enemy_decision = Some(crate::EnemyDecisionDefinition {
+                enemy_id: 0,
+                disabled_choices: Vec::new(),
                 strategy: crate::TargetPolicy::Nearest,
                 difficulty: 0,
                 choices: vec![crate::EnemyChoice {
                     action: crate::ActionKey(0),
                     weight: 1,
+                    chain_group: 0,
+                    followup_chance: 0,
                     requirements: Default::default(),
                     target_policy: Some(crate::TargetPolicy::Nearest),
+                    target_allies: false,
                     return_to_formation: true,
                     guard_chance: 0,
                     range: [0, 0],
                     tp: 0,
                     approach_minimum: 0.,
                     approach_range: 120.,
+                    approach: None,
                 }],
                 back_row: vec![],
                 walk_speed: 5.,
+                walk_override: None,
+                behavior: None,
                 walk_motion: None,
                 turn_ticks: 8,
             });

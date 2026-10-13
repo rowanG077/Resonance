@@ -169,7 +169,7 @@ impl Battle {
             |camera| {
                 let project = |index: usize| {
                     crate::project_screen_x(
-                        camera.pose,
+                        camera.frame(),
                         [
                             self.actors[index].position[0],
                             0.,

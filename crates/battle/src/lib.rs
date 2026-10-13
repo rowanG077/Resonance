@@ -6,14 +6,21 @@ pub const ACTOR_CAPACITY: usize = PARTY_CAPACITY + ENEMY_CAPACITY;
 const _: () = assert!(ACTOR_CAPACITY <= u16::BITS as usize);
 
 mod actor_common;
+mod secondary_wind;
+pub use secondary_wind::SecondaryWind;
+mod seals;
+pub use seals::SealDefinition;
 mod common_recovery;
 pub use common_recovery::{CommonRecoveryState, CommonRecoveryTraits};
 mod camera;
+mod capture;
 mod casting;
 mod spell_charge;
 pub use spell_charge::SpellChargeDefinition;
 pub mod conditions;
 mod contact;
+mod contact_recovery;
+pub use contact_recovery::ContactRecovery;
 mod contact_ex;
 pub use contact_ex::ContactEx;
 mod approach;
@@ -26,12 +33,19 @@ mod companion;
 pub use companion::{CompanionDefinition, CompanionPolicy, PolicyLimits, StrategyRefresh};
 mod damage;
 mod death;
+mod drains;
 mod lethal_rescue;
 pub use lethal_rescue::{LethalRescueTraits, RescueEquipment, RescueKind};
 mod decision;
+mod defense_system;
 mod distance;
 mod effect;
 mod enemy_decision;
+mod enemy_policy;
+mod enemy_transformation;
+pub use enemy_policy::EnemyBehavior;
+mod enemy_presentation;
+pub use enemy_presentation::EnemyPresentationFrame;
 mod escape;
 pub use escape::{EscapeActorDefinition, EscapeDefinition, EscapeFrame, MAX_ESCAPE_GAUGE};
 mod action_selection;
@@ -54,7 +68,10 @@ mod attack;
 mod body_push;
 mod melee;
 mod model;
-pub use attack::{AttackEvent, AttackPose, PreparedAttack};
+pub use attack::{
+    AttackEvent, AttackOrigin, AttackPose, HammerProjectile, HammerRing, PreparedAttack,
+    ProjectileScatter, ProjectileShot, StealDefinition,
+};
 mod movement;
 mod outcome;
 mod overlimit;
@@ -65,15 +82,31 @@ mod petrify;
 mod prepare;
 mod projectile;
 mod release;
-pub use release::PreparedVolley;
+pub use release::{
+    PreparedSpell, RecoveryTargets, SpellBenefit, SpellCamera, SpellEffect, SpellEffectPlacement,
+    SpellLaunch, SpellOrigin, SpellPolicy, SpellProjectile, SpellRecovery, SpellStartup, StageTint,
+};
 mod action;
 mod reaction;
 mod recoil;
 mod state;
 mod steering;
 mod stun;
+mod summon_entry;
+pub use summon_entry::{SummonEntryDefinition, SummonFrame};
+mod summon;
+pub use summon::{
+    PreparedSummon, SummonBlessing, SummonContact, SummonEffect, SummonHeading, SummonOrigin,
+    SummonPoint,
+};
 mod target;
 mod taunt;
+mod unison;
+pub use unison::{
+    UnisonArte, UnisonCombination, UnisonCombinationFrame, UnisonCompletion, UnisonDefinition,
+    UnisonFeedback, UnisonFrame, UnisonInput, UnisonMember, UnisonPhase, UnisonPlacement,
+    UnisonPrelude, UnisonRecipe, UnisonRole,
+};
 mod tp;
 pub use taunt::MAX_UNISON_GAUGE;
 mod control_ex;
@@ -82,7 +115,9 @@ mod voice;
 mod weapon_flight;
 
 pub use camera::{CameraDefinition, CameraPose, VERTICAL_FOV_DEGREES};
-pub use casting::{CastPhase, CastingDefinition, CastingState, CastingThreat, CastingTraits};
+pub use casting::{
+    CastPhase, CastReleasePose, CastingDefinition, CastingState, CastingThreat, CastingTraits,
+};
 pub use control::{
     ButtonInput, ControlDefinition, ControlInput, ControlMotions, Locomotion, NormalAttack,
     NormalControl, ShortcutEdit, direction_from_heading, project_screen_point, project_screen_x,
@@ -93,20 +128,22 @@ pub use damage::{
 };
 pub use death::ActorAvailability;
 pub use decision::{DecisionDefinition, EntryChoice};
+pub use defense_system::{DefenseArm, DefenseSystemDefinition};
 pub use enemy_decision::{EnemyChoice, EnemyDecisionDefinition, EnemyRequirements};
 pub use geometry::{Body, Collider, HitShape};
 pub use guard::{Activity, Control, Guard, GuardKind, GuardResult, GuardRule};
 pub use knockdown::{HitProtection, Protection, ProtectionMode, Stagger};
 pub use ledger::Ledger;
-pub use melee::{MeleeDefinition, MeleeVolume};
+pub use melee::{MeleeAnchor, MeleeDefinition, MeleeVolume};
 pub use model::{
-    ActorShadowFrame, CommonPose, EffectModelDefinition, EffectModelFrame, MainMotionObservation,
-    ModelDefinition, ModelFrame, ModelMaterial, ModelRequest, Models, MotionBinding, Playback,
-    Pose, PreparedEffectModel, ReactionMotions, ShadowDefinition, WeaponDefinition, WeaponFrame,
-    WeaponLayerDefinition, WeaponPlayback,
+    ActorShadowFrame, BodySphere, CommonPose, EffectModelDefinition, EffectModelFrame,
+    MainMotionObservation, ModelDefinition, ModelFrame, ModelMaterial, ModelRequest, ModelSample,
+    ModelSampler, Models, MotionBinding, Playback, Pose, PreparedEffectModel, ReactionMotions,
+    ShadowDefinition, WeaponDefinition, WeaponFrame, WeaponLayerDefinition, WeaponPlayback,
+    WeaponTextureAnimation,
 };
 pub use movement::{Floor, Hover, Movement};
-pub use outcome::{BattlePhase, TransitionFrame, TransitionKind};
+pub use outcome::{BattlePhase, DepartureReason, TransitionFrame, TransitionKind};
 pub use particle::{
     ParticleDefinition, ParticleFrame, ParticleGeometry, ParticleId, ParticleState,
     ParticleTemplate,
@@ -116,9 +153,10 @@ pub use prepare::{
     Sound,
 };
 pub use projectile::{
-    EffectAppearance, ProjectileContact, ProjectileDefinition, ProjectileEffects, ProjectileFrame,
-    ProjectileId, ProjectileMotion, ProjectileResponse, ProjectileShadow, ProjectileShadowFrame,
-    ProjectileSteering,
+    EffectAppearance, ProjectileBoneDirection, ProjectileContact, ProjectileContactFeedback,
+    ProjectileDefinition, ProjectileDeparture, ProjectileEffects, ProjectileFrame, ProjectileId,
+    ProjectileMotion, ProjectileOrigin, ProjectileResponse, ProjectileShadow,
+    ProjectileShadowFrame, ProjectileSteering, ProjectileVelocityReset,
 };
 pub use reaction::{Armor, ContactTraits, Reaction, ReactionRule, RecoilDirection};
 pub use recoil::{Recoil, RecoilKind, RecoilProfile, RecoilRule, VerticalRecoil};

@@ -14,6 +14,7 @@ fn weapon_selection_uses_item_keys_and_rejects_nonvisual_items() -> Result<()> {
     for (item, source, shield) in [(777, "weapon", false), (778, "shield", true)] {
         let model = battle_model::Weapon {
             trails: Default::default(),
+            uv_animation: Default::default(),
             source_sha256: source.into(),
             parts: Default::default(),
             files: Default::default(),
@@ -83,7 +84,11 @@ fn equipped_artwork_binds_without_attaching_inventory_models() -> Result<()> {
         (0, 135, false),
     ] {
         let owner = prepared.results.actors[slot].0;
-        let bundle = prepared.model_player.equipment_for_items(owner, [item, 0]);
+        let bundle = prepared
+            .core
+            .models()
+            .unwrap()
+            .equipment_for_items(owner, [item, 0]);
         assert!(!bundle.is_empty(), "item {item} was not prepared");
         let resources = if worn { &mut equipped } else { &mut inventory };
         resources.extend(bundle.iter().map(|weapon| weapon.primary_resource()));
@@ -96,9 +101,8 @@ fn equipped_artwork_binds_without_attaching_inventory_models() -> Result<()> {
         .map(|&(actor, _)| actor)
         .collect();
     let mut active = prepared.core;
-    let mut models = prepared.model_player;
     let mut frame = active.step(BattleInput::default())?;
-    models.advance(&mut frame, BattleClock::Running, false)?;
+    active.advance_models(&mut frame, BattleClock::Running, false)?;
     let shown: BTreeSet<_> = frame
         .weapons
         .iter()

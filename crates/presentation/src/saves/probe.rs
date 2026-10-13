@@ -102,6 +102,17 @@ pub(super) fn app_with_saves_mode(
     resolution: crate::Resolution,
     paranoid: bool,
 ) -> Result<App> {
+    app_with_target(root, output, saves, resolution, paranoid, false)
+}
+
+pub(super) fn app_with_target(
+    root: &Path,
+    output: &Path,
+    saves: SaveOptions,
+    resolution: crate::Resolution,
+    paranoid: bool,
+    window: bool,
+) -> Result<App> {
     ensure!(!output.exists(), "probe output must be a fresh directory");
     fs::create_dir_all(output)?;
     let (mut app, _) = crate::build_app_with_display(
@@ -113,7 +124,7 @@ pub(super) fn app_with_saves_mode(
             presentation_start: None,
             replay: None,
             capture_at: None,
-            capture: Some(output.join("unused.png")),
+            capture: (!window).then(|| output.join("unused.png")),
             silent: true,
             paranoid,
             skip_intro: true,
@@ -125,7 +136,9 @@ pub(super) fn app_with_saves_mode(
         },
         resolution,
     )?;
-    bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO).build(&mut app);
+    if !window {
+        bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO).build(&mut app);
+    }
     Ok(app)
 }
 

@@ -3,7 +3,7 @@ use crate::{menu_data::Element, model_preview::ModelPreview};
 use serde::{Deserialize, Serialize};
 
 pub const MONSTER_COUNT: usize = 251;
-pub const MONSTER_VERSION: u32 = 5;
+pub const MONSTER_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonsterBook {
@@ -112,6 +112,7 @@ impl Monster {
                 && (1..=16).contains(&self.statistics.len())
                 && self.statistics[0].hp > 0
                 && self.drop_chances.iter().all(|&chance| chance <= 100)
+                && self.steal_chance <= 100
                 && self
                     .drops
                     .iter()

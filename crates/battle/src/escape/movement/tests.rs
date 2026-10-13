@@ -12,6 +12,7 @@ fn prepared_fixture(control: Control) -> Result<PreparedBattle> {
     let action = ActionDefinition {
         normal: None,
         execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+            contact_recovery: None,
             chain_at: None,
             end_at: 30,
             opening: None,
@@ -316,22 +317,30 @@ fn enemy_fixture() -> Result<Battle> {
     let mut prepared = prepared_fixture(Control::Manual)?;
 
     prepared.resources.actor_setup[1].enemy_decision = Some(crate::EnemyDecisionDefinition {
+        enemy_id: 0,
+        disabled_choices: Vec::new(),
         strategy: crate::TargetPolicy::Nearest,
         difficulty: 0,
         choices: vec![crate::EnemyChoice {
             action: crate::ActionKey(0),
             return_to_formation: true,
             weight: 1,
+            chain_group: 0,
+            followup_chance: 0,
             requirements: Default::default(),
             target_policy: Some(crate::TargetPolicy::Nearest),
+            target_allies: false,
             guard_chance: 0,
             range: [0, 0],
             tp: 0,
             approach_minimum: 0.,
             approach_range: 120.,
+            approach: None,
         }],
         back_row: vec![],
         walk_speed: 2.,
+        walk_override: None,
+        behavior: None,
         walk_motion: None,
         turn_ticks: 8,
     });

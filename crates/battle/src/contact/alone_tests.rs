@@ -35,12 +35,17 @@ fn hit(battle: &mut crate::Battle, kind: DamageKind, power: Power) -> crate::Hit
             height: 2.,
             shape: HitShape::Box,
             rule: HitRule {
+                sound: None,
                 kind,
                 power,
                 arte: false,
+                effect_on_guard: false,
+                effect: None,
                 overlimit_pause: true,
                 element: HitElement::Neutral,
                 prevents_defeat: false,
+                finisher_grade: false,
+                hp_drain: false,
                 guard: GuardRule::default(),
                 reaction: Default::default(),
                 condition: None,
@@ -50,7 +55,7 @@ fn hit(battle: &mut crate::Battle, kind: DamageKind, power: Power) -> crate::Hit
         })
         .unwrap();
     let mut cues = vec![];
-    contacts.resolve(battle, &mut cues).unwrap();
+    contacts.resolve(battle, &mut cues, &[]).unwrap();
     cues.into_iter()
         .find_map(|cue| match cue {
             Cue::Hit { result, .. } => Some(result),

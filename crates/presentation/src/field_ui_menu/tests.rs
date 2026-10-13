@@ -144,7 +144,7 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
     let mut artwork = fixture.artwork(&mut world)?;
     let mut queue = bevy::ecs::world::CommandQueue::default();
     let mut meshes = Assets::<Mesh>::default();
-    artwork.prepare_windows();
+    artwork.prepare_windows(crate::Resolution::default());
     queue.apply(&mut world);
     assert!(meshes.is_empty(), "unused menu planes allocated meshes");
     assert!(artwork.layers.is_empty());
@@ -199,6 +199,16 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             .filter(|layer| layer.visible)
             .collect();
         assert!(!submitted.is_empty());
+        let text = &artwork.layers[&(1, DrawRole::Text, FONT)];
+        assert_eq!(
+            world
+                .get::<GlobalTransform>(text.entity)
+                .unwrap()
+                .translation()
+                .z,
+            DepthBand::Battle.at(1, DrawRole::Text.depth()),
+            "first text publication must have its menu depth before propagation",
+        );
         for layer in submitted {
             assert!(meshes.get(&layer.mesh).unwrap().count_vertices() > 0);
             assert!(matches!(
@@ -292,7 +302,7 @@ fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
     let mut artwork = fixture.artwork(&mut world)?;
     let mut queue = bevy::ecs::world::CommandQueue::default();
     let mut meshes = Assets::<Mesh>::default();
-    artwork.prepare_windows();
+    artwork.prepare_windows(crate::Resolution::default());
     queue.apply(&mut world);
     for focus in [
         EquipmentFocus::Character,

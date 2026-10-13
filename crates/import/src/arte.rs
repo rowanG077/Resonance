@@ -2,14 +2,18 @@
 mod definition;
 mod tables;
 
+pub(crate) use definition::unison_placements;
+
 use anyhow::{Context, Result, ensure};
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 pub(crate) use resonance_content::arte::{Catalogue, Definition};
 
 pub(crate) struct Imported {
     pub catalogue: Catalogue,
     pub menu: Vec<MenuDefinition>,
+    /// Physical scene selection is consumed during import, not gameplay dispatch.
+    pub skill_packages: BTreeMap<u16, u16>,
 }
 
 /// Fields used to build menu data, omitted from the battle catalogue.
@@ -22,10 +26,14 @@ pub(crate) struct MenuDefinition {
 }
 
 pub(crate) fn read(executable: &[u8]) -> Result<Imported> {
-    let (definitions, menu): (Vec<_>, Vec<_>) = definition::definitions(executable)?
-        .into_iter()
-        .map(|row| (row.gameplay, row.menu))
-        .unzip();
+    let rows = definition::definitions(executable)?;
+    let skill_packages = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(id, row)| row.skill_package.map(|package| (id as u16, package)))
+        .collect();
+    let (definitions, menu): (Vec<_>, Vec<_>) =
+        rows.into_iter().map(|row| (row.gameplay, row.menu)).unzip();
     let mut catalogue = Catalogue {
         definitions,
         learning: tables::learning(executable)?,
@@ -40,7 +48,11 @@ pub(crate) fn read(executable: &[u8]) -> Result<Imported> {
         "invalid technique menu metadata"
     );
     learning_conditions(&mut catalogue)?;
-    Ok(Imported { catalogue, menu })
+    Ok(Imported {
+        catalogue,
+        menu,
+        skill_packages,
+    })
 }
 
 fn learning_conditions(catalogue: &mut Catalogue) -> Result<()> {
@@ -98,6 +110,7 @@ mod tests {
             let source = extracted.join(format!("disc{disc}/sys/main.dol"));
             let executable = fs::read(&source)?;
             let imported = read(&executable)?;
+            assert_eq!(imported.skill_packages, BTreeMap::from([(51, 2), (228, 1)]));
             let destination = output.path().join(format!("disc{disc}"));
             let path = publish(&imported.catalogue, &destination)?;
             let bytes = fs::read(destination.join(path))?;

@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub(crate) enum Execution {
     Attack(crate::attack::AttackRun),
     Casting(crate::casting::CastingRun),
+    LeavingArena,
     Recovering {
         remaining: u32,
     },
@@ -26,6 +27,13 @@ pub(crate) struct Sequence {
     pub normal: Option<crate::control::NormalState>,
     pub collision_bypass: bool,
     pub melee: Option<crate::melee::Window>,
+    pub contact_target: Option<ActorId>,
+    /// Any accepted contact, including guard, owned by this action.
+    pub contact_made: bool,
+    /// Selected Unison artes keep ordinary action playback, with scene-owned admission.
+    pub unison: bool,
+    pub struck_target: Option<ActorId>,
+    pub struck_damage: i32,
     pub(crate) execution: Execution,
 }
 impl Sequence {
@@ -53,6 +61,7 @@ impl Sequence {
         let execution = match &action.execution {
             ActionExecution::Casting(_) => Execution::Casting(crate::casting::CastingRun::Starting),
             ActionExecution::Attack(_) => Execution::Attack(crate::attack::AttackRun::Starting),
+            ActionExecution::LeaveArena => Execution::LeavingArena,
         };
         Self {
             action: key,
@@ -73,12 +82,18 @@ impl Sequence {
             normal: None,
             collision_bypass: false,
             melee: None,
+            contact_target: None,
+            contact_made: false,
+            unison: false,
+            struck_target: None,
+            struck_damage: 0,
             execution,
         }
     }
 
     pub(crate) fn activity(&self) -> crate::Activity {
         match &self.execution {
+            Execution::LeavingArena => crate::Activity::Escaping,
             Execution::Complete | Execution::Recovering { .. } => crate::Activity::Recovering,
             Execution::Casting(run) => crate::Activity::Casting {
                 held: matches!(run, crate::casting::CastingRun::Running(cast) if cast.held),
@@ -118,7 +133,12 @@ impl Sequence {
             actor.reaction.armor.threshold = 0;
             actor.reaction.armor.received = 0;
         }
-        battle.discharge_stored_spell(id, self.actor, cues)
+        if self.unison {
+            battle.restore_combination_weapons(id, self.actor);
+            Ok(())
+        } else {
+            battle.discharge_stored_spell(id, self.actor, cues)
+        }
     }
 }
 
@@ -127,10 +147,13 @@ pub(crate) fn step_sequence(
     id: ActionId,
     sequence: &mut Sequence,
     contacts: &mut crate::contact::Contacts,
+    items: &mut dyn crate::item::Provider,
     cues: &mut Vec<Cue>,
 ) -> Result<Option<u32>> {
     match std::mem::replace(&mut sequence.execution, Execution::Complete) {
-        Execution::Attack(run) => crate::attack::step(battle, id, sequence, run, contacts, cues),
+        Execution::Attack(run) => {
+            crate::attack::step(battle, id, sequence, run, contacts, items, cues)
+        }
         Execution::Casting(run) => crate::casting::step(battle, id, sequence, run, cues),
         execution => {
             sequence.execution = execution;

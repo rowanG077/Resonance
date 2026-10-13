@@ -92,7 +92,9 @@ pub(crate) fn publish_enemy(
     let members = crate::model_preview::PointerMembers::new(bytes, 0x18..0x1e8)?;
     let mut source = Enemy {
         source_sha256: definition.source_sha256.clone(),
+        body_variant: enemy_body_variant(bytes)?,
         attachments: Default::default(),
+        weapon_variants: Default::default(),
         trails: Default::default(),
         body: rig(
             members.model(0x18)?.context("missing enemy body")?,
@@ -101,10 +103,15 @@ pub(crate) fn publish_enemy(
         files: Default::default(),
     };
     source.files = files(preview.parts.iter().map(|part| &part.scene), library)?;
-    source
-        .files
-        .extend(enemy_resources::publish(bytes, id, output)?);
+    source.files.extend(enemy_resources::publish(
+        bytes,
+        id,
+        &source.body.skeleton,
+        output,
+    )?);
     (source.attachments, source.trails) = enemy_resources::attachments(bytes, preview)?;
+    publish_enemy_carried_motions(bytes, &definition.actions, &mut source, output)?;
+    publish_enemy_weapon_variants(bytes, &mut source, output)?;
     let path = enemy_path(id);
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&source)?)?;
     let definition_path = resonance_content::battle_enemy::path(id);
@@ -113,6 +120,57 @@ pub(crate) fn publish_enemy(
         &serde_json::to_vec(&definition)?,
     )?;
     Ok([definition_path, path])
+}
+
+/// Refresh carried action clips without converting their geometry again.
+pub fn publish_enemy_carried_motions(
+    bytes: &[u8],
+    actions: &resonance_content::battle_action::EnemyActions,
+    source: &mut Enemy,
+    output: &Path,
+) -> Result<Vec<String>> {
+    ensure!(
+        source.source_sha256 == crate::digest(bytes),
+        "enemy carried motion source differs"
+    );
+    enemy_resources::carried_motions(bytes, actions, source, output)
+}
+
+/// Persistent appearance rows are separate from animated expression channels.
+pub fn enemy_body_variant(
+    bytes: &[u8],
+) -> Result<Option<resonance_content::battle_profile::TextureChannel>> {
+    let metadata = usize::from(crate::read::u16(bytes, 4)?);
+    let channel = bytes
+        .get(metadata + 0xee..metadata + 0xf0)
+        .context("truncated enemy body atlas channel")?;
+    Ok(
+        (channel[1] != 0).then_some(resonance_content::battle_profile::TextureChannel {
+            texture: channel[0],
+            frames: channel[1],
+        }),
+    )
+}
+
+/// Publish optional carried artwork without rebuilding an enemy's body or motions.
+pub fn publish_enemy_weapon_variants(
+    bytes: &[u8],
+    source: &mut Enemy,
+    output: &Path,
+) -> Result<()> {
+    ensure!(
+        source.source_sha256 == crate::digest(bytes),
+        "enemy weapon source differs"
+    );
+    source.weapon_variants = enemy_resources::weapon_variants(bytes, output)?;
+    source.files.extend(files(
+        source
+            .weapon_variants
+            .values()
+            .flat_map(|variant| variant.model.layers.iter().map(|layer| &layer.scene)),
+        output,
+    )?);
+    Ok(())
 }
 
 pub(crate) fn files<'a>(

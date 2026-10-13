@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 
 const LOG_MAXIMUM: i32 = 193 << 16;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Tables {
     #[serde(with = "crate::package::array")]
     pub attenuation: [u16; 194],

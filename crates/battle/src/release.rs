@@ -5,81 +5,1153 @@ use crate::{
 use anyhow::{Result, ensure};
 use std::sync::Arc;
 
+const REVEALED_NOTICE_TICKS: u16 = 90;
+
 #[derive(Debug, Clone)]
-pub struct PreparedVolley {
-    pub projectile: Arc<ProjectileDefinition>,
-    pub shots: u8,
-    /// Gameplay ticks between shots.
-    pub interval: u16,
-    pub startup: Option<EffectAppearance>,
+pub struct PreparedSpell {
+    pub summon: Option<Arc<crate::PreparedSummon>>,
+    pub policy: SpellPolicy,
+    /// Projectile births, measured in scene ticks from release.
+    pub projectiles: Vec<SpellProjectile>,
+    pub effects: Vec<SpellEffect>,
+    pub recovery: Vec<SpellRecovery>,
+    pub origin: SpellOrigin,
+    /// Opening scene transition holds gameplay while its framing and feedback advance.
+    pub transition_ticks: u16,
+    /// Starts when the stored scene initializes after its opening transition.
+    pub stage_tint: Option<StageTint>,
+    pub camera: Option<SpellCamera>,
+    /// Retain the spell slot until this tick, including artwork after its last hit.
+    pub duration: u16,
+    pub startup: Option<(u16, SpellStartup)>,
     pub sound: Option<Sound>,
 }
 
-impl PreparedVolley {
+/// A contact's placement is relative to the retained scene origin and heading.
+#[derive(Debug, Clone)]
+pub struct SpellProjectile {
+    pub at: u16,
+    pub definition: Arc<ProjectileDefinition>,
+    pub origin_offset: [f32; 3],
+    pub launch: SpellLaunch,
+}
+
+impl SpellProjectile {
+    pub fn new(at: u16, definition: Arc<ProjectileDefinition>) -> Self {
+        Self {
+            at,
+            definition,
+            origin_offset: [0.; 3],
+            launch: SpellLaunch::Live,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum SpellLaunch {
+    #[default]
+    Live,
+    Captured(f32),
+    /// Aim at the retained origin's XZ and this absolute height.
+    AtHeight(f32),
+    /// Sample the caster's root and body height independently for each shot.
+    CasterAbove {
+        center_height_scale: f32,
+        height_offset: f32,
+    },
+    ForwardCone {
+        minimum_dot: f32,
+        vertical_limit: f32,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum SpellPolicy {
+    #[default]
+    Static,
+    /// Move the retained anchor and its contacts toward the target during this interval.
+    TrackGround { start: u16, end: u16, speed: f32 },
+    /// Select once by roster order; later contacts keep that same recipient.
+    CaptureRecipient { at: u16, radius: f32 },
+    Cutin {
+        at: u16,
+        catalogue: u16,
+        duration: u16,
+        hold_ticks: u16,
+        /// Replace a concealed technique caption on the spell's existing clock.
+        reveal: Option<(u16, &'static str)>,
+    },
+}
+
+fn cone_direction(
+    origin: [f32; 3],
+    target: [f32; 3],
+    heading: f32,
+    minimum_dot: f32,
+    vertical_limit: f32,
+) -> [f32; 3] {
+    let (sin, cos) = heading.to_radians().sin_cos();
+    let ahead = [sin, 0., cos];
+    let delta = std::array::from_fn::<_, 3, _>(|axis| target[axis] - origin[axis]);
+    let horizontal = delta[0].hypot(delta[2]);
+    if horizontal < 0.5 {
+        return ahead;
+    }
+    let x = delta[0] / horizontal;
+    let z = delta[2] / horizontal;
+    if sin * x + cos * z <= minimum_dot {
+        return ahead;
+    }
+    [
+        x,
+        (delta[1] / horizontal.hypot(delta[1])).clamp(-vertical_limit, vertical_limit),
+        z,
+    ]
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SpellEffect {
+    pub at: u16,
+    pub appearance: EffectAppearance,
+    pub placement: SpellEffectPlacement,
+    /// Scene placement: None uses world heading zero; Some adds to the retained heading.
+    pub captured_heading_offset: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SpellEffectPlacement {
+    /// Offset rotated by the retained scene heading.
+    Scene([f32; 3]),
+    /// Capture the caster's ground position and heading when the effect begins.
+    CasterGround,
+    CasterCenter,
+    EnemyCenters,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StageTint {
+    pub color: [u8; 3],
+    pub duration: u16,
+}
+
+/// A scene's framing outlives its opening close-up and has its own camera clock.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpellCamera {
+    pub bounds: resonance_content::battle_scene::CameraBounds,
+    pub duration: u16,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SpellStartup {
+    Effect(EffectAppearance),
+    CasterGroundEffect(EffectAppearance),
+    AllyRing {
+        effects: [EffectAppearance; 4],
+        first_heading: f32,
+        heading_step: f32,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RecoveryTargets {
+    Target,
+    Caster,
+    LivingAllies,
+    LivingOpponents,
+    Area { radius: f32, inclusive: bool },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SpellRecovery {
+    pub at: u16,
+    pub benefit: SpellBenefit,
+    pub targets: RecoveryTargets,
+    pub effect: Option<(EffectAppearance, crate::effect::EffectTint)>,
+}
+
+/// A timed benefit uses the same recipient and release clock as healing spells.
+#[derive(Debug, Clone, Copy)]
+pub enum SpellBenefit {
+    Hp(u8),
+    /// Each full horizontal distance step reduces the recovery percentage.
+    HpByDistance {
+        percent: u8,
+        distance_step: u16,
+        penalty_per_step: u8,
+        maximum_penalty: u8,
+    },
+    Tp(u16),
+    Cure(crate::conditions::Cure),
+    Buff(crate::conditions::Buff),
+    Resurrect(u8),
+    Sacrifice,
+    Stat {
+        condition: crate::conditions::Condition,
+        percent: u8,
+        duration: u16,
+    },
+    DefenseDown {
+        /// Retain an existing stronger reduction; positive input cannot raise defense.
+        amount: i16,
+        /// Zero selects the shared condition duration.
+        duration: u16,
+        tint: [u8; 3],
+    },
+}
+
+impl SpellBenefit {
+    fn valid(self) -> bool {
+        match self {
+            Self::Hp(percent) => percent > 0,
+            Self::HpByDistance {
+                percent,
+                distance_step,
+                penalty_per_step,
+                maximum_penalty,
+            } => percent > 0 && distance_step > 0 && penalty_per_step > 0 && maximum_penalty > 0,
+            Self::Tp(amount) => amount > 0,
+            Self::Cure(_) | Self::Buff(_) | Self::Sacrifice | Self::DefenseDown { .. } => true,
+            Self::Resurrect(percent) => percent <= 100,
+            Self::Stat {
+                condition,
+                percent,
+                duration,
+            } => {
+                matches!(
+                    condition,
+                    crate::conditions::Condition::AttackUp
+                        | crate::conditions::Condition::DefenseUp
+                ) && percent > 0
+                    && duration > 0
+            }
+        }
+    }
+
+    pub(crate) fn accepts(self, actor: &crate::Actor) -> bool {
+        if matches!(self, Self::Resurrect(_)) {
+            return actor.hp <= 0 && actor.availability == crate::ActorAvailability::Dead;
+        }
+        actor.available()
+            || (actor.hp > 0
+                && actor.is_petrified()
+                && matches!(self, Self::Cure(cure) if cure.thaws_petrify()))
+    }
+
+    fn apply(
+        self,
+        battle: &mut Battle,
+        caster: ActorId,
+        target: ActorId,
+        cues: &mut Vec<Cue>,
+    ) -> Result<()> {
+        match self {
+            Self::Hp(percent) => battle.recover(target, i16::from(percent), cues)?,
+            Self::HpByDistance {
+                percent,
+                distance_step,
+                penalty_per_step,
+                maximum_penalty,
+            } => {
+                let origin = battle.actors[caster.index()].position;
+                let point = battle.actors[target.index()].position;
+                let distance = (point[0] - origin[0]).hypot(point[2] - origin[2]);
+                let steps = (distance / f32::from(distance_step)) as u32;
+                let penalty = steps
+                    .saturating_mul(u32::from(penalty_per_step))
+                    .min(u32::from(maximum_penalty)) as u8;
+                battle.recover(target, i16::from(percent.saturating_sub(penalty)), cues)?;
+            }
+            Self::Tp(amount) => {
+                let actor = &mut battle.actors[target.index()];
+                let previous = actor.tp;
+                actor.recover_flat_tp(i32::from(amount));
+                cues.push(Cue::Recovered {
+                    actor: target,
+                    kind: crate::RecoveryKind::Tp,
+                    nominal: i32::from(amount),
+                    applied: i32::from(actor.tp) - i32::from(previous),
+                });
+            }
+            Self::Cure(cure) => battle.apply_cure(target, cure, cues),
+            Self::Buff(buff) => apply_buff(battle, target, buff, cues),
+            Self::Resurrect(percent) => {
+                battle.enter_revival(target, cues);
+                if percent != 0 {
+                    battle.recover_vitals(target, i16::from(percent), true, cues)?;
+                }
+            }
+            Self::Sacrifice => sacrifice(battle, caster, cues)?,
+            Self::Stat {
+                condition,
+                percent,
+                duration,
+            } => {
+                let actor = &mut battle.actors[target.index()];
+                if actor.conditions.apply_stat_condition(
+                    condition,
+                    i16::from(percent),
+                    u32::from(duration),
+                    false,
+                ) {
+                    cues.push(Cue::ConditionLabel {
+                        actor: target,
+                        kind: crate::conditions::ConditionLabel::StatUp(condition),
+                        position: actor.effect_origin(),
+                    });
+                }
+            }
+            Self::DefenseDown {
+                amount,
+                duration,
+                tint,
+            } => {
+                use crate::conditions::{Condition, ConditionLabel};
+                let actor = &mut battle.actors[target.index()];
+                let cancels_buff = !actor.conditions.rejects(Condition::DefenseDown)
+                    && actor.conditions.effective().contains(Condition::DefenseUp);
+                let amount = actor
+                    .conditions
+                    .magnitude(Condition::DefenseDown)
+                    .min(amount);
+                let applied = actor.conditions.apply_stat_condition(
+                    Condition::DefenseDown,
+                    amount,
+                    u32::from(duration),
+                    false,
+                );
+                if applied {
+                    cues.push(Cue::ConditionLabel {
+                        actor: target,
+                        kind: ConditionLabel::StatusDown,
+                        position: actor.effect_origin(),
+                    });
+                } else if cancels_buff {
+                    cues.push(Cue::CustomLabel {
+                        actor: target,
+                        position: actor.effect_origin(),
+                        left: "STATUS".into(),
+                        right: "CANCEL".into(),
+                        duration: 45,
+                    });
+                }
+                battle.model_requests.push(crate::ModelRequest::Tint {
+                    actor: target,
+                    color: tint,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+fn sacrifice(battle: &mut Battle, caster: ActorId, cues: &mut Vec<Cue>) -> Result<()> {
+    let actor = &mut battle.actors[caster.index()];
+    let (origin, side, amount) = (actor.position, actor.side, actor.hp);
+    actor.hp = 0;
+    cues.push(Cue::IncidentalDamage {
+        actor: caster,
+        amount,
+    });
+    battle.enter_death(caster, cues);
+    for index in 0..battle.actors.len() {
+        let actor = &battle.actors[index];
+        if index == caster.index()
+            || actor.side != side
+            || !(actor.available() || actor.availability == crate::ActorAvailability::Dead)
+        {
+            continue;
+        }
+        let distance = (actor.position[0] - origin[0]).hypot(actor.position[2] - origin[2]);
+        let percent = sacrifice_percent(distance);
+        let target = ActorId::from_index(index)?;
+        if actor.availability == crate::ActorAvailability::Dead {
+            battle.enter_revival(target, cues);
+        }
+        battle.recover_vitals(target, percent, true, cues)?;
+    }
+    Ok(())
+}
+
+fn sacrifice_percent(distance: f32) -> i16 {
+    const NEAR_PERCENT: i16 = 50;
+    const DISTANCE_PER_PERCENT: f32 = 36.;
+    const FAR_DISTANCE: f32 = 936.;
+    const FAR_PERCENT: i16 = 30;
+    if distance >= FAR_DISTANCE {
+        FAR_PERCENT
+    } else {
+        NEAR_PERCENT - (distance / DISTANCE_PER_PERCENT) as i16
+    }
+}
+
+fn apply_buff(
+    battle: &mut Battle,
+    target: ActorId,
+    buff: crate::conditions::Buff,
+    cues: &mut Vec<Cue>,
+) {
+    let actor = &mut battle.actors[target.index()];
+    let position = actor.effect_origin();
+    if let Some(kind) = actor.conditions.prepare_buff(buff, false).commit(actor) {
+        cues.push(Cue::ConditionLabel {
+            actor: target,
+            kind,
+            position,
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SpellOrigin {
+    Caster,
+    CasterRoot,
+    /// Capture the ground point immediately, offset toward the caster.
+    GroundAtRelease {
+        toward_caster: f32,
+    },
+    /// Capture after the opening transition, before the scene's startup effect.
+    SceneGround {
+        toward_caster: f32,
+    },
+    SceneTarget {
+        minimum_height: f32,
+    },
+    SceneCasterAhead {
+        distance: f32,
+        height: f32,
+    },
+    SceneCasterRing {
+        distance: f32,
+        minimum_height: f32,
+    },
+    SceneFixed {
+        position: [f32; 3],
+    },
+    SceneTargetPlane {
+        height: f32,
+        toward_caster: f32,
+        body_center: bool,
+    },
+    /// Bind the scene to its target; each contact samples the current body center.
+    FollowingTarget,
+    /// Body center selected on the update after release, then retained.
+    Target,
+    /// Ground point selected on the update after release, then retained.
+    TargetGround,
+}
+
+impl SpellOrigin {
+    fn waits_for_target(self) -> bool {
+        matches!(self, Self::Target | Self::TargetGround)
+    }
+
+    fn waits_for_scene(self) -> bool {
+        matches!(
+            self,
+            Self::SceneGround { .. }
+                | Self::SceneTarget { .. }
+                | Self::SceneCasterAhead { .. }
+                | Self::SceneCasterRing { .. }
+                | Self::SceneFixed { .. }
+                | Self::SceneTargetPlane { .. }
+                | Self::FollowingTarget
+        )
+    }
+}
+
+impl PreparedSpell {
     pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
-            self.shots > 0 && self.interval > 0,
-            "empty or unpaced projectile volley"
+            match self.policy {
+                SpellPolicy::Static => true,
+                SpellPolicy::TrackGround { start, end, speed } =>
+                    start > self.transition_ticks
+                        && start < end
+                        && end <= self.duration
+                        && speed.is_finite()
+                        && speed > 0.,
+                SpellPolicy::CaptureRecipient { at, radius } =>
+                    at > self.transition_ticks
+                        && at < self.duration
+                        && radius.is_finite()
+                        && radius > 0.,
+                SpellPolicy::Cutin {
+                    at,
+                    duration,
+                    hold_ticks,
+                    reveal,
+                    ..
+                } =>
+                    at > self.transition_ticks
+                        && at < self.duration
+                        && duration > 0
+                        && hold_ticks > 0
+                        && reveal.is_none_or(|(tick, text)| {
+                            tick > self.transition_ticks && tick < self.duration && !text.is_empty()
+                        }),
+            },
+            "invalid spell policy"
         );
-        self.projectile.validate()
+        if let Some(summon) = &self.summon {
+            ensure!(
+                self.projectiles.is_empty()
+                    && self.effects.is_empty()
+                    && self.recovery.is_empty()
+                    && self.transition_ticks == 0
+                    && self.startup.is_none(),
+                "summon duplicates ordinary spell release"
+            );
+            summon.validate(self.duration)?;
+        }
+        ensure!(
+            (!self.projectiles.is_empty()
+                || !self.recovery.is_empty()
+                || !self.effects.is_empty()
+                || self.startup.is_some()
+                || self.summon.is_some())
+                && self
+                    .projectiles
+                    .windows(2)
+                    .all(|rows| rows[0].at <= rows[1].at)
+                && self
+                    .projectiles
+                    .last()
+                    .is_none_or(|projectile| projectile.at <= self.duration)
+                && self.effects.windows(2).all(|rows| rows[0].at <= rows[1].at)
+                && self
+                    .effects
+                    .last()
+                    .is_none_or(|effect| effect.at <= self.duration)
+                && self
+                    .recovery
+                    .windows(2)
+                    .all(|pulses| pulses[0].at <= pulses[1].at)
+                && self.recovery.iter().all(|recovery| {
+                    recovery.at <= self.duration
+                        && recovery.benefit.valid()
+                        && (!matches!(recovery.benefit, SpellBenefit::Sacrifice)
+                            || recovery.targets == RecoveryTargets::Caster)
+                        && match recovery.targets {
+                            RecoveryTargets::Area { radius, .. } => {
+                                radius.is_finite() && radius > 0.
+                            }
+                            _ => true,
+                        }
+                })
+                && self.transition_ticks <= self.duration
+                && self.stage_tint.is_none_or(|tint| {
+                    tint.duration > 0
+                        && (self.transition_ticks > 0 || self.summon.is_some())
+                        && self.transition_ticks < self.duration
+                })
+                && self.startup.is_none_or(|(at, _)| at <= self.duration)
+                && (!self.origin.waits_for_target()
+                    || (self
+                        .projectiles
+                        .first()
+                        .is_none_or(|projectile| projectile.at > 0)
+                        && self.effects.first().is_none_or(|effect| effect.at > 0)
+                        && self.startup.is_none_or(|(at, _)| at > 0)
+                        && self.recovery.first().is_none_or(|pulse| pulse.at > 0))),
+            "empty or invalid spell schedule"
+        );
+        if let Some(camera) = self.camera {
+            camera.bounds.validate()?;
+            ensure!(
+                camera.duration > 0
+                    && (self.transition_ticks > 0 || self.summon.is_some())
+                    && self.transition_ticks < self.duration,
+                "invalid stored scene camera duration"
+            );
+        }
+        if let Some((
+            _,
+            SpellStartup::AllyRing {
+                first_heading,
+                heading_step,
+                ..
+            },
+        )) = self.startup
+        {
+            ensure!(
+                first_heading.is_finite() && heading_step.is_finite(),
+                "invalid spell ring heading"
+            );
+        }
+        if self.origin.waits_for_scene() {
+            ensure!(
+                self.transition_ticks > 0
+                    && self
+                        .projectiles
+                        .first()
+                        .is_none_or(|projectile| projectile.at > self.transition_ticks)
+                    && self
+                        .effects
+                        .first()
+                        .is_none_or(|effect| effect.at > self.transition_ticks)
+                    && self
+                        .startup
+                        .is_none_or(|(at, _)| at > self.transition_ticks)
+                    && self
+                        .recovery
+                        .first()
+                        .is_none_or(|pulse| pulse.at > self.transition_ticks),
+                "stored origin used before scene initialization"
+            );
+        }
+        ensure!(
+            match self.origin {
+                SpellOrigin::GroundAtRelease { toward_caster }
+                | SpellOrigin::SceneGround { toward_caster } =>
+                    toward_caster.is_finite() && toward_caster >= 0.,
+                SpellOrigin::SceneTarget { minimum_height } => minimum_height.is_finite(),
+                SpellOrigin::SceneCasterAhead { distance, height } =>
+                    distance.is_finite() && distance >= 0. && height.is_finite(),
+                SpellOrigin::SceneCasterRing {
+                    distance,
+                    minimum_height,
+                } => distance.is_finite() && distance >= 0. && minimum_height.is_finite(),
+                SpellOrigin::SceneFixed { position } => position.iter().all(|v| v.is_finite()),
+                SpellOrigin::SceneTargetPlane {
+                    height,
+                    toward_caster,
+                    ..
+                } => height.is_finite() && toward_caster.is_finite() && toward_caster >= 0.,
+                _ => true,
+            },
+            "invalid spell origin"
+        );
+        for projectile in &self.projectiles {
+            ensure!(
+                projectile
+                    .origin_offset
+                    .iter()
+                    .all(|value| value.is_finite())
+                    && match projectile.launch {
+                        SpellLaunch::Live => true,
+                        SpellLaunch::Captured(offset) | SpellLaunch::AtHeight(offset) =>
+                            offset.is_finite(),
+                        SpellLaunch::CasterAbove {
+                            center_height_scale,
+                            height_offset,
+                        } => center_height_scale.is_finite() && height_offset.is_finite(),
+                        SpellLaunch::ForwardCone {
+                            minimum_dot,
+                            vertical_limit,
+                        } =>
+                            (0. ..1.).contains(&minimum_dot) && (0. ..1.).contains(&vertical_limit),
+                    },
+                "invalid spell projectile placement"
+            );
+            projectile.definition.validate()?;
+        }
+        ensure!(
+            self.effects.iter().all(|effect| {
+                let placement_valid = match effect.placement {
+                    SpellEffectPlacement::Scene(offset) => {
+                        offset.iter().all(|value| value.is_finite())
+                    }
+                    _ => true,
+                };
+                placement_valid && effect.captured_heading_offset.is_none_or(f32::is_finite)
+            }),
+            "invalid spell effect placement"
+        );
+        Ok(())
+    }
+}
+
+pub(crate) struct CastPoseTransition {
+    pub parent: ActionId,
+    pub action: crate::ActionKey,
+    pub opening: crate::MotionBinding,
+    pub at: u16,
+}
+
+impl CastPoseTransition {
+    fn owns(&self, battle: &Battle, actor: ActorId) -> bool {
+        battle.actors[actor.index()].available()
+            && battle.sequence(&self.parent).is_some_and(|sequence| {
+                sequence.actor == actor
+                    && sequence.action == self.action
+                    && matches!(
+                        &sequence.execution,
+                        crate::action::Execution::Recovering { .. }
+                    )
+            })
     }
 }
 
 /// A released spell owns its targeting and clock independently of the caster.
 pub(crate) struct Volley {
-    pub definition: Arc<PreparedVolley>,
+    pub definition: Arc<PreparedSpell>,
     pub actor: ActorId,
     pub target: ActorId,
+    /// Aim captured during the caster's visit, before later actors move.
+    pub projectile_target: [f32; 3],
     pub slot: SpellSlot,
     pub age: u32,
     pub origin: Option<[f32; 3]>,
-    pub emitted: u8,
+    pub heading: f32,
+    pub emitted: usize,
+    pub summon: Option<crate::summon::ActiveSummon>,
+    pub recipient: Option<ActorId>,
+    pub cast_pose: Option<CastPoseTransition>,
 }
 
 impl Volley {
+    pub(crate) fn advancing_cast_pose(&self, battle: &Battle) -> Option<ActorId> {
+        let pose = self.cast_pose.as_ref()?;
+        (self.age > u32::from(pose.at) && pose.owns(battle, self.actor)).then_some(self.actor)
+    }
+
+    pub(crate) fn transitioning(&self) -> bool {
+        self.definition.transition_ticks != 0
+            && self.age <= u32::from(self.definition.transition_ticks)
+    }
+
     pub(crate) fn step(
         &mut self,
         battle: &mut Battle,
         id: ActionId,
         cues: &mut Vec<Cue>,
     ) -> Result<bool> {
-        let origin = if let Some(origin) = self.origin {
-            origin
-        } else {
-            let target = &battle.actors[self.target.index()];
-            if !target.available()
-                && let Some(index) = battle
-                    .actors
-                    .iter()
-                    .position(|a| a.side == target.side && a.available())
-            {
-                self.target = ActorId::from_index(index)?;
+        // The release owns this clock, but only the original cast owns its pose.
+        // Age zero precedes consumption of the opening's model request.
+        if self.age > 0
+            && let Some(pose) = &self.cast_pose
+        {
+            let owned = pose.owns(battle, self.actor)
+                && battle.models.as_ref().is_none_or(|models| {
+                    models.definition(self.actor).is_some_and(|model| {
+                        let clip = if self.age > u32::from(pose.at) {
+                            model.reactions.cast
+                        } else {
+                            Some(pose.opening.clip)
+                        };
+                        model.resource == pose.opening.model
+                            && models
+                                .main_motion_observation(self.actor)
+                                .is_some_and(|motion| Some(motion.clip) == clip)
+                    })
+                });
+            if owned && self.age == u32::from(pose.at) {
+                battle.model_requests.push(crate::ModelRequest::Common {
+                    actor: self.actor,
+                    pose: crate::CommonPose::SustainedCast,
+                });
             }
-            let actor = &battle.actors[self.actor.index()];
-            let origin = actor.effect_origin();
-            if let Some(appearance) = self.definition.startup {
-                cues.push(Cue::Effect(crate::EffectRequest {
-                    owner: self.actor,
-                    target: self.actor,
-                    appearance,
-                    origin,
-                    heading: actor.heading,
-                    follow: None,
-                    scale: actor.effect_scale,
-                    tint: Default::default(),
-                }));
+            if !owned || self.age > u32::from(self.definition.transition_ticks) {
+                self.cast_pose = None;
             }
-            self.origin = Some(origin);
-            origin
-        };
-        if self.age >= u32::from(self.emitted) * u32::from(self.definition.interval) {
-            battle.emit(
-                Arc::clone(&self.definition.projectile),
+        }
+        if let Some(definition) = &self.definition.summon {
+            if self.summon.is_none() {
+                self.summon = Some(crate::summon::ActiveSummon::begin(
+                    definition,
+                    battle,
+                    self.actor,
+                    &mut self.target,
+                ));
+                cues.push(Cue::EffectNotice {
+                    actor: self.actor,
+                    text: definition.title.clone(),
+                    duration: self.definition.duration,
+                });
+                if let Some(tint) = self.definition.stage_tint {
+                    cues.push(Cue::StageTint(tint));
+                }
+                if let (Some(request), Some(camera)) = (self.definition.camera, &mut battle.camera)
+                {
+                    camera.request_scene(request);
+                }
+            }
+            self.summon.as_mut().unwrap().step(
+                definition,
+                battle,
                 id,
                 self.actor,
                 self.target,
-                origin,
+                self.age,
+                cues,
             )?;
+            if self.age >= u32::from(self.definition.duration) {
+                let resources: std::collections::BTreeSet<_> = definition
+                    .effects
+                    .iter()
+                    .map(|effect| effect.appearance.resource)
+                    .collect();
+                for resource in resources {
+                    cues.push(Cue::ClearEffectBank {
+                        actor: self.actor,
+                        resource,
+                    });
+                }
+                battle.discard_projectiles(id, cues);
+                return Ok(true);
+            }
+            self.age += 1;
+            return Ok(false);
+        }
+        if self.definition.origin.waits_for_scene()
+            && self.age <= u32::from(self.definition.transition_ticks)
+        {
+            self.age += 1;
+            return Ok(false);
+        }
+        if self.age == 0 && self.definition.origin.waits_for_target() {
+            self.age = 1;
+            return Ok(false);
+        }
+        let following = self.definition.origin == SpellOrigin::FollowingTarget;
+        let mut origin = if following && self.origin.is_some() {
+            battle.actors[self.target.index()].effect_origin()
+        } else if let Some(origin) = self.origin {
+            origin
+        } else {
+            let target = &battle.actors[self.target.index()];
+            let available = |actor: &crate::Actor| {
+                self.definition
+                    .recovery
+                    .first()
+                    .map_or_else(|| actor.available(), |pulse| pulse.benefit.accepts(actor))
+            };
+            if !available(target)
+                && let Some(index) = battle
+                    .actors
+                    .iter()
+                    .position(|a| a.side == target.side && available(a))
+            {
+                self.target = ActorId::from_index(index)?;
+                self.projectile_target = battle.actor_start_centers[index];
+            }
+            let actor = &battle.actors[self.actor.index()];
+            let target = &battle.actors[self.target.index()];
+            let origin = match self.definition.origin {
+                SpellOrigin::Caster => actor.effect_origin(),
+                SpellOrigin::CasterRoot => actor.position,
+                SpellOrigin::GroundAtRelease { toward_caster }
+                | SpellOrigin::SceneGround { toward_caster } => {
+                    let mut point = [target.position[0], 0., target.position[2]];
+                    let direction = [
+                        actor.position[0] - point[0],
+                        0.,
+                        actor.position[2] - point[2],
+                    ];
+                    let distance = crate::distance::length(direction);
+                    if distance >= 0.5 {
+                        for axis in [0, 2] {
+                            point[axis] += direction[axis] / distance * toward_caster;
+                        }
+                    }
+                    point
+                }
+                SpellOrigin::SceneTarget { minimum_height } => {
+                    let mut point = target.effect_origin();
+                    point[1] = point[1].max(minimum_height);
+                    point
+                }
+                SpellOrigin::SceneCasterAhead { distance, height } => {
+                    let point = actor.effect_origin();
+                    let (sin, cos) = actor.heading.to_radians().sin_cos();
+                    [point[0] + sin * distance, height, point[2] + cos * distance]
+                }
+                SpellOrigin::SceneCasterRing {
+                    distance,
+                    minimum_height,
+                } => {
+                    let point = actor.effect_origin();
+                    let (sin, cos) = actor.heading.to_radians().sin_cos();
+                    [
+                        point[0] + sin * distance,
+                        point[1].max(minimum_height),
+                        point[2] + cos * distance,
+                    ]
+                }
+                SpellOrigin::SceneFixed { position } => position,
+                SpellOrigin::SceneTargetPlane {
+                    height,
+                    toward_caster,
+                    body_center,
+                } => {
+                    let point = if body_center {
+                        target.effect_origin()
+                    } else {
+                        target.position
+                    };
+                    let delta = [actor.position[0] - point[0], actor.position[2] - point[2]];
+                    let distance = delta[0].hypot(delta[1]);
+                    let nudge = if distance >= 0.5 {
+                        toward_caster / distance
+                    } else {
+                        0.
+                    };
+                    [
+                        point[0] + delta[0] * nudge,
+                        height,
+                        point[2] + delta[1] * nudge,
+                    ]
+                }
+                SpellOrigin::Target | SpellOrigin::FollowingTarget => target.effect_origin(),
+                SpellOrigin::TargetGround => [target.position[0], 0., target.position[2]],
+            };
+            origin
+        };
+        if self.origin.is_none() {
+            self.heading = battle.actors[self.actor.index()].heading;
+        }
+        if let SpellPolicy::Cutin {
+            reveal: Some((at, text)),
+            ..
+        } = self.definition.policy
+            && self.age == u32::from(at)
+        {
+            cues.push(Cue::EffectNotice {
+                actor: self.actor,
+                text: text.into(),
+                duration: REVEALED_NOTICE_TICKS,
+            });
+        }
+        match self.definition.policy {
+            SpellPolicy::Cutin {
+                at,
+                catalogue,
+                duration,
+                hold_ticks,
+                ..
+            } if self.age == u32::from(at) => {
+                battle.request_timed_hold(hold_ticks, None);
+                cues.push(Cue::Cutin {
+                    action: id,
+                    catalogue,
+                    duration,
+                });
+            }
+            SpellPolicy::TrackGround { start, end, speed }
+                if (u32::from(start)..u32::from(end)).contains(&self.age) =>
+            {
+                let target = battle.actors[self.target.index()].position;
+                let delta = [target[0] - origin[0], target[2] - origin[2]];
+                let distance = delta[0].hypot(delta[1]);
+                if distance >= 0.5 {
+                    let delta = [delta[0] / distance * speed, 0., delta[1] / distance * speed];
+                    for axis in 0..3 {
+                        origin[axis] += delta[axis];
+                    }
+                    for projectile in battle.projectiles.values_mut().filter(|p| p.action == id) {
+                        for axis in 0..3 {
+                            projectile.frame.position[axis] += delta[axis];
+                        }
+                    }
+                }
+            }
+            SpellPolicy::CaptureRecipient { at, radius } if self.age == u32::from(at) => {
+                let side = battle.actors[self.actor.index()].side;
+                self.recipient = battle
+                    .actors
+                    .iter()
+                    .position(|actor| {
+                        actor.side != side
+                            && (actor.position[0] - origin[0]).hypot(actor.position[2] - origin[2])
+                                < radius
+                    })
+                    .map(|index| ActorId(index as u8));
+                if let Some(target) = self.recipient {
+                    self.target = target;
+                }
+            }
+            _ => {}
+        }
+        self.origin = Some(origin);
+        let has_recipient = !matches!(self.definition.policy,
+            SpellPolicy::CaptureRecipient { at, .. } if self.age >= u32::from(at) && self.recipient.is_none());
+        if self.age == u32::from(self.definition.transition_ticks) + 1 {
+            if let Some(tint) = self.definition.stage_tint {
+                cues.push(Cue::StageTint(tint));
+            }
+            if let (Some(request), Some(camera)) = (self.definition.camera, &mut battle.camera) {
+                camera.request_scene(request);
+            }
+        }
+        if let Some((at, startup)) = self.definition.startup
+            && self.age == u32::from(at)
+        {
+            let actor = &battle.actors[self.actor.index()];
+            let request = crate::EffectRequest {
+                owner: self.actor,
+                target: self.target,
+                appearance: match startup {
+                    SpellStartup::Effect(effect) | SpellStartup::CasterGroundEffect(effect) => {
+                        effect
+                    }
+                    SpellStartup::AllyRing { effects, .. } => effects[0],
+                },
+                origin,
+                heading: actor.heading,
+                follow: if matches!(self.definition.policy, SpellPolicy::TrackGround { .. }) {
+                    Some(crate::EffectFollow::Spell(id))
+                } else {
+                    following.then_some(crate::EffectFollow::Center(self.target))
+                },
+                scale: if self.definition.transition_ticks > 0 {
+                    1.
+                } else {
+                    actor.effect_scale
+                },
+                tint: Default::default(),
+            };
+            match startup {
+                SpellStartup::Effect(_) => cues.push(Cue::Effect(request)),
+                SpellStartup::CasterGroundEffect(_) => {
+                    cues.push(Cue::Effect(crate::EffectRequest {
+                        origin: [actor.position[0], 0., actor.position[2]],
+                        follow: None,
+                        ..request
+                    }))
+                }
+                SpellStartup::AllyRing {
+                    effects,
+                    first_heading,
+                    heading_step,
+                } => {
+                    let count = battle
+                        .actors
+                        .iter()
+                        .filter(|other| {
+                            other.side == actor.side
+                                && other.availability != crate::ActorAvailability::Absent
+                        })
+                        .count();
+                    ensure!(
+                        count <= effects.len(),
+                        "spell ring exceeds its model roster"
+                    );
+                    for (slot, appearance) in effects.into_iter().take(count).enumerate() {
+                        cues.push(Cue::Effect(crate::EffectRequest {
+                            appearance,
+                            origin: [0.; 3],
+                            heading: actor.heading + first_heading + slot as f32 * heading_step,
+                            scale: 1.,
+                            ..request.clone()
+                        }));
+                    }
+                }
+            }
+        }
+        let placed = |offset| {
+            let offset = crate::geometry::rotate(offset, self.heading);
+            std::array::from_fn(|axis| origin[axis] + offset[axis])
+        };
+        for effect in &self.definition.effects {
+            if self.age == u32::from(effect.at) && has_recipient {
+                let mut emit = |target, position, heading, follow| {
+                    cues.push(Cue::Effect(crate::EffectRequest {
+                        owner: self.actor,
+                        target,
+                        appearance: effect.appearance,
+                        origin: position,
+                        heading,
+                        follow,
+                        scale: 1.,
+                        tint: Default::default(),
+                    }))
+                };
+                match effect.placement {
+                    SpellEffectPlacement::Scene(offset) => {
+                        let heading = if matches!(
+                            self.definition.policy,
+                            SpellPolicy::CaptureRecipient { .. }
+                        ) {
+                            battle.actors[self.target.index()].heading
+                        } else {
+                            effect
+                                .captured_heading_offset
+                                .map_or(0., |offset| self.heading + offset)
+                        };
+                        emit(self.target, placed(offset), heading, None);
+                    }
+                    SpellEffectPlacement::CasterGround => {
+                        let actor = &battle.actors[self.actor.index()];
+                        emit(
+                            self.actor,
+                            [actor.position[0], 0., actor.position[2]],
+                            actor.heading,
+                            None,
+                        );
+                    }
+                    SpellEffectPlacement::CasterCenter => {
+                        let actor = &battle.actors[self.actor.index()];
+                        emit(
+                            self.actor,
+                            actor.effect_origin(),
+                            actor.heading,
+                            Some(crate::EffectFollow::Center(self.actor)),
+                        );
+                    }
+                    SpellEffectPlacement::EnemyCenters => {
+                        let side = battle.actors[self.actor.index()].side;
+                        for (index, actor) in battle.actors.iter().enumerate() {
+                            if actor.side != side && actor.available() {
+                                let target = ActorId::from_index(index)?;
+                                emit(
+                                    target,
+                                    actor.effect_origin(),
+                                    actor.heading,
+                                    Some(crate::EffectFollow::Center(target)),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        while let Some(projectile) = self.definition.projectiles.get(self.emitted)
+            && self.age >= u32::from(projectile.at)
+        {
+            self.emitted += 1;
+            if !has_recipient {
+                continue;
+            }
+            let position = match projectile.launch {
+                SpellLaunch::CasterAbove {
+                    center_height_scale,
+                    height_offset,
+                } => {
+                    let actor = &battle.actors[self.actor.index()];
+                    let mut point = actor.position;
+                    point[1] += actor.body.center_offset[1] * center_height_scale + height_offset;
+                    point
+                }
+                _ => placed(projectile.origin_offset),
+            };
+            let live_heading = battle.actors[self.actor.index()].heading;
+            let heading = match projectile.launch {
+                SpellLaunch::Captured(offset) => self.heading + offset,
+                _ => live_heading,
+            };
+            let emitted = battle.emit_aimed(
+                Arc::clone(&projectile.definition),
+                id,
+                self.actor,
+                self.target,
+                position,
+                heading,
+                match projectile.launch {
+                    SpellLaunch::AtHeight(height) => Some([origin[0], height, origin[2]]),
+                    _ => Some(self.projectile_target),
+                },
+            )?;
+            if let SpellLaunch::ForwardCone {
+                minimum_dot,
+                vertical_limit,
+            } = projectile.launch
+            {
+                let target = battle.actors[self.target.index()].effect_origin();
+                let projectile = battle.projectiles.get_mut(&emitted).unwrap();
+                projectile.velocity =
+                    cone_direction(position, target, live_heading, minimum_dot, vertical_limit);
+                projectile.frame.velocity = projectile.velocity;
+            }
             if let Some(sound) = self.definition.sound {
                 cues.push(Cue::Sound {
                     actor: self.actor,
@@ -88,9 +1160,105 @@ impl Volley {
                     priority: 2,
                 });
             }
-            self.emitted += 1;
         }
-        if self.emitted == self.definition.shots {
+        for recovery in self
+            .definition
+            .recovery
+            .iter()
+            .filter(|pulse| self.age == u32::from(pulse.at))
+        {
+            let side = battle.actors[self.actor.index()].side;
+            let eligible =
+                |actor: &crate::Actor| actor.side == side && recovery.benefit.accepts(actor);
+            let targets: Vec<_> = match recovery.targets {
+                RecoveryTargets::Caster => eligible(&battle.actors[self.actor.index()])
+                    .then_some(self.actor)
+                    .into_iter()
+                    .collect(),
+                RecoveryTargets::Target => {
+                    let target = if eligible(&battle.actors[self.target.index()]) {
+                        Some(self.target)
+                    } else {
+                        battle
+                            .actors
+                            .iter()
+                            .position(eligible)
+                            .map(|index| ActorId(index as u8))
+                    };
+                    if let Some(target) = target {
+                        self.target = target;
+                    }
+                    target.into_iter().collect()
+                }
+                RecoveryTargets::LivingAllies => battle
+                    .actors
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, actor)| eligible(actor).then_some(ActorId(index as u8)))
+                    .collect(),
+                RecoveryTargets::LivingOpponents => battle
+                    .actors
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, actor)| {
+                        (actor.side != side && recovery.benefit.accepts(actor))
+                            .then_some(ActorId(index as u8))
+                    })
+                    .collect(),
+                RecoveryTargets::Area { radius, inclusive } => battle
+                    .actors
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, actor)| {
+                        let distance =
+                            (actor.position[0] - origin[0]).hypot(actor.position[2] - origin[2]);
+                        (eligible(actor)
+                            && if inclusive {
+                                distance <= radius
+                            } else {
+                                distance < radius
+                            })
+                        .then_some(ActorId(index as u8))
+                    })
+                    .collect(),
+            };
+            for target in targets {
+                recovery.benefit.apply(battle, self.actor, target, cues)?;
+                let Some((appearance, tint)) = recovery.effect else {
+                    continue;
+                };
+                let actor = &battle.actors[target.index()];
+                cues.push(Cue::Effect(crate::EffectRequest {
+                    owner: target,
+                    target,
+                    appearance,
+                    origin: actor.effect_origin(),
+                    heading: if recovery.targets == RecoveryTargets::LivingAllies {
+                        actor.heading
+                    } else {
+                        0.
+                    },
+                    follow: Some(crate::EffectFollow::Center(target)),
+                    scale: actor.effect_scale,
+                    tint,
+                }));
+            }
+        }
+        // Water blades finish contacts before their independent scene retires them.
+        let retired: Vec<_> = battle
+            .projectiles
+            .iter()
+            .filter_map(|(&flight, projectile)| {
+                (projectile.action == id
+                    && projectile.definition.motion.aqua_edge
+                    && projectile.retiring)
+                    .then_some(flight)
+            })
+            .collect();
+        for flight in retired {
+            battle.expire_projectile(flight, cues);
+        }
+        if self.age >= u32::from(self.definition.duration) {
             return Ok(true);
         }
         self.age += 1;
@@ -108,7 +1276,7 @@ impl Battle {
     /// Release work is independent of the caster's current actor action.
     pub(crate) fn release_volley(
         &mut self,
-        definition: Arc<PreparedVolley>,
+        definition: Arc<PreparedSpell>,
         actor: ActorId,
         target: ActorId,
         slot: SpellSlot,
@@ -122,10 +1290,15 @@ impl Battle {
             definition,
             actor,
             target,
+            projectile_target: self.actor_start_centers[target.index()],
             slot,
             age: 0,
             origin: None,
+            heading: 0.,
             emitted: 0,
+            summon: None,
+            recipient: None,
+            cast_pose: None,
         };
         let id = self.allocate_action_id()?;
         self.volleys.insert(id, volley);
@@ -136,5 +1309,447 @@ impl Battle {
             slot,
         });
         Ok(Some(id))
+    }
+}
+
+#[cfg(test)]
+mod advanced_tests {
+    use super::*;
+
+    #[test]
+    fn opposing_defense_pulse_preserves_signed_strength_and_recipient_rules() {
+        use crate::conditions::{Condition::*, Conditions, Layers};
+        for retained in [0, -25] {
+            let (_, mut volley) = fixture(SpellPolicy::Static);
+            let actors = (0..6)
+                .map(|index| {
+                    crate::tests::actor(if index < 2 {
+                        crate::Side::Enemy
+                    } else {
+                        crate::Side::Party
+                    })
+                })
+                .collect();
+            let mut battle = crate::tests::prepared(actors, 100).finish().unwrap();
+            battle.actors[3]
+                .conditions
+                .apply_stat_condition(DefenseUp, 20, 900, false);
+            battle.actors[4].conditions = Conditions::new(Layers {
+                immunity: DefenseDown.into(),
+                ..Default::default()
+            });
+            battle.actors[5].availability = crate::ActorAvailability::Petrified;
+            if retained != 0 {
+                battle.actors[2]
+                    .conditions
+                    .apply_stat_condition(DefenseDown, retained, 900, false);
+            }
+            let conditions: Vec<_> = battle
+                .actors
+                .iter()
+                .map(|actor| actor.conditions.clone())
+                .collect();
+            let vitals: Vec<_> = battle
+                .actors
+                .iter()
+                .map(|actor| (actor.hp, actor.tp))
+                .collect();
+            let random = battle.random.state();
+            let definition = Arc::make_mut(&mut volley.definition);
+            definition.projectiles.clear();
+            definition.recovery = vec![SpellRecovery {
+                at: 3,
+                benefit: SpellBenefit::DefenseDown {
+                    amount: 15,
+                    duration: 0,
+                    tint: [32; 3],
+                },
+                targets: RecoveryTargets::LivingOpponents,
+                effect: None,
+            }];
+            definition.validate().unwrap();
+            let mut cues = Vec::new();
+            for _ in 0..3 {
+                volley.step(&mut battle, ActionId(402), &mut cues).unwrap();
+            }
+            assert!(
+                battle
+                    .actors
+                    .iter()
+                    .zip(&conditions)
+                    .all(|(actor, before)| &actor.conditions == before)
+            );
+            assert!(battle.model_requests.is_empty());
+            for _ in 0..3 {
+                volley.step(&mut battle, ActionId(402), &mut cues).unwrap();
+            }
+            assert_eq!(battle.actors[2].conditions.magnitude(DefenseDown), retained);
+            assert_eq!(
+                battle.actors[2].conditions.remaining(DefenseDown),
+                Some(1800)
+            );
+            assert!(!battle.actors[3].conditions.effective().contains(DefenseUp));
+            assert!(
+                !battle.actors[3]
+                    .conditions
+                    .effective()
+                    .contains(DefenseDown)
+            );
+            for index in [0, 1, 4, 5] {
+                assert_eq!(battle.actors[index].conditions, conditions[index]);
+            }
+            let tinted: Vec<_> = battle
+                .model_requests
+                .iter()
+                .filter_map(|request| match request {
+                    crate::ModelRequest::Tint { actor, color } => {
+                        assert_eq!(*color, [32; 3]);
+                        Some(actor.index())
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(tinted, [2, 3, 4]);
+            assert_eq!(
+                cues.iter()
+                    .filter(|cue| matches!(cue, Cue::ConditionLabel { .. }))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                cues.iter()
+                    .filter(
+                        |cue| matches!(cue, Cue::CustomLabel { right, .. } if right == "CANCEL")
+                    )
+                    .count(),
+                1
+            );
+            assert_eq!(
+                battle
+                    .actors
+                    .iter()
+                    .map(|actor| (actor.hp, actor.tp))
+                    .collect::<Vec<_>>(),
+                vitals
+            );
+            assert_eq!(battle.random.state(), random);
+            assert!(battle.projectiles.is_empty());
+        }
+    }
+
+    #[test]
+    fn sacrifice_revives_allies_and_keeps_the_later_contact() {
+        let (_, mut volley) = fixture(SpellPolicy::Static);
+        let mut actors = vec![
+            crate::tests::actor(crate::Side::Party),
+            crate::tests::actor(crate::Side::Party),
+            crate::tests::actor(crate::Side::Party),
+            crate::tests::actor(crate::Side::Enemy),
+        ];
+        actors[0].position = [0., 120., 0.];
+        for (index, distance) in [(1, 935.), (2, 936.)] {
+            actors[index].equipment.max_hp = 1000;
+            actors[index].position = [distance, 0., 0.];
+        }
+        actors[1].hp = 100;
+        actors[2].hp = 0;
+        actors[2].availability = crate::ActorAvailability::Dead;
+        let mut battle = crate::tests::prepared(actors, 100).finish().unwrap();
+        let tp = battle
+            .actors
+            .iter()
+            .map(|actor| actor.tp)
+            .collect::<Vec<_>>();
+        volley.target = ActorId(3);
+        let definition = Arc::make_mut(&mut volley.definition);
+        definition.startup = Some((
+            2,
+            SpellStartup::CasterGroundEffect(EffectAppearance {
+                resource: 2,
+                member: 1,
+            }),
+        ));
+        definition.effects = [
+            SpellEffectPlacement::CasterCenter,
+            SpellEffectPlacement::EnemyCenters,
+        ]
+        .into_iter()
+        .map(|placement| SpellEffect {
+            at: 2,
+            appearance: EffectAppearance {
+                resource: 2,
+                member: 3,
+            },
+            placement,
+            captured_heading_offset: None,
+        })
+        .collect();
+        definition.recovery = vec![SpellRecovery {
+            at: 3,
+            benefit: SpellBenefit::Sacrifice,
+            targets: RecoveryTargets::Caster,
+            effect: None,
+        }];
+        let mut cues = Vec::new();
+        for _ in 0..=5 {
+            assert!(!volley.step(&mut battle, ActionId(1), &mut cues).unwrap());
+        }
+        assert_eq!(battle.actors[0].hp, 0);
+        assert_eq!(
+            battle.actors[0].availability,
+            crate::ActorAvailability::Dead
+        );
+        assert_eq!(battle.actors[1].hp, 350);
+        assert_eq!(battle.actors[2].hp, 300);
+        assert_eq!(
+            battle.actors[2].availability,
+            crate::ActorAvailability::Active
+        );
+        assert_eq!(
+            battle
+                .actors
+                .iter()
+                .map(|actor| actor.tp)
+                .collect::<Vec<_>>(),
+            tp
+        );
+        assert_eq!(battle.projectiles.len(), 2);
+        assert!(cues.iter().any(|cue| matches!(cue, Cue::Effect(effect)
+            if effect.appearance.member == 1 && effect.origin == [0.; 3] && effect.follow.is_none())));
+        for actor in [ActorId(0), ActorId(3)] {
+            assert!(cues.iter().any(|cue| matches!(cue, Cue::Effect(effect)
+                if effect.follow == Some(crate::EffectFollow::Center(actor)))));
+        }
+        assert!(cues.iter().any(|cue| matches!(
+            cue,
+            Cue::IncidentalDamage {
+                actor: ActorId(0),
+                ..
+            }
+        )));
+    }
+
+    fn fixture(policy: SpellPolicy) -> (Battle, Volley) {
+        let battle = crate::tests::prepared(
+            vec![
+                crate::tests::actor(crate::Side::Party),
+                crate::tests::actor(crate::Side::Enemy),
+                crate::tests::actor(crate::Side::Enemy),
+            ],
+            100,
+        )
+        .finish()
+        .unwrap();
+        let mut definition = crate::tests::volley();
+        definition.policy = policy;
+        definition.origin = SpellOrigin::SceneFixed { position: [0.; 3] };
+        definition.transition_ticks = 1;
+        definition.duration = 10;
+        let mut projectile = (*definition.projectiles[0].definition).clone();
+        projectile.velocity = [0.; 3];
+        projectile.offset = [0.; 3];
+        definition.projectiles = [3, 5]
+            .into_iter()
+            .map(|at| SpellProjectile::new(at, Arc::new(projectile.clone())))
+            .collect();
+        definition.validate().unwrap();
+        let projectile_target = battle.actor_start_centers[2];
+        (
+            battle,
+            Volley {
+                definition: Arc::new(definition),
+                actor: ActorId(0),
+                target: ActorId(2),
+                projectile_target,
+                slot: SpellSlot::Primary,
+                age: 0,
+                origin: None,
+                heading: 0.,
+                emitted: 0,
+                summon: None,
+                recipient: None,
+                cast_pose: None,
+            },
+        )
+    }
+
+    #[test]
+    fn tracking_moves_the_anchor_and_existing_contacts_only_inside_its_window() {
+        let (mut battle, mut volley) = fixture(SpellPolicy::TrackGround {
+            start: 4,
+            end: 6,
+            speed: 1.25,
+        });
+        battle.actors[2].position = [100., 900., 0.];
+        let action = ActionId(400);
+        for _ in 0..7 {
+            volley.step(&mut battle, action, &mut Vec::new()).unwrap();
+        }
+        assert_eq!(volley.origin, Some([2.5, 0., 0.]));
+        assert_eq!(battle.projectiles.len(), 2);
+        assert!(
+            battle
+                .projectiles
+                .values()
+                .all(|p| p.frame.position == [2.5, 0., 0.])
+        );
+        let mut frame = battle.frame(Vec::new(), None);
+        frame.spell_origins.push((action, volley.origin.unwrap()));
+        assert_eq!(
+            crate::EffectFollow::Spell(action).position(&frame),
+            volley.origin
+        );
+    }
+
+    #[test]
+    fn capture_keeps_roster_order_and_cone_aim_keeps_its_vertical_limit() {
+        let (mut battle, mut volley) =
+            fixture(SpellPolicy::CaptureRecipient { at: 3, radius: 10. });
+        battle.actors[1].position = [9., 1000., 0.];
+        battle.actors[1].hp = 0;
+        battle.actors[2].position = [1., 0., 0.];
+        for _ in 0..4 {
+            volley
+                .step(&mut battle, ActionId(401), &mut Vec::new())
+                .unwrap();
+        }
+        battle.actors[1].position = [1000.; 3];
+        for _ in 0..2 {
+            volley
+                .step(&mut battle, ActionId(401), &mut Vec::new())
+                .unwrap();
+        }
+        assert_eq!(volley.recipient, Some(ActorId(1)));
+        assert!(
+            battle
+                .projectiles
+                .values()
+                .all(|p| p.frame.target == ActorId(1))
+        );
+        assert_eq!(
+            cone_direction([0.; 3], [0., 1000., 100.], 0., 0.5, 0.35),
+            [0., 0.35, 1.]
+        );
+        assert_eq!(
+            cone_direction([0.; 3], [100., 10., 0.], 0., 0.5, 0.35),
+            [0., 0., 1.]
+        );
+
+        let (mut battle, mut volley) =
+            fixture(SpellPolicy::CaptureRecipient { at: 3, radius: 10. });
+        battle.actors[1].position = [10., 0., 0.];
+        battle.actors[2].position = [11., 0., 0.];
+        for _ in 0..6 {
+            volley
+                .step(&mut battle, ActionId(402), &mut Vec::new())
+                .unwrap();
+        }
+        assert!(volley.recipient.is_none() && battle.projectiles.is_empty());
+    }
+
+    #[test]
+    fn recovery_pulses_follow_allies_entering_and_leaving_the_retained_area() {
+        let (mut battle, mut volley) = fixture(SpellPolicy::Static);
+        let definition = Arc::make_mut(&mut volley.definition);
+        definition.projectiles.clear();
+        definition.recovery = [3, 5]
+            .into_iter()
+            .map(|at| SpellRecovery {
+                at,
+                benefit: SpellBenefit::Hp(15),
+                targets: RecoveryTargets::Area {
+                    radius: 10.,
+                    inclusive: false,
+                },
+                effect: None,
+            })
+            .collect();
+        definition.validate().unwrap();
+        battle.actors[0].hp = 10;
+        battle.actors[1].side = crate::Side::Party;
+        battle.actors[1].hp = 10;
+        battle.actors[1].position = [20., 0., 0.];
+        let mut cues = Vec::new();
+        for _ in 0..4 {
+            volley.step(&mut battle, ActionId(403), &mut cues).unwrap();
+        }
+        assert_eq!([battle.actors[0].hp, battle.actors[1].hp], [25, 10]);
+        battle.actors[0].position = [20., 0., 0.];
+        battle.actors[1].position = [0.; 3];
+        for _ in 0..2 {
+            volley.step(&mut battle, ActionId(403), &mut cues).unwrap();
+        }
+        assert_eq!([battle.actors[0].hp, battle.actors[1].hp], [25, 25]);
+        assert_eq!(battle.actors[2].hp, 50);
+    }
+
+    #[test]
+    fn distance_healing_uses_horizontal_steps_and_keeps_minimum_recovery() {
+        let (mut battle, _) = fixture(SpellPolicy::Static);
+        battle.actors[0].position = [100., 800., 30.];
+        battle.actors[1].side = crate::Side::Party;
+        for (percent, offset, recovered) in [
+            (25, [199., 800., 0.], 25),
+            (25, [200., 0., 0.], 20),
+            (25, [399., 0., 399.], 15),
+            (25, [1000., 0., 0.], 1),
+            (25, [2400., 0., 0.], 1),
+            (45, [1000., 0., 0.], 20),
+        ] {
+            battle.actors[1].position =
+                std::array::from_fn(|axis| battle.actors[0].position[axis] + offset[axis]);
+            battle.actors[1].hp = 1;
+            let benefit = SpellBenefit::HpByDistance {
+                percent,
+                distance_step: 200,
+                penalty_per_step: 5,
+                maximum_penalty: 25,
+            };
+            assert!(benefit.valid());
+            benefit
+                .apply(&mut battle, ActorId(0), ActorId(1), &mut Vec::new())
+                .unwrap();
+            assert_eq!(battle.actors[1].hp, 1 + recovered);
+        }
+    }
+
+    #[test]
+    fn zero_hp_revival_uses_prepared_pose_and_allows_followup_healing() {
+        let (mut battle, _) = fixture(SpellPolicy::Static);
+        let target = ActorId(1);
+        battle.actors[1].side = crate::Side::Party;
+        battle.actors[1].hp = 0;
+        battle.enter_death(target, &mut Vec::new());
+        let ticks = 12;
+        battle.prepared.actor_setup[1].revival = Some((
+            crate::AttackPose {
+                motion: crate::MotionBinding { model: 0, clip: 9 },
+                start: 0.,
+                end: None,
+                repeat: false,
+                rate: 0.5,
+                blend: 4,
+            },
+            ticks,
+        ));
+        let mut cues = Vec::new();
+        assert!(SpellBenefit::Resurrect(0).accepts(&battle.actors[1]));
+        SpellBenefit::Resurrect(0)
+            .apply(&mut battle, ActorId(0), target, &mut cues)
+            .unwrap();
+        assert!(battle.actors[1].available());
+        assert_eq!(battle.actors[1].hp, 0);
+        assert!(!cues.iter().any(|cue| matches!(cue, Cue::Recovered { .. })));
+        assert!(SpellBenefit::Hp(15).accepts(&battle.actors[1]));
+        SpellBenefit::Hp(15)
+            .apply(&mut battle, ActorId(0), target, &mut cues)
+            .unwrap();
+        assert_eq!(battle.actors[1].hp, 15);
+        for _ in 0..ticks - 1 {
+            battle.step(crate::BattleInput::default()).unwrap();
+        }
+        assert_eq!(battle.activity(target), crate::Activity::Recovering);
+        battle.step(crate::BattleInput::default()).unwrap();
+        assert_eq!(battle.activity(target), crate::Activity::Idle);
     }
 }

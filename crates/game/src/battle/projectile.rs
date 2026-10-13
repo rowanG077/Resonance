@@ -19,22 +19,25 @@ impl ActionResources {
         if let Some(reason) = &row.unsupported_reason {
             anyhow::bail!("{reason}");
         }
-        let select = |bank, member| {
+        let select = |bank, member| -> Result<Option<EffectResource>> {
             if member == 0 {
-                return None;
+                return Ok(None);
             }
             let binding = banks
                 .iter()
                 .find_map(|&(key, binding)| (key == bank).then_some(binding))
-                .filter(|binding| binding.bank.is_some())?;
+                .filter(|binding| binding.bank.is_some())
+                .with_context(|| {
+                    format!("projectile effect {member} has no prepared bank {bank}")
+                })?;
             let mut binding = binding.clone();
             binding.members = vec![u16::from(member)];
-            Some(binding)
+            Ok(Some(binding))
         };
         let contact = &row.contact;
         hit.overlimit_pause = false;
         let mut effect = |source: battle_projectile::Effect| -> Result<Option<EffectAppearance>> {
-            let Some(binding) = select(source.bank, source.member) else {
+            let Some(binding) = select(source.bank, source.member)? else {
                 return Ok(None);
             };
             let appearance = EffectAppearance {
@@ -64,6 +67,13 @@ impl ActionResources {
                         ))
                     })
                     .transpose()?,
+                contact: None,
+                seal: None,
+                rebound_projectile: None,
+                spin_on_rebound: row
+                    .motion
+                    .response
+                    .is_some_and(|response| response.ricochet_on_deflect),
                 ground: effect(row.ground_effect)?,
                 shadow: row.shadow,
                 clash: if contact.clashes {

@@ -83,6 +83,8 @@ impl Guard {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GuardRule {
     pub enabled: bool,
+    /// Retain custom contact audio without the ordinary blocking cue.
+    pub suppress_sound: bool,
     pub pressure: u8,
     pub breaks: bool,
     pub unbreakable: bool,
@@ -92,6 +94,7 @@ impl Default for GuardRule {
     fn default() -> Self {
         Self {
             enabled: true,
+            suppress_sound: false,
             pressure: 0,
             breaks: false,
             unbreakable: false,

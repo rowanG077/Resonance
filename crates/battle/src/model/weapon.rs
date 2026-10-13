@@ -26,7 +26,26 @@ pub struct WeaponLayerDefinition {
     pub motions: BTreeMap<u16, Motion>,
     pub playback: WeaponPlayback,
     pub secondary_motion: Vec<Chain>,
+    pub texture_animation: Option<WeaponTextureAnimation>,
 }
+
+#[derive(Debug, Clone)]
+pub enum WeaponTextureAnimation {
+    /// An independent offset, measured in thousandths of one UV repeat.
+    Scroll {
+        texture: usize,
+        initial: [i16; 2],
+        step: [i16; 2],
+    },
+    Atlas {
+        texture: usize,
+        rows: u8,
+        ticks_per_frame: u16,
+        order: Vec<u8>,
+    },
+}
+
+const UV_REPEAT: i16 = 1000;
 
 #[derive(Debug, Clone)]
 pub struct WeaponDefinition {
@@ -60,6 +79,11 @@ impl WeaponDefinition {
         self.layers[0].resource
     }
 
+    pub fn has_carried_motion(&self, clip: u16) -> bool {
+        !matches!(self.layers[0].playback, WeaponPlayback::Owner { .. })
+            && self.layers[0].motions.contains_key(&clip)
+    }
+
     fn validate(&self) -> Result<()> {
         let primary = self.layers.first().context("weapon has no visual layers")?;
         ensure!(
@@ -78,11 +102,30 @@ impl WeaponDefinition {
             for chain in &layer.secondary_motion {
                 chain.validate(layer.skeleton.bones.len())?;
             }
+            match &layer.texture_animation {
+                Some(WeaponTextureAnimation::Scroll { initial, step, .. }) => ensure!(
+                    initial
+                        .iter()
+                        .all(|&value| value > -UV_REPEAT && value < UV_REPEAT)
+                        && step.iter().all(|&value| (-128..=127).contains(&value)),
+                    "invalid weapon texture scroll"
+                ),
+                Some(WeaponTextureAnimation::Atlas {
+                    rows,
+                    ticks_per_frame,
+                    order,
+                    ..
+                }) => ensure!(
+                    *rows > 0
+                        && *ticks_per_frame > 0
+                        && !order.is_empty()
+                        && order.iter().all(|row| row < rows),
+                    "invalid weapon texture atlas"
+                ),
+                None => {}
+            }
             let initial = match layer.playback {
-                WeaponPlayback::Rigid => {
-                    ensure!(layer.motions.is_empty(), "rigid weapon has motions");
-                    continue;
-                }
+                WeaponPlayback::Rigid => continue,
                 WeaponPlayback::Local(initial) => initial,
                 WeaponPlayback::Owner {
                     fallback, initial, ..
@@ -117,13 +160,16 @@ pub struct WeaponFrame {
     pub world: Matrix,
     pub bones: Arc<Vec<Matrix>>,
     pub links: Vec<[u16; 2]>,
+    pub texture_scroll: Option<(usize, [f32; 2])>,
 }
 
 #[derive(Debug, Clone)]
 struct Layer {
     animation: Option<(u16, AnimatedPose)>,
+    action_pose: bool,
     secondary: Vec<Simulation>,
     shown: WeaponFrame,
+    scroll: [i16; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +177,7 @@ pub(crate) struct Weapon {
     definition: Arc<WeaponDefinition>,
     layers: Vec<Layer>,
     detached: Option<Matrix>,
+    texture_age: u64,
     pub visible: bool,
 }
 
@@ -141,6 +188,52 @@ pub(super) struct PreparedPlay(Vec<Option<(u16, Clock)>>);
 mod item_preflight_tests;
 
 impl Weapon {
+    pub(super) fn play_carried_pose(&mut self, clip: u16, rate: f32, repeat: bool) -> Result<()> {
+        let definition = &self.definition.layers[0];
+        ensure!(
+            !matches!(definition.playback, WeaponPlayback::Owner { .. }),
+            "carried pose requires an independent track"
+        );
+        let motion = definition
+            .motions
+            .get(&clip)
+            .context("unprepared carried motion")?;
+        let playback = Playback {
+            clip,
+            frame: 0.,
+            rate,
+            repeat,
+        };
+        let clock = Clock::new(playback, motion.duration_frames, 0)?;
+        if let Some((current, animation)) = &mut self.layers[0].animation {
+            animation.start(clock);
+            *current = clip;
+        } else {
+            let mut animation = AnimatedPose::new(&definition.skeleton, motion, playback)?;
+            animation.pending_sample = true;
+            self.layers[0].animation = Some((clip, animation));
+        }
+        self.layers[0].action_pose = true;
+        Ok(())
+    }
+
+    pub(super) fn set_animation_rate(&mut self, rate: f32) -> Result<()> {
+        ensure!(
+            rate.is_finite() && rate > 0.,
+            "invalid carried animation rate"
+        );
+        ensure!(
+            matches!(self.definition.layers[0].playback, WeaponPlayback::Local(_)),
+            "carried animation requires an independent track"
+        );
+        let (_, animation) = self.layers[0]
+            .animation
+            .as_mut()
+            .context("unprepared carried animation")?;
+        animation.clock.rate = rate;
+        Ok(())
+    }
+
     pub(super) fn slot(&self) -> u8 {
         self.definition.slot
     }
@@ -170,7 +263,12 @@ impl Weapon {
                 None => layer.skeleton.bind_pose()?.global,
             };
             layers.push(Layer {
+                action_pose: false,
                 secondary: vec![Simulation::default(); layer.secondary_motion.len()],
+                scroll: match &layer.texture_animation {
+                    Some(WeaponTextureAnimation::Scroll { initial, .. }) => *initial,
+                    _ => [0; 2],
+                },
                 shown: WeaponFrame {
                     owner: owner.actor,
                     slot: definition.slot,
@@ -187,6 +285,7 @@ impl Weapon {
                     } else {
                         vec![]
                     },
+                    texture_scroll: None,
                 },
                 animation,
             });
@@ -195,6 +294,7 @@ impl Weapon {
             definition,
             layers,
             detached: None,
+            texture_age: 0,
             visible: true,
         };
         weapon.step(owner, false)?;
@@ -289,13 +389,54 @@ impl Weapon {
     }
 
     pub fn step(&mut self, owner: &ModelFrame, advance: bool) -> Result<()> {
+        self.step_with_clocks(owner, advance, advance)
+    }
+
+    pub(super) fn step_with_clocks(
+        &mut self,
+        owner: &ModelFrame,
+        advance: bool,
+        carried_advance: bool,
+    ) -> Result<()> {
+        self.texture_age += u64::from(advance);
         let world = self.detached.unwrap_or_else(|| self.attached_world(owner));
         let (_, rotation, _) =
             glam::Mat4::from_cols_array_2d(&world).to_scale_rotation_translation();
         for (layer, definition) in self.layers.iter_mut().zip(&self.definition.layers) {
+            layer.shown.texture_scroll = match &definition.texture_animation {
+                Some(WeaponTextureAnimation::Scroll { texture, step, .. }) => {
+                    if advance {
+                        for (value, step) in layer.scroll.iter_mut().zip(step) {
+                            *value = (*value + step) % UV_REPEAT;
+                        }
+                    }
+                    Some((
+                        *texture,
+                        layer
+                            .scroll
+                            .map(|value| f32::from(value) / f32::from(UV_REPEAT)),
+                    ))
+                }
+                Some(WeaponTextureAnimation::Atlas {
+                    texture,
+                    rows,
+                    ticks_per_frame,
+                    order,
+                }) => {
+                    let frame = self.texture_age / u64::from(*ticks_per_frame);
+                    let row = order[(frame % order.len() as u64) as usize];
+                    Some((*texture, [0., f32::from(row) / f32::from(*rows)]))
+                }
+                None => None,
+            };
             let mut bones = if let Some((clip, animation)) = &mut layer.animation {
                 let motion = &definition.motions[clip];
-                if advance {
+                let advance_pose = if layer.action_pose {
+                    carried_advance
+                } else {
+                    advance
+                };
+                if advance_pose {
                     animation.advance(&definition.skeleton, motion)?;
                 } else {
                     animation.sample_pending(&definition.skeleton, motion)?;
@@ -310,7 +451,11 @@ impl Weapon {
                 &definition.secondary_motion,
                 &mut layer.secondary,
                 &mut bones,
-                secondary::Placement { world, rotation },
+                secondary::Placement {
+                    world,
+                    rotation,
+                    acceleration: glam::Vec3::ZERO,
+                },
                 advance,
             )?;
             layer.shown.bones = Arc::new(bones);
@@ -409,9 +554,149 @@ mod tests {
                     },
                 },
                 secondary_motion: vec![],
+                texture_animation: None,
             }],
             links: vec![],
         }
+    }
+
+    #[test]
+    fn texture_scroll_keeps_signed_remainders_and_holds_without_restarting_on_body_motion()
+    -> Result<()> {
+        let mut definition = definition();
+        definition.layers[0].texture_animation = Some(WeaponTextureAnimation::Scroll {
+            texture: 1,
+            initial: [0, 5],
+            step: [0, -7],
+        });
+        let mut independent = definition.layers[0].clone();
+        independent.resource = 71;
+        independent.texture_animation = Some(WeaponTextureAnimation::Scroll {
+            texture: 0,
+            initial: [0, 995],
+            step: [0, 11],
+        });
+        definition.layers.push(independent);
+        let mut horizontal = definition.layers[0].clone();
+        horizontal.resource = 72;
+        horizontal.texture_animation = Some(WeaponTextureAnimation::Scroll {
+            texture: 0,
+            initial: [995, 0],
+            step: [7, 0],
+        });
+        definition.layers.push(horizontal);
+        let definition = Arc::new(definition);
+        let owner = owner();
+        let mut weapon = Weapon::new(definition.clone(), &owner)?;
+        for _ in 0..11 {
+            weapon.step(&owner, true)?;
+        }
+        let offsets = |weapon: &Weapon| {
+            weapon
+                .frames()
+                .map(|frame| frame.texture_scroll.unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            offsets(&weapon),
+            vec![(1, [0., -0.072]), (0, [0., 0.116]), (0, [0.072, 0.])]
+        );
+        let held = offsets(&weapon);
+        weapon.step(&owner, false)?;
+        weapon.play(
+            Playback {
+                clip: 30,
+                frame: 0.,
+                rate: 1.,
+                repeat: false,
+            },
+            20.,
+            0,
+        )?;
+        weapon.step(&owner, false)?;
+        assert_eq!(offsets(&weapon), held);
+        let rebound = Weapon::rebind(
+            definition,
+            &owner,
+            Some(&weapon),
+            Playback {
+                clip: 0,
+                frame: 0.,
+                rate: 1.,
+                repeat: true,
+            },
+            6.,
+        )?;
+        assert_eq!(offsets(&rebound), held);
+        Ok(())
+    }
+
+    #[test]
+    fn texture_atlases_keep_row_durations_sequences_and_phase_across_holds() -> Result<()> {
+        let mut definition = definition();
+        let primary = definition.layers[0].clone();
+        definition.layers = [
+            (4, 9, vec![0, 1, 2, 3, 2, 1]),
+            (8, 5, vec![0, 0, 0, 0, 4, 5, 6, 7, 7, 7, 6, 5, 0, 0, 0, 0]),
+            (32, 3, (0..32).collect()),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(texture, (rows, ticks_per_frame, order))| {
+            let mut layer = primary.clone();
+            layer.resource += texture as u32;
+            layer.texture_animation = Some(WeaponTextureAnimation::Atlas {
+                texture,
+                rows,
+                ticks_per_frame,
+                order,
+            });
+            layer
+        })
+        .collect();
+        definition.validate()?;
+        let definition = Arc::new(definition);
+        let owner = owner();
+        let mut weapon = Weapon::new(definition.clone(), &owner)?;
+        // Boundary rows from the retained material traces, aligned to local age.
+        let samples = [
+            (0, [0, 0, 0]),
+            (2, [0, 0, 0]),
+            (3, [0, 0, 1]),
+            (8, [0, 0, 2]),
+            (9, [1, 0, 3]),
+            (18, [2, 0, 6]),
+            (20, [2, 4, 6]),
+            (27, [3, 5, 9]),
+            (35, [3, 7, 11]),
+            (36, [2, 7, 12]),
+            (49, [1, 7, 16]),
+            (50, [1, 6, 16]),
+            (54, [0, 6, 18]),
+            (55, [0, 5, 18]),
+            (60, [0, 0, 20]),
+            (93, [2, 0, 31]),
+            (96, [2, 0, 0]),
+            (100, [1, 4, 1]),
+        ];
+        let mut age = 0;
+        for (tick, rows) in samples {
+            while age < tick {
+                weapon.step(&owner, true)?;
+                age += 1;
+            }
+            weapon.step(&owner, false)?;
+            for (texture, ((frame, row), total)) in
+                weapon.frames().zip(rows).zip([4., 8., 32.]).enumerate()
+            {
+                assert_eq!(
+                    frame.texture_scroll,
+                    Some((texture, [0., row as f32 / total])),
+                    "age {age}"
+                );
+            }
+        }
+        Ok(())
     }
 
     #[test]
@@ -589,13 +874,14 @@ mod tests {
         previous.detach(Some(Transform::default().matrix()));
         previous.visible = false;
         previous.step(&owner, true)?;
+        assert_eq!(previous.layers[0].shown.frame, 4.);
         let mut rebound =
             Weapon::rebind(Arc::clone(&definition), &owner, Some(&previous), body, 10.)?;
         assert_eq!(rebound.layers[0].shown, previous.layers[0].shown);
         previous.step(&owner, true)?;
         rebound.step(&owner, true)?;
         assert_eq!(rebound.layers[0].shown, previous.layers[0].shown);
-        assert_eq!(rebound.layers[0].shown.frame, 4.5);
+        assert_eq!(rebound.layers[0].shown.frame, 4.25);
 
         // A changed owner-linked weapon follows the body's current action,
         // even though its entry recipe starts on idle clip 60.

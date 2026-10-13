@@ -176,7 +176,10 @@ impl Battle {
             actor.facing_direction = actor.movement.direction;
             let facing = actor.facing_direction;
             crate::control::face(actor, facing, turn);
-            let limit = actor.run_limit(definition.speed, actor.conditions.effective());
+            let speed = self.runtime[index]
+                .enemy_walk_override
+                .unwrap_or(definition.speed);
+            let limit = actor.run_limit(speed, actor.conditions.effective());
             actor.movement.forward = (actor.movement.forward + RETURN_ACCELERATION)
                 .min(limit)
                 .min(remaining);
@@ -244,22 +247,30 @@ mod tests {
         let mut battle = battle();
         let owner = ActorId(2);
         battle.prepared.actor_setup[2].enemy_decision = Some(crate::EnemyDecisionDefinition {
+            enemy_id: 0,
+            disabled_choices: Vec::new(),
             strategy: crate::TargetPolicy::Nearest,
             difficulty: 0,
             choices: vec![crate::EnemyChoice {
                 action: crate::ActionKey(0),
                 weight: 1,
+                chain_group: 0,
+                followup_chance: 0,
                 requirements: Default::default(),
                 target_policy: None,
+                target_allies: false,
                 return_to_formation: false,
                 guard_chance: 0,
                 range: [0, 0],
                 tp: 0,
                 approach_minimum: 0.,
                 approach_range: 100.,
+                approach: None,
             }],
             back_row: vec![],
             walk_speed: 3.,
+            walk_override: None,
+            behavior: None,
             walk_motion: None,
             turn_ticks: 8,
         });
