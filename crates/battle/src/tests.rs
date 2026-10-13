@@ -34,28 +34,36 @@ pub(crate) fn assign_action(prepared: &mut PreparedBattle, owner: usize, action:
         let definition = setup
             .enemy_decision
             .get_or_insert_with(|| EnemyDecisionDefinition {
+                enemy_id: 0,
+                disabled_choices: Vec::new(),
                 strategy: TargetPolicy::Nearest,
                 difficulty: 0,
                 choices: vec![],
                 back_row: vec![],
                 walk_speed: 1.,
+                walk_override: None,
+                behavior: None,
                 walk_motion: None,
                 turn_ticks: 1,
             });
         definition.choices.push(EnemyChoice {
             action,
             weight: 1,
+            chain_group: 0,
+            followup_chance: 0,
             requirements: EnemyRequirements {
                 hp_percent: Some(0),
                 ..Default::default()
             },
             target_policy: None,
+            target_allies: false,
             return_to_formation: false,
             guard_chance: 0,
             range: [0, 0],
             tp: 0,
             approach_minimum: 0.,
             approach_range: 120.,
+            approach: None,
         });
     }
 }
@@ -210,6 +218,7 @@ pub(super) fn actor(side: Side) -> Actor {
             dagger_reach: false,
             contact: Default::default(),
             normal_combo_limit: 3,
+            guaranteed_steal: false,
             luck: 0,
             stats: crate::CombatStats::default(),
             affinities: [crate::Affinity::Normal; 9],
@@ -242,6 +251,7 @@ pub(super) fn actor(side: Side) -> Actor {
         heading: 0.,
         facing_direction: [0., 0., 1.],
         effect_scale: 1.,
+        secondary_wind: Default::default(),
         movement: Default::default(),
         hit_stop: 0,
         time_stop: 0,
@@ -271,6 +281,8 @@ pub(crate) fn model_definition(
     let motions: Vec<_> = motions.into_iter().collect();
     ModelDefinition {
         tint: [64, 64, 64, 255],
+        body_spheres: vec![],
+        reception_spheres: None,
         fade_on_defeat: false,
         resource,
         initial: Playback {
@@ -313,6 +325,7 @@ pub(crate) fn model_definition(
 
 pub(crate) fn attack(end_at: u16) -> PreparedAttack {
     PreparedAttack {
+        contact_recovery: None,
         opening: None,
         events: vec![],
         chain_at: None,
@@ -334,8 +347,10 @@ pub(crate) fn cast(duration: u32, cost: u16) -> ActionDefinition {
         normal: None,
         tp_cost: cost,
         execution: ActionExecution::Casting(Arc::new(CastingDefinition {
+            chant: vec![],
             duration,
-
+            release_pose: Default::default(),
+            hide_primary_weapons: false,
             recovery: 0,
             release: Arc::new(crate::tests::volley()),
             threat: None,
@@ -349,6 +364,7 @@ pub(crate) fn normal_controls(
     range: [f32; 2],
 ) -> [NormalControl; 7] {
     NormalAttack::ALL.map(|kind| NormalControl {
+        continuation: normal_continuation(kind),
         action: actions.insert(ActionDefinition {
             normal: Some(kind),
             tp_cost: 0,
@@ -357,6 +373,23 @@ pub(crate) fn normal_controls(
         minimum_reach: range[0],
         reach: range[1],
     })
+}
+
+pub(crate) fn normal_continuation(
+    kind: NormalAttack,
+) -> resonance_content::battle_normal::Continuation {
+    use NormalAttack::*;
+    let (directions, fallback) = match kind {
+        Neutral => (0b0001110, Some(Finisher as u8)),
+        Rising => (0b1100000, Some(AerialSlash as u8)),
+        Thrust | Low => (0b0001111, None),
+        AerialSlash | AerialThrust => (0b1100000, None),
+        Finisher => (0, None),
+    };
+    resonance_content::battle_normal::Continuation {
+        directions,
+        fallback,
+    }
 }
 
 pub(crate) fn attack_mut(action: &mut ActionDefinition) -> &mut PreparedAttack {
@@ -436,6 +469,9 @@ fn direct_requests_require_owned_roots_before_any_batch_payment_or_execution() {
         assert_eq!(frame.actors[0].tp, 40);
     }
     assert_eq!(battle.phase(), crate::BattlePhase::Combat);
+    for _ in 0..crate::prepare::ENTRY_SETTLE_UPDATES {
+        battle.step(BattleInput::default()).unwrap();
+    }
 
     let frame = battle.step(request(0)).unwrap();
     assert_eq!(frame.actors[0].tp, 12);
@@ -636,13 +672,23 @@ fn projectile_definition() -> ProjectileDefinition {
     }
 }
 
-pub(crate) fn volley() -> crate::PreparedVolley {
+pub(crate) fn volley() -> crate::PreparedSpell {
     let mut projectile = projectile_definition();
     projectile.birth = None;
-    crate::PreparedVolley {
-        projectile: Arc::new(projectile),
-        shots: 3,
-        interval: 8,
+    crate::PreparedSpell {
+        policy: Default::default(),
+        summon: None,
+        effects: vec![],
+        projectiles: [0, 8, 16]
+            .into_iter()
+            .map(|at| crate::SpellProjectile::new(at, Arc::new(projectile.clone())))
+            .collect(),
+        origin: crate::SpellOrigin::Caster,
+        recovery: vec![],
+        transition_ticks: 0,
+        stage_tint: None,
+        camera: None,
+        duration: 16,
         startup: None,
         sound: None,
     }
@@ -689,6 +735,7 @@ fn prepared_attack_pays_once_and_owns_only_unreleased_projectiles() {
                 normal: None,
                 tp_cost: 4,
                 execution: ActionExecution::Attack(PreparedAttack {
+                    contact_recovery: None,
                     opening: None,
                     chain_at: Some(5),
                     end_at: 6,
@@ -818,6 +865,9 @@ pub(crate) fn contact_projectile(clashes: bool, survives_contact: bool) -> Proje
     definition.birth = None;
     definition.contact = Some(ProjectileContact {
         hit: crate::HitRule {
+            sound: None,
+            effect_on_guard: false,
+            effect: None,
             overlimit_pause: false,
             condition: None,
             arte: false,
@@ -826,6 +876,8 @@ pub(crate) fn contact_projectile(clashes: bool, survives_contact: bool) -> Proje
             power: crate::Power::Normal,
             element: crate::HitElement::Neutral,
             prevents_defeat: false,
+            finisher_grade: false,
+            hp_drain: false,
             guard: crate::GuardRule::default(),
         },
         cooldown: 120,
@@ -1327,6 +1379,7 @@ fn contact_ex_equipment_rebuild_is_repeatable_and_preserves_live_hurt() {
             endure: enabled,
             hard_hit: enabled,
             air_brake: enabled,
+            prolong: enabled,
         };
         replacement.equipment.normal_combo_limit = if enabled { 4 } else { 3 };
         let mut expected = before;

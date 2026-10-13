@@ -54,11 +54,10 @@ fn stronger_refresh_preserves_magnitude_and_restarts_lifetime() {
 }
 
 #[test]
-fn opposite_stat_effects_cancel_without_applying_the_replacement() {
+fn opposite_stat_effects_cancel_except_accuracy_shares_one_signed_amount() {
     for (up, down) in [
         (AttackUp, AttackDown),
         (DefenseUp, DefenseDown),
-        (AccuracyUp, AccuracyDown),
         (MagicAttackUp, MagicAttackDown),
         (MagicDefenseUp, MagicDefenseDown),
     ] {
@@ -69,6 +68,29 @@ fn opposite_stat_effects_cancel_without_applying_the_replacement() {
         assert!(conditions.apply_stat_condition(down, 10, 20, false));
         assert_eq!(conditions.magnitude(down), -10);
     }
+
+    let mut owner = actor(Side::Party);
+    let conditions = &mut owner.conditions;
+    assert!(conditions.apply_stat_condition(AccuracyDown, 20, 2, false));
+    conditions.bless_stat(AccuracyUp, 15);
+    assert!(conditions.base().contains(AccuracyUp));
+    assert!(conditions.base().contains(AccuracyDown));
+    assert_eq!(conditions.remaining(AccuracyUp), None);
+    assert_eq!(conditions.remaining(AccuracyDown), Some(2));
+    assert_eq!(conditions.accuracy_with_conditions(100), 115);
+    assert_eq!(conditions.magnitude(AccuracyDown), 15);
+    assert!(conditions.apply_stat_condition(AccuracyDown, 10, 2, true));
+    assert_eq!(conditions.magnitude(AccuracyUp), -12);
+    assert_eq!(conditions.accuracy_with_conditions(100), 88);
+    assert!(conditions.apply_stat_condition(AccuracyUp, 10, 3, true));
+    assert!(conditions.apply_stat_condition(AccuracyUp, 11, 3, true));
+    assert_eq!(conditions.magnitude(AccuracyDown), 12);
+    assert_eq!(conditions.accuracy_with_conditions(100), 112);
+    owner.advance_conditions(true);
+    owner.advance_conditions(true);
+    assert!(!owner.conditions.base().contains(AccuracyDown));
+    assert!(owner.conditions.base().contains(AccuracyUp));
+    assert_eq!(owner.conditions.accuracy_with_conditions(100), 100);
 }
 
 #[test]
@@ -93,6 +115,40 @@ fn stat_effects_expire_independently() {
     assert_eq!(owner.conditions.defense_with_conditions(100), 100);
     assert_eq!(owner.conditions.remaining(MagicDefenseUp), None);
     assert_eq!(owner.conditions.remaining(MagicAttackUp), Some(1));
+}
+
+#[test]
+fn holy_song_compounds_with_stat_buffs_and_survives_dispel_until_expiry() {
+    let mut owner = actor(Side::Party);
+    owner.conditions = Conditions::new(Layers {
+        base: Weak.into(),
+        ..Default::default()
+    });
+    owner
+        .conditions
+        .prepare_buff(Buff::HolySong, false)
+        .commit(&mut owner);
+    owner
+        .conditions
+        .apply_stat_condition(AttackUp, 15, 1, false);
+    owner
+        .conditions
+        .apply_stat_condition(DefenseUp, 15, 1, false);
+    assert_eq!(owner.conditions.attack_with_conditions(1000), 1265);
+    assert_eq!(owner.conditions.defense_with_conditions(300), 379);
+
+    owner.advance_conditions(true);
+    owner.conditions.cure(Cure::AntiMagic);
+    assert!(!owner.conditions.effective().contains(Weak));
+    assert_eq!(owner.conditions.attack_with_conditions(1000), 1100);
+    assert_eq!(owner.conditions.defense_with_conditions(300), 330);
+    for _ in 0..1798 {
+        owner.advance_conditions(true);
+    }
+    assert_eq!(owner.conditions.remaining(HolySong), Some(1));
+    owner.advance_conditions(true);
+    assert_eq!(owner.conditions.attack_with_conditions(1000), 1000);
+    assert_eq!(owner.conditions.defense_with_conditions(300), 300);
 }
 
 #[test]
@@ -182,16 +238,18 @@ fn recipient_traits_control_immunity_duration_and_strength() {
         extended_duration: true,
         ..Default::default()
     });
-    assert!(
-        conditions
-            .apply_hit(crate::HitCondition {
-                condition: HitAilment::Paralysis,
-                chance: 100,
-                value: 0
-            })
-            .is_some()
-    );
-    assert_eq!(conditions.remaining(Paralysis), Some(750));
+    for condition in [Paralysis, Heavy] {
+        assert!(
+            conditions
+                .apply_hit(crate::HitCondition {
+                    condition,
+                    chance: 100,
+                    value: 0
+                })
+                .is_some()
+        );
+        assert_eq!(conditions.remaining(condition), Some(750));
+    }
     assert!(conditions.apply_stat_condition(DefenseDown, -10, 100, true));
     assert_eq!(conditions.magnitude(DefenseDown), -12);
     assert_eq!(conditions.remaining(DefenseDown), Some(125));
@@ -201,6 +259,11 @@ fn recipient_traits_control_immunity_duration_and_strength() {
         conditions.advance(&mut None);
     }
     assert_eq!(conditions.defense_with_conditions(100), 88);
+    assert!(
+        !conditions
+            .effective()
+            .intersects(ConditionSet::of(&[Paralysis, Heavy]))
+    );
     conditions.advance(&mut None);
     assert_eq!(conditions.defense_with_conditions(100), 100);
     assert!(conditions.apply_stat_condition(DefenseDown, -10, u32::MAX, false));

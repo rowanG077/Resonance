@@ -4,18 +4,18 @@ use super::*;
 #[derive(Clone, Copy)]
 #[repr(u16)]
 pub(super) enum Depth {
-    Flash = 0,
+    Background = 0,
     Labels = 10,
     Combo = 20,
     Meters = 30,
     Party = 40,
     Vitals = 50,
-    Names = 60,
+    Cutin = 60,
     Notice = 70,
     Recovery = 80,
     Enemies = 90,
-    Selector = 100,
-    Scan = 110,
+    Scan = 232,
+    Unison = 140,
     Commands = 190,
     Menus = 200,
     Results = 310,
@@ -164,36 +164,34 @@ impl Palette {
 }
 
 pub(super) struct UiLayers {
-    pub(super) flash: HudLayer,
     pub(super) portraits: Vec<HudLayer>,
+    pub(super) stat_icons: Vec<HudLayer>,
+    pub(super) unison: Vec<HudLayer>,
     pub(super) gauges: HudLayer,
     pub(super) font: HudLayer,
-    pub(super) party_names: HudLayer,
-    pub(super) commands: [HudLayer; 2],
-    pub(super) results: [HudLayer; 2],
-    pub(super) notice: [HudLayer; 2],
+    pub(super) commands: [HudLayer; 4],
+    pub(super) results: [HudLayer; 3],
+    pub(super) notice: Vec<HudLayer>,
     pub(super) labels: [HudLayer; 2],
     pub(super) floating: HudLayer,
     pub(super) recovery: HudLayer,
-    pub(super) selector: [HudLayer; 2],
-    pub(super) scan: [HudLayer; 2],
+    pub(super) scan: Vec<HudLayer>,
     pub(super) transition: HudLayer,
 }
 impl UiLayers {
     pub(super) fn iter(&self) -> impl Iterator<Item = &HudLayer> {
         self.portraits
             .iter()
+            .chain(&self.stat_icons)
+            .chain(&self.unison)
             .chain(&self.commands)
             .chain(&self.results)
             .chain(&self.notice)
             .chain(&self.labels)
-            .chain(&self.selector)
             .chain(&self.scan)
             .chain([
-                &self.flash,
                 &self.gauges,
                 &self.font,
-                &self.party_names,
                 &self.floating,
                 &self.recovery,
                 &self.transition,
@@ -202,17 +200,16 @@ impl UiLayers {
     pub(super) fn iter_mut(&mut self) -> impl Iterator<Item = &mut HudLayer> {
         self.portraits
             .iter_mut()
+            .chain(&mut self.stat_icons)
+            .chain(&mut self.unison)
             .chain(&mut self.commands)
             .chain(&mut self.results)
             .chain(&mut self.notice)
             .chain(&mut self.labels)
-            .chain(&mut self.selector)
             .chain(&mut self.scan)
             .chain([
-                &mut self.flash,
                 &mut self.gauges,
                 &mut self.font,
-                &mut self.party_names,
                 &mut self.floating,
                 &mut self.recovery,
                 &mut self.transition,

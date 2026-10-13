@@ -49,7 +49,7 @@ fn contact(battle: &mut Battle, rule: HitRule) -> (HitResult, Vec<Cue>) {
             &MeleeDefinition {
                 hit: rule,
                 trail: None,
-                volume: crate::MeleeVolume {
+                volume: crate::MeleeVolume::Fixed {
                     offset: [0.; 3],
                     radius: 20.,
                     half_height: 20.,
@@ -59,7 +59,7 @@ fn contact(battle: &mut Battle, rule: HitRule) -> (HitResult, Vec<Cue>) {
         )
         .unwrap();
     let mut cues = Vec::new();
-    contacts.resolve(battle, &mut cues).unwrap();
+    contacts.resolve(battle, &mut cues, &[]).unwrap();
     assert!(!battle.is_diagnostic());
     let result = cues
         .iter()

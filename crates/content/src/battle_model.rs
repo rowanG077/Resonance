@@ -1,7 +1,7 @@
 //! Source rigs shared by combat preparation and the existing model publications.
 use crate::animation::Skeleton;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const WEAPONS_PATH: &str = "battle/weapons.json";
 
@@ -27,7 +27,39 @@ pub struct Weapon {
     pub source_sha256: String,
     pub parts: BTreeMap<u8, ModelPart>,
     pub trails: BTreeMap<u8, TrailMaterial>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub uv_animation: BTreeMap<u8, AttachmentAnimation>,
     pub files: BTreeMap<String, crate::field_preload::File>,
+}
+
+/// Per-part texture channels; sequence and scroll storage are interpreted by mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachmentAnimation {
+    pub channels: [AttachmentUvChannel; 2],
+    pub frame_order: Vec<u8>,
+    pub effect_interval: u8,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct AttachmentUvChannel {
+    pub count: u8,
+    pub texture: i8,
+    pub mode: AttachmentUvMode,
+    pub frames_or_step: i8,
+    pub period: i8,
+    pub initial_scroll: i16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentUvMode {
+    Disabled,
+    Frames,
+    ScrollV,
+    Reserved,
+    Sequence,
+    ScrollU,
+    Inactive(i8),
 }
 
 /// Blade ribbon material; timer/history stay in combat.
@@ -74,8 +106,13 @@ pub fn party_path(character: u8) -> String {
 pub struct Party {
     pub body_sha256: String,
     pub motion_sha256: String,
+    /// Explicit empty entries in the authored body animation table.
+    #[serde(default)]
+    pub null_motions: BTreeSet<u16>,
     pub body: Rig,
     pub parts: Vec<crate::ScenePart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wings: Option<crate::ScenePart>,
     pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
@@ -83,12 +120,24 @@ pub struct Party {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Enemy {
     pub source_sha256: String,
+    /// Formation-selected vertical atlas rows on the primary body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_variant: Option<crate::battle_profile::TextureChannel>,
     /// Native carried model slots, independently visible and sampled.
     pub attachments: BTreeMap<u8, ModelPart>,
+    /// Additional source packages selected by the encounter for weapon slot zero.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub weapon_variants: BTreeMap<u8, WeaponVariant>,
     pub trails: BTreeMap<u8, TrailMaterial>,
     pub body: Rig,
     /// Shared meshes, textures and sparse clips, loaded only for selected enemies.
     pub files: BTreeMap<String, crate::field_preload::File>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeaponVariant {
+    pub model: ModelPart,
+    pub trail: TrailMaterial,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +167,7 @@ mod tests {
                 },
             )]),
             trails: BTreeMap::new(),
+            uv_animation: BTreeMap::new(),
             files: BTreeMap::new(),
         });
         let restored: Attachment = serde_json::from_slice(&serde_json::to_vec(&attachment)?)?;

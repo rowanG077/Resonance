@@ -6,14 +6,32 @@ impl Battle {
     /// Play a celebration once; the model holds its final pose independently of results.
     pub fn play_victory_pose(&mut self, actor: ActorId, motion: MotionBinding) -> Result<()> {
         self.set_result_posture(actor, None, [0; 4])?;
-        self.request_pose(
+        self.play_result_pose(
             actor,
-            Some(motion),
+            motion,
             crate::Pose {
                 blend: 12,
                 ..Default::default()
             },
+        )
+    }
+
+    /// Apply an authored result pose without resetting the current expression.
+    pub fn play_result_pose(
+        &mut self,
+        actor: ActorId,
+        motion: MotionBinding,
+        pose: crate::Pose,
+    ) -> Result<()> {
+        ensure!(
+            self.phase() == BattlePhase::Results,
+            "result pose outside results"
         );
+        ensure!(
+            self.actor(actor)?.side == Side::Party,
+            "result pose needs a party actor"
+        );
+        self.request_pose(actor, Some(motion), pose);
         Ok(())
     }
 

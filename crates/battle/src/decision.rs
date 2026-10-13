@@ -160,7 +160,7 @@ impl Battle {
         if companion {
             self.advance_companion_ai(actor, cues)
         } else {
-            self.advance_enemy_ai(actor)
+            self.advance_enemy_ai(actor, cues)
         }
     }
 
@@ -198,7 +198,14 @@ impl Battle {
         if self.begin_recovery_return(actor)? {
             return Ok(());
         }
-        self.enter_idle(actor);
+        // Finishing recovery leaves one non-ready visit before ordinary input resumes.
+        self.set_task(
+            actor.index(),
+            crate::state::ActorTask::Recovering {
+                remaining: 0,
+                after_hit: false,
+            },
+        );
         Ok(())
     }
 
@@ -206,6 +213,15 @@ impl Battle {
         &mut self,
         owner: ActorId,
         policy: crate::TargetPolicy,
+    ) -> Result<Option<ActorId>> {
+        self.decision_target_pool(owner, policy, false)
+    }
+
+    pub(crate) fn decision_target_pool(
+        &mut self,
+        owner: ActorId,
+        policy: crate::TargetPolicy,
+        allies: bool,
     ) -> Result<Option<ActorId>> {
         let actors: Vec<_> = self
             .actors
@@ -227,10 +243,11 @@ impl Battle {
                 target: self.target(ActorId(index as u8)).map(ActorId::index),
             })
             .collect();
-        let target = crate::select_target(&actors, owner.index(), policy, &mut || {
-            self.random.next_u16()
-        })?
-        .map(|index| ActorId(index as u8));
+        let target =
+            crate::target::select_target_pool(&actors, owner.index(), policy, allies, &mut || {
+                self.random.next_u16()
+            })?
+            .map(|index| ActorId(index as u8));
         Ok(target)
     }
 

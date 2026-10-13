@@ -290,6 +290,12 @@ impl Battle {
             .selection_definition(actor, action)
             .map(|row| row.capabilities);
         let normal = definition.normal;
+        if matches!(&definition.execution, crate::ActionExecution::Casting(cast)
+            if cast.release.summon.is_some())
+            && !owner.overlimit.is_active()
+        {
+            return Err(Rejection::Unavailable);
+        }
         if let Some(capabilities) = technique {
             if !self.technique_available(actor, action)
                 || !owner.conditions.arte_queue_allowed()

@@ -11,14 +11,42 @@ use resonance_content::battle_effect::{
 const DEGREES: f32 = std::f32::consts::PI / 180.;
 
 const SHADOW_SEGMENTS: usize = 16;
+const SPHERE_LATITUDE_BANDS: u8 = 10;
+
+pub(super) fn wing_sparkles<'a>(
+    sparkles: impl Iterator<Item = &'a super::super::wings::Sparkle>,
+    camera: Mat3,
+) -> Option<Mesh> {
+    let mut vertices = Vertices::default();
+    let uv = Uv::new([193, 385, 62, 62], [512; 2]);
+    for sparkle in sparkles {
+        let rotation = camera * Mat3::from_rotation_z(sparkle.roll.to_radians());
+        let points =
+            quad(Vec3::splat(20.), Vec3::ZERO).map(|point| sparkle.position + rotation * point);
+        vertices.strip(points, [[1., 1., 1., sparkle.alpha()]; 2], uv);
+    }
+    (!vertices.positions.is_empty()).then(|| vertices.mesh())
+}
+
+// Spatial variation is fixed across draws and independent of gameplay RNG.
+const RIBBON_NOISE: [i16; 256] = {
+    let mut samples = [0; 256];
+    let mut state = 12345_u32;
+    let mut index = 0;
+    while index < samples.len() {
+        state = state.wrapping_mul(0x41c6_4e6d).wrapping_add(0x12_d687);
+        samples[index] = ((state as i32 >> 16) % 1024) as i16;
+        index += 1;
+    }
+    samples
+};
 
 /// Batch ground footprints as soft discs, without a texture or a draw per shadow.
 pub(super) fn shadows(shadows: impl Iterator<Item = ([f32; 3], f32, [u8; 4])>) -> Option<Mesh> {
     let mut vertices = Vertices::default();
     for (position, radius, rgba) in shadows {
         let center = Vec3::from_array(position);
-        let mut color = rgba.map(|v| f32::from(v) / 255.);
-        color[3] *= 0.4; // A soft ground shadow, fading to transparent at the edge.
+        let color = rgba.map(|v| f32::from(v) / 255.);
         let mut edge = color;
         edge[3] = 0.;
         let point = |index: usize| {
@@ -41,7 +69,7 @@ pub(super) fn shadows(shadows: impl Iterator<Item = ([f32; 3], f32, [u8; 4])>) -
 pub(super) fn validate(declaration: &Declaration) -> Result<()> {
     if let Declaration::ModelParticle { visual, .. } = declaration {
         ensure!(
-            visual.blend <= 1,
+            visual.blend <= 2,
             "model particle blend {} is unsupported",
             visual.blend
         );
@@ -61,9 +89,31 @@ pub(super) fn validate(declaration: &Declaration) -> Result<()> {
         | ParticleShape::Shell { segments, .. } => {
             ensure!(*segments > 0, "particle has no geometry segments");
         }
-        ParticleShape::Sphere { columns } => ensure!(*columns > 0, "sphere has no columns"),
+        ParticleShape::Sphere { columns } | ParticleShape::Hemisphere { columns } => {
+            ensure!(*columns > 0, "sphere has no columns")
+        }
         ParticleShape::VertexQuad { copy_axis, .. } => {
             ensure!(*copy_axis < 3, "invalid particle copy axis")
+        }
+        ParticleShape::Ribbon { .. } => {
+            ensure!(
+                matches!(template.state.geometry, ParticleGeometry::Ribbon { jitter, .. } if jitter >= 0.)
+                    && visual.copies == 0,
+                "invalid ribbon geometry"
+            );
+        }
+        ParticleShape::TriangleBand => {
+            ensure!(
+                matches!(template.state.geometry, ParticleGeometry::Size { .. })
+                    && visual.copies == 0,
+                "invalid triangle band geometry"
+            );
+        }
+        ParticleShape::RadialQuads { .. } => {
+            ensure!(
+                template.state.geometry_count > 0 && visual.copies == 0,
+                "invalid radial quad geometry"
+            );
         }
         ParticleShape::Spiral {
             radius_step,
@@ -92,7 +142,10 @@ pub(super) fn validate(declaration: &Declaration) -> Result<()> {
     }
     if matches!(
         visual.geometry,
-        ParticleShape::Orbit | ParticleShape::BillboardTrail | ParticleShape::Spiral { .. }
+        ParticleShape::Orbit
+            | ParticleShape::BillboardTrail
+            | ParticleShape::Spiral { .. }
+            | ParticleShape::Ribbon { .. }
     ) {
         ensure!(
             template.state.geometry_count > 0,
@@ -107,26 +160,87 @@ pub(super) fn mesh(
     declaration: &Declaration,
     texture_size: [u32; 2],
     camera: Mat3,
+    bone_world: Option<Mat4>,
 ) -> Result<Option<Mesh>> {
+    ensure!(
+        declaration.template()?.owner_bone.is_some() == bone_world.is_some(),
+        "particle owner bone is not bound"
+    );
     let mut data = geometry(
         &particle.state,
         declaration,
-        particle.heading,
+        if bone_world.is_some() {
+            0.
+        } else {
+            particle.heading
+        },
         texture_size,
         camera,
     )?;
     if let Some(data) = &mut data {
-        let mut origin =
-            Vec3::from_array(particle.origin) + Vec3::from_array(particle.state.offset);
-        // Ground-relative sprites ignore emitter height.
-        if declaration.particle_visual()?.ground_relative {
-            origin.y = 0.1 + particle.state.offset[1];
-        }
-        for position in &mut data.positions {
-            *position = (Vec3::from_array(*position) + origin).to_array();
+        let offset = Vec3::from_array(particle.state.offset);
+        if let Some(matrix) = bone_world {
+            let normal_matrix = Mat3::from_mat4(matrix).inverse().transpose();
+            ensure!(
+                matrix.is_finite() && normal_matrix.is_finite(),
+                "invalid particle bone matrix"
+            );
+            for position in &mut data.positions {
+                *position = matrix
+                    .transform_point3(Vec3::from_array(*position) + offset)
+                    .to_array();
+            }
+            for normal in &mut data.normals {
+                *normal = (normal_matrix * Vec3::from_array(*normal))
+                    .normalize_or(Vec3::Z)
+                    .to_array();
+            }
+        } else {
+            let mut origin = Vec3::from_array(particle.origin) + offset;
+            // Ground-relative sprites ignore emitter height.
+            if declaration.particle_visual()?.ground_relative {
+                origin.y = 0.1 + offset.y;
+            }
+            for position in &mut data.positions {
+                *position = (Vec3::from_array(*position) + origin).to_array();
+            }
         }
     }
     Ok(data.map(Vertices::mesh))
+}
+
+pub(super) fn group_mesh(
+    state: &ParticleState,
+    heading: f32,
+    declaration: &Declaration,
+    texture_size: [u32; 2],
+    camera: Mat3,
+    points: &[Vec3],
+) -> Result<Option<Mesh>> {
+    ensure!(
+        matches!(declaration.particle_visual()?.geometry, ParticleShape::Quad),
+        "effect group requires billboard geometry"
+    );
+    if points.is_empty() {
+        return Ok(None);
+    }
+    let Some(quad) = geometry(state, declaration, heading, texture_size, camera)? else {
+        return Ok(None);
+    };
+    let mut out = Vertices::default();
+    let offset = Vec3::from_array(state.offset);
+    for &point in points {
+        ensure!(point.is_finite(), "invalid particle group position");
+        out.positions.extend(
+            quad.positions
+                .iter()
+                .map(|&p| (Vec3::from_array(p) + point + offset).to_array()),
+        );
+        out.normals.extend_from_slice(&quad.normals);
+        out.colors.extend_from_slice(&quad.colors);
+        out.uv.extend_from_slice(&quad.uv);
+    }
+    Ok(Some(out.mesh()))
 }
 
 fn geometry(
@@ -162,6 +276,7 @@ fn geometry(
     let mut angles = Vec3::from_array(state.angles);
     let basis = orientation(p, angles, heading, camera);
     match &p.geometry {
+        ParticleShape::NoDraw => return Ok(None),
         ParticleShape::Quad => {
             let points = quad(dimensions, offset);
             let anchor = Vec3::Y * if anchored { dimensions.x * 0.5 } else { 0. };
@@ -169,6 +284,98 @@ fn geometry(
                 let basis = orientation(p, angles, heading, camera);
                 out.strip(points.map(|v| basis * v + anchor), colors, uv);
                 angles.z += f32::from(p.copy_rotation);
+            }
+        }
+        ParticleShape::TriangleBand => {
+            let directions: [Vec2; 3] =
+                std::array::from_fn(|corner| circle(-30. + 120. * corner as f32));
+            let depth = dimensions.x * if anchored { 1. } else { 0.5 };
+            let point = |direction: Vec2, radius: f32| basis * (direction * radius).extend(depth);
+            for edge in 0..directions.len() {
+                let start = directions[edge];
+                let end = directions[(edge + 1) % directions.len()];
+                out.strip(
+                    [
+                        point(start, dimensions.z),
+                        point(end, dimensions.z),
+                        point(start, dimensions.z + dimensions.y),
+                        point(end, dimensions.z + dimensions.y),
+                    ],
+                    colors,
+                    uv,
+                );
+            }
+        }
+        ParticleShape::RadialQuads { flat, advance_u } => {
+            let count = state.geometry_count;
+            ensure!(count > 0, "radial particle has no segments");
+            let points = quad(dimensions, Vec3::ZERO).map(|point| {
+                if *flat {
+                    point
+                } else {
+                    Vec3::new(0., point.x, point.y)
+                }
+            });
+            let anchor = Vec3::Y * if anchored { dimensions.x * 0.5 } else { 0. };
+            for segment in 0..count {
+                let orbit =
+                    Mat3::from_rotation_z(360. * f32::from(segment) / f32::from(count) * DEGREES);
+                let panel = if *advance_u {
+                    uv.panel(UvLayout::Advance, u16::from(segment), count)
+                } else {
+                    uv
+                };
+                out.strip(
+                    points.map(|point| basis * (orbit * (point + Vec3::X * dimensions.z)) + anchor),
+                    colors,
+                    panel,
+                );
+            }
+        }
+        ParticleShape::Ribbon { depth } => {
+            let ParticleGeometry::Ribbon {
+                length,
+                width,
+                jitter,
+                phase,
+                ..
+            } = state.geometry
+            else {
+                bail!("ribbon particle has no ribbon dimensions");
+            };
+            let count = state.geometry_count;
+            ensure!(count > 0 && jitter >= 0., "invalid ribbon dimensions");
+            let half_width = width * 0.5;
+            let span = ((jitter * 0.5) as i32).max(1);
+            let mut edge = [
+                Vec3::new(-half_width, length, 0.),
+                Vec3::new(half_width, length, 0.),
+            ];
+            for segment in 0..count {
+                let last = segment == count - 1;
+                let sample = RIBBON_NOISE[usize::from(phase.wrapping_add(segment))];
+                let x = if last {
+                    0.
+                } else {
+                    (i32::from(sample) * 2 % span) as f32
+                };
+                let y = length * (1. - f32::from(segment + 1) / f32::from(count));
+                let next = if *depth || state.ribbon_depth {
+                    [Vec3::new(x, y, -half_width), Vec3::new(x, y, half_width)]
+                } else {
+                    [
+                        Vec3::new(x - half_width, y, 0.),
+                        Vec3::new(x + half_width, y, 0.),
+                    ]
+                };
+                let mut panel = uv;
+                panel.rect[1] += panel.rect[3] * (i32::from(segment > 0) + i32::from(last));
+                out.strip(
+                    [edge[0], edge[1], next[0], next[1]].map(|point| basis * point),
+                    [segment, segment + 1].map(|at| segment_color(state, gradient, at, count)),
+                    panel,
+                );
+                edge = next;
             }
         }
         ParticleShape::Ring {
@@ -282,7 +489,10 @@ fn geometry(
             } else {
                 basis
             };
-            let step = Mat3::from_rotation_y(heading * DEGREES) * Vec3::from_array(*segment_offset);
+            let displacement = std::array::from_fn(|axis| {
+                state.segment_offset[axis].unwrap_or(segment_offset[axis])
+            });
+            let step = Mat3::from_rotation_y(heading * DEGREES) * Vec3::from_array(displacement);
             let mut radius = dimensions.z;
             let mut phase = angles.z;
             let mut origin = Vec3::ZERO;
@@ -352,15 +562,20 @@ fn geometry(
                 );
             }
         }
-        ParticleShape::Sphere { columns } => {
-            // Sphere tessellation is independent of animated segment counts and stays world-oriented.
-            let basis = world_orientation(angles, heading);
+        ParticleShape::Sphere { columns } | ParticleShape::Hemisphere { columns } => {
+            let hemisphere = matches!(p.geometry, ParticleShape::Hemisphere { .. });
+            let (first_row, row_count, basis) = if hemisphere {
+                (SPHERE_LATITUDE_BANDS / 2, SPHERE_LATITUDE_BANDS / 2, basis)
+            } else {
+                // Full spheres stay world-oriented; domes also support camera-facing poses.
+                (0, SPHERE_LATITUDE_BANDS, world_orientation(angles, heading))
+            };
             let columns = *columns;
-            for row in 0..10 {
-                let colors = [row, row + 1].map(|r| segment_color(state, gradient, r, 10));
+            for row in 0..row_count {
+                let colors = [row, row + 1].map(|r| segment_color(state, gradient, r, row_count));
                 for column in 0..columns {
                     out.strip(
-                        sphere(dimensions, row, column, columns).map(|v| basis * v),
+                        sphere(dimensions, first_row + row, column, columns).map(|v| basis * v),
                         colors,
                         uv,
                     );
@@ -381,7 +596,7 @@ fn geometry(
                         camera * offset,
                     )
                 } else {
-                    (world_orientation(angles, heading), Vec3::ZERO)
+                    (orientation(p, angles, heading, camera), Vec3::ZERO)
                 };
                 let local = if *local_copies {
                     Mat3::from_rotation_z(f32::from(copy) * f32::from(p.copy_rotation) * DEGREES)
@@ -412,7 +627,14 @@ fn world_orientation(angles: Vec3, heading: f32) -> Mat3 {
 }
 
 fn orientation(p: &ParticleVisual, angles: Vec3, heading: f32, camera: Mat3) -> Mat3 {
-    if p.orientation == Orientation::Billboard {
+    if matches!(
+        p.orientation,
+        Orientation::FixedWorld | Orientation::FollowMotion
+    ) {
+        Mat3::from_rotation_y(angles.y * DEGREES)
+            * Mat3::from_rotation_x(angles.x * DEGREES)
+            * Mat3::from_rotation_z(angles.z * DEGREES)
+    } else if p.orientation == Orientation::Billboard {
         camera * Mat3::from_rotation_z(angles.z * DEGREES)
     } else if p.orientation == Orientation::Camera {
         camera
@@ -452,7 +674,10 @@ fn quad(size: Vec3, offset: Vec3) -> [Vec3; 4] {
 
 fn sphere(size: Vec3, row: u8, column: u8, columns: u8) -> [Vec3; 4] {
     std::array::from_fn(|i| {
-        let latitude = circle((i16::from(row) - 5 + (i / 2) as i16) as f32 * 18.);
+        let latitude = circle(
+            (f32::from(row) - f32::from(SPHERE_LATITUDE_BANDS) * 0.5 + (i / 2) as f32)
+                * (180. / f32::from(SPHERE_LATITUDE_BANDS)),
+        );
         let longitude = circle((f32::from(column) + (i & 1) as f32) * 360. / f32::from(columns));
         // Apply the radial scale to X and Y, and the depth scale to Z.
         Vec3::new(
@@ -601,6 +826,199 @@ mod tests {
             panic!("sprite fixture");
         };
         visual
+    }
+
+    #[test]
+    fn radial_quads_keep_ring_centers_and_advance_texture_panels() -> Result<()> {
+        let mut declaration = fixture_particle(
+            include_str!("../../../content/tests/fixtures/special-guard-particles.json"),
+            "actors",
+            "34",
+        );
+        let look = visual(&mut declaration);
+        look.geometry = ParticleShape::RadialQuads {
+            flat: true,
+            advance_u: true,
+        };
+        look.orientation = Orientation::Billboard;
+        look.anchored = false;
+        look.copies = 0;
+        let template = declaration.template_mut()?;
+        template.state.angles = [0.; 3];
+        template.state.geometry_count = 12;
+        template.state.uv = [0, 0, 16, 16];
+        template.state.geometry = ParticleGeometry::Size {
+            value: [40., 40., 128.],
+            velocity: [0.; 3],
+            acceleration: [0.; 3],
+        };
+        let state = template.state.clone();
+        validate(&declaration)?;
+        let data = geometry(&state, &declaration, 0., [256; 2], Mat3::IDENTITY)?.unwrap();
+        assert_eq!(data.positions.len(), 72);
+        for segment in 0..12 {
+            let vertices = &data.positions[segment * 6..segment * 6 + 6];
+            let center = vertices.iter().map(|&v| Vec3::from_array(v)).sum::<Vec3>() / 6.;
+            assert!((center.truncate().length() - 128.).abs() < 0.001);
+            assert_eq!(center.z, 0.);
+            assert_eq!(data.uv[segment * 6][0], segment as f32 / 16.);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn triangle_band_closes_with_consistent_winding_and_repeats_its_atlas_panel() -> Result<()> {
+        let mut declaration = fixture_particle(
+            include_str!("../../../content/tests/fixtures/special-guard-particles.json"),
+            "actors",
+            "34",
+        );
+        let look = visual(&mut declaration);
+        look.geometry = ParticleShape::TriangleBand;
+        look.orientation = Orientation::World;
+        look.anchored = false;
+        look.copies = 0;
+        let template = declaration.template_mut()?;
+        template.state.angles = [0.; 3];
+        template.state.uv = [384, 384, 64, 64];
+        template.state.geometry = ParticleGeometry::Size {
+            value: [8., 96., 304.],
+            velocity: [0.; 3],
+            acceleration: [0.; 3],
+        };
+        let state = template.state.clone();
+        validate(&declaration)?;
+        let data = geometry(&state, &declaration, 0., [512; 2], Mat3::IDENTITY)?.unwrap();
+        assert_eq!(data.positions.len(), 18);
+        for edge in 0..3 {
+            let start = edge * 6;
+            let next = (edge + 1) % 3 * 6;
+            assert_eq!(data.positions[start + 1], data.positions[next]);
+            assert_eq!(data.positions[start + 5], data.positions[next + 2]);
+            assert_eq!(data.uv[start..start + 6], data.uv[..6]);
+            for (vertex, radius) in [304., 304., 400., 400., 304., 400.].into_iter().enumerate() {
+                let point = Vec3::from_array(data.positions[start + vertex]);
+                assert!((point.truncate().length() - radius).abs() < 0.001);
+                assert_eq!(point.z, 4.);
+            }
+        }
+        assert_eq!(data.uv[0], [0.75, 0.75]);
+        assert_eq!(data.uv[5], [0.875, 0.875]);
+        for triangle in data.positions.chunks_exact(3) {
+            let [a, b, c] = std::array::from_fn(|i| Vec3::from_array(triangle[i]));
+            assert!((b - a).cross(c - a).z < 0.);
+        }
+        visual(&mut declaration).copies = 1;
+        assert!(validate(&declaration).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn group_billboards_use_live_bone_positions_and_empty_groups_draw_nothing() -> Result<()> {
+        let mut declaration = fixture_particle(
+            include_str!("../../../content/tests/fixtures/special-guard-particles.json"),
+            "actors",
+            "34",
+        );
+        let visual = visual(&mut declaration);
+        visual.geometry = ParticleShape::Quad;
+        visual.orientation = Orientation::Billboard;
+        visual.copies = 0;
+        let template = declaration.template_mut()?;
+        template.owner_bone = None;
+        template.state.effect_group = Some(9);
+        template.state.angles = [0.; 3];
+        template.state.orbit = [0.; 3];
+        template.state.offset = [0., 3., 0.];
+        template.state.geometry = ParticleGeometry::Size {
+            value: [2., 4., 0.],
+            velocity: [0.; 3],
+            acceleration: [0.; 3],
+        };
+        let state = template.state.clone();
+        assert!(group_mesh(&state, 0., &declaration, [64; 2], Mat3::IDENTITY, &[])?.is_none());
+        let points = [Vec3::new(10., 20., 30.), Vec3::new(40., 50., 60.)];
+        let mesh = group_mesh(&state, 0., &declaration, [64; 2], Mat3::IDENTITY, &points)?.unwrap();
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("particle positions");
+        };
+        assert_eq!(positions.len(), 12);
+        for (first, second) in positions[..6].iter().zip(&positions[6..]) {
+            assert_eq!(
+                Vec3::from_array(*second) - Vec3::from_array(*first),
+                Vec3::splat(30.)
+            );
+            assert!(first[0] < 20. && first[1] < 30. && first[2] < 40.);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ribbon_connects_segments_uses_three_atlas_rows_and_preserves_state() -> Result<()> {
+        let mut declaration = fixture_particle(
+            include_str!("../../../content/tests/fixtures/special-guard-particles.json"),
+            "actors",
+            "34",
+        );
+        let visual = visual(&mut declaration);
+        visual.geometry = ParticleShape::Ribbon { depth: false };
+        visual.orientation = Orientation::Billboard;
+        visual.copies = 0;
+        let template = declaration.template_mut()?;
+        template.gradient = true;
+        template.state.angles = [0.; 3];
+        template.state.uv = [7, 11, 4, 6];
+        template.state.colors = [[128; 4], [0; 4]];
+        template.state.geometry_count = 4;
+        template.state.geometry = ParticleGeometry::Ribbon {
+            length: 8.,
+            width: 4.,
+            jitter: 104.,
+            phase: 6,
+            phase_period: 0,
+        };
+        validate(&declaration)?;
+        let mut state = declaration.particle()?.state;
+        let before = state.clone();
+        let output = geometry(&state, &declaration, 0., [64; 2], Mat3::IDENTITY)?.unwrap();
+        assert_eq!(output.positions.len(), 24);
+        assert_eq!(output.positions[0], [-2., 8., 0.]);
+        assert_eq!(output.positions[2], [2., 6., 0.]);
+        assert_eq!(output.positions[14], [36., 2., 0.]);
+        assert_eq!(output.positions[23], [2., 0., 0.]);
+        for segment in 1..4 {
+            assert_eq!(
+                output.positions[segment * 6 - 3],
+                output.positions[segment * 6]
+            );
+            assert_eq!(
+                output.positions[segment * 6 - 1],
+                output.positions[segment * 6 + 1]
+            );
+        }
+        assert_eq!(
+            [0, 1, 2, 3].map(|segment| output.uv[segment * 6][1]),
+            [11., 17., 17., 23.].map(|v| v / 64.)
+        );
+        assert_eq!(output.colors[2], [96. / 255.; 4]);
+        assert_eq!(state, before);
+        assert_eq!(
+            output.positions,
+            geometry(&state, &declaration, 0., [64; 2], Mat3::IDENTITY)?
+                .unwrap()
+                .positions
+        );
+        if let ParticleGeometry::Ribbon { phase, .. } = &mut state.geometry {
+            *phase = 255;
+        }
+        for count in [4, 5, 6] {
+            state.geometry_count = count;
+            let output = geometry(&state, &declaration, 0., [64; 2], Mat3::IDENTITY)?.unwrap();
+            assert_eq!(output.positions.len(), usize::from(count) * 6);
+        }
+        Ok(())
     }
 
     #[test]

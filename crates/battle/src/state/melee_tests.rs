@@ -7,6 +7,9 @@ use crate::{
 fn definition() -> Arc<MeleeDefinition> {
     Arc::new(MeleeDefinition {
         hit: HitRule {
+            sound: None,
+            effect_on_guard: false,
+            effect: None,
             overlimit_pause: false,
             condition: None,
             arte: false,
@@ -15,10 +18,12 @@ fn definition() -> Arc<MeleeDefinition> {
             power: crate::Power::Fixed(5),
             element: crate::HitElement::Neutral,
             prevents_defeat: false,
+            finisher_grade: false,
+            hp_drain: false,
             guard: GuardRule::default(),
         },
         trail: None,
-        volume: crate::MeleeVolume {
+        volume: crate::MeleeVolume::Fixed {
             offset: [0.; 3],
             radius: 30.,
             half_height: 30.,
@@ -123,7 +128,7 @@ fn normal_contact_restores_one_tp_for_unblocked_damage_up_to_capacity() {
         let mut contacts = Contacts::default();
         contacts.melee(ActorId(0), ActionId(1), &hit, &[]).unwrap();
         let mut cues = vec![];
-        contacts.resolve(&mut battle, &mut cues).unwrap();
+        contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
         assert!(cues.iter().any(|cue| matches!(cue, Cue::Hit { .. })));
         assert_eq!(battle.actors[0].tp, expected, "{case} arte={arte} tp={tp}");
     }
@@ -153,6 +158,7 @@ fn native_armor_survives_two_hits_then_cancels_later_work_and_clears_on_recovery
             normal: None,
             tp_cost: 0,
             execution: ActionExecution::Attack(PreparedAttack {
+                contact_recovery: None,
                 opening: None,
                 chain_at: None,
                 events,
@@ -264,7 +270,13 @@ fn contact_enters_hurt_and_cancels_pending_attack_events() {
     *crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0])) =
         crate::PreparedAttack {
             events: vec![
-                (0, crate::AttackEvent::PassThrough(true)),
+                (
+                    0,
+                    crate::AttackEvent::PassThrough {
+                        enabled: true,
+                        duration: 0,
+                    },
+                ),
                 (
                     1,
                     crate::AttackEvent::Contact {
@@ -418,6 +430,7 @@ fn combo_commits_after_final_contacts_and_loses_to_interruption() {
             };
             crate::NormalControl {
                 action,
+                continuation: crate::tests::normal_continuation(kind),
                 minimum_reach: 0.,
                 reach: 120.,
             }

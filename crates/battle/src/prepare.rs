@@ -4,10 +4,16 @@ use std::{collections::BTreeSet, sync::Arc};
 
 pub use resonance_content::battle_voice::Sound;
 
+pub(crate) const ENTRY_PAN_UPDATES: u8 = 59;
+pub(crate) const ENTRY_SETTLE_UPDATES: u8 = 46;
+pub(crate) const ENTRY_RESUME_UPDATE: u8 = ENTRY_PAN_UPDATES + ENTRY_SETTLE_UPDATES + 1;
+
 #[derive(Debug, Clone)]
 pub enum ActionExecution {
     Attack(crate::PreparedAttack),
     Casting(Arc<crate::CastingDefinition>),
+    /// A living enemy walks out of the encounter without awarding defeat rewards.
+    LeaveArena,
 }
 
 /// Index of an immutable definition within one prepared battle.
@@ -79,6 +85,8 @@ pub struct ActorSetup {
     pub spell_charge: Option<crate::SpellChargeDefinition>,
     pub aerial_spells: bool,
     pub recovery_return: Option<crate::RecoveryReturnDefinition>,
+    /// Revival pose and its prepared completion time, independent of rendered frames.
+    pub revival: Option<(crate::AttackPose, u32)>,
 }
 
 impl ActorSetup {
@@ -106,6 +114,7 @@ impl ActorSetup {
 /// This type is deliberately not serializable: executables never enter cooked data.
 #[derive(Debug)]
 pub struct PreparedBattle {
+    pub(crate) unison: Option<crate::UnisonDefinition>,
     pub(crate) technique_learning_members: Vec<crate::learning::TechniqueLearningMember>,
     pub(crate) targets: Vec<ActorId>,
     pub(crate) camera: Option<crate::camera::Camera>,
@@ -118,6 +127,8 @@ pub struct PreparedBattle {
 #[derive(Debug)]
 pub(crate) struct BattleResources {
     pub(crate) actor_setup: Vec<ActorSetup>,
+    pub(crate) enemy_presentations: Vec<(ActorId, resonance_content::battle_enemy::Presentation)>,
+    pub(crate) defense_system: Option<crate::DefenseSystemDefinition>,
     pub(crate) unison_gauge: i16,
     pub(crate) unison_available: bool,
     pub(crate) escape: Option<crate::EscapeDefinition>,
@@ -129,6 +140,26 @@ pub(crate) struct BattleResources {
 }
 
 impl PreparedBattle {
+    /// Configure observed participants after entry defaults, before activation.
+    #[cfg(feature = "test-support")]
+    pub fn configure_fixture(
+        mut self,
+        configure: impl FnOnce(&mut [(Actor, ActorSetup)]) -> Result<()>,
+    ) -> Result<Self> {
+        let mut participants: Vec<_> = self
+            .actors
+            .into_iter()
+            .zip(self.resources.actor_setup)
+            .collect();
+        configure(&mut participants)?;
+        (self.actors, self.resources.actor_setup) = participants.into_iter().unzip();
+        for actor in &mut self.actors {
+            actor.validate()?;
+        }
+        crate::steering::return_position::initialize(&mut self.actors);
+        Ok(self)
+    }
+
     pub fn finish(mut self) -> Result<crate::Battle> {
         self.validate_actions()?;
         self.validate_actor_setup()?;
@@ -144,7 +175,11 @@ impl PreparedBattle {
                 };
             }
         }
+        let unison = self.unison.take();
         let mut battle = crate::Battle::from_prepared(self);
+        if let Some(definition) = unison {
+            battle.configure_unison(definition)?;
+        }
         battle.initialize_entry_state()?;
         Ok(battle)
     }
@@ -154,6 +189,10 @@ impl PreparedBattle {
             match &action.execution {
                 ActionExecution::Attack(attack) => attack.validate()?,
                 ActionExecution::Casting(cast) => cast.release.validate()?,
+                ActionExecution::LeaveArena => ensure!(
+                    action.normal.is_none() && action.tp_cost == 0,
+                    "enemy departure cannot be a normal attack or cost TP"
+                ),
             }
         }
         Ok(())
@@ -258,9 +297,18 @@ impl PreparedBattle {
         Ok(self)
     }
 
-    /// A half-second introduction at 60 updates/second, independent of camera or artwork.
+    pub fn with_unison(mut self, definition: crate::UnisonDefinition) -> Result<Self> {
+        ensure!(self.unison.is_none(), "Unison is already prepared");
+        self.unison = Some(definition);
+        Ok(self)
+    }
+
+    /// Pan across the encounter, then hold actors while the camera settles.
     pub fn with_entry(mut self) -> Self {
-        self.entry_remaining = 30;
+        self.entry_remaining = ENTRY_RESUME_UPDATE;
+        if let Some(camera) = &mut self.camera {
+            camera.frame_entry(0);
+        }
         self
     }
 
@@ -296,6 +344,7 @@ impl PreparedBattle {
         }
         crate::steering::return_position::initialize(&mut actors);
         Ok(Self {
+            unison: None,
             targets: actors
                 .iter()
                 .enumerate()
@@ -315,6 +364,8 @@ impl PreparedBattle {
             random_seed,
             resources: BattleResources {
                 actor_setup,
+                enemy_presentations: Vec::new(),
+                defense_system: None,
                 items: None,
                 grade_rank: 0,
                 overlimit_boosted_gain: false,
@@ -350,6 +401,62 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn entry_pans_then_holds_actors_until_the_camera_settles() {
+        let mut leader = crate::tests::actor(Side::Party);
+        leader.control = Control::Manual;
+        leader.position[0] = -300.;
+        leader.guard.recent_hurt_ticks = 200;
+        let mut enemy = crate::tests::actor(Side::Enemy);
+        enemy.position[0] = 300.;
+        let mut battle = PreparedBattle::new(
+            vec![
+                (leader, ActorSetup::default()),
+                (enemy, ActorSetup::default()),
+            ],
+            ActionDefinitions::default(),
+            1,
+        )
+        .unwrap()
+        .with_camera(crate::CameraDefinition {
+            leader: ActorId(0),
+            stage_pitch: 0.,
+            auto_zoom: true,
+        })
+        .unwrap()
+        .with_entry()
+        .finish()
+        .unwrap();
+        for update in 1..=106_u8 {
+            let frame = battle.step(BattleInput::default()).unwrap();
+            assert_eq!(
+                battle.phase(),
+                if update <= 59 {
+                    crate::BattlePhase::Entry
+                } else {
+                    crate::BattlePhase::Combat
+                }
+            );
+            assert_eq!(frame.clock.paused(), (60..=105).contains(&update));
+            assert_eq!(battle.ledger.elapsed_ticks, u32::from(update));
+            assert_eq!(
+                battle.ledger.combat_ticks,
+                u32::from(update.saturating_sub(59))
+            );
+            assert_eq!(
+                frame.actors[0].guard.recent_hurt_ticks,
+                200 - update.min(59) - u8::from(update == 106)
+            );
+            if update <= 60 {
+                let camera = frame.camera.unwrap();
+                assert!(
+                    (camera.focus[0] - 700. * (1. - f32::from(update.min(59)) / 59.)).abs() < 0.01
+                );
+                assert_eq!(camera.radius, 4200.);
+            }
+        }
+    }
+
+    #[test]
     fn activation_validates_the_final_actor_and_action_inventory() {
         let candidate = || crate::tests::prepared(vec![crate::tests::actor(Side::Party)], 1);
         candidate().finish().unwrap();
@@ -371,6 +478,7 @@ mod tests {
             normal: None,
             tp_cost: 2,
             execution: ActionExecution::Attack(crate::PreparedAttack {
+                contact_recovery: None,
                 opening: None,
                 events: vec![(0, crate::AttackEvent::SpecialGuard)],
                 chain_at: None,

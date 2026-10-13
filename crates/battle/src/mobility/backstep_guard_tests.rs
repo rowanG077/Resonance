@@ -33,12 +33,17 @@ fn contact(battle: &mut Battle, stun_chance: u8) -> HitResult {
             ActionId(1),
             &MeleeDefinition {
                 hit: HitRule {
+                    sound: None,
                     kind: DamageKind::Slash,
                     arte: false,
+                    effect_on_guard: false,
+                    effect: None,
                     overlimit_pause: true,
                     power: Power::Fixed(9),
                     element: HitElement::Neutral,
                     prevents_defeat: false,
+                    finisher_grade: false,
+                    hp_drain: false,
                     guard: GuardRule::default(),
                     reaction: ReactionRule {
                         hitstun: 60,
@@ -49,7 +54,7 @@ fn contact(battle: &mut Battle, stun_chance: u8) -> HitResult {
                     condition: None,
                 },
                 trail: None,
-                volume: crate::MeleeVolume {
+                volume: crate::MeleeVolume::Fixed {
                     offset: [0.; 3],
                     radius: 20.,
                     half_height: 20.,
@@ -59,7 +64,7 @@ fn contact(battle: &mut Battle, stun_chance: u8) -> HitResult {
         )
         .unwrap();
     let mut cues = Vec::new();
-    contacts.resolve(battle, &mut cues).unwrap();
+    contacts.resolve(battle, &mut cues, &[]).unwrap();
     assert!(!battle.is_diagnostic());
     cues.iter()
         .find_map(|cue| match cue {

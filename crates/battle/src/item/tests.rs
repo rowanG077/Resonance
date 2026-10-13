@@ -49,6 +49,57 @@ fn prepared(actors: Vec<crate::Actor>) -> PreparedBattle {
     .unwrap()
 }
 
+#[test]
+fn enemy_item_benefits_reuse_recovery_without_party_inventory_or_accounting() -> Result<()> {
+    let mut user = actor();
+    user.side = Side::Enemy;
+    let mut recipient = actor();
+    recipient.side = Side::Enemy;
+    recipient.hp = 0;
+    recipient.tp = 0;
+    recipient.availability = crate::ActorAvailability::Dead;
+    let mut battle = prepared(vec![actor(), user, recipient]).finish()?;
+    let owner = ActorId(1);
+    let target = ActorId(2);
+    let ledger = battle.ledger().clone();
+    let mut cues = Vec::new();
+    battle.release_enemy_item(owner, target, 11, &mut cues)?;
+    assert_eq!(battle.actors[2].hp, 98);
+    assert_eq!(battle.actors[2].tp, 5);
+    assert!(battle.actors[2].available());
+    assert_eq!(battle.activity(target), Activity::GettingUp);
+    assert!(cues.iter().any(|cue| matches!(cue, Cue::Recovered { actor, kind: crate::RecoveryKind::Hp, applied: 98, .. } if *actor == target)));
+    let recovered = cues.len();
+    battle.release_enemy_item(owner, target, 11, &mut cues)?;
+    assert_eq!(
+        cues.len(),
+        recovered,
+        "living recipient must not receive revival twice"
+    );
+    battle.release_enemy_item(owner, target, 4, &mut cues)?;
+    assert_eq!(battle.actors[2].tp, 26);
+    battle.release_enemy_item(owner, target, 14, &mut cues)?;
+    assert!(
+        battle.actors[2]
+            .conditions
+            .effective()
+            .contains(Condition::Flare)
+    );
+    battle.release_enemy_item(owner, ActorId(0), 39, &mut cues)?;
+    assert_eq!(battle.actors[0].time_stop, HOURGLASS_TICKS);
+    assert_eq!(battle.actors[1].time_stop, 0);
+    assert_eq!(battle.actors[2].time_stop, 0);
+    assert_eq!(battle.ledger(), &ledger);
+    assert_eq!(battle.item_cooldown(), 0);
+    assert!(battle.pending_item().is_none());
+    assert!(
+        !cues
+            .iter()
+            .any(|cue| matches!(cue, Cue::ItemReleased { .. } | Cue::ItemNotice { .. }))
+    );
+    Ok(())
+}
+
 // Explicit fixture descriptors exercise the runtime without an inventory-ID interpreter.
 fn policies() -> BTreeMap<u16, Policy> {
     use crate::{
@@ -411,6 +462,18 @@ fn repeated_lens_use_preserves_knowledge_and_reports_discovery_once() {
 
 #[test]
 fn unsupported_items_and_ineligible_targets_never_reserve_or_spend() {
+    let mut setup = prepared(vec![actor(), crate::tests::actor(Side::Enemy)]);
+    let mut items = setup.resources.items.take().unwrap();
+    let party_binding = items.actors[0];
+    items.actors.fill(None);
+    let mut disabled = setup.with_items(items.clone()).unwrap().finish().unwrap();
+    assert!(!disabled.can_queue_item(ActorId(0)).unwrap());
+    assert!(disabled.queue_item(request(1, 0)).is_err());
+    assert!(disabled.pending_item().is_none());
+    items.actors[1] = party_binding;
+    let mut setup = prepared(vec![actor(), crate::tests::actor(Side::Enemy)]);
+    setup.resources.items = None;
+    assert!(setup.with_items(items).is_err());
     for item in [0, 22, 36, 40, 43, 52, 65535] {
         let mut battle = battle();
         assert!(battle.item_policy(item).is_none());

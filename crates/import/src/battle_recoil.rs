@@ -8,6 +8,15 @@ fn read(module: &Rel) -> Result<Table> {
     let constants = module.at((4, 0x3a58))?;
     Ok(Table {
         source_sha256: crate::digest(&module.bytes),
+        impulses: module
+            .at((5, 0x5600))?
+            .get(..19 * 8)
+            .context("truncated recoil impulses")?
+            .chunks_exact(8)
+            .map(|row| <[f32; 2]>::read(row, 0))
+            .collect::<Result<_>>()?,
+        suppression_distance: f32::read(constants, 0)?,
+        guard_speed: f32::read(constants, 16)?,
         light_vertical_scale: f32::read(constants, 8)?,
         heavy_vertical_scale: f32::read(constants, 12)?,
         default_guard_recovery_bonuses: guard_defaults(module)?,
@@ -38,8 +47,8 @@ mod tests {
     #[test]
     fn decodes_weight_and_guard_preferences_and_rejects_invalid_input() -> Result<()> {
         let mut module = Rel {
-            bytes: vec![0; 1 + 0x3a68],
-            sections: vec![(1, 0x3a68); 5],
+            bytes: vec![0; 1 + 0x5600 + 19 * 8],
+            sections: vec![(1, 0x5600 + 19 * 8); 6],
             pointers: Default::default(),
             local_targets: Default::default(),
         };
@@ -53,7 +62,7 @@ mod tests {
         module.bytes[1 + 0x3a60..1 + 0x3a64].copy_from_slice(&f32::NAN.to_be_bytes());
         assert!(read(&module).is_err());
         module.bytes[1 + 0x3a60..1 + 0x3a64].fill(0);
-        module.sections[4].1 -= 1;
+        module.sections[4].1 = 0x3a6b;
         assert!(read(&module).is_err());
         Ok(())
     }

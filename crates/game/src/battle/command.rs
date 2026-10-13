@@ -362,6 +362,7 @@ impl Owner {
             let Some(admission) = admission.filter(|_| input.open.pressed) else {
                 return Ok(Step::default());
             };
+            candidate.refresh_menu_roster(battle);
             self.session = Some(Session {
                 admission,
                 page: Page::Strip,
@@ -610,6 +611,7 @@ mod tests {
                 dagger_reach: false,
                 contact: Default::default(),
                 normal_combo_limit: 3,
+                guaranteed_steal: false,
                 luck: 0,
                 stats: Default::default(),
                 affinities: [resonance_battle::Affinity::Normal; 9],
@@ -642,6 +644,7 @@ mod tests {
             heading: 0.,
             facing_direction: [0., 0., 1.],
             effect_scale: 1.,
+            secondary_wind: Default::default(),
             body: Default::default(),
             movement: Default::default(),
             reaction: Default::default(),

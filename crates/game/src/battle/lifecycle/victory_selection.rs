@@ -47,6 +47,7 @@ pub struct Participant {
 #[derive(Debug, Clone)]
 pub struct Context<'a> {
     pub leader: Character,
+    pub formation: u16,
     pub party: Vec<Participant>,
     pub colette: ColetteState,
     pub presea_recovered: bool,
@@ -176,14 +177,45 @@ impl Context<'_> {
     }
 }
 
-/// Choose once among prepared, eligible groups and an ordinary solo celebration.
-/// Prefer dialogue the player has not heard yet; repeat it when all choices are familiar.
-pub fn select(context: &Context<'_>, sample: u16) -> Selection {
-    let mut eligible: Vec<u8> = context
-        .prepared_groups
-        .iter()
-        .filter(|group| {
-            group
+/// Earlier eligible exchanges have priority; each gets its own chance to speak.
+pub fn select(context: &Context<'_>, mut next: impl FnMut() -> u16) -> Selection {
+    // Encounter exchanges take priority, including participants who were defeated.
+    let special: &[u8] = match context.formation {
+        31 => &[47, 46],
+        71 => &[43],
+        33 => &[53],
+        65 => &[54],
+        74 => &[44],
+        16 => &[45],
+        53 => &[48],
+        79 => &[49],
+        81 => &[50, 51, 52],
+        _ => &[],
+    };
+    for &id in special {
+        if context.prepared_groups.iter().any(|group| {
+            group.id == id
+                && group.participants.iter().all(|&character| {
+                    context
+                        .party
+                        .iter()
+                        .any(|member| member.character as u8 == character)
+                })
+        }) {
+            return Selection { group: id, pose: 0 };
+        }
+    }
+    const GROUP_ORDER: [u8; 42] = [
+        38, 1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 37, 40, 41, 32, 33, 34, 35, 36, 30, 29,
+        28, 27, 25, 26, 22, 18, 20, 21, 23, 24, 31, 19, 42, 15, 39, 2, 3, 4,
+    ];
+    // Half of ordinary results proceed directly to a solo celebration.
+    if next() & 1 == 0 {
+        for id in GROUP_ORDER {
+            let Some(group) = context.prepared_groups.iter().find(|group| group.id == id) else {
+                continue;
+            };
+            let eligible = group
                 .required_leader
                 .is_none_or(|leader| leader == context.leader as u8)
                 && group.participants.iter().all(|&character| {
@@ -196,25 +228,25 @@ pub fn select(context: &Context<'_>, sample: u16) -> Selection {
                 })
                 && (context.colette.can_speak()
                     || !group.participants.contains(&(Character::Colette as u8)))
-                && context.eligible(group.condition)
-        })
-        .map(|group| group.id)
-        .collect();
-    if eligible
-        .iter()
-        .any(|group| context.seen_groups & (1 << group) == 0)
-    {
-        eligible.retain(|group| context.seen_groups & (1 << group) == 0);
-    }
-    if !eligible.is_empty() {
-        let choice = usize::from(sample) % (eligible.len() + 1);
-        if let Some(&group) = eligible.get(choice) {
-            return Selection { group, pose: 0 };
+                && context.eligible(group.condition);
+            if !eligible {
+                continue;
+            }
+            // Retain the dialogue gates: half, quarter, or eighth of eligible draws.
+            let (mask, accepted) = match id {
+                12 | 13 | 24 | 26 => (4, 4),
+                27 | 33 | 41 => (3, 0),
+                15 | 19 | 31 | 39 | 42 => (7, 0),
+                _ => (1, 1),
+            };
+            if next() & mask == accepted {
+                return Selection { group: id, pose: 0 };
+            }
         }
     }
     Selection {
         group: 0,
-        pose: ordinary_pose(context, sample),
+        pose: ordinary_pose(context, next()),
     }
 }
 

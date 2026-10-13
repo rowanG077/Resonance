@@ -2,7 +2,6 @@
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
     ActionRequest, Activity, ActorId, BattleInput, ButtonInput, ContactSource, ControlInput, Cue,
-    Sound,
 };
 use resonance_content::{
     battle_effect,
@@ -52,7 +51,7 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
     party.field_leader = party.formation[0];
     party.settings.battle_controls = [0; 4];
     party.validate(&data)?;
-    let assets = Assets::load(
+    let (assets, prepared) = Assets::load(
         &root,
         &retained,
         &menus,
@@ -65,47 +64,21 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
             defeat: DefeatPolicy::ResumeEvent,
             music: None,
         },
-        &mut files,
-        || false,
-    )?;
-    let audio = assets.audio.as_ref().context("missing battle audio")?;
-    let prepared = assets.prepare(
-        &menus,
         PrepareOptions {
+            event_flags: Default::default(),
             random_seed: SEED,
             map: 332,
             world_music: 0,
             story: 0,
-            story3: false,
             colette_state: 0,
             devils_arms_unlocked: false,
             victory_story_flags: [false; 2],
             overlimit_boost: false,
         },
-        |request| {
-            let path = match request {
-                Sound::Cue(index) => {
-                    &audio
-                        .assets
-                        .sounds
-                        .get(&i16::try_from(index)?)
-                        .context("unpublished sound")?
-                        .path
-                }
-                Sound::Stream(index) => {
-                    &audio
-                        .assets
-                        .voices
-                        .get(&u32::from(index))
-                        .context("unpublished voice")?
-                        .asset
-                        .path
-                }
-            };
-            assets.files.read(path)?;
-            Ok(Some(request))
-        },
+        &mut files,
+        || false,
     )?;
+
     assert_eq!(prepared.characters, party.formation);
     let phantom_cast = prepared
         .results
@@ -121,7 +94,10 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
                 .rows
                 .iter()
                 .position(|row| {
-                    row.attack == Some(resonance_content::battle_action::EnemyAttack::FireBall)
+                    matches!(
+                        row.execution,
+                        Some(resonance_content::battle_action::EnemyExecution::Spell(204))
+                    )
                 })
                 .context("missing native Fire Ball")?;
             Ok((

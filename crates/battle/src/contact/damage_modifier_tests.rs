@@ -32,12 +32,17 @@ fn contact(kind: DamageKind, attacking: DamageTraits, defending: DamageTraits) -
             height: 2.,
             shape: HitShape::Box,
             rule: HitRule {
+                sound: None,
                 kind,
                 arte: false,
+                effect_on_guard: false,
+                effect: None,
                 overlimit_pause: false,
                 power: Power::Normal,
                 element: HitElement::Neutral,
                 prevents_defeat: false,
+                finisher_grade: false,
+                hp_drain: false,
                 guard: GuardRule::default(),
                 reaction: Default::default(),
                 condition: None,
@@ -47,7 +52,7 @@ fn contact(kind: DamageKind, attacking: DamageTraits, defending: DamageTraits) -
         })
         .unwrap();
     let mut cues = vec![];
-    contacts.resolve(&mut battle, &mut cues).unwrap();
+    contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
     let hit = cues
         .into_iter()
         .find_map(|cue| match cue {

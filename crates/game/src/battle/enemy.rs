@@ -82,6 +82,7 @@ pub(super) fn actor(
             dagger_reach: false,
             contact: Default::default(),
             normal_combo_limit: 1,
+            guaranteed_steal: false,
             luck: stats.luck,
             stats: CombatStats {
                 slash: stats.attack,
@@ -135,6 +136,7 @@ pub(super) fn actor(
         heading: 0.,
         facing_direction: [0., 0., 1.],
         effect_scale: 1.,
+        secondary_wind: Default::default(),
         body: Body {
             collider: Some(match monster.id {
                 SEWER_RAT => Collider::standing(35., 70.),
@@ -161,13 +163,70 @@ pub const PUMPKIN_TREE: u8 = 12;
 pub const SEWER_RAT: u8 = 34;
 pub const ZOMBIE: u8 = 36;
 pub const GHOUL: u8 = 37;
+
+pub(super) fn catalogue_id(
+    catalogue: &resonance_content::battle_unison::Catalogue,
+    native: u16,
+) -> Option<u16> {
+    catalogue
+        .placements
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find_map(|(id, placement)| (placement.native_id == native).then_some(id as u16))
+}
+
+pub(super) fn technique_ids(source: &battle_enemy::Definition) -> std::collections::BTreeSet<u16> {
+    use resonance_content::battle_action::{EnemyEvent, EnemyExecution};
+    let mut techniques = std::collections::BTreeSet::new();
+    for row in &source.actions.rows {
+        let attack = match &row.execution {
+            Some(EnemyExecution::Spell(technique)) => {
+                techniques.insert(*technique);
+                continue;
+            }
+            Some(EnemyExecution::Physical { technique, attack }) => {
+                techniques.insert(*technique);
+                attack
+            }
+            Some(EnemyExecution::Attack(attack)) => attack,
+            Some(EnemyExecution::LeaveArena) | None => continue,
+        };
+        techniques.extend(attack.events.iter().filter_map(|(_, event)| match event {
+            EnemyEvent::ReleaseSpell { technique, .. } => Some(*technique),
+            _ => None,
+        }));
+    }
+    techniques
+}
 pub const GHOST: u8 = 49;
 pub const PHANTOM: u8 = 50;
+
+fn contact_anchors(
+    model: &resonance_battle::ModelDefinition,
+    attachments: &resonance_content::battle_action::ContactAttachments,
+) -> Result<Vec<resonance_battle::MeleeAnchor>> {
+    use resonance_content::battle_action::ContactAttachments;
+    let ContactAttachments::Groups(groups) = attachments else {
+        return model.contact_anchors(attachments);
+    };
+    // Enemy bodies reserve these slots even when they contain no contact markers.
+    const BODY_CONTACT_SLOTS: u8 = 12;
+    let mut anchors = Vec::new();
+    for &group in groups {
+        let selected = model.contact_group_anchors(group);
+        anyhow::ensure!(
+            group < BODY_CONTACT_SLOTS || !selected.is_empty(),
+            "missing enemy melee attachment group {group}"
+        );
+        anchors.extend(selected);
+    }
+    Ok(anchors)
+}
 
 impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
     super::encounter::resources::Resources<'_, S>
 {
-    /// Native attacks and spells share one list and the encounter's resource owner.
     pub(crate) fn enemy(
         &mut self,
         enemy: u8,
@@ -176,240 +235,505 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
         bindings: &mut resonance_battle::ActionDefinitions,
     ) -> Result<Vec<resonance_battle::ActionKey>> {
         use resonance_battle::{AttackEvent as Event, AttackPose, PreparedAttack};
-        use resonance_content::battle_action::EnemyAttack::*;
+        use resonance_content::battle_action::{EnemyEvent, EnemyExecution};
         use std::sync::Arc;
-        let model_source = super::model::ModelSource::Enemy(enemy);
-        let pose = |clip| {
-            super::model::motion(model, clip).map(|motion| AttackPose {
-                motion,
-                start: 0.,
-                rate: 0.5,
-                blend: 4,
+        let recoil = super::recoil::Parameters::load(self.files)?;
+        let body_motion = !source.profile.traits.body_motion_disabled;
+        let pose = |source: resonance_content::battle_action::ActionPose| -> Result<_> {
+            Ok(AttackPose {
+                motion: super::model::motion(model, source.clip).with_context(|| {
+                    format!("missing enemy {enemy} action clip {}", source.clip)
+                })?,
+                start: source.start,
+                end: source.end,
+                repeat: source.repeat,
+                rate: source.rate,
+                blend: source.blend,
             })
         };
-        let movement = |forward, vertical| Event::Move {
-            forward: Some(forward),
-            vertical,
-        };
+        let placements: resonance_content::battle_unison::Catalogue =
+            self.files.json(resonance_content::battle_unison::PATH)?;
         let mut actions = Vec::new();
-        for metadata in &source.actions.rows {
-            let attack = metadata
-                .attack
-                .context("enemy action has no native definition")?;
-            if attack == FireBall {
-                let (cast, feedback) = self.casting(
-                    model_source,
-                    super::fire_ball::CATALOGUE,
-                    super::fire_ball::CATALOGUE,
-                )?;
-                let key = bindings.insert(ActionDefinition {
-                    normal: None,
-                    tp_cost: u16::from(metadata.tp),
-                    execution: super::ActionExecution::Casting(cast),
-                });
-                self.feedback.casting.insert(key, feedback);
-                actions.push(key);
-                continue;
+        for (index, metadata) in source.actions.rows.iter().enumerate() {
+            if let Some(reason) = &metadata.unsupported_reason {
+                anyhow::bail!("enemy {enemy} action {index}: {reason}");
             }
-            let mut hit = super::hit::physical(match attack {
-                Double => 75,
-                Triple => 60,
-                Cross => 130,
-                Pounce => 140,
-                Swing | Spit | Lob => 90,
-                Scatter => 50,
-                _ => 100,
-            });
-            hit.reaction.recoil.knock_down = matches!(attack, Pounce | Cross);
-            hit.reaction.hits_down = hit.reaction.recoil.knock_down;
-            if attack == Spit {
-                hit.kind = resonance_battle::DamageKind::Magic;
-            }
-            let contact = |at, duration| {
-                (
-                    at,
-                    Event::Contact {
-                        definition: Arc::new(resonance_battle::MeleeDefinition {
-                            hit,
-                            volume: match enemy {
-                                SEWER_RAT => resonance_battle::MeleeVolume {
-                                    offset: [0., 25., 50.],
-                                    radius: 45.,
-                                    half_height: 40.,
-                                },
-                                PUMPKIN_TREE => resonance_battle::MeleeVolume {
-                                    offset: [0., 95., 100.],
-                                    radius: 100.,
-                                    half_height: 95.,
-                                },
-                                _ => resonance_battle::MeleeVolume {
-                                    offset: [0., 70., 70.],
-                                    radius: 60.,
-                                    half_height: 60.,
-                                },
-                            },
-                            trail: Some(0),
-                        }),
-                        duration,
-                    },
-                )
-            };
-            let mut events = Vec::new();
-            if enemy == GHOUL {
-                // Heavy swipes withstand three armor points before a later hit can interrupt.
-                events.push((0, Event::Armor(3)));
-            }
-            let (opening, end_at) = match attack {
-                Right | Push | Counter => {
-                    let opening = match attack {
-                        Push => 33,
-                        Counter => 38,
-                        _ => 30,
-                    };
-                    let swing = if matches!(attack, Push) { 34 } else { 31 };
-                    if let Some(pose) = pose(swing) {
-                        events.push((12, Event::Pose(pose)));
-                    }
-                    events.push(contact(16, 8));
-                    events.push((
-                        16,
-                        Event::Sound((self.sound)(super::voice::Sound::Cue(60))?),
-                    ));
-                    (Some(opening), 32)
+            let execution = metadata
+                .execution
+                .as_ref()
+                .context("missing enemy action timeline")?;
+            let attack = match execution {
+                EnemyExecution::LeaveArena => {
+                    actions.push(bindings.insert(ActionDefinition {
+                        normal: None,
+                        tp_cost: u16::from(metadata.tp),
+                        execution: super::ActionExecution::LeaveArena,
+                    }));
+                    continue;
                 }
-                Double | Triple | Cross => {
-                    let strikes: &[u16] = if matches!(attack, Triple) {
-                        &[16, 40, 64]
-                    } else {
-                        &[16, 40]
-                    };
-                    for (hit, &at) in strikes.iter().enumerate() {
-                        if !matches!(attack, Cross)
-                            && let Some(pose) = pose(if hit == 1 { 34 } else { 31 })
-                        {
-                            events.push((at - 4, Event::Pose(pose)));
-                        }
-                        events.push(contact(at, 8));
-                        events.push((at, movement(4., None)));
-                        events.push((
-                            at,
-                            Event::Sound((self.sound)(super::voice::Sound::Cue(60))?),
-                        ));
-                    }
-                    (
-                        Some(if matches!(attack, Cross) { 37 } else { 30 }),
-                        strikes.last().unwrap() + 16,
-                    )
-                }
-                Tail => {
-                    events.push(contact(16, 8));
-                    (Some(30), 32)
-                }
-                Pounce => {
-                    events.push((4, movement(12., Some(10.))));
-                    if let Some(pose) = pose(32) {
-                        events.push((12, Event::Pose(pose)));
-                    }
-                    events.push(contact(12, 20));
-                    events.push((
-                        32,
-                        Event::Land {
-                            pose: pose(9),
-                            effect: None,
-                        },
-                    ));
-                    (Some(31), 32)
-                }
-                Strike => {
-                    events.push((8, movement(6., None)));
-                    events.push(contact(16, 8));
-                    if enemy == GHOST {
-                        events.push((
-                            16,
-                            Event::Sound((self.sound)(super::voice::Sound::Cue(60))?),
-                        ));
-                        events.push((
-                            8,
-                            Event::Trail {
-                                slot: 0,
-                                duration: 24,
-                            },
-                        ));
-                    }
-                    (if enemy == GHOST { Some(30) } else { None }, 32)
-                }
-                Swing => {
-                    for at in [12, 28] {
-                        events.push(contact(at, 8));
-                        events.push((
-                            at,
-                            Event::Sound((self.sound)(super::voice::Sound::Cue(61))?),
-                        ));
-                    }
-                    (Some(31), 44)
-                }
-                Spit | Scatter | Lob => {
-                    let (times, opening): (&[u16], _) = match attack {
-                        Spit => (&[24], if enemy == GHOST { 31 } else { 2 }),
-                        Scatter => (&[12, 20, 28], 30),
-                        Lob => (&[12, 28], 33),
-                        _ => unreachable!(),
-                    };
-                    let projectile = metadata
-                        .projectile
-                        .as_ref()
-                        .context("missing enemy projectile")?;
-                    let projectile = self.prepared.projectile(
-                        self.files,
-                        projectile,
-                        hit,
-                        &[
-                            (0, &self.common),
-                            (
-                                2,
-                                self.enemy_effects
-                                    .get(&enemy)
-                                    .context("missing enemy effect bank")?,
-                            ),
-                        ],
+                EnemyExecution::Spell(technique) => {
+                    let catalogue = catalogue_id(&placements, *technique).with_context(|| {
+                        format!("enemy technique {technique} has no catalogue binding")
+                    })?;
+                    anyhow::ensure!(
+                        self.catalogue
+                            .definition(usize::from(catalogue))?
+                            .capabilities
+                            .spell,
+                        "enemy technique {technique} requires a physical action"
+                    );
+                    let (cast, mut feedback) = self.casting(
+                        super::model::ModelSource::Enemy(enemy),
+                        catalogue,
+                        *technique,
+                        metadata.cast_ticks.map(u32::from),
                     )?;
-                    for &at in times {
-                        events.push((at, Event::Projectile(Arc::clone(&projectile))));
-                    }
-                    if enemy == GHOST {
-                        events.push((
-                            24,
-                            Event::Sound((self.sound)(super::voice::Sound::Cue(61))?),
-                        ));
-                    } else if matches!(attack, Lob) {
-                        events.push((0, Event::Sound((self.sound)(super::voice::Sound::Cue(55))?)));
-                        if let Some(pose) = pose(34) {
-                            events.push((32, Event::Pose(pose)));
+                    feedback.release_voice = metadata
+                        .voices
+                        .release
+                        .map(&mut self.sound)
+                        .transpose()?
+                        .flatten();
+                    let key = bindings.insert(ActionDefinition {
+                        normal: None,
+                        tp_cost: u16::from(if metadata.tp == 0 {
+                            self.catalogue.definition(usize::from(catalogue))?.tp_cost
+                        } else {
+                            metadata.tp
+                        }),
+                        execution: super::ActionExecution::Casting(cast),
+                    });
+                    self.feedback.casting.insert(key, feedback);
+                    actions.push(key);
+                    continue;
+                }
+                EnemyExecution::Attack(attack) | EnemyExecution::Physical { attack, .. } => attack,
+            };
+            let mut events = vec![(0, Event::Armor(attack.armor))];
+            for (at, event) in &attack.events {
+                if !body_motion
+                    && matches!(
+                        event,
+                        EnemyEvent::Pose(_)
+                            | EnemyEvent::PartialPose { .. }
+                            | EnemyEvent::PoseKeepingParts(_)
+                            | EnemyEvent::AnimationRate(_)
+                    )
+                {
+                    continue;
+                }
+                if let EnemyEvent::Pose(pose)
+                | EnemyEvent::PartialPose { pose, .. }
+                | EnemyEvent::PoseKeepingParts(pose) = event
+                    && source.null_motions.contains(&pose.clip)
+                    && super::model::motion(model, pose.clip).is_none()
+                {
+                    // An authored empty visual slot keeps the current pose.
+                    continue;
+                }
+                let event = match event {
+                    EnemyEvent::Effect(member) => {
+                        let mut resource = self
+                            .enemy_effects
+                            .get(&enemy)
+                            .context("missing enemy effect bank")?
+                            .clone();
+                        resource.members = vec![*member];
+                        let appearance = resonance_battle::EffectAppearance {
+                            resource: resource.resource,
+                            member: *member,
+                        };
+                        self.prepared.effect(resource)?;
+                        Event::ActionEffect {
+                            appearance,
+                            origin: resonance_battle::AttackOrigin::ActorRoot,
                         }
                     }
-                    (Some(opening), times.last().unwrap() + 16)
-                }
-                FireBall => unreachable!(),
-            };
-            if !matches!(attack, Pounce)
-                && let Some(pose) = pose(0)
-            {
-                events.push((end_at, Event::Pose(pose)));
+                    EnemyEvent::CommonEffect(member) => {
+                        self.effect(false, &[*member])?;
+                        Event::Effect {
+                            appearance: resonance_battle::EffectAppearance {
+                                resource: self.common.resource,
+                                member: *member,
+                            },
+                            tints: Default::default(),
+                            centered: true,
+                        }
+                    }
+                    EnemyEvent::ReleaseSpell { technique, slot } => {
+                        let catalogue =
+                            catalogue_id(&placements, *technique).with_context(|| {
+                                format!("enemy direct spell {technique} has no catalogue binding")
+                            })?;
+                        let definition = self.spell(catalogue)?;
+                        let rule = self.catalogue.definition(usize::from(catalogue))?;
+                        let tint = self
+                            .tints
+                            .and_then(|tints| tints.effect(usize::from(rule.element)))
+                            .unwrap_or_default();
+                        let effect = if definition.transition_ticks == 0 {
+                            let member = rule.casting.effects.members()[1];
+                            self.effect(false, &[member])?;
+                            Some(resonance_battle::EffectAppearance {
+                                resource: self.common.resource,
+                                member,
+                            })
+                        } else {
+                            None
+                        };
+                        Event::ReleaseSpell {
+                            definition,
+                            slot: match slot {
+                                resonance_content::battle_action::SpellSlot::Primary => {
+                                    resonance_battle::SpellSlot::Primary
+                                }
+                                resonance_content::battle_action::SpellSlot::Secondary => {
+                                    resonance_battle::SpellSlot::Secondary
+                                }
+                            },
+                            effect,
+                            tint,
+                            sound: (self.sound)(super::voice::Sound::Cue(123))?,
+                        }
+                    }
+                    EnemyEvent::UseItem { item, party } => {
+                        let policy = super::items::policies()
+                            .get(item)
+                            .copied()
+                            .context("enemy item has no prepared benefit")?;
+                        use resonance_battle::item::Effect;
+                        anyhow::ensure!(
+                            if *party {
+                                matches!(policy.effect, Effect::Hourglass)
+                            } else {
+                                matches!(
+                                    policy.effect,
+                                    Effect::Recover { .. } | Effect::Revive | Effect::Buff(_)
+                                )
+                            },
+                            "enemy item recipient scope is not prepared"
+                        );
+                        Event::UseItem(*item)
+                    }
+                    EnemyEvent::Tint(color) => Event::Tint(*color),
+                    EnemyEvent::Defeat { rewards } => Event::Defeat { rewards: *rewards },
+                    EnemyEvent::WaitForHit { deadline } => Event::WaitForHit {
+                        deadline: *deadline,
+                        recovery: body_motion
+                            .then(|| pose(attack.recovery_pose))
+                            .transpose()?,
+                    },
+                    EnemyEvent::WaitForEffectiveHit { deadline } => Event::WaitForEffectiveHit {
+                        deadline: *deadline,
+                    },
+                    EnemyEvent::ReleaseCaptured { hitstun } => {
+                        Event::ReleaseCaptured { hitstun: *hitstun }
+                    }
+                    EnemyEvent::CapturedVisibility(visible) => Event::CapturedVisibility(*visible),
+                    EnemyEvent::CapturedForward(value) => Event::CapturedForward(*value),
+                    EnemyEvent::CapturedVertical(value) => Event::CapturedVertical(*value),
+                    EnemyEvent::Pose(source) => Event::Pose(pose(*source)?),
+                    EnemyEvent::PartialPose {
+                        first_bone,
+                        pose: source,
+                    } => {
+                        let count = model
+                            .context("missing enemy partial-pose model")?
+                            .skeleton
+                            .bones
+                            .len();
+                        anyhow::ensure!(
+                            usize::from(*first_bone) < count,
+                            "partial-pose bone exceeds enemy model"
+                        );
+                        Event::PartialPose {
+                            pose: pose(*source)?,
+                            bones: (usize::from(*first_bone)..count)
+                                .map(|bone| bone as u16)
+                                .collect(),
+                        }
+                    }
+                    EnemyEvent::PoseKeepingParts(source) => Event::PoseKeepingParts(pose(*source)?),
+                    EnemyEvent::AnimationRate(rate) => Event::AnimationRate(*rate),
+                    EnemyEvent::CarriedPose {
+                        slot,
+                        clip,
+                        rate,
+                        repeat,
+                    } => {
+                        anyhow::ensure!(
+                            model.is_some_and(|model| model.weapons.iter().any(|weapon| {
+                                weapon.slot == *slot && weapon.has_carried_motion(*clip)
+                            })),
+                            "enemy {enemy} has no independent carried clip {clip} in slot {slot}"
+                        );
+                        Event::CarriedPose {
+                            slot: *slot,
+                            clip: *clip,
+                            rate: *rate,
+                            repeat: *repeat,
+                        }
+                    }
+                    EnemyEvent::Contact(resonance_content::battle_action::MeleeContact {
+                        duration,
+                        attachments,
+                        shape,
+                        radius,
+                        height,
+                        hit,
+                    }) => {
+                        let volume = match attachments {
+                            resonance_content::battle_action::ContactAttachments::BodyCenter {} => {
+                                resonance_battle::MeleeVolume::BodyCenter {
+                                    shape: *shape,
+                                    radius: *radius,
+                                    half_height: *height,
+                                    cooldown: hit.cooldown,
+                                }
+                            }
+                            _ => {
+                                let anchors = contact_anchors(
+                                    model.context("missing enemy melee model")?,
+                                    attachments,
+                                )
+                                .with_context(|| {
+                                    format!("enemy {enemy} action {index} contact at {at}")
+                                })?;
+                                if anchors.is_empty() {
+                                    continue;
+                                }
+                                resonance_battle::MeleeVolume::Attached {
+                                    anchors,
+                                    shape: *shape,
+                                    radius: *radius,
+                                    half_height: *height,
+                                    cooldown: hit.cooldown,
+                                }
+                            }
+                        };
+                        Event::Contact {
+                            definition: Arc::new(resonance_battle::MeleeDefinition {
+                                hit: self.enemy_hit(enemy, hit, &recoil)?,
+                                volume,
+                                trail: None,
+                            }),
+                            duration: *duration,
+                        }
+                    }
+                    EnemyEvent::Projectile { definition, hit } => Event::Projectile(
+                        self.enemy_projectile(enemy, model, definition, hit, &recoil)?,
+                    ),
+                    EnemyEvent::GroundProjectiles {
+                        definitions,
+                        hit,
+                        retreat,
+                    } => Event::GroundProjectiles {
+                        definitions: [
+                            self.enemy_projectile(enemy, model, &definitions[0], hit, &recoil)?,
+                            self.enemy_projectile(enemy, model, &definitions[1], hit, &recoil)?,
+                        ],
+                        retreat: *retreat,
+                    },
+                    EnemyEvent::Forward(value) => Event::Move {
+                        forward: Some(*value),
+                        vertical: None,
+                    },
+                    EnemyEvent::Vertical(value) => Event::Move {
+                        forward: None,
+                        vertical: Some(*value),
+                    },
+                    EnemyEvent::Acceleration(value) => Event::Acceleration(*value),
+                    EnemyEvent::Gravity(value) => Event::Gravity(*value),
+                    EnemyEvent::SetPosition(value) => Event::SetPosition(value.map(f32::from)),
+                    EnemyEvent::PositionFromTarget { height, retreat } => {
+                        Event::PositionFromTarget {
+                            height: f32::from(*height),
+                            retreat: f32::from(*retreat),
+                        }
+                    }
+                    EnemyEvent::OffsetPosition { height, retreat } => Event::OffsetPosition {
+                        height: f32::from(*height),
+                        retreat: f32::from(*retreat),
+                    },
+                    EnemyEvent::TurnMotion(degrees) => Event::TurnMotion(*degrees),
+                    EnemyEvent::FaceTarget => Event::FaceTarget,
+                    EnemyEvent::SecondaryWind { enabled, duration } => Event::SecondaryWind {
+                        enabled: *enabled,
+                        duration: *duration,
+                    },
+                    EnemyEvent::Braking(value) => Event::Braking(*value),
+                    EnemyEvent::ReactionArmor(duration) => Event::ReactionArmor(*duration),
+                    EnemyEvent::StatUp { condition, amount } => Event::StatUp {
+                        condition: *condition,
+                        amount: *amount,
+                    },
+                    EnemyEvent::Stun => Event::Stun,
+                    EnemyEvent::WeaponVisibility { slot, visible } => {
+                        Event::WeaponVisibility(vec![(*slot, *visible)])
+                    }
+                    EnemyEvent::PassThrough { enabled, duration } => Event::PassThrough {
+                        enabled: *enabled,
+                        duration: *duration,
+                    },
+                    EnemyEvent::Trail { slot, duration } => Event::Trail {
+                        slot: *slot,
+                        duration: *duration,
+                    },
+                    EnemyEvent::Sound(cue) => {
+                        Event::Sound((self.sound)(super::voice::Sound::Cue(*cue))?)
+                    }
+                    EnemyEvent::Voice {
+                        sound,
+                        announcement,
+                    } => {
+                        let Some(sound) = sound.map(&mut self.sound).transpose()?.flatten() else {
+                            continue;
+                        };
+                        Event::Voice {
+                            sound,
+                            priority: if *announcement {
+                                resonance_battle::VoicePriority::Announcement
+                            } else {
+                                resonance_battle::VoicePriority::Action
+                            },
+                        }
+                    }
+                };
+                events.push((*at, event));
+            }
+            if body_motion {
+                events.push((attack.duration, Event::Pose(pose(attack.recovery_pose)?)));
             }
             events.sort_by_key(|(at, _)| *at);
-            actions.push(bindings.insert(ActionDefinition {
-                normal: None,
-                tp_cost: u16::from(metadata.tp),
-                execution: super::ActionExecution::Attack(PreparedAttack {
-                    opening: opening.and_then(pose),
-                    events,
-                    chain_at: None,
-                    end_at,
-                    recovery: 16,
+            actions.push(
+                bindings.insert(ActionDefinition {
+                    normal: None,
+                    tp_cost: u16::from(metadata.tp),
+                    execution: super::ActionExecution::Attack(PreparedAttack {
+                        opening: None,
+                        events,
+                        chain_at: attack.chain_at,
+                        end_at: attack.duration,
+                        recovery: u16::from(attack.recovery_ticks),
+                        contact_recovery: attack
+                            .contact_recovery
+                            .as_ref()
+                            .map(|recovery| -> Result<_> {
+                                Ok(resonance_battle::ContactRecovery {
+                                    pose: recovery
+                                        .pose
+                                        .filter(|_| body_motion)
+                                        .map(pose)
+                                        .transpose()?,
+                                    movement: recovery.movement,
+                                    braking: recovery.braking,
+                                    pass_through_ticks: recovery.pass_through_ticks,
+                                    voice: recovery
+                                        .voice
+                                        .map(|voice| (self.sound)(voice))
+                                        .transpose()?
+                                        .flatten(),
+                                    expressions: recovery.expressions,
+                                })
+                            })
+                            .transpose()?,
+                    }),
                 }),
-            }));
+            );
+        }
+        if let Some(resource) = self
+            .enemy_effects
+            .get(&enemy)
+            .and_then(|resource| self.prepared.effects.get(&resource.resource))
+        {
+            super::effect_program::validate_owner(resource, model)
+                .with_context(|| format!("enemy {enemy} effect origins"))?;
         }
         Ok(actions)
+    }
+    fn enemy_projectile(
+        &mut self,
+        enemy: u8,
+        model: Option<&resonance_battle::ModelDefinition>,
+        definition: &resonance_content::battle_projectile::Projectile,
+        hit: &resonance_content::battle_action::ActionHit,
+        recoil: &super::recoil::Parameters,
+    ) -> Result<std::sync::Arc<resonance_battle::ProjectileDefinition>> {
+        use resonance_content::battle_projectile::ProjectileOrigin;
+        use std::sync::Arc;
+        let bones = [
+            match definition.motion.origin {
+                ProjectileOrigin::Bone(bone) => Some(bone),
+                _ => None,
+            },
+            definition
+                .motion
+                .bone_direction
+                .map(|direction| direction.from),
+            definition
+                .motion
+                .bone_direction
+                .map(|direction| direction.to),
+        ];
+        if bones.iter().any(Option::is_some) {
+            let count = model
+                .context("enemy projectile bone binding has no body model")?
+                .skeleton
+                .bones
+                .len();
+            for bone in bones.into_iter().flatten() {
+                anyhow::ensure!(
+                    usize::from(bone) < count,
+                    "enemy {enemy} projectile bone {bone} exceeds body model"
+                );
+            }
+        }
+        let rule = self.enemy_hit(enemy, hit, recoil)?;
+        let mut projectile = self.prepared.projectile(
+            self.files,
+            definition,
+            rule,
+            &[
+                (0, &self.common),
+                (
+                    2,
+                    self.enemy_effects
+                        .get(&enemy)
+                        .context("missing enemy effect bank")?,
+                ),
+            ],
+        )?;
+        Arc::make_mut(&mut projectile)
+            .contact
+            .as_mut()
+            .context("enemy projectile has no contact")?
+            .cooldown = hit.cooldown;
+        Ok(projectile)
+    }
+    fn enemy_hit(
+        &mut self,
+        enemy: u8,
+        source: &resonance_content::battle_action::ActionHit,
+        recoil: &super::recoil::Parameters,
+    ) -> Result<resonance_battle::HitRule> {
+        let mut hit = super::hit::authored(source, recoil)?;
+        if let Some(sound) = hit.sound {
+            hit.sound = (self.sound)(sound)?;
+        }
+        if let Some(member) = source.effect {
+            let mut resource = self
+                .enemy_effects
+                .get(&enemy)
+                .context("missing enemy contact effect bank")?
+                .clone();
+            resource.members = vec![member];
+            hit.effect = Some(resonance_battle::EffectAppearance {
+                resource: resource.resource,
+                member,
+            });
+            self.prepared.effect(resource)?;
+        }
+        Ok(hit)
     }
 }
 

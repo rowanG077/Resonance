@@ -27,6 +27,8 @@ fn hit() -> HitResult {
         hp_change: -8,
         critical: false,
         boosted: false,
+        reaction_suppressed: false,
+        reaction_forced: false,
         affinity: crate::Affinity::Normal,
         guard: GuardResult::None,
         protection: crate::HitProtection::None,
@@ -36,6 +38,9 @@ fn hit() -> HitResult {
 fn melee(chance: u8) -> MeleeDefinition {
     MeleeDefinition {
         hit: HitRule {
+            sound: None,
+            effect_on_guard: false,
+            effect: None,
             overlimit_pause: true,
             condition: None,
             arte: false,
@@ -43,6 +48,8 @@ fn melee(chance: u8) -> MeleeDefinition {
             power: Power::Fixed(8),
             element: HitElement::Neutral,
             prevents_defeat: false,
+            finisher_grade: false,
+            hp_drain: false,
             guard: GuardRule::default(),
             reaction: ReactionRule {
                 stun_chance: chance,
@@ -51,7 +58,7 @@ fn melee(chance: u8) -> MeleeDefinition {
             },
         },
         trail: None,
-        volume: crate::MeleeVolume {
+        volume: crate::MeleeVolume::Fixed {
             offset: [0.; 3],
             radius: 2.,
             half_height: 2.,
@@ -65,7 +72,7 @@ fn contact(battle: &mut Battle, chance: u8) -> Vec<Cue> {
         .melee(ActorId(0), ActionId(999), &melee(chance), &[])
         .unwrap();
     let mut cues = vec![];
-    contacts.resolve(battle, &mut cues).unwrap();
+    contacts.resolve(battle, &mut cues, &[]).unwrap();
     cues
 }
 

@@ -36,6 +36,7 @@ fn elapsed_time_and_trails_continue_past_short_clocks_until_optional_retirement(
                 owner: ActorId(0),
                 target: ActorId(1),
                 position: [0.; 3],
+                velocity: [0.; 3],
                 heading: 0.,
                 age: 0,
                 contact_active: false,

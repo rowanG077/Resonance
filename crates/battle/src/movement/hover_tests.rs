@@ -66,9 +66,14 @@ fn stopping_settles_without_bobbing_but_common_phase_keeps_running() {
     battle.advance_hover(1, true).unwrap();
     let height = battle.actors[1].position[1];
     assert!(height > 50. && height <= 50.5);
-    for _ in 0..360 {
+    battle.actors[1].movement.hover.phase = 0;
+    battle.actors[1].position[1] = 50.;
+    let mut peak = 50_f32;
+    for _ in 0..90 {
         battle.advance_actor_common(1, &mut vec![]).unwrap();
         battle.advance_hover(1, true).unwrap();
-        assert!((battle.actors[1].position[1] - 50.).abs() <= 0.5);
+        peak = peak.max(battle.actors[1].position[1]);
     }
+    assert!((peak - 64.318).abs() < 0.01);
+    assert!((battle.actors[1].position[1] - 50.).abs() < 0.001);
 }

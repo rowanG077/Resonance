@@ -26,7 +26,17 @@ class BattleStateTests(unittest.TestCase):
     def test_watcher_discovers_the_loaded_bss_instead_of_assuming_its_address(self):
         battle = inspect_battle(self.ram)
         self.assertEqual(battle["pool_pointer"], 0x80020540)
-        self.assertEqual(watch_locations(battle)["80020540 7a670"], "battle_random_state_word")
+        locations = watch_locations(battle)
+        location = "8035a86c 10 8 540 7a670"
+        self.assertEqual(locations[location], "battle_random_state_word")
+        # The same installed watcher must follow a relocated BSS and pool.
+        self.word(0x80003008, 0x80021000)
+        self.word(0x80021540, 0x80031000)
+        self.word(0x80031000 + 0x7a670, 1234)
+        address, *offsets = [int(part, 16) for part in location.split()]
+        for offset in offsets:
+            address = struct.unpack_from(">I", self.ram, address - 0x80000000)[0] + offset
+        self.assertEqual(struct.unpack_from(">I", self.ram, address - 0x80000000)[0], 1234)
 
     def test_invalid_module_and_bss_are_rejected(self):
         struct.pack_into(">H", self.ram, 0x35a762, 9)
@@ -68,7 +78,7 @@ class BattleStateTests(unittest.TestCase):
         self.assertEqual(observed["position"], [10., 20., 30.])
         self.assertEqual(observed["center_offset"], [0., 80., 0.])
         self.assertEqual(observed["model_scale"], 2.)
-        self.assertEqual(watch_locations(battle)["80020540 1e7fc"],
+        self.assertEqual(watch_locations(battle)["8035a86c 10 8 540 1e7fc"],
                          "battle_actor_0_center_x_bits")
 
 

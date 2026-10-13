@@ -29,12 +29,17 @@ fn hammer() -> Arc<crate::ProjectileDefinition> {
         effects: Default::default(),
         contact: Some(crate::ProjectileContact {
             hit: crate::HitRule {
+                sound: None,
                 kind: crate::DamageKind::Thrust,
                 arte: true,
                 power: crate::Power::Percent(50),
                 element: crate::HitElement::Neutral,
+                effect_on_guard: false,
+                effect: None,
                 overlimit_pause: false,
                 prevents_defeat: false,
+                finisher_grade: false,
+                hp_drain: false,
                 guard: Default::default(),
                 reaction: crate::ReactionRule {
                     hitstun: 20,

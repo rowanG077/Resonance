@@ -21,7 +21,7 @@ fn close_equipment(
 fn equip(candidate: &mut Candidate, weapon: u16) -> Result<()> {
     ensure!(
         candidate
-            .equipment_draft
+            .menu_party
             .as_mut()
             .unwrap()
             .equip_slot(&candidate.session, 0, 0, weapon)
@@ -85,7 +85,7 @@ fn rejected_equipment_keeps_party_actors_and_title_history_under_both_error_poli
         let actors = battle.actors().to_vec();
         equip(&mut candidate, 136)?;
         // Invalid data on the later actor must reject the entire draft.
-        candidate.equipment_draft.as_mut().unwrap().members[1].ex_skills = [u8::MAX, 0, 0, 0];
+        candidate.menu_party.as_mut().unwrap().members[1].ex_skills = [u8::MAX, 0, 0, 0];
         let closed = finish_equipment(&mut candidate, &mut battle, &mut page, &mut character);
         assert_eq!(closed.is_err(), paranoid);
         assert!(
@@ -100,7 +100,7 @@ fn rejected_equipment_keeps_party_actors_and_title_history_under_both_error_poli
         assert!(!candidate.party.battles.lloyd_non_wooden_blade_used);
         assert_eq!(battle.actors(), actors.as_slice());
         assert_eq!(battle.random_state(), random);
-        assert!(candidate.equipment_draft.is_none());
+        assert!(candidate.menu_party.is_none());
         assert_eq!(serde_json::to_value(&field)?, field_before);
     }
     Ok(())

@@ -3,13 +3,43 @@ use crate::{ActorId, HitRule};
 use anyhow::{Result, ensure};
 use std::sync::Arc;
 
-/// An upright cylinder in actor-local units, facing along local +Z.
-/// The action owns its dimensions; models and equipment poses never alter it.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MeleeVolume {
-    pub offset: [f32; 3],
-    pub radius: f32,
-    pub half_height: f32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MeleeAnchor {
+    pub resource: u32,
+    pub bone: u16,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MeleeVolume {
+    Fixed {
+        offset: [f32; 3],
+        radius: f32,
+        half_height: f32,
+    },
+    BodyCenter {
+        shape: crate::HitShape,
+        radius: f32,
+        half_height: f32,
+        cooldown: u8,
+    },
+    Attached {
+        anchors: Vec<MeleeAnchor>,
+        shape: crate::HitShape,
+        radius: f32,
+        half_height: f32,
+        cooldown: u8,
+    },
+}
+
+impl MeleeVolume {
+    pub(crate) fn cooldown(&self) -> u16 {
+        match self {
+            Self::Fixed { .. } => u16::MAX,
+            Self::Attached { cooldown, .. } | Self::BodyCenter { cooldown, .. } => {
+                u16::from(*cooldown).max(1)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -24,11 +54,41 @@ impl MeleeDefinition {
     pub(crate) fn validate(&self) -> Result<()> {
         self.hit.reaction.validate()?;
         ensure!(
-            self.volume.offset.iter().all(|v| v.is_finite())
-                && self.volume.radius.is_finite()
-                && self.volume.radius >= 0.
-                && self.volume.half_height.is_finite()
-                && self.volume.half_height >= 0.,
+            !self.hit.reaction.capture || matches!(&self.volume, MeleeVolume::Attached { .. }),
+            "capture requires a melee attachment"
+        );
+        let (radius, half_height) = match &self.volume {
+            MeleeVolume::Fixed {
+                offset,
+                radius,
+                half_height,
+            } => {
+                ensure!(offset.iter().all(|v| v.is_finite()), "invalid melee offset");
+                (*radius, *half_height)
+            }
+            MeleeVolume::Attached {
+                shape,
+                radius,
+                half_height,
+                ..
+            }
+            | MeleeVolume::BodyCenter {
+                shape,
+                radius,
+                half_height,
+                ..
+            } => {
+                if let MeleeVolume::Attached { anchors, .. } = &self.volume {
+                    ensure!(!anchors.is_empty(), "empty melee anchors");
+                }
+                if let crate::HitShape::Ring { width } = shape {
+                    ensure!(width.is_finite(), "invalid melee ring");
+                }
+                (*radius, *half_height)
+            }
+        };
+        ensure!(
+            radius.is_finite() && radius >= 0. && half_height.is_finite() && half_height >= 0.,
             "invalid melee volume"
         );
         Ok(())
@@ -38,5 +98,6 @@ impl MeleeDefinition {
 pub(crate) struct Window {
     pub definition: Arc<MeleeDefinition>,
     pub remaining: u16,
-    pub struck: Vec<ActorId>,
+    pub positions: Vec<[f32; 3]>,
+    pub struck: Vec<(ActorId, u16)>,
 }

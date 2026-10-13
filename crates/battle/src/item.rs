@@ -20,9 +20,21 @@ pub struct Release {
     pub item: u16,
 }
 
-/// Acquisition is the release's final fallible operation. A scan loan may
-/// insert its persistent knowledge row, so the caller must finish immediately.
+#[derive(Clone, Copy, Debug)]
+pub struct StealRequest {
+    pub user: ActorId,
+    pub target: ActorId,
+    pub adjusted_roll: u16,
+    pub guaranteed: bool,
+    /// Item Rover also takes one tenth of the enemy's ordinary Gald reward.
+    pub gald: bool,
+}
+
+/// Inventory transactions remain synchronous with their gameplay release.
 pub trait Provider {
+    fn steal(&mut self, _: StealRequest) -> Result<Option<String>> {
+        anyhow::bail!("battle stealing storage is not available")
+    }
     fn acquire_item(&mut self, request: Release) -> Result<ItemLoan<'_>>;
     fn acquire_scan(&mut self, request: Release) -> Result<ScanLoan<'_>>;
 }
@@ -180,8 +192,8 @@ impl PreparedBattle {
         }
         for (actor, binding) in self.actors.iter().zip(&definition.actors) {
             ensure!(
-                binding.is_some() == (actor.side == Side::Party),
-                "item user binding differs from side"
+                binding.is_none() || actor.side == Side::Party,
+                "enemy cannot use the party item inventory"
             );
         }
         self.resources.items = Some(definition);

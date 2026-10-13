@@ -1042,8 +1042,12 @@ impl Frames {
         }
         let mut buses = [[0; 2]; 3];
         let master = self.master;
-        let [music_level, effects_level, _] = self.levels.map(|v| f32::from(v) * (1. / 127.));
-        let voice_level = self.assets.voice_gains[usize::from(self.levels[2])];
+        let mut levels = self.levels;
+        if let Some(battle) = &self.battle {
+            levels[1..].copy_from_slice(&battle.event_audio_levels());
+        }
+        let [music_level, effects_level, _] = levels.map(|v| f32::from(v) * (1. / 127.));
+        let voice_level = self.assets.voice_gains[usize::from(levels[2])];
         let diagnostics = self.assets.diagnostics.clone();
         if let Some(music) = &mut self.music {
             music.player.controls.mono = !self.stereo;
@@ -1393,14 +1397,15 @@ fn flush_commands(world: &mut World) -> Result<()> {
 /// Field effects and dialogue end at the boundary; music and its clock survive.
 /// A full queue defers the transition; a stopped optional mixer cannot block it.
 pub(super) fn leave_field(world: &mut World) -> Result<bool> {
-    let Some(mut control) = world.get_resource::<Control>().cloned() else {
+    let Some(control) = world.get_resource::<Control>() else {
         return Ok(true);
     };
-    let result = control.check().and_then(|()| {
-        flush_commands(world)?;
-        control.leave_field()
-    });
+    let checked = control.check();
     let diagnostics = control.diagnostics.clone();
+    let result = checked.and_then(|()| {
+        flush_commands(world)?;
+        world.resource_mut::<Control>().leave_field()
+    });
     if let Err(error) = result {
         let full = matches!(
             error.downcast_ref::<mpsc::TrySendError<Message>>(),
@@ -2773,6 +2778,47 @@ mod tests {
             effect_spatial: [320., 5., 64., 0., 127.],
             voice_spatial: [320., 5., 64., 24., 104.],
         })?;
+        // An unrequested, well-formed binding must not load its absent PCM.
+        let mut unselected = descriptor.clone();
+        unselected["assets"]["voices"]["8"] = unselected["assets"]["voices"]["7"].clone();
+        let voice_path = unselected["assets"]["voices"]["7"]["path"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        unselected["assets"]["voices"]["8"]["path"] = "audio/unselected.wav".into();
+        unselected["files"]["audio/unselected.wav"] = unselected["files"][&voice_path].clone();
+        let (mut selected_files, _) = prepared_bank(Diagnostics::new(true));
+        selected_files.insert(
+            battle_audio::PATH.into(),
+            serde_json::to_vec(&unselected)?.into(),
+        );
+        let selected_descriptor = resonance_game::battle::audio::read(&selected_files)?;
+        let (selected_files, selected_descriptor) = resonance_game::battle::audio::prepare(
+            &std::env::temp_dir(),
+            selected_files,
+            selected_descriptor,
+            &battle_audio::Selection {
+                streams: [7].into(),
+                ..Default::default()
+            },
+            &mut resonance_content::prepared::Cache::default(),
+            || false,
+        )?;
+        let selected_descriptor = selected_descriptor.unwrap();
+        assert_eq!(
+            selected_descriptor
+                .assets
+                .voices
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            [7]
+        );
+        assert!(selected_descriptor.assets.music.is_empty());
+        assert!(selected_descriptor.assets.sounds.is_empty());
+        assert!(selected_files.read("audio/unselected.wav").is_err());
+        assert!(!selected_files.diagnostics().has_errors());
+
         let mut bad_header = descriptor.clone();
         bad_header["assets"]["version"] = 0.into();
         let mut bad_entry = descriptor;
@@ -2790,12 +2836,22 @@ mod tests {
                 if let Some(bytes) = &bytes {
                     files.insert(battle_audio::PATH.into(), bytes.clone().into());
                 }
-                let prepared = resonance_game::battle::audio::prepare(
-                    &std::env::temp_dir(),
-                    files,
-                    &mut resonance_content::prepared::Cache::default(),
-                    || false,
-                );
+                let prepared = (|| {
+                    let descriptor = resonance_game::battle::audio::read(&files)?;
+                    resonance_game::battle::audio::prepare(
+                        &std::env::temp_dir(),
+                        files,
+                        descriptor,
+                        &battle_audio::Selection {
+                            music: [1].into(),
+                            sounds: [2].into(),
+                            streams: [7].into(),
+                            ..Default::default()
+                        },
+                        &mut resonance_content::prepared::Cache::default(),
+                        || false,
+                    )
+                })();
                 if paranoid {
                     assert!(prepared.is_err());
                     continue;
@@ -2805,16 +2861,14 @@ mod tests {
                 assert!(files.diagnostics().has_errors());
                 // Playback uses the admitted descriptor; it does not decode it again.
                 files.remove(battle_audio::PATH);
-                let loaded =
+                let previous = files.diagnostics().entries();
+                let _loaded =
                     battle::Assets::load(&files, descriptor.as_ref(), &mut Cache::default())?;
                 if let Some(descriptor) = descriptor {
                     assert_eq!(
                         descriptor.assets.voices.keys().copied().collect::<Vec<_>>(),
                         [7]
                     );
-                    let previous = files.diagnostics().entries();
-                    loaded.bind(resonance_game::battle::voice::Sound::Cue(2))?;
-                    loaded.bind(resonance_game::battle::voice::Sound::Stream(7))?;
                     assert_eq!(files.diagnostics().entries(), previous);
                 }
             }
@@ -2823,6 +2877,8 @@ mod tests {
             resonance_game::battle::audio::prepare(
                 &std::env::temp_dir(),
                 base_files,
+                None,
+                &battle_audio::Selection::default(),
                 &mut resonance_content::prepared::Cache::default(),
                 || true,
             )

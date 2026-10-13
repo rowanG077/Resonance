@@ -3909,11 +3909,9 @@ fn background_event_controls_suspend_its_wait_without_stopping_the_foreground() 
             (Call::ControlEvent, &[2, resume]),
         ]);
         let child = script(&[(Call::YieldCommand, &[0, 4]), (Call::SetEventBit, &[42])]);
-        let mut events = runtime(
-            program(&main, &child),
-            Default::default(),
-            Default::default(),
-        );
+        let mut world = GameWorld::default();
+        world.mapped_input_disabled = true;
+        let mut events = runtime(program(&main, &child), Default::default(), world);
         for _ in 1..7 {
             events.step().unwrap();
             assert!(!events.world.event_flags.contains(&42));
@@ -5621,7 +5619,7 @@ fn actor_luck_commands_reroll_once_and_read_equipment_bonuses_without_a_field_ac
     world.controlled_actor = 6;
     world.random_state = 0x12345678;
     world.insert_actor(6, Actor::new(6, [0.; 3]));
-    let gameplay = world.gameplay_random.clone();
+    let gameplay = world.gameplay_random;
     let mut code = Vec::new();
     for (slot, (call, args)) in [
         (Call::GetActorProperty, &[6, 112][..]),

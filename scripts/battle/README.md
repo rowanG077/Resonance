@@ -20,9 +20,10 @@ Casting commits TP when the action releases its spell. Released spells, effects,
 and particles can outlive the actor task that created them. Cleanup must respect
 those owners when an actor is interrupted or a battle ends.
 
-`audio-requirements.json` lists the sound and voice resources required by the
-currently prepared actions. It is an asset inventory, not a guarantee that every
-technique or encounter is implemented.
+The ordinary cook publishes every available source sound, voice and music binding,
+independently of implemented actions. Encounters load only their prepared requests.
+`battle/audio-coverage.json` records source resources that cannot be played;
+catalogue presence is not a guarantee that every technique is implemented.
 
 Test observable outcomes and a few representative action sequences. Avoid tests
 that merely restate internal command order or require obsolete implementation

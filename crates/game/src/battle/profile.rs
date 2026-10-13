@@ -28,6 +28,7 @@ pub fn apply(
     actor.movement.steering.push_immovable = profile.traits.push_immovable;
     actor.reaction.profile = recoil.profile(profile.weight, &profile.traits);
     actor.reaction.recover_in_air = profile.traits.recover_in_air;
+    actor.reaction.hit_shake_disabled = profile.traits.hit_shake_disabled;
     actor.reaction.armor.base = profile.armor;
     actor.reaction.armor.threshold = profile.armor;
     actor.reaction.stagger.threshold = profile.stagger_threshold;

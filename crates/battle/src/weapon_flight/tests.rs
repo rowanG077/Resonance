@@ -13,12 +13,17 @@ fn definition(slot: u8, outbound_ticks: u32, direction_y: f32) -> Arc<WeaponFlig
         return_speed: 25.,
         direction_y,
         hit: HitRule {
+            sound: None,
             kind: DamageKind::Slash,
             arte: false,
+            effect_on_guard: false,
+            effect: None,
             overlimit_pause: false,
             power: Power::Fixed(10),
             element: HitElement::Neutral,
             prevents_defeat: false,
+            finisher_grade: false,
+            hp_drain: false,
             reaction: Default::default(),
             guard: Default::default(),
             condition: None,
@@ -37,6 +42,7 @@ fn battle(launch_at: u16, definition: Arc<WeaponFlightDefinition>) -> Battle {
     let action = ActionDefinition {
         normal: None,
         execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+            contact_recovery: None,
             chain_at: None,
             end_at: 200,
             opening: None,
@@ -135,9 +141,10 @@ fn launched_weapon_keeps_direction_and_power_after_owner_changes() -> Result<()>
                 actor: ActorId(0),
                 slot: 0,
                 duration: 1,
+                highlighted: false,
             }
         )));
-        contacts.resolve(&mut battle, &mut cues)?;
+        contacts.resolve(&mut battle, &mut cues, &[])?;
         let hit = cues
             .iter()
             .find_map(|cue| match cue {

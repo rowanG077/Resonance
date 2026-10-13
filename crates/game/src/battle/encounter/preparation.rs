@@ -14,11 +14,25 @@ use std::{
 
 const HAMMER_MODEL: u8 = 1;
 const HAMMER_EFFECT: u16 = 14;
-const BEAST_MODEL: u8 = 6;
+
+fn enemy_aura(enemy: u8) -> Option<(u16, u16)> {
+    // Package program and observed interval, in combat updates.
+    match enemy {
+        67 => Some((1, 61)),         // Fire Element
+        117 => Some((1, 13)),        // Fire Bird
+        180 => Some((1, 12)),        // Ktugach
+        185 => Some((1, 60)),        // Iubaris
+        198 => Some((1, 120)),       // Volt
+        202 => Some((1, 60)),        // Shadow
+        236..=238 => Some((1, 250)), // Yggdrasill and Mithos
+        _ => None,
+    }
+}
 
 /// Source state observed when the field asks to enter battle. The independent
 /// battle seed is captured once; preparation may be retried without new draws.
 pub struct PrepareOptions {
+    pub event_flags: BTreeSet<u16>,
     /// Saved event flag 0x3FA; story acquisition remains field-owned.
     pub devils_arms_unlocked: bool,
     pub random_seed: u64,
@@ -26,8 +40,6 @@ pub struct PrepareOptions {
     pub world_music: i32,
     pub story: i32,
     pub colette_state: i32,
-    /// Exact saved story flag 3 used by Colette's successor/base learning branches.
-    pub story3: bool,
     pub victory_story_flags: [bool; 2],
     pub overlimit_boost: bool,
 }
@@ -69,6 +81,18 @@ impl Inputs {
             .weapons
             .get(&item)
             .context("missing selected weapon descriptor")?;
+        self.prepare_weapon(character, profile, source, weapon, shield, handles)
+    }
+
+    fn prepare_weapon(
+        &self,
+        character: u8,
+        profile: &battle_profile::Profile,
+        source: &battle_model::Party,
+        weapon: &battle_model::Weapon,
+        shield: bool,
+        handles: &mut Handles,
+    ) -> Result<EquipmentAttachments> {
         // Sheena's four card attachments share two prepared model parts.
         let slots: Vec<_> = if character == battle::party::Character::Sheena as u8 && !shield {
             (0..4).map(|slot| (slot, slot / 2)).collect()
@@ -104,8 +128,15 @@ impl Inputs {
             );
             let playback = (character == battle::party::Character::Genis as u8)
                 .then(battle::weapon::owner_linked);
-            let definition =
-                battle::weapon::prepare(&self.files, part, slot, bone, &resources, playback)?;
+            let definition = battle::weapon::prepare(
+                &self.files,
+                part,
+                slot,
+                bone,
+                &resources,
+                playback,
+                weapon.uv_animation.get(&part_index),
+            )?;
             let resource = definition.primary_resource();
             prepared.weapons.push(definition);
             if let Some(&material) = weapon.trails.get(&part_index)
@@ -114,6 +145,7 @@ impl Inputs {
                     &part.rig.skeleton,
                     resource,
                     material,
+                    true,
                     self.common_effects.as_deref(),
                     None,
                 )?
@@ -164,6 +196,23 @@ impl ActorRow<'_> {
         });
         let model = artwork.as_deref();
         let enemy = matches!(*source, model::ModelSource::Enemy(_));
+        if let Some(model) = model {
+            let motion =
+                battle::model::common_motion(Some(model), battle::model::MotionRole::Revival);
+            ensure!(enemy || motion.is_some(), "missing party revival motion");
+            if let Some(motion) = motion {
+                let pose = resonance_battle::AttackPose {
+                    motion,
+                    start: 0.,
+                    end: None,
+                    repeat: false,
+                    rate: 0.5,
+                    blend: 4,
+                };
+                let duration = model.motions[&motion.clip].duration_frames / pose.rate;
+                setup.revival = Some((pose, duration.floor() as u32 + u32::from(pose.blend) + 1));
+            }
+        }
         setup.contact_recovery = !enemy || profile.traits.enemy_contact_recovery;
         setup.recovery_return = Some(resonance_battle::RecoveryReturnDefinition {
             speed: if enemy {
@@ -197,7 +246,10 @@ impl ActorRow<'_> {
             )?);
             let mut definition = battle::control::party(
                 profile,
-                character,
+                table
+                    .normal_attacks
+                    .get(usize::from(character - 1))
+                    .context("missing normal attack table")?,
                 actions.normals,
                 battle::control::motions(model),
             )?;
@@ -226,8 +278,9 @@ impl ActorRow<'_> {
             model: artwork,
             ..
         } = self;
-        let controls = if let model::ModelSource::Party(character) = *source {
+        let mut controls = if let model::ModelSource::Party(character) = *source {
             battle::feedback::ActorFeedback {
+                overlimit: None,
                 overlimit_voice: voices.absolute(
                     *source,
                     voices
@@ -248,6 +301,24 @@ impl ActorRow<'_> {
         } else {
             Default::default()
         };
+        ensure!(
+            profile.overlimit_scale.is_finite() && profile.overlimit_scale >= 0.,
+            "invalid Over Limit effect scale"
+        );
+        if let Some(model) = artwork {
+            ensure!(
+                usize::from(profile.overlimit_bone) < model.skeleton.bones.len(),
+                "Over Limit effect bone is missing"
+            );
+            controls.overlimit = Some(battle::feedback::OverLimitFeedback {
+                appearance: resonance_battle::EffectAppearance {
+                    resource: common_id,
+                    member: 45,
+                },
+                bone: profile.overlimit_bone,
+                scale: profile.overlimit_scale,
+            });
+        }
         feedback.actors.push(controls);
         let expressions = !profile.texture_channels.is_empty();
         let rescue = battle::feedback::RescueFeedback {
@@ -319,16 +390,22 @@ impl Inputs {
         let monster = &self.enemies.resources[spawn.resource].monster;
         let definition = &self.enemy_definitions[&monster.id];
         let stats = battle::enemy::statistics(
-            &monster.statistics[spawn.variant],
+            monster
+                .statistics
+                .get(spawn.variant)
+                .context("enemy statistics variant is not authored")?,
             self.party.settings.preferences.battle_rank,
         )?;
-        let actor = battle::enemy::actor(
+        let mut actor = battle::enemy::actor(
             monster,
             &definition.profile,
             definition.guard_recovery_bonus,
             stats,
             &self.recoil,
         )?;
+        if monster.id == 191 {
+            actor.body.scale = battle::enemy_stage::sword_scale(spawn.variant, actor.body.scale)?;
+        }
         let mut model = self
             .enemy_models
             .get(&monster.id)
@@ -353,6 +430,7 @@ impl Inputs {
                                 random,
                                 &self.party_profiles.entry,
                                 &definition.profile,
+                                actor.side,
                                 motions,
                                 actor.hp,
                                 actor.equipment.max_hp,
@@ -374,13 +452,11 @@ impl Inputs {
             models.push(RenderModel {
                 resource,
                 skeleton: source.body.skeleton.clone(),
-                parts: monster
-                    .preview
-                    .parts
-                    .iter()
-                    .filter(|part| part.attached_to.is_none())
-                    .cloned()
-                    .collect(),
+                parts: render::enemy_body_parts(
+                    &monster.preview.parts,
+                    source.body_variant,
+                    spawn.texture_variant,
+                )?,
                 capacity: 1,
                 lit: true,
                 effect: false,
@@ -391,7 +467,20 @@ impl Inputs {
                 ),
                 weapon_style: None,
             });
-            for (&slot, part) in &source.attachments {
+            ensure!(
+                spawn.weapon_variant == 0 || source.attachments.contains_key(&0),
+                "enemy weapon variant has no equipped attachment"
+            );
+            for (&slot, base_part) in &source.attachments {
+                let (part, trail) = if slot == 0 && spawn.weapon_variant != 0 {
+                    let variant = source
+                        .weapon_variants
+                        .get(&spawn.weapon_variant)
+                        .context("enemy weapon variant is not prepared")?;
+                    (&variant.model, Some(&variant.trail))
+                } else {
+                    (base_part, source.trails.get(&slot))
+                };
                 let mut render = Vec::new();
                 let prepared = (|| {
                     let style = *definition
@@ -405,8 +494,28 @@ impl Inputs {
                         .attachments
                         .get(&slot)
                         .context("missing enemy attachment bone")?;
-                    let weapon =
-                        battle::weapon::prepare(&self.files, part, slot, bone, &resources, None)?;
+                    let playback = part
+                        .layers
+                        .first()
+                        .context("enemy attachment has no primary layer")?
+                        .selected_clip()?
+                        .map(|(_, clip)| {
+                            resonance_battle::WeaponPlayback::Local(resonance_battle::Playback {
+                                clip: clip.resource_slot,
+                                frame: 0.,
+                                rate: 0.5,
+                                repeat: true,
+                            })
+                        });
+                    let weapon = battle::weapon::prepare(
+                        &self.files,
+                        part,
+                        slot,
+                        bone,
+                        &resources,
+                        playback,
+                        None,
+                    )?;
                     Ok(weapon)
                 })();
                 let Some(weapon) = self
@@ -422,12 +531,13 @@ impl Inputs {
                     .weapons
                     .push(weapon);
                 models.extend(render);
-                if let Some(&material) = source.trails.get(&slot)
+                if let Some(&material) = trail
                     && let Some(render) = render::weapon_trail(
                         self.files.diagnostics(),
                         &part.rig.skeleton,
                         resource,
                         material,
+                        false,
                         self.common_effects.as_deref(),
                         self.enemy_effects.get(&monster.id).map(Arc::as_ref),
                     )?
@@ -583,8 +693,33 @@ impl Inputs {
         &self,
         menus: &MenuData,
         options: PrepareOptions,
+        sound: impl FnMut(battle::voice::Sound) -> Result<Option<Sound>>,
+    ) -> Result<Prepared> {
+        self.prepare_with(menus, options, sound, |_| Ok(()))
+    }
 
+    /// Arrange participants before activation, retaining the prepared action and art bindings.
+    #[cfg(feature = "test-support")]
+    pub fn prepare_fixture(
+        &self,
+        menus: &MenuData,
+        options: PrepareOptions,
+        sound: impl FnMut(battle::voice::Sound) -> Result<Option<Sound>>,
+        configure: impl FnOnce(
+            &mut [(resonance_battle::Actor, resonance_battle::ActorSetup)],
+        ) -> Result<()>,
+    ) -> Result<Prepared> {
+        self.prepare_with(menus, options, sound, configure)
+    }
+
+    fn prepare_with(
+        &self,
+        menus: &MenuData,
+        options: PrepareOptions,
         mut sound: impl FnMut(battle::voice::Sound) -> Result<Option<Sound>>,
+        configure: impl FnOnce(
+            &mut [(resonance_battle::Actor, resonance_battle::ActorSetup)],
+        ) -> Result<()>,
     ) -> Result<Prepared> {
         let party = &self.party;
         let style = battle::results::ResultStyle {
@@ -619,7 +754,7 @@ impl Inputs {
         let mut rows = Vec::new();
         let mut bindings = battle::ActionDefinitions::default();
         let mut feedback = battle::feedback::Feedback::default();
-        let mut common_members = BTreeSet::from([9, 14, 15, 17, 19, 42, 44, 48, 50]);
+        let mut common_members = BTreeSet::from([9, 14, 15, 17, 19, 42, 44, 45, 48, 50]);
         let mut performances = Vec::new();
         let mut prepared_equipment = BTreeMap::new();
         let mut postures = Vec::new();
@@ -639,6 +774,7 @@ impl Inputs {
                         &mut cosmetic_random,
                         &table.entry,
                         profile,
+                        resonance_battle::Side::Party,
                         motions,
                         i32::from(member.hp),
                         loadout.attributes.max_hp,
@@ -668,6 +804,9 @@ impl Inputs {
                 handles.resource,
                 style.celebrate.then_some(victory),
             )?;
+            if self.events.is_some() && character == 9 {
+                prepared.actor.availability = resonance_battle::ActorAvailability::Absent;
+            }
             handles.resource = prepared.next_resource;
             models.append(&mut prepared.models);
             render_trails.append(&mut prepared.render_trails);
@@ -711,29 +850,139 @@ impl Inputs {
                 },
             });
         }
+        let mut unison_weapons = BTreeMap::new();
+        for &native in self
+            .spell_scenes
+            .keys()
+            .filter(|id| matches!(id, 301 | 312 | 314))
+        {
+            let scene: resonance_content::battle_scene::Scene = self
+                .files
+                .json(&resonance_content::battle_scene::path(native))?;
+            let mut weapon = scene.weapon.context("missing combination weapon")?;
+            if native == 301 {
+                // Pow Blade equips the same hammer in both of Lloyd's hands.
+                let part = weapon
+                    .parts
+                    .get(&0)
+                    .context("missing Pow Blade hammer")?
+                    .clone();
+                weapon.parts.insert(1, part);
+                if let Some(&trail) = weapon.trails.get(&0) {
+                    weapon.trails.insert(1, trail);
+                }
+                if let Some(animation) = weapon.uv_animation.get(&0).cloned() {
+                    weapon.uv_animation.insert(1, animation);
+                }
+            }
+            for (slot, input) in self.party_actors.iter().enumerate() {
+                if !matches!(
+                    (native, input.character),
+                    (301, 1) | (312, 7) | (314, 6 | 9)
+                ) {
+                    continue;
+                }
+                let Some(source) = &input.source else {
+                    continue;
+                };
+                let mut prepared = self.prepare_weapon(
+                    input.character,
+                    rows[slot].profile,
+                    source,
+                    &weapon,
+                    false,
+                    &mut handles,
+                )?;
+                models.append(&mut prepared.models);
+                render_trails.append(&mut prepared.render_trails);
+                unison_weapons
+                    .entry(slot)
+                    .or_insert_with(BTreeMap::new)
+                    .insert(native, prepared.weapons);
+            }
+        }
+        let mut skill_weapons = BTreeMap::new();
+        for &catalogue in self.skill_scenes.keys() {
+            let scene: resonance_content::battle_scene::Scene = self
+                .files
+                .json(&resonance_content::battle_scene::skill_path(catalogue))?;
+            let Some(weapon) = scene.weapon else { continue };
+            for (slot, input) in self.party_actors.iter().enumerate() {
+                if !super::resources::party_techniques(&self.catalogue, input.character)?
+                    .contains_key(&catalogue)
+                {
+                    continue;
+                }
+                let Some(source) = &input.source else {
+                    continue;
+                };
+                let mut prepared = self.prepare_weapon(
+                    input.character,
+                    rows[slot].profile,
+                    source,
+                    &weapon,
+                    false,
+                    &mut handles,
+                )?;
+                models.append(&mut prepared.models);
+                render_trails.append(&mut prepared.render_trails);
+                skill_weapons.insert((input.character, catalogue), prepared.weapons);
+            }
+        }
         let mut technique_models = BTreeMap::new();
-        // Learning and equipment changes can enable these effects during combat.
-        for (character, slot) in [
-            (battle::party::Character::Colette, HAMMER_MODEL),
-            (battle::party::Character::Presea, BEAST_MODEL),
-        ] {
-            if party
-                .formation
+        // Party and enemy spells share this resident model bank.
+        for (&slot, part) in self
+            .technique_effects
+            .iter()
+            .filter_map(|bank| bank.art.as_ref())
+            .flat_map(|art| &art.models)
+        {
+            let resource = handles.resource();
+            if let Some((model, render)) = render::effect_model(&self.files, part, resource)? {
+                technique_models.insert(slot, model);
+                models.push(render);
+            }
+        }
+        // Resident slot zero draws Colette's current chakram, including equipment swaps.
+        let mut thrown_weapons = None;
+        if let Some(slot) = rows.iter().position(|row| {
+            matches!(row.source, model::ModelSource::Party(character)
+                if character == battle::party::Character::Colette as u8)
+        }) && let Some(body) = &rows[slot].model
+        {
+            let equipped = body
+                .weapons
                 .iter()
-                .take(4)
-                .any(|&id| id == character as u8)
-                && let Some(part) = self
-                    .technique_effects
-                    .as_ref()
-                    .and_then(|bank| bank.art.as_ref())
-                    .and_then(|art| art.models.get(&slot))
-            {
-                let resource = handles.resource();
-                if let Some((model, render)) = render::effect_model(&self.files, part, resource)? {
-                    technique_models.insert(slot, model);
+                .find(|weapon| weapon.slot == 0)
+                .context("Colette has no prepared primary weapon")?
+                .primary_resource();
+            let mut variants = BTreeMap::new();
+            for (&(owner, item), weapons) in &prepared_equipment {
+                if owner != slot {
+                    continue;
+                }
+                let Some(weapon) = weapons.iter().find(|weapon| weapon.slot == 0) else {
+                    continue;
+                };
+                let part = self.weapons[&item]
+                    .parts
+                    .get(&0)
+                    .context("Colette's primary weapon artwork is missing")?;
+                if let Some((model, render)) =
+                    render::effect_model(&self.files, part, handles.resource())?
+                {
+                    variants.insert(weapon.primary_resource(), model);
                     models.push(render);
                 }
             }
+            technique_models.insert(
+                0,
+                variants
+                    .get(&equipped)
+                    .context("Colette's equipped chakram effect is not prepared")?
+                    .clone(),
+            );
+            thrown_weapons = Some((slot, variants));
         }
         let hammer_effect = technique_models.contains_key(&HAMMER_MODEL).then_some(
             resonance_battle::EffectAppearance {
@@ -743,6 +992,8 @@ impl Inputs {
         );
         feedback.hammer = hammer_effect;
         let mut enemy_banks = BTreeMap::new();
+        let mut passive_effects = Vec::new();
+        let mut independent_models = Vec::new();
         for enemy in self
             .enemies
             .resources
@@ -752,29 +1003,92 @@ impl Inputs {
             let bank = self.enemy_effects.get(&enemy);
             let resource = handles.resource();
             let mut prepared = BTreeMap::new();
+            let independent = match self.enemy_definitions[&enemy].actions.policy.behavior {
+                Some(resonance_content::battle_action::EnemyBehavior::IndependentModel {
+                    model,
+                }) => Some(model),
+                _ => None,
+            };
+            let instances = self
+                .enemies
+                .spawns
+                .iter()
+                .filter(|spawn| self.enemies.resources[spawn.resource].monster.id == enemy)
+                .count();
             for (&slot, part) in bank
                 .into_iter()
                 .filter_map(|bank| bank.art.as_ref())
                 .flat_map(|art| &art.models)
             {
                 let model_resource = handles.resource();
-                if let Some((model, render)) =
+                if let Some((model, mut render)) =
                     render::effect_model(&self.files, part, model_resource)?
                 {
+                    if independent == Some(slot) {
+                        render.effect = false;
+                        render.capacity = instances;
+                    }
                     prepared.insert(slot, model);
                     models.push(render);
                 }
             }
+            if let Some(slot) = independent {
+                let model = prepared.get(&slot).with_context(|| {
+                    format!("enemy {enemy} independent model {slot} is not prepared")
+                })?;
+                independent_models.extend(std::iter::repeat_n(model.clone(), instances));
+            }
+            let mut bank = bank.cloned();
+            if enemy == 67 {
+                let bank = Arc::make_mut(bank.as_mut().context("missing Fire Element aura bank")?);
+                // Only passive program 1 uses these three declarations. Its
+                // particles remain visible through age 61 before renewal.
+                for member in [0, 1, 2] {
+                    let particle = bank
+                        .actors
+                        .get_mut(member)
+                        .context("missing Fire Element aura particle")?
+                        .template_mut()?;
+                    ensure!(
+                        particle.lifetime == Some(60),
+                        "unexpected Fire Element aura lifetime"
+                    );
+                    particle.lifetime = Some(61);
+                }
+            }
+            let members = enemy_aura(enemy)
+                .map(|(program, _)| program)
+                .into_iter()
+                .collect();
             enemy_banks.insert(
                 enemy,
                 EffectResource {
-                    bank: bank.cloned(),
+                    bank,
                     resource,
-                    members: vec![],
+                    members,
                     models: prepared,
                 },
             );
         }
+        let mut prepare_scene = |bank: &Arc<resonance_content::battle_effect::SourceBank>| {
+            render::scene_bank(
+                &self.files,
+                bank,
+                handles.resource(),
+                || handles.resource(),
+                &mut models,
+            )
+        };
+        let spell_scenes = self
+            .spell_scenes
+            .iter()
+            .map(|(&id, bank)| Ok((id, prepare_scene(bank)?)))
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        let skill_scenes = self
+            .skill_scenes
+            .iter()
+            .map(|(&id, bank)| Ok((id, prepare_scene(bank)?)))
+            .collect::<Result<BTreeMap<_, _>>>()?;
         let mut enemy_resources = BTreeMap::new();
         let mut result_enemies = Vec::new();
         let mut enemy_entry_rows = Vec::new();
@@ -809,8 +1123,20 @@ impl Inputs {
                 actor: resonance_battle::ActorId::from_index(rows.len())?,
                 level: actor.equipment.stats.level,
                 grade: monster.grade,
+                steal: monster.steal,
+                steal_chance: monster.steal_chance,
                 reward: battle::rewards::EnemyReward::from_monster(monster, spawn.variant)?,
             });
+            if let Some((member, interval)) = enemy_aura(monster.id) {
+                passive_effects.push((
+                    resonance_battle::ActorId::from_index(rows.len())?,
+                    resonance_battle::EffectAppearance {
+                        resource: enemy_banks[&monster.id].resource,
+                        member,
+                    },
+                    interval,
+                ));
+            }
             rows.push(ActorRow {
                 actor,
                 quick_item: false,
@@ -835,6 +1161,11 @@ impl Inputs {
         {
             row.actor.position[0] = x;
             row.actor.position[2] = z;
+            if let model::ModelSource::Enemy(enemy) = row.source
+                && let Some(position) = battle::defense_system::initial_position(enemy)
+            {
+                row.actor.position = position;
+            }
         }
         for row in &mut rows {
             if let Some(model) = &mut row.model {
@@ -874,14 +1205,23 @@ impl Inputs {
                 models: technique_models,
             },
             enemy_effects: enemy_banks,
+            spell_scenes,
+            skill_scenes,
+            skill_weapons,
             prepared: Default::default(),
             feedback: &mut feedback,
-            fire_ball: None,
+            spells: BTreeMap::new(),
             sound: &mut sound,
         };
         resources.prepare()?;
-        let mut enemy_actions = BTreeMap::new();
-        for row in &mut rows {
+        for resource in resources
+            .enemy_effects
+            .values()
+            .filter(|resource| !resource.members.is_empty())
+        {
+            resources.prepared.effect(resource.clone())?;
+        }
+        for (row_index, row) in rows.iter_mut().enumerate() {
             match row.source {
                 model::ModelSource::Party(character) => {
                     let actions =
@@ -904,32 +1244,169 @@ impl Inputs {
                 }
                 model::ModelSource::Enemy(enemy) => {
                     let source = &self.enemy_definitions[&enemy];
-                    let actions = match enemy_actions.entry(enemy) {
-                        std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
-                        std::collections::btree_map::Entry::Vacant(entry) => entry.insert(
-                            resources.enemy(enemy, row.model.as_deref(), source, &mut bindings)?,
-                        ),
-                    };
+                    let actions =
+                        resources.enemy(enemy, row.model.as_deref(), source, &mut bindings)?;
                     let mut decision = battle::ai::definition(
+                        enemy,
                         source,
-                        actions,
+                        &actions,
                         party.settings.preferences.battle_rank,
+                        row.model.as_deref(),
                     )?;
                     decision.walk_motion =
                         model::common_motion(row.model.as_deref(), MotionRole::Walk);
+                    if enemy == 191 {
+                        battle::enemy_stage::apply_sword(
+                            self.enemies.spawns[row_index - self.party_actors.len()].variant,
+                            row.model.as_deref(),
+                            &mut decision,
+                        )?;
+                    }
+                    decision
+                        .disabled_choices
+                        .extend(battle::ai::disabled_by_flags(
+                            &source.actions.rows,
+                            &options.event_flags,
+                        )?);
                     row.setup.enemy_decision = Some(decision);
                 }
                 _ => unreachable!("encounter rows contain party and enemy actors"),
             }
         }
-        let action_resources = resources.prepared;
-        let effect_banks = action_resources.prepare_effects(
-            &mut |id| (sound)(battle::voice::Sound::Cue(id)),
-            self.files.diagnostics(),
-        )?;
         let ids = (0..rows.len())
             .map(resonance_battle::ActorId::from_index)
             .collect::<Result<Vec<_>>>()?;
+        let wings = self
+            .party_actors
+            .iter()
+            .enumerate()
+            .find(|(_, input)| input.character == 2 && options.colette_state != 0)
+            .filter(|(slot, _)| rows[*slot].model.is_some())
+            .map(|(slot, input)| -> Result<_> {
+                let source = input.source.as_ref().context("missing Colette artwork")?;
+                let (wings, render) = render::wings(
+                    &self.files,
+                    source,
+                    ids[slot],
+                    handles.resource(),
+                    resources
+                        .common
+                        .bank
+                        .as_deref()
+                        .context("wing sparkle effects are missing")?,
+                )?;
+                models.push(render);
+                Ok(wings)
+            })
+            .transpose()?;
+        let defense_members: Vec<_> = rows
+            .iter()
+            .zip(&ids)
+            .filter_map(|(row, &actor)| match row.source {
+                model::ModelSource::Enemy(enemy @ 211..=214) => Some((actor, enemy)),
+                _ => None,
+            })
+            .collect();
+        let defense_system = if defense_members.is_empty() {
+            None
+        } else {
+            let core = defense_members
+                .iter()
+                .find(|(_, enemy)| *enemy == 211)
+                .context("Defense System formation is missing its core")?
+                .0;
+            Some(battle::defense_system::definition(
+                &defense_members,
+                rows[core.index()]
+                    .model
+                    .as_deref()
+                    .context("Defense System core body is not prepared")?,
+            )?)
+        };
+        let empty_weapons = BTreeMap::new();
+        let unison_members: Vec<_> = rows
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, row)| {
+                let model::ModelSource::Party(character) = row.source else {
+                    return None;
+                };
+                Some(battle::unison::HostMember {
+                    actor: ids[slot],
+                    character,
+                    model: row.model.as_deref()?,
+                    null_motions: &self.party_actors[slot].source.as_ref()?.null_motions,
+                    profile: row.profile,
+                    techniques: &row.actions.as_ref()?.techniques,
+                    temporary_weapons: unison_weapons.get(&slot).unwrap_or(&empty_weapons),
+                    short_weapon: row.actor.equipment.dagger_reach,
+                })
+            })
+            .collect();
+        let active_compounds: BTreeSet<_> = self
+            .party_actors
+            .iter()
+            .flat_map(|input| {
+                let index = usize::from(input.character - 1);
+                menus.ex_skills.characters[index]
+                    .equipped_compounds(&party.members[index].ex_skills)
+                    .map(|(_, recipe)| recipe.skill)
+            })
+            .collect();
+        let immune_targets = rows
+            .iter()
+            .zip(&ids)
+            .filter_map(|(row, &id)| {
+                (row.actor.side == resonance_battle::Side::Enemy
+                    && row.profile.traits.immune_to_unison)
+                    .then_some(id)
+            })
+            .collect();
+        use resonance_content::menu_data::ex_effect;
+        let unison = if unison_members.len() < 2 || unison_members.len() != self.party_actors.len()
+        {
+            None
+        } else {
+            Some(battle::unison::prepare_host(
+                &self.unison,
+                &unison_members,
+                immune_targets,
+                active_compounds.contains(&ex_effect::RETAIN_UNISON_GAUGE),
+                active_compounds.contains(&ex_effect::UNISON_DAMAGE),
+                &mut resources,
+                &mut bindings,
+            )?)
+        };
+        let mut action_resources = resources.prepared;
+        let ambient_effect = if let Some(interval) = self.stage.recurring_interval {
+            let resource = handles.resource();
+            action_resources.effect(EffectResource {
+                bank: self.stage_effects.clone(),
+                resource,
+                members: vec![1],
+                models: BTreeMap::new(),
+            })?;
+            Some((
+                resonance_battle::EffectAppearance {
+                    resource,
+                    member: 1,
+                },
+                interval,
+            ))
+        } else {
+            None
+        };
+        let mut effect_banks = action_resources.prepare_effects(
+            &mut |id| (sound)(battle::voice::Sound::Cue(id)),
+            self.files.diagnostics(),
+        )?;
+        if let Some((slot, variants)) = thrown_weapons {
+            effect_banks
+                .iter_mut()
+                .find(|bank| bank.resource() == techniques_id)
+                .context("Colette's resident effect bank is not prepared")?
+                .bind_weapon_models(0, ids[slot], 0, variants)?;
+        }
         let characters: Vec<_> = rows
             .iter()
             .filter_map(|row| match row.source {
@@ -959,7 +1436,23 @@ impl Inputs {
                 .sum::<i32>()
                 / result_enemies.len() as i32))
             .clamp(-8, 8) as i8;
-        if self.enemies.settings.entry_voice {
+        let mut enemy_presentations = Vec::new();
+        for (index, source) in sources.iter().copied().enumerate() {
+            let model::ModelSource::Enemy(enemy) = source else {
+                continue;
+            };
+            if let Some(mut presentation) = self.enemy_definitions[&enemy].presentation {
+                if let Some(opening) = &mut presentation.opening {
+                    opening.sound = voices.absolute(source, opening.sound, &mut sound)?;
+                }
+                enemy_presentations.push((ids[index], presentation));
+            }
+        }
+        let enemy_opening = self.events.is_none()
+            && enemy_presentations.iter().any(|(actor, presentation)| {
+                actor.index() == self.party_actors.len() && presentation.opening.is_some()
+            });
+        if self.enemies.settings.entry_voice && !enemy_opening {
             let mut choices = Vec::new();
             let major = rows
                 .iter()
@@ -1027,10 +1520,18 @@ impl Inputs {
         let camera = resonance_battle::CameraDefinition {
             leader: ids[camera_leader],
             stage_pitch: self.stage.camera_pitch_offset,
-            adaptive: party.settings.preferences.battle_auto_zoom,
+            auto_zoom: party.settings.preferences.battle_auto_zoom,
         };
-        let enabled = command::enabled_rows(self.enemies.settings.escape_restricted, options.story)
-            & !party.battle_rules.disabled_commands;
+        let items_forbidden = self
+            .enemy_definitions
+            .values()
+            .any(|enemy| enemy.actions.policy.items_forbidden);
+        let mut enabled =
+            command::enabled_rows(self.enemies.settings.escape_restricted, options.story)
+                & !party.battle_rules.disabled_commands;
+        if items_forbidden {
+            enabled &= !command::Command::Items.mask();
+        }
         let hover_bobbing = rows
             .iter()
             .zip(&ids)
@@ -1039,7 +1540,7 @@ impl Inputs {
         if let Some(tints) = &tints {
             feedback.recovery_tint = Some(tints.actors.recovery[..3].try_into().unwrap());
         }
-        let (items, item_feedback) = battle::items::prepare(
+        let (mut items, item_feedback) = battle::items::prepare(
             &voices,
             tints.as_ref(),
             rows.iter().map(|row| {
@@ -1053,6 +1554,9 @@ impl Inputs {
             common_id,
             &mut sound,
         )?;
+        if items_forbidden {
+            items.actors.fill(None);
+        }
         feedback.items = Some(item_feedback);
         if rows
             .iter()
@@ -1090,15 +1594,30 @@ impl Inputs {
         let participants = rows.into_iter().map(|row| (row.actor, row.setup)).collect();
         let mut core =
             resonance_battle::PreparedBattle::new(participants, bindings, random.state())?
+                .with_enemy_presentations(enemy_presentations)?
                 .with_entry_choices(entry_choices)?
                 .with_arena_boundary()
                 .with_hover_bobbing(hover_bobbing)?
                 .with_unison_gauge(party.unison_gauge, enabled & 0x02 != 0, initial_unison_full)?
-                .with_camera(camera)?
-                .with_entry()
                 .with_grade_rank(party.settings.preferences.battle_rank)?
                 .with_items(items)?;
-        let lifecycle = battle::lifecycle::Lifecycle::new(Some(command::Setup::new(
+        if let Some(defense_system) = defense_system {
+            core = core.with_defense_system(defense_system)?;
+        }
+        #[cfg(feature = "test-support")]
+        {
+            core = core.configure_fixture(configure)?;
+        }
+        #[cfg(not(feature = "test-support"))]
+        let _ = configure;
+        core = core.with_camera(camera)?;
+        if let Some(unison) = unison {
+            core = core.with_unison(unison)?;
+        }
+        if self.events.is_none() {
+            core = core.with_entry();
+        }
+        let mut lifecycle = battle::lifecycle::Lifecycle::new(Some(command::Setup::new(
             ids[..self.party_actors.len()].to_vec(),
             enabled,
             core.initial_actors(),
@@ -1117,7 +1636,7 @@ impl Inputs {
             party,
             core.initial_actors(),
             &party_roster,
-            options.story3,
+            options.colette_state != 0,
         )?;
         core = core.with_technique_learning_members(learning_members)?;
         core = core.with_overlimit_boost(options.overlimit_boost);
@@ -1209,17 +1728,43 @@ impl Inputs {
         };
         let mut core = core.finish()?;
         core.set_diagnostics(self.files.diagnostics().clone());
-        let model_player = resonance_battle::Models::new(
+        let mut model_player = resonance_battle::Models::new(
             core.actors(),
             model_definitions,
             equipment,
             self.files.diagnostics().clone(),
         )?;
+        for model in independent_models {
+            model_player.add_independent(model)?;
+        }
+        core.set_models(model_player);
+        if let Some(plan) = &self.events {
+            let event_bosses = self
+                .enemies
+                .spawns
+                .iter()
+                .enumerate()
+                .filter_map(|(index, spawn)| {
+                    let enemy = self.enemies.resources[spawn.resource].monster.id;
+                    self.enemy_definitions[&enemy]
+                        .actions
+                        .policy
+                        .event_hp_hold
+                        .then_some(ids[self.party_actors.len() + index])
+                })
+                .collect::<Vec<_>>();
+            ensure!(
+                event_bosses.len() == 1,
+                "battle event requires one held boss"
+            );
+            lifecycle =
+                lifecycle.with_events(plan.clone(), party.clone(), event_bosses[0], &core)?;
+        }
         Ok(Prepared {
             core,
-            model_player,
             lifecycle,
             models,
+            wings,
             effects,
             effect_banks,
             feedback,
@@ -1227,6 +1772,8 @@ impl Inputs {
                 resource: common_id,
                 member: 44,
             },
+            ambient_effect,
+            passive_effects,
             trails: render_trails,
             characters,
             music: entry::music(&self.setup, u32::from(options.map), options.world_music),

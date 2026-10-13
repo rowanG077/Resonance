@@ -17,10 +17,12 @@ pub(super) fn resources(
     let profiles = files.json(resonance_content::battle_profile::PARTY_PATH)?;
     let tints = files.json(resonance_content::battle_effect::TINTS_PATH)?;
     let resolver = battle::voice::Resolver::new(files, &profiles, []);
+    let recoil = battle::recoil::Parameters::load(files)?;
     let bindings = battle::normal::prepare_resources(
         &resolver,
         &battle::normal::Resources {
             character,
+            recoil: &recoil,
             model: Some(model),
             common: Some(&common),
             tints: Some(&tints),
@@ -40,7 +42,7 @@ pub(super) fn control(
         files.json(resonance_content::battle_profile::PARTY_PATH)?;
     Ok(Arc::new(battle::control::party(
         &profiles.records[usize::from(character - 1)],
-        character,
+        &profiles.normal_attacks[usize::from(character - 1)],
         std::array::from_fn(resonance_battle::ActionKey),
         battle::control::motions(Some(model)),
     )?))

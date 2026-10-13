@@ -10,10 +10,16 @@ pub const PARTY_PATH: &str = "battle/party-profiles.json";
 #[serde(deny_unknown_fields)]
 pub struct Table {
     pub source_sha256: String,
+    /// Seven directional normal attacks for each ordinary party character.
+    pub normal_attacks: Vec<[crate::battle_normal::Attack; 7]>,
+    /// Complete common-action tracks, with separate character bindings.
+    pub martial_attacks: crate::battle_martial::Catalogue,
     /// Default strategy values, transposed from three ten-byte asset columns.
     pub default_strategy: [[u8; 3]; 10],
     pub companion_policy: CompanionPolicy,
     pub entry: Entry,
+    /// Character-specific poses, scheduled in elapsed chanting updates.
+    pub chant_sequences: BTreeMap<u8, Vec<(u16, crate::battle_action::ActionPose)>>,
     /// Character slots used to select chanting and release lines.
     pub voice_sequences: Vec<VoicePolicy>,
     /// Ordered victim/recipient character pairs used by the ordinary death entry.
@@ -25,6 +31,16 @@ pub struct Table {
     pub records: Vec<Profile>,
     /// Rescue names: Angel Tear, Revive, Resurrect, Ring, Doll.
     pub lethal_rescue_names: [String; 5],
+}
+
+impl Table {
+    pub fn martial_attack(
+        &self,
+        catalogue: u16,
+        character: u8,
+    ) -> Result<&crate::battle_martial::Attack> {
+        self.martial_attacks.attack(catalogue, character)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -107,8 +123,11 @@ pub struct ProfileTraits {
     pub show_body_attachments: bool,
     pub auto_guard_disabled: bool,
     pub retain_defeated_body: bool,
+    #[serde(default)]
+    pub hit_shake_disabled: bool,
     pub recover_in_air: bool,
     pub launch_immune: bool,
+    pub immune_to_unison: bool,
     pub body_motion_disabled: bool,
     pub push_immovable: bool,
     pub unrestricted_arena: bool,
@@ -172,6 +191,9 @@ pub struct Profile {
     /// Named speech; absence denotes an unvoiced actor.
     pub voices: Option<crate::battle_voice::Voices>,
     pub death_motion: u8,
+    /// Bone sampled once for the activation burst.
+    pub overlimit_bone: u8,
+    pub overlimit_scale: f32,
     pub overlimit_gain: u8,
     pub initial_overlimit: i16,
     pub ground_offset: f32,

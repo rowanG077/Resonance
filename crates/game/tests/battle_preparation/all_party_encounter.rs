@@ -1,7 +1,5 @@
 use super::*;
-use resonance_battle::{
-    Activity, BattlePhase, ButtonInput, ContactSource, ControlInput, Cue, Sound,
-};
+use resonance_battle::{Activity, BattlePhase, ButtonInput, ContactSource, ControlInput, Cue};
 use resonance_content::{
     diagnostics::Diagnostics, menu_data::MenuData, prepared::Cache, session::SessionData,
 };
@@ -39,8 +37,12 @@ impl ColdEncounter {
     }
 
     pub(super) fn prepare(&mut self, party: &Party) -> Result<(Assets, Prepared)> {
+        self.prepare_formation(party, 2)
+    }
+
+    fn prepare_formation(&mut self, party: &Party, formation: u16) -> Result<(Assets, Prepared)> {
         party.validate(&self.session)?;
-        let assets = Assets::load(
+        let (assets, prepared) = Assets::load(
             &self.root,
             &self.files,
             &self.menus,
@@ -48,39 +50,42 @@ impl ColdEncounter {
             party,
             Setup {
                 route: [0; 5],
-                encounter: resonance_events::battle::Encounter::Formation(2),
+                encounter: resonance_events::battle::Encounter::Formation(formation),
                 arena: 13,
                 defeat: DefeatPolicy::GameOver,
                 music: None,
             },
-            &mut self.cache,
-            || false,
-        )?;
-        let audio = assets.audio.as_ref().context("missing battle audio")?;
-        let prepared = assets.prepare(
-            &self.menus,
             PrepareOptions {
+                event_flags: Default::default(),
                 devils_arms_unlocked: false,
                 victory_story_flags: [false; 2],
                 random_seed: 0x2345,
                 map: 332,
                 world_music: 0,
                 story: 2500,
-                story3: false,
                 colette_state: 0,
                 overlimit_boost: false,
             },
-            |request| {
-                let exists = match request {
-                    Sound::Cue(index) => audio.assets.sounds.contains_key(&i16::try_from(index)?),
-                    Sound::Stream(index) => audio.assets.voices.contains_key(&u32::from(index)),
-                };
-                anyhow::ensure!(exists, "unprepared encounter audio {request:?}");
-                Ok(Some(request))
-            },
+            &mut self.cache,
+            || false,
         )?;
+
         Ok((assets, prepared))
     }
+}
+
+#[test]
+#[ignore = "requires current boss models and action metadata; CPU only"]
+fn changed_enemy_families_prepare_their_linked_models_and_actions() -> Result<()> {
+    let mut fixture = ColdEncounter::load()?;
+    let party = Party::new(&fixture.session, Default::default())?;
+    // Sheena/Corrine, Meredy, Yggdrasill, Defense System, Sword Dancer, and Bacura.
+    for formation in [16, 83, 34, 43, 87, 88, 89, 93] {
+        fixture
+            .prepare_formation(&party, formation)
+            .with_context(|| format!("prepare changed enemy formation {formation}"))?;
+    }
+    Ok(())
 }
 
 fn prepare(fixture: &mut ColdEncounter, formation: &[u8], controls: [u8; 4]) -> Result<Prepared> {
@@ -182,17 +187,24 @@ fn learned_ray_thrust_uses_its_prepared_projectile_and_feedback() -> Result<()> 
     let owner = prepared.results.actors[0].0;
     let mut battle = live(prepared.core);
     for _ in 0..240 {
-        if battle.phase() == BattlePhase::Combat {
+        let frame = battle.step(Default::default())?;
+        if battle.phase() == BattlePhase::Combat
+            && frame.clock == resonance_battle::BattleClock::Running
+        {
             break;
         }
-        battle.step(Default::default())?;
     }
+    assert_eq!(
+        battle.snapshot().clock,
+        resonance_battle::BattleClock::Running
+    );
     const RAY_THRUST: u16 = 35;
     let action = battle.record_technique_acquisition(owner, RAY_THRUST)?;
     battle.prepare_shortcut(owner, 0, Some(action))?.commit();
     let mut requested = false;
     let mut projectile = None;
-    let mut visible = false;
+    let mut ring_birth = false;
+    let mut shadow = false;
     let mut hit = false;
     for _ in 0..300 {
         let attack = !requested && battle.activity(owner) == Activity::Idle;
@@ -220,12 +232,24 @@ fn learned_ray_thrust_uses_its_prepared_projectile_and_feedback() -> Result<()> 
                 _ => {}
             }
         }
-        visible |= projectile.is_some() && crate::effects(&frame).any(|p| p.owner == owner);
+        ring_birth |= crate::effects(&frame).any(|effect| {
+            effect.owner == owner
+                && effect.appearance.member == 30
+                && matches!(effect.follow, Some(resonance_battle::EffectFollow::Projectile(id))
+                    if Some(id) == projectile)
+        });
+        shadow |= frame
+            .projectile_shadows
+            .iter()
+            .any(|frame| Some(frame.projectile) == projectile);
         if hit || frame.outcome.is_some() {
             break;
         }
     }
-    assert!(visible && hit, "Ray Thrust: visible={visible}, hit={hit}");
+    assert!(
+        ring_birth && shadow && hit,
+        "Ray Thrust: ring_birth={ring_birth}, shadow={shadow}, hit={hit}"
+    );
     assert!(!battle.is_diagnostic());
     Ok(())
 }

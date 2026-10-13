@@ -77,8 +77,9 @@ pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
     CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
-    prepare_overworld_test_fixture, record_checkpoint, record_new_game, run_menu_probe,
-    run_overworld_field_probe, run_quicksave_probe, run_title_load_probe,
+    prepare_overworld_test_fixture, record_battle, record_checkpoint, record_checkpoint_window,
+    record_new_game, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
+    run_title_load_probe,
 };
 mod new_game_capture;
 mod performance;

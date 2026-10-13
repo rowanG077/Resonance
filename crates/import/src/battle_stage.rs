@@ -1,4 +1,4 @@
-//! Fixed battle arena resources.
+//! Battle arena resources.
 use crate::{
     field::MapArchive,
     model_preview::{self, Layer},
@@ -10,12 +10,16 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     battle_scene::Texture,
-    battle_stage::Stage,
+    battle_stage::{Fog, SceneryFade, Stage, TextureAnimation, TextureMotion},
     field_preload::{File, Role},
 };
 use std::{collections::BTreeMap, ops::Range, path::Path};
 
-/// Publish a selected static arena using the ordinary shared model conversion.
+const SCENERY_FRAMES_PER_UPDATE: f32 = 0.5;
+const LAYER_ADDITIVE: u8 = 0b10;
+const LAYER_FLAGS: u8 = 0b11;
+
+/// Publish a selected arena using the ordinary shared model conversion.
 pub fn publish(extracted: &Path, arena: u16, output: &Path) -> Result<String> {
     publish_source(
         extracted,
@@ -73,27 +77,59 @@ fn range(table: &[u8], arena: u16) -> Result<Range<usize>> {
     Ok(start..start.checked_add(size).context("stage range overflow")?)
 }
 
-fn metadata(bytes: &[u8]) -> Result<()> {
-    ensure!(bytes.len() >= 0x318, "truncated stage metadata");
-    ensure!(
-        bytes[0x304] == 0,
-        "stage scenery animation is not supported"
-    );
-    ensure!(
-        half(bytes, 0x2d4)? == 0,
-        "recurring stage effects are not supported"
-    );
-    ensure!(half(bytes, 0x302)? == 0, "stage fog is not supported");
-    Ok(())
+/// Publish every physical arena. Unsupported presentation remains explicit in
+/// its descriptor and the returned pending map; malformed packages still fail.
+pub fn publish_all(
+    extracted: &Path,
+    output: &Path,
+) -> Result<(Vec<String>, BTreeMap<u16, String>)> {
+    publish_all_source(extracted, &Sources::read(extracted)?, output, "battle")
+}
+
+pub(crate) fn publish_all_source(
+    extracted: &Path,
+    sources: &Sources,
+    output: &Path,
+    prefix: &str,
+) -> Result<(Vec<String>, BTreeMap<u16, String>)> {
+    let module = Rel::read(&extracted.join("files").join(&sources.module))?;
+    let table = module
+        .at((5, 0x3b90))?
+        .get(..0x188)
+        .context("truncated stage directory")?;
+    let mut paths = Vec::new();
+    let mut pending = BTreeMap::new();
+    for arena in 0..table.len() / 4 - 1 {
+        if arena != 0 && word(table, arena * 4)? == 0 {
+            continue;
+        }
+        let arena = u16::try_from(arena)?;
+        let bytes = read_range(
+            &extracted.join("files").join(&sources.stages),
+            range(table, arena)?,
+        )?;
+        let archive = MapArchive::decode(&bytes)?;
+        let path = format!("{prefix}/stages/{arena:03}.json");
+        let stage = read(
+            &archive,
+            &format!("{prefix}/stages/{arena:03}.effects.json"),
+            output,
+        )?;
+        if let Some(reason) = &stage.unsupported_reason {
+            pending.insert(arena, reason.clone());
+        }
+        crate::write_atomic(&output.join(&path), &serde_json::to_vec(&stage)?)?;
+        paths.push(path);
+    }
+    Ok((paths, pending))
 }
 
 fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage> {
-    ensure!(
-        archive.sections.len() == 11,
-        "stage scenery is not supported"
-    );
+    ensure!(archive.sections.len() >= 11, "invalid stage section count");
     let data = archive.section(0)?;
-    metadata(data)?;
+    ensure!(data.len() >= 0x318, "truncated stage metadata");
+    let recurring_interval = half(data, 0x2d4)?;
+    let mut unsupported = Vec::new();
     let vector = |offset| -> Result<[f32; 3]> {
         Ok([
             float(data, offset)?,
@@ -104,28 +140,96 @@ fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage
     let color = |offset| -> [u8; 4] { data[offset..offset + 4].try_into().unwrap() };
     let mut decoded = Package::default();
     let mut layers = BTreeMap::new();
-    for slot in 0..4 {
-        ensure!(
-            archive.optional_section(slot + 5).is_none(),
-            "stage model animation is not supported"
-        );
-        let Some(model) = archive.optional_section(slot + 1) else {
+    let mut scenery_bones = BTreeMap::new();
+    let mut animation_rates = BTreeMap::new();
+    let mut texture_animations = BTreeMap::<u8, Vec<TextureAnimation>>::new();
+    let animation_start = usize::from(data[0x304]);
+    let scenery_end = if animation_start == 0 {
+        archive.sections.len()
+    } else {
+        animation_start
+    };
+    ensure!(
+        (11..=archive.sections.len()).contains(&scenery_end)
+            && scenery_end - 11 <= 32
+            && (animation_start == 0 || scenery_end - 11 <= 15),
+        "invalid stage scenery directory"
+    );
+    let primary = (scenery_end > 11)
+        .then(|| {
+            crate::battle_model::rig(archive.section(1)?, crate::battle_model::RigKind::Effect)
+        })
+        .transpose()?;
+    // Four main layers precede effects and textures. Scenery models end where
+    // the optional animation bank begins.
+    for section in (1..5).chain(11..scenery_end) {
+        let Some(model) = archive.optional_section(section) else {
             continue;
         };
-        let settings = 0x2c + slot * 0xa8;
-        ensure!(
-            data[settings + 0xa5] == 0,
-            "stage UV animation is not supported"
-        );
-        let flags = data[settings + 0xa4];
-        ensure!(flags & !2 == 0, "unsupported stage layer flags {flags}");
-        let additive = flags & 2 != 0;
+        let slot = if section < 5 {
+            section - 1
+        } else {
+            section - 7
+        };
+        let slot_key = u8::try_from(slot).context("too many stage layers")?;
+        if section >= 11 {
+            let name = format!("kk{:02x}", section - 11);
+            let primary = primary.as_ref().context("scenery has no primary model")?;
+            let bone = primary
+                .skeleton
+                .bones
+                .iter()
+                .position(|bone| bone.name == name)
+                .with_context(|| format!("missing scenery attachment {name}"))?;
+            scenery_bones.insert(slot_key, u16::try_from(bone)?);
+        }
+        let flags = if section < 5 {
+            let settings = 0x2c + slot * 0xa8;
+            let count = usize::from(data[settings + 0xa5]);
+            ensure!(count <= 4, "too many stage texture animations");
+            if count != 0 {
+                let animations = (0..count)
+                    .map(|index| texture_animation(&data[settings + index * 40..]))
+                    .collect::<Result<_>>()?;
+                texture_animations.insert(slot_key, animations);
+            }
+            data[settings + 0xa4]
+        } else {
+            0
+        };
+        if flags & !LAYER_FLAGS != 0 {
+            unsupported.push(format!("layer {slot} rendering flags {flags:#04x}"));
+        }
+        let additive = flags & LAYER_ADDITIVE != 0;
+        let animation_bytes = if section < 5 {
+            archive.optional_section(section + 4)
+        } else if animation_start == 0 {
+            None
+        } else {
+            let clip = data[0x305 + section - 11];
+            if clip == u8::MAX {
+                None
+            } else {
+                Some(archive.section(animation_start + usize::from(clip))?)
+            }
+        };
+        let animation = animation_bytes
+            .map(|bytes| decoded.decode_animation(bytes, || crate::animation::read_member(bytes)))
+            .transpose()?;
+        if animation.is_some() {
+            let rate = if section < 5 {
+                float(data, 0x2c + slot * 0xa8 + 0xa0)?
+            } else {
+                SCENERY_FRAMES_PER_UPDATE
+            };
+            animation_rates.insert(slot_key, rate);
+        }
         let mut parts = Vec::new();
         model_preview::layers(
             Layer {
                 model,
                 outline: None,
-                animation: None,
+                animation: animation.as_deref(),
                 attached_to: None,
                 // Stage blend does not change the model's culling policy.
                 additive: false,
@@ -141,16 +245,69 @@ fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage
         layer.scene.resource = slot as u16;
         for material in &mut layer.scene.materials {
             // Fixed models use this depth mask and blend function.
-            material.depth_write = slot == 0 || slot == 3;
+            material.depth_write = slot == 0 || slot >= 3;
             material.blend = true;
         }
-        layers.insert(slot as u8, layer);
+        layers.insert(slot_key, layer);
     }
     let mut files = crate::battle_model::files(layers.values().map(|p| &p.scene), output)?;
+    let mut effect_textures = archive
+        .optional_section(10)
+        .map(|bytes| crate::battle_effect::art::textures_from_source(bytes, output))
+        .transpose()?
+        .map(|textures| BTreeMap::from([(9, textures)]))
+        .unwrap_or_default();
+    let mut effect_files = BTreeMap::new();
+    for image in effect_textures
+        .values()
+        .flatten()
+        .flat_map(|t| &t.effect.images)
+    {
+        effect_files.insert(
+            image.path.clone(),
+            File {
+                sha256: crate::media::hash_file(&output.join(&image.path))?,
+                bytes: std::fs::metadata(output.join(&image.path))?.len(),
+                roles: [Role::Texture].into(),
+            },
+        );
+    }
+    files.extend(effect_files.clone());
     let effects = archive
         .optional_section(9)
         .map(|bytes| -> Result<_> {
-            let bank = crate::battle_effect::read(bytes)?;
+            let (mut bank, strides) = crate::battle_effect::read_with_palettes(bytes)?;
+            if recurring_interval != 0 {
+                use resonance_content::battle_effect::{EffectOperation, visual::ParticleShape};
+                match bank.program(1) {
+                    Err(error) => unsupported.push(format!("recurring effects: {error:#}")),
+                    Ok(program) => {
+                        for event in program {
+                            if let EffectOperation::Spawn { particle, .. } = event.operation
+                                && let Ok(visual) =
+                                    bank.actors[usize::from(particle)].particle_visual()
+                                && let ParticleShape::Unsupported { reason } = &visual.geometry
+                            {
+                                unsupported.push(format!(
+                                    "recurring effect particle {particle} geometry: {reason}"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            crate::battle_effect::art::bind_palettes(&mut bank, &strides, &mut effect_textures)?;
+            bank.art = Some(resonance_content::battle_effect::Art {
+                source_sha256: archive.source_sha256.clone(),
+                textures: effect_textures
+                    .iter()
+                    .map(|(&slot, textures)| {
+                        (slot, textures.iter().map(|t| t.effect.clone()).collect())
+                    })
+                    .collect(),
+                models: BTreeMap::new(),
+                files: effect_files,
+            });
             let bytes = serde_json::to_vec(&bank)?;
             crate::write_atomic(&output.join(effects_path), &bytes)?;
             files.insert(
@@ -164,36 +321,22 @@ fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage
             Ok(effects_path.to_owned())
         })
         .transpose()?;
-    let textures = archive
-        .optional_section(10)
-        .map(|bytes| crate::texture::decode_source(bytes)?.write(output))
-        .transpose()?
-        .map(|catalogue| catalogue.textures)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|texture| -> Result<_> {
-            let texture = texture.context("invalid stage texture")?;
-            let images = (0..texture.images.len())
-                .map(|i| texture.image(i))
-                .collect::<Result<Vec<_>>>()?;
-            for image in &images {
-                files.insert(
-                    image.path.clone(),
-                    File {
-                        sha256: crate::media::hash_file(&output.join(&image.path))?,
-                        bytes: std::fs::metadata(output.join(&image.path))?.len(),
-                        roles: [Role::Texture].into(),
-                    },
-                );
-            }
-            Ok(Texture {
-                images,
-                sampler: texture.sampler,
-            })
+    let textures = effect_textures
+        .into_values()
+        .flatten()
+        .map(|texture| Texture {
+            images: texture.effect.images,
+            sampler: texture.effect.sampler,
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect();
+    let fog = Fog {
+        color: color(0x2fc),
+        start: f32::from(half(data, 0x300)?),
+        end: f32::from(half(data, 0x302)?),
+    };
     let stage = Stage {
         source_sha256: archive.source_sha256.clone(),
+        unsupported_reason: (!unsupported.is_empty()).then(|| unsupported.join("; ")),
         light_position: vector(0)?,
         chain_acceleration: vector(12)?,
         actor_color: color(24),
@@ -202,7 +345,19 @@ fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage
         color: color(0x2f8),
         camera_pitch_offset: float(data, 0x314)?,
         layers,
+        scenery_fade: (data[0x2d6] != 0 && !scenery_bones.is_empty()).then(|| SceneryFade {
+            step: data[0x2d6],
+            minimum_alpha: scenery_bones
+                .keys()
+                .map(|&slot| (slot, data[0x2d8 + usize::from(slot - 4)]))
+                .collect(),
+        }),
+        scenery_bones,
+        animation_rates,
+        texture_animations,
+        fog: (fog.end != 0.).then_some(fog),
         effects,
+        recurring_interval: (recurring_interval != 0).then_some(recurring_interval),
         textures,
         files,
     };
@@ -210,9 +365,37 @@ fn read(archive: &MapArchive, effects_path: &str, output: &Path) -> Result<Stage
     Ok(stage)
 }
 
+fn texture_animation(bytes: &[u8]) -> Result<TextureAnimation> {
+    let motion = match bytes[0] {
+        1 => TextureMotion::Atlas { frames: bytes[3] },
+        2 => TextureMotion::Scroll {
+            velocity: [float(bytes, 4)?, float(bytes, 8)?],
+        },
+        kind => anyhow::bail!("unknown stage texture motion {kind}"),
+    };
+    Ok(TextureAnimation {
+        texture: usize::from(bytes[1]),
+        interval: bytes[2].max(1),
+        motion,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_texture_channel_preserves_selector_and_rejects_unknown_motion() -> Result<()> {
+        // Arena 3 keeps selector 4 even though its primary model has images 0–3.
+        let mut bytes = [0; 40];
+        bytes[..4].copy_from_slice(&[2, 4, 2, 0]);
+        let animation = texture_animation(&bytes)?;
+        assert_eq!(animation.texture, 4);
+        assert_eq!(animation.interval, 2);
+        bytes[0] = 0;
+        assert!(texture_animation(&bytes).is_err());
+        Ok(())
+    }
 
     #[test]
     fn selected_range_skips_holes_and_preserves_read_alignment() {
@@ -230,18 +413,6 @@ mod tests {
             .flat_map(u32::to_be_bytes)
             .collect::<Vec<_>>();
         assert!(range(&reversed, 1).is_err());
-    }
-
-    #[test]
-    fn unsupported_metadata_is_rejected_instead_of_silently_dropped() {
-        let data = vec![0; 0x320];
-        assert!(metadata(&data).is_ok());
-        assert!(metadata(&data[..0x314]).is_err());
-        for offset in [0x304, 0x2d4, 0x302] {
-            let mut data = data.clone();
-            data[offset] = 1;
-            assert!(metadata(&data).is_err());
-        }
     }
 
     #[test]

@@ -17,12 +17,12 @@ pub fn motions(model: Option<&resonance_battle::ModelDefinition>) -> Option<Cont
 
 pub fn party(
     profile: &Profile,
-    character: u8,
+    normal_attacks: &[resonance_content::battle_normal::Attack; 7],
     actions: [resonance_battle::ActionKey; 7],
     motions: Option<ControlMotions>,
 ) -> Result<ControlDefinition> {
     Ok(ControlDefinition {
-        normals: super::normal::controls(character, actions)?,
+        normals: super::normal::controls(normal_attacks, actions),
         shortcuts: [0; 4],
         walk_speed: profile.walk_speed,
         run_speed: profile.run_speed,

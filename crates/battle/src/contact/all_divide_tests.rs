@@ -44,6 +44,9 @@ fn contact(
             height: 2.,
             shape: HitShape::Box,
             rule: HitRule {
+                sound: None,
+                effect_on_guard: false,
+                effect: None,
                 overlimit_pause: true,
                 condition: None,
                 arte: true,
@@ -51,9 +54,12 @@ fn contact(
                 power: Power::Fixed(amount),
                 element: HitElement::Neutral,
                 prevents_defeat: false,
+                finisher_grade: false,
+                hp_drain: false,
                 reaction: Default::default(),
                 guard: GuardRule {
                     enabled: true,
+                    suppress_sound: false,
                     pressure: 0,
                     breaks: false,
                     unbreakable: false,
@@ -64,7 +70,7 @@ fn contact(
         })
         .unwrap();
     let mut cues = vec![];
-    contacts.resolve(&mut battle, &mut cues).unwrap();
+    contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
     let result = cues
         .iter()
         .find_map(|cue| match cue {

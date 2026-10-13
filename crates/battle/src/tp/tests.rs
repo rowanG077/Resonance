@@ -85,6 +85,7 @@ fn native_admission_commits_cost_and_use_before_paused_choreography() {
         normal: None,
         tp_cost: 7,
         execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+            contact_recovery: None,
             chain_at: None,
             end_at: 8,
             opening: None,

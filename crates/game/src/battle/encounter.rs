@@ -1,5 +1,6 @@
 //! Resolve an encounter's enemy requirements before combat or resource activation.
 mod assets;
+mod event_assets;
 pub use assets::{Assets, Inputs};
 mod placement;
 mod preparation;
@@ -7,7 +8,7 @@ mod render;
 pub(crate) mod resources;
 use anyhow::{Context, Result, ensure};
 pub use preparation::{PrepareOptions, PreparedEnemyMember, PreparedPartyMember};
-pub use render::{RenderEffect, RenderModel, RenderTrail};
+pub use render::{RenderEffect, RenderModel, RenderTrail, WingAccessory};
 use resonance_content::{
     battle_formation::{Formations, PATH, Settings},
     monster::{Monster, MonsterBook},
@@ -19,13 +20,19 @@ use std::sync::Arc;
 /// constructing the live battle; every ID belongs only to this candidate.
 pub struct Prepared {
     pub core: resonance_battle::Battle,
-    pub model_player: resonance_battle::Models,
     pub lifecycle: super::lifecycle::Lifecycle,
     pub models: Vec<RenderModel>,
+    pub wings: Option<WingAccessory>,
     pub effects: Vec<RenderEffect>,
     pub effect_banks: Vec<resonance_battle::EffectBank>,
     pub feedback: super::feedback::Feedback,
     pub poison_effect: resonance_battle::EffectAppearance,
+    pub ambient_effect: Option<(resonance_battle::EffectAppearance, u16)>,
+    pub passive_effects: Vec<(
+        resonance_battle::ActorId,
+        resonance_battle::EffectAppearance,
+        u16,
+    )>,
     pub trails: Vec<RenderTrail>,
     pub characters: Vec<u8>,
     pub music: u16,
@@ -47,6 +54,8 @@ pub struct EnemyResource {
 pub struct Spawn {
     pub resource: usize,
     pub variant: usize,
+    pub texture_variant: u8,
+    pub weapon_variant: u8,
     /// X/Z supplied by the encounter, or None for automatic placement.
     pub position: Option<[i16; 2]>,
     pub unsupported_reason: Option<String>,
@@ -97,6 +106,8 @@ pub fn enemies(
             Ok(Spawn {
                 resource,
                 variant,
+                texture_variant: actor.texture_variant,
+                weapon_variant: actor.weapon_variant,
                 position: actor.position,
                 unsupported_reason: actor.unsupported_reason.clone(),
             })
@@ -158,6 +169,7 @@ mod tests {
             drop_chances: [0; 2],
             grade: 0,
             steal: None,
+            steal_chance: 0,
             attack_element: None,
             affinities: [0; 9],
             weaknesses: vec![],
@@ -168,11 +180,14 @@ mod tests {
         actors[0] = Actor {
             resource: 0,
             variant: 1,
+            texture_variant: 0,
+            weapon_variant: 0,
             position: Some([-50, 30]),
             unsupported_reason: Some("encounter appearance override is not prepared".into()),
         };
         let formations = Formations {
             source_sha256: "a".repeat(64),
+            pools: Vec::new(),
             records: vec![Formation {
                 settings: Settings {
                     play_music: true,

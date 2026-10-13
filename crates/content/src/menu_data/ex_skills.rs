@@ -24,6 +24,7 @@ pub const EX_LABELS: [&str; 18] = [
 
 /// Authored EX identities used by gameplay projections; these are not saved traits.
 pub mod ex_effect {
+    pub const STEAL_SUCCESS: u8 = 96;
     pub const TAUNT: u8 = 3;
     pub const DASH: u8 = 6;
     pub const ADDITIONAL_COMBO: u8 = 11;
@@ -44,6 +45,7 @@ pub mod ex_effect {
     pub const NULLIFY_DAMAGE: u8 = 30;
     pub const QUICK_ITEM: u8 = 32;
     pub const HAPPINESS: u8 = 33;
+    pub const PROLONG: u8 = 35;
     pub const SIX_HIT_COMBO: u8 = 41;
     pub const SUPER_CHAIN: u8 = 42;
     pub const REAR_GUARD: u8 = 43;
@@ -56,6 +58,7 @@ pub mod ex_effect {
     pub const FLASH: u8 = 52;
     pub const GUARD_DAMAGE_BOOST: u8 = 54;
     pub const PHYSICAL_STABILITY: u8 = 55;
+    pub const RETAIN_UNISON_GAUGE: u8 = 56;
     pub const COUNTER: u8 = 57;
     pub const PHYSICAL_AILMENT_GUARD: u8 = 58;
     pub const EXTENDED_OVERLIMIT: u8 = 59;
@@ -66,6 +69,7 @@ pub mod ex_effect {
     pub const TAUNT_CANCEL: u8 = 64;
     pub const QUICK_TURN: u8 = 65;
     pub const BACKSTEP_GUARD: u8 = 66;
+    pub const UNISON_DAMAGE: u8 = 67;
     pub const IDLE_TP: u8 = 68;
     pub const CRITICAL_BONUS: u8 = 69;
     pub const AERIAL_ARTE_COMPOUND: u8 = 70;

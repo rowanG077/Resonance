@@ -7,7 +7,7 @@ use super::{
 };
 use anyhow::{Result, ensure};
 use resonance_battle::{
-    Battle, BattleFrame, BattleInput, BattlePhase, BattleResult, TransitionKind,
+    Battle, BattleFrame, BattleInput, BattlePhase, BattleResult, DepartureReason, TransitionKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,22 +35,27 @@ enum Phase {
     Results,
     Defeat,
     EscapeNotice { remaining: u8 },
+    EnemyRetreat { remaining: u8 },
     Closing,
     Finish,
     Finished,
     Faulted,
 }
 
-const VICTORY_MUSIC: u16 = 95;
-const DEFEAT_MUSIC: u16 = 96;
+pub(crate) const VICTORY_MUSIC: u16 = 95;
+pub(crate) const DEFEAT_MUSIC: u16 = 96;
 // A fade takes roughly a quarter-second at 60 updates/second.
 const FADE_STEP: u8 = 16;
+const FADE_UPDATES: u8 = u8::MAX.div_ceil(FADE_STEP);
+/// Departure owns these updates before scene handoff; its closing fade is included.
+const ENEMY_RETREAT_UPDATES: u8 = 65;
 
 pub struct Lifecycle {
     phase: Phase,
     command: command::Owner,
     command_setup: Option<command::Setup>,
     command_events: Vec<command::Event>,
+    events: Option<super::event::Sequence>,
 }
 
 impl Lifecycle {
@@ -60,7 +65,45 @@ impl Lifecycle {
             command: command::Owner::default(),
             command_setup,
             command_events: Vec::new(),
+            events: None,
         }
+    }
+
+    pub fn with_events(
+        mut self,
+        plan: super::event::Plan,
+        party: resonance_events::party::Party,
+        boss: resonance_battle::ActorId,
+        battle: &Battle,
+    ) -> Result<Self> {
+        self.events = Some(super::event::Sequence::new(plan, party, boss, battle)?);
+        Ok(self)
+    }
+
+    pub fn has_events(&self) -> bool {
+        self.events.is_some()
+    }
+
+    pub fn event_scenes(&self) -> &[std::sync::Arc<resonance_content::battle_event::Scene>] {
+        self.events.as_ref().map_or(&[], |events| &events.scenes)
+    }
+
+    pub fn event(&self) -> Option<&super::event::Playback> {
+        self.events
+            .as_ref()
+            .and_then(super::event::Sequence::playback)
+    }
+
+    pub fn take_event_audio(&mut self) -> Vec<resonance_events::AudioCommand> {
+        self.events
+            .as_mut()
+            .map_or_else(Vec::new, super::event::Sequence::take_audio)
+    }
+
+    pub fn event_mut(&mut self) -> Option<&mut super::event::Playback> {
+        self.events
+            .as_mut()
+            .and_then(super::event::Sequence::playback_mut)
     }
 
     pub fn step(
@@ -81,6 +124,44 @@ impl Lifecycle {
             if matches!(self.phase, Phase::Finish) {
                 let frame = battle.finish_result()?;
                 self.phase = Phase::Finished;
+                return Ok(frame);
+            }
+            let event_visit = if let Some(events) = &mut self.events {
+                events.step(battle.ledger().combat_ticks, input.confirm, input.confirm)?
+            } else {
+                super::event::Visit::Combat
+            };
+            if let Some(events) = &mut self.events {
+                if let Some(actor) = events.take_reserve_activation()? {
+                    battle.activate_event_party_member(actor)?;
+                }
+                battle.hold_event_boss_hp(events.holds_hp().then_some(events.boss))?;
+            }
+            if event_visit != super::event::Visit::Combat {
+                self.command.close();
+                let mut cues = candidate.world_update(
+                    battle,
+                    BattleInput {
+                        paused: true,
+                        ..Default::default()
+                    },
+                )?;
+                if event_visit == super::event::Visit::Return
+                    && let Some(events) = self
+                        .events
+                        .as_ref()
+                        .filter(|events| events.restores_formation())
+                {
+                    cues.extend(battle.resume_event_combat(&events.formation)?);
+                }
+                if event_visit == super::event::Visit::Transition {
+                    battle.advance_event_transition()?;
+                }
+                let mut frame = battle.publish(cues);
+                if let Some(event) = self.event() {
+                    super::event::apply_view(&event.events, &mut frame)?;
+                }
+                presentation.present(&frame)?;
                 return Ok(frame);
             }
             let cues = if input.battle.paused {
@@ -178,7 +259,7 @@ impl Lifecycle {
                 BattleResult::Victory => {
                     candidate.choose_victory(battle)?;
                     presentation.request(Request::VictoryBanner, None, battle)?;
-                    battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
+                    battle.begin_transition(TransitionKind::FadeOut, [255; 3], FADE_STEP)?;
                     Phase::VictoryFade
                 }
                 BattleResult::Defeat => {
@@ -195,12 +276,17 @@ impl Lifecycle {
                 }
                 BattleResult::Escaped => {
                     battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
-                    if battle.forced_escape() {
-                        Phase::Closing
-                    } else {
-                        presentation.request(Request::EscapeNotice, None, battle)?;
-                        // Leave the success notice visible for one second before fading.
-                        Phase::EscapeNotice { remaining: 60 }
+                    match battle.departure_reason() {
+                        Some(DepartureReason::EnemyRetreat) => Phase::EnemyRetreat {
+                            // This visit also performs the first departure world update.
+                            remaining: ENEMY_RETREAT_UPDATES - 1,
+                        },
+                        Some(DepartureReason::ForcedEscape) => Phase::Closing,
+                        _ => {
+                            presentation.request(Request::EscapeNotice, None, battle)?;
+                            // Leave the success notice visible for one second before fading.
+                            Phase::EscapeNotice { remaining: 60 }
+                        }
                     }
                 }
             };
@@ -220,7 +306,7 @@ impl Lifecycle {
                             candidate.results(),
                             battle,
                         )?;
-                        battle.begin_transition(TransitionKind::FadeIn, [0; 3], FADE_STEP)?;
+                        battle.begin_transition(TransitionKind::FadeIn, [255; 3], FADE_STEP)?;
                         if candidate.result_style().play_music {
                             presentation.request(
                                 Request::PlayMusic {
@@ -267,6 +353,16 @@ impl Lifecycle {
                 Phase::EscapeNotice { remaining } => Phase::EscapeNotice {
                     remaining: remaining - 1,
                 },
+                Phase::EnemyRetreat { remaining } => {
+                    let faded = remaining <= FADE_UPDATES && battle.advance_transition()?;
+                    if remaining <= 1 && faded {
+                        Phase::Finish
+                    } else {
+                        Phase::EnemyRetreat {
+                            remaining: remaining.saturating_sub(1),
+                        }
+                    }
+                }
                 Phase::Closing => {
                     if battle.advance_transition()? {
                         if battle.recognize_result() == Some(BattleResult::Escaped) {

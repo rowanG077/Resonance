@@ -24,6 +24,13 @@ pub enum Declaration {
         duration: u32,
         amplitude: u32,
     },
+    StageTint {
+        color: [u8; 3],
+        duration: u16,
+    },
+    Notice {
+        text: String,
+    },
     /// Unsupported recipes remain loadable until a program requests them.
     Unsupported {
         reason: String,
@@ -36,6 +43,8 @@ impl Declaration {
             Self::Particle { template, .. } | Self::ModelParticle { template, .. } => Ok(template),
             Self::Unsupported { reason } => bail!("{reason}"),
             Self::CameraShake { .. } => bail!("camera shake has no particle"),
+            Self::StageTint { .. } => bail!("stage tint has no particle"),
+            Self::Notice { .. } => bail!("notice has no particle"),
         }
     }
 
@@ -44,6 +53,8 @@ impl Declaration {
             Self::Particle { template, .. } | Self::ModelParticle { template, .. } => Ok(template),
             Self::Unsupported { reason } => bail!("{reason}"),
             Self::CameraShake { .. } => bail!("camera shake has no particle"),
+            Self::StageTint { .. } => bail!("stage tint has no particle"),
+            Self::Notice { .. } => bail!("notice has no particle"),
         }
     }
 

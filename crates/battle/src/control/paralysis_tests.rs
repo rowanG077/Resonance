@@ -24,6 +24,9 @@ fn enter(battle: &mut Battle) -> Result<()> {
 fn arm_enemy_hit(battle: &mut PreparedBattle, amount: u16) {
     let contact = Arc::new(crate::MeleeDefinition {
         hit: crate::HitRule {
+            sound: None,
+            effect_on_guard: false,
+            effect: None,
             overlimit_pause: false,
             condition: None,
             arte: false,
@@ -31,6 +34,8 @@ fn arm_enemy_hit(battle: &mut PreparedBattle, amount: u16) {
             power: crate::Power::Fixed(amount),
             element: crate::HitElement::Neutral,
             prevents_defeat: false,
+            finisher_grade: false,
+            hp_drain: false,
             guard: crate::GuardRule {
                 enabled: false,
                 ..Default::default()
@@ -41,7 +46,7 @@ fn arm_enemy_hit(battle: &mut PreparedBattle, amount: u16) {
             },
         },
         trail: None,
-        volume: crate::MeleeVolume {
+        volume: crate::MeleeVolume::Fixed {
             offset: [0.; 3],
             radius: 200.,
             half_height: 200.,
@@ -55,6 +60,7 @@ fn arm_enemy_hit(battle: &mut PreparedBattle, amount: u16) {
             normal: None,
             tp_cost: 0,
             execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+                contact_recovery: None,
                 chain_at: None,
                 end_at: 2,
                 opening: None,

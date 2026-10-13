@@ -6,16 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const PATH: &str = "battle/victory.json";
-pub const ORDINARY_GROUPS: [u8; 42] = [
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-    27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
-];
+pub const GROUP_COUNT: u8 = 54;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Performances<O = Vec<Ordinary>, G = Vec<Group>, F = BTreeMap<String, File>> {
     pub module_sha256: String,
     pub archive_sha256: String,
-    pub group_archive_sha256: String,
     #[serde(default)]
     pub ordinary: O,
     #[serde(default)]
@@ -32,6 +28,28 @@ pub struct Ordinary {
     pub body_sha256: String,
     /// Sparse motion clip for this performance.
     pub motion: String,
+    /// Authored result updates, independent of the skeletal clip's frame rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<Vec<(u16, Event)>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unsupported_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Event {
+    Pose {
+        start: f32,
+        end: Option<f32>,
+        rate: f32,
+        blend: u8,
+        repeat: bool,
+    },
+    Expression([u8; 4]),
+    /// Resume the actor's ordinary idle after a completed celebration.
+    Idle {
+        blend: u8,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

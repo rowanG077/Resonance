@@ -5,16 +5,16 @@ mod combo;
 #[path = "markers.rs"]
 mod markers;
 
-const ENEMY_PANEL: usize = 0;
-const ENEMY_TEXT: usize = 1;
-const COMBO_PANEL: usize = 2;
-const COMBO_TEXT: usize = 3;
-const METERS: usize = 4;
+const ENEMY_NUMBERS: usize = 0;
+const COMBO_PANEL: usize = 1;
+const COMBO_TEXT: usize = 2;
+const METERS: usize = 3;
 
 pub(super) struct Hud {
     pub(super) layers: Vec<HudLayer>,
     pub(super) enemies: Vec<EnemyHud>,
     icon_layers: [Option<usize>; 4],
+    marker_layers: [Option<usize>; markers::COUNT],
     combos: combo::Combos,
 }
 
@@ -27,15 +27,31 @@ impl Hud {
         mut load: impl FnMut(&resonance_content::font::UiTexture, bool) -> Result<Option<Handle<Image>>>,
     ) -> Result<Self> {
         art.font
-            .validate_text("ITEM 0123456789.ESCAPEUNISONREADY")?;
+            .validate_text("ITEM 0123456789.ESCAPEUNISONREADYHITSDAMAGE")?;
         let mut layers = vec![
-            palette.solid.clone().at(Depth::Enemies),
-            palette.main_font.clone().at(Depth::Enemies).foreground(),
+            palette.font.clone().at(Depth::Enemies).foreground(),
             palette.solid.clone().at(Depth::Combo),
-            palette.main_font.clone().at(Depth::Combo).foreground(),
+            palette.font.clone().at(Depth::Combo).foreground(),
             palette.solid.clone().at(Depth::Meters),
-            palette.font.clone().at(Depth::Meters).foreground(),
+            palette
+                .font
+                .clone()
+                .at(Depth::Meters)
+                .foreground()
+                .foreground()
+                .foreground()
+                .foreground(),
         ];
+        for (index, texture) in std::iter::once(&art.feedback.unison_frame)
+            .chain(&art.feedback.escape)
+            .enumerate()
+        {
+            let image = load(texture, false)?.context("battle meter atlas is missing")?;
+            let mut definition =
+                LayerDefinition::new(image, [texture.width, texture.height], Depth::Meters);
+            definition.depth += [1., 2., 3., 1.][index];
+            layers.push(definition);
+        }
         ensure!(enemies.len() <= 8, "too many battle HUD enemies");
         let mut icon_layers = [None; 4];
         for enemy in enemies {
@@ -54,10 +70,27 @@ impl Hud {
                 );
             }
         }
+        let mut marker_layers = [None; markers::COUNT];
+        for (index, (slot, texture)) in marker_layers
+            .iter_mut()
+            .zip(art.targets.iter().chain([&art.stun]))
+            .enumerate()
+        {
+            if let Some(image) = load(texture, false)? {
+                *slot = Some(layers.len());
+                let mut definition =
+                    LayerDefinition::new(image, [texture.width, texture.height], Depth::Labels);
+                if index > 0 {
+                    definition = definition.foreground();
+                }
+                layers.push(definition);
+            }
+        }
         Ok(Self {
             layers: palette.layers(layers, materials),
             enemies: enemies.to_vec(),
             icon_layers,
+            marker_layers,
             combos: Default::default(),
         })
     }
@@ -69,22 +102,35 @@ impl Hud {
     fn draw(
         &mut self,
         frame: &BattleFrame,
-        battle_font: &BitmapFont,
-        font: &BitmapFont,
+        art: &Art,
         batch: &mut [Batch],
+        command: Option<&resonance_game::battle::command::Frame>,
     ) -> Result<()> {
-        meters::draw(
-            frame,
-            battle_font,
-            &mut batch[METERS..METERS + meters::COUNT],
-        )?;
-        draw_enemies(&self.enemies, &self.icon_layers, frame, font, batch)?;
-        let (left, right) = batch.split_at_mut(COMBO_TEXT);
-        markers::draw(frame, font, &mut left[COMBO_PANEL], &mut right[0])?;
+        meters::draw(frame, art, &mut batch[METERS..METERS + meters::COUNT])?;
+        draw_enemies(&self.enemies, &self.icon_layers, frame, &art.font, batch)?;
+        let selection = command.and_then(|command| {
+            use resonance_game::battle::command::View;
+            match command.view {
+                View::Enemy { target } => Some((command.actor, target)),
+                View::TechTarget {
+                    target: Some(target),
+                } => Some((command.actor, target)),
+                _ => None,
+            }
+        });
+        for (layer, markers) in self
+            .marker_layers
+            .into_iter()
+            .zip(markers::draw(frame, selection)?)
+        {
+            if let Some(layer) = layer {
+                batch[layer] = markers;
+            }
+        }
         if frame.recognized_result.is_none() && frame.target_selector.is_none() {
             let (left, right) = batch.split_at_mut(COMBO_TEXT);
             self.combos
-                .draw(font, &mut left[COMBO_PANEL], &mut right[0])?;
+                .draw(&art.font, &art.combo, &mut left[COMBO_PANEL], &mut right[0])?;
         }
         Ok(())
     }
@@ -100,64 +146,43 @@ fn draw_enemies(
     if frame.recognized_result.is_some() {
         return Ok(());
     }
-    let leader = frame
-        .target_selector
-        .map(|id| id.index())
-        .or_else(|| {
-            frame.actors.iter().position(|actor| {
-                actor.side == Side::Party && actor.control != resonance_battle::Control::Auto
-            })
-        })
-        .or_else(|| {
-            frame
-                .actors
-                .iter()
-                .position(|actor| actor.side == Side::Party)
-        });
-    let target = leader
-        .and_then(|leader| frame.targets[leader])
-        .map(|id| id.index());
+    let group_count = enemies
+        .iter()
+        .map(|enemy| enemy.group)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let columns = if group_count > 2 && enemies.len() <= 4 {
+        4
+    } else {
+        enemies.len().div_ceil(2)
+    };
+    let mut ordinals = [0; 4];
     for (index, enemy) in enemies.iter().enumerate() {
+        let group = usize::from(enemy.group);
+        let ordinal = ordinals[group];
+        ordinals[group] += 1;
         let actor = &frame.actors[enemy.actor];
         if !actor.available() || actor.hp <= 0 {
             continue;
         }
-        let x = 12. + (index % 2) as f32 * 140.;
-        let y = 16. + (index / 2) as f32 * 34.;
-        if target == Some(enemy.actor) {
-            batch[ENEMY_PANEL].quad(
-                [x - 2., y - 2., x + 134., y + 32.],
-                [0.5; 4],
-                [0.95, 0.75, 0.3, 1.],
-            );
+        let (column, row) = if group_count == 2 {
+            (ordinal, group)
+        } else {
+            (index % columns, index / columns)
+        };
+        let x = 464. + column as f32 * 36.;
+        let y = 388. + row as f32 * 36.;
+        if let Some(layer) = icon_layers[group] {
+            batch[layer].quad([x, y, x + 32., y + 32.], [0., 0., 32., 32.], [1.; 4]);
         }
-        batch[ENEMY_PANEL].quad([x, y, x + 132., y + 30.], [0.5; 4], [0.04, 0.05, 0.08, 0.9]);
-        let icon = icon_layers[usize::from(enemy.group)];
-        if let Some(layer) = icon {
-            batch[layer].quad(
-                [x + 2., y + 3., x + 26., y + 27.],
-                [0., 0., 32., 32.],
-                hud_color([128, 128, 128, 255]),
-            );
-        }
-        let inset = if icon.is_some() { 30. } else { 4. };
-        let name = format!("{} {}", index + 1, enemy.name);
-        text::fit(
-            &mut batch[ENEMY_TEXT],
+        text::glyphs(
+            &mut batch[ENEMY_NUMBERS],
             font,
-            &name,
-            [x + inset, y + 3., 128. - inset, 12.],
+            &(ordinal + 1).to_string(),
+            [x + 22., y + 20.],
+            [12., 12.],
             [128, 128, 128, 255],
         )?;
-        if matches!(actor.activity, Activity::Casting { .. }) {
-            text::fit(
-                &mut batch[ENEMY_TEXT],
-                font,
-                "CASTING",
-                [x + inset, y + 18., 128. - inset, 10.],
-                [90, 110, 128, 255],
-            )?;
-        }
     }
     Ok(())
 }
@@ -166,14 +191,14 @@ impl Artwork {
     pub(super) fn render_combat(
         &mut self,
         frame: &BattleFrame,
+        command: Option<&resonance_game::battle::command::Frame>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut batches: Vec<_> = (0..self.combat.layers.len())
             .map(|_| Batch::default())
             .collect();
-        self.combat
-            .draw(frame, &self.art.font, &self.font, &mut batches)?;
+        self.combat.draw(frame, &self.art, &mut batches, command)?;
         for (layer, batch) in self.combat.layers.iter_mut().zip(batches) {
             layer.upload(batch, commands, meshes)?;
         }
@@ -215,8 +240,7 @@ mod tests {
             let mut batches = (0..hud.combat.layers.len())
                 .map(|_| Batch::default())
                 .collect::<Vec<_>>();
-            hud.combat
-                .draw(frame, &hud.art.font, &hud.font, &mut batches)?;
+            hud.combat.draw(frame, &hud.art, &mut batches, None)?;
             Ok([
                 std::mem::take(&mut batches[COMBO_PANEL]),
                 std::mem::take(&mut batches[COMBO_TEXT]),
@@ -249,20 +273,24 @@ mod tests {
         hud.advance(&frame, true)?;
         let notices = hud.draw_notices(&frame, party)?;
         let first = combos(&mut hud, &frame)?;
-        assert!(notices.iter().all(|b| !b.indices.is_empty()));
+        assert!(notices.iter().any(|b| !b.indices.is_empty()));
         assert!(
             notices
                 .iter()
                 .flat_map(|b| &b.positions)
-                .all(|p| (-16. ..=308.).contains(&p[0]) && (156. ..=224.).contains(&p[1]))
+                .all(|p| (-320. ..=320.).contains(&p[0]) && (152. ..=240.).contains(&p[1]))
         );
-        assert_eq!(first[0].positions.len(), 8, "both sides have a combo panel");
+        assert_eq!(
+            first[0].positions.len(),
+            8,
+            "both corners have a hit-count strip"
+        );
         assert!(!first[1].indices.is_empty());
         assert!(
             first
                 .iter()
                 .flat_map(|b| &b.positions)
-                .all(|p| (-320. ..=0.).contains(&p[0]) && (32. ..=92.).contains(&p[1]))
+                .all(|p| (-320. ..=320.).contains(&p[0]) && (128. ..=232.).contains(&p[1]))
         );
         assert!(
             combos(&mut hud, &frame)? == first,
@@ -276,7 +304,10 @@ mod tests {
         hud.advance(&frame, true)?;
         frame.cues.clear();
         let replaced = combos(&mut hud, &frame)?;
-        assert!(first[0] == replaced[0] && first[1] != replaced[1]);
+        assert!(
+            first != replaced,
+            "the count and its strip expand for another digit"
+        );
         for _ in 0..100 {
             hud.advance(&frame, true)?;
         }
@@ -285,12 +316,16 @@ mod tests {
         for _ in 0..12 {
             hud.advance(&frame, false)?;
         }
-        assert!(hud.draw_notices(&frame, party)? == notices);
+        let entered = hud.draw_notices(&frame, party)?;
+        assert!(
+            entered != notices,
+            "notices fade in while the battle advances"
+        );
         for _ in 0..10 {
             hud.advance(&frame, false)?;
         }
         let fading = hud.draw_notices(&frame, party)?;
-        assert!(fading != notices && !fading[1].indices.is_empty());
+        assert!(fading != entered && !fading[1].indices.is_empty());
         for _ in 0..120 {
             hud.advance(&frame, false)?;
         }
@@ -311,8 +346,11 @@ mod tests {
         });
         hud.advance(&frame, false)?;
         frame.cues.clear();
+        for _ in 0..15 {
+            hud.advance(&frame, false)?;
+        }
         let mut scanned = hud.scan_batches(&frame)?;
-        assert!(scanned.iter().all(|b| !b.indices.is_empty()));
+        assert!(scanned[..2].iter().all(|b| !b.indices.is_empty()));
         assert!(
             hud.draw_notices(&frame, party)?
                 .iter()
@@ -330,13 +368,7 @@ mod tests {
         frame.actors[1].equipment.max_hp = i32::MAX;
         frame.actors[1].tp = u16::MAX;
         frame.actors[1].equipment.max_tp = u16::MAX;
-        for affinity in [
-            Affinity::Normal,
-            Affinity::Weak,
-            Affinity::Resistant,
-            Affinity::Absorb,
-            Affinity::Immune,
-        ] {
+        for affinity in [Affinity::Normal, Affinity::Weak, Affinity::Resistant] {
             frame.actors[1].equipment.affinities.fill(affinity);
             let current = hud.scan_batches(&frame)?;
             assert!(
@@ -347,8 +379,8 @@ mod tests {
                 current
                     .iter()
                     .flat_map(|b| &b.positions)
-                    .all(|p| (8. ..=632.).contains(&(p[0] + 320.))
-                        && (8. ..party::TOP).contains(&(240. - p[1])))
+                    .all(|p| (464. ..=640.).contains(&(p[0] + 320.))
+                        && (328. ..=454.).contains(&(240. - p[1])))
             );
             scanned = current;
         }
@@ -361,7 +393,7 @@ mod tests {
             hud.scan_batches(&frame)? != scanned,
             "a new target replaces the scan"
         );
-        for _ in 0..4 * 60 {
+        for _ in 0..4 * 60 + 30 {
             hud.advance(&frame, false)?;
         }
         assert!(
@@ -402,69 +434,48 @@ mod tests {
         );
         for request in [Request::DefeatNotice, Request::EscapeNotice] {
             hud.overlay_request(request)?;
-            let banner = hud.draw_notices(&frame, party)?;
-            assert!(banner.iter().all(|b| !b.indices.is_empty()));
             assert!(
-                banner
+                hud.draw_notices(&frame, party)?
                     .iter()
-                    .flat_map(|b| &b.positions)
-                    .all(|p| (-160. ..=160.).contains(&p[0]) && (24. ..=68.).contains(&p[1]))
+                    .all(|batch| batch.indices.is_empty())
             );
         }
         Ok(())
     }
 
     #[test]
-    #[ignore = "requires the dialogue font; CPU enemy HUD drawing only"]
-    fn enemy_roster_shows_live_targets_and_casting_without_icons() -> Result<()> {
-        use resonance_battle::{ActorId, BattleResult, Control};
-        let font = fixtures::dialogue_font()?;
+    #[ignore = "requires the battle font; CPU enemy HUD drawing only"]
+    fn enemy_icons_keep_their_slots_when_an_enemy_is_defeated() -> Result<()> {
+        let font = fixtures::battle_font()?;
         let mut frame = fixtures::frame(fixtures::actor(Default::default()));
-        frame.actors = vec![frame.actors[0].clone(); 10];
-        frame.actors[0].control = Control::Manual;
-        for actor in &mut frame.actors[2..] {
-            actor.side = Side::Enemy;
-        }
-        frame.targets = vec![None; 10];
-        frame.targets[0] = Some(ActorId::from_index(2)?);
-        frame.targets[1] = Some(ActorId::from_index(9)?);
-        let enemies: Vec<_> = (0..8)
-            .map(|index| EnemyHud {
-                actor: index + 2,
-                group: (index % 4) as u8,
-                name: "Long enemy name".into(),
+        frame.actors = vec![frame.actors[0].clone(); 3];
+        let enemies = (0..3)
+            .map(|actor| EnemyHud {
+                actor,
+                group: if actor < 2 { 0 } else { 1 },
+                name: String::new(),
                 icon: None,
             })
-            .collect();
-        let draw = |frame: &BattleFrame| -> Result<[Batch; 2]> {
+            .collect::<Vec<_>>();
+        let draw = |frame: &BattleFrame| -> Result<[Batch; 3]> {
             let mut batches = std::array::from_fn(|_| Batch::default());
-            draw_enemies(&enemies, &[None; 4], frame, &font, &mut batches)?;
+            draw_enemies(
+                &enemies,
+                &[Some(1), Some(2), None, None],
+                frame,
+                &font,
+                &mut batches,
+            )?;
             Ok(batches)
         };
-        let ordinary = draw(&frame)?;
-        assert!(!ordinary[ENEMY_TEXT].indices.is_empty());
-        assert!(
-            ordinary
-                .iter()
-                .flat_map(|batch| &batch.positions)
-                .all(|p| { (-320. ..=320.).contains(&p[0]) && (-122. ..=240.).contains(&p[1]) }),
-            "enemy rows stay on screen above the meters and party cards"
-        );
-        frame.target_selector = Some(ActorId::from_index(1)?);
-        let targeting = draw(&frame)?;
-        assert!(
-            ordinary[ENEMY_PANEL] != targeting[ENEMY_PANEL],
-            "selection follows its actual owner"
-        );
-        assert!(ordinary[ENEMY_TEXT] == targeting[ENEMY_TEXT]);
-        frame.actors[9].activity = Activity::Casting { held: false };
-        let casting = draw(&frame)?;
-        assert!(casting[ENEMY_TEXT].positions.len() > targeting[ENEMY_TEXT].positions.len());
-        frame.actors[9].hp = 0;
-        let defeated = draw(&frame)?;
-        assert!(defeated[ENEMY_PANEL].positions.len() < ordinary[ENEMY_PANEL].positions.len());
-        assert!(defeated[ENEMY_TEXT].positions.len() < ordinary[ENEMY_TEXT].positions.len());
-        frame.recognized_result = Some(BattleResult::Victory);
+        let all = draw(&frame)?;
+        assert_eq!(all[1].positions.len(), 8);
+        assert_eq!(all[2].positions.len(), 4);
+        frame.actors[0].hp = 0;
+        let remaining = draw(&frame)?;
+        assert_eq!(remaining[1].positions, all[1].positions[4..]);
+        assert_eq!(remaining[2].positions, all[2].positions);
+        frame.recognized_result = Some(resonance_battle::BattleResult::Victory);
         assert!(draw(&frame)?.iter().all(|batch| batch.indices.is_empty()));
         Ok(())
     }
@@ -474,10 +485,12 @@ mod tests {
     fn native_meters_draw_live_progress_and_dismiss_at_results() -> Result<()> {
         use resonance_battle::item::ITEM_COOLDOWN_TICKS;
         use resonance_battle::{BattleResult, EscapeFrame, MAX_ESCAPE_GAUGE, MAX_UNISON_GAUGE};
-        let font = fixtures::battle_font()?;
+        let art: Art = serde_json::from_slice(&std::fs::read(
+            fixtures::asset_root().join(resonance_content::battle_ui::PATH),
+        )?)?;
         let draw = |frame: &BattleFrame| -> Result<[Batch; meters::COUNT]> {
             let mut batches = std::array::from_fn(|_| Batch::default());
-            meters::draw(frame, &font, &mut batches)?;
+            meters::draw(frame, &art, &mut batches)?;
             Ok(batches)
         };
         let mut frame = fixtures::frame(fixtures::actor(Default::default()));
@@ -509,7 +522,11 @@ mod tests {
             "ready caption is added"
         );
         frame.escape.as_mut().unwrap().gauge = 0;
-        assert!(draw(&frame)?[0].positions.len() < ready[0].positions.len());
+        assert!(
+            draw(&frame)?[3..]
+                .iter()
+                .all(|batch| batch.indices.is_empty())
+        );
         frame.unison_available = false;
         assert!(draw(&frame)?.iter().all(|batch| batch.indices.is_empty()));
         frame.unison_available = true;

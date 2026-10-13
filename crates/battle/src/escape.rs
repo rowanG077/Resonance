@@ -221,7 +221,7 @@ impl Battle {
                 actor.hit_stop = 0;
             }
         }
-        if !self.forced_escape() {
+        if self.departure_reason() == Some(crate::DepartureReason::Escape) {
             for actor in &mut self.actors {
                 if actor.side == Side::Party && actor.available() {
                     actor.reaction.protection.escape();

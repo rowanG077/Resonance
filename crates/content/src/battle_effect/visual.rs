@@ -6,6 +6,9 @@ pub struct ParticleVisual {
     pub geometry: ParticleShape,
     pub orientation: Orientation,
     pub texture: ParticleTexture,
+    /// Sample the completed scene through the texture's opacity mask.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_sample: Option<[i8; 2]>,
     pub blend: u8,
     pub depth_test: bool,
     pub depth_write: bool,
@@ -20,6 +23,8 @@ pub struct ParticleVisual {
 #[serde(rename_all = "snake_case")]
 pub enum Orientation {
     World,
+    FixedWorld,
+    FollowMotion,
     Billboard,
     Camera,
 }
@@ -42,7 +47,10 @@ pub enum UvLayout {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ParticleShape {
+    NoDraw,
     Quad,
+    /// Three strips between concentric equilateral triangles.
+    TriangleBand,
     Ring {
         segments: u8,
         flared: bool,
@@ -50,7 +58,14 @@ pub enum ParticleShape {
         uv_layout: UvLayout,
     },
     Orbit,
+    RadialQuads {
+        flat: bool,
+        advance_u: bool,
+    },
     BillboardTrail,
+    Ribbon {
+        depth: bool,
+    },
     Spiral {
         radius_step: f32,
         segment_offset: [f32; 3],
@@ -66,6 +81,9 @@ pub enum ParticleShape {
         uv_layout: UvLayout,
     },
     Sphere {
+        columns: u8,
+    },
+    Hemisphere {
         columns: u8,
     },
     VertexQuad {

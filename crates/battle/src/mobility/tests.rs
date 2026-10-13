@@ -20,6 +20,7 @@ pub(crate) fn prepared() -> PreparedBattle {
             normal: Some(crate::NormalAttack::ALL[index]),
             tp_cost: 0,
             execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+                contact_recovery: None,
                 chain_at: None,
                 end_at: 90,
                 opening: None,
@@ -45,6 +46,9 @@ pub(crate) fn prepared() -> PreparedBattle {
                 shortcuts: [0; 4],
                 normals: std::array::from_fn(|index| NormalControl {
                     action: crate::ActionKey(index),
+                    continuation: crate::tests::normal_continuation(
+                        crate::NormalAttack::ALL[index],
+                    ),
 
                     reach: 120.,
                     minimum_reach: 0.,

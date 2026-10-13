@@ -6,6 +6,9 @@ pub const PATH: &str = "battle/recoil.json";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Table {
     pub source_sha256: String,
+    pub impulses: Vec<[f32; 2]>,
+    pub suppression_distance: f32,
+    pub guard_speed: f32,
     pub light_vertical_scale: f32,
     pub heavy_vertical_scale: f32,
     /// Recovery bonuses for the default saved party strategy, indexed by actor kind.

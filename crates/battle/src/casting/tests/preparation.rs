@@ -3,7 +3,9 @@ use super::*;
 #[test]
 fn casting_rejects_an_empty_volley() {
     let mut prepared = prepared_cast(Control::Manual, 3, CASTER_TP);
-    Arc::make_mut(&mut casting_definition(&mut prepared).release).shots = 0;
+    Arc::make_mut(&mut casting_definition(&mut prepared).release)
+        .projectiles
+        .clear();
     assert!(prepared.finish().is_err());
 }
 

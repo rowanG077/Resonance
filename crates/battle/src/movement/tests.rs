@@ -52,6 +52,23 @@ fn start() -> BattleInput {
 
 #[test]
 fn braking_stops_without_reversing_and_preserves_airborne_hurt() {
+    for (speed, braking, expected) in [
+        (0.55, 0., 0.),
+        (0.56, 0., 0.56),
+        (1.04, 0.5, 0.),
+        (1.06, 0.5, 0.56),
+        (2.49, 1.5, 0.99),
+    ] {
+        for direction in [-1., 1.] {
+            let mut movement = Movement {
+                forward: direction * speed,
+                braking,
+                ..Default::default()
+            };
+            movement.brake(0., Activity::Idle);
+            crate::tests::assert_close(movement.forward, direction * expected, 0.00001);
+        }
+    }
     for speed in [-10., -1., 0., 1., 10.] {
         let mut movement = Movement {
             forward: speed,
@@ -91,39 +108,63 @@ fn ground_clamp_uses_strict_negative_height() {
 
 #[test]
 fn local_hit_stop_holds_actor_commands_and_motion_but_ticks_common_timers() {
-    let mut battle = battle(crate::PreparedAttack {
-        events: [(0, 3.), (1, 6.)]
-            .map(|(at, speed)| {
+    for target_direction in [-1., 1.] {
+        let mut battle = battle(crate::PreparedAttack {
+            events: vec![
+                (0, crate::AttackEvent::Braking(0.)),
                 (
-                    at,
+                    0,
                     crate::AttackEvent::Move {
-                        forward: Some(speed),
+                        forward: Some(3.),
                         vertical: None,
                     },
-                )
-            })
-            .into(),
-        ..crate::tests::attack(1)
-    });
-    battle.actors[0].hit_stop = 2;
-    for remaining in [1, 0] {
-        let frame = battle
-            .step(if remaining == 1 {
-                start()
-            } else {
-                BattleInput::default()
-            })
-            .unwrap();
-        assert_eq!(frame.actors[0].position, [0.; 3]);
-        assert_eq!(frame.actors[0].hit_stop, remaining);
-        assert_eq!(frame.actions[0].2, 0);
+                ),
+                (1, crate::AttackEvent::Braking(0.5)),
+                (
+                    1,
+                    crate::AttackEvent::Move {
+                        forward: Some(6.),
+                        vertical: None,
+                    },
+                ),
+                (1, crate::AttackEvent::FaceTarget),
+            ],
+            ..crate::tests::attack(1)
+        });
+        battle.actors[0].heading = 90.;
+        battle.actors[0].hit_stop = 2;
+        battle.actors[1].position[0] = target_direction * 100.;
+        for remaining in [1, 0] {
+            let frame = battle
+                .step(if remaining == 1 {
+                    start()
+                } else {
+                    BattleInput::default()
+                })
+                .unwrap();
+            assert_eq!(frame.actors[0].position, [0.; 3]);
+            assert_eq!(frame.actors[0].hit_stop, remaining);
+            assert_eq!(frame.actors[0].heading, 90.);
+            assert_eq!(frame.actions[0].2, 0);
+        }
+        let frame = battle.step(BattleInput::default()).unwrap();
+        assert_eq!(frame.actors[0].position[0], 3.);
+        assert_eq!(battle.actors[0].movement.forward, 3.);
+        assert_eq!(frame.actions[0].2, 1);
+        let resumed = battle.step(BattleInput::default()).unwrap();
+        assert_eq!(resumed.actors[0].position[0], 3. + 6. * target_direction);
+        assert_eq!(resumed.actors[0].heading, 90. * target_direction);
+        for direction in [
+            battle.actors[0].facing_direction,
+            battle.actors[0].movement.direction,
+        ] {
+            for (actual, expected) in direction.into_iter().zip([target_direction, 0., 0.]) {
+                crate::tests::assert_close(actual, expected, 1e-6);
+            }
+        }
+        assert_eq!(battle.actors[0].movement.forward, 5.5);
+        assert_eq!(resumed.actors[0].activity, Activity::Recovering);
     }
-    let frame = battle.step(BattleInput::default()).unwrap();
-    assert_eq!(frame.actors[0].position[0], 3.);
-    assert_eq!(frame.actions[0].2, 1);
-    let resumed = battle.step(BattleInput::default()).unwrap();
-    assert_eq!(resumed.actors[0].position[0], 9.);
-    assert_eq!(resumed.actors[0].activity, Activity::Recovering);
 }
 
 #[test]

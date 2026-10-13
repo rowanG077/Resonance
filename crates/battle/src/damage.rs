@@ -8,10 +8,15 @@ pub use resonance_content::menu_data::Element;
 
 pub use resonance_content::battle_action::{HitCondition, HitElement, Power};
 
+pub(crate) const MIN_ATTACK_POWER: u16 = 10;
+pub(crate) const CHAIN_POWER_REDUCTION: u16 = 15;
+
 /// Independent decisions made while resolving a hit. Ineligible decisions do not draw.
 #[derive(Clone, Copy)]
 pub(crate) enum Draw {
     Variance,
+    MagicResistance,
+    CriticalChance,
     Critical,
     AutoGuard,
     ElementalReduction,
@@ -23,7 +28,7 @@ pub(crate) enum Draw {
 #[cfg(test)]
 fn neutral_roll(draw: Draw) -> u16 {
     match draw {
-        Draw::Variance => VARIANCE_PERCENT,
+        Draw::Variance | Draw::MagicResistance | Draw::CriticalChance => 0,
         _ => 99,
     }
 }
@@ -131,6 +136,11 @@ pub use resonance_content::battle_projectile::DamageKind;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HitRule {
     pub kind: DamageKind,
+    /// Additional artwork emitted at the accepted contact point.
+    pub effect: Option<crate::EffectAppearance>,
+    /// Permit the contact artwork when the accepted hit is guarded.
+    pub effect_on_guard: bool,
+    pub sound: Option<crate::Sound>,
     /// Arte contacts do not restore the attacker's TP. The physical damage
     /// branch also uses this classification for the prepared EX bonus.
     pub arte: bool,
@@ -141,6 +151,10 @@ pub struct HitRule {
     /// Inherited elements are resolved from the live owner at each contact.
     pub element: HitElement,
     pub prevents_defeat: bool,
+    /// Award grade only after this contact confirms an enemy defeat.
+    pub finisher_grade: bool,
+    /// Restore nominal damage to the attacker on an unguarded, unsuppressed hit.
+    pub hp_drain: bool,
     pub guard: GuardRule,
     pub reaction: crate::ReactionRule,
     pub condition: Option<HitCondition>,
@@ -158,11 +172,14 @@ pub struct HitResult {
     pub affinity: Affinity,
     pub guard: GuardResult,
     pub protection: crate::HitProtection,
+    pub reaction_suppressed: bool,
+    /// A forced reaction may retain nominal damage while protection prevents HP loss.
+    pub reaction_forced: bool,
 }
 
 impl HitResult {
     pub fn is_damage(self) -> bool {
-        self.hp_change < 0
+        (self.hp_change < 0 || self.reaction_forced)
             && !matches!(self.affinity, Affinity::Absorb | Affinity::Immune)
             && self.protection != crate::HitProtection::Avoided
     }
@@ -173,14 +190,25 @@ impl HitResult {
     }
 
     pub fn suppresses_reaction(self) -> bool {
-        !self.is_damage() || self.protection != crate::HitProtection::None
+        !self.is_damage()
+            || self.protection != crate::HitProtection::None
+            || self.reaction_suppressed
     }
 }
 
-const BASE_CRITICAL_CHANCE: i32 = 5;
+const BASE_CRITICAL_CHANCE: i32 = 1;
 const LUCK_PER_CRITICAL_POINT: i32 = 20;
-const CRITICAL_MULTIPLIER: f64 = 1.5;
-const VARIANCE_PERCENT: u16 = 5;
+const CRITICAL_CHANCE_SPREAD: u16 = 4;
+const VARIANCE_SPREAD: i16 = 5;
+
+fn percentage(amount: i64, percent: i64) -> i64 {
+    amount.saturating_mul(percent) / 100
+}
+
+fn vary(amount: i64, roll: &mut dyn FnMut(Draw) -> u16) -> i64 {
+    let variation = (roll(Draw::Variance) as i16) % VARIANCE_SPREAD;
+    percentage(amount, 100 + i64::from(variation))
+}
 
 fn proficient(stat: i32, bonus: i64) -> i32 {
     (i64::from(stat) * (100 + bonus) / 100).clamp(0, i64::from(i32::MAX)) as i32
@@ -201,9 +229,9 @@ fn physical_attack(owner: &Actor, kind: DamageKind) -> i32 {
     proficient(stat, i64::from(owner.proficiency) + variable)
 }
 
-/// Calculate magnitude without changing actors. Attacker bonuses add together, as do
-/// recipient reductions; multiply those two percentages and round once. Fixed power skips
-/// attacker statistics, bonuses, criticals, and variance, but still respects mitigation.
+/// Calculate magnitude without changing actors. Ordinary damage truncates each integer
+/// stage; physical hit power follows accuracy and criticals, while magic hit power
+/// precedes resistance. Fixed power skips statistics, bonuses, criticals and variance.
 fn calculate_amount(
     owner: &Actor,
     target: &Actor,
@@ -245,7 +273,7 @@ fn calculate_amount(
     let mut critical = false;
     let mut boosted = false;
     let amount = if let Power::Fixed(amount) = rule.power {
-        f64::from(amount)
+        return ((i64::from(amount) * mitigation + 50) / 100, false, false);
     } else {
         let mut bonus = 100;
         if attacking.intersects(crate::conditions::PROTECTION) {
@@ -268,8 +296,8 @@ fn calculate_amount(
             let evasion = target
                 .conditions
                 .evasion_with_conditions(target.equipment.stats.evasion);
-            let accuracy_scale =
-                1. + (f64::from(accuracy) - f64::from(evasion)).clamp(-20., 20.) / 200.;
+            let accuracy_percent =
+                90 + ((i64::from(accuracy) - i64::from(evasion) - 5) >> 1).clamp(-10, 10);
             if attacking.contains(Condition::Flare) {
                 bonus += 20;
             }
@@ -299,10 +327,9 @@ fn calculate_amount(
                 bonus += 15;
                 boosted = true;
             }
-            (f64::from(attack) / 2. - f64::from(defense)).max(1.)
-                * accuracy_scale
-                * f64::from(attack_power)
-                / 100.
+            let base = ((i64::from(attack) >> 1) - i64::from(defense)).max(1);
+            let base = percentage(base, i64::from(attack_power));
+            percentage(vary(base, roll), accuracy_percent)
         } else {
             if attack_traits.magic_damage_boost {
                 bonus += 10;
@@ -317,33 +344,47 @@ fn calculate_amount(
                 owner.equipment.stats.intelligence,
                 i64::from(owner.proficiency),
             );
-            let resistance = f64::from(target.equipment.stats.intelligence) / 8.
-                + f64::from(target.equipment.stats.level) / 2.;
-            (f64::from(intelligence) - resistance).max(1.) * f64::from(attack_power) / 100.
+            let intelligence = match rule.power {
+                Power::Percent(percent) => percentage(i64::from(intelligence), i64::from(percent)),
+                _ => i64::from(intelligence),
+            };
+            let level = u16::from(target.equipment.stats.level);
+            let resistance = (i64::from(target.equipment.stats.intelligence) >> 3)
+                + if level == 0 {
+                    0
+                } else {
+                    i64::from(roll(Draw::MagicResistance) % level)
+                };
+            percentage(
+                intelligence - resistance,
+                i64::from(owner.casting_state.power_percent),
+            )
         };
-        if let Power::Percent(percent) = rule.power {
-            base *= f64::from(percent) / 100.;
-        }
         if physical || owner.equipment.recovery.lucky {
             let chance = (BASE_CRITICAL_CHANCE
-                + (i32::from(owner.equipment.luck) - i32::from(target.equipment.luck))
+                + (i32::from(owner.equipment.luck) - i32::from(target.equipment.luck)).max(0)
                     / LUCK_PER_CRITICAL_POINT
-                + i32::from(attack_traits.critical_chance_bonus))
+                + i32::from(attack_traits.critical_chance_bonus)
+                + i32::from(roll(Draw::CriticalChance) % CRITICAL_CHANCE_SPREAD))
             .clamp(0, 100);
             critical =
                 (physical && attack_traits.physical_counter && activity == crate::Activity::Action)
                     || i32::from(roll(Draw::Critical) % 100) < chance;
             if critical {
-                base *= CRITICAL_MULTIPLIER;
+                base += base >> 1;
             }
         }
-        let variance = 100 - VARIANCE_PERCENT + roll(Draw::Variance) % (2 * VARIANCE_PERCENT + 1);
-        base * f64::from(bonus) / 100. * f64::from(variance) / 100.
+        if physical {
+            if let Power::Percent(percent) = rule.power {
+                base = percentage(base, i64::from(percent));
+            }
+        } else {
+            base = vary(base, roll);
+        }
+        percentage(base, bonus)
     };
     (
-        (amount * f64::from(mitigation) / 100.)
-            .round()
-            .clamp(0., f64::from(i32::MAX)) as i64,
+        percentage(amount, mitigation).clamp(0, i64::from(i32::MAX)),
         critical,
         boosted,
     )
@@ -374,6 +415,7 @@ pub(crate) fn resolve(
 }
 
 /// Resolve a contact in order: affinity, avoidance, guard/protection, HP, then ailments.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_with_condition(
     owner: &Actor,
@@ -386,10 +428,52 @@ pub(crate) fn resolve_with_condition(
     all_divide: bool,
     available_counts: [u8; 2],
 ) -> (HitResult, Option<crate::conditions::ConditionLabel>) {
+    resolve_contact(
+        owner,
+        target,
+        activity,
+        rule,
+        attack_power,
+        incoming,
+        roll,
+        all_divide,
+        available_counts,
+        ContactMode::Ordinary,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContactMode {
+    Ordinary,
+    Captured,
+    Unison { held: bool, bonus: bool },
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resolve_contact(
+    owner: &Actor,
+    target: &mut Actor,
+    activity: crate::Activity,
+    rule: HitRule,
+    attack_power: u16,
+    incoming: [f32; 3],
+    roll: &mut dyn FnMut(Draw) -> u16,
+    all_divide: bool,
+    available_counts: [u8; 2],
+    mode: ContactMode,
+) -> (HitResult, Option<crate::conditions::ConditionLabel>) {
     use crate::{HitProtection, conditions::ConditionLabel};
+    let unison = matches!(mode, ContactMode::Unison { .. });
+    let held = matches!(
+        mode,
+        ContactMode::Captured | ContactMode::Unison { held: true, .. }
+    );
     let hp_before = target.hp;
     let element = resolve_element(rule.element, owner);
-    let affinity = target.equipment.affinities[element.map_or(0, |e| e as usize + 1)];
+    let mut affinity = target.equipment.affinities[element.map_or(0, |e| e as usize + 1)];
+    if unison && affinity == Affinity::Absorb {
+        affinity = Affinity::Normal;
+    }
     let (mut amount, critical, boosted) = calculate_amount(
         owner,
         target,
@@ -404,7 +488,7 @@ pub(crate) fn resolve_with_condition(
         Affinity::Resistant => amount / 2,
         _ => amount,
     };
-    if all_divide {
+    if all_divide && !unison {
         amount /= 2;
     }
     let mut hit = HitResult {
@@ -415,6 +499,8 @@ pub(crate) fn resolve_with_condition(
         affinity,
         guard: GuardResult::None,
         protection: HitProtection::None,
+        reaction_suppressed: rule.reaction.suppress,
+        reaction_forced: false,
     };
     if affinity == Affinity::Immune {
         return (hit, None);
@@ -436,20 +522,36 @@ pub(crate) fn resolve_with_condition(
     );
     let special_guard =
         rule.guard.enabled && target.guard.active && target.guard.kind == GuardKind::Special;
-    let avoids = protection == HitProtection::Avoided
-        || (target.equipment.damage.low_hp_special_guard
-            && special_guard
-            && i64::from(target.hp) * 10 <= i64::from(target.equipment.max_hp))
-        || (target.equipment.damage.suppress_small_hits
-            && amount < i64::from(target.equipment.max_hp) / 100);
+    let small_hit = target.equipment.damage.suppress_small_hits
+        && amount < i64::from(target.equipment.max_hp) / 100;
+    let force_reaction = rule.reaction.force && !overlimit && !special_guard && !small_hit;
+    let low_hp_guard = target.equipment.damage.low_hp_special_guard
+        && special_guard
+        && i64::from(target.hp) * 10 <= i64::from(target.equipment.max_hp);
+    let avoids = (!unison && protection == HitProtection::Avoided) || low_hp_guard || small_hit;
     let nullified =
         !avoids && target.equipment.damage.nullify_damage && roll(Draw::Avoidance) % 100 < 5;
-    if avoids || nullified {
+    if avoids || (nullified && !unison) {
         hit.protection = HitProtection::Avoided;
+        if low_hp_guard && !unison {
+            hit.guard = GuardResult::Blocked {
+                first: false,
+                special: true,
+            };
+        }
+        if force_reaction {
+            hit.amount = amount.clamp(1, i64::from(i32::MAX)) as i32;
+            hit.critical = critical;
+            hit.boosted = boosted;
+            hit.protection = HitProtection::None;
+            hit.reaction_suppressed = false;
+            hit.reaction_forced = true;
+            target.guard.active = false;
+        }
         return (hit, nullified.then_some(ConditionLabel::ExSkillEffect));
     }
 
-    let mut label = None;
+    let mut label = nullified.then_some(ConditionLabel::ExSkillEffect);
     if element.is_some()
         && target.equipment.damage.elemental_damage_reduction
         && roll(Draw::ElementalReduction) % 100 < 5
@@ -471,34 +573,48 @@ pub(crate) fn resolve_with_condition(
         && hit.protection == HitProtection::None
         && rule.kind != DamageKind::Magic
         && target.time_stop == 0
+        && (target.control != crate::Control::Enemy
+            || target.reaction.armor.received >= target.reaction.armor.threshold)
     {
         guard::attempt(target, activity, affinity, || roll(Draw::AutoGuard));
     }
-    hit.guard = guard::resolve_from(
-        owner,
-        target,
-        rule.kind,
-        rule.guard,
-        affinity,
-        incoming,
-        &mut amount,
-    );
-    if hit.protection == HitProtection::None && !matches!(hit.guard, GuardResult::Blocked { .. }) {
+    if hit.protection == HitProtection::None && !target.guard.active {
         let (stable, stability_label) =
             conditional_stability(target, activity, rule.kind, element, roll);
         label = stability_label.or(label);
-        let armor = &mut target.reaction.armor;
         if stable {
-            hit.protection = HitProtection::Armored;
-        } else if target.time_stop == 0 && armor.received < armor.threshold {
-            armor.received = armor
-                .received
-                .saturating_add(rule.reaction.armor_damage)
-                .min(armor.threshold);
             hit.protection = HitProtection::Armored;
         }
     }
+    // Armor takes the contact before guarding; the next hit can interrupt or block.
+    let armor = &mut target.reaction.armor;
+    if target.time_stop == 0 && armor.received < armor.threshold {
+        armor.received = armor
+            .received
+            .saturating_add(rule.reaction.armor_damage)
+            .min(armor.threshold);
+        if hit.protection == HitProtection::None {
+            hit.protection = HitProtection::Armored;
+        }
+    }
+    if !hit.reaction_suppressed && (hit.protection == HitProtection::None || overlimit) {
+        hit.guard = guard::resolve_from(
+            owner,
+            target,
+            rule.kind,
+            rule.guard,
+            affinity,
+            incoming,
+            &mut amount,
+        );
+    }
     amount = amount.min(protected_amount);
+    if matches!(mode, ContactMode::Unison { bonus: true, .. }) {
+        amount += amount / 10;
+    }
+    if all_divide && unison {
+        amount /= 2;
+    }
     hit.amount = amount.clamp(1, i64::from(i32::MAX)) as i32;
     let survives = rule.prevents_defeat
         || (target.equipment.damage.special_guard_survival
@@ -515,12 +631,22 @@ pub(crate) fn resolve_with_condition(
         target.guard.active = false;
         hit.guard = GuardResult::None;
         hit.protection = HitProtection::None;
+        hit.reaction_suppressed = false;
     }
-    if hit.is_unblocked_damage() && target.hp > 0 {
-        label = rule
-            .condition
-            .and_then(|condition| apply_contact_condition(target, condition, roll))
-            .or(label);
+    if unison && affinity != Affinity::Immune {
+        hit.guard = GuardResult::None;
+        hit.protection = HitProtection::None;
+        hit.reaction_suppressed = false;
+        hit.reaction_forced = true;
+        target.guard.active = false;
+    }
+    if !held && hit.is_unblocked_damage() && target.hp > 0 {
+        if !hit.reaction_suppressed || !target.guard.active {
+            label = rule
+                .condition
+                .and_then(|condition| apply_contact_condition(target, condition, roll))
+                .or(label);
+        }
         if !hit.suppresses_reaction() && target.time_stop == 0 {
             target.reaction.stagger.received = target
                 .reaction
@@ -528,6 +654,14 @@ pub(crate) fn resolve_with_condition(
                 .received
                 .saturating_add(rule.reaction.stagger);
         }
+    }
+    // Keep HP mitigation, condition eligibility and stagger decisions already made.
+    if force_reaction {
+        hit.guard = GuardResult::None;
+        hit.protection = HitProtection::None;
+        hit.reaction_suppressed = false;
+        hit.reaction_forced = true;
+        target.guard.active = false;
     }
     (hit, label)
 }
@@ -543,13 +677,10 @@ fn apply_contact_condition(
     if condition.chance == 0 {
         return None;
     }
-    if target
-        .conditions
-        .contact_ailment_guard(condition.condition.into())
-    {
+    if target.conditions.contact_ailment_guard(condition.condition) {
         return Some(ConditionLabel::ExSkillEffect);
     }
-    if target.conditions.rejects(condition.condition.into()) {
+    if target.conditions.rejects(condition.condition) {
         return None;
     }
     let chance =
@@ -635,6 +766,9 @@ mod tests {
 
     pub(super) fn rule(kind: DamageKind, power: Power) -> HitRule {
         HitRule {
+            sound: None,
+            effect_on_guard: false,
+            effect: None,
             overlimit_pause: true,
             condition: None,
             arte: false,
@@ -643,6 +777,8 @@ mod tests {
             power,
             element: crate::HitElement::Neutral,
             prevents_defeat: false,
+            finisher_grade: false,
+            hp_drain: false,
             guard: GuardRule::default(),
         }
     }
@@ -682,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn guarding_preserves_armor_and_unblocked_hits_spend_its_budget() {
+    fn armor_takes_hits_before_guarding_and_exposes_the_following_contact() {
         let owner = actor(Side::Party);
         let mut target = actor(Side::Enemy);
         target.guard.reduction = 75;
@@ -691,10 +827,10 @@ mod tests {
         let mut rule = rule(DamageKind::Slash, Power::Fixed(8));
         rule.reaction.armor_damage = 1;
         for (guarding, spent, amount, armored) in [
-            (true, 0, 2, false),
-            (false, 1, 8, true),
+            (true, 1, 8, true),
             (false, 2, 8, true),
             (true, 2, 2, false),
+            (false, 2, 8, false),
         ] {
             target.guard.active = guarding;
             let hit = resolve(
@@ -709,7 +845,30 @@ mod tests {
             assert_eq!(hit.hp_change, -amount);
             assert_eq!(target.reaction.armor.received, spent);
             assert_eq!(hit.protection == crate::HitProtection::Armored, armored);
-            assert_eq!(matches!(hit.guard, GuardResult::Blocked { .. }), guarding);
+            assert_eq!(
+                matches!(hit.guard, GuardResult::Blocked { .. }),
+                guarding && !armored
+            );
+        }
+        target.control = crate::Control::Enemy;
+        target.guard.enemy_chance = 100;
+        target.reaction.armor.received = 0;
+        for armored in [true, true, false] {
+            target.guard.active = false;
+            let hit = resolve(
+                &owner,
+                &mut target,
+                rule,
+                100,
+                [0.; 3],
+                &mut |draw| {
+                    assert!(!armored || !matches!(draw, Draw::AutoGuard));
+                    0
+                },
+                false,
+            );
+            assert_eq!(hit.protection == crate::HitProtection::Armored, armored);
+            assert_eq!(matches!(hit.guard, GuardResult::Blocked { .. }), !armored);
         }
     }
 
@@ -903,14 +1062,17 @@ mod tests {
     fn native_rolls_have_explicit_variance_and_critical_boundaries() {
         let mut owner = actor(Side::Party);
         owner.equipment.stats.slash = 200;
+        owner.equipment.stats.accuracy = 25;
         let mut target = actor(Side::Enemy);
         target.hp = 1000;
-        for (bonus, roll, critical) in [
-            (0, 4, true),
-            (0, 5, false),
-            (25, 29, true),
-            (25, 30, false),
-            (100, 99, true),
+        for (bonus, chance_roll, roll, critical) in [
+            (0, 0, 0, true),
+            (0, 0, 1, false),
+            (0, 3, 3, true),
+            (0, 3, 4, false),
+            (25, 0, 25, true),
+            (25, 0, 26, false),
+            (100, 0, 99, true),
         ] {
             owner.equipment.damage.critical_chance_bonus = bonus;
             let result = resolve(
@@ -921,6 +1083,7 @@ mod tests {
                 [0.; 3],
                 &mut |draw| match draw {
                     Draw::Critical => roll,
+                    Draw::CriticalChance => chance_roll,
                     _ => neutral_roll(draw),
                 },
                 false,
@@ -930,7 +1093,7 @@ mod tests {
         owner.equipment.damage.critical_chance_bonus = 0;
         owner.equipment.stats.intelligence = 100;
         for kind in [DamageKind::Slash, DamageKind::Magic] {
-            for (variance, expected) in [(0, 95), (5, 100), (10, 105)] {
+            for (variance, expected) in [((-4i16) as u16, 96), (0, 100), (4, 104)] {
                 let result = resolve(
                     &owner,
                     &mut target.clone(),
@@ -945,6 +1108,27 @@ mod tests {
                 );
                 assert_eq!(result.amount, expected);
             }
+        }
+        // Odd attack, chain strength, accuracy and hit power each truncate separately.
+        owner.equipment.stats.slash = 301;
+        owner.equipment.stats.accuracy = 100;
+        target.equipment.stats.defense = 50;
+        target.equipment.stats.evasion = 85;
+        for (variance, critical, expected) in [((-4i16) as u16, 99, 98), (4, 0, 161)] {
+            let hit = resolve(
+                &owner,
+                &mut target.clone(),
+                rule(DamageKind::Slash, Power::Percent(130)),
+                85,
+                [0.; 3],
+                &mut |draw| match draw {
+                    Draw::Variance => variance,
+                    Draw::Critical => critical,
+                    _ => neutral_roll(draw),
+                },
+                false,
+            );
+            assert_eq!(hit.amount, expected);
         }
     }
 
@@ -1013,6 +1197,7 @@ mod tests {
             let mut hit = rule(DamageKind::Slash, Power::Fixed(80));
             hit.guard = GuardRule {
                 enabled,
+                suppress_sound: false,
                 pressure: 1,
                 breaks,
                 unbreakable: false,
@@ -1092,7 +1277,7 @@ mod tests {
     }
 
     #[test]
-    fn magic_uses_captured_power_and_current_resistance() {
+    fn magic_uses_live_cast_strength_and_random_current_resistance() {
         let mut owner = actor(Side::Party);
         owner.equipment.stats.intelligence = 200;
         let mut target = actor(Side::Enemy);
@@ -1100,13 +1285,17 @@ mod tests {
         target.equipment.stats.intelligence = 80;
         target.equipment.stats.level = 10;
         let hit = rule(DamageKind::Magic, Power::Percent(150));
+        let mut roll = |draw| match draw {
+            Draw::MagicResistance => 29,
+            _ => neutral_roll(draw),
+        };
         let baseline = resolve(
             &owner,
             &mut target.clone(),
             hit,
             100,
             [0.; 3],
-            &mut neutral_roll,
+            &mut roll,
             false,
         );
         let mut resistant_target = target.clone();
@@ -1117,21 +1306,22 @@ mod tests {
             hit,
             100,
             [0.; 3],
-            &mut neutral_roll,
+            &mut roll,
             false,
         );
-        assert!(resisted.amount < baseline.amount);
+        assert_eq!((baseline.amount, resisted.amount), (281, 261));
         owner.attack_power = 10;
+        owner.casting_state.power_percent = 200;
         let charged = resolve(
             &owner,
             &mut target.clone(),
             hit,
-            200,
+            10,
             [0.; 3],
-            &mut neutral_roll,
+            &mut roll,
             false,
         );
-        assert!((charged.amount - baseline.amount * 2).abs() <= 1);
+        assert_eq!(charged.amount, baseline.amount * 2);
         owner.equipment.damage.magic_damage_boost = true;
         let boosted = resolve(
             &owner,
@@ -1139,19 +1329,11 @@ mod tests {
             hit,
             200,
             [0.; 3],
-            &mut neutral_roll,
+            &mut roll,
             false,
         );
         assert!(boosted.amount > charged.amount);
-        let divided = resolve(
-            &owner,
-            &mut target,
-            hit,
-            200,
-            [0.; 3],
-            &mut neutral_roll,
-            true,
-        );
+        let divided = resolve(&owner, &mut target, hit, 200, [0.; 3], &mut roll, true);
         assert_eq!(divided.amount, boosted.amount / 2);
     }
 

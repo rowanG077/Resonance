@@ -45,6 +45,7 @@ fn prepared_fixture() -> PreparedBattle {
     setup[0].control = Some(Arc::new(ControlDefinition {
         normals: std::array::from_fn(|action| NormalControl {
             action: crate::ActionKey(action),
+            continuation: crate::tests::normal_continuation(crate::NormalAttack::ALL[action]),
 
             reach: 120.,
             minimum_reach: 0.,

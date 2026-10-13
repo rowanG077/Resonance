@@ -1,9 +1,13 @@
 //! The battle scene borrows presentation while retaining the complete field owner.
 pub(crate) mod appearance;
 mod capture;
+mod event_models;
 mod feedback;
 mod input;
+#[cfg(test)]
+mod oracle;
 mod rumble;
+mod transition;
 use anyhow::{Context, Result, ensure};
 use bevy::{
     camera::{
@@ -42,17 +46,25 @@ impl Entry {
     /// Seed the private candidate. Only a completed battle publishes its draw.
     fn capture(
         session: &super::new_game::Session,
-        setup: resonance_events::battle::Setup,
+        mut setup: resonance_events::battle::Setup,
     ) -> Result<Self> {
         let events = session.events();
         let party = events.world.party.clone().context("battle has no party")?;
         let mut gameplay_random = events.world.gameplay_random;
+        if let resonance_events::battle::Encounter::Pool(pool) = setup.encounter {
+            let formations: resonance_content::battle_formation::Formations = session
+                .files()
+                .json(resonance_content::battle_formation::PATH)?;
+            setup.encounter = resonance_events::battle::Encounter::Formation(
+                formations.select(pool, gameplay_random.next_u32())?,
+            );
+        }
         let options = encounter::PrepareOptions {
+            event_flags: events.world.event_flags.clone(),
             random_seed: gameplay_random.next_u64(),
             map: u16::try_from(session.map_id())?,
             world_music: events.memory().read(0x50, symphonia_script::Width::S32)?,
             story: events.memory().read(0x40, symphonia_script::Width::S32)?,
-            story3: events.world.event_flags.contains(&3),
             colette_state: events.memory().read(0x4c, symphonia_script::Width::S32)?,
             devils_arms_unlocked: events.world.event_flags.contains(&0x3fa),
             victory_story_flags: [27, 28].map(|id| events.world.event_flags.contains(&id)),
@@ -141,11 +153,12 @@ struct Scene {
     menu_backdrop: super::menu_backdrop::BattleBackdrop,
     view: super::battle_view::View,
     hud: super::field_ui::BattleHud,
+    dialogue: Option<super::field_ui::DialogueOverlay>,
+    event_models: Option<event_models::State>,
     game_over: Option<super::field_ui::GameOverArt>,
     audio: Arc<super::battle_audio::Assets>,
     settings: resonance_content::menu_data::CustomizeSettings,
     core: Battle,
-    models: resonance_battle::Models,
     feedback: feedback::Feedback,
     effects: resonance_battle::Effects,
     particles: Vec<resonance_battle::ParticleFrame>,
@@ -168,15 +181,21 @@ struct Scene {
     diagnostics: resonance_content::diagnostics::Diagnostics,
 }
 
-const ENTRY_FADE_TICKS: u8 = 15;
+const ENTRY_FADE_TICKS: u8 = 18;
 
 impl Scene {
     fn entry_alpha(&self) -> u8 {
-        (u16::from(self.entry_remaining) * 255 / u16::from(ENTRY_FADE_TICKS)) as u8
+        // Captured HUD wash: P5=207, P8=159, P15=47. Hold full alpha through
+        // P2, then subtract 16 per presentation update until clear at P18.
+        (u16::from(self.entry_remaining) * 16)
+            .saturating_sub(1)
+            .min(255) as u8
     }
 
     fn feedback_paused(&self) -> bool {
-        self.frame.as_ref().is_none_or(|frame| frame.clock.paused())
+        self.frame
+            .as_ref()
+            .is_none_or(|frame| frame.clock.feedback_paused())
     }
 }
 
@@ -272,6 +291,7 @@ pub(super) fn install(app: &mut App) {
         .add_systems(PostUpdate, render.in_set(PublishBattle))
         .add_systems(PostUpdate, rumble::present.after(PublishBattle));
     super::battle_view::install(app);
+    transition::install(app);
 }
 
 /// Move the exact request only after the worker is owned. Neither preparation
@@ -282,7 +302,7 @@ fn manage(world: &mut World) {
         if world.contains_resource::<super::battle_audio::Playback>() {
             return;
         }
-        let Some(request) = world
+        let Some(mut request) = world
             .get_resource::<super::new_game::Session>()
             .and_then(|session| session.events().world.battle_request.clone())
         else {
@@ -299,11 +319,15 @@ fn manage(world: &mut World) {
         .entered();
         let result = Entry::capture(world.resource::<super::new_game::Session>(), request.setup);
         let result = result.and_then(|entry| {
-            super::loading::BattlePending::battle(
+            request.setup = entry.setup;
+            let seed = entry.options.random_seed;
+            let pending = super::loading::BattlePending::battle(
                 world.resource::<super::RunOptions>().assets.clone(),
                 entry,
                 world.resource::<super::loading::Resident>(),
-            )
+            )?;
+            transition::begin(world, request.transition_white.unwrap_or(true), seed)?;
+            Ok(pending)
         });
         let phase = match result {
             Ok(task) => Phase::Loading(task),
@@ -431,7 +455,7 @@ fn manage(world: &mut World) {
     if let Some(result) = result {
         match result.and_then(|package| scene(world, package)) {
             Ok(mut scene) => {
-                scene.entry_color = [if owner.request.transition_white == Some(true) {
+                scene.entry_color = [if owner.request.transition_white.unwrap_or(true) {
                     255
                 } else {
                     0
@@ -571,16 +595,24 @@ fn action_names(
     battle: &Battle,
     actors: &[(ActorId, u8)],
     menus: &MenuData,
+    feedback: &resonance_game::battle::feedback::Feedback,
 ) -> BTreeMap<resonance_battle::ActionKey, String> {
     actors
         .iter()
         .flat_map(|(actor, _)| battle.prepared_techniques(*actor))
-        .filter_map(|prepared| {
+        .map(|prepared| (prepared.action, prepared.catalogue))
+        .chain(
+            feedback
+                .casting
+                .iter()
+                .map(|(&action, cast)| (action, cast.catalogue)),
+        )
+        .filter_map(|(action, catalogue)| {
             // Missing optional text is reported if this action emits a notice.
             menus
-                .technique_text(prepared.catalogue)
+                .technique_text(catalogue)
                 .ok()
-                .map(|text| (prepared.action, text.name.clone()))
+                .map(|text| (action, text.name.clone()))
         })
         .collect()
 }
@@ -610,7 +642,7 @@ fn construct_scene(
     let diagnostics = diagnostics(world);
     let Package {
         assets,
-        prepared,
+        mut prepared,
         audio,
         party,
         menus,
@@ -620,17 +652,22 @@ fn construct_scene(
         entry_seed,
     } = package;
     let enemies = enemy_hud(&assets, &prepared)?;
-    let action_names = action_names(&prepared.core, &prepared.results.actors, &menus);
+    let action_names = action_names(
+        &prepared.core,
+        &prepared.results.actors,
+        &menus,
+        &prepared.feedback,
+    );
     *world
         .resource::<super::loading::Resident>()
         .files
         .write()
         .unwrap() = Some(Arc::new(assets.files.clone()));
     let server = world.resource::<AssetServer>().clone();
-    let (mut hud, game_over) = world.resource_scope(
+    let (mut hud, game_over, dialogue) = world.resource_scope(
         |world, mut materials: Mut<Assets<super::field_ui::Surface>>| {
             let mut images = world.resource_mut::<Assets<Image>>();
-            let hud = super::field_ui::BattleHud::load(
+            let mut hud = super::field_ui::BattleHud::load(
                 assets.ui.clone(),
                 menus.clone(),
                 data.clone(),
@@ -646,12 +683,56 @@ fn construct_scene(
                 .as_ref()
                 .map(|art| super::field_ui::GameOverArt::load(art, &mut materials, &mut images))
                 .transpose()?;
-            Ok::<_, anyhow::Error>((hud, game_over))
+            let dialogue = prepared
+                .lifecycle
+                .has_events()
+                .then(|| hud.load_event_dialogue(&assets.files, &mut materials, &mut images))
+                .transpose()?;
+            hud.load_cutins(
+                &assets.files,
+                assets
+                    .skill_scenes
+                    .keys()
+                    .map(|&catalogue| {
+                        (
+                            catalogue,
+                            resonance_content::battle_scene::skill_path(catalogue),
+                        )
+                    })
+                    .chain(assets.catalogue.definitions.iter().enumerate().filter_map(
+                        |(catalogue, _)| {
+                            let catalogue = catalogue as u16;
+                            let scene = resonance_game::battle::stored_spells::scene(catalogue)?;
+                            assets
+                                .spell_scenes
+                                .contains_key(&scene)
+                                .then(|| (catalogue, resonance_content::battle_scene::path(scene)))
+                        },
+                    )),
+                &mut materials,
+                &mut images,
+            )?;
+            Ok::<_, anyhow::Error>((hud, game_over, dialogue))
         },
     )?;
+    let event_models = prepared
+        .lifecycle
+        .has_events()
+        .then(|| {
+            event_models::State::new(
+                &assets.files,
+                prepared.lifecycle.event_scenes(),
+                &prepared.core,
+                &prepared.characters,
+                &mut prepared.models,
+            )
+        })
+        .transpose()?;
     let view = super::battle_view::View::load_with_diagnostics(
         assets.stage.clone(),
+        &assets.files,
         prepared.models,
+        prepared.wings,
         toon,
         prepared.effects,
         prepared.trails,
@@ -660,6 +741,7 @@ fn construct_scene(
     )?;
     let settings = party.settings.preferences.clone();
     hud.settings(settings.clone());
+    hud.configure_unison_names(&assets.unison)?;
     let candidate = results::Candidate::new(
         prepared.results,
         prepared.core.actors(),
@@ -681,18 +763,21 @@ fn construct_scene(
         menu_backdrop: super::menu_backdrop::BattleBackdrop::new(world)?,
         view,
         hud,
+        dialogue,
+        event_models,
         game_over,
         audio,
         settings,
         core,
-        models: prepared.model_player,
         feedback: feedback::Feedback::new(prepared.feedback, !entry_seed),
         effects: resonance_battle::Effects::new(
             prepared.effect_banks,
             Some(prepared.poison_effect),
             !entry_seed,
             diagnostics.clone(),
-        )?,
+        )?
+        .with_ambient(prepared.ambient_effect)?
+        .with_passive(prepared.passive_effects)?,
         particles: Vec::new(),
         lifecycle,
         candidate: Some(candidate),
@@ -705,7 +790,7 @@ fn construct_scene(
         state: SceneState::Warming,
         menu_ready: true,
         entry_remaining: ENTRY_FADE_TICKS,
-        entry_color: [0; 3],
+        entry_color: [255; 3],
         failure: None,
         completed: None,
         entry_seed,
@@ -719,10 +804,13 @@ fn prepare(
     mut commands: Commands,
     owner: Option<ResMut<Owner>>,
     server: Res<AssetServer>,
+    display: Res<super::display::Display>,
     mut assets: super::battle_view::AssetsForView,
+    mut ui_surfaces: ResMut<Assets<super::field_ui::Surface>>,
     entities: super::battle_view::Entities,
     warmup: Res<super::battle_view::Warmup>,
     resident: Res<super::loading::Resident>,
+    transition: Option<Res<transition::State>>,
     mut cameras: Query<
         &mut Camera,
         Or<(With<super::FieldCamera>, With<super::FieldOverlayCamera>)>,
@@ -744,13 +832,24 @@ fn prepare(
             scene.preparing_since.elapsed().as_secs() <= 120,
             "battle GPU preparation timed out"
         );
-        scene.hud.prepare(&mut commands, &mut assets.meshes);
+        scene
+            .hud
+            .prepare(&mut commands, &mut assets.meshes, display.0);
+        if let Some(dialogue) = &mut scene.dialogue {
+            dialogue.prepare(&mut commands, &mut assets.meshes, &mut ui_surfaces);
+        }
         if let Some(art) = &mut scene.game_over {
             art.prepare(&mut commands, &mut assets.meshes);
         }
         let draws: Vec<_> = scene
             .hud
             .entities()
+            .chain(
+                scene
+                    .dialogue
+                    .iter()
+                    .flat_map(|dialogue| dialogue.entities()),
+            )
             .chain(scene.game_over.iter().flat_map(|art| art.entities()))
             .chain(std::iter::once(scene.menu_backdrop.entity()))
             .collect();
@@ -778,7 +877,7 @@ fn prepare(
                         RenderTarget::Image(target.into()),
                         RenderLayers::layer(super::battle_view::WARM_LAYER),
                         super::camera::overlay_alignment(),
-                        overlay_projection(),
+                        overlay_projection(display.0),
                     ))
                     .id();
                 scene.camera = Some(camera);
@@ -793,6 +892,11 @@ fn prepare(
             return Ok(());
         }
         if scene.state == SceneState::Warming {
+            if let Some(transition) = &transition
+                && !transition.ready()?
+            {
+                return Ok(());
+            }
             super::materials::TitleOutput::update(&mut outputs, |brightness| {
                 brightness.x = 1.;
                 brightness.y = 0.;
@@ -802,12 +906,18 @@ fn prepare(
                 &mut commands,
                 scene.camera.context("battle HUD camera was not warmed")?,
                 scene.target.clone(),
-                overlay_projection(),
+                overlay_projection(display.0),
                 -3,
             );
             for entity in scene
                 .hud
                 .entities()
+                .chain(
+                    scene
+                        .dialogue
+                        .iter()
+                        .flat_map(|dialogue| dialogue.entities()),
+                )
                 .chain(scene.game_over.iter().flat_map(|art| art.entities()))
                 .chain(std::iter::once(scene.menu_backdrop.entity()))
             {
@@ -822,8 +932,16 @@ fn prepare(
             // Keep startup feedback queued for the first visible update.
             let mut frame = scene.core.snapshot();
             scene
-                .models
-                .advance(&mut frame, resonance_battle::BattleClock::Held, false)?;
+                .core
+                .advance_models(&mut frame, resonance_battle::BattleClock::Held, false)?;
+            if let Some(event) = scene.lifecycle.event() {
+                resonance_game::battle::event::apply_view(&event.events, &mut frame)?;
+                scene
+                    .event_models
+                    .as_mut()
+                    .context("battle event models are not prepared")?
+                    .apply(event, &mut frame)?;
+            }
             scene.frame = Some(frame);
             scene.state = SceneState::Activating;
             return Ok(());
@@ -844,11 +962,12 @@ fn prepare(
     }
 }
 
-pub(super) fn overlay_projection() -> Projection {
+pub(super) fn overlay_projection(resolution: super::Resolution) -> Projection {
+    let size = resolution.ui_size();
     Projection::Orthographic(OrthographicProjection {
         scaling_mode: ScalingMode::Fixed {
-            width: 640.,
-            height: 480.,
+            width: size.x,
+            height: size.y,
         },
         ..OrthographicProjection::default_2d()
     })
@@ -873,6 +992,7 @@ fn retire(world: &mut World, owner: Owner, resume: bool) {
 }
 
 fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
+    transition::dispose(world);
     if let Phase::Scene(scene) = &mut owner.phase {
         let memory = scene.lifecycle.take_menu_memory();
         let mut retained = world.resource_mut::<MenuMemory>();
@@ -906,6 +1026,7 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
         let Scene {
             view,
             hud,
+            dialogue,
             camera,
             game_over,
             menu_backdrop,
@@ -913,6 +1034,9 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
         } = *scene;
         view.despawn(&mut world.commands());
         hud.despawn(world);
+        if let Some(dialogue) = dialogue {
+            dialogue.despawn(world);
+        }
         world.despawn(menu_backdrop.entity());
         if let Some(art) = game_over {
             art.despawn(world);
@@ -1009,7 +1133,6 @@ fn advance(
         session.advance_play_time();
         if scene.entry_remaining > 0 {
             scene.entry_remaining -= 1;
-            return Ok(());
         }
         let command = input.command_input(
             scene.lifecycle.command_controller(),
@@ -1017,6 +1140,10 @@ fn advance(
             scene.lifecycle.command_input_kind(),
         );
         let battle_input = resonance_battle::BattleInput {
+            unison: input.unison_input(
+                scene.core.actors(),
+                scene.frame.as_ref().and_then(|frame| frame.unison.as_ref()),
+            ),
             controllers: input.actor_inputs(scene.core.actor_ids().map(|actor| {
                 (
                     actor,
@@ -1029,8 +1156,6 @@ fn advance(
         let mut presentation = Presentation {
             hud: &mut scene.hud,
             audio: &mut playback,
-            action_names: &scene.action_names,
-            feedback: &scene.feedback.resources,
             diagnostics: &scene.diagnostics,
         };
         let mut frame = {
@@ -1051,14 +1176,34 @@ fn advance(
             )?
         };
         let clock = frame.clock;
-        let paused = clock.paused();
+        let paused = clock.feedback_paused();
         let settle = clock == resonance_battle::BattleClock::Running
             && scene.core.phase() == resonance_battle::BattlePhase::Combat;
-        scene.feedback.resolve(&mut frame);
-        scene.models.advance(&mut frame, clock, settle)?;
+        if scene.lifecycle.event().is_none() {
+            scene.feedback.resolve(&mut frame);
+        }
+        scene.core.advance_models(&mut frame, clock, settle)?;
+        if let Some(event) = scene.lifecycle.event() {
+            scene
+                .event_models
+                .as_mut()
+                .context("battle event models are not prepared")?
+                .apply(event, &mut frame)?;
+        }
+        if scene.lifecycle.event().is_none() {
+            scene.feedback.resolve_model_effects(&mut frame)?;
+        }
         let effects = scene.effects.advance(&frame, paused)?;
         frame.cues.extend(effects);
         scene.particles = scene.effects.frames();
+        update_hud(
+            &mut scene.hud,
+            &frame,
+            &scene.action_names,
+            &scene.feedback.resources,
+            &scene.diagnostics,
+            paused,
+        )?;
         let _audio_frame = debug_span!(
             "battle_audio_frame",
             update = frame.update,
@@ -1074,6 +1219,10 @@ fn advance(
                 Event::VoiceStreamsPaused(paused) => playback.pause_voice_streams(paused)?,
             }
         }
+        let event_audio = scene.lifecycle.take_event_audio();
+        if !event_audio.is_empty() {
+            playback.event_audio(event_audio)?;
+        }
         let camera = audio_camera(&frame)?;
         playback.dispatch(&frame.cues, |point| {
             Some(resonance_battle::project_screen_x(camera, point))
@@ -1088,8 +1237,10 @@ fn advance(
             );
         }
         // Feedback changes only the published view, after simulation and audio positioning.
-        scene.view.advance_trails(&frame, paused)?;
-        scene.feedback.advance(&mut frame, paused);
+        scene.view.advance_feedback(&frame, paused)?;
+        if scene.lifecycle.event().is_none() {
+            scene.feedback.advance(&mut frame, paused);
+        }
         scene.frame = Some(frame);
         Ok(())
     })();
@@ -1101,8 +1252,6 @@ fn advance(
 struct Presentation<'a> {
     hud: &'a mut super::field_ui::BattleHud,
     audio: &'a mut super::battle_audio::Playback,
-    action_names: &'a BTreeMap<resonance_battle::ActionKey, String>,
-    feedback: &'a resonance_game::battle::feedback::Feedback,
     diagnostics: &'a resonance_content::diagnostics::Diagnostics,
 }
 fn update_hud(
@@ -1114,7 +1263,22 @@ fn update_hud(
     paused: bool,
 ) -> Result<()> {
     diagnostics.attempt("battle HUD update", hud.advance(frame, paused))?;
+    diagnostics.attempt(
+        "Unison HUD update",
+        hud.advance_unison(frame, action_names, paused),
+    )?;
     for cue in &frame.cues {
+        if let resonance_battle::Cue::EffectNotice {
+            actor,
+            text,
+            duration,
+        } = cue
+        {
+            diagnostics.attempt(
+                "battle effect notice",
+                hud.notice_request(actor.index(), text, *duration, frame),
+            )?;
+        }
         if let resonance_battle::Cue::ItemNotice {
             actor,
             item,
@@ -1150,17 +1314,6 @@ fn update_hud(
     Ok(())
 }
 impl results::Presentation for Presentation<'_> {
-    fn present(&mut self, frame: &BattleFrame) -> Result<()> {
-        update_hud(
-            self.hud,
-            frame,
-            self.action_names,
-            self.feedback,
-            self.diagnostics,
-            frame.clock.paused(),
-        )
-    }
-
     fn results_on_last_page(&self) -> bool {
         self.hud.results_on_last_page()
     }
@@ -1268,6 +1421,7 @@ fn render_menu(
 
 fn render_command_strip(
     scene: &mut Scene,
+    tick: u32,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
 ) -> Result<()> {
@@ -1280,6 +1434,7 @@ fn render_command_strip(
     });
     let result = scene.hud.render_commands(
         scene.lifecycle.command_frame().as_ref(),
+        tick,
         pending,
         &scene.characters,
         user_name,
@@ -1306,6 +1461,9 @@ fn render(
     owner: Option<ResMut<Owner>>,
     mut globals: Query<&mut GlobalTransform>,
     mut transforms: Query<&mut Transform>,
+    mut projections: Query<&mut Projection>,
+    mut ui_surfaces: ResMut<Assets<super::field_ui::Surface>>,
+    display: Res<super::display::Display>,
     mut surfaces: ResMut<Assets<super::materials::TitleSurface>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut menu_materials: ResMut<Assets<super::menu_backdrop::Material>>,
@@ -1339,18 +1497,25 @@ fn render(
                 &mut commands,
                 &mut globals,
                 &mut transforms,
+                &mut projections,
                 &mut surfaces,
                 &mut meshes,
             ),
         )?;
-        let shared_menu = render_menu(
-            scene,
-            *input_tick,
-            &mut commands,
-            &mut meshes,
-            &images,
-            &server,
-        )?;
+        let event_active = scene.lifecycle.event().is_some();
+        let shared_menu = if event_active {
+            scene.hud.hide_for_event(&mut commands);
+            false
+        } else {
+            render_menu(
+                scene,
+                *input_tick,
+                &mut commands,
+                &mut meshes,
+                &images,
+                &server,
+            )?
+        };
         let frame = scene
             .frame
             .as_ref()
@@ -1365,7 +1530,7 @@ fn render(
                 &mut menu_materials,
             ),
         )?;
-        if !shared_menu {
+        if !shared_menu && !event_active {
             let queued_techniques = frame
                 .actors
                 .iter()
@@ -1406,17 +1571,60 @@ fn render(
         }
         // Draw the command strip after the ordinary HUD, using the immutable game frame. A
         // closed menu supplies None.
-        if !shared_menu {
-            render_command_strip(scene, &mut commands, &mut meshes)?;
+        if !shared_menu
+            && !event_active
+            && !frame.summon.as_ref().is_some_and(|summon| summon.hide_hud)
+        {
+            render_command_strip(scene, *input_tick, &mut commands, &mut meshes)?;
+        }
+        if let Some(dialogue) = &mut scene.dialogue {
+            if let Some(event) = scene.lifecycle.event() {
+                scene.hud.render_event_dialogue(
+                    dialogue,
+                    &event.events.world,
+                    &event.dialogue,
+                    scene
+                        .frame
+                        .as_ref()
+                        .context("battle dialogue has no held frame")?,
+                    scene
+                        .event_models
+                        .as_ref()
+                        .context("battle event models are not prepared")?
+                        .heads(),
+                    display.0,
+                    &mut commands,
+                    &mut meshes,
+                    &mut ui_surfaces,
+                )?;
+            } else {
+                dialogue.hide(&mut commands);
+            }
         }
         let entry_fade = (scene.entry_remaining > 0).then_some(resonance_battle::TransitionFrame {
             color: scene.entry_color,
             alpha: scene.entry_alpha(),
         });
+        let summon_fade = scene
+            .frame
+            .as_ref()
+            .and_then(|frame| frame.summon.as_ref())
+            .filter(|summon| summon.flash_active)
+            .map(|summon| resonance_battle::TransitionFrame {
+                color: [128; 3],
+                alpha: summon.flash,
+            });
         scene.diagnostics.attempt(
             "battle transition",
             scene.hud.render_transition(
-                entry_fade.as_ref().or(scene.core.transition()),
+                entry_fade
+                    .as_ref()
+                    .or(scene
+                        .frame
+                        .as_ref()
+                        .and_then(|frame| frame.event_fade.as_ref()))
+                    .or(summon_fade.as_ref())
+                    .or(scene.core.transition()),
                 &mut commands,
                 &mut meshes,
             ),
@@ -1475,7 +1683,7 @@ pub(crate) mod tests {
         member.assist_shortcuts = [None; 2];
         member.technique_uses.remove(&201);
         party.validate(&data)?;
-        let assets = encounter::Assets::load(
+        let (assets, prepared) = encounter::Assets::load(
             &root,
             &files,
             &menus,
@@ -1488,6 +1696,17 @@ pub(crate) mod tests {
                 defeat: resonance_events::battle::DefeatPolicy::GameOver,
                 music: None,
             },
+            encounter::PrepareOptions {
+                event_flags: Default::default(),
+                devils_arms_unlocked: false,
+                victory_story_flags: [false; 2],
+                random_seed: 1,
+                map: 332,
+                world_music: 0,
+                story: 2500,
+                colette_state: 0,
+                overlimit_boost: false,
+            },
             &mut cache,
             || false,
         )?;
@@ -1495,21 +1714,6 @@ pub(crate) mod tests {
             &assets.files,
             assets.audio.as_ref(),
             &mut Default::default(),
-        )?;
-        let prepared = assets.prepare(
-            &menus,
-            encounter::PrepareOptions {
-                devils_arms_unlocked: false,
-                victory_story_flags: [false; 2],
-                random_seed: 1,
-                map: 332,
-                world_music: 0,
-                story: 2500,
-                story3: false,
-                colette_state: 0,
-                overlimit_boost: false,
-            },
-            |sound| audio.bind(sound),
         )?;
         let catalogue = assets.catalogue.clone();
         Ok(Package {
@@ -1548,7 +1752,12 @@ pub(crate) mod tests {
             .push('\u{e000}');
         menus.validate_gameplay()?;
         // Construct the same notice lookup before learning occurs.
-        let names = action_names(&prepared.core, &prepared.results.actors, &menus);
+        let names = action_names(
+            &prepared.core,
+            &prepared.results.actors,
+            &menus,
+            &prepared.feedback,
+        );
         let owner = prepared.results.actors[0].0;
         let mut battle = prepared.core;
         assert_eq!(battle.technique_is_current(owner, 201), Some(false));

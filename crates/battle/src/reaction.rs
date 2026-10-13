@@ -8,6 +8,12 @@ pub use resonance_content::battle_projectile::RecoilDirection;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ReactionRule {
+    /// Attach a successfully hurt victim to this melee contact's body bone.
+    pub capture: bool,
+    /// Deal damage without ordinary guard or hit reactions.
+    pub suppress: bool,
+    /// Override ordinary reaction defenses after resolving damage and conditions.
+    pub force: bool,
     pub recoil: crate::RecoilRule,
     pub direction: RecoilDirection,
     pub hitstun: u8,
@@ -64,6 +70,7 @@ pub struct ContactTraits {
     pub endure: bool,
     pub hard_hit: bool,
     pub air_brake: bool,
+    pub prolong: bool,
 }
 
 /// These clocks and impulses outlive the interrupted action.
@@ -77,6 +84,8 @@ pub struct Reaction {
     pub recoil: Recoil,
     pub profile: crate::RecoilProfile,
     pub direction: [f32; 3],
+    pub hit_shake_disabled: bool,
+    pub(crate) hit_shake_ticks: u8,
     pub combo_hits: i32,
     pub combo_damage: i32,
     pub(crate) contact_recovery_sampled: bool,
@@ -87,6 +96,30 @@ pub struct Reaction {
 }
 
 impl Reaction {
+    pub(crate) fn contact_feedback(&mut self, guard: crate::GuardResult) {
+        if !self.hit_shake_disabled {
+            self.hit_shake_ticks = match guard {
+                crate::GuardResult::Broken => 14,
+                crate::GuardResult::Blocked { .. } => 6,
+                crate::GuardResult::None => 10,
+            };
+        }
+    }
+
+    pub(crate) fn hit_shake_offset(&self) -> [f32; 3] {
+        const DISPLACEMENT_PER_TICK: f32 = 4.;
+        if self.hit_shake_ticks.is_multiple_of(2) {
+            return [0.; 3];
+        }
+        let amount = DISPLACEMENT_PER_TICK * f32::from(self.hit_shake_ticks);
+        let direction = if crate::distance::length(self.direction) >= 0.1 {
+            self.direction
+        } else {
+            [1., 0., 0.]
+        };
+        direction.map(|axis| axis * amount)
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         self.profile.validate()?;
         ensure!(
@@ -199,6 +232,13 @@ pub(crate) fn respond(
 
 fn hitstun(owner: &Actor, target: &Actor, base: u8) -> u32 {
     let mut duration = i64::from(base);
+    if target
+        .conditions
+        .effective()
+        .contains(crate::conditions::Condition::RecoveryDown)
+    {
+        duration += 10;
+    }
     if owner.side == Side::Party && owner.equipment.contact.technique_balance <= -100 {
         duration += 5;
     }
@@ -308,11 +348,14 @@ impl Battle {
         let index = id.index();
         self.try_spell_revenge(id, input, cues)?;
         let actor = &mut self.actors[index];
-        if actor.hit_stop > 0 {
-            return Ok(true);
-        }
         actor.reaction.recoil.advance_delay(&mut actor.movement);
-        if actor.reaction.recoil.delay > 0 {
+        if actor.hit_stop > 0 || actor.reaction.recoil.delay > 0 {
+            self.set_task(
+                index,
+                ActorTask::Hurt {
+                    remaining: remaining.saturating_sub(1),
+                },
+            );
             return Ok(true);
         }
         let kind = actor.reaction.recoil.kind;
@@ -326,14 +369,28 @@ impl Battle {
         actor.movement.brake(actor.position[1], Activity::Hurt);
         let landed = !actor.airborne() && actor.movement.vertical <= 0.;
         crate::movement::floor(actor);
+        let standing = landed && !kind.contact();
+        let timer_finished = if standing {
+            remaining == 0
+        } else {
+            remaining <= 1
+        };
         if (landed || (!kind.contact() && actor.reaction.recover_in_air))
-            && (kind.breakfall_allowed() || remaining <= 1)
+            && (kind.breakfall_allowed() || timer_finished)
         {
             self.finish_combo_recovery(id, cues);
             if kind.contact() {
                 self.actors[index].reaction.recoil.kind.land();
                 self.enter_knockdown(id, cues);
                 self.initialize_knockdown_window(index, cues);
+            } else if standing {
+                self.set_task(
+                    index,
+                    ActorTask::Recovering {
+                        remaining: 0,
+                        after_hit: true,
+                    },
+                );
             } else {
                 self.enter_idle(id);
             }
@@ -358,6 +415,10 @@ impl Battle {
                 | ActorTask::Paralysis { .. }
                 | ActorTask::Knockdown(_)
                 | ActorTask::Stunned { .. }
+                | ActorTask::Recovering {
+                    after_hit: true,
+                    ..
+                }
         ) || matches!(
             mobility,
             Some(
@@ -384,6 +445,7 @@ impl Battle {
         };
         let actor = &mut self.actors[index];
         actor.movement.reset_hover();
+        actor.secondary_wind.set(false, 0);
         actor.control_ex_state.recover();
         actor.proficiency = 0;
         actor.input = Default::default();

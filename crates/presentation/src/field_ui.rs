@@ -644,37 +644,13 @@ impl Artwork {
         self.prepare_damage(commands, meshes);
         self.overlays.prepare(commands, meshes);
         self.prepare_fade(commands, meshes);
-        for slot in 0..DIALOGUE_SLOTS {
-            for (index, texture) in layer::TEXTURES.into_iter().enumerate() {
-                if self.layers.contains_key(&(slot, index)) {
-                    continue;
-                }
-                let mut batch = Batch::default();
-                batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-                let mesh = meshes.add(batch.mesh([1, 1]));
-                let template = materials.get(&self.surfaces[texture]).unwrap().clone();
-                let material = materials.add(template);
-                let order = index as f32;
-                let entity = commands
-                    .spawn((
-                        Mesh2d(mesh.clone()),
-                        MeshMaterial2d(material.clone()),
-                        Transform::from_xyz(0., 0., 10. + f32::from(slot) * 20. + order),
-                        Visibility::Hidden,
-                    ))
-                    .id();
-                self.layers.insert(
-                    (slot, index),
-                    Layer {
-                        entity,
-                        mesh,
-                        material,
-                        uploaded: None,
-                        visible: false,
-                    },
-                );
-            }
-        }
+        prepare_dialogue(
+            &mut self.layers,
+            &self.surfaces,
+            commands,
+            meshes,
+            materials,
+        );
         if self.subtitle_layer.is_none() {
             let mut batch = Batch::default();
             batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
@@ -825,6 +801,103 @@ impl Artwork {
     }
 }
 
+/// Scene-owned dialogue surfaces using the same layout and drawing as fields.
+/// Battle borrows no retained field entities or attachment history.
+pub(super) struct DialogueOverlay {
+    images: Vec<Handle<Image>>,
+    surfaces: Vec<Handle<Surface>>,
+    layers: BTreeMap<(u8, usize), Layer>,
+    head_heights: BTreeMap<u64, f32>,
+    choice_trail: super::choice_cursor::Trail,
+}
+
+impl DialogueOverlay {
+    fn load(
+        spec: &DialogueArt,
+        font: &BitmapFont,
+        files: &resonance_content::prepared::Files,
+        materials: &mut Assets<Surface>,
+        image_assets: &mut Assets<Image>,
+    ) -> Result<Self> {
+        let read = |path: &str| Ok(files.read(path)?.to_vec());
+        let images = spec
+            .textures
+            .iter()
+            .map(|texture| (texture.path.as_str(), [texture.width, texture.height]))
+            .chain([
+                (font.texture.as_str(), [font.width, font.height]),
+                (
+                    spec.cursor.path.as_str(),
+                    [spec.cursor.width, spec.cursor.height],
+                ),
+            ])
+            .enumerate()
+            .map(|(index, (path, size))| {
+                let mut image = ui_image(path, size, true, &read)?;
+                if index < 9 {
+                    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                        address_mode_u: ImageAddressMode::Repeat,
+                        address_mode_v: ImageAddressMode::Repeat,
+                        ..ImageSamplerDescriptor::nearest()
+                    });
+                }
+                Ok(image_assets.add(image))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let surfaces = images
+            .iter()
+            .map(|image| {
+                materials.add(Surface {
+                    source: image.clone(),
+                    sampling: image.clone(),
+                    frame_mask: images[0].clone(),
+                    color_mask: images[1].clone(),
+                    coverage: Coverage::default(),
+                    opaque: false,
+                    additive: false,
+                    red_channel: false,
+                })
+            })
+            .collect();
+        Ok(Self {
+            images,
+            surfaces,
+            layers: BTreeMap::new(),
+            head_heights: BTreeMap::new(),
+            choice_trail: Default::default(),
+        })
+    }
+    pub(super) fn prepare(
+        &mut self,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<Surface>,
+    ) {
+        prepare_dialogue(
+            &mut self.layers,
+            &self.surfaces,
+            commands,
+            meshes,
+            materials,
+        );
+    }
+    pub(super) fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.layers.values().map(|layer| layer.entity)
+    }
+    pub(super) fn hide(&mut self, commands: &mut Commands) {
+        for layer in self.layers.values_mut() {
+            layer.show(false, commands);
+        }
+        self.head_heights.clear();
+        self.choice_trail = Default::default();
+    }
+    pub(super) fn despawn(self, world: &mut World) {
+        for entity in self.entities() {
+            world.despawn(entity);
+        }
+    }
+}
+
 fn prepare_dialogue(
     layers: &mut BTreeMap<(u8, usize), Layer>,
     surfaces: &[Handle<Surface>],
@@ -903,13 +976,8 @@ impl DialogueDraw<'_> {
             {
                 // Capture head height once, then follow the actor’s ground position.
                 // Following animated head XY makes dialogue drift during turns.
-                let position = self
-                    .attached_positions
-                    .get(&id)
-                    .copied()
-                    .unwrap_or_else(|| Vec3::from_array(actor.position));
                 self.head_heights.entry(request.operation.id()).or_insert(
-                    ((*head - position).dot(camera.up)).trunc() + HEAD_ANCHOR_PADDING,
+                    ((*head - Vec3::from_array(actor.position)).dot(camera.up)).trunc() + 30.,
                 );
             }
         }
@@ -917,13 +985,16 @@ impl DialogueDraw<'_> {
             let Some(request) = displayed_dialogue(player, world.dialogue.get(&slot)) else {
                 continue;
             };
-            let (rect, pointer, above) = layout_with_camera(
-                self.font,
+            let (rect, pointer) = layout_with_camera(
+                &self.font,
                 request,
                 player,
                 &camera,
-                self.attached_positions,
-                self.head_heights.get(&request.operation.id()).copied(),
+                &self.attached_positions,
+                self.head_heights
+                    .get(&request.operation.id())
+                    .copied()
+                    .unwrap_or(170.),
                 self.resolution,
             )?;
             let opening = player.opening_fraction();
@@ -1229,6 +1300,23 @@ impl<'a> DialogueCamera<'a> {
             up: Vec3::Z,
         }
     }
+    fn battle(
+        world: &'a resonance_events::GameWorld,
+        frame: &resonance_battle::BattleFrame,
+    ) -> Result<Self> {
+        let camera = frame.camera.context("battle dialogue has no camera")?;
+        Ok(Self {
+            world,
+            transform: Some(
+                Transform::from_translation(Vec3::from_array(camera.eye))
+                    .looking_at(Vec3::from_array(camera.focus), Vec3::Y),
+            ),
+            fov_degrees: frame
+                .camera_fov_degrees
+                .unwrap_or(resonance_battle::VERTICAL_FOV_DEGREES),
+            up: Vec3::Y,
+        })
+    }
 }
 
 pub(super) fn subtitles(
@@ -1410,7 +1498,6 @@ fn layout(
         head_height,
         resolution,
     )
-    .map(|(rect, pointer, _)| (rect, pointer))
 }
 
 fn layout_with_camera(
@@ -1419,9 +1506,9 @@ fn layout_with_camera(
     player: &DialoguePlayer,
     camera: &DialogueCamera,
     attached_positions: &BTreeMap<i32, Vec3>,
-    head_height: Option<f32>,
+    head_height: f32,
     resolution: super::Resolution,
-) -> Result<([f32; 4], Option<[f32; 2]>, bool)> {
+) -> Result<([f32; 4], Option<[f32; 2]>)> {
     let mut width = 0f32;
     let mut height = 25f32;
     for page in &player.pages {
@@ -1473,7 +1560,6 @@ fn layout_with_camera(
                 || matches!(request.anchor, DialogueAnchor::Actor(_))
         })
         .map(|position| project(position + camera.up * 80.));
-    let mut above = box_above_speaker(request.flags, pointer);
     // Center integer pixel dimensions without introducing half-pixel offsets.
     // Truncating only after subtraction shifts odd-sized boxes by one pixel.
     let half_width = (width / 2.).trunc();
@@ -1502,7 +1588,11 @@ fn layout_with_camera(
                 project(
                     position
                         + camera.up
-                            * (head_height.unwrap_or(170.) + f32::from(request.height_offset)),
+                            * if above {
+                                head_height + f32::from(request.height_offset)
+                            } else {
+                                0.
+                            },
                 )
             });
             let mut upper_top = head[1] - 24. - height;

@@ -8,6 +8,29 @@ pub struct SpellChargeDefinition {
 }
 
 impl Battle {
+    pub(crate) fn spell_target(&self, actor: ActorId, release: &crate::PreparedSpell) -> ActorId {
+        let runtime = &self.runtime[actor.index()];
+        let allied = !release.recovery.is_empty()
+            || self.prepared.actor_setup[actor.index()]
+                .enemy_decision
+                .as_ref()
+                .is_some_and(|definition| {
+                    runtime
+                        .enemy_choice
+                        .and_then(|row| definition.choices.get(row))
+                        .is_some_and(|row| {
+                            row.target_allies
+                                || row.target_policy.unwrap_or(definition.strategy)
+                                    == crate::TargetPolicy::SelfTarget
+                        })
+                });
+        if allied {
+            runtime.support_target
+        } else {
+            runtime.target
+        }
+    }
+
     pub(crate) fn store_cast_requested(
         &mut self,
         actor: ActorId,
@@ -91,7 +114,7 @@ impl Battle {
         if !self.dispatch_spell(actor, action, SpellSlot::Primary, Some(parent), cues)? {
             return Ok(());
         }
-        self.actors[index].attack_power = 100;
+        self.actors[index].casting_state.power_percent = 100;
         self.actors[index].stored_spell = None;
         Ok(())
     }
@@ -105,17 +128,38 @@ impl Battle {
         parent: Option<ActionId>,
         cues: &mut Vec<Cue>,
     ) -> Result<bool> {
-        let release = self
+        let casting = self
             .prepared
             .casting(action)
-            .context("spell release requires a casting action")?
-            .release
-            .clone();
-        let target = self.runtime[actor.index()].target;
-        if self
-            .release_volley(release, actor, target, slot, parent, cues)?
-            .is_none()
-        {
+            .context("spell release requires a casting action")?;
+        let release = casting.release.clone();
+        let release_pose = casting.release_pose;
+        let target = self.spell_target(actor, &release);
+        let started = if let Some(summon) = &release.summon {
+            slot == SpellSlot::Primary
+                && self.begin_summon_entry(summon.entry, release, actor, target, parent, cues)?
+        } else {
+            let resident = self.release_volley(release, actor, target, slot, parent, cues)?;
+            if let (
+                Some(resident),
+                Some(parent),
+                crate::CastReleasePose::SustainAfter {
+                    opening,
+                    hold_ticks,
+                },
+            ) = (resident, parent, release_pose)
+            {
+                self.volleys.get_mut(&resident).unwrap().cast_pose =
+                    Some(crate::release::CastPoseTransition {
+                        parent,
+                        action,
+                        opening,
+                        at: hold_ticks,
+                    });
+            }
+            resident.is_some()
+        };
+        if !started {
             return Ok(false);
         }
         cues.push(Cue::Casting {
@@ -164,7 +208,7 @@ impl Battle {
             return Ok(());
         }
         if self.dispatch_spell(actor, action, SpellSlot::Secondary, None, cues)? {
-            self.actors[index].attack_power = 100;
+            self.actors[index].casting_state.power_percent = 100;
             self.actors[index].reaction.spell_revenge_used = true;
         }
         Ok(())

@@ -89,6 +89,8 @@ pub(crate) fn native_fixture(
             actor: enemy_id,
             level: 1,
             grade: 0,
+            steal: None,
+            steal_chance: 0,
             reward: rewards::EnemyReward {
                 monster: 0,
                 experience: 0,
@@ -268,11 +270,11 @@ impl LoadedFixture {
         let prepared = inputs.prepare(
             &menus,
             PrepareOptions {
+                event_flags: Default::default(),
                 random_seed: 0x2345,
                 map: 332,
                 world_music: 0,
                 story,
-                story3: false,
                 colette_state: 0,
                 devils_arms_unlocked: false,
                 victory_story_flags: [true; 2],
@@ -519,6 +521,8 @@ fn controlled_candidate_actor_identities_share_one_species_knowledge_row() -> Re
                 actor: ActorId::from_index(actors.len())?,
                 level: enemy.level,
                 grade: enemy.grade,
+                steal: enemy.steal,
+                steal_chance: enemy.steal_chance,
                 reward: enemy.reward.clone(),
             });
             actors.push(actors.last().unwrap().clone());
@@ -988,5 +992,158 @@ fn colette_critical_up_activation_and_finish_preserve_discovery_once() -> Result
         assert_eq!(restored.members[1].ex_skills, [1, 2, 0, 0]);
         assert_eq!(serde_json::to_value(&field)?, field_before);
     }
+    Ok(())
+}
+
+#[test]
+fn stealing_consumes_each_enemy_once_even_when_inventory_is_full() -> Result<()> {
+    use resonance_battle::item::StealRequest;
+    let PreparedFixture { mut candidate, .. } = native_fixture(
+        &[2],
+        |party, _, menus| {
+            party.items.clear();
+            party.found_items.clear();
+            party.recent_items.clear();
+            menus.items.resize(11, menus.items[0].clone());
+            menus.items[10].category = 0;
+            menus.presentation.items = Some(resonance_content::menu_data::ItemCaptions {
+                items: (0..11)
+                    .map(|_| {
+                        Some(resonance_content::menu_data::ItemText {
+                            name: "Panacea Bottle".into(),
+                            description: String::new(),
+                            details: String::new(),
+                        })
+                    })
+                    .collect(),
+                item_categories: vec![],
+                inventory_categories: vec![],
+                item_group_prompt: None,
+                item_bottle_count: None,
+            });
+            Ok(())
+        },
+        |mut actors, setup| {
+            setup.enemies[0].steal = Some(10);
+            setup.enemies[0].steal_chance = 21;
+            let enemy = &setup.enemies[0];
+            setup.enemies.push(PreparedEnemy {
+                actor: ActorId::from_index(actors.len())?,
+                level: enemy.level,
+                grade: enemy.grade,
+                steal: enemy.steal,
+                steal_chance: enemy.steal_chance,
+                reward: enemy.reward.clone(),
+            });
+            actors.push(actors.last().unwrap().clone());
+            resonance_battle::PreparedBattle::new(
+                actors
+                    .into_iter()
+                    .map(|a| (a, Default::default()))
+                    .collect(),
+                Default::default(),
+                1,
+            )?
+            .finish()
+        },
+    )?;
+    let first = candidate.setup.enemies[0].actor;
+    let second = candidate.setup.enemies[1].actor;
+    let monster = candidate.setup.enemies[0].reward.monster;
+    let drops = candidate.setup.enemies[0].reward.drops;
+    let request = StealRequest {
+        user: ActorId::from_index(0)?,
+        target: first,
+        adjusted_roll: 21,
+        guaranteed: false,
+        gald: false,
+    };
+    assert!(candidate.steal(request)?.is_none());
+    assert!(candidate.party.items.is_empty());
+    assert!(
+        candidate
+            .steal(StealRequest {
+                adjusted_roll: 12,
+                ..request
+            })?
+            .is_some()
+    );
+    assert_eq!(candidate.party.items[&10], 1);
+    assert!(candidate.party.found_items.contains(&10));
+    assert_eq!(candidate.party.recent_items[0], 10);
+    assert!(candidate.party.monsters[&monster].steal);
+    assert!(
+        candidate
+            .steal(StealRequest {
+                adjusted_roll: 0,
+                guaranteed: true,
+                ..request
+            })?
+            .is_none()
+    );
+    candidate.party.items.insert(10, 20);
+    candidate.party.found_items.clear();
+    candidate.party.recent_items.clear();
+    assert!(
+        candidate
+            .steal(StealRequest {
+                target: second,
+                guaranteed: true,
+                ..request
+            })?
+            .is_some()
+    );
+    assert_eq!(candidate.party.items[&10], 20);
+    assert!(candidate.party.found_items.is_empty() && candidate.party.recent_items.is_empty());
+    candidate.party.items.remove(&10);
+    assert!(
+        candidate
+            .steal(StealRequest {
+                target: second,
+                guaranteed: true,
+                ..request
+            })?
+            .is_none()
+    );
+    assert_eq!(candidate.setup.enemies[0].reward.drops, drops);
+    // A guaranteed attempt cannot create an absent steal item.
+    candidate.stolen_enemies.clear();
+    candidate.setup.enemies[0].steal = None;
+    assert!(
+        candidate
+            .steal(StealRequest {
+                guaranteed: true,
+                ..request
+            })?
+            .is_none()
+    );
+    // Rover can take Gald without an item; capacity still consumes the attempt.
+    candidate.setup.enemies[0].reward.gald = 127;
+    candidate.party.gald = 99_999_995;
+    let rover = StealRequest {
+        guaranteed: true,
+        gald: true,
+        ..request
+    };
+    assert_eq!(candidate.steal(rover)?.as_deref(), Some("12 Gald"));
+    assert_eq!(candidate.party.gald, 99_999_999);
+    assert!(candidate.steal(rover)?.is_none());
+    assert_eq!(candidate.setup.enemies[0].reward.gald, 127);
+
+    candidate.stolen_enemies.remove(&second);
+    candidate.setup.enemies[1].reward.gald = 127;
+    candidate.party.gald = 500;
+    candidate.party.items.insert(10, 20);
+    assert_eq!(
+        candidate
+            .steal(StealRequest {
+                target: second,
+                ..rover
+            })?
+            .as_deref(),
+        Some("Panacea Bottle + 12 Gald")
+    );
+    assert_eq!(candidate.party.gald, 512);
+    assert_eq!(candidate.party.items[&10], 20);
     Ok(())
 }

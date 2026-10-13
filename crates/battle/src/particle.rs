@@ -20,8 +20,14 @@ impl ParticleDefinition {
     pub(crate) fn validate(&self) -> Result<()> {
         self.data.validate()?;
         ensure!(
-            self.model.is_some()
-                || (!self.data.follow_orientation && self.data.model_elevation.is_none()),
+            self.data.periodic_effect.is_none() || self.model.is_some(),
+            "periodic effect requires a model particle"
+        );
+        ensure!(
+            (self.model.is_some() || self.data.model_elevation.is_none())
+                && (!self.data.follow_orientation
+                    || self.model.is_some()
+                    || matches!(self.data.state.geometry, ParticleGeometry::Quad { .. })),
             "particle model placement requires a model binding"
         );
         Ok(())
@@ -32,6 +38,7 @@ impl ParticleDefinition {
 pub struct ParticleFrame {
     pub id: ParticleId,
     pub owner: ActorId,
+    pub owner_bone: Option<u8>,
     pub draw_after: Option<ActorId>,
     pub resource: u32,
     pub member: u16,
@@ -45,9 +52,11 @@ pub(crate) struct Particle {
     pub definition: Arc<ParticleDefinition>,
     pub frame: ParticleFrame,
     pub follow: Option<crate::EffectFollow>,
+    target: ActorId,
 
     pub model: Option<crate::PreparedEffectModel>,
     pub model_secondary: Vec<resonance_content::secondary_motion::Simulation>,
+    model_parent: Option<(ParticleId, u8)>,
     pub(crate) orbit_velocity: [f32; 3],
     pub(crate) element_tint: bool,
     /// Completed motion updates; zero also means the particle is not yet visible.
@@ -56,27 +65,41 @@ pub(crate) struct Particle {
     uv_frame: usize,
     uv_elapsed: u32,
     uv_scroll: [i32; 2],
+    floor_effect_emitted: bool,
 }
 
 impl Particle {
-    fn step(&mut self, followed_origin: Option<[f32; 3]>) -> Result<()> {
+    fn step(
+        &mut self,
+        followed_origin: Option<[f32; 3]>,
+        model_parent: Option<resonance_content::animation::Matrix>,
+    ) -> Result<Option<crate::EffectRequest>> {
         let fresh = self.age == 0;
         if fresh {
             let state = &mut self.frame.state;
-            state.offset = rotate(state.offset, self.frame.heading);
-            state.velocity = rotate(state.velocity, self.frame.heading);
-            state.acceleration = rotate(state.acceleration, self.frame.heading);
+            if self.definition.data.owner_bone.is_none() {
+                state.offset = rotate(state.offset, self.frame.heading);
+                state.velocity = rotate(state.velocity, self.frame.heading);
+                state.acceleration = rotate(state.acceleration, self.frame.heading);
+            }
             if !self.definition.data.gradient {
                 state.colors[1] = state.colors[0];
             }
         }
         self.advance_uv(fresh)?;
         let state = &mut self.frame.state;
-        add(&mut state.offset, state.velocity);
+        if self.definition.data.origin_motion {
+            add(&mut self.frame.origin, state.velocity);
+        } else {
+            add(&mut state.offset, state.velocity);
+        }
         add(&mut state.velocity, state.acceleration);
-        if !matches!(state.geometry, ParticleGeometry::BillboardTrail { .. }) {
+        if !self.definition.data.origin_motion
+            && !matches!(state.geometry, ParticleGeometry::BillboardTrail { .. })
+        {
             add(&mut state.acceleration, self.definition.data.jerk);
         }
+        let mut child_member = None;
         let previous_origin = self.frame.origin;
         if let Some(origin) = followed_origin {
             self.frame.origin = origin;
@@ -88,17 +111,33 @@ impl Particle {
             if y < 0. {
                 state.offset[1] -= y;
                 state.velocity[1] *= -restitution;
+                child_member = self.definition.data.bounce_effect;
             }
+        }
+        if self.definition.data.ground_clamp {
+            state.offset[1] = state.offset[1].max(-self.frame.origin[1]);
+        }
+        if !self.floor_effect_emitted
+            && self.frame.origin[1] + state.offset[1] < 0.
+            && let Some(member) = self.definition.data.floor_effect
+        {
+            child_member = Some(member);
+            self.floor_effect_emitted = true;
+        }
+        if let Some(effect) = self.definition.data.periodic_effect
+            && self.age.is_multiple_of(u32::from(effect.interval))
+        {
+            child_member = Some(effect.member);
         }
         if self.definition.data.follow_orientation {
             let delta: [f32; 3] =
                 std::array::from_fn(|i| self.frame.origin[i] - previous_origin[i]);
-            if delta != [0.; 3] {
+            if crate::distance::length(delta) >= 0.1 {
                 let [x, y, z] = crate::distance::normalize(delta);
                 state.angles[0] = y.clamp(-1., 1.).acos().to_degrees() + 180.;
                 state.angles[1] = x.atan2(z).to_degrees();
             }
-        } else {
+        } else if !self.definition.data.fixed_orientation {
             add(&mut state.angles, state.angular_velocity);
             if self.definition.data.linear_orbit
                 || matches!(state.geometry, ParticleGeometry::Quad { .. })
@@ -170,16 +209,42 @@ impl Particle {
             *phase = phase.wrapping_add(1);
         }
         self.age = self.age.saturating_add(1);
-        ensure!(state.finite(), "particle motion overflow");
+        ensure!(
+            state.finite() && self.frame.origin.iter().all(|value| value.is_finite()),
+            "particle motion overflow"
+        );
         if let Some(model) = &mut self.model {
-            model.advance()?;
+            if !fresh
+                || !self
+                    .definition
+                    .model
+                    .is_some_and(|binding| binding.program_animation)
+            {
+                model.advance()?;
+            }
             self.frame.model = Some(model.sample(
                 &self.frame,
                 &mut self.model_secondary,
                 self.definition.data.model_elevation,
+                self.definition.data.model_ground_relative,
+                model_parent,
             )?);
         }
-        Ok(())
+        Ok(child_member.map(|member| crate::EffectRequest {
+            owner: self.frame.owner,
+            target: self.target,
+            appearance: crate::EffectAppearance {
+                resource: self.frame.resource,
+                member,
+            },
+            origin: std::array::from_fn(|axis| {
+                self.frame.origin[axis] + self.frame.state.offset[axis]
+            }),
+            heading: self.frame.heading,
+            follow: None,
+            scale: 1.,
+            tint: Default::default(),
+        }))
     }
 }
 
@@ -219,6 +284,10 @@ impl Particle {
                 if self.uv_elapsed >= *interval {
                     self.uv_elapsed = 0;
                     for axis in 0..2 {
+                        if self.definition.model.is_some() {
+                            state.uv[axis] = state.uv[axis].wrapping_add(step[axis]);
+                            continue;
+                        }
                         let extent = i32::from(state.uv[axis + 2]);
                         ensure!(extent > 0, "nonpositive particle UV scroll extent");
                         self.uv_scroll[axis] =
@@ -317,7 +386,7 @@ impl Effects {
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("battle particle handle exhausted"))?;
         let mut state = definition.data.state.clone();
-        if definition.model.is_some() {
+        if definition.model.is_some() && definition.data.owner_bone.is_none() {
             state.angles[1] += heading;
         }
         let model = definition
@@ -339,6 +408,7 @@ impl Effects {
         let frame = ParticleFrame {
             id,
             owner,
+            owner_bone: definition.data.owner_bone,
             draw_after: definition.data.draw_after_target.then_some(target),
             resource: definition.resource,
             member: definition.member,
@@ -354,21 +424,110 @@ impl Effects {
                 element_tint: definition.data.element_tint,
                 model,
                 model_secondary: Vec::new(),
+                model_parent: None,
 
                 definition,
                 frame,
                 follow: None,
+                target,
                 age: 0,
                 fade,
                 uv_frame: 0,
                 uv_elapsed: 0,
                 uv_scroll: [0; 2],
+                floor_effect_emitted: false,
             },
         );
         Ok(Some(id))
     }
 
-    pub(crate) fn set_particle_model(&mut self, handle: ParticleId, model: u8) -> Result<()> {
+    pub(crate) fn attach_particle_model(
+        &mut self,
+        child: ParticleId,
+        parent: ParticleId,
+        joint: u8,
+    ) -> Result<()> {
+        ensure!(parent < child, "model attachment requires an earlier birth");
+        self.particles
+            .get(&parent)
+            .and_then(|particle| particle.model.as_ref())
+            .context("model attachment parent is unavailable")?
+            .attachment_bone(joint)?;
+        let particle = self
+            .particles
+            .get_mut(&child)
+            .context("stale particle handle")?;
+        ensure!(
+            particle.model.is_some(),
+            "model attachment requires a model"
+        );
+        particle.model_parent = Some((parent, joint));
+        Ok(())
+    }
+
+    fn particle_parent_world(
+        &self,
+        id: ParticleId,
+        frame: &BattleFrame,
+    ) -> Result<Option<resonance_content::animation::Matrix>> {
+        let particle = &self.particles[&id];
+        if let Some(bone) = particle
+            .frame
+            .owner_bone
+            .filter(|_| particle.model.is_some())
+        {
+            ensure!(
+                particle.model_parent.is_none(),
+                "model has two attachment parents"
+            );
+            let model = frame
+                .models
+                .iter()
+                .find(|model| model.actor == particle.frame.owner)
+                .context("model particle owner is unavailable")?;
+            let joint = model
+                .bones
+                .get(usize::from(bone))
+                .context("model particle owner bone is unavailable")?;
+            return Ok(Some(
+                (glam::Mat4::from_cols_array_2d(&model.world)
+                    * glam::Mat4::from_cols_array_2d(joint))
+                .to_cols_array_2d(),
+            ));
+        }
+        let Some((parent, joint)) = self.particles[&id].model_parent else {
+            return Ok(None);
+        };
+        let parent = self
+            .particles
+            .get(&parent)
+            .context("model attachment parent expired")?;
+        let bone = parent
+            .model
+            .as_ref()
+            .context("model attachment parent has no model")?
+            .attachment_bone(joint)?;
+        let pose = parent
+            .frame
+            .model
+            .as_ref()
+            .context("model attachment parent has no pose")?;
+        let joint = pose
+            .bones
+            .get(bone)
+            .context("model attachment joint has no pose")?;
+        Ok(Some(
+            (glam::Mat4::from_cols_array_2d(&pose.world) * glam::Mat4::from_cols_array_2d(joint))
+                .to_cols_array_2d(),
+        ))
+    }
+
+    pub(crate) fn set_particle_model(
+        &mut self,
+        handle: ParticleId,
+        model: u8,
+        animation: Option<resonance_content::battle_effect::ModelAnimation>,
+    ) -> Result<()> {
         let particle = self
             .particles
             .get(&handle)
@@ -384,7 +543,9 @@ impl Effects {
             .and_then(|bank| bank.models.get(&model))
             .context("unprepared particle model")?
             .clone();
-        if let Some(clip) = binding.animation {
+        if let Some(animation) = animation {
+            model_state.play(animation)?;
+        } else if let Some(clip) = binding.animation {
             model_state.play_repeating(clip, binding.repeat)?;
         }
         let particle = self.particles.get_mut(&handle).unwrap();
@@ -412,26 +573,54 @@ impl Effects {
         Ok(())
     }
 
-    pub(crate) fn advance_particles(&mut self, frame: &BattleFrame) -> Result<()> {
-        let ids: Vec<_> = self.particles.keys().copied().collect();
-        for id in ids {
+    #[cfg(test)]
+    pub(crate) fn advance_particles(&mut self, frame: &BattleFrame) -> Result<Vec<crate::Cue>> {
+        self.advance_particles_filtered(frame, false)
+    }
+
+    pub(crate) fn advance_particles_filtered(
+        &mut self,
+        frame: &BattleFrame,
+        only_pause_effects: bool,
+    ) -> Result<Vec<crate::Cue>> {
+        let mut cues = Vec::new();
+        let mut ids: std::collections::VecDeque<_> = self.particles.keys().copied().collect();
+        while let Some(id) = ids.pop_front() {
+            if only_pause_effects && !self.particles[&id].definition.data.during_pause {
+                continue;
+            }
             let origin = self.particles[&id]
                 .follow
                 .and_then(|follow| follow.position(frame));
-            let particle = self.particles.get_mut(&id).unwrap();
-            if particle
+            if self.particles[&id]
                 .definition
                 .data
                 .lifetime
-                .is_some_and(|duration| particle.age >= duration)
+                .is_some_and(|duration| self.particles[&id].age >= duration)
             {
                 self.particles.remove(&id);
-            } else if let Err(error) = particle.step(origin) {
-                self.particles.remove(&id);
-                self.diagnostics.report("battle particle", error)?;
+            } else {
+                let result = self
+                    .particle_parent_world(id, frame)
+                    .and_then(|parent| self.particles.get_mut(&id).unwrap().step(origin, parent));
+                match result {
+                    Ok(Some(request)) => {
+                        let first_child = self.next_particle;
+                        let result = self.emit_child(&request, frame, &mut cues);
+                        self.diagnostics.attempt("battle child effect", result)?;
+                        // New children receive one visit after existing siblings.
+                        // The shared particle budget bounds this queue.
+                        ids.extend((first_child..self.next_particle).map(ParticleId));
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.particles.remove(&id);
+                        self.diagnostics.report("battle particle", error)?;
+                    }
+                }
             }
         }
-        Ok(())
+        Ok(cues)
     }
 
     pub fn frames(&self) -> Vec<ParticleFrame> {

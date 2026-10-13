@@ -8,6 +8,13 @@ pub enum Sound {
     Stream(u16),
 }
 
+/// Authored scene time is independent of the decoded audio clip's length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimedVoice {
+    pub sound: Option<Sound>,
+    pub ticks: u16,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Voices {
@@ -16,6 +23,7 @@ pub struct Voices {
     pub critical: Option<Sound>,
     pub guard: Option<Sound>,
     pub ally_defeated: [Option<Sound>; 2],
+    pub unison_start: Option<Sound>,
     pub technique_command: Option<Sound>,
     pub item_use: Option<Sound>,
     pub entry: [Option<Sound>; 3],

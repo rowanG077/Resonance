@@ -92,7 +92,7 @@ fn activation_finishes_the_update_then_holds_every_actor_until_expiry() {
     assert_eq!(battle.timed_hold_remaining(), Some(duration));
     for _ in 0..duration {
         let frame = battle.step(BattleInput::default()).unwrap();
-        assert_eq!(frame.clock, crate::BattleClock::Held);
+        assert_eq!(frame.clock, crate::BattleClock::TimedHold);
         assert_eq!(frame.actors, entered.actors);
         assert_eq!(frame.item_cooldown, entered.item_cooldown);
     }

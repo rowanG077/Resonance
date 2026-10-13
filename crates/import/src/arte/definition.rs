@@ -1,6 +1,9 @@
 //! Decode technique parameters and casting behavior at the input boundary.
 use super::{Definition, MenuDefinition};
-use crate::{dol, read::u32 as word};
+use crate::{
+    dol,
+    read::{u16 as half, u32 as word},
+};
 use anyhow::{Context, Result};
 use resonance_content::arte::{
     AdmissionFlash, ArteFamily, LearningPrerequisite, LearningRoute, LearningRules,
@@ -8,12 +11,13 @@ use resonance_content::arte::{
 };
 
 const ADDRESS: u32 = 0x80202f90;
-const COUNT: usize = 253;
+const COUNT: usize = resonance_content::battle_unison::PLACEMENT_COUNT;
 const BYTES: usize = 88;
 
 pub(crate) struct Row {
     pub gameplay: Definition,
     pub menu: MenuDefinition,
+    pub skill_package: Option<u16>,
 }
 
 fn decode(executable: &[u8], row: &[u8], table: &[u8]) -> Result<Row> {
@@ -115,6 +119,13 @@ fn decode(executable: &[u8], row: &[u8], table: &[u8]) -> Result<Row> {
     };
     Ok(Row {
         gameplay,
+        skill_package: match word(row, 0x50)? {
+            0 => None,
+            slot => Some(
+                slot.try_into()
+                    .context("skill package selector exceeds u16")?,
+            ),
+        },
         menu: MenuDefinition {
             tp_percent: signed(0) == 34,
             text: resonance_content::menu_data::NamedText {
@@ -161,9 +172,25 @@ fn capabilities(flags: u32) -> TechniqueCapabilities {
             _ => TechniqueTarget::Unavailable,
         },
         offensive: flags & 0x100 != 0,
-        revives: flags & 0x10000 != 0,
-        healing: flags & 0x8000 != 0,
+        revives: flags & 0x2000 != 0,
+        healing: flags & 0x200 != 0,
     }
+}
+
+pub(crate) fn unison_placements(
+    executable: &[u8],
+) -> Result<Vec<resonance_content::battle_unison::Placement>> {
+    dol::slice(executable, ADDRESS, COUNT * BYTES)?
+        .chunks_exact(BYTES)
+        .map(|row| {
+            Ok(resonance_content::battle_unison::Placement {
+                native_id: half(row, 0)?,
+                altitude: word(row, 0x48)?,
+                distance: half(row, 0x4c)?,
+                duration: half(row, 0x4e)?,
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn definitions(executable: &[u8]) -> Result<Vec<Row>> {
@@ -183,6 +210,7 @@ mod tests {
     fn decodes_technique_parameters_and_rejects_bad_input() -> Result<()> {
         let mut row = [0; BYTES];
         row[8] = 4;
+        row[0x50..0x54].copy_from_slice(&2_u32.to_be_bytes());
         row[0x38..0x3c].copy_from_slice(&800_u32.to_be_bytes());
         let value = decode(&[], &row, &[])?;
         assert_eq!(
@@ -190,6 +218,7 @@ mod tests {
             (4, 800.)
         );
         assert!(value.menu.text.name.is_empty());
+        assert_eq!(value.skill_package, Some(2));
         assert!(decode(&[], &row[..BYTES - 1], &[]).is_err());
         row[16..20].copy_from_slice(&1_u32.to_be_bytes());
         assert!(decode(&[], &row, &[]).is_err());
@@ -248,6 +277,19 @@ mod tests {
             row[0x34..0x38].copy_from_slice(&(flags | 0x101).to_be_bytes());
             let casting = decode(&[], &row, &[])?.gameplay.casting;
             assert_eq!(casting.effects.members(), effects);
+        }
+        for (flags, healing, revives) in [
+            (0x880286_u32, true, false), // First Aid
+            (0x88028b, true, false),     // Nurse
+            (0x888086, false, false),    // Recover
+            (0x890086, false, false),    // Dispel
+            (0x88208b, false, true),     // Resurrection
+        ] {
+            row[0x34..0x38].copy_from_slice(&flags.to_be_bytes());
+            let capabilities = decode(&[], &row, &[])?.gameplay.capabilities;
+            assert_eq!(capabilities.target, TechniqueTarget::Ally);
+            assert_eq!(capabilities.healing, healing);
+            assert_eq!(capabilities.revives, revives);
         }
         Ok(())
     }

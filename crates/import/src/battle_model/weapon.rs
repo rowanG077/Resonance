@@ -8,7 +8,8 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::battle_model::{
-    Attachment, ModelPart, TrailMaterial, TrailTexture, WEAPONS_PATH, Weapon, Weapons,
+    Attachment, AttachmentAnimation, AttachmentUvChannel, AttachmentUvMode, ModelPart,
+    TrailMaterial, TrailTexture, WEAPONS_PATH, Weapon, Weapons,
 };
 use std::{collections::BTreeMap, fs, path::Path};
 
@@ -140,24 +141,36 @@ fn weapon(
     output: &Path,
     decoded: &mut Package,
 ) -> Result<Weapon> {
-    // Multi-part equipment wraps each layer package in a separate directory member.
-    let packages = if sections(archive.section(0)?).is_ok() {
-        archive
-            .sections
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, range)| {
-                range
-                    .as_ref()
-                    .map(|range| (slot, &archive.bytes[range.clone()]))
-            })
-            .collect::<Vec<_>>()
-    } else {
-        vec![(0, archive.bytes.as_slice())]
-    };
+    for (_, package) in packages(&archive.bytes)? {
+        let members = sections(package)?;
+        let metadata = members
+            .first()
+            .and_then(Option::as_ref)
+            .map(|range| &package[range.clone()])
+            .context("missing weapon metadata")?;
+        ordinary_attachment(metadata, members.get(4).and_then(Option::as_ref).is_some())?;
+    }
+    read_package(
+        &archive.bytes,
+        &archive.source_sha256,
+        owner_clips,
+        output,
+        decoded,
+    )
+}
+
+/// Decode an already bounded, uncompressed attachment package.
+pub(crate) fn read_package(
+    bytes: &[u8],
+    source_sha256: &str,
+    owner_clips: &[crate::character::Clip<'_>],
+    output: &Path,
+    decoded: &mut Package,
+) -> Result<Weapon> {
     let mut parts = BTreeMap::new();
     let mut trails = BTreeMap::new();
-    for (slot, package) in packages {
+    let mut uv_animation = BTreeMap::new();
+    for (slot, package) in packages(bytes)? {
         let ranges = sections(package)?;
         ensure!(
             (5..=7).contains(&ranges.len()),
@@ -171,6 +184,7 @@ fn weapon(
         };
         let metadata = at(0).context("missing weapon metadata")?;
         trails.insert(slot.try_into()?, trail_material(metadata)?);
+        uv_animation.insert(slot.try_into()?, attachment_animation(metadata)?);
         let primary = at(1).context("missing weapon body")?;
         let mut layers = Vec::new();
         let mut layer_skeletons = BTreeMap::new();
@@ -198,7 +212,7 @@ fn weapon(
                     additive: false,
                 },
                 &mut layers,
-                &format!("battle/weapons/{}/{slot}", archive.source_sha256),
+                &format!("battle/weapons/{source_sha256}/{slot}"),
                 owner_clips,
                 output,
                 decoded,
@@ -220,7 +234,7 @@ fn weapon(
         );
     }
     Ok(Weapon {
-        source_sha256: archive.source_sha256.clone(),
+        source_sha256: source_sha256.into(),
         files: super::files(
             parts
                 .values()
@@ -229,6 +243,82 @@ fn weapon(
         )?,
         parts,
         trails,
+        uv_animation,
+    })
+}
+
+fn packages(bytes: &[u8]) -> Result<Vec<(usize, &[u8])>> {
+    let directory = sections(bytes)?;
+    let first = directory
+        .first()
+        .and_then(Option::as_ref)
+        .context("missing weapon metadata")?;
+    // Multi-part equipment wraps each layer package in a separate directory member.
+    Ok(if sections(&bytes[first.clone()]).is_ok() {
+        directory
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, range)| range.as_ref().map(|range| (slot, &bytes[range.clone()])))
+            .collect::<Vec<_>>()
+    } else {
+        vec![(0, bytes)]
+    })
+}
+
+// These fields have no runtime consumer in ordinary equipment. Preserve that
+// completeness condition rather than silently discarding newly populated data.
+fn ordinary_attachment(metadata: &[u8], has_reserved_member: bool) -> Result<()> {
+    ensure!(!has_reserved_member, "unprepared ordinary weapon member 4");
+    ensure!(
+        metadata.get(10) == Some(&0),
+        "unprepared ordinary weapon effect interval"
+    );
+    ensure!(
+        metadata.get(12) == Some(&0),
+        "unprepared ordinary weapon metadata byte 12"
+    );
+    ensure!(
+        metadata.get(19) == Some(&255),
+        "unprepared ordinary weapon trail alpha"
+    );
+    Ok(())
+}
+
+fn attachment_animation(bytes: &[u8]) -> Result<AttachmentAnimation> {
+    ensure!(bytes.len() == 64, "invalid attachment settings size");
+    let channels = std::array::from_fn(|channel| AttachmentUvChannel {
+        count: bytes[channel],
+        texture: bytes[2 + channel] as i8,
+        mode: match bytes[4 + channel] {
+            0 => AttachmentUvMode::Disabled,
+            1 => AttachmentUvMode::Frames,
+            2 => AttachmentUvMode::ScrollV,
+            3 => AttachmentUvMode::Reserved,
+            4 => AttachmentUvMode::Sequence,
+            5 => AttachmentUvMode::ScrollU,
+            other => AttachmentUvMode::Inactive(other as i8),
+        },
+        frames_or_step: bytes[6 + channel] as i8,
+        period: bytes[8 + channel] as i8,
+        initial_scroll: i16::from_be_bytes([bytes[28 + channel * 2], bytes[29 + channel * 2]]),
+    });
+    let sequence = channels
+        .iter()
+        .any(|channel| channel.count != 0 && channel.mode == AttachmentUvMode::Sequence);
+    let frame_order = if sequence {
+        let length = usize::from(bytes[11]);
+        ensure!(
+            (1..=36).contains(&length),
+            "active attachment sequence must contain 1..=36 frames"
+        );
+        bytes[28..28 + length].to_vec()
+    } else {
+        Vec::new()
+    };
+    Ok(AttachmentAnimation {
+        channels,
+        frame_order,
+        effect_interval: bytes[10],
     })
 }
 
@@ -253,6 +343,50 @@ pub(super) fn trail_material(bytes: &[u8]) -> Result<TrailMaterial> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordinary_attachment_rejects_discarded_active_fields() -> Result<()> {
+        let mut metadata = [0; 64];
+        metadata[19] = 255;
+        ordinary_attachment(&metadata, false)?;
+        assert!(ordinary_attachment(&metadata, true).is_err());
+        for (offset, value) in [(10, 1), (12, 1), (19, 128)] {
+            let mut changed = metadata;
+            changed[offset] = value;
+            assert!(ordinary_attachment(&changed, false).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn attachment_animation_preserves_signed_scroll_and_bounds_sequences() -> Result<()> {
+        let mut bytes = [0; 64];
+        bytes[..8].copy_from_slice(&[1, 1, 0, 1, 2, 2, 80, (-12_i8) as u8]);
+        bytes[28..30].copy_from_slice(&(-128_i16).to_be_bytes());
+        let animation = attachment_animation(&bytes)?;
+        assert!(
+            animation
+                .channels
+                .iter()
+                .all(|channel| channel.mode == AttachmentUvMode::ScrollV)
+        );
+        assert_eq!(
+            animation.channels.map(|channel| channel.frames_or_step),
+            [80, -12]
+        );
+        assert_eq!(animation.channels[0].initial_scroll, -128);
+        assert!(animation.frame_order.is_empty());
+        bytes[4] = 4;
+        for length in [0, 37, 255] {
+            bytes[11] = length;
+            assert!(attachment_animation(&bytes).is_err());
+        }
+        bytes[11] = 2;
+        bytes[28..30].copy_from_slice(&[3, 1]);
+        assert_eq!(attachment_animation(&bytes)?.frame_order, [3, 1]);
+        assert!(attachment_animation(&bytes[..63]).is_err());
+        Ok(())
+    }
 
     #[test]
     fn trail_material_decodes_texture_ownership_and_rejects_unknown_blends() -> Result<()> {

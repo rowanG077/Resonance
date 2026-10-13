@@ -360,3 +360,89 @@ fn failed_strategy_return_precedes_strip_input_and_invalidates_the_lifecycle() -
     assert!(visit(&mut f, Default::default()).is_err());
     Ok(())
 }
+
+#[test]
+fn absent_menu_members_do_not_change_actor_ids_or_saved_formation() -> Result<()> {
+    use resonance_battle::{ActorAvailability, PreparedBattle};
+    let mut f = super::item_tests::native_fixture(
+        &[1, 2, 3, 9],
+        |party, _, _| {
+            party.settings.battle_controls = [0, 1, 1, 2];
+            Ok(())
+        },
+        |mut actors, _| {
+            for (slot, actor) in actors.iter_mut().take(4).enumerate() {
+                actor.control_slot = slot as u8;
+            }
+            actors[1].availability = ActorAvailability::Absent;
+            actors[2].hp = 0;
+            actors[3].availability = ActorAvailability::Petrified;
+            PreparedBattle::new(
+                actors
+                    .into_iter()
+                    .map(|actor| (actor, Default::default()))
+                    .collect(),
+                Default::default(),
+                1,
+            )?
+            .finish()
+        },
+    )?;
+    f.candidate.begin_menu(&f.battle)?;
+    assert_eq!(
+        f.candidate
+            .menu_actors
+            .iter()
+            .map(|(id, _)| id.index())
+            .collect::<Vec<_>>(),
+        [0, 2, 3]
+    );
+    assert_eq!(f.candidate.items().roster, &f.candidate.menu_actors);
+    assert_eq!(f.candidate.menu_party().formation, [1, 3, 9]);
+    assert_eq!(f.candidate.persistent_party().formation, [1, 2, 3, 9]);
+    let state = crate::menu::techniques::Tech {
+        character: 2,
+        ..Default::default()
+    };
+    let connected = [false, false, false, true];
+    let tech = f.candidate.battle_tech_view(&state, &connected, &f.battle);
+    assert_eq!(tech.party_count(), 3);
+    assert_eq!(tech.member_index(), 8);
+    assert!(tech.tech_auto());
+    assert!(
+        !tech.tech_unison_available(),
+        "Kratos still belongs to controller slot three"
+    );
+    assert_eq!(
+        f.candidate
+            .strategy_page(&Strategy::opening())
+            .party
+            .formation,
+        [1, 3, 9]
+    );
+    assert_eq!(
+        f.candidate
+            .equipment_page(&crate::menu::equipment::Equipment::opening(), 2)
+            .party
+            .formation,
+        [1, 3, 9]
+    );
+    f.candidate
+        .menu_party
+        .as_mut()
+        .unwrap()
+        .settings
+        .battle_controls[1] = 0;
+    f.candidate.publish_menu_edits();
+    assert_eq!(f.candidate.persistent_party().formation, [1, 2, 3, 9]);
+    assert_eq!(
+        f.candidate.persistent_party().settings.battle_controls,
+        [0, 1, 0, 2]
+    );
+    assert_eq!(f.battle.actors()[2].availability, ActorAvailability::Dead);
+    assert_eq!(
+        f.battle.actors()[3].availability,
+        ActorAvailability::Petrified
+    );
+    Ok(())
+}

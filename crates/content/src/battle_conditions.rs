@@ -21,6 +21,7 @@ pub enum Condition {
     Flare,
     Guard,
     Heavy,
+    HolySong,
     KillHpRecovery,
     KillTpRecovery,
     MagicalProtection,
@@ -36,6 +37,7 @@ pub enum Condition {
     PoisonMild,
     PoisonSevere,
     Quartz,
+    RecoveryDown,
     ReduceItemEffect,
     RegenerateHp,
     RegenerateTp,
@@ -45,17 +47,6 @@ pub enum Condition {
     TpHalf,
     TpThird,
     Weak,
-}
-
-impl From<crate::battle_action::Condition> for Condition {
-    fn from(condition: crate::battle_action::Condition) -> Self {
-        match condition {
-            crate::battle_action::Condition::DefenseDown => Self::DefenseDown,
-            crate::battle_action::Condition::Curse => Self::Curse,
-            crate::battle_action::Condition::Paralysis => Self::Paralysis,
-            crate::battle_action::Condition::Weak => Self::Weak,
-        }
-    }
 }
 
 const ALL: &[Condition] = &[
@@ -75,6 +66,7 @@ const ALL: &[Condition] = &[
     Condition::Flare,
     Condition::Guard,
     Condition::Heavy,
+    Condition::HolySong,
     Condition::KillHpRecovery,
     Condition::KillTpRecovery,
     Condition::MagicalProtection,
@@ -90,6 +82,7 @@ const ALL: &[Condition] = &[
     Condition::PoisonMild,
     Condition::PoisonSevere,
     Condition::Quartz,
+    Condition::RecoveryDown,
     Condition::ReduceItemEffect,
     Condition::RegenerateHp,
     Condition::RegenerateTp,

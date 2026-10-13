@@ -17,6 +17,11 @@ pub(crate) fn read(
     let b = bytes
         .get(..BYTES)
         .context("truncated battle actor profile")?;
+    let overlimit_scale = f32::read(b, 0xb0)?;
+    ensure!(
+        overlimit_scale.is_finite() && overlimit_scale >= 0.,
+        "invalid Over Limit effect scale"
+    );
     let channels = usize::from(b[0xce]);
     ensure!(channels <= 4, "too many actor texture channels");
     let weapons = usize::from(b[0x1e4]);
@@ -83,6 +88,8 @@ pub(crate) fn read(
         camera_category: b[0xe7],
         voices: voices.actor_voices(u32::read(b, 0x104)?, roles)?,
         death_motion: b[0x9c],
+        overlimit_bone: b[0xac],
+        overlimit_scale,
         overlimit_gain: b[0xad],
         initial_overlimit: i16::read(b, 0xae)?,
         ground_offset: f32::read(b, 0x90)?,
@@ -90,7 +97,7 @@ pub(crate) fn read(
     })
 }
 
-fn conditions([high, low]: [u32; 2], immunity: bool) -> Result<ConditionSet> {
+pub(crate) fn conditions([high, low]: [u32; 2], immunity: bool) -> Result<ConditionSet> {
     use Condition::*;
     let mut flags = (u64::from(high) << 32) | u64::from(low);
     let mut conditions = ConditionSet::EMPTY;
@@ -126,6 +133,8 @@ fn conditions([high, low]: [u32; 2], immunity: bool) -> Result<ConditionSet> {
         (1 << 30, Flare),
         (1 << 31, Guard),
         (1 << 32, Quartz),
+        (1 << 35, HolySong),
+        (1 << 36, RecoveryDown),
         (1 << 37, Enchanted),
         (1 << 40, ShortStun),
         (1 << 41, AilmentResistance),
@@ -162,8 +171,10 @@ fn profile_traits(flags: u32, body: u16) -> ProfileTraits {
         show_body_attachments: flags & 0x1000 != 0,
         auto_guard_disabled: flags & 0x4000 != 0,
         retain_defeated_body: flags & 0x40000 != 0,
+        hit_shake_disabled: flags & 0x80000 != 0,
         recover_in_air: flags & 0x100000 != 0,
         launch_immune: flags & 0x2000000 != 0,
+        immune_to_unison: flags & 0x4000000 != 0,
         body_motion_disabled: flags & 0x8000000 != 0,
         push_immovable: flags & 0x10000000 != 0,
         unrestricted_arena: flags & 0x40000000 != 0,
@@ -178,6 +189,15 @@ fn profile_traits(flags: u32, body: u16) -> ProfileTraits {
     }
 }
 
+pub(crate) fn element_contact_sounds(module: &Rel) -> Result<[u8; 9]> {
+    Ok(module
+        .at((5, 0x1404))?
+        .get(..9)
+        .context("truncated element contact sounds")?
+        .try_into()
+        .unwrap())
+}
+
 pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> Result<String> {
     let voices = crate::battle_voice::read(usual)?;
     let module = Rel::read(file)?;
@@ -187,18 +207,15 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
         .context("truncated party profile table")?;
     let table = Table {
         source_sha256: crate::digest(&module.bytes),
+        normal_attacks: crate::battle_normal::read(&module)?,
+        martial_attacks: crate::battle_martial::read(usual, &module)?,
         contact_sounds: resonance_content::battle_profile::ContactSounds {
             party: (0..9)
                 .map(|index| u16::read(module.at((4, 0x1d30))?, index * 2))
                 .collect::<Result<Vec<_>>>()?
                 .try_into()
                 .unwrap(),
-            elements: module
-                .at((5, 0x1404))?
-                .get(..9)
-                .context("truncated element contact sounds")?
-                .try_into()
-                .unwrap(),
+            elements: element_contact_sounds(&module)?,
         },
         overlimit_voices: (0..9)
             .map(|index| {
@@ -225,6 +242,7 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
             support_level_limits: <[u8; 9]>::read(module.at((4, 0x2878))?, 0)?.map(|v| v as i8),
         },
         entry: entry(&module)?,
+        chant_sequences: [(3, chant_sequence(&module)?)].into(),
         voice_sequences: (0..10)
             .map(|character| {
                 voice_sequence(
@@ -255,6 +273,64 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
     let path = format!("{prefix}/party-profiles.json");
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&table)?)?;
     Ok(path)
+}
+
+fn chant_sequence(
+    module: &Rel,
+) -> Result<Vec<(u16, resonance_content::battle_action::ActionPose)>> {
+    use resonance_content::battle_action::ActionPose;
+    const POSE_BYTES: usize = 12;
+    const POSE_COUNT: usize = 3;
+    let bytes = module
+        .at((5, 0x11e0))?
+        .get(..(POSE_COUNT + 1) * POSE_BYTES)
+        .context("truncated chant pose sequence")?;
+    let terminator = &bytes[POSE_COUNT * POSE_BYTES..];
+    ensure!(
+        i16::read(terminator, 0)? == -2 && terminator[2..].iter().all(|&v| v == 0),
+        "unsupported chant sequence termination"
+    );
+    let mut sequence = Vec::with_capacity(POSE_COUNT);
+    for (index, row) in bytes[..POSE_COUNT * POSE_BYTES]
+        .chunks_exact(POSE_BYTES)
+        .enumerate()
+    {
+        let at = u16::try_from(i16::read(row, 0)?).context("unsupported chant pose transition")?;
+        let rate = f32::read(row, 8)?;
+        let repeat = row[6] & 0x40 != 0;
+        ensure!(
+            row[4..6] == [0, 0]
+                && row[6] & !0x40 == 8
+                && row[7] == 255
+                && rate > 0.
+                && repeat == (index + 1 == POSE_COUNT),
+            "unsupported chant pose binding"
+        );
+        // Each completed transition consumes one visit before the next pose.
+        let at = at
+            .checked_add(index as u16)
+            .context("chant pose time overflow")?;
+        ensure!(
+            if let Some((previous, _)) = sequence.last() {
+                at > *previous
+            } else {
+                at == 0
+            },
+            "unordered chant pose sequence"
+        );
+        sequence.push((
+            at,
+            ActionPose {
+                clip: u16::from(row[2]),
+                start: 0.,
+                end: None,
+                rate,
+                blend: row[3],
+                repeat,
+            },
+        ));
+    }
+    Ok(sequence)
 }
 
 fn entry(module: &Rel) -> Result<resonance_content::battle_profile::Entry> {

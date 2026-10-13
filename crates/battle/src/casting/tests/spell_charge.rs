@@ -133,7 +133,9 @@ fn learnable_charge() -> Battle {
 
     learned.tp_cost = 9;
     let cast = native_cast(&mut learned);
-    Arc::make_mut(&mut cast.release).shots = 2;
+    let spell = Arc::make_mut(&mut cast.release);
+    spell.projectiles.truncate(2);
+    spell.duration = spell.projectiles.last().unwrap().at;
     prepared.resources.actions.entries.push(Arc::new(learned));
     prepared.resources.actor_setup[0]
         .techniques
@@ -171,7 +173,7 @@ fn learnable_charge() -> Battle {
 }
 
 #[test]
-fn learning_keeps_the_selected_spell_and_applies_to_the_next_command() {
+fn external_acquisition_during_chant_keeps_the_selected_spell() {
     for stored in [false, true] {
         let mut battle = learnable_charge();
         battle.actors[0].tp = 7;
@@ -194,7 +196,9 @@ fn learning_keeps_the_selected_spell_and_applies_to_the_next_command() {
             .cues
             .iter()
             .filter_map(|cue| match cue {
-                Cue::Released { action, .. } => Some(battle.volleys[action].definition.shots),
+                Cue::Released { action, .. } => {
+                    Some(battle.volleys[action].definition.projectiles.len())
+                }
                 _ => None,
             })
             .collect();
@@ -224,7 +228,9 @@ fn learning_keeps_the_selected_spell_and_applies_to_the_next_command() {
         for _ in 0..6 {
             let frame = battle.step(BattleInput::default()).unwrap();
             released.extend(frame.cues.iter().filter_map(|cue| match cue {
-                Cue::Released { action, .. } => Some(battle.volleys[action].definition.shots),
+                Cue::Released { action, .. } => {
+                    Some(battle.volleys[action].definition.projectiles.len())
+                }
                 _ => None,
             }));
         }
@@ -309,7 +315,7 @@ fn occupied_primary_preserves_stored_charge_and_live_action_state() {
             &mut vec![],
         )
         .unwrap();
-    battle.actors[0].attack_power = 147;
+    battle.actors[0].casting_state.power_percent = 147;
     let tp = battle.actors[0].tp;
     let uses = battle.technique_uses(ActorId(0), 66);
     let mut cues = vec![];
@@ -317,7 +323,7 @@ fn occupied_primary_preserves_stored_charge_and_live_action_state() {
         .discharge_stored_spell(ActionId(900), ActorId(0), &mut cues)
         .unwrap();
     assert_eq!(battle.actors[0].stored_spell, Some(CAST));
-    assert_eq!(battle.actors[0].attack_power, 147);
+    assert_eq!(battle.actors[0].casting_state.power_percent, 147);
     assert_eq!(battle.actors[0].tp, tp);
     assert_eq!(battle.technique_uses(ActorId(0), 66), uses);
     assert!(cues.is_empty());
@@ -326,6 +332,7 @@ fn occupied_primary_preserves_stored_charge_and_live_action_state() {
         .discharge_stored_spell(ActionId(900), ActorId(0), &mut cues)
         .unwrap();
     assert_eq!(battle.actors[0].stored_spell, None);
+    assert_eq!(battle.actors[0].casting_state.power_percent, 100);
     assert_eq!(battle.actors[0].tp, tp);
     assert_eq!(battle.technique_uses(ActorId(0), 66), uses);
     assert_eq!(
@@ -398,13 +405,13 @@ fn counter_release_has_an_independent_slot_and_commits_only_after_admission() {
     assert_eq!(battle.actors[0].tp, tp);
     assert_eq!(battle.technique_uses(ActorId(0), 66), Some(49));
     battle.actors[0].reaction.spell_revenge_used = false;
-    battle.actors[0].attack_power = 145;
+    battle.actors[0].casting_state.power_percent = 145;
     cues.clear();
     battle
         .try_spell_revenge(ActorId(0), &[input], &mut cues)
         .unwrap();
     assert!(!battle.actors[0].reaction.spell_revenge_used);
-    assert_eq!(battle.actors[0].attack_power, 145);
+    assert_eq!(battle.actors[0].casting_state.power_percent, 145);
     assert!(cues.is_empty());
     battle.interrupt_actor(ActorId(0), &mut cues);
     assert!(battle.spell_active(ActorId(0), crate::SpellSlot::Secondary));

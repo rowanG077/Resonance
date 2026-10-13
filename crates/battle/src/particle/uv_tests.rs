@@ -40,6 +40,61 @@ fn particle(data: ParticleTemplate) -> Particle {
 }
 
 #[test]
+fn floor_clamp_keeps_downward_motion_without_bouncing() {
+    let mut data = source().particle(0).unwrap().clone();
+    data.ground_clamp = true;
+    data.ground_restitution = None;
+    data.bounce_effect = None;
+    data.follow_origin = false;
+    data.state.offset = [0., -2., 0.];
+    data.state.velocity = [0., -3., 0.];
+    data.state.acceleration = [0., -1., 0.];
+    data.jerk = [0.; 3];
+    let mut particle = particle(data);
+    particle.frame.origin[1] = 3.;
+    for velocity in [-4., -5., -6.] {
+        assert!(particle.step(None, None).unwrap().is_none());
+        assert_eq!(particle.frame.state.offset[1], -3.);
+        assert_eq!(particle.frame.state.velocity[1], velocity);
+    }
+}
+
+#[test]
+fn floor_child_uses_the_final_motion_tick_without_clamping_or_repeating() {
+    for origin_motion in [false, true] {
+        let mut data = source().particle(0).unwrap().clone();
+        data.follow_origin = false;
+        data.follow_orientation = false;
+        data.ground_clamp = false;
+        data.ground_restitution = None;
+        data.bounce_effect = None;
+        data.floor_effect = Some(2);
+        data.origin_motion = origin_motion;
+        data.lifetime = Some(13);
+        data.state.offset = [0., 800., 0.];
+        data.state.velocity = [0., -65., 0.];
+        data.state.acceleration = [0.; 3];
+        data.jerk = [0.; 3];
+        let mut particle = particle(data);
+        for _ in 0..12 {
+            assert!(particle.step(None, None).unwrap().is_none());
+        }
+        let request = particle.step(None, None).unwrap().unwrap();
+        assert_eq!(request.appearance.member, 2);
+        assert_eq!(request.origin, [0., -45., 0.]);
+        assert_eq!(particle.frame.state.velocity, [0., -65., 0.]);
+        assert_eq!(particle.age, 13);
+        // A continuing particle emits no second child while below the floor.
+        assert!(particle.step(None, None).unwrap().is_none());
+        let id = particle.frame.id;
+        let mut effects = Effects::new(vec![], None, 1, Default::default()).unwrap();
+        effects.particles.insert(id, particle);
+        effects.advance_particles(&BattleFrame::default()).unwrap();
+        assert!(effects.particles.is_empty());
+    }
+}
+
+#[test]
 fn tolerant_particle_fault_removes_the_bad_particle_and_keeps_the_next_one() {
     let diagnostics = resonance_content::diagnostics::Diagnostics::new(false);
     let mut effects = Effects::new(vec![], None, 1, Default::default()).unwrap();
@@ -86,7 +141,7 @@ fn ribbon_phase_advances_continuously_at_its_period_and_wraps() {
         let mut changes = Vec::new();
         let end = if interval == 0 { 8 } else { 2 * interval };
         for age in 0..=end {
-            p.step(None).unwrap();
+            p.step(None, None).unwrap();
             let ParticleGeometry::Ribbon {
                 length,
                 width,
@@ -129,7 +184,7 @@ fn quad_scale_preserves_all_corners_and_their_motion() {
             }
         );
         let mut particle = particle(data);
-        particle.step(None).unwrap();
+        particle.step(None, None).unwrap();
         assert_eq!(
             particle.frame.state.geometry,
             ParticleGeometry::Quad {
@@ -158,11 +213,11 @@ fn palette_animation_changes_only_the_color_page() {
         loop_start: Some(0),
     });
     let mut p = particle(data);
-    p.step(None).unwrap();
+    p.step(None, None).unwrap();
     assert_eq!(p.frame.state.uv, [1, 65, 30, 30]);
     assert_eq!(p.frame.state.palettes, [255, 0]);
     for _ in 0..4 {
-        p.step(None).unwrap();
+        p.step(None, None).unwrap();
     }
     assert_eq!(p.frame.state.uv, [4, 5, 6, 7]);
     assert_eq!(p.frame.state.palettes, [255, 0]);
@@ -178,13 +233,13 @@ fn scrolling_wraps_both_directions_within_the_rectangle() {
         interval: 2,
     });
     let mut p = particle(data);
-    p.step(None).unwrap();
-    p.step(None).unwrap();
+    p.step(None, None).unwrap();
+    p.step(None, None).unwrap();
     assert_eq!(p.frame.state.uv, [100, 200, 8, 10]);
-    p.step(None).unwrap();
+    p.step(None, None).unwrap();
     assert_eq!(p.frame.state.uv, [11, 29, 8, 10]);
     for tick in 1..=4096 {
-        p.step(None).unwrap();
+        p.step(None, None).unwrap();
         let [x, y, width, height] = p.frame.state.uv;
         assert!((10..18).contains(&x) && (20..30).contains(&y));
         assert_eq!((width, height), (8, 10));
@@ -195,6 +250,34 @@ fn scrolling_wraps_both_directions_within_the_rectangle() {
 }
 
 #[test]
+fn model_scroll_keeps_signed_offsets_across_a_texture_repeat() {
+    let mut data = source().particle(0).unwrap().clone();
+    data.state.uv = [0, 0, 2500, 2500];
+    data.uv_animation = Some(UvAnimation::Scroll {
+        origin: [0; 2],
+        step: [1, -15],
+        interval: 1,
+    });
+    let mut p = particle(data);
+    Arc::make_mut(&mut p.definition).model = Some(resonance_content::battle_effect::ModelBinding {
+        slot: 1,
+        animation: None,
+        repeat: false,
+        program_animation: false,
+        attachment: None,
+    });
+    p.advance_uv(true).unwrap();
+    assert_eq!(p.frame.state.uv, [0, 0, 2500, 2500]);
+    for _ in 0..167 {
+        p.advance_uv(false).unwrap();
+    }
+    // The retained material samples cross V=-1 without clamping to the atlas.
+    assert_eq!(p.frame.state.uv, [167, -2505, 2500, 2500]);
+    assert_eq!(f32::from(p.frame.state.uv[0]) / 2500., 0.0668);
+    assert_eq!(f32::from(p.frame.state.uv[1]) / 2500., -1.002);
+}
+
+#[test]
 fn non_looping_animation_keeps_its_last_frame() {
     let mut data = source().particle(0).unwrap().clone();
     data.uv_animation = Some(UvAnimation::Frames {
@@ -202,13 +285,13 @@ fn non_looping_animation_keeps_its_last_frame() {
         loop_start: None,
     });
     let mut p = particle(data);
-    p.step(None).unwrap();
-    p.step(None).unwrap();
+    p.step(None, None).unwrap();
+    p.step(None, None).unwrap();
     assert_eq!(p.frame.state.uv, [1, 2, 3, 4]);
-    p.step(None).unwrap();
+    p.step(None, None).unwrap();
     assert_eq!(p.frame.state.uv, [5, 6, 7, 8]);
     for _ in 0..300 {
-        p.step(None).unwrap();
+        p.step(None, None).unwrap();
         assert_eq!(p.frame.state.uv, [5, 6, 7, 8]);
     }
 }
@@ -274,7 +357,7 @@ fn uv_animation_stays_in_its_frames_and_loops() {
     let mut previous = frames[0];
     let mut wrapped = false;
     for _ in 0..32 {
-        p.step(None).unwrap();
+        p.step(None, None).unwrap();
         let current = p.frame.state.uv;
         assert!(frames.contains(&current));
         seen.insert(current);
@@ -299,9 +382,9 @@ fn brightening_and_fading_clamp_color_channels_without_overflow() {
         data.fade = [1, 1, 2, 2];
         data.fade_from = 0;
         let mut p = particle(data);
-        p.step(None).unwrap();
+        p.step(None, None).unwrap();
         assert_eq!(p.frame.state.colors, expected);
-        p.step(None).unwrap();
+        p.step(None, None).unwrap();
         for (actual, before) in p
             .frame
             .state

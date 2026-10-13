@@ -1,0 +1,26 @@
+{
+  "description": "Image-free, selected formation entry and enemy identity observations. Entry receipts do not establish arte, visual or result fidelity.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "source": {
+    "path": "local/battle-repair-20261011/source-all/525-05/start.s01",
+    "sha256": "64541918836acdeabeb7df6317f3c5b2c4fa02390fa868682aaaf5e7ee129a58"
+  },
+  "authored_arenas": {
+    "path": "local/battle-capture-work/all-formations/authored-arenas/bf7e6a044a5fa6c9f282b470e77882dceb07b1c3c88648913fa65499cdd3bea3.json",
+    "sha256": "bf7e6a044a5fa6c9f282b470e77882dceb07b1c3c88648913fa65499cdd3bea3"
+  },
+  "entry_receipts": {
+    "path": "local/battle-capture-work/all-formations/accepted-entry-receipts/021d38afc67904f2235f25b019cccbd84329f2bd2b2449f6f39d7cc7cfa2794b.json",
+    "sha256": "021d38afc67904f2235f25b019cccbd84329f2bd2b2449f6f39d7cc7cfa2794b"
+  },
+  "enemy_packages": "local/battle-actions-recovery-20261011/input",
+  "component_arena": 5,
+  "party_hp": 20000,
+  "warmup_vis": 180,
+  "observations": 30,
+  "source_movie": {
+    "path": "local/battle-repair-20261011/source-all/525-05/start.s01.dtm",
+    "sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600"
+  },
+  "fixture_party": "One manual Lloyd with raised persistent HP; enemy formation/actions remain authored."
+}

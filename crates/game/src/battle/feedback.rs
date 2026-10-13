@@ -27,6 +27,7 @@ pub struct Feedback {
 }
 
 pub struct CastingFeedback {
+    pub catalogue: u16,
     pub chant_voice: Option<Sound>,
     pub release_voice: Option<Sound>,
     pub start_sound: Option<Sound>,
@@ -38,8 +39,21 @@ pub struct CastingFeedback {
     pub tint: resonance_content::battle_effect::EffectTint,
 }
 
+impl CastingFeedback {
+    pub fn notice_duration(&self) -> u16 {
+        const RESIDENT_SPELL_TICKS: u16 = 90;
+        const STORED_SPELL_TICKS: u16 = 315;
+        if super::stored_spells::scene(self.catalogue).is_some() {
+            STORED_SPELL_TICKS
+        } else {
+            RESIDENT_SPELL_TICKS
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct ActorFeedback {
+    pub overlimit: Option<OverLimitFeedback>,
     pub overlimit_voice: Option<Sound>,
     pub technique_command: Option<Sound>,
     pub taunt: Option<Sound>,
@@ -47,6 +61,12 @@ pub struct ActorFeedback {
     pub charge_failed: Option<Sound>,
     pub backstep: Option<Sound>,
     pub knockdown: Option<Sound>,
+}
+
+pub struct OverLimitFeedback {
+    pub appearance: EffectAppearance,
+    pub bone: u8,
+    pub scale: f32,
 }
 
 pub struct BreakfallFeedback {

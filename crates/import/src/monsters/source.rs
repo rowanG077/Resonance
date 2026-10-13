@@ -128,7 +128,9 @@ mod tests {
                 let bytes = crate::source_assets::enemy_package(&archive, &usual, id as u16)?;
                 let record = read(&bytes)?;
                 assert!(record.drop_chances.iter().all(|&chance| chance <= 100));
+                assert!(record.steal_chance <= 100);
                 match id {
+                    126 => assert_eq!((record.steal, record.steal_chance), (10, 21)),
                     36 => {
                         assert_eq!(record.grade, 0);
                         assert_eq!(record.drops, [1, 50]);

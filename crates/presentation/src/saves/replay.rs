@@ -130,6 +130,7 @@ pub(crate) enum Event {
     Battle {
         encounter: u16,
         phase: BattleStage,
+        combat_tick: Option<u32>,
     },
     Menu {
         page: MenuPage,
@@ -330,11 +331,16 @@ impl Event {
                             .is_some_and(|actor| actor.position[0] <= x)
                     })
             }),
-            Self::Battle { encounter, phase } => world
+            Self::Battle {
+                encounter,
+                phase,
+                combat_tick,
+            } => world
                 .get_resource::<crate::battle::Owner>()
                 .and_then(|owner| owner.replay_phase())
-                .is_some_and(|(actual, stage)| {
+                .is_some_and(|(actual, stage, tick)| {
                     actual == *encounter
+                        && combat_tick.is_none_or(|expected| tick == expected)
                         && match phase {
                             BattleStage::Entry => stage == resonance_battle::BattlePhase::Entry,
                             BattleStage::Combat => stage == resonance_battle::BattlePhase::Combat,
@@ -817,6 +823,154 @@ pub fn record_checkpoint(
     options: CheckpointRecordingOptions<'_>,
 ) -> Result<()> {
     record(root, Some(save), output, spec, options)
+}
+
+/// Start a fixture encounter through ordinary preparation and battle ownership.
+pub fn record_battle(
+    root: &Path,
+    save: &Path,
+    output: &Path,
+    setup: resonance_events::battle::Setup,
+    spec: &CheckpointReplay,
+    options: CheckpointRecordingOptions<'_>,
+) -> Result<()> {
+    spec.validate()?;
+    let mut app = probe::app_with_saves_mode(
+        root,
+        output,
+        SaveOptions {
+            directory: Some(
+                options
+                    .save_directory
+                    .map_or_else(|| output.join("slots"), Path::to_path_buf),
+            ),
+            quick_slot: Some("probe".into()),
+            load: Some(save.into()),
+        },
+        options.resolution,
+        options.paranoid,
+    )?;
+    let mut requested = false;
+    app.add_systems(Update, move |world: &mut World| {
+        if requested
+            || !new_game::scene_ready(world)
+            || !world.contains_resource::<crate::field_audio::Control>()
+        {
+            return;
+        }
+        if let Some(mut session) = world.get_resource_mut::<new_game::Session>()
+            && session.is_field()
+            && session.field().player_has_control()
+        {
+            let result = session.events_mut().world.request_battle(setup);
+            requested = true;
+            if let Err(error) = result {
+                error!("Battle fixture failed: {error}");
+                world.write_message(AppExit::error());
+            }
+        }
+    });
+    record_app(app, output, spec, options.gamepad)
+}
+
+/// Record ordinary input through the player's window loop and wall clock.
+pub fn record_checkpoint_window(
+    root: &Path,
+    save: &Path,
+    output: &Path,
+    spec: &CheckpointReplay,
+    options: CheckpointRecordingOptions<'_>,
+) -> Result<()> {
+    use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+    use std::sync::Arc;
+    spec.validate()?;
+    ensure!(
+        !options.gamepad,
+        "window replay currently uses keyboard input"
+    );
+    let mut app = probe::app_with_target(
+        root,
+        output,
+        SaveOptions {
+            directory: Some(
+                options
+                    .save_directory
+                    .map_or_else(|| output.join("slots"), Path::to_path_buf),
+            ),
+            quick_slot: Some("probe".into()),
+            load: Some(save.into()),
+        },
+        options.resolution,
+        options.paranoid,
+        true,
+    )?;
+    install_cursor(&mut app, spec.steps.clone(), None);
+    let output = output.to_owned();
+    let started = Instant::now();
+    let written = Arc::new(AtomicU32::new(0));
+    let finished = Arc::new(AtomicBool::new(false));
+    let completed = finished.clone();
+    let mut requested = 0;
+    app.add_systems(Last, move |world: &mut World| {
+        let result = (|| -> Result<()> {
+            ensure!(started.elapsed().as_secs() < 180, "window replay timed out");
+            let cursor = world.resource::<ScenarioInput>();
+            ensure!(!cursor.failed, "window replay input failed");
+            if let Some(name) = cursor.capture().map(str::to_owned) {
+                fs::write(
+                    output.join(format!("{name}.json")),
+                    serde_json::to_vec_pretty(&recording_scene(world)?)?,
+                )?;
+                let path = output.join(format!("{name}.png"));
+                let written = written.clone();
+                world.spawn(Screenshot::primary_window()).observe(
+                    move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                        match crate::screenshot::write(&event.image, &path, None) {
+                            Ok(()) => {
+                                written.fetch_add(1, Ordering::Release);
+                            }
+                            Err(error) => {
+                                error!("Window replay screenshot: {error:#}");
+                                exit.write(AppExit::error());
+                            }
+                        }
+                    },
+                );
+                world.resource_mut::<ScenarioInput>().index += 1;
+                requested += 1;
+            } else if cursor.complete() && written.load(Ordering::Acquire) == requested {
+                let unprepared = world
+                    .resource::<loading::Resident>()
+                    .unprepared_reads
+                    .load(Ordering::Relaxed);
+                let diagnostics = world
+                    .resource::<crate::diagnostics::Diagnostics>()
+                    .0
+                    .entries();
+                fs::write(
+                    output.join("recording.json"),
+                    serde_json::to_vec_pretty(&serde_json::json!({
+                        "source": "live_window", "silent": true, "complete": true,
+                        "valid": unprepared == 0 && diagnostics.is_empty(),
+                        "updates": cursor.updates, "captures": requested,
+                        "unprepared_reads": unprepared, "diagnostics": diagnostics,
+                    }))?,
+                )?;
+                completed.store(true, Ordering::Release);
+                world.write_message(AppExit::Success);
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            error!("Window replay: {error:#}");
+            world.write_message(AppExit::error());
+        }
+    });
+    ensure!(
+        app.run() == AppExit::Success && finished.load(Ordering::Acquire),
+        "window replay did not complete"
+    );
+    Ok(())
 }
 
 fn record(

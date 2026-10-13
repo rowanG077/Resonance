@@ -137,6 +137,18 @@ pub struct ModelBinding {
     pub slot: u8,
     pub animation: Option<u16>,
     pub repeat: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub program_animation: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<ModelAttachment>,
+}
+
+/// Follow a joint on an earlier retained model in the same effect program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelAttachment {
+    pub retained: u8,
+    pub joint: u8,
 }
 
 use anyhow::{Context, Result, ensure};
@@ -183,10 +195,15 @@ pub enum ParticleGeometry {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParticleState {
+    /// Birth overrides for the authored spiral segment displacement.
+    #[serde(default, skip_serializing_if = "segment_offset_unset")]
+    pub segment_offset: [Option<f32>; 3],
     /// Constructor modifier override; absent values retain the prepared declaration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blend: Option<u8>,
     pub cull_back: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ribbon_depth: bool,
     pub offset: [f32; 3],
     pub velocity: [f32; 3],
     pub acceleration: [f32; 3],
@@ -200,26 +217,70 @@ pub struct ParticleState {
     pub uv: [i16; 4],
     pub palettes: [u8; 2],
     pub geometry_count: u8,
+    /// Repeat this billboard at the current positions of the owner's tagged bones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_group: Option<u8>,
+}
+
+fn segment_offset_unset(value: &[Option<f32>; 3]) -> bool {
+    value.iter().all(Option::is_none)
+}
+
+/// Detached child emission driven by the parent particle's ordinary age.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeriodicEffect {
+    pub member: u16,
+    pub interval: u8,
 }
 
 /// Particle motion parameters; rendering resources are bound at loading.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ParticleTemplate {
+    /// Advance while a cinematic holds ordinary battle effects.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub during_pause: bool,
     pub lifetime: Option<u32>,
+    /// Integrate and draw in the current pose of this owner bone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_bone: Option<u8>,
+    /// Follow this bone's world position while retaining independent particle motion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub follow_bone: Option<u8>,
     /// Refresh the origin from the effect's attachment on each particle visit.
     pub follow_origin: bool,
     /// Face successive followed positions instead of integrating angular motion.
     #[serde(default)]
     pub follow_orientation: bool,
+    /// Preserve authored angles and orbit instead of advancing their motion.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fixed_orientation: bool,
+    /// Move the emission origin; local displacement remains independent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub origin_motion: bool,
     /// Add this declaration value to the model's world Y coordinate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_elevation: Option<f32>,
+    /// Model height is local to the ground rather than the emission origin.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub model_ground_relative: bool,
     /// Submit this particle in its selected actor's ordered drawing lists.
     /// The visual recipe selects the side of the actor drawing pass.
     pub draw_after_target: bool,
     /// Reflect vertical velocity at the floor after integration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ground_restitution: Option<f32>,
+    /// Keep the particle above the floor without changing its downward motion.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ground_clamp: bool,
+    /// Emit this member from the same bank at each floor bounce.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounce_effect: Option<u16>,
+    /// Emit once on crossing the floor without reflecting or clamping motion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub floor_effect: Option<u16>,
+    /// Emit a detached member on the first particle visit and each interval thereafter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub periodic_effect: Option<PeriodicEffect>,
     pub element_tint: bool,
     pub state: ParticleState,
     pub jerk: [f32; 3],
@@ -243,6 +304,7 @@ impl ParticleState {
             && finite(&self.acceleration)
             && finite(&self.angles)
             && finite(&self.angular_velocity)
+            && self.segment_offset.iter().flatten().all(|v| v.is_finite())
             && finite(&self.orbit)
             && match &self.geometry {
                 ParticleGeometry::BillboardTrail {
@@ -290,6 +352,60 @@ impl ParticleState {
 
 impl ParticleTemplate {
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.periodic_effect.is_none_or(|effect| effect.interval > 0
+                && self.bounce_effect.is_none()
+                && self.floor_effect.is_none()),
+            "periodic effect requires a positive interval without floor emission"
+        );
+        ensure!(
+            self.follow_bone.is_none()
+                || (self.owner_bone.is_none()
+                    && !self.follow_origin
+                    && !self.follow_orientation
+                    && !self.origin_motion
+                    && self.ground_restitution.is_none()
+                    && !self.ground_clamp
+                    && self.floor_effect.is_none()),
+            "bone position follow conflicts with another particle attachment"
+        );
+        ensure!(
+            !self.ground_clamp || (self.ground_restitution.is_none() && !self.follow_origin),
+            "floor clamp requires independent motion without restitution"
+        );
+        ensure!(
+            self.bounce_effect.is_none()
+                || (self.ground_restitution.is_some()
+                    && !self.follow_origin
+                    && self.owner_bone.is_none()),
+            "bounce effect requires independent floor motion"
+        );
+        ensure!(
+            self.floor_effect.is_none()
+                || (!self.follow_origin
+                    && self.owner_bone.is_none()
+                    && self.ground_restitution.is_none()
+                    && !self.ground_clamp),
+            "floor effect requires independent motion without reflection"
+        );
+        ensure!(
+            !(self.fixed_orientation && self.follow_orientation),
+            "conflicting particle orientation"
+        );
+        ensure!(
+            self.state.effect_group.is_none_or(|group| group < 16)
+                && (self.state.effect_group.is_none() || self.owner_bone.is_none()),
+            "invalid particle effect group"
+        );
+        ensure!(
+            self.owner_bone.is_none()
+                || (!self.follow_origin
+                    && !self.follow_orientation
+                    && self.model_elevation.is_none()
+                    && !self.ground_clamp
+                    && self.ground_restitution.is_none()),
+            "bone particle has incompatible world motion"
+        );
         ensure!(
             [
                 self.lifetime,

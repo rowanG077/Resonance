@@ -37,7 +37,7 @@ impl Collider {
     }
 }
 
-/// A sphere on the capsule axis, nearest to an incoming contact's height.
+/// Reception center in world space and extent in actor-local units.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct HurtPoint {
     pub center: [f32; 3],
@@ -77,6 +77,29 @@ impl Body {
             "invalid battle body"
         );
         Ok(())
+    }
+}
+
+impl crate::Battle {
+    pub(crate) fn hurt_points(
+        &self,
+        id: crate::ActorId,
+        height: f32,
+        placement: Option<resonance_content::animation::Matrix>,
+    ) -> impl Iterator<Item = HurtPoint> + '_ {
+        let actor = &self.actors[id.index()];
+        // A held target follows its attachment after ordinary model placement.
+        let placement = placement.filter(|_| !self.is_captured(id));
+        let prepared = actor.body.collider.and_then(|_| {
+            self.models
+                .as_ref()
+                .and_then(|models| models.reception_points(id, actor, placement))
+        });
+        let fallback = prepared
+            .is_none()
+            .then(|| actor.hurt_point(height))
+            .flatten();
+        prepared.into_iter().flatten().chain(fallback)
     }
 }
 

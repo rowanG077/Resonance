@@ -84,12 +84,6 @@ impl Assets {
         }))
     }
 
-    /// Admit available sounds once; missing optional audio is omitted in tolerant mode.
-    pub(crate) fn bind(&self, sound: Sound) -> Result<Option<Sound>> {
-        self.diagnostics
-            .attempt("battle audio binding", self.sound(sound).map(|_| sound))
-    }
-
     fn sound(&self, sound: Sound) -> Result<Source> {
         match sound {
             Sound::Cue(index) => Ok(Source::Score(
@@ -272,6 +266,18 @@ impl Playback {
         );
         self.control.enqueue_battle(command)
     }
+    /// Authored battle dialogue uses the existing spoken-line channel and its audible completion.
+    pub(crate) fn event_audio(&self, commands: Vec<AudioCommand>) -> Result<()> {
+        ensure!(
+            matches!(self.handoff, Handoff::Active),
+            "battle audio handoff is pending"
+        );
+        for command in commands {
+            self.control.send(command)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn dispatch(
         &mut self,
         cues: &[Cue],
@@ -592,6 +598,15 @@ pub(super) struct State {
     stop_music: bool,
     voice_streams_paused: bool,
 }
+impl State {
+    pub(super) fn event_audio_levels(&self) -> [u8; 2] {
+        [
+            (u16::from(self.settings.effects) * u16::from(self.settings.battle_effects) / 127)
+                as u8,
+            self.field.levels[2],
+        ]
+    }
+}
 impl Frames {
     pub(super) fn battle_command(&mut self, command_id: u64, command: Command) -> Result<()> {
         let _command = debug_span!("battle_audio_apply", command_id).entered();
@@ -669,6 +684,8 @@ impl Frames {
                     return Ok(());
                 }
                 let mut state = self.battle.take().context("battle audio is not active")?;
+                self.sounds.clear();
+                self.stop_voice()?;
                 for voice in &mut state.voices {
                     voice.source.break_stream(
                         &self.synth,
@@ -1830,26 +1847,10 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn tolerant_audio_omits_missing_sounds_and_admits_available_fallbacks() -> Result<()> {
+    fn tolerant_audio_skips_missing_playback_requests() -> Result<()> {
         let diagnostics = Diagnostics::default();
         let files = super::super::tests::empty_prepared_files(diagnostics.clone());
         let assets = Assets::load(&files, None, &mut Cache::default())?;
-        assert_eq!(assets.bind(Sound::Cue(60))?, None);
-        assert_eq!(assets.bind(Sound::Stream(7))?, None);
-        let mut assets = assets;
-        Arc::get_mut(&mut Arc::get_mut(&mut assets).unwrap().mixer)
-            .unwrap()
-            .voices
-            .insert(1, Arc::new(test_clip(vec![0; 480], 48000, 1)));
-        assert_eq!(assets.bind(Sound::Stream(1))?, Some(Sound::Stream(1)));
-        assert_eq!(
-            diagnostics
-                .entries()
-                .iter()
-                .filter(|entry| entry.scope == "battle audio binding")
-                .count(),
-            2
-        );
         let (source, mut control) = assets.mixer.clone().session();
         let mut frames = source.decoder();
         let playback = Playback::begin(&mut control, assets, settings(), None)?;
@@ -1865,10 +1866,10 @@ mod tests {
     }
 
     #[test]
-    fn binding_and_spatial_controls_reject_unprepared_or_invalid_inputs() {
+    fn unprepared_sounds_and_invalid_spatial_controls_are_rejected() {
         let assets = assets();
-        assert!(assets.bind(Sound::Cue(60)).is_err());
-        assert!(assets.bind(Sound::Stream(1)).is_err());
+        assert!(assets.sound(Sound::Cue(60)).is_err());
+        assert!(assets.sound(Sound::Stream(1)).is_err());
         assert!(spatial(Some(f32::NAN), assets.effect_spatial).is_err());
         assert_eq!(spatial(Some(0.), assets.effect_spatial).unwrap(), (0, 95));
         assert_eq!(

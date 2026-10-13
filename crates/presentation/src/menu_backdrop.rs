@@ -61,24 +61,6 @@ pub(super) struct Capture {
     generation: u64,
     completed: Arc<AtomicBool>,
 }
-
-/// Retain the current scene before dialogue and field fades are composited.
-#[derive(Component, Clone, ExtractComponent)]
-pub(super) struct SceneCapture(pub Capture);
-
-impl SceneCapture {
-    pub(super) fn copy(
-        &self,
-        source: &Texture,
-        images: &RenderAssets<GpuImage>,
-        context: &mut RenderContext,
-    ) {
-        if !self.0.ready() {
-            copy(&self.0, source, images, &mut None, context);
-        }
-    }
-}
-
 impl Capture {
     pub(super) fn once(source: Handle<Image>, target: Handle<Image>) -> Self {
         Self {
@@ -139,9 +121,10 @@ impl BattleBackdrop {
             image: target.clone(),
             enabled: 0,
         });
+        let size = world.resource::<super::display::Display>().0.ui_size();
         let mesh = world
             .resource_mut::<Assets<Mesh>>()
-            .add(Rectangle::new(640., 480.));
+            .add(Rectangle::from_size(size));
         let entity = world
             .spawn((
                 Mesh2d(mesh),
@@ -153,11 +136,7 @@ impl BattleBackdrop {
             .id();
         Ok(Self {
             entity,
-            capture: Capture {
-                source,
-                target,
-                generation: 0,
-            },
+            capture: Capture::once(source, target),
             material,
             pending_draw: false,
         })
@@ -336,6 +315,7 @@ fn capture(
         source.size(),
     );
     *copied = Some(identity);
+    request.completed.store(true, Ordering::Release);
 }
 
 #[cfg(test)]
@@ -344,6 +324,7 @@ mod tests {
 
     fn prepared() -> (World, BattleBackdrop, Entity, Assets<Material>) {
         let mut world = World::new();
+        world.init_resource::<crate::display::Display>();
         world.init_resource::<Assets<Image>>();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<Material>>();

@@ -12,12 +12,17 @@ fn guarded() -> Battle {
 
 fn hit_rule(kind: DamageKind) -> HitRule {
     HitRule {
+        sound: None,
         kind,
         arte: false,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: true,
         power: Power::Fixed(8),
         element: HitElement::Neutral,
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         guard: GuardRule::default(),
         reaction: ReactionRule {
             hitstun: 60,

@@ -99,13 +99,26 @@ fn profiles_publish_named_capabilities_without_flag_words() -> Result<()> {
     let mut bytes = [0; BYTES];
     let ordinary = read(&bytes)?;
     assert_eq!(ordinary.traits, ProfileTraits::default());
-    bytes[0x5c..0x60].copy_from_slice(&0x8828_8301_u32.to_be_bytes());
+    let mut encoded = serde_json::to_value(&ordinary.traits)?;
+    assert_eq!(encoded["hit_shake_disabled"], false);
+    encoded
+        .as_object_mut()
+        .unwrap()
+        .remove("hit_shake_disabled");
+    assert!(!serde_json::from_value::<ProfileTraits>(encoded)?.hit_shake_disabled);
+    bytes[0x5c..0x60].copy_from_slice(&0x8c28_8301_u32.to_be_bytes());
     bytes[0xb4..0xb6].copy_from_slice(&0x4221_u16.to_be_bytes());
+    bytes[0xac] = 3;
+    bytes[0xb0..0xb4].copy_from_slice(&1.25_f32.to_be_bytes());
     let profile = read(&bytes)?;
+    assert_eq!(profile.overlimit_bone, 3);
+    assert_eq!(profile.overlimit_scale, 1.25);
     assert!(profile.traits.flying && profile.traits.fixed_height);
     assert!(profile.blink.is_none());
     assert!(profile.traits.knockdown_immune && profile.traits.body_motion_disabled);
+    assert!(profile.traits.hit_shake_disabled);
     assert!(profile.traits.enemy_contact_recovery);
+    assert!(profile.traits.immune_to_unison);
     assert!(profile.traits.passes_allied_obstacles && profile.traits.passable_for_allies);
     assert!(profile.traits.suppress_hurt_motion && profile.traits.item_target_excluded);
     assert!(!profile.traits.hover_bobbing && !profile.traits.push_immovable);
@@ -114,6 +127,8 @@ fn profiles_publish_named_capabilities_without_flag_words() -> Result<()> {
     let encoded = serde_json::to_value(profile)?;
     assert!(encoded.get("flags").is_none() && encoded.get("body_flags").is_none());
     assert_eq!(encoded["traits"]["inactive_item_target"], true);
+    bytes[0xb0..0xb4].copy_from_slice(&f32::NAN.to_be_bytes());
+    assert!(read(&bytes).is_err());
     Ok(())
 }
 
@@ -197,6 +212,24 @@ fn imports_party_profiles_and_battle_entry_settings() -> Result<()> {
     assert_eq!(table.records[0].stagger_ticks, 45);
     assert_eq!(table.records[2].effect_scale, 0.9);
     assert_eq!(table.entry.fade_color, [128; 3]);
+    assert_eq!(table.chant_sequences.len(), 1);
+    let chant = &table.chant_sequences[&3];
+    assert_eq!(
+        chant
+            .iter()
+            .map(|(at, pose)| (*at, pose.clip, pose.blend, pose.rate, pose.repeat))
+            .collect::<Vec<_>>(),
+        [
+            (0, 30, 8, 0.5, false),
+            (53, 31, 2, 0.5, false),
+            (82, 32, 2, 0.5, true)
+        ]
+    );
+    assert!(
+        chant
+            .iter()
+            .all(|(_, pose)| pose.start == 0. && pose.end.is_none())
+    );
     assert_eq!(table.voice_sequences.len(), 10);
     assert_eq!(
         table.voice_sequences[3].techniques.get(&237),

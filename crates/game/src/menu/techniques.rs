@@ -29,9 +29,14 @@ impl<'a> Context<'a> {
     fn battle(self) -> bool {
         matches!(self, Self::Battle { .. })
     }
-    fn connected(self) -> &'a [bool; 4] {
+    fn connected(self, slot: usize) -> bool {
         match self {
-            Self::Field { connected, .. } | Self::Battle { connected, .. } => connected,
+            Self::Field { connected, .. } => connected[slot],
+            Self::Battle {
+                battle,
+                actors,
+                connected,
+            } => connected[usize::from(battle.actors()[actors[slot].0.index()].control_slot)],
         }
     }
     fn prepared(self, member: usize, catalogue: u16) -> Option<(ActorId, &'a PreparedTechnique)> {
@@ -283,7 +288,7 @@ impl<'a> Page<'a> {
     pub fn tech_unison_available(self) -> bool {
         self.state.character < 4
             && self.tech_auto()
-            && !self.context.connected()[self.state.character]
+            && !self.context.connected(self.state.character)
     }
     pub fn tech_columns(self) -> usize {
         if self.state.unison {

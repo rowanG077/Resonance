@@ -35,6 +35,7 @@ fn definition() -> ModelDefinition {
             slot,
             attachment: 0,
             layers: vec![crate::WeaponLayerDefinition {
+                texture_animation: None,
                 resource: u32::from(offset),
                 skeleton: skeleton.clone(),
                 motions: motions(&entries),
@@ -55,6 +56,8 @@ fn definition() -> ModelDefinition {
     };
     ModelDefinition {
         tint: [64, 64, 64, 255],
+        body_spheres: vec![],
+        reception_spheres: None,
         fade_on_defeat: false,
         resource: 7,
         skeleton: skeleton.clone(),

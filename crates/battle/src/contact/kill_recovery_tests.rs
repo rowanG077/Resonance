@@ -3,6 +3,73 @@ use crate::conditions::{Condition, ConditionSet};
 use crate::conditions::{Conditions, Layers};
 use crate::{Actor, ActorAvailability, RecoveryKind};
 
+#[test]
+fn encounter_health_hold_prevents_kill_credit_until_released() -> Result<()> {
+    let mut victim = target(Side::Enemy, 1);
+    victim.equipment.max_hp = 1001;
+    let mut battle = battle(killer(Side::Party, BOTH), victim)?;
+    battle.hold_event_boss_hp(Some(ActorId(1)))?;
+    assert_eq!(battle.actors[1].hp, 500);
+    let cues = resolve(&mut battle, 700, false)?;
+    assert_eq!(battle.actors[1].hp, 500);
+    assert!(battle.actors[1].available());
+    assert_eq!(battle.ledger.kills, [0, 0]);
+    assert_eq!((battle.actors[0].hp, battle.actors[0].tp), (100, 20));
+    assert!(!cues.iter().any(|cue| matches!(cue, Cue::Defeated { .. })));
+    battle.hold_event_boss_hp(None)?;
+    battle.actors[1].hit_stop = 0;
+    let cues = resolve(&mut battle, 700, false)?;
+    assert_eq!(battle.actors[1].availability, ActorAvailability::Dead);
+    assert_eq!(battle.ledger.kills, [1, 0]);
+    assert!(
+        cues.iter()
+            .any(|cue| matches!(cue, Cue::Defeated { actor: ActorId(1) }))
+    );
+    Ok(())
+}
+
+#[test]
+fn finisher_grade_requires_a_confirmed_enemy_defeat() -> Result<()> {
+    for (side, hp, held, bonus) in [
+        (Side::Enemy, 1, false, 50),
+        (Side::Enemy, 1000, false, 0),
+        (Side::Enemy, 1, true, 0),
+        (Side::Party, 1, false, 0),
+    ] {
+        let owner_side = if side == Side::Enemy {
+            Side::Party
+        } else {
+            Side::Enemy
+        };
+        let mut ordinary = battle(killer(owner_side, BOTH), target(side, hp))?;
+        let mut finisher = battle(killer(owner_side, BOTH), target(side, hp))?;
+        for actual in [&mut ordinary, &mut finisher] {
+            if held {
+                actual.hold_event_boss_hp(Some(ActorId(1)))?;
+            }
+        }
+        let mut hit = rule(700);
+        strike(&mut ordinary, hit)?;
+        hit.finisher_grade = true;
+        strike(&mut finisher, hit)?;
+        assert_eq!(finisher.ledger.grade() - ordinary.ledger.grade(), bonus);
+        assert_eq!(finisher.actors[1].hp, ordinary.actors[1].hp);
+        assert_eq!(
+            finisher.actors[1].availability,
+            ordinary.actors[1].availability
+        );
+        assert_eq!(finisher.ledger.kills, ordinary.ledger.kills);
+        assert_eq!(finisher.random_state(), ordinary.random_state());
+        if bonus != 0 {
+            // A contact against the same defeated actor cannot award the bonus again.
+            let grade = finisher.ledger.grade();
+            strike(&mut finisher, hit)?;
+            assert_eq!(finisher.ledger.grade(), grade);
+        }
+    }
+    Ok(())
+}
+
 const BOTH: ConditionSet =
     ConditionSet::of(&[Condition::KillHpRecovery, Condition::KillTpRecovery]);
 

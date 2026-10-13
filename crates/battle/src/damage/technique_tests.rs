@@ -7,12 +7,17 @@ use std::sync::Arc;
 
 fn rule(kind: DamageKind) -> HitRule {
     HitRule {
+        sound: None,
         kind,
         arte: true,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: true,
         power: Power::Normal,
         element: HitElement::Neutral,
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         guard: Default::default(),
         reaction: Default::default(),
         condition: None,
@@ -125,7 +130,7 @@ fn emitted_projectile_reads_changed_owner_proficiency_but_retains_combo_power() 
         let mut contacts = Contacts::default();
         contacts.submit(projectile).unwrap();
         let mut cues = vec![];
-        contacts.resolve(&mut battle, &mut cues).unwrap();
+        contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
         let hit = cues
             .iter()
             .find_map(|cue| match cue {

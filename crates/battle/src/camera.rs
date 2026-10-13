@@ -1,5 +1,6 @@
 mod result;
-use crate::{Actor, ActorId, Control, distance};
+mod spell;
+use crate::{Actor, ActorId, Control, SpellCamera, distance};
 use anyhow::{Result, ensure};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -16,16 +17,17 @@ pub struct CameraPose {
 pub struct CameraDefinition {
     pub leader: ActorId,
     pub stage_pitch: f32,
-    /// Include the active roster; otherwise frame the leader and target.
-    pub adaptive: bool,
+    /// Adjust distance to the leader and target; otherwise use fixed zoom.
+    pub auto_zoom: bool,
 }
 
-/// Only input selection may move the camera while gameplay is held.
+/// Camera updates are independent of the actor clock during entry and selection.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Update {
     Tracking,
     Held,
     Selecting(ActorId),
+    Spell(ActorId),
 }
 
 // Camera framing uses the same lens as drawing and screen-space controls.
@@ -36,11 +38,56 @@ const FRAMING_MARGIN: f32 = 24.;
 const FRAME_FRACTION: f32 = 0.75;
 const MINIMUM_RADIUS: f32 = 1950.;
 const RESPONSE: f32 = 0.12;
+const FOCUS_HEIGHT: f32 = 120.;
+const BASE_PITCH: f32 = 8.;
+const SCENE_PITCH_SPEED: f32 = 0.375;
+const EYE_HEIGHT: f32 = 240.;
+const VIEW_ANGLE: f32 = 85.;
+const MINIMUM_TURN_SPEED: f32 = 0.1;
+const FINE_TURN_ANGLE: f32 = 15.;
+const WIDE_TURN_ANGLE: f32 = 40.;
+const TURN_RESPONSE: f32 = 1. / 80.;
+const WIDE_TURN_RESPONSE: f32 = 1. / 30.;
+const FOCUS_SPEED: f32 = 6.;
+const FOCUS_RESPONSE: f32 = 0.175;
+const MAXIMUM_FOCUS_SPEED: f32 = 25.;
+const SELECTION_RADIUS: f32 = 1900.;
+const SELECTION_PITCH: f32 = 7.5;
+const DISTANCE_SCALE: f32 = 3.5;
+const MINIMUM_SEPARATION: f32 = 300.;
+const ZOOM_SPEED: f32 = 4.;
+const ZOOM_RESPONSE: f32 = 0.075;
+const FIXED_ZOOM_RADIUS: f32 = 2400.;
+const SINGLE_ENEMY_RADIUS: f32 = 1000.;
+const MULTIPLE_ENEMY_RADIUS: f32 = 1400.;
+const FIXED_ZOOM_LOOK_AHEAD: f32 = 150.;
+const ENTRY_RADIUS: f32 = 4200.;
+const ENTRY_FOCUS_X: f32 = 700.;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Camera {
     pub definition: CameraDefinition,
     pub pose: CameraPose,
+    base_radius: f32,
+    pending_radius: f32,
+    result_tick: u32,
+    spell: Option<spell::Shot>,
+    scene: Option<SpellCamera>,
+    distance_override: Option<DistanceOverride>,
+    summon_focus: Option<SummonFocus>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DistanceOverride {
+    distance: f32,
+    remaining: u16,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SummonFocus {
+    target: [f32; 3],
+    distance: f32,
+    remaining: u16,
 }
 
 impl CameraPose {
@@ -60,6 +107,33 @@ impl CameraPose {
 }
 
 impl Camera {
+    pub(crate) fn frame(&self) -> CameraPose {
+        self.spell.as_ref().map_or(self.pose, spell::Shot::frame)
+    }
+
+    pub(crate) fn frame_entry(&mut self, update: u8) {
+        self.spell = None;
+        self.scene = None;
+        self.distance_override = None;
+        let progress = f32::from(update) / f32::from(crate::prepare::ENTRY_PAN_UPDATES);
+        self.pose.focus = [ENTRY_FOCUS_X * (1. - progress), FOCUS_HEIGHT, 0.];
+        self.pose.pitch = BASE_PITCH + self.definition.stage_pitch;
+        self.pose.yaw = VIEW_ANGLE;
+        self.pose.radius = ENTRY_RADIUS;
+        self.pending_radius = ENTRY_RADIUS;
+        let (sin, cos) = self.pose.yaw.to_radians().sin_cos();
+        let eye_height = if update == 0 {
+            FOCUS_HEIGHT
+        } else {
+            EYE_HEIGHT
+        };
+        self.pose.eye = [
+            self.pose.focus[0] + ENTRY_RADIUS * cos,
+            eye_height + ENTRY_RADIUS * self.pose.pitch.to_radians().sin(),
+            ENTRY_RADIUS * sin,
+        ];
+    }
+
     pub fn new(definition: CameraDefinition, actors: &[Actor], target: ActorId) -> Result<Self> {
         ensure!(
             definition.leader.index() < actors.len() && target.index() < actors.len(),
@@ -77,97 +151,299 @@ impl Camera {
             actors[target.index()].position,
             actors[definition.leader.index()].position,
         );
+        let base_radius = if actors
+            .iter()
+            .filter(|a| a.side == crate::Side::Enemy)
+            .count()
+            > 1
+        {
+            MULTIPLE_ENEMY_RADIUS
+        } else {
+            SINGLE_ENEMY_RADIUS
+        };
+        let radius = if definition.auto_zoom {
+            base_radius + DISTANCE_SCALE * direction[0].hypot(direction[2]).max(MINIMUM_SEPARATION)
+        } else {
+            FIXED_ZOOM_RADIUS
+        };
         let mut camera = Self {
             pose: CameraPose {
                 eye: [0.; 3],
                 focus: [0.; 3],
-                pitch: (8. + definition.stage_pitch).clamp(-80., 80.),
-                yaw: direction[2].atan2(direction[0]).to_degrees() + 90.,
-                radius: MINIMUM_RADIUS,
+                pitch: (BASE_PITCH + definition.stage_pitch).clamp(-80., 80.),
+                yaw: direction[2].atan2(direction[0]).to_degrees() + VIEW_ANGLE,
+                radius,
             },
             definition,
+            base_radius,
+            pending_radius: radius,
+            result_tick: 0,
+            spell: None,
+            scene: None,
+            distance_override: None,
+            summon_focus: None,
         };
-        camera.pose.focus = bounds_center(&camera.subjects(actors, target, None));
-        camera.pose.place_eye();
+        let leader = &actors[camera.definition.leader.index()];
+        camera.pose.focus =
+            controlled_focus(leader, &actors[target.index()], camera.definition.auto_zoom);
+        if leader.control == Control::Auto || !leader.available() {
+            camera.pose.yaw = direction[2].atan2(direction[0]).to_degrees() + 90.;
+            camera.pose.focus = bounds_center(
+                &actors
+                    .iter()
+                    .filter(|actor| actor.available())
+                    .map(Bounds::actor)
+                    .collect::<Vec<_>>(),
+            );
+        }
         camera.step(actors, target, Update::Tracking)?;
         Ok(camera)
     }
 
-    fn subjects(&self, actors: &[Actor], target: ActorId, focus: Option<ActorId>) -> Vec<Bounds> {
-        let leader = &actors[self.definition.leader.index()];
-        actors
-            .iter()
-            .enumerate()
-            .filter(|(index, actor)| {
-                actor.available()
-                    && match focus {
-                        Some(id) => *index == id.index(),
-                        None => {
-                            self.definition.adaptive
-                                || leader.control == Control::Auto
-                                || !leader.available()
-                                || *index == self.definition.leader.index()
-                                || *index == target.index()
-                        }
-                    }
-            })
-            .map(|(_, actor)| Bounds::actor(actor))
-            .collect()
+    pub(crate) fn request_scene(&mut self, request: SpellCamera) {
+        self.scene = Some(match self.scene.filter(|current| current.duration != 0) {
+            Some(current) => SpellCamera {
+                bounds: resonance_content::battle_scene::CameraBounds {
+                    minimum_distance: current
+                        .bounds
+                        .minimum_distance
+                        .max(request.bounds.minimum_distance),
+                    minimum_elevation: current
+                        .bounds
+                        .minimum_elevation
+                        .max(request.bounds.minimum_elevation),
+                },
+                duration: current.duration.max(request.duration),
+            },
+            None => request,
+        });
+    }
+
+    pub(crate) fn request_distance(&mut self, distance: f32, duration: u16) {
+        self.distance_override = Some(DistanceOverride {
+            distance,
+            remaining: duration,
+        });
+    }
+
+    pub(crate) fn request_summon_focus(&mut self, target: [f32; 3], distance: f32, duration: u16) {
+        self.summon_focus = Some(SummonFocus {
+            target: [target[0], FOCUS_HEIGHT, target[2]],
+            distance,
+            remaining: duration,
+        });
+    }
+
+    pub(crate) fn clear_scene(&mut self) {
+        self.spell = None;
+        self.scene = None;
+        self.distance_override = None;
+        self.summon_focus = None;
     }
 
     pub(crate) fn step(&mut self, actors: &[Actor], target: ActorId, update: Update) -> Result<()> {
         if matches!(update, Update::Held) {
             return Ok(());
         }
-        let focus_actor = match update {
-            Update::Tracking => None,
-            Update::Selecting(target) => Some(target),
-            Update::Held => unreachable!(),
-        };
-        let subjects = self.subjects(actors, target, focus_actor);
-        if subjects.is_empty() {
-            return Ok(());
+        if let Update::Spell(actor) = update {
+            let shot = self
+                .spell
+                .get_or_insert_with(|| spell::Shot::new(self.pose));
+            shot.cast(actors[actor.index()].position, self.definition.stage_pitch);
+            return self.validate_frame();
         }
-        let focus = bounds_center(&subjects);
-        if matches!(update, Update::Tracking) {
-            let target = &actors[target.index()];
-            let direction = sub(
-                target.position,
-                actors[self.definition.leader.index()].position,
+        if matches!(update, Update::Selecting(_))
+            && let Some(shot) = self.spell.take()
+        {
+            self.pose = shot.frame();
+            self.pending_radius = self.pose.radius;
+        }
+        let bounds = self
+            .scene
+            .filter(|scene| scene.duration != 0)
+            .map(|scene| scene.bounds);
+        let minimum_distance = bounds.map_or(0., |bounds| bounds.minimum_distance);
+        let distance_override = matches!(update, Update::Tracking)
+            .then_some(self.distance_override)
+            .flatten()
+            .map(|request| request.distance);
+        let summon_focus = matches!(update, Update::Tracking)
+            .then_some(self.summon_focus)
+            .flatten();
+        let selected = match update {
+            Update::Selecting(actor) => Some(actor),
+            _ => None,
+        };
+        let base_pitch = BASE_PITCH + self.definition.stage_pitch;
+        let scene_pitch = bounds.map_or(base_pitch, |bounds| {
+            base_pitch.max(bounds.minimum_elevation)
+        });
+        let leader = &actors[self.definition.leader.index()];
+        if matches!(update, Update::Tracking | Update::Selecting(_))
+            && leader.control != Control::Auto
+            && leader.available()
+        {
+            let direction = sub(actors[target.index()].position, leader.position);
+            let separation = direction[0].hypot(direction[2]);
+            let bearing = direction[2].atan2(direction[0]);
+            if selected.is_none() && separation > 0.1 {
+                // Either end of the combat line can face screen-right. Keep the
+                // nearer view when actors cross instead of orbiting behind them.
+                let desired_yaw = bearing.to_degrees() + VIEW_ANGLE;
+                let yaw_delta = (desired_yaw - self.pose.yaw + 90.).rem_euclid(180.) - 90.;
+                let error = yaw_delta.abs();
+                let speed = if error < FINE_TURN_ANGLE {
+                    MINIMUM_TURN_SPEED
+                } else if error < WIDE_TURN_ANGLE {
+                    MINIMUM_TURN_SPEED + error * TURN_RESPONSE
+                } else {
+                    2. * MINIMUM_TURN_SPEED + error * WIDE_TURN_RESPONSE
+                };
+                self.pose.yaw += yaw_delta.clamp(-speed, speed);
+            }
+            let scene_pitch = if selected.is_some() {
+                scene_pitch.max(base_pitch + SELECTION_PITCH)
+            } else {
+                scene_pitch
+            };
+            self.pose.pitch +=
+                (scene_pitch - self.pose.pitch).clamp(-SCENE_PITCH_SPEED, SCENE_PITCH_SPEED);
+            let focus = if let Some(selected) = selected {
+                let position = actors[selected.index()].position;
+                [position[0], FOCUS_HEIGHT, position[2]]
+            } else if let Some(focus) = summon_focus {
+                focus.target
+            } else {
+                controlled_focus(leader, &actors[target.index()], self.definition.auto_zoom)
+            };
+            let focus_distance = distance::length(sub(focus, self.pose.focus));
+            let focus_speed =
+                (FOCUS_SPEED + FOCUS_RESPONSE * focus_distance).min(MAXIMUM_FOCUS_SPEED);
+            approach_position(&mut self.pose.focus, focus, focus_speed);
+            let desired_radius = distance_override
+                .unwrap_or_else(|| {
+                    if selected.is_some() && self.definition.auto_zoom {
+                        SELECTION_RADIUS
+                    } else if self.definition.auto_zoom {
+                        self.base_radius + DISTANCE_SCALE * separation.max(MINIMUM_SEPARATION)
+                    } else {
+                        FIXED_ZOOM_RADIUS
+                    }
+                })
+                .max(minimum_distance);
+            let desired_radius = summon_focus.map_or(desired_radius, |focus| focus.distance);
+            if selected.is_some() {
+                // Do not spend the selector's first update zooming toward the
+                // previous combat target before adopting the selected target.
+                self.pending_radius = desired_radius;
+            }
+            let delta = self.pending_radius - self.pose.radius;
+            let speed = ZOOM_SPEED + ZOOM_RESPONSE * delta.abs();
+            self.pose.radius += delta.clamp(-speed, speed);
+            // Combat distance framing follows the preceding position sample.
+            self.pending_radius = desired_radius;
+            let (sin, cos) = self.pose.yaw.to_radians().sin_cos();
+            self.pose.eye = [
+                self.pose.focus[0] + self.pose.radius * cos,
+                EYE_HEIGHT + self.pose.radius * self.pose.pitch.to_radians().sin(),
+                self.pose.focus[2] + self.pose.radius * sin,
+            ];
+        } else {
+            if matches!(update, Update::Tracking) {
+                let direction = sub(actors[target.index()].position, leader.position);
+                if direction[0].hypot(direction[2]) > 0.1 {
+                    let desired = direction[2].atan2(direction[0]).to_degrees() + 90.;
+                    let delta = (desired - self.pose.yaw + 90.).rem_euclid(180.) - 90.;
+                    self.pose.yaw += delta * RESPONSE;
+                }
+            }
+            let subjects: Vec<_> = actors
+                .iter()
+                .enumerate()
+                .filter(|(index, actor)| {
+                    actor.available()
+                        && match update {
+                            Update::Selecting(id) => *index == id.index(),
+                            _ => true,
+                        }
+                })
+                .map(|(_, actor)| Bounds::actor(actor))
+                .collect();
+            if subjects.is_empty() {
+                return Ok(());
+            }
+            let focus = summon_focus.map_or_else(|| bounds_center(&subjects), |focus| focus.target);
+            let focus_step = (distance::length(sub(focus, self.pose.focus)) * RESPONSE).max(1.);
+            approach_position(&mut self.pose.focus, focus, focus_step);
+            let pitch = (base_pitch
+                + if matches!(update, Update::Selecting(_)) {
+                    SELECTION_PITCH
+                } else {
+                    0.
+                })
+            .max(scene_pitch)
+            .clamp(-80., 80.);
+            let pitch_delta = pitch - self.pose.pitch;
+            self.pose.pitch += if self.scene.is_some() {
+                pitch_delta.clamp(-SCENE_PITCH_SPEED, SCENE_PITCH_SPEED)
+            } else {
+                pitch_delta * RESPONSE
+            };
+            let radius = summon_focus.map_or_else(
+                || {
+                    distance_override
+                        .unwrap_or_else(|| self.fitted_radius(&subjects).max(MINIMUM_RADIUS))
+                        .max(minimum_distance)
+                },
+                |focus| focus.distance,
             );
-            if direction[0].hypot(direction[2]) > 0.1 {
-                let desired = direction[2].atan2(direction[0]).to_degrees() + 90.;
-                let mut delta = (desired - self.pose.yaw + 180.).rem_euclid(360.) - 180.;
-                // A battle line has two equivalent viewing sides. Keep the nearer side.
-                if delta > 90. {
-                    delta -= 180.;
-                }
-                if delta < -90. {
-                    delta += 180.;
-                }
-                self.pose.yaw += delta * RESPONSE;
+            self.pose.radius =
+                radius.max(self.pose.radius + (radius - self.pose.radius) * RESPONSE);
+            self.pose.place_eye();
+            self.pending_radius = self.pose.radius;
+        }
+        if let Some(shot) = &mut self.spell
+            && shot.return_to(self.pose)
+        {
+            self.spell = None;
+        }
+        // Selection and the caster close-up can move the camera without spending
+        // the active scene's framing interval. Retain expiry only for pitch return.
+        if matches!(update, Update::Tracking)
+            && let Some(scene) = &mut self.scene
+        {
+            scene.duration = scene.duration.saturating_sub(1);
+            if scene.duration == 0 && self.pose.pitch == base_pitch {
+                self.scene = None;
             }
         }
-        let pitch = 8.
-            + self.definition.stage_pitch
-            + if matches!(update, Update::Selecting(_)) {
-                7.5
-            } else {
-                0.
-            };
-        self.pose.pitch += (pitch.clamp(-80., 80.) - self.pose.pitch) * RESPONSE;
-        let focus_step = (distance::length(sub(focus, self.pose.focus)) * RESPONSE).max(1.);
-        approach_position(&mut self.pose.focus, focus, focus_step);
-        let radius = self.fitted_radius(&subjects).max(MINIMUM_RADIUS);
-        // Expansion keeps the current pose visible; contraction remains smooth.
-        self.pose.radius = radius.max(self.pose.radius + (radius - self.pose.radius) * RESPONSE);
-        self.pose.place_eye();
+        if matches!(update, Update::Tracking)
+            && let Some(request) = &mut self.distance_override
+        {
+            request.remaining = request.remaining.saturating_sub(1);
+            if request.remaining == 0 {
+                self.distance_override = None;
+            }
+        }
+        if matches!(update, Update::Tracking)
+            && let Some(focus) = &mut self.summon_focus
+        {
+            focus.remaining = focus.remaining.saturating_sub(1);
+            if focus.remaining == 0 {
+                self.summon_focus = None;
+            }
+        }
+        self.validate_frame()
+    }
+
+    fn validate_frame(&self) -> Result<()> {
+        let frame = self.frame();
         ensure!(
-            self.pose
+            frame
                 .eye
                 .into_iter()
-                .chain(self.pose.focus)
-                .chain([self.pose.radius])
+                .chain(frame.focus)
+                .chain([frame.radius])
                 .all(f32::is_finite),
             "battle camera overflow"
         );
@@ -256,6 +532,21 @@ fn bounds_center(subjects: &[Bounds]) -> [f32; 3] {
         }
     }
     scale(add(minimum, maximum), 0.5)
+}
+
+fn controlled_focus(leader: &Actor, target: &Actor, auto_zoom: bool) -> [f32; 3] {
+    let direction = sub(target.position, leader.position);
+    let separation = direction[0].hypot(direction[2]);
+    let fraction = if auto_zoom || separation <= 2. * FIXED_ZOOM_LOOK_AHEAD {
+        0.5
+    } else {
+        FIXED_ZOOM_LOOK_AHEAD / separation
+    };
+    [
+        leader.position[0] + direction[0] * fraction,
+        FOCUS_HEIGHT,
+        leader.position[2] + direction[2] * fraction,
+    ]
 }
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {

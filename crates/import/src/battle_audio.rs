@@ -18,25 +18,10 @@ use std::{
     path::Path,
 };
 
-#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Selection {
-    pub sounds: BTreeSet<u16>,
-    pub streams: BTreeSet<u16>,
-    pub music: BTreeSet<u16>,
-}
-
-/// Maintained IDs from verified encounter binding inventories. The normal
-/// cooker never depends on a developer checkpoint or reads authored source paths.
-pub fn maintained_selection() -> Result<Selection> {
-    let source = resonance_script_content::FILES
-        .iter()
-        .find_map(|&(path, source)| (path == "battle/audio-requirements.json").then_some(source))
-        .context(
-            "battle audio requirements are not published; finish the real binding inventory",
-        )?;
-    Ok(serde_json::from_str(source)?)
-}
+mod catalogue;
+pub use catalogue::publish_all;
+pub(crate) use catalogue::publish_all_in;
+pub use resonance_content::battle_audio::Selection;
 
 pub struct Publication {
     pub files: Vec<String>,
@@ -139,7 +124,8 @@ pub fn publish(
 ) -> Result<Publication> {
     let workspace = Workspace::open(extracted, output)?;
     ensure!(
-        selection.streams.is_empty() || library.canonicalize()? != workspace.output,
+        (selection.streams.is_empty() && selection.voices.is_empty())
+            || library.canonicalize()? != workspace.output,
         "battle audio publication requires a separate staging directory"
     );
     publish_in(&workspace, library, selection)
@@ -154,8 +140,8 @@ pub(crate) fn publish_in(
 ) -> Result<Publication> {
     let extracted = workspace.extracted.as_path();
     let output = workspace.output.as_path();
-    let shared_library =
-        !selection.streams.is_empty() && library.canonicalize()? == workspace.output;
+    let shared_library = (!selection.streams.is_empty() || !selection.voices.is_empty())
+        && library.canonicalize()? == workspace.output;
     ensure!(
         selection
             .sounds
@@ -300,6 +286,36 @@ pub(crate) fn publish_in(
             }
             inventory(output, &mut files, &voice.asset.path, Role::Voice)?;
             voices.insert(u32::from(id), voice);
+        }
+    }
+    if !selection.voices.is_empty() {
+        let directory = crate::voice_directory::Directory::read(&executable)?;
+        for group in selection
+            .voices
+            .iter()
+            .map(|id| id & 0xffff_0000)
+            .collect::<BTreeSet<_>>()
+        {
+            input_paths.insert(format!("files/{}", directory.path(group)?));
+        }
+        for (id, voice) in media::field_audio::bind_voices(
+            library,
+            extracted,
+            &executable,
+            None,
+            &selection.voices,
+        )? {
+            if !shared_library {
+                crate::write_atomic(
+                    &output.join(&voice.asset.path),
+                    &fs::read(library.join(&voice.asset.path))?,
+                )?;
+            }
+            inventory(output, &mut files, &voice.asset.path, Role::Voice)?;
+            ensure!(
+                voices.insert(id, voice).is_none(),
+                "duplicate battle voice {id}"
+            );
         }
     }
     let spatial = |start| -> Result<[f32; 5]> {
@@ -496,6 +512,7 @@ mod tests {
         let selection = Selection {
             sounds: [60].into(),
             streams: BTreeSet::new(),
+            voices: BTreeSet::new(),
             music: [1, 85, 95].into(),
         };
         let mut expected = None;

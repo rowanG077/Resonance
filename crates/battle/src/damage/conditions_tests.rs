@@ -8,12 +8,17 @@ use crate::{
 use resonance_content::battle_action::Condition as HitAilment;
 fn hit(kind: DamageKind) -> HitRule {
     HitRule {
+        sound: None,
+        effect_on_guard: false,
+        effect: None,
         overlimit_pause: true,
         kind,
         arte: false,
         power: Power::Normal,
         element: HitElement::Neutral,
         prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
         guard: GuardRule::default(),
         reaction: Default::default(),
         condition: None,

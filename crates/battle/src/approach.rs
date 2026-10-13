@@ -21,6 +21,8 @@ pub(crate) struct Approach {
     action_target: Option<ActorId>,
     parameters: ApproachParameters,
     range_required: bool,
+    /// An enemy completes its retreat independently of the forward threshold.
+    retreating: bool,
 }
 
 impl Battle {
@@ -43,9 +45,9 @@ impl Battle {
     }
 
     fn approach_in_range(&self, index: usize, approach: Approach) -> bool {
-        let gap =
-            crate::control::body_gap(&self.actors[index], &self.actors[approach.target.index()]);
+        let gap = self.body_gap(ActorId(index as u8), approach.target);
         !approach.range_required
+            || approach.retreating && gap >= approach.parameters.minimum
             || gap >= approach.parameters.minimum && gap <= approach.parameters.maximum
             || gap < approach.parameters.minimum
                 && self.actors[index].movement.steering.arena_contact() != crate::ArenaContact::None
@@ -92,7 +94,9 @@ impl Battle {
         action: crate::ActionKey,
         parameters: ApproachParameters,
     ) -> Result<bool> {
-        let range_required = self.actors[actor.index()].control != crate::Control::Manual;
+        let owner = &self.actors[actor.index()];
+        let range_required = owner.control != crate::Control::Manual
+            && !(owner.control == crate::Control::Enemy && owner.movement.turning_disabled);
         self.begin_approach(
             ActionRequest {
                 actor,
@@ -137,12 +141,16 @@ impl Battle {
             parameters.minimum.is_finite()
                 && parameters.maximum.is_finite()
                 && parameters.minimum >= 0.
-                && parameters.maximum > parameters.minimum
+                && parameters.maximum >= 0.
+                && (owner.control == crate::Control::Enemy
+                    || parameters.maximum > parameters.minimum)
                 && parameters.speed.is_finite()
                 && parameters.speed > 0.
                 && parameters.turn_ticks > 0,
             "invalid approach parameters"
         );
+        let retreating = owner.control == crate::Control::Enemy
+            && self.body_gap(actor, target) < parameters.minimum;
         let index = actor.index();
         self.runtime[index].combo = Default::default();
         if let Some(control) = &mut self.runtime[index].control {
@@ -165,6 +173,7 @@ impl Battle {
                 action_target: None,
                 parameters,
                 range_required,
+                retreating,
             }),
         );
         self.actors[index].movement.locomotion = if self.approach_within_range(index) {
@@ -173,6 +182,26 @@ impl Battle {
             crate::Locomotion::Run
         };
         self.begin_approach_steering(actor, target)?;
+        if !self.approach_within_range(index)
+            && matches!(
+                self.actors[index].control,
+                crate::Control::Auto | crate::Control::Enemy
+            )
+        {
+            let direction = crate::distance::planar_direction(
+                self.actors[target.index()].position,
+                self.actors[index].position,
+                self.actors[index].facing_direction,
+            );
+            // A fresh approach starts toward its destination, not along a previous retreat.
+            let direction = if self.body_gap(actor, target) < parameters.minimum {
+                direction.map(|value| -value)
+            } else {
+                direction
+            };
+            self.actors[index].movement.direction = direction;
+            self.actors[index].facing_direction = direction;
+        }
         if !self.approach_within_range(index)
             && let Some(motion) = parameters.motion
         {
@@ -284,6 +313,18 @@ impl Battle {
             self.cancel_approach(index)?;
             return Ok(false);
         }
+        let gap = self.body_gap(actor, approach.target);
+        approach.retreating |= self.actors[index].control == crate::Control::Enemy
+            && gap < approach.parameters.minimum;
+        if matches!(
+            self.actors[index].control,
+            crate::Control::Auto | crate::Control::Enemy
+        )
+            && self.approach_in_range(index, approach)
+        {
+            // Once an automatic actor arrives, finish facing without chasing changes in posed bounds.
+            approach.range_required = false;
+        }
         self.set_task(index, ActorTask::Approach(approach));
         let direction = crate::distance::planar_direction(
             self.actors[approach.target.index()].position,
@@ -305,14 +346,19 @@ impl Battle {
                 return self.update_mobility(actor, cues);
             }
             let owner = &mut self.actors[index];
-            let ready = owner.control == crate::Control::Manual
+            let ready = if owner.control == crate::Control::Manual
                 || owner.movement.turning_disabled
                 || owner.side == crate::Side::Party && owner.airborne()
-                || crate::control::face(
+            {
+                true
+            } else {
+                owner.movement.direction = direction;
+                crate::control::face(
                     owner,
                     direction,
                     180. / f32::from(approach.parameters.turn_ticks),
-                );
+                )
+            };
             if !ready {
                 return Ok(true);
             }
@@ -340,8 +386,6 @@ impl Battle {
             self.start_admitted_action(request, cues)?;
             return Ok(true);
         }
-        let gap =
-            crate::control::body_gap(&self.actors[index], &self.actors[approach.target.index()]);
         let destination = if gap < approach.parameters.minimum {
             std::array::from_fn(|axis| {
                 self.actors[index].position[axis] - direction[axis] * approach.parameters.minimum
@@ -350,6 +394,9 @@ impl Battle {
             self.actors[approach.target.index()].position
         };
         let destination = self.steer_approach(actor, approach.target, destination)?;
+        let speed = self.runtime[index]
+            .enemy_walk_override
+            .unwrap_or(approach.parameters.speed);
         let owner = &mut self.actors[index];
         owner.movement.locomotion = crate::Locomotion::Run;
         let desired = crate::distance::planar_direction(destination, owner.position, direction);
@@ -364,13 +411,21 @@ impl Battle {
             movement,
             180. / f32::from(approach.parameters.turn_ticks),
         );
-        let desired_gap = approach
-            .parameters
-            .minimum
-            .midpoint(approach.parameters.maximum);
+        let desired_gap = if owner.control == crate::Control::Enemy {
+            if approach.retreating {
+                approach.parameters.minimum
+            } else {
+                approach.parameters.maximum
+            }
+        } else {
+            approach
+                .parameters
+                .minimum
+                .midpoint(approach.parameters.maximum)
+        };
         let remaining = (gap - desired_gap).abs();
         owner.movement.forward = (owner.movement.forward + crate::movement::RUN_ACCELERATION)
-            .min(owner.run_limit(approach.parameters.speed, owner.conditions.effective()))
+            .min(owner.run_limit(speed, owner.conditions.effective()))
             .min(remaining);
         owner.movement.integrate(&mut owner.position);
         self.advance_hover(index, true)?;

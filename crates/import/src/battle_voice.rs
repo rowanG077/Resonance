@@ -7,6 +7,7 @@ pub(crate) const ENEMY_ROLES: usize = 10;
 
 pub(crate) struct Source {
     relative: Vec<Sound>,
+    durations: Vec<u16>,
 }
 
 pub(crate) fn sound(encoded: u16) -> Option<Sound> {
@@ -18,6 +19,19 @@ pub(crate) fn sound(encoded: u16) -> Option<Sound> {
 }
 
 impl Source {
+    pub fn duration(&self, sound: Sound) -> Result<u16> {
+        let index = match sound {
+            Sound::Stream(index) => index,
+            Sound::Cue(cue) => cue
+                .checked_sub(501)
+                .context("sound is not an actor voice")?,
+        };
+        self.durations
+            .get(usize::from(index))
+            .copied()
+            .context("missing authored voice duration")
+    }
+
     pub fn actor_voices(&self, base: u32, count: usize) -> Result<Option<Voices>> {
         if base == 0 {
             return Ok(None);
@@ -35,6 +49,7 @@ impl Source {
             critical: line(8),
             guard: line(9),
             ally_defeated: [line(10), line(11)],
+            unison_start: line(12),
             technique_command: line(13),
             item_use: line(14),
             entry: [line(16), line(17), line(18)],
@@ -73,7 +88,14 @@ pub(crate) fn read(usual: &[u8]) -> Result<Source> {
             }
         })
         .collect();
-    Ok(Source { relative })
+    let durations = durations
+        .chunks_exact(2)
+        .map(|bytes| u16::from_be_bytes(bytes.try_into().unwrap()))
+        .collect();
+    Ok(Source {
+        relative,
+        durations,
+    })
 }
 
 #[cfg(test)]
@@ -92,8 +114,10 @@ mod tests {
         assert_eq!(source.relative[1..], [Sound::Stream(1), Sound::Cue(503)]);
         let roles = Source {
             relative: (0..=58).map(Sound::Stream).collect(),
+            durations: vec![0; 59],
         };
         let voices = roles.actor_voices(1, PARTY_ROLES)?.unwrap();
+        assert_eq!(voices.unison_start, Some(Sound::Stream(13)));
         assert_eq!(
             voices.hurt,
             [Some(Sound::Stream(4)), Some(Sound::Stream(5))]
@@ -106,6 +130,9 @@ mod tests {
         assert_eq!(sound(0), None);
         assert_eq!(sound(0x8002), Some(Sound::Stream(2)));
         assert_eq!(sound(2), Some(Sound::Cue(503)));
+        assert_eq!(source.duration(Sound::Stream(1))?, 62);
+        assert_eq!(source.duration(Sound::Cue(503))?, 37);
+        assert!(source.duration(Sound::Cue(1)).is_err());
         assert!(read(&bytes[..bytes.len() - 1]).is_err());
         assert!(source.actor_voices(2, 2).is_err());
         Ok(())

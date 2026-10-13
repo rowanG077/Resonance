@@ -14,12 +14,12 @@ fn actors() -> Vec<Actor> {
     vec![leader, target, other]
 }
 
-fn camera(actors: &[Actor], adaptive: bool) -> Camera {
+fn camera(actors: &[Actor], auto_zoom: bool) -> Camera {
     Camera::new(
         CameraDefinition {
             leader: ActorId(0),
             stage_pitch: 0.,
-            adaptive,
+            auto_zoom,
         },
         actors,
         ActorId(u8::from(actors.len() > 1)),
@@ -28,48 +28,62 @@ fn camera(actors: &[Actor], adaptive: bool) -> Camera {
 }
 
 #[test]
-fn current_scaled_bodies_fit_inside_the_camera_margin_after_turns() -> Result<()> {
-    let mut actors = actors();
-    actors[1].body.scale = 4.;
-    actors[1].position = [400., 700., 0.];
-    actors[1].body.collider = Some(crate::Collider::sphere(150.));
-    let mut camera = camera(&actors, false);
-    camera.pose.yaw = 30.;
-    camera.step(&actors, ActorId(1), Update::Tracking)?;
-    for actor in &actors[..2] {
-        let bounds = Bounds::actor(actor);
-        for corner in 0..8 {
-            let point = std::array::from_fn(|axis| {
-                if corner & (1 << axis) == 0 {
-                    bounds.minimum[axis]
-                } else {
-                    bounds.maximum[axis]
-                }
-            });
-            let [x, y] = crate::control::project_screen_point(camera.pose, point);
-            assert!(
-                (79.99..=560.01).contains(&x) && (55.99..=392.01).contains(&y),
-                "clipped body point {point:?}: {x}, {y}"
-            );
+fn controlled_camera_matches_recorded_combat_updates() -> Result<()> {
+    #[derive(serde::Deserialize)]
+    struct Sample {
+        positions: [[f32; 3]; 2],
+        eye: [f32; 3],
+        focus: [f32; 3],
+    }
+    #[derive(serde::Deserialize)]
+    struct Recording {
+        name: String,
+        enemy_count: usize,
+        auto_zoom: bool,
+        stage_pitch: f32,
+        previous_positions: [[f32; 3]; 2],
+        radius: f32,
+        yaw: f32,
+        samples: Vec<Sample>,
+    }
+    let recordings: Vec<Recording> = serde_json::from_str(include_str!("recorded-combat.json"))?;
+    for recording in recordings {
+        let mut actors = actors();
+        actors.resize(recording.enemy_count + 1, actors[1].clone());
+        for (actor, position) in actors.iter_mut().zip(recording.previous_positions) {
+            actor.position = position;
+        }
+        let mut camera = Camera::new(
+            CameraDefinition {
+                leader: ActorId(0),
+                stage_pitch: recording.stage_pitch,
+                auto_zoom: recording.auto_zoom,
+            },
+            &actors,
+            ActorId(1),
+        )?;
+        camera.pose.radius = recording.radius;
+        camera.pose.yaw = recording.yaw;
+        for (tick, sample) in recording.samples.iter().enumerate() {
+            for (actor, &position) in actors.iter_mut().zip(&sample.positions) {
+                actor.position = position;
+            }
+            camera.step(&actors, ActorId(1), Update::Tracking)?;
+            for (actual, expected) in camera
+                .pose
+                .eye
+                .into_iter()
+                .chain(camera.pose.focus)
+                .zip(sample.eye.into_iter().chain(sample.focus))
+            {
+                assert!(
+                    (actual - expected).abs() < 0.003,
+                    "{} sample {tick}: {actual} != {expected}",
+                    recording.name
+                );
+            }
         }
     }
-    assert!(
-        (distance::length(sub(camera.pose.eye, camera.pose.focus)) - camera.pose.radius).abs()
-            < 0.01
-    );
-    Ok(())
-}
-
-#[test]
-fn combatant_framing_excludes_unselected_distant_actors() -> Result<()> {
-    let actors = actors();
-    let mut pair = camera(&actors, false);
-    let mut roster = camera(&actors, true);
-    pair.step(&actors, ActorId(1), Update::Tracking)?;
-    roster.step(&actors, ActorId(1), Update::Tracking)?;
-    assert!(pair.pose.radius < roster.pose.radius);
-    assert!(pair.pose.focus[0] > 0.);
-    assert!(roster.pose.focus[0] < 0.);
     Ok(())
 }
 
@@ -87,57 +101,248 @@ fn selection_uses_explicit_target_while_gameplay_is_held() -> Result<()> {
 }
 
 #[test]
-fn results_keep_the_party_visible_in_formation_order_without_camera_assets() -> Result<()> {
-    for count in [1, 4] {
-        let actors: Vec<_> = (0..count)
-            .map(|index| {
-                let mut actor = crate::tests::actor(crate::Side::Party);
-                actor.body.collider = None;
-                actor.body.center_offset = [0., 60., 0.];
-                actor.body.scale = 1. + index as f32;
-                actor
-            })
-            .collect();
-        let definition = camera(&actors, false).definition;
+fn controlled_camera_keeps_its_viewing_side_and_catches_up_to_the_combat_line() -> Result<()> {
+    let mut actors = actors();
+    let mut camera = camera(&actors, true);
+    let initial_yaw = camera.pose.yaw;
+    actors[1].position = [-400., 0., 0.];
+    camera.step(&actors, ActorId(1), Update::Tracking)?;
+    assert_eq!(
+        camera.pose.yaw, initial_yaw,
+        "crossing must not orbit the camera"
+    );
+
+    actors[1].position = [400., 0., 400.];
+    camera.step(&actors, ActorId(1), Update::Tracking)?;
+    assert!((camera.pose.yaw - initial_yaw) > 1.);
+    assert!((camera.pose.yaw - initial_yaw) < 5.);
+    for _ in 0..90 {
+        camera.step(&actors, ActorId(1), Update::Tracking)?;
+    }
+    assert!((camera.pose.yaw - (VIEW_ANGLE + 45.)).abs() < 15.);
+    Ok(())
+}
+
+#[test]
+fn retargeting_pans_without_a_selection_or_tracking_jump() -> Result<()> {
+    let actors = actors();
+    for auto_zoom in [false, true] {
+        let mut camera = camera(&actors, auto_zoom);
+        let before = camera.pose;
+        camera.step(&actors, ActorId(2), Update::Tracking)?;
+        assert!(distance::length(sub(camera.pose.focus, before.focus)) <= MAXIMUM_FOCUS_SPEED);
+        assert!(distance::length(sub(camera.pose.eye, before.eye)) <= MAXIMUM_FOCUS_SPEED);
+
+        // A held target selector and its release use the same eye geometry as
+        // ordinary tracking; changing mode must not introduce a vertical cut.
+        for update in [Update::Selecting(ActorId(1)), Update::Tracking] {
+            let before = camera.pose;
+            camera.step(&actors, ActorId(1), update)?;
+            assert!(distance::length(sub(camera.pose.focus, before.focus)) <= MAXIMUM_FOCUS_SPEED);
+            assert!((camera.pose.eye[1] - before.eye[1]).abs() < 40.);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn results_camera_matches_recorded_victory_transition() {
+    // Eye positions sampled at result-scene ages in the opening Iselia battle.
+    let samples = [
+        (0, [2165.064, 308.6477, -1249.9991]),
+        (20, [2165.064, 308.6477, -1249.9991]),
+        (21, [2121.228, 304.72473, -1225.9247]),
+        (29, [1801.0105, 276.03772, -1049.265]),
+        (49, [1203.481, 222.34271, -715.2856]),
+        (110, [1184.0175, 222.34271, -747.0627]),
+        (230, [1143.2941, 222.34271, -808.009]),
+        (409, [1076.7684, 222.34271, -894.74567]),
+    ];
+    let mut camera = camera(&actors(), false);
+    let mut next_tick = 0;
+    for (tick, eye) in samples {
+        while next_tick <= tick {
+            camera.frame_results();
+            next_tick += 1;
+        }
+        assert_eq!(camera.pose.focus, [0., 112.5, 0.]);
+        for (actual, expected) in camera.pose.eye.into_iter().zip(eye) {
+            assert!(
+                (actual - expected).abs() < 0.012,
+                "result tick {tick}: {actual} != {expected}"
+            );
+        }
+    }
+}
+
+#[test]
+fn result_party_matches_recorded_three_and_four_member_victories() -> Result<()> {
+    for (celebrant, positions) in [
+        (2, vec![[200., 0., 0.], [-196.96156, 0., -34.7295], [0.; 3]]),
+        (1, vec![[200., 0., 0.], [0.; 3], [-196.96156, 0., -34.7295]]),
+        (
+            1,
+            vec![
+                [200., 0., 0.],
+                [0.; 3],
+                [-128.55745, 0., 153.20895],
+                [-34.72981, 0., -196.96152],
+            ],
+        ),
+    ] {
         let mut battle = crate::PreparedBattle::new(
-            (actors)
-                .into_iter()
-                .map(|actor| (actor, Default::default()))
+            positions
+                .iter()
+                .map(|_| (crate::tests::actor(crate::Side::Party), Default::default()))
                 .collect(),
             Default::default(),
             1,
         )?
-        .with_camera(definition)?
         .finish()?;
-        battle.recognize_escape(true)?;
-        battle.recognize_result();
+        battle.terminal.result = Some(crate::BattleResult::Victory);
         battle.retire_combat()?;
-        let party: Vec<_> = (0..count).map(ActorId).collect();
-        battle.arrange_result_actors()?;
-        for &actor in &party {
-            battle.reset_result_actor(actor)?;
+        battle.arrange_result_actors(ActorId(celebrant))?;
+        for (actor, position) in battle.actors().iter().zip(positions) {
+            crate::tests::assert_vector_close(actor.position, position, 0.001);
         }
-        let frame = battle.step(Default::default())?;
-        let pose = frame.camera.unwrap();
-        let mut previous_x = f32::NEG_INFINITY;
-        for actor in &frame.actors {
-            let [x, _] = crate::control::project_screen_point(pose, actor.position);
-            assert!(
-                x > previous_x,
-                "a result actor is obscured behind another party member"
-            );
-            previous_x = x;
-            for point in [
-                actor.position,
-                add(
-                    actor.position,
-                    actor.body.center_offset.map(|v| 2. * v * actor.body.scale),
-                ),
-            ] {
-                let [x, y] = crate::control::project_screen_point(pose, point);
-                assert!((0. ..=640.).contains(&x) && (0. ..=448.).contains(&y));
+    }
+    Ok(())
+}
+
+#[test]
+fn stored_spell_framing_matches_recorded_casts_and_returns() -> Result<()> {
+    #[derive(serde::Deserialize)]
+    struct Sample {
+        age: u32,
+        view: [f32; 6],
+    }
+    #[derive(serde::Deserialize)]
+    struct Recording {
+        name: String,
+        initial: [f32; 6],
+        stage_pitch: f32,
+        caster: [f32; 3],
+        samples: Vec<Sample>,
+    }
+    let recordings: Vec<Recording> =
+        serde_json::from_str(include_str!("recorded-stored-spells.json"))?;
+    for recording in recordings {
+        let ordinary = CameraPose {
+            eye: recording.initial[..3].try_into().unwrap(),
+            focus: recording.initial[3..].try_into().unwrap(),
+            pitch: 0.,
+            yaw: 0.,
+            radius: 0.,
+        };
+        let mut shot = spell::Shot::new(ordinary);
+        let mut age = 0;
+        for sample in recording.samples {
+            while age < sample.age {
+                age += 1;
+                if age <= 60 {
+                    shot.cast(recording.caster, recording.stage_pitch);
+                } else {
+                    shot.return_to(ordinary);
+                }
+            }
+            let frame = shot.frame();
+            for (actual, expected) in frame.eye.into_iter().chain(frame.focus).zip(sample.view) {
+                assert!(
+                    (actual - expected).abs() < 0.003,
+                    "{} at {age}: {actual} != {expected}",
+                    recording.name
+                );
             }
         }
     }
+    Ok(())
+}
+
+#[test]
+fn active_scene_camera_starts_at_initialization_holds_then_restores_tracking() -> Result<()> {
+    use resonance_content::battle_scene::CameraBounds;
+    let mut actors = actors();
+    actors.truncate(2);
+    actors[1].position = [100., 0., 0.];
+    let mut battle = crate::PreparedBattle::new(
+        actors
+            .iter()
+            .cloned()
+            .map(|actor| (actor, Default::default()))
+            .collect(),
+        Default::default(),
+        1,
+    )?
+    .with_camera(CameraDefinition {
+        leader: ActorId(0),
+        stage_pitch: 0.,
+        auto_zoom: true,
+    })?
+    .finish()?;
+    let framing = SpellCamera {
+        bounds: CameraBounds {
+            minimum_distance: 2450.,
+            minimum_elevation: 12.,
+        },
+        duration: 170,
+    };
+    let mut definition = crate::tests::volley();
+    definition.transition_ticks = 1;
+    definition.camera = Some(framing);
+    definition.duration = 220;
+    definition.projectiles.truncate(1);
+    definition.projectiles[0].at = 200;
+    definition.validate()?;
+    let id = battle
+        .release_volley(
+            std::sync::Arc::new(definition),
+            ActorId(0),
+            ActorId(1),
+            crate::SpellSlot::Primary,
+            None,
+            &mut vec![],
+        )?
+        .unwrap();
+    let mut volley = battle.volleys.remove(&id).unwrap();
+    for _ in 0..2 {
+        volley.step(&mut battle, id, &mut vec![])?;
+        assert!(battle.camera.as_ref().unwrap().scene.is_none());
+    }
+    volley.step(&mut battle, id, &mut vec![])?;
+    let camera = battle.camera.as_mut().unwrap();
+    assert_eq!(camera.scene, Some(framing));
+    let held = camera.frame();
+    camera.step(&actors, ActorId(1), Update::Held)?;
+    assert_eq!(camera.frame(), held);
+    for _ in 0..60 {
+        camera.step(&actors, ActorId(1), Update::Spell(ActorId(1)))?;
+    }
+    assert_eq!(camera.scene, Some(framing));
+    for _ in 0..60 {
+        camera.step(&actors, ActorId(1), Update::Tracking)?;
+    }
+    assert_eq!((camera.pose.radius, camera.pose.pitch), (2450., 12.));
+    assert_eq!(camera.scene.unwrap().duration, 110);
+    camera.step(&actors, ActorId(1), Update::Selecting(ActorId(1)))?;
+    assert_eq!(camera.scene.unwrap().duration, 110);
+    camera.request_scene(SpellCamera {
+        bounds: CameraBounds {
+            minimum_distance: 2600.,
+            minimum_elevation: 13.,
+        },
+        duration: 20,
+    });
+    for _ in 0..110 {
+        camera.step(&actors, ActorId(1), Update::Tracking)?;
+    }
+    assert_eq!((camera.pose.radius, camera.pose.pitch), (2600., 13.));
+    assert_eq!(camera.scene.unwrap().duration, 0);
+    for _ in 0..120 {
+        camera.step(&actors, ActorId(1), Update::Tracking)?;
+    }
+    assert!(camera.scene.is_none());
+    assert_eq!((camera.pose.radius, camera.pose.pitch), (2050., 8.));
+    camera.request_scene(framing);
+    assert_eq!(camera.scene, Some(framing));
     Ok(())
 }

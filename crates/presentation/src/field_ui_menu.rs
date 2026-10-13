@@ -315,6 +315,32 @@ impl MenuArtwork {
         (material.material.clone(), material.size)
     }
 
+    pub(super) fn prepare_world_maps(
+        &mut self,
+        materials: &mut Assets<Surface>,
+    ) -> Result<Vec<Handle<Image>>> {
+        // The world HUD draws these materials outside the menu's submission path.
+        MenuArt::WORLD_MAP_TEXTURES
+            .map(|index| {
+                let prepared = self
+                    .materials
+                    .get_mut(&MaterialKey::Texture(index))
+                    .context("missing world map material")?;
+                if let Some(path) = prepared.pending.take() {
+                    prepared.image = menu_image(&self.server, path, prepared.repeat);
+                    let mut surface = materials
+                        .get_mut(&prepared.material)
+                        .context("missing world map surface")?;
+                    surface.source = prepared.image.clone();
+                    surface.sampling = prepared.image.clone();
+                    surface.frame_mask = prepared.image.clone();
+                    surface.color_mask = prepared.image.clone();
+                }
+                Ok(prepared.image.clone())
+            })
+            .collect()
+    }
+
     pub fn action_label(&self, action: resonance_game::field::FieldAction) -> Result<&str> {
         use resonance_game::field::FieldAction;
         menu_label(
@@ -548,7 +574,8 @@ impl MenuArtwork {
         }
     }
 
-    pub(super) fn prepare_windows(&mut self) {
+    pub(super) fn prepare_windows(&mut self, resolution: super::super::Resolution) {
+        self.resolution = resolution;
         self.band = DepthBand::Battle;
     }
     #[cfg(test)]
@@ -585,8 +612,10 @@ impl MenuArtwork {
             .windows
             .get(&preferences.map_or(1, |settings| usize::from(settings.window)))
             .context("missing selected menu window")?;
+        let [left, top, right, bottom] = self.resolution.ui_rect();
+        let y_scale = SCENE_HEIGHT as f32 / HEIGHT as f32;
         Ok(Drawing {
-            screen: [0., 0., 640., 448.],
+            screen: [left, top * y_scale, right, bottom * y_scale],
             spec: &self.spec,
             font,
             selection: &dialogue.selection,
@@ -653,11 +682,15 @@ impl MenuArtwork {
                         DepthBand::Field => RenderLayers::default(),
                         DepthBand::Battle => RenderLayers::layer(crate::battle_view::LAYER),
                     };
+                    let transform = Transform::from_xyz(0., 0., self.band.at(plane, role.depth()));
                     let entity = commands
                         .spawn((
                             Mesh2d(mesh.clone()),
                             MeshMaterial2d(material.clone()),
-                            Transform::from_xyz(0., 0., self.band.at(plane, role.depth())),
+                            transform,
+                            // Battle menus publish after transform propagation. The
+                            // first queued draw must already have its final depth.
+                            GlobalTransform::from(transform),
                             Visibility::Hidden,
                             render_layers,
                             // Sliding pages must submit their initially offscreen layers
@@ -692,6 +725,50 @@ impl MenuArtwork {
         }
         commands.insert_resource(self.draws.clone());
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_battle_scan_panel(
+        &mut self,
+        [x, y, width, height]: [f32; 4],
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), 0)?;
+        let mut color = preferences.colors.choice;
+        color[..3].iter_mut().for_each(|channel| *channel /= 2);
+        color[3] = 160;
+        // Battle text uses 480 rows; the shared window renderer uses 448.
+        draw.colored_frame(
+            [x, y * SCENE_HEIGHT as f32 / HEIGHT as f32, width, height],
+            false,
+            color,
+        )?;
+        self.submit_drawing(draw.batches, commands, meshes)
+    }
+
+    pub(crate) fn render_battle_results_panel(
+        &mut self,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), 0)?;
+        draw.colored_frame([96., 351., 520., 39.], false, draw.popup_color())?;
+        let mut batches = draw.batches;
+        // Results already use the 480-row overlay canvas. Undo the menu's
+        // 448-row expansion for this panel, including its frame corners.
+        let center = HEIGHT as f32 / 2.;
+        let scale = SCENE_HEIGHT as f32 / HEIGHT as f32;
+        for position in batches.values_mut().flat_map(|batch| &mut batch.positions) {
+            position[1] = center + (position[1] - center) * scale;
+        }
+        self.submit_drawing(batches, commands, meshes)
     }
 
     /// Render the field-owned Tech page from a battle page borrow.  Both
@@ -741,6 +818,7 @@ impl MenuArtwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
+        self.resolution = resolution;
         let result = (|| {
             let (menu, shop) = match source {
                 Source::Title(menu) => (menu, None),
@@ -778,8 +856,6 @@ impl MenuArtwork {
                 self.clear_page(commands);
                 return Ok(());
             }
-            let [left, top, right, bottom] = resolution.ui_rect();
-            let y_scale = SCENE_HEIGHT as f32 / HEIGHT as f32;
             self.set_page(
                 menu.map(|menu| ActivePage::Menu(menu.page))
                     .or_else(|| shop.map(|_| ActivePage::Shop))
@@ -803,7 +879,6 @@ impl MenuArtwork {
                     _ => None,
                 });
             let mut draw = self.begin_drawing(font, dialogue, preferences, presentation_tick)?;
-            draw.screen = [left, top * y_scale, right, bottom * y_scale];
             draw.opacity = menu.map_or_else(
                 || {
                     shop.map(|(s, _)| 255 - s.fade)

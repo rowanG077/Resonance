@@ -106,20 +106,17 @@ impl Appearance {
     }
 }
 
-/// Steady outlines identify active Over Limit and living enemies below one-quarter HP.
-pub(crate) fn outline(actor: &Actor, combat: bool, alpha: u8) -> [u8; 4] {
-    let [r, g, b] = if combat && actor.available() {
-        if actor.overlimit.is_active() {
-            [255, 190, 60]
-        } else if actor.side == Side::Enemy && actor.hp_percent() <= 25 {
-            [220, 60, 60]
-        } else {
-            [0; 3]
-        }
+/// Low health and a nearly full or active Over Limit flash the body's outline.
+pub(crate) fn outline(actor: &Actor, combat: bool, update: u64, alpha: u8) -> [u8; 4] {
+    let warning = actor.overlimit.is_active()
+        || actor.overlimit.charge() >= 900
+        || (actor.side == Side::Enemy && actor.hp_percent() <= 10);
+    let red = if combat && actor.available() && warning && update % 4 >= 2 {
+        128
     } else {
-        [0; 3]
+        0
     };
-    [r, g, b, alpha / 2]
+    [red, 0, 0, alpha / 2]
 }
 
 #[cfg(test)]
@@ -166,6 +163,7 @@ mod tests {
             })
             .collect();
         frame.weapons.push(WeaponFrame {
+            texture_scroll: None,
             owner: ids[0],
             slot: 0,
             visible: true,
@@ -235,10 +233,21 @@ mod tests {
         assert_eq!(frame.models[0].tint, [40, 50, 60, 173]);
         assert_eq!(frame.weapons[0].tint, frame.models[0].tint);
         frame.actors[0].overlimit = resonance_battle::OverLimit::active(100).unwrap();
-        assert_eq!(outline(&frame.actors[0], true, 173), [255, 190, 60, 86]);
-        assert_eq!(outline(&frame.actors[0], false, 173), [0, 0, 0, 86]);
+        assert_eq!(outline(&frame.actors[0], true, 2, 173), [128, 0, 0, 86]);
+        assert_eq!(outline(&frame.actors[0], false, 2, 173), [0, 0, 0, 86]);
         frame.actors[2].hp = 10;
-        assert_eq!(outline(&frame.actors[2], true, 173), [220, 60, 60, 86]);
-        assert_eq!(outline(&frame.actors[2], true, 0)[3], 0);
+        for (update, red) in [(0, 0), (1, 0), (2, 128), (3, 128), (4, 0)] {
+            assert_eq!(
+                outline(&frame.actors[2], true, update, 173),
+                [red, 0, 0, 86]
+            );
+        }
+        frame.actors[2].hp = 11;
+        assert_eq!(outline(&frame.actors[2], true, 2, 173), [0, 0, 0, 86]);
+        for (charge, red) in [(899, 0), (900, 128)] {
+            frame.actors[2].overlimit = resonance_battle::OverLimit::new(charge).unwrap();
+            assert_eq!(outline(&frame.actors[2], true, 2, 173), [red, 0, 0, 86]);
+        }
+        assert_eq!(outline(&frame.actors[2], true, 2, 0)[3], 0);
     }
 }

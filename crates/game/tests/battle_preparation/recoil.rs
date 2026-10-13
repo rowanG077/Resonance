@@ -5,6 +5,9 @@ use resonance_game::battle::recoil::Parameters;
 
 pub(super) fn source() -> battle_recoil::Table {
     battle_recoil::Table {
+        impulses: vec![[0.; 2]; 19],
+        suppression_distance: 0.,
+        guard_speed: 3.,
         source_sha256: "a".repeat(64),
         light_vertical_scale: 1.15,
         heavy_vertical_scale: 0.75,

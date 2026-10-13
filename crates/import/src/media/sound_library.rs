@@ -10,7 +10,7 @@ use resonance_audio_cook::{
     bank::{Bank, Page},
     decode, instrument,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::fs;
 use std::{collections::BTreeMap, path::Path};
@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, path::Path};
 pub(crate) const VERSION: u32 = 4;
 
 /// Compiled program export, before binding a scene's synthesis tables.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct Resources {
     pub version: u32,
     pub programs: BTreeMap<u16, Vec<Command>>,
