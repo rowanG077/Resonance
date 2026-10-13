@@ -31,37 +31,8 @@ impl Active {
 }
 #[derive(Resource)]
 pub(super) struct Returning(Option<audio::PlaybackAssets>);
-#[derive(Resource)]
-struct Title {
-    events: Option<resonance_game::title_events::Prepared>,
-    audio: Option<audio::PlaybackAssets>,
-}
-
-/// Keep immutable title resources available for every later fatal-defeat route.
+/// Fatal defeat shares the retained title resources with ordinary session returns.
 pub(super) fn install(app: &mut App) -> Result<()> {
-    use sha2::{Digest, Sha256};
-    let world = app.world_mut();
-    let root = world.resource::<super::RunOptions>().assets.clone();
-    let scene = world.resource::<super::Art>().manifest.scene.clone();
-    let events = scene
-        .as_ref()
-        .map(|scene| -> Result<_> {
-            let bytes = std::fs::read(root.join(&scene.script.path))?;
-            ensure!(
-                format!("{:x}", Sha256::digest(&bytes)) == scene.script.sha256,
-                "title-return script digest mismatch"
-            );
-            let mut clips = world.resource_mut::<super::sparse_animation::Prepared>();
-            resonance_game::title_events::Prepared::new(&bytes, scene, |path| {
-                clips.load(&root, path)
-            })
-        })
-        .transpose();
-    let events = super::diagnostics::policy(world)
-        .attempt("title return preparation", events)?
-        .flatten();
-    let audio = world.resource::<super::PendingAudio>().0.clone();
-    world.insert_resource(Title { events, audio });
     app.add_systems(FixedUpdate, advance.after(super::timing::advance_clock))
         .add_systems(Update, (transition, render).chain().after(super::layout))
         .add_systems(
@@ -256,16 +227,18 @@ fn restore_cameras(world: &mut World) {
 pub(super) fn return_to_title(world: &mut World) -> Result<()> {
     // Build the new event lifetime before cancelling the failed field.
     let events = world
-        .resource::<Title>()
+        .resource::<super::session_screen::Title>()
         .events
         .as_ref()
-        .map(|events| events.enter())
+        .map(resonance_events::EventRuntime::fresh)
         .transpose();
     let events = super::diagnostics::policy(world)
         .attempt("title return script", events)?
         .flatten();
-    let audio = world.resource::<Title>().audio.clone();
-    let scene = world.resource::<super::Art>().manifest.scene.clone();
+    let audio = world
+        .resource::<super::session_screen::Title>()
+        .audio
+        .clone();
     discard_field(world);
     retire(world);
     let resident = world.resource::<loading::Resident>();
@@ -286,29 +259,26 @@ pub(super) fn return_to_title(world: &mut World) -> Result<()> {
         ..Default::default()
     }));
     world.insert_resource(super::TitleActive);
-    world.insert_resource(super::scene::FieldAssets::default());
     world.resource_mut::<super::timing::Ready>().0 = false;
-    let server = world.resource::<AssetServer>().clone();
-    if let Some(scene) = scene {
-        let aspect = world.resource::<super::display::Display>().0.aspect();
-        for mut projection in world
-            .query_filtered::<&mut Projection, With<super::FieldCamera>>()
-            .iter_mut(world)
-        {
-            *projection =
-                Projection::custom(super::camera::TitleProjection(PerspectiveProjection {
-                    fov: scene.fov_degrees.to_radians(),
-                    aspect_ratio: aspect,
-                    near: 100.,
-                    far: 40000.,
-                    ..Default::default()
-                }));
-        }
-        world.resource_scope(|world, mut field: Mut<super::scene::FieldAssets>| {
-            field.load(&scene, &server, &mut world.commands())
-        });
+    let projection =
+        super::title_field::projection(world.resource::<super::display::Display>().0.aspect());
+    for (mut camera, mut fog) in world
+        .query_filtered::<(&mut Projection, &mut DistanceFog), With<super::FieldCamera>>()
+        .iter_mut(world)
+    {
+        *camera = projection.clone();
+        *fog = DistanceFog::default();
     }
-    for mut visible in world.query_filtered::<&mut Visibility, Or<(With<super::TitleQuad>, With<super::glow::GlowMesh>)>>().iter_mut(world) { *visible = Visibility::Inherited; }
+    for mut visible in world
+        .query_filtered::<&mut Visibility, Or<(
+            With<super::TitleQuad>,
+            With<super::glow::GlowMesh>,
+            With<super::scene::PartRoot>,
+        )>>()
+        .iter_mut(world)
+    {
+        *visible = Visibility::Inherited;
+    }
     restore_cameras(world);
     super::materials::TitleOutput::update(&mut world.resource_mut(), |b| {
         *b = Vec4::new(1., 0., 0., 0.)

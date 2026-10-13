@@ -35,6 +35,7 @@ struct Fixture {
     mixer: resonance_playback::Offline,
     audio_entity: Entity,
     audio_handle: resonance_playback::Handle,
+    title_root: Entity,
     request: Request,
     saved: FieldCheckpoint,
     store: Store,
@@ -138,10 +139,7 @@ impl Fixture {
         let manifest: resonance_content::TitleAssets =
             serde_json::from_slice(&std::fs::read(root.join("title.json"))?)?;
         manifest.validate()?;
-        ensure!(
-            manifest.scene.is_some(),
-            "fatal fixture requires prepared title scene"
-        );
+        let (title_scene, title_events) = crate::title_field::load(&root)?;
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -163,7 +161,12 @@ impl Fixture {
         .init_asset::<crate::menu_backdrop::Material>()
         .init_asset::<crate::audio::GameAudio>()
         .init_asset::<crate::field_audio::FieldSource>()
-        .init_resource::<crate::sparse_animation::Prepared>()
+        .init_resource::<crate::scene::FieldAssets>()
+        .insert_resource(title_scene)
+        .insert_resource(crate::session_screen::Title {
+            events: Some(title_events),
+            audio: None,
+        })
         .init_resource::<crate::field_view::Controls>()
         .init_resource::<input::Controls>()
         .insert_resource(MenuMemory {
@@ -174,6 +177,7 @@ impl Fixture {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<crate::PendingInput>()
         .init_resource::<crate::display::Display>()
+        .insert_resource(crate::display::OutputStage::Framebuffer)
         .init_resource::<crate::audio::MenuSounds>()
         .insert_resource(crate::Clock(Default::default()))
         .insert_resource(crate::timing::Ready(true))
@@ -229,6 +233,10 @@ impl Fixture {
             .spawn((Camera::default(), Projection::default(), crate::FieldCamera));
         app.world_mut()
             .spawn((Camera::default(), crate::FieldOverlayCamera));
+        let title_root = app
+            .world_mut()
+            .spawn((crate::scene::PartRoot, Visibility::Hidden))
+            .id();
         let world = app.world_mut();
         let image = world.resource_mut::<Assets<Image>>().add(Image::default());
         let output = world
@@ -277,6 +285,7 @@ impl Fixture {
             mixer,
             audio_entity,
             audio_handle,
+            title_root,
             request,
             saved,
             store,
@@ -671,6 +680,19 @@ impl Fixture {
         assert!(
             world.contains_resource::<crate::Events>(),
             "title script was not restarted"
+        );
+        assert_eq!(world.resource::<crate::Events>().0.tick(), 0);
+        assert_eq!(
+            world.get::<Visibility>(self.title_root),
+            Some(&Visibility::Inherited)
+        );
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<crate::scene::PartRoot>>()
+                .iter(world)
+                .count(),
+            1,
+            "title return must reuse the retained scene"
         );
         assert!(world.contains_resource::<game_over::Returning>());
         assert!(
