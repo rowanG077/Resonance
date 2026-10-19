@@ -209,12 +209,8 @@ fn original_dialogue_reads_sources_into_fresh_output_and_matches_frozen_pixels()
                 crate::texture::pixels(&baseline.join(&expected_font.texture))?
             );
             expected_font.texture = prepared.font.texture.clone();
-            let mut original_glyphs = prepared.font.clone();
-            original_glyphs
-                .glyphs
-                .retain(|c, _| !('\u{ff61}'..='\u{ff9f}').contains(c));
             assert_eq!(
-                serde_json::to_value(&original_glyphs)?,
+                serde_json::to_value(&prepared.font)?,
                 serde_json::to_value(&expected_font)?
             );
             let expected_subtitles: MovieSubtitles = source.document("ui/story-subtitles.json")?;

@@ -35,7 +35,7 @@ impl<'a> Resources<'a> {
     }
 }
 
-fn read_member(mut file: impl Read + Seek, size: u64, id: u32) -> Result<Vec<u8>> {
+pub(crate) fn read_member(mut file: impl Read + Seek, size: u64, id: u32) -> Result<Vec<u8>> {
     let mut word = [0; 4];
     file.read_exact(&mut word)?;
     let count = u64::from(u32::from_be_bytes(word));

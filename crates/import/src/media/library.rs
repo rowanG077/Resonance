@@ -11,9 +11,10 @@ use anyhow::{Context, Result, ensure};
 use resonance_audio::data::Score;
 use resonance_audio_cook::{
     bank::{Bank, MissingObject, ObjectKind, Sound},
+    compile,
     decode::{self, Resources},
-    instrument, pool,
-    song::{EventKind, Song},
+    pool,
+    song::Song,
 };
 use resonance_content::field_audio::archive::VoiceArchive;
 use serde::Serialize;
@@ -151,14 +152,20 @@ fn stream_format(bytes: &[u8]) -> Option<VoiceFormat> {
 }
 
 fn resource_key(environment: &str, source: &str, setups: &[u16]) -> String {
-    crate::digest(format!("{environment}:{source}:{setups:?}").as_bytes())
+    crate::digest(
+        format!(
+            "{}:{environment}:{source}:{setups:?}",
+            media::sound_library::VERSION
+        )
+        .as_bytes(),
+    )
 }
 
 pub(crate) struct ArchiveMember {
     pub label: String,
     archive: Arc<PathBuf>,
     directory: Arc<String>,
-    id: usize,
+    pub(crate) id: usize,
     entry: crate::afs::Entry,
 }
 
@@ -168,12 +175,6 @@ pub(crate) struct Cooker {
     song_setups: BTreeMap<String, Vec<u16>>,
     pools: Arc<Pools>,
     environment: String,
-}
-
-#[derive(Serialize)]
-struct NoteBinding {
-    event: usize,
-    voices: Vec<resonance_audio::data::Note>,
 }
 
 impl Cooker {
@@ -328,44 +329,11 @@ impl Cooker {
                     .as_ref()
                     .map_err(|error| anyhow::anyhow!("{error:#}"))?;
                 let setup = bank.music_setup(0, id)?;
-                let mut roots = std::collections::BTreeSet::new();
-                let mut programs = setup.channels.map(|channel| channel.program);
-                let first = song.events();
-                let first_event_count = first.len();
-                let mut notes = Vec::new();
-                for (index, event) in first.into_iter().chain(song.loop_events()?).enumerate() {
-                    let channel = usize::from(event.channel);
-                    match event.kind {
-                        EventKind::Pattern {
-                            program: Some(program),
-                            ..
-                        }
-                        | EventKind::Command {
-                            command: 0,
-                            value: program,
-                        } => {
-                            if setup.page(event.channel, program).is_some() {
-                                programs[channel] = program;
-                            }
-                        }
-                        EventKind::Note { key, velocity, .. } => {
-                            if let Some(page) = setup.page(event.channel, programs[channel]) {
-                                let voices = instrument::resolve(bank, page, key, velocity, 64)?;
-                                roots.extend(voices.iter().map(|note| note.macro_id));
-                                notes.push(NoteBinding {
-                                    event: index,
-                                    voices,
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                let resources = decode::programs(bank, roots)?;
+                let (resources, score) = compile::music(bank, &song, &setup, &self.pools.sustains)?;
                 let samples = samples(&self.workspace.output, &resources)?;
                 let mut files: Vec<_> =
                     samples.values().map(|sample| sample.path.clone()).collect();
-                self.json(&path, &json!({"version":1, "setup":setup, "note_bindings":notes, "first_event_count":first_event_count, "programs":resources.programs,
+                self.json(&path, &json!({"version":media::sound_library::VERSION, "score":score, "programs":resources.programs,
                 "samples":samples, "tables":media::synthesis_tables(&self.executable)?,
                 "reverb":media::song_reverb_change(&self.executable, id)?}))?;
                 files.push(path.clone());
@@ -479,7 +447,7 @@ impl Cooker {
         let path = format!("audio/streams/{}.wav", crate::digest(member.data));
         let voice = media::decode_voice_to(&self.workspace, &path, member, format)?;
         ensure!(
-            voice.frames == frames,
+            voice.voice.frames == frames,
             "decoded voice length differs from source"
         );
         Ok(vec![path, self.json(metadata, &voice)?])
@@ -497,6 +465,7 @@ pub(crate) struct Pools {
     others: Vec<Vec<u8>>,
     isolated: Vec<Vec<u8>>,
     sources: OnceLock<std::result::Result<Sources, String>>,
+    pub(crate) sustains: resonance_audio_cook::parameters::Sustains,
     available: OnceLock<std::result::Result<BTreeSet<(ObjectKind, u16)>, String>>,
 }
 
@@ -506,7 +475,14 @@ impl Pools {
         let [instruments, common] = roles::resident_banks(extracted, &executable)?;
         let sources = bank_sources(extracted, &executable)?;
         let isolated = roles::party_banks(extracted, &executable)?;
-        Self::from_sources(extracted, &instruments, &common, &sources, &isolated)
+        Self::from_sources(
+            extracted,
+            &instruments,
+            &common,
+            &sources,
+            &isolated,
+            media::music_voice::sustains(&executable)?,
+        )
     }
 
     fn from_sources(
@@ -515,6 +491,7 @@ impl Pools {
         common: &str,
         sources: &[String],
         isolated: &[String],
+        sustains: resonance_audio_cook::parameters::Sustains,
     ) -> Result<Self> {
         let read = |source: &str| -> Result<Vec<u8>> {
             let bytes = fs::read(extracted.join("files").join(source))?;
@@ -541,6 +518,7 @@ impl Pools {
             others,
             isolated: local,
             sources: OnceLock::new(),
+            sustains,
             available: OnceLock::new(),
         })
     }
@@ -679,7 +657,7 @@ fn cook_bank_data<'a>(
         ));
     }
     for id in programs {
-        let result = decode::programs(&bank, [id]).and_then(|resources| {
+        let result = decode::programs(&bank, [id], &pools.sustains).and_then(|resources| {
             resource_file(
                 output,
                 &format!("{directory}/program-{id}.json"),
@@ -692,7 +670,7 @@ fn cook_bank_data<'a>(
     for id in sounds {
         let path = format!("{directory}/sound-{id}.json");
         let result = (|| {
-            let (resources, score) = media::sound_library::sound(&bank, id)?;
+            let (resources, score) = media::sound_library::sound(&bank, id, &pools.sustains)?;
             resource_file(output, &path, resources, Some(score))
         })();
         let result = result.or_else(|error| {
@@ -736,7 +714,7 @@ fn resource_file(
         output,
         path,
         &media::sound_library::Resources {
-            version: 1,
+            version: media::sound_library::VERSION,
             programs: resources.programs,
             samples,
             score,
@@ -832,7 +810,11 @@ fn available_objects(pools: &Pools) -> Result<BTreeSet<(ObjectKind, u16)>> {
     Ok(objects)
 }
 
-fn bank_archive(extracted: &Path, source: &str, usual: &str) -> Result<(fs::File, Vec<u32>)> {
+pub(crate) fn bank_archive(
+    extracted: &Path,
+    source: &str,
+    usual: &str,
+) -> Result<(fs::File, Vec<u32>)> {
     resonance_content::validate_asset_path(source)?;
     let archive = fs::File::open(extracted.join("files").join(source))?;
     let directory = payload_directory(
@@ -884,7 +866,7 @@ fn payload_directory(source: &Path, length: u64) -> Result<Vec<u32>> {
     Ok(offsets)
 }
 
-fn payload(archive: &mut fs::File, start: u32, end: u32) -> Result<Vec<u8>> {
+pub(crate) fn payload(archive: &mut fs::File, start: u32, end: u32) -> Result<Vec<u8>> {
     ensure!(
         end >= start
             && end - start <= 128 * 1024 * 1024
@@ -993,6 +975,7 @@ mod tests {
                 "Common.payload",
                 &["Party.resource".into(), "Event.resource".into()],
                 &["Party.resource".into()],
+                resonance_audio_cook::parameters::Sustains::new([0; 1024], [1.; 129])?,
             )?;
             assert_eq!(pools.others.len(), 1);
             assert_eq!(pools.isolated.len(), 1);
@@ -1024,7 +1007,15 @@ mod tests {
             );
             fs::write(root.join("files/Common.payload"), [0; 40])?;
             assert!(
-                Pools::from_sources(&root, "Instruments.song", "Common.payload", &[], &[]).is_err()
+                Pools::from_sources(
+                    &root,
+                    "Instruments.song",
+                    "Common.payload",
+                    &[],
+                    &[],
+                    resonance_audio_cook::parameters::Sustains::new([0; 1024], [1.; 129])?
+                )
+                .is_err()
             );
             Ok(())
         })();

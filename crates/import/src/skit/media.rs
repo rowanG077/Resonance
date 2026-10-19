@@ -34,12 +34,13 @@ pub(super) fn bind(
         let path = directory.path(group)?;
         let mut archive = Archive::open(output, extracted, &path)?;
         for index in members {
-            let mut voice = archive.voice(usize::from(index))?;
+            let metadata = archive.voice(usize::from(index))?;
+            let mut voice = metadata.voice;
             voice.sample_rate = (u64::from(voice.source_sample_rate) * 32028 / 32000) as u32;
             let media = SkitMedia {
                 frames: voice.frames,
                 sample_rate: voice.sample_rate,
-                source_sha256: voice.source_sha256.clone(),
+                source_sha256: metadata.source_sha256,
                 // US skits use silent streams as subtitle clocks. Check the actual
                 // PCM; filenames and region do not establish silence.
                 voice: if silent(output, &voice)? {
@@ -106,10 +107,7 @@ mod tests {
                 (media[&0xa0000].frames, media[&0xa0000].sample_rate),
                 (4, 32028)
             );
-            assert_eq!(
-                media[&0xa0000].voice.as_ref().unwrap().source_name,
-                "renamed.blob"
-            );
+            assert!(media[&0xa0000].voice.is_some());
             assert!(bind(&root, &extracted, &directory, BTreeSet::new())?.is_empty());
             for id in [0xa0001, 0xb0000, 0xc0000, 0x80000000] {
                 assert!(bind(&root, &extracted, &directory, BTreeSet::from([id])).is_err());

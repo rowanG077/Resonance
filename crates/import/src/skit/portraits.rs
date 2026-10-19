@@ -181,12 +181,27 @@ mod tests {
                 let index = physical.member;
                 let start = word(&archive, 4 + index * 8)? as usize;
                 let size = word(&archive, 8 + index * 8)? as usize;
-                let textures = crate::tpl::parse_tpl(&archive[start..start + size])?;
+                let member = &archive[start..start + size];
+                let textures = crate::tpl::parse_tpl(member)?;
+                let pixels = decoded.textures.base_images().collect::<Result<Vec<_>>>()?;
                 assert_eq!(textures.len(), portrait.images.len());
-                for (original, image) in textures.iter().zip(&portrait.images) {
+                for (index, (original, image)) in textures.iter().zip(&portrait.images).enumerate()
+                {
                     assert_eq!(
                         [u32::from(original.width), u32::from(original.height)],
                         image.size
+                    );
+                    assert_eq!(pixels[index].0, image.size);
+                    assert_eq!(
+                        pixels[index].1,
+                        crate::tpl::decode_texture(member, original)?
+                    );
+                    let prepared = decoded.textures.catalogue.textures[index]
+                        .as_ref()
+                        .context("missing portrait texture")?;
+                    assert_eq!(
+                        serde_json::to_value(&prepared.sampler)?,
+                        serde_json::to_value(original.sampler()?)?
                     );
                     assert_eq!(original.format, 14);
                     assert!(image.size.iter().all(|size| size.is_multiple_of(8)));
@@ -194,6 +209,18 @@ mod tests {
             }
             for recipe in &recipes {
                 let prepared = recipe.prepared();
+                for (channel, &repeat) in prepared.repeat.iter().enumerate() {
+                    assert_eq!(
+                        repeat,
+                        recipe.timelines.iter().any(|timeline| {
+                            timeline.channel.index() == channel
+                                && timeline
+                                    .records
+                                    .iter()
+                                    .any(|row| matches!(row.timing, recipe::Timing::Loop))
+                        })
+                    );
+                }
                 for timeline in &recipe.timelines {
                     let track = &prepared.tracks[timeline.channel.index()];
                     let rows = timeline

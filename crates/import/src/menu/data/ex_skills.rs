@@ -2,18 +2,23 @@
 use super::*;
 use crate::all_assets::ex_skills::{Catalogue, Label};
 use resonance_content::menu_data::{
-    CharacterExSkills, CompoundExSkill, ExActivation, ExSkill, ExSkillData, ExStat, ExStatBonus,
-    ExTendency,
+    CharacterExSkills, CompoundExSkill, ExActivation, ExCaption, ExSkill, ExSkillData, ExSkillText,
+    ExStat, ExStatBonus, ExTendency,
 };
 use std::collections::BTreeSet;
 
-pub(super) fn cook(catalogue: &Catalogue) -> Result<ExSkillData> {
-    let caster = usize::try_from(catalogue.save_point_rule.character_index)?;
-    let save_point_skill = *catalogue
-        .personal_skills
-        .get(caster)
-        .context("invalid save-point TP caster")?;
-    let save_point_cost: u8 = catalogue.save_point_rule.tp_cost.try_into()?;
+pub(super) fn cook(catalogue: &Catalogue) -> Result<(ExSkillData, ExSkillText)> {
+    ensure!(
+        catalogue
+            .definitions
+            .first()
+            .is_some_and(|row| row.tendency == 0),
+        "empty EX slot contributes technique drift"
+    );
+    // Raine's Personal skill reduces field healing at save points to one TP.
+    const SAVE_POINT_CASTER: usize = 3;
+    const SAVE_POINT_TP_COST: u8 = 1;
+    let save_point_skill = catalogue.personal_skills[SAVE_POINT_CASTER];
     let characters: Vec<_> = catalogue
         .characters
         .iter()
@@ -45,7 +50,7 @@ pub(super) fn cook(catalogue: &Catalogue) -> Result<ExSkillData> {
             .iter()
             .flatten()
             .any(|&id| u16::from(id) == save_point_skill)
-            == (i == caster)),
+            == (i == SAVE_POINT_CASTER)),
         "save-point TP skill does not match its caster"
     );
     // Unreferenced development placeholders have no gameplay identity to deploy.
@@ -59,6 +64,19 @@ pub(super) fn cook(catalogue: &Catalogue) -> Result<ExSkillData> {
                 .chain(c.compounds.iter().map(|c| c.skill))
         })
         .collect();
+    let captions = referenced
+        .iter()
+        .map(|&id| {
+            let row = &catalogue.definitions[usize::from(id)];
+            Ok((
+                id,
+                ExCaption {
+                    name: catalogue.required_text(row.name)?.to_owned(),
+                    description: text::decode(catalogue.required_text(row.description)?, 9)?,
+                },
+            ))
+        })
+        .collect::<Result<_>>()?;
     let skills = referenced
         .into_iter()
         .map(|id| {
@@ -73,8 +91,6 @@ pub(super) fn cook(catalogue: &Catalogue) -> Result<ExSkillData> {
             Ok((
                 id,
                 ExSkill {
-                    name: catalogue.required_text(row.name)?.to_owned(),
-                    description: text::decode(catalogue.required_text(row.description)?, 9)?,
                     stat_bonuses: row
                         .stat_bonuses
                         .iter()
@@ -99,7 +115,7 @@ pub(super) fn cook(catalogue: &Catalogue) -> Result<ExSkillData> {
                         })
                         .collect::<Result<_>>()?,
                     save_point_tp_cost: (u16::from(id) == save_point_skill)
-                        .then_some(save_point_cost),
+                        .then_some(SAVE_POINT_TP_COST),
                     tendency: match row.tendency {
                         -1 => Some(ExTendency::Technical),
                         0 => None,
@@ -117,49 +133,54 @@ pub(super) fn cook(catalogue: &Catalogue) -> Result<ExSkillData> {
             ))
         })
         .collect::<Result<_>>()?;
-    Ok(ExSkillData {
-        skills,
-        characters,
-        gem_items: [40, 41, 42, 43, 496],
-        activation_labels: [
-            (ExActivation::Constant, Label::Constant),
-            (ExActivation::Chance, Label::Chance),
-            (ExActivation::BattleEnd, Label::BattleEnd),
-            (ExActivation::Other, Label::Other),
-        ]
-        .into_iter()
-        .map(|(kind, label)| Ok((kind, catalogue.label(label)?.to_owned())))
-        .collect::<Result<_>>()?,
-        labels: [
-            ("title", Label::Title),
-            ("set_gem", Label::SetGem),
-            ("replace_gem", Label::ReplaceGem),
-            ("yes", Label::Yes),
-            ("no", Label::No),
-            ("hp", Label::Hp),
-            ("tp", Label::Tp),
-            ("slash", Label::Slash),
-            ("thrust", Label::Thrust),
-            ("defense", Label::Defense),
-            ("accuracy", Label::Accuracy),
-            ("evasion", Label::Evasion),
-            ("intelligence", Label::Intelligence),
-            ("luck", Label::Luck),
-            ("attack", Label::Attack),
-        ]
-        .into_iter()
-        .map(|(key, label)| Ok((key.into(), catalogue.label(label)?.to_owned())))
-        .chain(
-            [
-                ("gem_max", catalogue.formats.gem_max),
-                ("gem_level", catalogue.formats.gem_level),
-                ("gem_empty", catalogue.formats.gem_empty),
+    Ok((
+        ExSkillData {
+            skills,
+            characters,
+            gem_items: [40, 41, 42, 43, 496],
+        },
+        ExSkillText {
+            skills: captions,
+            activation_labels: [
+                (ExActivation::Constant, Label::Constant),
+                (ExActivation::Chance, Label::Chance),
+                (ExActivation::BattleEnd, Label::BattleEnd),
+                (ExActivation::Other, Label::Other),
             ]
             .into_iter()
-            .map(|(key, reference)| Ok((key.into(), catalogue.text(reference).to_owned()))),
-        )
-        .collect::<Result<_>>()?,
-    })
+            .map(|(kind, label)| Ok((kind, catalogue.label(label)?.to_owned())))
+            .collect::<Result<_>>()?,
+            labels: [
+                ("title", Label::Title),
+                ("set_gem", Label::SetGem),
+                ("replace_gem", Label::ReplaceGem),
+                ("yes", Label::Yes),
+                ("no", Label::No),
+                ("hp", Label::Hp),
+                ("tp", Label::Tp),
+                ("slash", Label::Slash),
+                ("thrust", Label::Thrust),
+                ("defense", Label::Defense),
+                ("accuracy", Label::Accuracy),
+                ("evasion", Label::Evasion),
+                ("intelligence", Label::Intelligence),
+                ("luck", Label::Luck),
+                ("attack", Label::Attack),
+            ]
+            .into_iter()
+            .map(|(key, label)| Ok((key.into(), catalogue.label(label)?.to_owned())))
+            .chain(
+                [
+                    ("gem_max", catalogue.formats.gem_max),
+                    ("gem_level", catalogue.formats.gem_level),
+                    ("gem_empty", catalogue.formats.gem_empty),
+                ]
+                .into_iter()
+                .map(|(key, reference)| Ok((key.into(), catalogue.text(reference).to_owned()))),
+            )
+            .collect::<Result<_>>()?,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -174,8 +195,8 @@ mod tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1/sys/main.dol");
         let executable = fs::read(path).unwrap();
         let mut catalogue = crate::all_assets::ex_skills::read(&executable).unwrap();
-        let data = cook(&catalogue).unwrap();
-        data.validate(528).unwrap();
+        let (data, captions) = cook(&catalogue).unwrap();
+        data.validate_rules(528).unwrap();
         assert_eq!(data.skills.len(), 136);
         assert_eq!(
             data.characters
@@ -185,12 +206,12 @@ mod tests {
             216
         );
         let strong = &data.skills[&1];
-        assert_eq!(strong.name, "Strong");
+        assert_eq!(captions.skills[&1].name, "Strong");
         assert_eq!(strong.tendency, Some(ExTendency::Strike));
         assert_eq!(strong.stat_bonuses[0].stat, ExStat::Strength);
         assert_eq!(strong.stat_bonuses[0].percent, 5);
         assert!(
-            data.skills[&3]
+            captions.skills[&3]
                 .description
                 .lines
                 .iter()
@@ -199,9 +220,15 @@ mod tests {
         );
         assert_eq!(data.characters[0].compounds[0].required, [1, 2]);
         assert_eq!(data.characters[0].compounds[0].skill, 54);
-        assert_eq!(data.skills[&54].name, "EX Attack");
+        assert_eq!(captions.skills[&54].name, "EX Attack");
+        assert!(
+            data.characters
+                .iter()
+                .flat_map(|c| &c.compounds)
+                .all(|c| data.skills[&c.skill].tendency.is_none())
+        );
         assert_eq!(data.characters[2].levels[0], [23, 2, 3, 5]);
-        assert_eq!(data.skills[&24].name, "Personal");
+        assert_eq!(captions.skills[&24].name, "Personal");
         assert_eq!(data.skills[&24].save_point_tp_cost, None);
         assert_eq!(data.skills[&31].save_point_tp_cost, Some(1));
         assert!(
@@ -212,24 +239,30 @@ mod tests {
         let mut json = serde_json::to_value(&data).unwrap();
         json["skills"]["1"]["stat_bonuses"][0]["percent"] = 7.into();
         let mut edited: ExSkillData = serde_json::from_value(json).unwrap();
-        edited.validate(528).unwrap();
+        edited.validate_rules(528).unwrap();
         assert_eq!(edited.skills[&1].stat_bonuses[0].percent, 7);
         edited.characters[0].compounds[0].required[0] = 255;
         assert!(
-            edited.validate(528).is_err(),
+            edited.validate_rules(528).is_err(),
             "dangling recipe reference was accepted"
         );
         assert!(
             crate::all_assets::ex_skills::read(&executable[..256]).is_err(),
             "truncated executable was accepted"
         );
+        catalogue.definitions[0].tendency = 1;
+        assert!(
+            cook(&catalogue).is_err(),
+            "nonzero empty-slot drift was discarded"
+        );
+        catalogue.definitions[0].tendency = 0;
         // Inactive definitions and unused requirement slots do not constrain runtime admission.
         catalogue.definitions[17].activation = 255;
         catalogue.definitions[17].tendency = i16::MIN;
         catalogue.definitions[17].stat_bonuses[0].selector = 255;
         catalogue.characters[0].compounds[0].requirements[3] = 255;
         assert_eq!(
-            serde_json::to_value(cook(&catalogue).unwrap()).unwrap(),
+            serde_json::to_value(cook(&catalogue).unwrap().0).unwrap(),
             serde_json::to_value(&data).unwrap()
         );
         catalogue.definitions[1].activation = 255;

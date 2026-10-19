@@ -201,6 +201,18 @@ fn original_exclusions_identify_metadata_native_containers_and_deferred_battle()
             "battle_semantics" => {
                 check_deferred(source, &bytes)?;
             }
+            "native_result_sequence" => {
+                assert_eq!(
+                    super::roles::battle_paths(&extracted)?.get(relative),
+                    Some(&super::roles::Role::BattleSkit)
+                );
+                assert!(sources[source].is_empty());
+                assert!(
+                    deferred
+                        .iter()
+                        .all(|entry| entry["path"].as_str() != Some(source))
+                );
+            }
             _ => bail!("unrecognized exclusion: {source}: {reason}"),
         }
     }

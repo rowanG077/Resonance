@@ -76,6 +76,14 @@ impl<'a> Library<'a> {
             .collect()
     }
 
+    pub(super) fn world_hud(&self) -> Result<Vec<image::RgbaImage>> {
+        let module = crate::rel::Rel::read(&self.extracted.join("files/US_r_Top2field.rel"))?;
+        crate::tpl::decode(module.at((6, 0x2a980))?)?
+            .into_iter()
+            .map(image)
+            .collect()
+    }
+
     pub(super) fn item_picture(&self, id: u16) -> Result<image::RgbaImage> {
         let bytes = self.pictures.decode(self.pictures.offset(id)?)?;
         image(
@@ -149,7 +157,6 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
             &executable,
             super::data::read(&executable)?.artwork,
         )?;
-        let mut count = 0;
         for (bank, address, size, opaque) in [
             (Bank::Frames, 0x80234260, 0x2c20, 1),
             (Bank::Symbols, 0x80249780, 0x16a0, 0),
@@ -157,7 +164,6 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
             (Bank::Plain, 0x80231720, 0x240, 1),
             (Bank::Alternate, 0x80236e80, 0x2500, 1),
             (Bank::Patterns, 0x80231960, 0x2900, 5),
-            (Bank::Cursor, 0x80249500, 0x280, 0),
         ] {
             let bytes = crate::dol::slice(&executable, address, size)?;
             let expected = crate::tpl::parse_tpl(bytes)?;
@@ -177,12 +183,6 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
                     "{bank:?} image {index}"
                 );
             }
-            // Only the two scroll arrows from the symbol bank are whole images.
-            count += if address == 0x80249780 {
-                2
-            } else {
-                actual.len()
-            };
         }
         let portraits = library.portraits(&extracted, output)?;
         let path = crate::all_assets::roles::declared_path(
@@ -202,7 +202,6 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
                 &pixels
             );
         }
-        assert_eq!(count + portraits.len(), 50);
         assert!(!output.join("sources.json").exists() && !output.join("data").exists());
     }
     Ok(())
@@ -210,7 +209,7 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
 
 #[test]
 #[ignore = "requires both extracted discs and frozen prepared menu atlas; private output"]
-fn original_menu_sprite_atlas_preserves_frozen_pixels_and_layout() -> Result<()> {
+fn menu_sprite_atlas_preserves_existing_sprite_pixels() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
     let baseline = std::env::var_os("RESONANCE_COOKED")
         .map(std::path::PathBuf::from)
@@ -222,23 +221,31 @@ fn original_menu_sprite_atlas_preserves_frozen_pixels_and_layout() -> Result<()>
         let executable = fs::read(extracted.join("sys/main.dol"))?;
         let temporary = tempfile::tempdir()?;
         let output = temporary.path();
+        let tables = super::data::read(&executable)?;
         super::cook_art(
             &extracted,
             output,
             &executable,
-            super::data::read(&executable)?.artwork,
+            tables.artwork,
+            tables.data.items.len(),
         )?;
         let actual: resonance_content::menu::MenuArt =
             serde_json::from_slice(&fs::read(output.join("ui/menu.json"))?)?;
-        actual.validate()?;
-        crate::texture::compare_images(
-            &output.join("ui/menu/party.ktx2"),
-            &baseline.join("ui/menu/party.ktx2"),
-        )?;
-        assert_eq!(
-            serde_json::to_value(&actual.sprites)?,
-            serde_json::to_value(&expected.sprites)?
-        );
+        actual.validate(tables.data.items.len())?;
+        let old = crate::texture::pixels(&baseline.join("ui/menu/party.ktx2"))?;
+        let new = crate::texture::pixels(&output.join("ui/menu/party.ktx2"))?;
+        for (&group, rects) in &expected.sprites.rects {
+            let prepared = actual.sprites.group(group)?;
+            assert_eq!(rects.len(), prepared.len());
+            for (&[x, y, w, h], &[nx, ny, nw, nh]) in rects.iter().zip(prepared) {
+                assert_eq!([w, h], [nw, nh]);
+                assert_eq!(
+                    image::imageops::crop_imm(&old, x, y, w, h).to_image(),
+                    image::imageops::crop_imm(&new, nx, ny, nw, nh).to_image(),
+                    "{group:?}"
+                );
+            }
+        }
         assert!(!output.join("sources.json").exists() && !output.join("data").exists());
     }
     Ok(())

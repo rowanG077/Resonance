@@ -1,7 +1,10 @@
 //! Shared field dependencies prepared once before any field is assembled.
 use anyhow::Result;
 use resonance_content::font::{BitmapFont, TextSpan};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 pub(crate) struct Prepared {
     pub catalogue: crate::resource::Catalogue,
@@ -13,21 +16,36 @@ pub(crate) struct Prepared {
     pub save_point_tutorial: Vec<TextSpan>,
     pub save_point_unlock: Vec<TextSpan>,
     pub save_point_no_gem: Vec<TextSpan>,
-    pub files: BTreeMap<String, String>,
+    pub files: BTreeSet<String>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Preparation borrows independently owned content and runtime resources."
+)]
 pub(crate) fn prepare(
     extracted: &Path,
     output: &Path,
     sources: &BTreeMap<String, String>,
     executable: &[u8],
     catalogues: &crate::all_assets::Catalogues,
+    battle_sources: &crate::source_assets::Sources,
+    usual: &[u8],
+    skits: &crate::skit::Source,
 ) -> Result<Prepared> {
     let crate::font::PreparedDialogue { font, art } = crate::font::prepare(extracted, output)?;
-    crate::menu::cook(extracted, output, executable, catalogues)?;
+    crate::menu::cook(
+        extracted,
+        output,
+        executable,
+        catalogues,
+        battle_sources,
+        usual,
+    )?;
+    let techniques = crate::arte::publish(&catalogues.menu.arte, output)?;
     let session = crate::session::cook(executable, &catalogues.menu, output)?;
     let text = crate::session::cook_text(executable, &catalogues.menu, output)?;
-    let skits = crate::skit::cook(extracted, output)?;
+    let skits = skits.publish(extracted, output)?;
     crate::all_assets::credits::prepare(output, executable, sources)?;
     let effects = crate::field_effects::cook(extracted, output)?;
     let toon_ramp = crate::field_lighting::cook(extracted, output)?;
@@ -52,6 +70,12 @@ pub(crate) fn prepare(
         "ui/story-subtitles.json".into(),
         "ui/menu.json".into(),
         "game/menu-data.json".into(),
+        resonance_content::menu_data::MANUAL_PATH.into(),
+        resonance_content::menu_data::FIGURINES_PATH.into(),
+        resonance_content::menu_data::SYNOPSIS_PATH.into(),
+        resonance_content::menu_data::CUSTOMIZE_PATH.into(),
+        resonance_content::menu_data::RENAME_PATH.into(),
+        techniques,
         art.font,
         art.cursor.path,
         font.texture.clone(),
@@ -70,8 +94,7 @@ pub(crate) fn prepare(
             .filter(|(path, _)| path.ends_with(".sym"))
             .map(|(path, _)| format!("scripts/{path}")),
     )
-    .map(|path| Ok((path.clone(), crate::media::hash_file(&output.join(path))?)))
-    .collect::<Result<_>>()?;
+    .collect();
     let mut texture_animations = crate::texture_animation::field::profiles();
     texture_animations.extend(crate::texture_animation::title_profiles(executable)?);
     Ok(Prepared {

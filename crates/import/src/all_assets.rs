@@ -127,6 +127,8 @@ struct Disc<'a> {
     movies: Vec<File>,
     executable_hash: String,
     skit_key: String,
+    battle_sources: crate::source_assets::Sources,
+    usual: Vec<u8>,
 }
 
 struct Document {
@@ -199,6 +201,21 @@ impl Job {
     }
 }
 
+fn shared_voice_inputs(
+    requested: &BTreeSet<(String, usize)>,
+    voices: &BTreeMap<(String, usize), pool::Output<CookedJob>>,
+) -> Result<Vec<pool::Output<CookedJob>>> {
+    requested
+        .iter()
+        .map(|key @ (hash, member)| {
+            voices
+                .get(key)
+                .copied()
+                .with_context(|| format!("unqueued skit voice {hash}/{member}"))
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Exclusion {
@@ -206,12 +223,15 @@ pub enum Exclusion {
     BuildMetadata,
     DiscMetadata,
     BattleSemantics,
+    /// Group templates are intentionally omitted: native results use the 54
+    /// descriptors and voices with ordinary prepared actor poses.
+    NativeResultSequence,
 }
 
 /// Bound simultaneous decoded assets while leaving headroom for codec workers.
 pub const MAX_WORKERS: usize = 11;
 
-fn source_discs(paths: &[PathBuf]) -> Result<BTreeMap<u8, &Path>> {
+pub(crate) fn source_discs(paths: &[PathBuf]) -> Result<BTreeMap<u8, &Path>> {
     ensure!(!paths.is_empty(), "no extracted discs supplied");
     let mut discs = BTreeMap::new();
     for path in paths {
@@ -231,16 +251,6 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         "worker count must be 1..={MAX_WORKERS}"
     );
     let discs = source_discs(options.discs)?;
-    let output_session = media::OutputSession::open(options.output)?;
-    let _publications = crate::publication::Session::start_if_needed(options.output)?;
-    let catalogue = options.output.join("sources.json");
-    for path in [&catalogue, &options.output.join("coverage.json")] {
-        match fs::remove_file(path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error).context("invalidate previous cook result"),
-        }
-    }
     let documents = read_documents(&discs)?;
     // Workers convert assets in-process; the caller collects results.
     let workers = options.jobs;
@@ -296,6 +306,16 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 "conflicting resource roles for {}: {previous:?} and {role:?}",
                 path.display()
             );
+        }
+    }
+    let output_session = media::OutputSession::open(options.output)?;
+    let _publications = crate::publication::Session::start_if_needed(options.output)?;
+    let catalogue = options.output.join("sources.json");
+    for path in [&catalogue, &options.output.join("coverage.json")] {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).context("invalidate previous cook result"),
         }
     }
     let mut report = Report::default();
@@ -372,8 +392,9 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             }
         }
         let mut jobs = Vec::new();
-        let deferred_sources =
-            crate::source_assets::Sources::read_with(extracted, executable)?.deferred_paths();
+        let battle_sources = crate::source_assets::Sources::read_with(extracted, executable)?;
+        let usual = fs::read(extracted.join("files").join(&battle_sources.usual))?;
+        let deferred_sources = battle_sources.deferred_paths();
         let audio = audio::Cooker::new(extracted, &output_session, &hashed);
         let mut movies = Vec::new();
         for (relative, mut hash) in hashed {
@@ -412,14 +433,16 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 );
                 continue;
             }
-            if deferred_sources.contains(&relative)
-                || matches!(role, Some(Role::Victory | Role::BattleSkit))
-            {
+            if role == Some(Role::BattleSkit) {
+                excluded.insert(label, Exclusion::NativeResultSequence);
+                continue;
+            }
+            if deferred_sources.contains(&relative) || role == Some(Role::Victory) {
                 excluded.insert(label.clone(), Exclusion::BattleSemantics);
                 report.deferred.push(DeferredAsset {
                     path: label,
                     source_sha256: Some(hash.clone()),
-                    reason: "battle gameplay, effects and presentation are deferred; shared menu/audio readers may consume this source".into(),
+                    reason: "battle gameplay resources are deferred".into(),
                 });
                 continue;
             }
@@ -496,6 +519,8 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 movies,
                 executable_hash,
                 skit_key,
+                battle_sources,
+                usual,
             },
         );
     }
@@ -503,6 +528,21 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     let (&primary_disc, &primary) = discs.first_key_value().context("no source disc")?;
     let overworld =
         overworld_preparation::discover(primary, &sources, &documents[&primary_disc].executable)?;
+    let skits = (|| -> Result<_> {
+        let source = crate::skit::Source::read(primary, &documents[&primary_disc].executable)?;
+        let requested = source
+            .voice_members(primary)?
+            .into_iter()
+            .map(|(path, member)| {
+                let label = format!("disc{primary_disc}/{path}");
+                let hash = sources
+                    .get(&label)
+                    .with_context(|| format!("missing skit voice source {label}"))?;
+                Ok((hash.clone(), member))
+            })
+            .collect::<Result<BTreeSet<_>>>()?;
+        Ok((source, requested))
+    })();
     let required = fields
         .iter()
         .flat_map(|field| field.dependencies.iter().cloned())
@@ -515,8 +555,8 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     // Publish independent packages before retaining the shared inputs and field archives.
     all_jobs.sort_by_key(|(_, job)| {
         (
+            matches!(job, Job::File(_)) && required.contains(job.output_key()),
             maps.contains_key(job.output_key()),
-            required.contains(job.output_key()),
         )
     });
     let aliases = sources.iter().fold(
@@ -538,23 +578,31 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     );
     let started = AtomicUsize::new(0);
     let mut dag = pool::Dag::new();
-    let mut physical_packages = Vec::<pool::Output<CookedJob>>::new();
+    let mut voices = BTreeMap::new();
     let mut shared = None;
     for (disc, job) in &all_jobs {
         let (pending, started, maps, aliases) = (&pending, &started, &maps, &aliases);
-        let retain = required.contains(job.output_key());
+        let retain = matches!(job, Job::File(_)) && required.contains(job.output_key());
         if retain && shared.is_none() {
             let documents = &documents;
             let sources = &sources;
-            let inputs = physical_packages.clone();
+            let skits = &skits;
+            let inputs = skits
+                .as_ref()
+                .map_err(|error| anyhow::anyhow!("{error:#}"))
+                .and_then(|(_, requested)| shared_voice_inputs(requested, &voices));
             let prepared = dag.add(
                 "shared presentation",
                 inputs
                     .iter()
+                    .flatten()
                     .map(|job| job.dependency())
                     .collect::<Vec<_>>(),
                 move |_, resolver| {
-                    for input in &inputs {
+                    let inputs = inputs
+                        .as_ref()
+                        .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+                    for input in inputs {
                         resolver.get(*input)?.require_success()?;
                     }
                     let document = &documents[&primary_disc];
@@ -564,6 +612,12 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                         sources,
                         &document.executable,
                         &document.catalogues,
+                        &pending[&primary_disc].battle_sources,
+                        &pending[&primary_disc].usual,
+                        &skits
+                            .as_ref()
+                            .map_err(|error| anyhow::anyhow!("{error:#}"))?
+                            .0,
                     )?;
                     for document in documents.values() {
                         ensure!(
@@ -578,72 +632,72 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             shared = Some(prepared);
         }
         let job_count = all_jobs.len();
-        let handle = dag.add(
-            format!("disc{disc}/{}", job.label()),
-            shared.map(|shared| shared.dependency()),
-            move |_, _| {
-                let source = &pending[disc];
-                let extracted = source.extracted;
-                let audio = &source.audio;
-                let count = started.fetch_add(1, Ordering::Relaxed) + 1;
-                if count == 1 || count.is_multiple_of(100) {
-                    eprintln!("Starting job {count}/{}", job_count);
-                }
-                let mut local = Report::default();
-                let mut decoded = crate::scene::decoded::Package::default();
-                let paths = match job {
-                    Job::Voice { member, .. } => audio
-                        .as_ref()
-                        .map_err(|error| anyhow::anyhow!("{error:#}"))?
-                        .cook_member(member)?,
-                    Job::File(file) => match cook_file(
-                        options,
-                        extracted,
-                        file,
-                        audio,
-                        &mut local,
-                        PackageInput {
-                            map: maps.get(&file.hash).map(Arc::as_ref),
-                            models: &mut decoded,
-                            aliases: aliases
-                                .get(&file.hash)
-                                .filter(|_| retain)
-                                .map(Vec::as_slice)
-                                .unwrap_or_default(),
-                        },
-                    ) {
-                        Ok(paths) => paths,
-                        Err(error) => {
-                            local.record(&format!("disc{disc}/{}", file.relative), Err(error));
-                            Vec::new()
-                        }
+        let handle = dag.add(format!("disc{disc}/{}", job.label()), [], move |_, _| {
+            let source = &pending[disc];
+            let extracted = source.extracted;
+            let audio = &source.audio;
+            let count = started.fetch_add(1, Ordering::Relaxed) + 1;
+            if count == 1 || count.is_multiple_of(100) {
+                eprintln!("Starting job {count}/{}", job_count);
+            }
+            let mut local = Report::default();
+            let mut decoded = crate::scene::decoded::Package::default();
+            let paths = match job {
+                Job::Voice { member, .. } => audio
+                    .as_ref()
+                    .map_err(|error| anyhow::anyhow!("{error:#}"))?
+                    .cook_member(member)?,
+                Job::File(file) => match cook_file(
+                    options,
+                    extracted,
+                    file,
+                    audio,
+                    &mut local,
+                    PackageInput {
+                        map: maps.get(&file.hash).map(Arc::as_ref),
+                        models: &mut decoded,
+                        aliases: aliases
+                            .get(&file.hash)
+                            .filter(|_| retain)
+                            .map(Vec::as_slice)
+                            .unwrap_or_default(),
                     },
-                };
-                if let Job::File(file) = job {
-                    for deferred in &mut local.deferred {
-                        if !deferred.path.starts_with(&format!("disc{disc}/")) {
-                            deferred.path.insert_str(0, &format!("disc{disc}/"));
-                        }
-                        deferred.source_sha256 = Some(file.hash.clone());
+                ) {
+                    Ok(paths) => paths,
+                    Err(error) => {
+                        local.record(&format!("disc{disc}/{}", file.relative), Err(error));
+                        Vec::new()
                     }
+                },
+            };
+            if let Job::File(file) = job {
+                for deferred in &mut local.deferred {
+                    if !deferred.path.starts_with(&format!("disc{disc}/")) {
+                        deferred.path.insert_str(0, &format!("disc{disc}/"));
+                    }
+                    deferred.source_sha256 = Some(file.hash.clone());
                 }
-                let succeeded = local.failures.is_empty();
-                local.cooked += usize::from(succeeded && !paths.is_empty());
-                Ok(CookedJob {
-                    key: job.output_key().to_owned(),
-                    paths,
-                    report: local,
-                    decoded: Arc::new(if retain { decoded } else { Default::default() }),
-                })
-            },
-        );
+            }
+            let succeeded = local.failures.is_empty();
+            local.cooked += usize::from(succeeded && !paths.is_empty());
+            Ok(CookedJob {
+                key: job.output_key().to_owned(),
+                paths,
+                report: local,
+                decoded: Arc::new(if retain { decoded } else { Default::default() }),
+            })
+        });
         dag.estimate(
             handle,
             if retain { 16 * 1024 * 1024 } else { 4096 },
             64 * 1024 * 1024,
         )?;
-        if !retain {
-            physical_packages.push(handle);
+        if let Job::Voice { member, hash } = job {
+            ensure!(
+                voices.insert((hash.clone(), member.id), handle).is_none(),
+                "duplicate skit voice job {hash}/{}",
+                member.id
+            );
         }
         packages.insert(job.output_key().to_owned(), handle);
     }
@@ -741,7 +795,8 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         },
     );
     dag.estimate(world_task, 0, 256 * 1024 * 1024)?;
-    let mut prepared_fields = BTreeSet::new();
+    let mut prepared_fields = BTreeMap::new();
+    let mut shared_paths = BTreeSet::new();
     dag.run_bounded(
         workers,
         2 * 1024 * 1024 * 1024,
@@ -762,7 +817,9 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 }
                 report.merge(result.report.clone());
             } else if let Ok(field) = completion.result::<preparation::PreparedField>() {
-                prepared_fields.insert(field.0);
+                prepared_fields.insert(field.0, field.1.clone());
+            } else if let Ok(shared) = completion.result::<crate::shared::Prepared>() {
+                shared_paths.extend(shared.files.iter().cloned());
             }
         },
     )?;
@@ -841,10 +898,6 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 (
                     "event bank directory",
                     crate::event_bank_directory::Directory::cook(extracted, &table_output),
-                ),
-                (
-                    "stream mixer",
-                    crate::stream_mixer::Tables::cook(extracted, &table_output),
                 ),
                 (
                     "font directory",
@@ -934,7 +987,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         paths.sort();
         paths.dedup();
     }
-    let sources = sources
+    let mut sources = sources
         .into_iter()
         .map(|(source, hash)| {
             let paths = outputs.get(&hash).cloned().unwrap_or_default();
@@ -963,8 +1016,9 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             options,
             &fields,
             &prepared_fields,
+            &shared_paths,
             &output_session,
-            &sources,
+            &mut sources,
         ),
     );
     report.source_files = sources.len();
@@ -1076,9 +1130,13 @@ fn cook_file(
         write_atomic(&options.output.join(&path), &serde_json::to_vec(&credits)?)?;
         return Ok(vec![path]);
     }
-    if matches!(file.role, Some(Role::Victory | Role::BattleSkit)) {
-        return Err(Deferred("battle result and dialogue programs").into());
+    if file.role == Some(Role::Victory) {
+        return Err(Deferred("battle result programs").into());
     }
+    ensure!(
+        file.role != Some(Role::BattleSkit),
+        "excluded battle result template reached ordinary asset queue"
+    );
     ensure!(
         file.role != Some(Role::Font),
         "font reached ordinary asset queue"
@@ -1213,6 +1271,67 @@ pub(crate) fn cook_script(bytes: &[u8], name: &str, output: &Path) -> Result<boo
 mod tests {
     use super::*;
 
+    #[test]
+    fn shared_voice_dependencies_isolate_unrelated_and_shared_failures() -> Result<()> {
+        for selected_fails in [false, true] {
+            let mut dag = pool::Dag::new();
+            let selected = dag.add("selected voice", [], move |_, _| {
+                ensure!(!selected_fails, "selected voice failed");
+                Ok(CookedJob {
+                    key: "archive".into(),
+                    paths: vec!["selected.pcm".into()],
+                    report: Report::default(),
+                    decoded: Default::default(),
+                })
+            });
+            let other_member = dag.add("other member", [], |_, _| -> Result<CookedJob> {
+                anyhow::bail!("unrelated member failed")
+            });
+            let other_archive = dag.add("other archive", [], |_, _| -> Result<CookedJob> {
+                anyhow::bail!("unrelated archive failed")
+            });
+            let voices = BTreeMap::from([
+                (("archive".into(), 4), selected),
+                (("archive".into(), 5), other_member),
+                (("another".into(), 4), other_archive),
+            ]);
+            assert!(shared_voice_inputs(&[("archive".into(), 6)].into(), &voices).is_err());
+            let inputs = shared_voice_inputs(&[("archive".into(), 4)].into(), &voices)?;
+            let shared = dag.add(
+                "shared presentation",
+                inputs
+                    .iter()
+                    .map(|input| input.dependency())
+                    .collect::<Vec<_>>(),
+                move |_, resolver| {
+                    let voice = resolver.get(inputs[0])?;
+                    voice.require_success()?;
+                    ensure!(voice.paths == ["selected.pcm"], "wrong voice dependency");
+                    Ok(())
+                },
+            );
+            let physical = dag.add("field decoding", [], |_, _| Ok(()));
+            for input in [selected, other_member, other_archive] {
+                dag.estimate(input, 1, 1)?;
+            }
+            dag.estimate(shared, 1, 1)?;
+            dag.estimate(physical, 1, 1)?;
+            let mut completed = BTreeMap::new();
+            dag.run_bounded(
+                2,
+                8,
+                || (),
+                |result| {
+                    completed.insert(result.name.to_owned(), result.error().is_none());
+                },
+            )?;
+            assert_eq!(completed["shared presentation"], !selected_fails);
+            assert!(completed["field decoding"]);
+            assert!(!completed["other member"] && !completed["other archive"]);
+        }
+        Ok(())
+    }
+
     fn options(output: &Path) -> Options<'_> {
         Options {
             discs: &[],
@@ -1236,7 +1355,7 @@ mod tests {
             let mut file = File {
                 relative: "renamed/archive.song".into(),
                 hash: crate::digest(&bytes),
-                role: Some(Role::BattleSkit),
+                role: Some(Role::Victory),
             };
             fs::write(root.join("files").join(&file.relative), &bytes)?;
             let mut report = Report::default();
@@ -1386,7 +1505,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_discovery_invalidates_previous_success_markers() -> Result<()> {
+    fn failed_source_discovery_preserves_previous_success_markers() -> Result<()> {
         let root = tempfile::tempdir()?;
         let disc = root.path().join("disc");
         fs::create_dir_all(disc.join("sys"))?;
@@ -1396,14 +1515,21 @@ mod tests {
         for name in ["sources.json", "coverage.json"] {
             fs::write(output.join(name), b"previous result")?;
         }
+        let error = cook(&Options {
+            discs: &[disc],
+            ..options(&output)
+        })
+        .err()
+        .context("missing executable unexpectedly admitted")?;
         assert!(
-            cook(&Options {
-                discs: &[disc],
-                ..options(&output)
-            })
-            .is_err()
+            error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound)
         );
-        assert!(fs::read_dir(output)?.next().is_none());
+        for name in ["sources.json", "coverage.json"] {
+            assert_eq!(fs::read(output.join(name))?, b"previous result");
+        }
+        assert_eq!(fs::read_dir(output)?.count(), 2);
         Ok(())
     }
 

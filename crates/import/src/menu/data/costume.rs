@@ -38,8 +38,6 @@ mod tests {
         vec![
             vec![
                 Title {
-                    name: String::new(),
-                    description: String::new(),
                     growth: [0; 7],
                     costume: None,
                 };

@@ -203,6 +203,7 @@ pub(crate) fn from_package(
 mod tests {
     use super::*;
     use crate::read::u32 as word;
+    use std::fs;
 
     #[test]
     fn shared_menu_keeps_null_primary_extra_without_a_combat_visual() -> Result<()> {
