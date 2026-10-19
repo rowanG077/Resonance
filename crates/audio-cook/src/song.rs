@@ -54,7 +54,6 @@ pub struct Tempo {
 
 #[derive(Serialize, Deserialize)]
 pub struct Song {
-    pub has_master_track: bool,
     pub initial_bpm_1024: u32,
     pub loop_start_tick: u32,
     pub tempos: Vec<Tempo>,
@@ -171,7 +170,6 @@ impl Song {
         }
         ensure!(!tracks.is_empty(), "song has no tracks");
         Ok(Self {
-            has_master_track: read::u32(bytes, 12)? != 0,
             initial_bpm_1024,
             loop_start_tick,
             tempos,
@@ -179,8 +177,7 @@ impl Song {
         })
     }
 
-    /// First traversal only. Original equal-time insertion goes after existing
-    /// events, so simultaneous events from one track do not jump other tracks.
+    /// First traversal only. Equal-time events follow existing queue entries.
     pub fn events(&self) -> Vec<Event> {
         self.ordered_events(vec![0; self.tracks.len()])
     }
@@ -445,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn simultaneous_tracks_keep_original_queue_insertion_order() {
+    fn simultaneous_tracks_keep_queue_insertion_order() {
         let tracks = (0..2)
             .map(|id| Track {
                 id,
@@ -465,7 +462,6 @@ mod tests {
             })
             .collect();
         let mut song = Song {
-            has_master_track: false,
             initial_bpm_1024: 120 * 1024,
             loop_start_tick: 1,
             tempos: vec![],
@@ -588,7 +584,6 @@ mod tests {
             })
             .collect();
         let mut song = Song {
-            has_master_track: false,
             initial_bpm_1024: 140 * 1024,
             loop_start_tick: 1,
             tempos: vec![],
@@ -621,7 +616,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both extracted discs; audits all arrangements without audio playback"]
-    fn original_song_census_preserves_terminal_events_and_shared_loop_boundaries() -> Result<()> {
+    fn song_census_preserves_terminal_events_and_shared_loop_boundaries() -> Result<()> {
         use crate::{
             bank::{Channel, MusicSetup},
             compile,
@@ -660,7 +655,7 @@ mod tests {
                 }
                 let name = path.file_name().unwrap().to_str().unwrap();
                 let song = Song::parse(&fs::read(&path)?)?;
-                let score = compile::score(&song, &setup, |_, _, _, _| Ok(Vec::new()))?;
+                let score = compile::score(&song, &setup, |_, _, _| Ok(Vec::new()))?;
                 score
                     .validate(&resources)
                     .with_context(|| format!("disc{disc}/{name}"))?;

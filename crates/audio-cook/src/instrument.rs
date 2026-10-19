@@ -66,13 +66,10 @@ fn expand(
             let bytes = bank.object(ObjectKind::Keymap, id)?;
             let entry = pool::key(bytes, voice.key)?;
             let child = entry.object;
-            // The original rejects another keymap in this slot.
-            ensure!(child & 0xc000 != 0x4000, "keymap references another keymap");
             let voice = Voice {
                 key: (i16::from(voice.key) + i16::from(entry.transpose)).clamp(0, 127) as u8,
                 pan: panning(voice.pan, entry.pan),
-                priority: i16::from(voice.priority)
-                    .wrapping_add(entry.priority_delta)
+                priority: (i32::from(voice.priority) + i32::from(entry.priority_delta))
                     .clamp(0, 255) as u8,
                 ..voice
             };
@@ -89,18 +86,18 @@ fn expand(
                 {
                     continue;
                 }
-                // Original priority adjustments accumulate across matching layers.
-                priority = i16::from(priority)
-                    .wrapping_add(entry.priority_delta)
-                    .clamp(0, 255) as u8;
+                // Priority adjustments accumulate across matching layers.
+                priority =
+                    (i32::from(priority) + i32::from(entry.priority_delta)).clamp(0, 255) as u8;
                 expand(
                     bank,
                     child,
                     Voice {
                         key: (i16::from(voice.key) + i16::from(entry.transpose)).clamp(0, 127)
                             as u8,
-                        velocity: (u16::from(voice.velocity) * u16::from(entry.velocity_scale)
-                            / 127) as u8,
+                        velocity: (u32::from(voice.velocity) * u32::from(entry.velocity_scale)
+                            / 127)
+                            .min(127) as u8,
                         pan: panning(voice.pan, entry.pan),
                         priority,
                         ..voice

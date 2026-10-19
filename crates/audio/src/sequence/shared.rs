@@ -1,17 +1,17 @@
 //! Shared voice allocation, macro scheduling and randomness for music and sounds.
 //!
-//! The audio interrupt prepares five 1ms control passes before submitting a
-//! 160-frame DSP block. New cues enter the next unrendered block; a cue cannot
-//! insert a random draw into another cue's already prepared PCM.
-use super::{BusFrame, ClockStart, LiveControls, kernel::Kernel, stream::Owned};
+//! The mixer prepares five 32-frame control passes in a 160-frame PCM block.
+//! New cues enter the next unrendered block and cannot change queued PCM.
+use super::{BusFrame, LiveControls, kernel::Kernel, stream::Owned};
 use crate::{
-    data::{Command, Note, Resources, ScoreOrigin, VoiceSource},
+    BLOCK_FRAMES, CONTROLS_PER_BLOCK,
+    data::{Note, VoiceSource},
     package::Loaded,
 };
 use anyhow::{Result, ensure};
 use std::{
-    cmp::Reverse,
-    sync::{Arc, Mutex, Weak},
+    collections::VecDeque,
+    sync::{Arc, Mutex},
 };
 mod allocation;
 pub(crate) use allocation::Lease;
@@ -21,7 +21,6 @@ pub(crate) struct Control(Arc<Mutex<ControlState>>);
 struct ControlState {
     state: u32,
     draws: u64,
-    order: u64,
     pool: allocation::Pool,
     variables: [i32; 16],
 }
@@ -30,7 +29,6 @@ impl Default for Control {
         Self(Arc::new(Mutex::new(ControlState {
             state: 1,
             draws: 0,
-            order: 0,
             pool: Default::default(),
             variables: [0; 16],
         })))
@@ -59,26 +57,33 @@ impl Control {
     pub(crate) fn below(&self, upper: u16) -> u16 {
         self.next() % upper
     }
-    pub(crate) fn schedule(&self) -> u64 {
+    pub(super) fn allocate(
+        &self,
+        source: VoiceSource,
+        note: Note,
+        priority: Option<u16>,
+    ) -> Option<Lease> {
         let mut state = self.0.lock().expect("synthesizer control lock poisoned");
-        state.order += 1;
-        state.order
+        state.pool.allocate(
+            source,
+            priority.unwrap_or(u16::from(note.priority)),
+            note.max_voices,
+        )
     }
-    pub(super) fn allocate(&self, source: VoiceSource, note: Note) -> Option<(Lease, u32)> {
+    pub(super) fn free(&self, lease: Lease) {
         let mut state = self.0.lock().expect("synthesizer control lock poisoned");
-        state.pool.allocate(source, note.priority, note.max_voices)
+        state.pool.free(lease);
     }
-    pub(super) fn free(&self, lease: Lease, voice: &crate::music_voice::Voice<'_>) {
-        let mut state = self.0.lock().expect("synthesizer control lock poisoned");
-        state.pool.retain_mailbox(lease, voice.mailbox_state());
-        state.pool.free(lease, voice.retained_lfo());
-    }
-    pub(super) fn child(&self, parent: Lease, note: Note) -> Option<(Lease, u32)> {
+    pub(super) fn child(&self, parent: Lease, note: Note, priority: Option<u16>) -> Option<Lease> {
         self.0
             .lock()
             .expect("synthesizer control lock poisoned")
             .pool
-            .child(parent, note.priority, note.max_voices)
+            .child(
+                parent,
+                priority.unwrap_or(u16::from(note.priority)),
+                note.max_voices,
+            )
     }
     pub(super) fn owns(&self, lease: Lease) -> bool {
         self.0
@@ -87,13 +92,6 @@ impl Control {
             .pool
             .owns(lease)
     }
-    pub(super) fn current(&self, lease: Lease) -> bool {
-        self.0
-            .lock()
-            .expect("synthesizer control lock poisoned")
-            .pool
-            .current(lease)
-    }
     pub(super) fn handle(&self, lease: Lease) -> u32 {
         self.0
             .lock()
@@ -101,7 +99,7 @@ impl Control {
             .pool
             .handle(lease)
     }
-    fn resolve(&self, handle: u32) -> Result<Option<Lease>> {
+    fn resolve(&self, handle: u32) -> Option<Lease> {
         self.0
             .lock()
             .expect("synthesizer control lock poisoned")
@@ -113,72 +111,19 @@ impl Control {
         lease: Lease,
         voice: &crate::music_voice::Voice<'_>,
         initialized: bool,
+        priority: Option<u16>,
     ) {
+        let (authored, age) = voice.allocation_priority();
         self.0
             .lock()
             .expect("synthesizer control lock poisoned")
             .pool
             .update(
                 lease,
-                voice.allocation_priority(),
-                voice.retained_lfo(),
+                (priority.unwrap_or(u16::from(authored)), age),
                 initialized,
             );
     }
-}
-
-fn draws_random(command: &Command) -> bool {
-    matches!(
-        command,
-        Command::RandomWait { .. }
-            | Command::RandomNote { .. }
-            | Command::RandomBranch { .. }
-            | Command::RandomLoop { .. }
-    )
-}
-
-pub(crate) fn uses_random(resources: &Resources) -> bool {
-    resources.programs.values().flatten().any(draws_random)
-}
-
-pub(crate) fn requires_shared(resources: &Resources) -> bool {
-    uses_random(resources)
-        || resources.programs.values().flatten().any(|command| {
-            matches!(
-                command,
-                Command::SpawnMacro { .. }
-                    | Command::VoiceHandle { .. }
-                    | Command::SendMessage { .. }
-                    | Command::ReceiveMessage { .. }
-                    | Command::MessageTrap { .. }
-                    | Command::ClearMessageTrap
-            ) || command.variables().into_iter().flatten().any(|variable| {
-                matches!(
-                    variable,
-                    crate::data::Variable::Global(_) | crate::data::Variable::Controller(_)
-                )
-            })
-        })
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Wake {
-    Timer { deadline: u64, order: u64 },
-    Runnable(u64),
-}
-impl Wake {
-    fn key(self, offset: u64) -> (u8, Reverse<u64>, u64) {
-        match self {
-            Self::Timer { deadline, order } => (0, Reverse(offset + deadline), order),
-            Self::Runnable(order) => (1, Reverse(order), 0),
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct VoiceKey {
-    cue: u64,
-    slot: Lease,
 }
 
 #[derive(Clone, Default)]
@@ -188,34 +133,55 @@ struct State {
     random: Control,
     entries: Vec<Entry>,
     frame: u64,
-    next_id: u64,
-    studio: Vec<VoiceKey>,
+    releases: Vec<crate::release::Release>,
+    release_frame: BusFrame,
 }
 struct Entry {
-    id: u64,
     state: Owned,
-    output: Weak<Mutex<Output>>,
-    started_at: Option<u64>,
+    output: Arc<Mutex<Output>>,
 }
 struct Output {
-    controls: [LiveControls; 5],
-    block: [BusFrame; 160],
+    controls: [LiveControls; CONTROLS_PER_BLOCK],
+    block: [BusFrame; BLOCK_FRAMES],
     length: usize,
     cursor: usize,
+    frame: u64,
+    last_read: Option<u64>,
     started: bool,
+    paused: bool,
+    sequence: bool,
 }
 pub(super) struct Stream(Arc<Mutex<Output>>);
 
 impl State {
+    fn fail(&mut self, index: usize, error: anyhow::Error, errors: &mut Vec<anyhow::Error>) {
+        let entry = &mut self.entries[index];
+        entry.state.with_dependent_mut(|_, kernel| kernel.abort());
+        let mut output = entry.output.lock().expect("shared stream lock poisoned");
+        if output.started && output.cursor < output.length {
+            self.releases
+                .push(crate::release::Release::new(output.block[output.cursor], 0));
+        }
+        output.length = 0;
+        output.started = true;
+        errors.push(error.context(format!(
+            "audio {:?} entry at source frame {}",
+            entry.state.borrow_owner().score().origin,
+            self.frame
+        )));
+    }
+
     fn send_message(
         &mut self,
         target: crate::music_voice::MessageTarget,
         value: i32,
-    ) -> Result<()> {
+        full_mailboxes: &mut Vec<Lease>,
+        errors: &mut Vec<anyhow::Error>,
+    ) {
         let mut targets = Vec::new();
         match target {
             crate::music_voice::MessageTarget::Handle(handle) => {
-                if let Some(lease) = self.random.resolve(handle)? {
+                if let Some(lease) = self.random.resolve(handle) {
                     for (index, entry) in self.entries.iter().enumerate() {
                         if entry
                             .state
@@ -233,65 +199,33 @@ impl State {
                         targets.extend(kernel.macro_members(program).map(|lease| (lease, index)));
                     });
                 }
-                targets.sort_unstable_by_key(|&(lease, _)| lease.slot);
             }
         }
         for (lease, index) in targets {
-            self.entries[index]
+            if full_mailboxes.contains(&lease) {
+                continue;
+            }
+            if let Err(error) = self.entries[index]
                 .state
-                .with_dependent_mut(|_, kernel| kernel.send_message(lease, value));
-        }
-        Ok(())
-    }
-
-    fn priority(&self, key: VoiceKey) -> Option<u32> {
-        self.entries
-            .iter()
-            .find(|entry| entry.id == key.cue)?
-            .state
-            .with_dependent(|_, kernel| kernel.source_priority(key.slot))
-    }
-
-    fn remove_inactive_sources(&mut self) {
-        let entries = &self.entries;
-        self.studio.retain(|key| {
-            entries
-                .iter()
-                .find(|entry| entry.id == key.cue)
-                .is_some_and(|entry| {
-                    entry
-                        .state
-                        .with_dependent(|_, kernel| kernel.source_priority(key.slot).is_some())
-                })
-        });
-    }
-
-    fn update_sources(&mut self) {
-        let mut changes = Vec::new();
-        for entry in &mut self.entries {
-            entry.state.with_dependent_mut(|_, kernel| {
-                changes.extend(kernel.source_changes().filter_map(|(slot, order, start)| {
-                    start.then_some((
-                        order,
-                        VoiceKey {
-                            cue: entry.id,
-                            slot,
-                        },
-                    ))
-                }));
-            });
-        }
-        changes.sort_by_key(|&(order, _)| Reverse(order));
-        for (_, key) in changes {
-            self.studio.retain(|&old| old != key);
-            if self.priority(key).is_some() {
-                self.studio.insert(0, key);
+                .with_dependent_mut(|_, kernel| kernel.send_message(lease, value))
+            {
+                full_mailboxes.push(lease);
+                errors.push(error.context(format!(
+                    "audio message recipient at source frame {}",
+                    self.frame
+                )));
             }
         }
-        self.remove_inactive_sources();
     }
 
-    fn apply_group(&mut self, caller: usize, slot: Lease, group: u8, kill: bool) -> Result<()> {
+    fn apply_group(
+        &mut self,
+        caller: usize,
+        slot: Lease,
+        group: u8,
+        kill: bool,
+        errors: &mut Vec<anyhow::Error>,
+    ) {
         let mut members = Vec::new();
         for (index, entry) in self.entries.iter().enumerate() {
             entry.state.with_dependent(|_, kernel| {
@@ -303,97 +237,148 @@ impl State {
                 );
             });
         }
-        members.sort_unstable_by_key(|&(slot, _)| slot.slot);
         for (slot, index) in members {
-            self.entries[index]
+            if !self.entries[index]
                 .state
-                .with_dependent_mut(|_, kernel| kernel.apply_group(slot, kill))?;
+                .with_dependent(|_, kernel| kernel.contains(slot))
+            {
+                continue;
+            }
+            if let Err(error) = self.entries[index]
+                .state
+                .with_dependent_mut(|_, kernel| kernel.apply_group(slot, kill))
+            {
+                self.fail(index, error, errors);
+            }
         }
-        Ok(())
     }
 }
 
 impl Synthesizer {
     pub(super) fn start(&self, loaded: Arc<Loaded>, looping: bool) -> Result<Stream> {
+        self.start_recorded(loaded, looping, false)
+    }
+
+    pub(super) fn start_recorded(
+        &self,
+        loaded: Arc<Loaded>,
+        looping: bool,
+        record: bool,
+    ) -> Result<Stream> {
         let mut shared = self.0.lock().expect("synthesizer lock poisoned");
-        shared.entries.retain(|e| e.output.strong_count() != 0);
-        ensure!(
-            shared.entries.len() < 64,
-            "shared synthesizer cue budget exhausted"
-        );
         let random = shared.random.clone();
         let state = Owned::try_new(loaded, |loaded| {
-            let mut kernel = Kernel::new(
-                &loaded.resources,
-                &loaded.score,
-                &loaded.tables,
-                None,
+            Kernel::new(
+                loaded.resources(),
+                loaded.score(),
+                loaded.tables(),
                 looping,
-                ClockStart::Running,
-            )?;
-            kernel.set_random(random);
-            Ok::<_, anyhow::Error>(kernel)
+                random,
+                record,
+            )
         })?;
         let output = Arc::new(Mutex::new(Output {
-            controls: [LiveControls::default(); 5],
-            block: [[[0; 2]; 3]; 160],
+            controls: [LiveControls::default(); CONTROLS_PER_BLOCK],
+            block: [[[0; 2]; 3]; BLOCK_FRAMES],
             length: 0,
             cursor: 0,
+            frame: 0,
+            last_read: None,
             started: false,
+            paused: false,
+            sequence: state.borrow_owner().score().origin == crate::data::ScoreOrigin::Sequence,
         }));
-        let id = shared.next_id;
-        shared.next_id += 1;
         shared.entries.push(Entry {
-            id,
             state,
-            output: Arc::downgrade(&output),
-            started_at: None,
+            output: output.clone(),
         });
         Ok(Stream(output))
     }
 
+    pub(super) fn take_preview(&self, stream: &Stream) -> Option<super::Preview> {
+        self.0
+            .lock()
+            .expect("synthesizer lock poisoned")
+            .entries
+            .iter_mut()
+            .find(|entry| Arc::ptr_eq(&entry.output, &stream.0))
+            .and_then(|entry| {
+                entry
+                    .state
+                    .with_dependent_mut(|_, kernel| kernel.take_preview())
+            })
+    }
+
     /// Set all players' controls before this call, then read their current frame.
-    /// Call once for every 32kHz mixer frame, including silence between cues.
+    /// Call once for every source-rate frame, including silence between cues.
     pub fn advance(&self) -> Result<()> {
         let mut shared = self.0.lock().expect("synthesizer lock poisoned");
-        let cursor = (shared.frame % 160) as usize;
+        let cursor = (shared.frame % BLOCK_FRAMES as u64) as usize;
+        let mut errors = Vec::new();
         if cursor == 0 {
-            shared.entries.retain(|e| e.output.strong_count() != 0);
-            let frame = shared.frame;
+            shared.entries.retain(|entry| {
+                Arc::strong_count(&entry.output) > 1
+                    || entry
+                        .state
+                        .with_dependent(|_, kernel| !kernel.output_complete())
+            });
             for entry in &mut shared.entries {
-                entry.started_at.get_or_insert(frame);
+                let owned = Arc::strong_count(&entry.output) > 1;
+                let paused = entry
+                    .output
+                    .lock()
+                    .expect("shared stream lock poisoned")
+                    .paused;
+                entry.state.with_dependent_mut(|_, kernel| {
+                    if !owned && !kernel.output_complete() {
+                        kernel.stop();
+                    } else if owned {
+                        kernel.pause(paused);
+                    }
+                });
             }
-            // Sound effects allocate in request order before the sequence pass.
-            // Newly started sequences enter the head of the sequence list.
-            let sound_effect = |index: usize| {
-                shared.entries[index].state.borrow_owner().score.origin == ScoreOrigin::SoundEffect
-            };
-            let preparation_order: Vec<_> = (0..shared.entries.len())
-                .filter(|&index| sound_effect(index))
-                .chain(
-                    (0..shared.entries.len())
-                        .rev()
-                        .filter(|&index| !sound_effect(index)),
-                )
-                .collect();
-            for ms in 0..5 {
-                for &index in &preparation_order {
-                    let entry = &mut shared.entries[index];
-                    let controls = entry
-                        .output
-                        .upgrade()
-                        .map(|output| {
-                            let controls =
-                                output.lock().expect("shared stream lock poisoned").controls[ms];
-                            LiveControls {
-                                release: controls.release && ms == 0,
-                                ..controls
-                            }
-                        })
-                        .unwrap_or_default();
+            let completed_before: Vec<_> = shared
+                .entries
+                .iter()
+                .map(|entry| {
                     entry
                         .state
-                        .with_dependent_mut(|_, kernel| kernel.prepare_millisecond(controls))?;
+                        .with_dependent(|_, kernel| kernel.output_complete())
+                })
+                .collect();
+            for quantum in 0..CONTROLS_PER_BLOCK {
+                // Refresh all priorities before any stream admits notes this quantum.
+                for entry in &mut shared.entries {
+                    let priority = entry
+                        .output
+                        .lock()
+                        .expect("shared stream lock poisoned")
+                        .controls[quantum]
+                        .priority;
+                    entry
+                        .state
+                        .with_dependent_mut(|_, kernel| kernel.set_priority(priority));
+                }
+                for index in 0..shared.entries.len() {
+                    let controls = {
+                        let output = shared.entries[index]
+                            .output
+                            .lock()
+                            .expect("shared stream lock poisoned");
+                        let input = output.controls[quantum];
+                        LiveControls {
+                            // One release per block, at the first requested control quantum.
+                            release: input.release
+                                && !output.controls[..quantum].iter().any(|c| c.release),
+                            ..input
+                        }
+                    };
+                    if let Err(error) = shared.entries[index]
+                        .state
+                        .with_dependent_mut(|_, kernel| kernel.prepare_controls(controls))
+                    {
+                        shared.fail(index, error, &mut errors);
+                    }
                 }
                 let mut ready = Vec::new();
                 for entry in &mut shared.entries {
@@ -403,109 +388,146 @@ impl Synthesizer {
                 }
                 for (index, entry) in shared.entries.iter().enumerate() {
                     entry.state.with_dependent(|_, kernel| {
-                        ready.extend(kernel.wakes().map(|(slot, wake)| {
-                            (wake.key(entry.started_at.unwrap() * 8), index, slot)
-                        }));
+                        ready.extend(kernel.ready_voices().map(|slot| (index, slot)));
                     });
                 }
-                ready.sort_by_key(|&(key, _, _)| key);
-                for entry in &mut shared.entries {
-                    entry
-                        .state
-                        .with_dependent_mut(|_, kernel| kernel.wake_timers());
-                }
-                // Snapshot this pass: group callbacks prepended during dispatch
-                // run next millisecond; already-runnable targets retain their place.
-                for (_, index, slot) in ready {
+                // Creation order is deterministic. Children and delivered messages
+                // become runnable in the next quantum, after this snapshot.
+                let mut messages = VecDeque::new();
+                let mut message_counts = vec![0; shared.entries.len()];
+                for (index, slot) in ready {
                     if !shared.entries[index]
                         .state
                         .with_dependent(|_, kernel| kernel.contains(slot))
                     {
                         continue;
                     }
-                    let mut complete = false;
-                    for _ in 0..65536 {
-                        let request = shared.entries[index]
+                    let result = (|| -> Result<()> {
+                        let mut fuel = crate::music_voice::INSTRUCTION_BUDGET;
+                        while shared.entries[index]
                             .state
-                            .with_dependent_mut(|_, kernel| kernel.run_macro(slot))?;
-                        let Some(request) = request else {
-                            complete = true;
-                            break;
-                        };
-                        match request {
-                            crate::music_voice::HostRequest::Group { group, kill } => {
-                                shared.apply_group(index, slot, group, kill)?
-                            }
-                            crate::music_voice::HostRequest::Message { target, value } => {
-                                shared.send_message(target, value)?;
-                            }
-                            crate::music_voice::HostRequest::Spawn { note, instruction } => {
+                            .with_dependent(|_, kernel| kernel.contains(slot))
+                        {
+                            let Some(request) =
                                 shared.entries[index]
                                     .state
                                     .with_dependent_mut(|_, kernel| {
-                                        kernel.spawn_child(slot, note, instruction)
-                                    })?;
-                                // A child may replace a voice whose macro was already
-                                // queued in this pass, including one in another cue.
-                                for entry in &mut shared.entries {
-                                    entry
-                                        .state
-                                        .with_dependent_mut(|_, kernel| kernel.sync_slots());
+                                        kernel.run_macro(slot, &mut fuel)
+                                    })?
+                            else {
+                                break;
+                            };
+                            match request {
+                                crate::music_voice::HostRequest::Group { group, kill } => {
+                                    shared.apply_group(index, slot, group, kill, &mut errors);
+                                }
+                                crate::music_voice::HostRequest::Message { target, value } => {
+                                    ensure!(
+                                        message_counts[index] < super::MESSAGE_BUDGET,
+                                        "audio message-delivery budget exceeded"
+                                    );
+                                    message_counts[index] += 1;
+                                    messages.push_back((index, target, value));
+                                }
+                                crate::music_voice::HostRequest::Spawn { note, instruction } => {
+                                    shared.entries[index].state.with_dependent_mut(
+                                        |_, kernel| kernel.spawn_child(slot, note, instruction),
+                                    )?;
+                                    // Allocation may retire another ready voice, including
+                                    // one belonging to another entry.
+                                    for entry in &mut shared.entries {
+                                        entry
+                                            .state
+                                            .with_dependent_mut(|_, kernel| kernel.sync_slots());
+                                    }
                                 }
                             }
                         }
+                        Ok(())
+                    })();
+                    if let Err(error) = result {
+                        messages.retain(|(sender, _, _)| *sender != index);
+                        shared.fail(index, error, &mut errors);
                     }
-                    ensure!(complete, "music host instruction budget exhausted");
                 }
-                for entry in &mut shared.entries {
-                    entry.state.with_dependent_mut(|_, kernel| {
-                        kernel.next_millisecond(LiveControls::default()).map(|_| ())
-                    })?;
+                let mut full_mailboxes = Vec::new();
+                while let Some((_, target, value)) = messages.pop_front() {
+                    shared.send_message(target, value, &mut full_mailboxes, &mut errors);
                 }
-                shared.update_sources();
-            }
-            let mut completed: Vec<_> = shared
-                .studio
-                .iter()
-                .filter_map(|&key| shared.priority(key).map(|priority| (key, priority)))
-                .collect();
-            crate::voice_order::completion_order(&mut completed);
-            for entry in &mut shared.entries {
-                entry.state.with_dependent_mut(|_, kernel| {
-                    let block = kernel.finish_block()?;
-                    if let Some(output) = entry.output.upgrade() {
-                        let mut output = output.lock().expect("shared stream lock poisoned");
-                        output.length = block.map_or(0, |b| b.len());
-                        if let Some(block) = block {
-                            output.block[..block.len()].copy_from_slice(block);
-                        }
-                        output.started = true;
-                        for control in &mut output.controls {
-                            control.release = false;
-                        }
-                    }
-                    Ok::<_, anyhow::Error>(())
-                })?;
-            }
-            // DSP callbacks visit the reversed partition and prepend runnable
-            // voices, producing forward partition order at the next macro pass.
-            for (key, _) in completed.into_iter().rev() {
-                if let Some(entry) = shared.entries.iter_mut().find(|entry| entry.id == key.cue) {
-                    entry
+                for index in 0..shared.entries.len() {
+                    if let Err(error) = shared.entries[index]
                         .state
-                        .with_dependent_mut(|_, kernel| kernel.sample_end_callback(key.slot));
+                        .with_dependent_mut(|_, kernel| kernel.next_quantum())
+                    {
+                        shared.fail(index, error, &mut errors);
+                    }
                 }
             }
-            shared.remove_inactive_sources();
+            for (entry, completed) in shared.entries.iter_mut().zip(completed_before) {
+                let mut output = entry.output.lock().expect("shared stream lock poisoned");
+                let length = entry
+                    .state
+                    .with_dependent_mut(|_, kernel| kernel.finish_block(&mut output.block));
+                output.length = if completed { 0 } else { length };
+                output.started = true;
+                for control in &mut output.controls {
+                    control.release = false;
+                }
+            }
         }
+        let mut release_frame = [[0; 2]; 3];
+        for release in &mut shared.releases {
+            release.mix(&mut release_frame);
+        }
+        shared.releases.retain(crate::release::Release::active);
+        shared.release_frame = release_frame;
 
         for entry in &shared.entries {
-            if let Some(output) = entry.output.upgrade() {
-                output.lock().expect("shared stream lock poisoned").cursor = cursor;
-            }
+            let mut output = entry.output.lock().expect("shared stream lock poisoned");
+            output.cursor = cursor;
+            output.frame = shared.frame;
         }
         shared.frame += 1;
+        ensure!(
+            errors.is_empty(),
+            "{}",
+            errors
+                .into_iter()
+                .map(|error| format!("{error:#}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
         Ok(())
+    }
+
+    /// Fade a stopped source after its already queued frames have played.
+    pub fn release(&self, samples: BusFrame, queued_frames: u64) {
+        self.0
+            .lock()
+            .expect("synthesizer lock poisoned")
+            .releases
+            .push(crate::release::Release::new(samples, queued_frames));
+    }
+
+    /// Read after all players: deliver queued PCM exactly once, including a
+    /// dropped or paused player's already submitted block and release tails.
+    pub fn unread_frame(&self) -> BusFrame {
+        let shared = self.0.lock().expect("synthesizer lock poisoned");
+        let Some(frame) = shared.frame.checked_sub(1) else {
+            return [[0; 2]; 3];
+        };
+        let mut buses = shared.release_frame;
+        for entry in &shared.entries {
+            let output = entry.output.lock().expect("shared stream lock poisoned");
+            if output.last_read != Some(frame) && output.cursor < output.length {
+                for (bus, source) in buses.iter_mut().zip(output.block[output.cursor]) {
+                    for (sample, source) in bus.iter_mut().zip(source) {
+                        *sample += source;
+                    }
+                }
+            }
+        }
+        buses
     }
 
     /// Diagnostics for deterministic offline runs; never resets the stream.
@@ -519,21 +541,44 @@ impl Synthesizer {
         (random.state, random.draws)
     }
 }
+
+#[cfg(test)]
+mod tests;
+
 impl Stream {
-    pub(super) fn controls(&self, controls: [LiveControls; 5]) -> Result<()> {
+    pub(super) fn pause(&self, paused: bool) -> Result<()> {
+        let mut output = self.0.lock().expect("shared stream lock poisoned");
+        ensure!(output.sequence, "only a sequence can be paused");
+        output.paused = paused;
+        Ok(())
+    }
+    pub(super) fn controls(&self, controls: [LiveControls; CONTROLS_PER_BLOCK]) -> Result<()> {
         super::stream::validate_controls(controls)?;
         self.0.lock().expect("shared stream lock poisoned").controls = controls;
         Ok(())
     }
     pub(super) fn frame(&self) -> Option<BusFrame> {
-        let output = self.0.lock().expect("shared stream lock poisoned");
-        if !output.started {
-            return Some([[0; 2]; 3]);
+        let mut output = self.0.lock().expect("shared stream lock poisoned");
+        let frame = if !output.started {
+            Some([[0; 2]; 3])
+        } else {
+            (output.cursor < output.length).then(|| output.block[output.cursor])
+        };
+        if frame.is_some() {
+            output.last_read = Some(output.frame);
         }
-        (output.cursor < output.length).then(|| output.block[output.cursor])
+        frame
     }
     pub(super) fn started(&self) -> bool {
         self.0.lock().expect("shared stream lock poisoned").started
+    }
+    pub(super) fn submitted_until(&self) -> u64 {
+        let output = self.0.lock().expect("shared stream lock poisoned");
+        if output.started {
+            output.frame - output.cursor as u64 + output.length as u64
+        } else {
+            0
+        }
     }
     pub(super) fn control_boundary(&self) -> bool {
         let output = self.0.lock().expect("shared stream lock poisoned");
