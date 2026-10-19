@@ -20,12 +20,7 @@ impl Kind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Identity {
-    pub schema: u32,
-    pub content: [u8; 32],
-}
+pub use resonance_content::save_identity::Identity;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,9 +43,20 @@ impl Header {
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Save<T> {
-    header: Header,
-    state: T,
+pub struct Save<T> {
+    pub header: Header,
+    pub state: T,
+}
+
+impl<T> Save<T> {
+    /// Admit parsed state only after its content snapshot is available.
+    pub fn admit(self, expected: &Identity) -> Result<(Header, T)> {
+        ensure!(
+            &self.header.identity == expected,
+            "incompatible save schema or content"
+        );
+        Ok((self.header, self.state))
+    }
 }
 
 pub fn encode<T: Serialize>(header: &Header, state: &T) -> Result<Vec<u8>> {
@@ -63,19 +69,9 @@ pub fn encode<T: Serialize>(header: &Header, state: &T) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-pub fn inspect(bytes: &[u8]) -> Result<Header> {
+pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<Save<T>> {
     ensure!(bytes.len() <= MAX_FILE_BYTES, "save exceeds 1 MiB");
-    let header = serde_json::from_slice::<Save<serde::de::IgnoredAny>>(bytes)?.header;
-    header.validate()?;
-    Ok(header)
-}
-
-pub fn decode<T: DeserializeOwned>(bytes: &[u8], expected: &Identity) -> Result<(Header, T)> {
-    let header = inspect(bytes)?;
-    ensure!(
-        &header.identity == expected,
-        "incompatible save schema or content"
-    );
-    let state = serde_json::from_slice::<Save<T>>(bytes)?.state;
-    Ok((header, state))
+    let save: Save<T> = serde_json::from_slice(bytes)?;
+    save.header.validate()?;
+    Ok(save)
 }

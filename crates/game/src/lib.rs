@@ -1,6 +1,8 @@
 //! High-level title behavior. No rendering, original RAM, or disc dependencies.
 pub mod authored;
 pub mod boot;
+mod checkpoint;
+pub use checkpoint::Checkpoint;
 pub mod choice;
 pub mod clock;
 pub mod dialogue;
@@ -53,8 +55,7 @@ impl Default for TitleState {
 }
 
 impl TitleState {
-    /// The original DISC1 indicator follows bit 6 of the presentation clock.
-    /// It must not restart when entering the title after a movie or another scene.
+    /// Blink on the shared presentation clock, preserving its phase across scenes.
     pub fn disc_label_visible(&self, clock: clock::PresentationClock) -> bool {
         clock.tick() & 64 != 0
     }
@@ -65,9 +66,13 @@ impl TitleState {
         (u16::from(intensity) * u16::from(self.opacity) / 255) as u8
     }
 
+    pub fn accepts_input(&self) -> bool {
+        self.revealed && self.opacity >= 128
+    }
+
     pub fn step(&mut self, input: MenuInput) -> Option<TitleAction> {
         // Revealing the menu must not also confirm its first entry.
-        let can_confirm = self.revealed && self.opacity >= 128;
+        let can_confirm = self.accepts_input();
         self.tick += 1;
         self.pulse_tick += 1;
         for value in &mut self.expansion {

@@ -29,12 +29,14 @@ pub fn prepare(
         if model.bone_names.is_empty() {
             continue;
         }
-        let skeleton = Arc::new(Skeleton::from_glb(&read(&model.mesh)?)?);
+        let (skeleton, bounds) = Skeleton::from_glb_with_bounds(&read(&model.mesh)?)?;
+        let skeleton = Arc::new(skeleton);
         ensure!(
             skeleton.bones.iter().map(|b| &b.name).eq(&model.bone_names),
             "attachment skeleton differs from scene"
         );
         let poses = poses.entry(resource).or_default();
+        poses.mesh_bounds = bounds;
         poses.skeleton = Some(skeleton.clone());
         // Following effects and scenario attachment queries can sample any live clip.
         for clip in &model.clips {

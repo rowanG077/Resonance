@@ -12,8 +12,16 @@ impl Menu {
         self.inventory.focus = Focus::Transform(bottle);
         if self.inventory_items().is_empty() {
             self.inventory.focus = Focus::List;
-            self.inventory.notice =
-                Some(self.resources.as_ref().unwrap().data.labels["transform_empty"].clone());
+            match self
+                .resources
+                .as_ref()
+                .unwrap()
+                .data
+                .label("transform_empty")
+            {
+                Ok(text) => self.inventory.notice = Some(text.to_owned()),
+                Err(error) => self.report_failure("Item description unavailable", error),
+            }
             return 4;
         }
         let state = &mut self.inventory;
@@ -41,14 +49,16 @@ impl Menu {
                 .get(self.inventory.row)
                 .copied()
                 .unwrap_or(0);
-            self.inventory.notice = Some(self.transformation_message(id));
+            self.inventory.notice = self.transformation_message(id).ok();
         }
     }
 
-    fn transformation_message(&self, id: u16) -> String {
+    fn transformation_message(&self, id: u16) -> anyhow::Result<String> {
         let data = &self.resources.as_ref().unwrap().data;
         let target = data.items[usize::from(id)].transforms_to;
-        data.labels["transformed"].replace("%s", &data.items[usize::from(target)].name)
+        Ok(data
+            .label("transformed")?
+            .replace("%s", &data.item_text(target)?.name))
     }
 
     pub(super) fn preview_transformation(&mut self, id: u16) -> i16 {
@@ -58,12 +68,23 @@ impl Menu {
         if party.items.get(&target).copied().unwrap_or(0)
             >= party.item_limit(&resources.session.items[usize::from(target)])
         {
-            self.inventory.notice = Some(resources.data.labels["transform_full"].clone());
+            match resources.data.label("transform_full") {
+                Ok(text) => self.inventory.notice = Some(text.to_owned()),
+                Err(error) => self.report_failure("Item description unavailable", error),
+            }
             return 4;
         }
-        self.inventory.transform.result = Some(id);
-        self.inventory.notice = Some(self.transformation_message(id));
-        2
+        match self.transformation_message(id) {
+            Ok(message) => {
+                self.inventory.transform.result = Some(id);
+                self.inventory.notice = Some(message);
+                2
+            }
+            Err(error) => {
+                self.report_failure("Item description unavailable", error);
+                4
+            }
+        }
     }
 
     pub(super) fn finish_transformation(&mut self, id: u16) -> Option<i16> {
@@ -71,7 +92,7 @@ impl Menu {
             unreachable!("transformation result outside its picker")
         };
         let resources = self.resources.as_ref().unwrap();
-        let party = &mut self.checkpoint.as_mut().unwrap().progress.party;
+        let party = &mut self.checkpoint.as_mut().unwrap().progress_mut().party;
         let result = party
             .transform_item(&resources.session, &resources.data, bottle, id)
             .map(|changed| changed.then_some(2));
