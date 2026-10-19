@@ -215,6 +215,22 @@ fn close_shared(inventory: &mut Inventory<'_>) -> Result<()> {
     close_battle_audio(inventory)
 }
 
+#[cfg(test)]
+pub(crate) fn shared_fixture(
+    root: &Path,
+    paths: &std::collections::BTreeSet<String>,
+) -> Result<Shared> {
+    let mut inventory = Inventory::new(root);
+    inventory.paths(paths.iter().map(String::as_str))?;
+    close_shared(&mut inventory)?;
+    let shared = Shared {
+        version: VERSION,
+        files: inventory.files,
+    };
+    shared.validate()?;
+    Ok(shared)
+}
+
 fn close_skits(inventory: &mut Inventory<'_>, font: &BitmapFont) -> Result<()> {
     if inventory.files.contains_key("game/skits.json") {
         let skits: resonance_content::skit::SkitCatalog =

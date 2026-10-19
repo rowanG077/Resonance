@@ -1330,7 +1330,8 @@ impl Party {
                         .iter()
                         .zip(resonance_content::menu_data::STRATEGY_COUNTS)
                         .all(|(v, count)| usize::from(*v) < count)
-                    && member.titles.contains(&member.title)
+                    && member.title != 0
+                    && usize::from(member.title) <= title_count
                     && member
                         .titles
                         .iter()

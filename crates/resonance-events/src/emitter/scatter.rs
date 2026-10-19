@@ -21,6 +21,10 @@ pub(crate) struct Scatter {
     turn: f32,
 }
 impl Scatter {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Keep independent timing and mutable emission state explicit at the call site"
+    )]
     pub(super) fn emit(
         &mut self,
         center: [f32; 3],

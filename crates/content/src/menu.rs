@@ -102,6 +102,7 @@ pub enum Sprite {
     Technique,
     Numbers,
     Leader,
+    WorldHud,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -319,6 +320,7 @@ impl MenuArt {
             (Sprite::Technique, 13),
             (Sprite::Numbers, 1),
             (Sprite::Leader, 1),
+            (Sprite::WorldHud, 7),
         ] {
             ensure!(
                 self.sprites.group(group)?.len() == count,

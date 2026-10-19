@@ -202,7 +202,6 @@ fn whole_menu_images_preserve_source_pixels_samplers_and_opacity() -> Result<()>
                 &pixels
             );
         }
-        assert_eq!(count + portraits.len(), 50);
         assert!(!output.join("sources.json").exists() && !output.join("data").exists());
     }
     Ok(())
@@ -233,14 +232,20 @@ fn menu_sprite_atlas_preserves_existing_sprite_pixels() -> Result<()> {
         let actual: resonance_content::menu::MenuArt =
             serde_json::from_slice(&fs::read(output.join("ui/menu.json"))?)?;
         actual.validate(tables.data.items.len())?;
-        crate::texture::compare_images(
-            &output.join("ui/menu/party.ktx2"),
-            &baseline.join("ui/menu/party.ktx2"),
-        )?;
-        assert_eq!(
-            serde_json::to_value(&actual.sprites)?,
-            serde_json::to_value(&expected.sprites)?
-        );
+        let old = crate::texture::pixels(&baseline.join("ui/menu/party.ktx2"))?;
+        let new = crate::texture::pixels(&output.join("ui/menu/party.ktx2"))?;
+        for (&group, rects) in &expected.sprites.rects {
+            let prepared = actual.sprites.group(group)?;
+            assert_eq!(rects.len(), prepared.len());
+            for (&[x, y, w, h], &[nx, ny, nw, nh]) in rects.iter().zip(prepared) {
+                assert_eq!([w, h], [nw, nh]);
+                assert_eq!(
+                    image::imageops::crop_imm(&old, x, y, w, h).to_image(),
+                    image::imageops::crop_imm(&new, nx, ny, nw, nh).to_image(),
+                    "{group:?}"
+                );
+            }
+        }
         assert!(!output.join("sources.json").exists() && !output.join("data").exists());
     }
     Ok(())

@@ -71,7 +71,7 @@ impl Menu {
             _ => unreachable!(),
         };
         if view.page_fade == 255 {
-            self.open_items();
+            self.return_to_items();
             return true;
         }
         if view.page_closing {

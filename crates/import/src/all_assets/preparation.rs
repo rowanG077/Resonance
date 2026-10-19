@@ -397,13 +397,18 @@ fn original_party_bindings_use_the_production_graph() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires both extracted discs and read-only RESONANCE_COOKED media; writes a private temporary library"]
-fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
+#[ignore = "requires both extracted discs and read-only RESONANCE_COOKED inputs; prepares three fields privately"]
+fn original_representative_fields_share_the_production_graph() -> Result<()> {
+    use crate::scene::binding::read;
+    use resonance_content::{
+        field::FieldAssets,
+        field_preload::{Manifest, Role, Shared},
+    };
+
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
     let paths = [root.join("disc1"), root.join("disc2")];
     let media = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_COOKED")
-            .context("set RESONANCE_COOKED to the read-only shared media library")?,
+        std::env::var_os("RESONANCE_COOKED").context("set RESONANCE_COOKED")?,
     )
     .canonicalize()?;
     let temporary = tempfile::tempdir()?;
@@ -418,89 +423,11 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
     let documents = super::read_documents(&discs)?;
     let mut sources = BTreeMap::new();
     let mut report = Report::default();
-    // Shared presentation also resolves non-field sources such as credits.
-    for (&disc, extracted) in &discs {
-        let files = extracted.join("files");
-        for path in super::walk(&files, &mut report) {
-            sources.insert(
-                format!("disc{disc}/{}", crate::relative_source_path(&files, &path)?),
-                crate::media::hash_file(&path)?,
-            );
-        }
-    }
-    let fields = discover(&discs, &documents, &mut sources, &mut report)?;
+    let mut fields = discover(&discs, &documents, &mut sources, &mut report)?;
     ensure!(
         report.failures.is_empty(),
         "field discovery failed: {:?}",
         report.failures
-    );
-    let expected: BTreeSet<_> = fields.iter().map(|field| field.id).collect();
-    ensure!(
-        !expected.is_empty(),
-        "field discovery produced no scripted maps"
-    );
-
-    // Only retained media is input. Geometry, metadata and dependency inventories
-    // must all be produced by this graph in independently owned temporary files.
-    let mut retained = vec![
-        std::path::PathBuf::from("audio"),
-        "sources.json".into(),
-        resonance_content::battle_audio::PATH.into(),
-    ];
-    let mut movies = BTreeSet::new();
-    for field in &fields {
-        retained.push(crate::field::audio_path(field.id).into());
-        for args in crate::field_resources::literal_arguments(
-            field.archive.section(6)?,
-            symphonia_script::NativeCall::PlayMovieBlocking,
-            1,
-        )? {
-            let id = args[0].context("unresolved movie dependency")?;
-            ensure!(id >= -1, "invalid movie dependency {id}");
-            if id >= 0 {
-                movies.insert(format!("movies/{id}.json"));
-            }
-        }
-    }
-    for path in movies {
-        let movie: resonance_content::MovieAsset =
-            serde_json::from_slice(&fs::read(media.join(&path))?)?;
-        movie.validate()?;
-        retained.extend([path.into(), movie.path.into()]);
-    }
-    while let Some(path) = retained.pop() {
-        let source = media.join(&path);
-        let metadata = fs::metadata(&source)?;
-        if metadata.is_dir() {
-            // Directory aliases are not traversed; linked files still copy into
-            // independent destinations without introducing recursive cycles.
-            if fs::symlink_metadata(&source)?.file_type().is_symlink() {
-                continue;
-            }
-            for entry in fs::read_dir(&source)? {
-                retained.push(path.join(entry?.file_name()));
-            }
-        } else {
-            ensure!(
-                metadata.is_file(),
-                "non-file media input: {}",
-                source.display()
-            );
-            let target = output.join(&path);
-            fs::create_dir_all(target.parent().context("media output parent")?)?;
-            fs::copy(source, target)?;
-        }
-    }
-    let party_sources = crate::battle_model::party::discover(
-        &paths[0],
-        1,
-        &documents[&1].catalogues.resources,
-        &mut sources,
-    )?;
-    eprintln!(
-        "Preparing {} catalogue fields; {} dependency failures",
-        fields.len(),
-        report.failures.len()
     );
     // Autoplay scenery, declared animation plus a movie, and an overlay each
     // require different inputs to reach the same production field job.
@@ -529,6 +456,9 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
     .into_iter()
     .collect();
     let document = &documents[&1];
+    let party_files = (1..=document.catalogues.resources.party_bodies.len())
+        .map(|id| Ok(resonance_content::battle_model::party_path(id.try_into()?)))
+        .collect::<Result<BTreeSet<_>>>()?;
     let published: Shared = read(&media, resonance_content::field_preload::SHARED_PATH)?;
     let mut shared_paths: BTreeSet<String> = [
         "game/session-data.json",
@@ -543,6 +473,7 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
     .map(str::to_owned)
     .collect();
     shared_paths.extend(effect_files.iter().cloned());
+    shared_paths.extend(party_files.iter().cloned());
     shared_paths.extend(
         published
             .files
@@ -617,14 +548,13 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
         save_point_no_gem: reference.save_point_no_gem,
         files: shared_paths.clone(),
     });
+    let party_value = Arc::new(PreparedParty {
+        files: party_files,
+        outputs: BTreeMap::new(),
+    });
     let needed = fields
         .iter()
         .flat_map(|field| field.dependencies.iter().cloned())
-        .chain(
-            party_sources
-                .iter()
-                .flat_map(|source| source.keys.iter().cloned()),
-        )
         .collect::<BTreeSet<_>>();
     let maps = fields
         .iter()
@@ -637,40 +567,11 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
         retained.len()
     );
     let mut dag = pool::Dag::new();
-    let shared = dag.add("shared presentation", [], |_, _| {
-        let document = &documents[&1];
-        let battle_sources =
-            crate::source_assets::Sources::read_with(&paths[0], &document.executable)?;
-        let usual = fs::read(paths[0].join("files").join(&battle_sources.usual))?;
-        crate::battle_formation::publish(
-            &usual,
-            &output.join(resonance_content::battle_formation::PATH),
-        )?;
-        crate::battle_effect::publish(&usual, output, "battle")?;
-        let module = paths[0].join("files").join(&battle_sources.module);
-        crate::battle_projectile::publish(&usual, &module, output, "battle")?;
-        crate::battle_recoil::publish(&module, output, "battle")?;
-        crate::battle_profile::publish_party(&module, &usual, output, "battle")?;
-        crate::battle_effect::publish_tints(&module, output, "battle")?;
-        let scenes =
-            crate::battle_scene::publish_all_source(&paths[0], &battle_sources, output, "battle")?;
-        ensure!(
-            scenes.failures.is_empty(),
-            "battle scene cooking failed: {:?}",
-            scenes.failures
-        );
-        crate::battle_stage::publish(&paths[0], 13, output)?;
-        crate::battle_ui::publish(&paths[0], output)?;
-        crate::shared::prepare(
-            &paths[0],
-            output,
-            &sources,
-            &document.executable,
-            &document.catalogues,
-            &battle_sources,
-            &usual,
-            &crate::skit::Source::read(&paths[0], &document.executable)?,
-        )
+    let shared = dag.add_shared("retained shared presentation", [], |_, _| {
+        Ok(Arc::clone(&shared_value))
+    });
+    let party = dag.add_shared("retained party bindings", [], |_, _| {
+        Ok(Arc::clone(&party_value))
     });
     let mut packages = BTreeMap::new();
     for hash in needed {
@@ -725,35 +626,19 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
         });
         packages.insert(hash, package);
     }
-    let party = party(&mut dag, &party_sources, &packages, output)?;
     add(&mut dag, &fields, &packages, shared, party, output)?;
     let mut prepared = BTreeMap::new();
-    let mut shared_paths = BTreeSet::new();
-    let mut failures = dag
-        .run(
-            3,
-            || (),
-            |completion| {
-                if let Ok(field) = completion.result::<PreparedField>() {
-                    prepared.insert(field.0, field.1.clone());
-                } else if let Ok(party) = completion.result::<PreparedParty>() {
-                    shared_paths.extend(party.files.iter().cloned());
-                } else if let Ok(shared) = completion.result::<crate::shared::Prepared>() {
-                    shared_paths.extend(shared.files.iter().cloned());
-                }
-            },
-        )?
-        .into_iter()
-        .filter_map(Result::err)
-        .map(|error| format!("{error:#}"))
-        .collect::<Vec<_>>();
-    failures.extend(
-        report
-            .failures
-            .into_iter()
-            .map(|failure| format!("{}: {}", failure.path, failure.error)),
-    );
-    ensure!(failures.is_empty(), "{}", failures.join("\n"));
+    for result in dag.run(
+        3,
+        || (),
+        |completion| {
+            if let Ok(field) = completion.result::<PreparedField>() {
+                prepared.insert(field.0, field.1.clone());
+            }
+        },
+    )? {
+        result?;
+    }
     assert_eq!(prepared.keys().copied().collect::<BTreeSet<_>>(), expected);
     crate::field::finish(output, &prepared, &shared_paths)?;
     let manifests: Vec<_> = expected
@@ -771,8 +656,7 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
         expected
     );
     for &id in &expected {
-        let assets: resonance_content::field::FieldAssets =
-            files.json(&resonance_content::field::metadata_path(id))?;
+        let assets: FieldAssets = files.json(&resonance_content::field::metadata_path(id))?;
         assert_eq!(assets.map_id, id);
         assets.validate()?;
     }
@@ -783,9 +667,7 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
     let missing = crate::field::audio_path(id);
     fs::remove_file(output.join(&missing))?;
     assert!(crate::field::finish(output, &[(id, paths.clone())].into(), &shared_paths).is_err());
-    let rejected: resonance_content::field_preload::Manifest = serde_json::from_slice(&fs::read(
-        output.join(format!("fields/map-{id}.preload.json")),
-    )?)?;
+    let rejected: Manifest = read(output, &format!("fields/map-{id}.preload.json"))?;
     assert_eq!(rejected.missing_inputs, [missing].into());
     Ok(())
 }

@@ -155,6 +155,7 @@ pub(crate) fn prepare(
     ui: &inventory_ui::Catalogue,
 ) -> Result<MonsterBook> {
     let voices = crate::battle_voice::read(usual)?;
+    let mut shared = crate::battle_effect::SharedPalettes::read(usual, output)?;
     let files = extracted.join("files");
     let guard_bonus = crate::battle_recoil::guard_defaults(&crate::rel::Rel::read(
         &files.join(&sources.module),
@@ -179,10 +180,12 @@ pub(crate) fn prepare(
         let monster = self::metadata(id, record, preview, catalogue, ui)?;
         crate::battle_model::publish_enemy(
             &bytes,
+            usual,
             &voices,
             guard_bonus,
             id,
             &monster.preview,
+            &mut shared,
             output,
             output,
         )?;
@@ -193,6 +196,7 @@ pub(crate) fn prepare(
         println!("Prepared monster {id}: {}", monster.name);
         records.push(monster);
     }
+    shared.publish()?;
     behaviors.finish(crate::model_behavior::Catalogue::Monsters)?;
     book(catalogue, ui, records)
 }

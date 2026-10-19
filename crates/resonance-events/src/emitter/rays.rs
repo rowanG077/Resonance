@@ -119,6 +119,10 @@ pub(super) struct ChargedRay {
     pub growth: f32,
 }
 impl ChargedRay {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Keep independent timing and mutable emission state explicit at the call site"
+    )]
     pub fn emit(
         &mut self,
         phase: &mut u8,
