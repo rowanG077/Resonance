@@ -67,7 +67,7 @@ impl Battle {
         let body = &self.actors[actor.index()];
         cues.push(Cue::ExSkillLabel {
             actor,
-            position: std::array::from_fn(|i| body.position[i] + 2. * body.body.center_offset[i]),
+            position: body.condition_label_origin(),
         });
     }
 
@@ -79,6 +79,7 @@ impl Battle {
             let before = self.actors[victim.index()].tp;
             self.actors[victim.index()].recover_flat_tp(amount);
             cues.push(Cue::Recovered {
+                floating: false,
                 actor: victim,
                 kind: RecoveryKind::Tp,
                 nominal: amount,
@@ -87,9 +88,9 @@ impl Battle {
             self.contact_ex_label(victim, cues);
         }
         if self.actors[victim.index()].side == Side::Enemy {
-            let hits = self.actors[victim.index()].reaction.contributor_hits;
             // Only active party contributors receive their equipped combo recovery.
-            for (index, &contributor_hits) in hits[..self.actors.len()].iter().enumerate() {
+            for index in 0..self.actors.len() {
+                let contributor_hits = self.actors[victim.index()].reaction.contributor_hits[index];
                 let actor = &self.actors[index];
                 let percent = i16::from(contributor_hits >> 1);
                 if actor.side != Side::Party || !actor.available() || percent == 0 {
@@ -103,6 +104,7 @@ impl Battle {
                     let (hp, nominal) = actor.recovered_hp(i32::from(percent));
                     actor.hp = hp;
                     cues.push(Cue::Recovered {
+                        floating: false,
                         kind: crate::RecoveryKind::Hp,
                         actor: id,
                         nominal,
@@ -112,6 +114,7 @@ impl Battle {
                 if traits.combo_tp {
                     let (tp, nominal) = self.actors[index].recovered_tp(percent);
                     cues.push(Cue::Recovered {
+                        floating: false,
                         actor: id,
                         kind: RecoveryKind::Tp,
                         nominal,
@@ -145,6 +148,7 @@ impl Battle {
             self.contact_ex_label(id, cues);
             let (tp, nominal) = self.actors[index].recovered_tp(5);
             cues.push(Cue::Recovered {
+                floating: false,
                 actor: id,
                 kind: RecoveryKind::Tp,
                 nominal,

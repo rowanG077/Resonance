@@ -3,7 +3,10 @@ use crate::battle::{self, ActionResources, EffectResource};
 use anyhow::{Context, Result};
 use resonance_battle::{ModelDefinition, Sound};
 use resonance_content::{battle_effect, prepared::Files};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 pub(crate) struct Resources<'a, S> {
     pub files: &'a Files,
@@ -36,6 +39,7 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
         &mut self,
         character: u8,
         model: Option<&ModelDefinition>,
+        null_motions: &BTreeSet<u16>,
         bindings: &mut battle::ActionDefinitions,
     ) -> Result<PartyActions> {
         let source = battle::model::ModelSource::Party(character);
@@ -75,6 +79,28 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
                     .with_context(|| {
                         format!("prepare arte {catalogue} for character {character}")
                     })?;
+                const PRAYER_GESTURE: u16 = 80;
+                if matches!(
+                    cast.release.policy,
+                    resonance_battle::SpellPolicy::CasterPose { .. }
+                ) && !null_motions.contains(&PRAYER_GESTURE)
+                {
+                    let motion = battle::model::motion(model, PRAYER_GESTURE)
+                        .context("angel spell prayer gesture is not prepared")?;
+                    let release = Arc::make_mut(&mut Arc::make_mut(&mut cast).release);
+                    if let resonance_battle::SpellPolicy::CasterPose { pose, .. } =
+                        &mut release.policy
+                    {
+                        *pose = Some(resonance_battle::AttackPose {
+                            motion,
+                            start: 0.,
+                            end: None,
+                            repeat: true,
+                            rate: 0.5,
+                            blend: 12,
+                        });
+                    }
+                }
                 if let Some(model) = model
                     && !self.voices.profile(source)?.traits.body_motion_disabled
                     && let Some(steps) = self.voices.party_table().chant_sequences.get(&character)
@@ -97,16 +123,24 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
                         })
                         .collect::<Result<_>>()?;
                 }
-                if character == 2 && catalogue == battle::colette_spells::HOLY_JUDGMENT {
-                    const OPENING_CLIP: u16 = 13;
-                    const OPENING_HOLD_TICKS: u16 = 26;
+                if cast.release.transition_ticks > 0 && cast.release.summon.is_none() {
+                    let model = model.context("stored spell requires its caster model")?;
                     let cast = Arc::make_mut(&mut cast);
-                    cast.hide_primary_weapons = true;
-                    cast.release_pose = resonance_battle::CastReleasePose::SustainAfter {
-                        opening: battle::model::motion(model, OPENING_CLIP)
-                            .context("Holy Judgment opening pose is not prepared")?,
-                        hold_ticks: OPENING_HOLD_TICKS,
-                    };
+                    cast.release_pose = stored_cast_pose(
+                        model,
+                        self.voices.profile(source)?.cast_poses,
+                        null_motions,
+                        cast.release.transition_ticks,
+                    )?;
+                    cast.hide_primary_weapons =
+                        character == 2 && catalogue == battle::colette_spells::HOLY_JUDGMENT;
+                } else if cast.release.summon.is_none() {
+                    let profile = self.voices.profile(source)?;
+                    Arc::make_mut(&mut cast).release_pose = anticipated_cast_pose(
+                        model,
+                        profile.cast_poses,
+                        !profile.traits.body_motion_disabled,
+                    )?;
                 }
                 let key = bindings.insert(battle::ActionDefinition {
                     normal: None,
@@ -203,6 +237,47 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
             if technique == battle::elemental_spells::FREEZE_LANCER {
                 spell.sound = (self.sound)(battle::voice::Sound::Cue(95))?;
             }
+            for pulse in &mut spell.recovery {
+                if matches!(pulse.benefit, resonance_battle::SpellBenefit::Resurrect(_)) {
+                    const REVIVAL_EFFECT: u16 = 42;
+                    self.effect(false, &[REVIVAL_EFFECT])?;
+                    pulse.effect = Some((
+                        resonance_battle::EffectAppearance {
+                            resource: self.common.resource,
+                            member: REVIVAL_EFFECT,
+                        },
+                        Default::default(),
+                    ));
+                    pulse.effect_placement =
+                        resonance_battle::RecoveryEffectPlacement::RecipientFacingCenter;
+                }
+            }
+            if let Some(tints) = self.tints {
+                use resonance_battle::{
+                    SpellBenefit,
+                    conditions::{Buff, Condition},
+                };
+                const FULL_BRIGHT_FLASH: [u8; 3] = [128; 3];
+                for pulse in &mut spell.recovery {
+                    pulse.flash = match pulse.benefit {
+                        SpellBenefit::Cure(_) => Some(tints.actors.recovery),
+                        SpellBenefit::Stat {
+                            condition: Condition::AttackUp,
+                            ..
+                        } => Some(tints.actors.buff),
+                        SpellBenefit::Stat {
+                            condition: Condition::DefenseUp,
+                            ..
+                        } => Some(tints.actors.debuff),
+                        _ => None,
+                    }
+                    .map(|color| color[..3].try_into().unwrap())
+                    .or(pulse.flash);
+                    if matches!(pulse.benefit, SpellBenefit::Buff(Buff::HolySong)) {
+                        pulse.flash = Some(FULL_BRIGHT_FLASH);
+                    }
+                }
+            }
             let spell = Arc::new(spell);
             self.spells.insert(technique, Arc::clone(&spell));
             spell
@@ -233,19 +308,7 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
             voice(battle::voice::Phase::Chant)?.or(voice(battle::voice::Phase::Fallback)?);
         let release_voice = voice(battle::voice::Phase::Release)?;
         let [chant, release] = rule.casting.effects.members();
-        let release = if spell.transition_ticks > 0 {
-            const STORED_PRELUDE_EFFECT: u16 = 37;
-            const HOLY_JUDGMENT_PRELUDE_EFFECT: u16 = 51;
-            if matches!(source, battle::model::ModelSource::Party(2))
-                && technique == battle::colette_spells::HOLY_JUDGMENT
-            {
-                HOLY_JUDGMENT_PRELUDE_EFFECT
-            } else {
-                STORED_PRELUDE_EFFECT
-            }
-        } else {
-            release
-        };
+        let opening = (spell.transition_ticks > 0).then(|| rule.casting.effects.opening_member());
         let charged = 6;
         let stored = 50;
         let appearance = |member| resonance_battle::EffectAppearance {
@@ -257,17 +320,25 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
             chant_voice,
             release_voice,
             start_sound: (self.sound)(Sound::Cue(109))?,
-            release_sound: (self.sound)(Sound::Cue(123))?,
+            release_sound: (self.sound)(Sound::Cue(if spell.transition_ticks > 0 {
+                battle::audio::STORED_SPELL_RELEASE
+            } else {
+                battle::audio::SPELL_RELEASE
+            }))?,
             chant_effect: appearance(chant),
             charged_effect: appearance(charged),
             stored_effect: appearance(stored),
             release_effect: appearance(release),
+            opening_effect: opening.map(appearance),
             tint: self
                 .tints
                 .and_then(|tints| tints.effect(usize::from(rule.element)))
                 .unwrap_or_default(),
         };
         self.effect(false, &[chant, release, charged, stored])?;
+        if let Some(opening) = opening {
+            self.effect(false, &[opening])?;
+        }
         Ok((
             Arc::new(resonance_battle::CastingDefinition {
                 chant: vec![],
@@ -275,7 +346,9 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
                     (i64::from(profile.cast_ticks) + i64::from(rule.cast_time_adjustment)).max(0)
                         as u32
                 }),
-
+                profile_ticks: profile.cast_ticks,
+                spell_ticks: rule.cast_time_adjustment,
+                fixed_timing: rule.casting.fixed_timing,
                 recovery: u32::try_from(rule.recovery_ticks)
                     .context("negative casting recovery")?,
                 release_pose: Default::default(),
@@ -322,4 +395,84 @@ pub(super) fn party_techniques(
 pub(super) struct PartyActions {
     pub normals: [battle::ActionKey; 7],
     pub techniques: BTreeMap<u16, battle::ActionKey>,
+}
+
+/// Automatic casters begin their resident release gesture before payment.
+pub(crate) fn anticipated_cast_pose(
+    model: Option<&ModelDefinition>,
+    poses: resonance_content::battle_profile::CastPoses,
+    body_motion: bool,
+) -> Result<resonance_battle::CastReleasePose> {
+    let release = if let Some(model) = model
+        && body_motion
+        && model.reactions.cast.is_some()
+    {
+        const RELEASE_START_UPDATES: f32 = 4.;
+        let pose = poses.release;
+        anyhow::ensure!(
+            pose.rate.is_finite() && pose.rate > 0.,
+            "casting release rate must be positive"
+        );
+        Some(resonance_battle::AttackPose {
+            motion: battle::model::motion(Some(model), pose.clip)
+                .context("casting release pose is not prepared")?,
+            start: RELEASE_START_UPDATES * pose.rate,
+            end: pose.end,
+            rate: pose.rate,
+            blend: pose.blend,
+            repeat: pose.repeat,
+        })
+    } else {
+        None
+    };
+    Ok(resonance_battle::CastReleasePose::Anticipated {
+        release,
+        release_loop_start: poses.release_loop_start,
+    })
+}
+
+/// Both actor kinds use the same opening-to-release schedule for stored spells.
+pub(crate) fn stored_cast_pose(
+    model: &ModelDefinition,
+    poses: resonance_content::battle_profile::CastPoses,
+    null_motions: &BTreeSet<u16>,
+    transition_ticks: u16,
+) -> Result<resonance_battle::CastReleasePose> {
+    // Empty poses retain ownership so the current animation keeps advancing.
+    if null_motions.contains(&poses.opening.clip) && null_motions.contains(&poses.release.clip) {
+        return Ok(resonance_battle::CastReleasePose::Scene {
+            opening: None,
+            release: None,
+            release_loop_start: 0.,
+            at: 0,
+        });
+    }
+    let bind = |pose: resonance_content::battle_action::ActionPose| -> Result<_> {
+        Ok(resonance_battle::AttackPose {
+            motion: battle::model::motion(Some(model), pose.clip)
+                .context("stored spell pose is not prepared")?,
+            start: pose.start,
+            end: pose.end,
+            rate: pose.rate,
+            blend: pose.blend,
+            repeat: pose.repeat,
+        })
+    };
+    let opening = (!null_motions.contains(&poses.opening.clip))
+        .then(|| bind(poses.opening))
+        .transpose()?;
+    let release = bind(poses.release)?;
+    let duration = model.motions[&release.motion.clip].duration_frames;
+    anyhow::ensure!(
+        poses.release_loop_start.is_finite()
+            && (0.0..=duration).contains(&poses.release_loop_start),
+        "invalid stored spell release loop"
+    );
+    let release_ticks = (duration / release.rate) as u16 + u16::from(release.blend);
+    Ok(resonance_battle::CastReleasePose::Scene {
+        opening,
+        release: Some(release),
+        release_loop_start: poses.release_loop_start,
+        at: transition_ticks.saturating_sub(release_ticks),
+    })
 }

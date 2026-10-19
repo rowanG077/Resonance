@@ -44,17 +44,28 @@ impl Battle {
 
     pub(crate) fn advance_dead(&mut self, index: usize) {
         let actor = &mut self.actors[index];
-        actor
-            .movement
-            .integrate_along(&mut actor.position, actor.reaction.direction);
+        if !self.prepared.actor_setup[index].stationary_defeat {
+            // Retained bodies fall even when their living controller was hovering.
+            actor.movement.gravity = crate::movement::GRAVITY;
+            actor
+                .movement
+                .integrate_along(&mut actor.position, actor.reaction.direction);
+        }
         actor
             .movement
             .brake(actor.position[1], crate::Activity::Defeated);
     }
 
     pub(crate) fn enter_death(&mut self, id: ActorId, cues: &mut Vec<Cue>) {
+        if self.defeat_actor(id, cues) {
+            cues.push(Cue::Defeated { actor: id });
+        }
+    }
+
+    /// Scripted deaths supply their own feedback through the action timeline.
+    pub(crate) fn defeat_actor(&mut self, id: ActorId, cues: &mut Vec<Cue>) -> bool {
         if self.actors[id.index()].availability == ActorAvailability::Dead {
-            return;
+            return false;
         }
         self.release_capture_links(id);
         self.cancel_pending_item(id);
@@ -70,7 +81,6 @@ impl Battle {
             actor.elements.enchantment = None;
         }
         actor.availability = ActorAvailability::Dead;
-        cues.push(Cue::Defeated { actor: id });
         actor.time_stop = 0;
         actor.guard.active = false;
         actor.reaction.protection = Default::default();
@@ -78,6 +88,7 @@ impl Battle {
         self.ledger.record_combo_damage(actor.reaction.combo_damage);
         actor.reaction.combo_hits = 0;
         actor.reaction.combo_damage = 0;
+        true
     }
 
     pub(crate) fn enter_revival(&mut self, id: ActorId, cues: &mut Vec<Cue>) {
@@ -93,6 +104,7 @@ impl Battle {
                 crate::state::ActorTask::Recovering {
                     remaining: ticks.max(crate::knockdown::GET_UP_DURATION) - 1,
                     after_hit: false,
+                    idle_pose: None,
                 },
             );
         } else {

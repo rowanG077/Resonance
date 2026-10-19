@@ -26,7 +26,7 @@ pub(super) fn prepare(
 ) -> Result<PreparedSpell> {
     let (lifetime, pulse_tick) = match catalogue {
         SPREAD => (170, 45),
-        GRAVITY_WELL => (225, 40),
+        GRAVITY_WELL => (225, 45),
         AIR_THRUST | KNIGHT_AIR_THRUST => (150, 30),
         CYCLONE => (220, 50),
         AIR_BLADE => (160, 30),
@@ -34,6 +34,8 @@ pub(super) fn prepare(
         RAGING_MIST => (220, 20),
         _ => bail!("unknown ground pulse spell {catalogue}"),
     };
+    // Contacts initialize on the update after allocation.
+    const INITIALIZATION_TICKS: u16 = 1;
     let source = scene
         .projectiles
         .get(1)
@@ -57,12 +59,16 @@ pub(super) fn prepare(
         .as_mut()
         .context("ground pulse projectile has no contact")?
         .cooldown = rule.cooldown;
+    let startup = EffectAppearance {
+        resource: bank.resource,
+        member: 1,
+    };
     Ok(PreparedSpell {
         policy: Default::default(),
         summon: None,
         effects: vec![],
         projectiles: vec![resonance_battle::SpellProjectile::new(
-            TRANSITION_TICKS + ACTIVE_START_TICKS + pulse_tick,
+            TRANSITION_TICKS + ACTIVE_START_TICKS + pulse_tick + INITIALIZATION_TICKS,
             projectile,
         )],
         recovery: vec![],
@@ -83,10 +89,14 @@ pub(super) fn prepare(
         duration: TRANSITION_TICKS + lifetime + SCENE_BOUNDARY_TICKS,
         startup: Some((
             TRANSITION_TICKS + 1,
-            SpellStartup::Effect(EffectAppearance {
-                resource: bank.resource,
-                member: 1,
-            }),
+            if matches!(
+                catalogue,
+                SPREAD | GROUND_DASHER | RAGING_MIST | GRAVITY_WELL
+            ) {
+                SpellStartup::DeferredEffect(startup)
+            } else {
+                SpellStartup::Effect(startup)
+            },
         )),
         sound: None,
     })

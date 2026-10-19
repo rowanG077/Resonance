@@ -182,14 +182,14 @@ impl Contacts {
         cues: &mut Vec<Cue>,
         placements: &[Option<resonance_content::animation::Matrix>],
     ) -> Result<()> {
-        self.resolve_clashes(battle, cues)?;
-        // Each attack owns repeat-hit admission; simultaneous attacks all resolve.
-        let mut accepted = Vec::new();
-        for mut contact in self.0.drain(..) {
+        for contact in &mut self.0 {
             if let ContactSource::Melee { actor, action } = contact.source
                 && !matches!(contact.origin, Origin::World(_) | Origin::FrozenBone(_, _))
             {
-                let position = contact.position(battle)?;
+                let position = contact.position_at(
+                    battle,
+                    placements.get(contact.owner.index()).copied().flatten(),
+                )?;
                 if let Some((id, sequence)) = battle.runtime[actor.index()].action_mut()
                     && *id == action
                     && let Some(window) = &mut sequence.melee
@@ -201,8 +201,13 @@ impl Contacts {
                     _ => Origin::World(position),
                 };
             }
+        }
+        self.resolve_clashes(battle, cues)?;
+        // Each victim accepts one contact per update; skipped attacks remain eligible.
+        let mut accepted = crate::ActorSet::default();
+        for contact in self.0.drain(..) {
             for actor in 0..battle.actors.len() {
-                if accepted.contains(&(contact.source, actor)) {
+                if accepted.contains(ActorId(actor as u8)) {
                     continue;
                 }
                 let Some(point) =
@@ -211,10 +216,8 @@ impl Contacts {
                     continue;
                 };
                 contact.apply(battle, actor, point, cues)?;
-                accepted.push((contact.source, actor));
-                if !matches!(contact.source, ContactSource::Melee { .. }) {
-                    break;
-                }
+                accepted.insert(ActorId(actor as u8));
+                break;
             }
         }
         Ok(())
@@ -279,15 +282,32 @@ impl Contacts {
 
 impl Contact {
     fn position(&self, battle: &crate::Battle) -> Result<[f32; 3]> {
+        self.position_at(battle, None)
+    }
+
+    fn position_at(
+        &self,
+        battle: &crate::Battle,
+        body_placement: Option<resonance_content::animation::Matrix>,
+    ) -> Result<[f32; 3]> {
         let point = match self.origin {
             Origin::World(point) | Origin::FrozenBone(point, _) => point,
             Origin::Melee(offset) => battle.actors[self.owner.index()].local_point(offset),
-            Origin::BodyCenter => battle.actors[self.owner.index()].effect_origin(),
+            Origin::BodyCenter => {
+                let owner = &battle.actors[self.owner.index()];
+                if let Some(world) = body_placement {
+                    let [x, y, z] = owner.body.center_offset;
+                    // The published model placement uses Z-up local coordinates.
+                    resonance_content::animation::transform_point(world, [x, -z, y])
+                } else {
+                    owner.effect_origin()
+                }
+            }
             Origin::Bone(anchor) => battle
                 .models
                 .as_ref()
                 .context("missing melee playback")?
-                .anchor(self.owner, anchor)?,
+                .anchor_at(self.owner, anchor, body_placement)?,
         };
         ensure!(
             point.iter().all(|v| v.is_finite()),
@@ -417,6 +437,8 @@ impl Contact {
             .actors
             .get_disjoint_mut([self.owner.index(), actor_index])
             .unwrap();
+        #[cfg(any(test, feature = "test-support"))]
+        let mut input_error = None;
         let (result, condition_label) = damage::resolve_contact(
             owner,
             target,
@@ -424,11 +446,66 @@ impl Contact {
             self.rule,
             power,
             incoming,
-            &mut |_| battle.random.next_u16(),
+            &mut |_draw| {
+                #[cfg(any(test, feature = "test-support"))]
+                if let Some(inputs) = &mut battle.random_inputs
+                    && inputs.owns_action(source_action)
+                    && inputs.observes_damage(_draw)
+                {
+                    let observed = (|| -> Result<_> {
+                        let contact = match self.source {
+                            ContactSource::Melee { .. } => crate::random_inputs::Contact::Attached,
+                            ContactSource::Projectile(projectile) => {
+                                crate::random_inputs::Contact::Projectile(projectile.0)
+                            }
+                            ContactSource::Weapon { .. } => {
+                                anyhow::bail!("damage input requested by a detached weapon contact")
+                            }
+                        };
+                        let key = crate::random_inputs::Key {
+                            clock: battle.ledger.elapsed_ticks,
+                            owner: self.owner.index(),
+                            target: actor.index(),
+                            action: source_action.0,
+                            contact,
+                        };
+                        match _draw {
+                            damage::Draw::CriticalChance => {
+                                inputs.critical(key, crate::random_inputs::CriticalRole::Chance)
+                            }
+                            damage::Draw::Critical => {
+                                inputs.critical(key, crate::random_inputs::CriticalRole::Roll)
+                            }
+                            _ => inputs.ailment(
+                                key,
+                                self.rule.condition,
+                                matches!(_draw, damage::Draw::AilmentResistance),
+                            ),
+                        }
+                    })();
+                    match observed {
+                        Ok(Some(value)) => return value,
+                        Ok(None) => {}
+                        Err(error) => {
+                            input_error = Some(error);
+                            return 0;
+                        }
+                    }
+                }
+                battle.random.next_u16()
+            },
             battle.items.all_divide,
             available_counts,
             mode,
         );
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(error) = input_error {
+            return Err(error);
+        }
+        let petrifying = target
+            .conditions
+            .base()
+            .contains(crate::conditions::Condition::Petrified);
         if let crate::Power::AdjustAfterContact(adjustment) = self.rule.power {
             owner.attack_power = u16::try_from(
                 (i32::from(owner.attack_power) + i32::from(adjustment))
@@ -436,8 +513,7 @@ impl Contact {
             )
             .context("contact power adjustment exceeds the actor power range")?;
         }
-        let condition_position =
-            std::array::from_fn(|i| target.body.center_offset[i] * 2. + target.position[i]);
+        let condition_position = target.condition_label_origin();
         if let Some(kind) = condition_label {
             cues.push(Cue::ConditionLabel {
                 actor,
@@ -466,6 +542,7 @@ impl Contact {
             let before = owner.hp;
             owner.recover_flat_hp(result.amount);
             cues.push(Cue::Recovered {
+                floating: true,
                 actor: self.owner,
                 kind: crate::RecoveryKind::Hp,
                 nominal: result.amount,
@@ -482,14 +559,18 @@ impl Contact {
         }
         let previous_combo = target.reaction.combo_hits;
         let held_motion = captured.then_some((target.movement, target.reaction.recoil));
-        let reaction = crate::reaction::respond(
-            owner,
-            target,
-            self.rule.reaction,
-            result,
-            direction,
-            suppressed,
-        );
+        let reaction = if petrifying {
+            None
+        } else {
+            crate::reaction::respond(
+                owner,
+                target,
+                self.rule.reaction,
+                result,
+                direction,
+                suppressed,
+            )
+        };
         let reaction = if let Some((movement, recoil)) = held_motion {
             if !result.suppresses_reaction() && target.time_stop == 0 {
                 battle.runtime[actor_index]
@@ -533,7 +614,10 @@ impl Contact {
             battle.actors[actor_index].hp == 0
                 || (result.is_unblocked_damage() && !result.suppresses_reaction()),
         );
-        if let Some(reaction) = reaction {
+        if petrifying {
+            battle.enter_petrified(actor, cues);
+            battle.retarget_after_defeat(actor)?;
+        } else if let Some(reaction) = reaction {
             match reaction {
                 crate::reaction::ContactReaction::Hurt { remaining, .. } => {
                     battle.begin_hurt(actor, remaining, cues)
@@ -561,8 +645,8 @@ impl Contact {
         battle.pause_overlimit_contact(actor, self.rule.overlimit_pause);
         let captured = battle.is_captured(actor);
         let target = &mut battle.actors[actor_index];
-        if captured {
-            // Damage continues while held; the existing hurt controller owns the victim.
+        if petrifying || captured {
+            // Petrification preserves the pose; captured victims retain their held pose.
         } else if !result.reaction_suppressed && crate::knockdown::threshold_reached(target) {
             if target.reaction.profile.can_knock_down {
                 target.reaction.stagger.received = 0;
@@ -574,8 +658,34 @@ impl Contact {
                 &battle.actors[actor_index],
                 self.rule.reaction.stun_chance,
                 result,
-                &mut battle.random,
-            );
+                |_chance| {
+                    #[cfg(any(test, feature = "test-support"))]
+                    if let Some(inputs) = &mut battle.random_inputs
+                        && inputs.owns_action(source_action)
+                    {
+                        let contact = match self.source {
+                            ContactSource::Melee { .. } => crate::random_inputs::Contact::Attached,
+                            ContactSource::Projectile(projectile) => {
+                                crate::random_inputs::Contact::Projectile(projectile.0)
+                            }
+                            ContactSource::Weapon { .. } => {
+                                anyhow::bail!("stun input requested by a detached weapon contact");
+                            }
+                        };
+                        return inputs.stun(
+                            crate::random_inputs::Key {
+                                clock: battle.ledger.elapsed_ticks,
+                                owner: self.owner.index(),
+                                target: actor.index(),
+                                action: source_action.0,
+                                contact,
+                            },
+                            _chance,
+                        );
+                    }
+                    Ok(battle.random.next_u16())
+                },
+            )?;
             if stunned {
                 battle.enter_stun(actor, cues);
             }
@@ -589,7 +699,7 @@ impl Contact {
                     .filter(|_| self.rule.effect_on_guard || result.is_unblocked_damage())
             });
         if let Some(appearance) = effect {
-            cues.push(Cue::Effect(crate::EffectRequest {
+            cues.push(Cue::DeferredEffect(crate::EffectRequest {
                 owner: self.owner,
                 target: actor,
                 appearance,
@@ -600,7 +710,7 @@ impl Contact {
                 tint: Default::default(),
             }));
         }
-        battle.actors[actor_index]
+        let repeated = battle.actors[actor_index]
             .reaction
             .contact_feedback(result.guard);
         cues.push(Cue::Hit {
@@ -619,6 +729,7 @@ impl Contact {
             was_casting,
             overlimit: battle.actors[actor_index].overlimit.is_active(),
             stunned: battle.activity(actor) == crate::Activity::Stunned,
+            repeated,
             result,
         });
         if battle.actors[actor_index].hp == 0
@@ -629,6 +740,7 @@ impl Contact {
             && !battle.defer_unison_defeat(actor, self.rule.finisher_grade)
         {
             // Only a confirmed defeat earns kill credit and recovery.
+            battle.record_technical_smash(actor, self.rule.arte, self.rule.finisher_grade, cues);
             battle.enter_death(actor, cues);
             if self.rule.finisher_grade && battle.actors[actor_index].side == Side::Enemy {
                 battle.ledger.finisher();
@@ -686,9 +798,7 @@ impl Contact {
                 {
                     sequence.contact_target = Some(actor);
                     if let Some(window) = &mut sequence.melee {
-                        window
-                            .struck
-                            .push((actor, window.definition.volume.cooldown()));
+                        window.struck.push(actor);
                     }
                 }
             }

@@ -23,6 +23,7 @@ pub(crate) enum Draw {
     Stability,
     Avoidance,
     Ailment,
+    AilmentResistance,
 }
 
 #[cfg(test)]
@@ -229,12 +230,41 @@ fn physical_attack(owner: &Actor, kind: DamageKind) -> i32 {
     proficient(stat, i64::from(owner.proficiency) + variable)
 }
 
-/// Calculate magnitude without changing actors. Ordinary damage truncates each integer
+fn physical_bonuses(
+    owner: &Actor,
+    species: u16,
+    element: Option<Element>,
+    mut amount: i64,
+) -> (i64, bool) {
+    if owner.side == crate::Side::Party && owner.equipment.contact.technique_balance >= 100 {
+        amount += percentage(amount, 5);
+    }
+    let charge = match owner.control_ex_state.charge {
+        crate::ChargeLevel::None => 0,
+        crate::ChargeLevel::Normal => 20,
+        crate::ChargeLevel::Strong => 40,
+    };
+    amount += percentage(amount, charge);
+    if owner.equipment.damage.elemental_physical_boost && element.is_some() {
+        amount += percentage(amount, 10);
+    }
+    let species_match = owner.equipment.damage.weapon_species == Some(species);
+    if species_match {
+        amount += amount >> 3;
+    }
+    (
+        amount,
+        owner.control_ex_state.charge.charged() || species_match,
+    )
+}
+
+/// Calculate magnitude and consume ordinary magic guarding. Damage truncates each integer
 /// stage; physical hit power follows accuracy and criticals, while magic hit power
-/// precedes resistance. Fixed power skips statistics, bonuses, criticals and variance.
+/// precedes resistance. Fixed power skips statistics, criticals and variance, but
+/// physical hits still receive progression, charge, elemental and species bonuses.
 fn calculate_amount(
     owner: &Actor,
-    target: &Actor,
+    target: &mut Actor,
     activity: crate::Activity,
     rule: HitRule,
     attack_power: u16,
@@ -248,20 +278,7 @@ fn calculate_amount(
     let attacking = owner.conditions.effective();
     let defending = target.conditions.effective();
     let mut mitigation = 100;
-    if defense_traits.damage_reduction {
-        mitigation -= 10;
-    }
-    if physical {
-        if defending.contains(Condition::Guard) {
-            mitigation -= 20;
-        }
-        if defense_traits.physical_damage_reduction {
-            mitigation -= 10;
-        }
-        if defense_traits.alone && available_counts[target.side as usize] == 1 {
-            mitigation -= 20;
-        }
-    } else {
+    if !physical {
         if defending.contains(Condition::MagicDefenseUp) {
             mitigation -= 20;
         }
@@ -271,14 +288,10 @@ fn calculate_amount(
     }
 
     let mut critical = false;
-    let mut boosted = false;
     let amount = if let Power::Fixed(amount) = rule.power {
-        return ((i64::from(amount) * mitigation + 50) / 100, false, false);
+        i64::from(amount)
     } else {
         let mut bonus = 100;
-        if attacking.intersects(crate::conditions::PROTECTION) {
-            bonus -= 20;
-        }
         let mut base = if physical {
             let attack = owner
                 .conditions
@@ -296,41 +309,43 @@ fn calculate_amount(
             let evasion = target
                 .conditions
                 .evasion_with_conditions(target.equipment.stats.evasion);
-            let accuracy_percent =
-                90 + ((i64::from(accuracy) - i64::from(evasion) - 5) >> 1).clamp(-10, 10);
-            if attacking.contains(Condition::Flare) {
-                bonus += 20;
-            }
-            if attack_traits.physical_damage_boost {
-                bonus += 10;
-            }
-            if rule.arte && attack_traits.physical_arte_boost {
-                bonus += 20;
-            }
-            if attack_traits.alone && available_counts[owner.side as usize] == 1 {
-                bonus += 20;
-            }
-            if owner.side == crate::Side::Party && owner.equipment.contact.technique_balance >= 100
-            {
-                bonus += 5;
-            }
-            bonus += match owner.control_ex_state.charge {
-                crate::ChargeLevel::None => 0,
-                crate::ChargeLevel::Normal => 20,
-                crate::ChargeLevel::Strong => 40,
+            let accuracy_percent = if activity == crate::Activity::Stunned {
+                100
+            } else {
+                90 + ((i64::from(accuracy) - i64::from(evasion) - 5) >> 1).clamp(-10, 10)
             };
-            boosted = owner.control_ex_state.charge.charged();
-            if attack_traits.elemental_physical_boost && element.is_some() {
-                bonus += 10;
-            }
-            if attack_traits.weapon_species == Some(target.species) {
-                bonus += 15;
-                boosted = true;
-            }
             let base = ((i64::from(attack) >> 1) - i64::from(defense)).max(1);
             let base = percentage(base, i64::from(attack_power));
-            percentage(vary(base, roll), accuracy_percent)
+            let mut base = vary(base, roll);
+            if attacking.contains(Condition::Flare) {
+                base = base * 12 / 10;
+            }
+            if defending.contains(Condition::Guard) {
+                base = base * 10 / 12;
+            }
+            if attacking.intersects(crate::conditions::PROTECTION) {
+                base = percentage(base, 80);
+            }
+            if attack_traits.physical_damage_boost {
+                base = percentage(base, 110);
+            }
+            if defense_traits.physical_damage_reduction {
+                base = percentage(base, 90);
+            }
+            if rule.arte && attack_traits.physical_arte_boost {
+                base += percentage(base, 20);
+            }
+            if attack_traits.alone && available_counts[owner.side as usize] == 1 {
+                base = base * 12 / 10;
+            }
+            if defense_traits.alone && available_counts[target.side as usize] == 1 {
+                base = base * 10 / 12;
+            }
+            percentage(base, accuracy_percent)
         } else {
+            if attacking.intersects(crate::conditions::PROTECTION) {
+                bonus -= 20;
+            }
             if attack_traits.magic_damage_boost {
                 bonus += 10;
             }
@@ -379,15 +394,29 @@ fn calculate_amount(
                 base = percentage(base, i64::from(percent));
             }
         } else {
-            base = vary(base, roll);
+            base = vary(guard::soften_magic(target, base), roll);
         }
         percentage(base, bonus)
     };
-    (
-        percentage(amount, mitigation).clamp(0, i64::from(i32::MAX)),
-        critical,
-        boosted,
-    )
+    let (amount, boosted) = if physical {
+        physical_bonuses(owner, target.species, element, amount)
+    } else {
+        (amount, false)
+    };
+    let mut amount = if matches!(rule.power, Power::Fixed(_)) {
+        let amount = (amount * mitigation + 50) / 100;
+        if physical {
+            amount
+        } else {
+            guard::soften_magic(target, amount)
+        }
+    } else {
+        percentage(amount, mitigation)
+    };
+    if target.equipment.damage.damage_reduction {
+        amount -= percentage(amount, 10);
+    }
+    (amount.clamp(0, i64::from(i32::MAX)), critical, boosted)
 }
 
 #[cfg(test)]
@@ -666,8 +695,7 @@ pub(crate) fn resolve_contact(
     (hit, label)
 }
 
-/// Luck lowers ailment chance; a resistance source halves the remaining chance.
-/// One roll distinguishes application, resistance feedback, and an ordinary miss.
+/// Luck lowers the incoming chance; equipped resistance gets a separate saving throw.
 fn apply_contact_condition(
     target: &mut Actor,
     condition: HitCondition,
@@ -683,9 +711,9 @@ fn apply_contact_condition(
     if target.conditions.rejects(condition.condition) {
         return None;
     }
-    let chance =
-        (i32::from(condition.chance.min(100)) - i32::from(target.equipment.luck) / 20).max(0);
-    if chance == 0 {
+    let luck = i32::from(target.equipment.luck);
+    let chance = i32::from(condition.chance) * (100 - luck / 20) / 100;
+    if i32::from(roll(Draw::Ailment) % 100) >= chance {
         return None;
     }
     let resistance = if target.equipment.damage.ailment_resistance {
@@ -699,19 +727,13 @@ fn apply_contact_condition(
     } else {
         None
     };
-    let effective = if resistance.is_some() {
-        chance / 2
-    } else {
-        chance
-    };
-    let rolled = i32::from(roll(Draw::Ailment) % 100);
-    if rolled < effective {
-        target.conditions.apply_hit(condition)
-    } else if rolled < chance {
-        resistance
-    } else {
-        None
+    if let Some(label) = resistance {
+        let resist_chance = 20 + luck / 10;
+        if i32::from(roll(Draw::AilmentResistance) % 100) < resist_chance {
+            return Some(label);
+        }
     }
+    target.conditions.apply_hit(condition)
 }
 
 /// Deterministic stability wins before the optional physical/elemental skill roll.
@@ -1011,6 +1033,7 @@ mod tests {
     #[test]
     fn critical_hits_increase_stat_based_damage_but_fixed_power_stays_fixed() {
         let mut owner = actor(Side::Party);
+        owner.casting_state.power_percent = 100;
         owner.equipment.stats.slash = 200;
         let mut target = actor(Side::Enemy);
         target.hp = 1000;
@@ -1061,6 +1084,7 @@ mod tests {
     #[test]
     fn native_rolls_have_explicit_variance_and_critical_boundaries() {
         let mut owner = actor(Side::Party);
+        owner.casting_state.power_percent = 100;
         owner.equipment.stats.slash = 200;
         owner.equipment.stats.accuracy = 25;
         let mut target = actor(Side::Enemy);
@@ -1114,57 +1138,68 @@ mod tests {
         owner.equipment.stats.accuracy = 100;
         target.equipment.stats.defense = 50;
         target.equipment.stats.evasion = 85;
-        for (variance, critical, expected) in [((-4i16) as u16, 99, 98), (4, 0, 161)] {
-            let hit = resolve(
-                &owner,
-                &mut target.clone(),
-                rule(DamageKind::Slash, Power::Percent(130)),
-                85,
-                [0.; 3],
-                &mut |draw| match draw {
-                    Draw::Variance => variance,
-                    Draw::Critical => critical,
-                    _ => neutral_roll(draw),
-                },
-                false,
-            );
-            assert_eq!(hit.amount, expected);
+        for (variance, critical, ordinary, stunned) in
+            [((-4i16) as u16, 99, 98, 105), (4, 0, 161, 171)]
+        {
+            for (activity, expected) in [
+                (crate::Activity::Idle, ordinary),
+                (crate::Activity::Stunned, stunned),
+            ] {
+                let (hit, _) = resolve_contact(
+                    &owner,
+                    &mut target.clone(),
+                    activity,
+                    rule(DamageKind::Slash, Power::Percent(130)),
+                    85,
+                    [0.; 3],
+                    &mut |draw| match draw {
+                        Draw::Variance => variance,
+                        Draw::Critical => critical,
+                        _ => neutral_roll(draw),
+                    },
+                    false,
+                    [1, 1],
+                    ContactMode::Ordinary,
+                );
+                assert_eq!(hit.amount, expected);
+            }
         }
     }
 
     #[test]
     fn weapon_species_bonus_affects_only_matching_physical_targets() {
         let mut owner = actor(Side::Party);
-        owner.equipment.stats.slash = 160;
-        owner.equipment.stats.intelligence = 80;
+        owner.casting_state.power_percent = 100;
+        owner.equipment.stats.accuracy = 25;
         let mut target = actor(Side::Enemy);
         target.hp = 1000;
         target.species = 2;
-        for kind in [DamageKind::Slash, DamageKind::Magic] {
-            owner.equipment.damage.weapon_species = None;
-            let baseline = resolve(
-                &owner,
-                &mut target.clone(),
-                rule(kind, Power::Normal),
-                100,
-                [0.; 3],
-                &mut neutral_roll,
-                false,
-            );
-            for species in [2, 3] {
-                owner.equipment.damage.weapon_species = Some(species);
-                let result = resolve(
-                    &owner,
-                    &mut target.clone(),
-                    rule(kind, Power::Normal),
-                    100,
-                    [0.; 3],
-                    &mut neutral_roll,
-                    false,
-                );
-                let boosted = kind != DamageKind::Magic && species == target.species;
-                assert_eq!(result.boosted, boosted);
-                assert_eq!(result.amount > baseline.amount, boosted);
+        for (base, power, ordinary, matching) in [
+            (7, Power::Normal, 7, 7),
+            (8, Power::Normal, 8, 9),
+            (9, Power::Normal, 9, 10),
+            (9, Power::Percent(150), 13, 14),
+            (9, Power::Fixed(9), 9, 10),
+        ] {
+            owner.equipment.stats.slash = base * 2;
+            owner.equipment.stats.thrust = base * 2;
+            owner.equipment.stats.intelligence = base;
+            for kind in [DamageKind::Slash, DamageKind::Thrust, DamageKind::Magic] {
+                for species in [None, Some(2), Some(3)] {
+                    owner.equipment.damage.weapon_species = species;
+                    let result = resolve(
+                        &owner,
+                        &mut target.clone(),
+                        rule(kind, power),
+                        100,
+                        [0.; 3],
+                        &mut neutral_roll,
+                        false,
+                    );
+                    let boosted = kind != DamageKind::Magic && species == Some(target.species);
+                    assert_eq!(result.boosted, boosted);
+                    assert_eq!(result.amount, if boosted { matching } else { ordinary });
+                }
             }
         }
     }
@@ -1226,10 +1261,16 @@ mod tests {
     }
 
     #[test]
-    fn both_guard_stances_block_magic_and_remain_active() {
+    fn magic_consumes_normal_guard_but_special_guard_still_blocks() {
         let mut owner = actor(Side::Party);
+        owner.casting_state.power_percent = 100;
         owner.equipment.stats.intelligence = 200;
-        for (kind, amount) in [(GuardKind::Normal, 100), (GuardKind::Special, 40)] {
+        for (power, kind, amount) in [
+            (Power::Normal, GuardKind::Normal, 100),
+            (Power::Normal, GuardKind::Special, 40),
+            (Power::Fixed(200), GuardKind::Normal, 100),
+            (Power::Fixed(200), GuardKind::Special, 40),
+        ] {
             let mut target = actor(Side::Enemy);
             target.hp = 1000;
             target.guard.active = true;
@@ -1238,14 +1279,15 @@ mod tests {
             let result = resolve(
                 &owner,
                 &mut target,
-                rule(DamageKind::Magic, Power::Normal),
+                rule(DamageKind::Magic, power),
                 100,
                 [0.; 3],
                 &mut neutral_roll,
                 false,
             );
             assert_eq!(result.amount, amount);
-            assert!(target.guard.active);
+            assert_eq!(target.guard.active, kind == GuardKind::Special);
+            assert_eq!(result.is_unblocked_damage(), kind == GuardKind::Normal);
             assert_eq!(
                 matches!(result.guard, GuardResult::Blocked { special: true, .. }),
                 kind == GuardKind::Special
@@ -1289,6 +1331,17 @@ mod tests {
             Draw::MagicResistance => 29,
             _ => neutral_roll(draw),
         };
+        let fresh = resolve(
+            &owner,
+            &mut target.clone(),
+            hit,
+            100,
+            [0.; 3],
+            &mut roll,
+            false,
+        );
+        assert_eq!(fresh.amount, 1);
+        owner.casting_state.power_percent = 100;
         let baseline = resolve(
             &owner,
             &mut target.clone(),
@@ -1454,6 +1507,7 @@ mod tests {
     #[test]
     fn extreme_power_never_reverses_damage_or_overflows() {
         let mut owner = actor(Side::Party);
+        owner.casting_state.power_percent = 100;
         owner.equipment.stats.slash = i32::MAX;
         owner.equipment.stats.intelligence = i32::MAX;
         owner.proficiency = u8::MAX;

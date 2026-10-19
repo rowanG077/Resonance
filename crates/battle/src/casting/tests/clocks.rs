@@ -16,48 +16,64 @@ fn casting_modifiers_apply_once_at_entry() {
         reprise: true,
         ..Default::default()
     };
-    for (side, traits, previous, overlimit, speed, expected) in [
-        (Side::Party, speed_cast, None, false, false, 90),
-        (Side::Party, angel_song, None, false, false, 60),
-        (Side::Party, reprise, Some(CAST), false, false, 60),
-        (Side::Party, reprise, Some(ALTERNATE), false, false, 120),
-        (Side::Party, CastingTraits::default(), None, true, false, 60),
-        (Side::Enemy, CastingTraits::default(), None, true, false, 60),
-        (Side::Enemy, CastingTraits::default(), None, false, true, 90),
-    ] {
-        let mut prepared = prepared_cast(Control::Manual, 120, CASTER_TP);
-        prepared.actors[0].side = side;
-        if side == Side::Enemy {
-            prepared.actors[0].control = Control::Enemy;
-            prepared.actors[1].side = Side::Party;
-            prepared.actors[1].control = Control::Auto;
-            prepared.resources.actor_setup[0].techniques.clear();
-            crate::tests::assign_action(&mut prepared, 0, CAST);
+    for fixed_timing in [false, true] {
+        for (side, traits, previous, overlimit, speed, expected) in [
+            (Side::Party, speed_cast, None, false, false, 100),
+            (Side::Party, angel_song, None, false, false, 80),
+            (Side::Party, reprise, Some(CAST), false, false, 80),
+            (Side::Party, reprise, Some(ALTERNATE), false, false, 120),
+            (Side::Party, CastingTraits::default(), None, true, false, 80),
+            (Side::Enemy, CastingTraits::default(), None, true, false, 80),
+            (
+                Side::Enemy,
+                CastingTraits::default(),
+                None,
+                false,
+                true,
+                110,
+            ),
+        ] {
+            let mut prepared = prepared_cast(Control::Manual, 120, CASTER_TP);
+            let definition = casting_definition(&mut prepared);
+            definition.profile_ticks = 80;
+            definition.fixed_timing = fixed_timing;
+            let expected = if fixed_timing { 120 } else { expected };
+            definition.spell_ticks = 40;
+            prepared.actors[0].side = side;
+            if side == Side::Enemy {
+                prepared.actors[0].control = Control::Enemy;
+                prepared.actors[1].side = Side::Party;
+                prepared.actors[1].control = Control::Auto;
+                prepared.resources.actor_setup[0].techniques.clear();
+                crate::tests::assign_action(&mut prepared, 0, CAST);
+            }
+            prepared.resources.actor_setup[0].overlimit_gain = 1;
+            let owner = &mut prepared.actors[0];
+            owner.equipment.casting = traits;
+            owner.casting_state.previous_spell = previous;
+            owner.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
+                intrinsic: if speed {
+                    ConditionSet::of(&[Condition::CastingSpeed])
+                } else {
+                    ConditionSet::EMPTY
+                },
+                ..Default::default()
+            });
+            if overlimit {
+                owner.overlimit = crate::OverLimit::active(100).unwrap();
+            }
+            let mut battle = prepared.finish().unwrap();
+            assert_eq!(battle.actors[0].casting_state.power_percent, 0);
+            battle.step(request()).unwrap();
+            assert_eq!(battle.actors[0].casting_state.power_percent, 100);
+            assert_eq!(cast_remaining(&battle), expected);
+            let owner = &mut battle.actors[0];
+            owner.equipment.casting = Default::default();
+            owner.overlimit = crate::OverLimit::new(0).unwrap();
+            owner.conditions.reload_layers(Default::default());
+            battle.step(BattleInput::default()).unwrap();
+            assert_eq!(cast_remaining(&battle), expected - 1);
         }
-        prepared.resources.actor_setup[0].overlimit_gain = 1;
-        let owner = &mut prepared.actors[0];
-        owner.equipment.casting = traits;
-        owner.casting_state.previous_spell = previous;
-        owner.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
-            intrinsic: if speed {
-                ConditionSet::of(&[Condition::CastingSpeed])
-            } else {
-                ConditionSet::EMPTY
-            },
-            ..Default::default()
-        });
-        if overlimit {
-            owner.overlimit = crate::OverLimit::active(100).unwrap();
-        }
-        let mut battle = prepared.finish().unwrap();
-        battle.step(request()).unwrap();
-        assert_eq!(cast_remaining(&battle), expected);
-        let owner = &mut battle.actors[0];
-        owner.equipment.casting = Default::default();
-        owner.overlimit = crate::OverLimit::new(0).unwrap();
-        owner.conditions.reload_layers(Default::default());
-        battle.step(BattleInput::default()).unwrap();
-        assert_eq!(cast_remaining(&battle), expected - 1);
     }
 }
 

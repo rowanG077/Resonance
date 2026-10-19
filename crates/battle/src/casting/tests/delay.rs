@@ -64,6 +64,7 @@ fn held_spell_charges_to_a_cap_and_pays_once_on_release() {
     let mut charged_pulses = Vec::new();
     for update in 1..=360 {
         let frame = battle.step(held(ActorId(0), true, false)).unwrap();
+        assert!(!frame.actors[0].cast_releasing);
         if frame.cues.iter().any(|cue| {
             matches!(
                 cue,

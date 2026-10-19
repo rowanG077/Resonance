@@ -30,7 +30,7 @@ fn prepared() -> PreparedBattle {
 }
 
 #[test]
-fn poison_ticks_every_thirty_updates_and_severe_poison_takes_precedence() {
+fn poison_pulses_follow_initialization_and_rearming_and_severe_takes_precedence() {
     for (base, equipment, damage) in [
         (PoisonMild.into(), ConditionSet::EMPTY, 3),
         (PoisonSevere.into(), ConditionSet::EMPTY, 6),
@@ -39,13 +39,21 @@ fn poison_ticks_every_thirty_updates_and_severe_poison_takes_precedence() {
     ] {
         let mut owner = poisoned(base, equipment);
         let mut pulses = vec![];
-        for update in 1..=90 {
+        for update in 1..=400 {
             if owner.advance_conditions(true) {
                 pulses.push(update);
             }
         }
-        assert_eq!(pulses, [30, 60, 90]);
-        assert_eq!(owner.hp, 300 - 3 * damage);
+        let persistent = !equipment.is_empty();
+        assert_eq!(
+            pulses,
+            if persistent {
+                vec![31, 61, 91, 121, 151, 181, 211, 241, 271, 301, 331, 361, 392]
+            } else {
+                vec![31, 61, 91, 121, 151, 181, 211, 241, 271, 301, 332, 362, 392]
+            }
+        );
+        assert_eq!(owner.hp, 300 - 13 * damage);
     }
 }
 
@@ -65,7 +73,7 @@ fn poison_is_nonlethal_and_uses_full_hp_without_recovery_or_contact_modifiers() 
         owner.equipment.recovery.lucky = true;
         owner.guard.active = true;
         let tp = owner.tp;
-        for _ in 0..30 {
+        for _ in 0..31 {
             owner.advance_conditions(true);
         }
         assert_eq!(owner.hp, expected);
@@ -78,7 +86,7 @@ fn poison_is_nonlethal_and_uses_full_hp_without_recovery_or_contact_modifiers() 
 fn cure_removes_poison_and_its_clock_without_removing_equipment_poison() {
     for equipment in [ConditionSet::EMPTY, PoisonMild.into()] {
         let mut owner = poisoned(PoisonMild.into(), equipment);
-        for _ in 0..29 {
+        for _ in 0..30 {
             owner.advance_conditions(true);
         }
         owner.conditions.cure(Cure::Physical);
@@ -91,7 +99,10 @@ fn cure_removes_poison_and_its_clock_without_removing_equipment_poison() {
             base: PoisonMild.into(),
             ..Default::default()
         });
-        assert_eq!(owner.conditions.periodic_effects()[0].remaining, 30);
+        for _ in 0..30 {
+            assert!(!owner.advance_conditions(true));
+        }
+        assert!(owner.advance_conditions(true));
     }
 }
 
@@ -112,13 +123,14 @@ fn phase_and_unavailable_actors_hold_poison() {
     owner.availability = ActorAvailability::Active;
     owner.hit_stop = 10;
     owner.advance_conditions(true);
-    assert_eq!(owner.conditions.periodic_effects()[0].remaining, 29);
+    assert_ne!(owner.conditions, before);
+    assert_eq!(owner.hp, 300);
 }
 
 #[test]
 fn global_pauses_hold_a_due_poison_pulse_but_hit_stop_does_not() -> Result<()> {
     let mut battle = prepared().finish().unwrap();
-    for _ in 0..29 {
+    for _ in 0..30 {
         battle.advance_condition_callbacks(0, true, &mut vec![]);
     }
     let before = battle.actors[0].conditions.clone();
@@ -132,10 +144,5 @@ fn global_pauses_hold_a_due_poison_pulse_but_hit_stop_does_not() -> Result<()> {
     assert_eq!(frame.cues.iter().filter(|cue| matches!(cue, crate::Cue::PoisonPulse { actor } if *actor == crate::ActorId(0))).count(), 1);
     assert!(frame.models.is_empty());
     assert_eq!(battle.actors[0].hp, 297);
-    assert_eq!(
-        battle.actors[0].conditions.periodic_effects()[0].remaining,
-        30
-    );
-
     Ok(())
 }

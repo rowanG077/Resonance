@@ -3,7 +3,7 @@
 pub mod victory_selection;
 use super::{
     command,
-    results::{Candidate, Presentation},
+    results::{Candidate, Presentation, ResultNotice},
 };
 use anyhow::{Result, ensure};
 use resonance_battle::{
@@ -24,6 +24,8 @@ pub enum Request {
 pub struct Input {
     pub battle: BattleInput,
     pub command: command::Input,
+    /// Zero restores personal instructions; one through three select a strategy preset.
+    pub order: Option<u8>,
     pub confirm: bool,
     pub cook: bool,
 }
@@ -32,9 +34,10 @@ pub struct Input {
 enum Phase {
     Combat,
     VictoryFade,
-    Results,
-    Defeat,
-    EscapeNotice { remaining: u8 },
+    VictoryPrepare,
+    Results { age: u16 },
+    Defeat { age: u8 },
+    EscapeNotice { age: u8, forced: bool },
     EnemyRetreat { remaining: u8 },
     Closing,
     Finish,
@@ -44,17 +47,32 @@ enum Phase {
 
 pub(crate) const VICTORY_MUSIC: u16 = 95;
 pub(crate) const DEFEAT_MUSIC: u16 = 96;
-// A fade takes roughly a quarter-second at 60 updates/second.
+// Alpha steps and scene ages use fixed 60 Hz battle updates.
+const VICTORY_FADE_OUT_STEP: u8 = 6;
+const VICTORY_FADE_IN_STEP: u8 = 5;
+const RESULT_FADE_HOLD: u16 = 11;
+const RESULT_CONFIRM_DELAY: u16 = 120;
+const COMPOUND_EX_CONFIRM_DELAY: u16 = 100;
+const DEFEAT_NOTICE_DELAY: u8 = 90;
+const ESCAPE_NOTICE_DELAY: u8 = 90;
+const FORCED_ESCAPE_NOTICE_DELAY: u8 = 15;
+const ESCAPE_FADE_STEP: u8 = 8;
+const FORCED_ESCAPE_FADE_STEP: u8 = 4;
 const FADE_STEP: u8 = 16;
-const FADE_UPDATES: u8 = u8::MAX.div_ceil(FADE_STEP);
+const FADE_UPDATES: u8 = u8::MAX.div_ceil(FADE_STEP) + 1;
 /// Departure owns these updates before scene handoff; its closing fade is included.
 const ENEMY_RETREAT_UPDATES: u8 = 65;
+const ORDER_APPLY_DELAY: u8 = 60;
+const ORDER_RESELECT_DELAY: u8 = 160;
 
 pub struct Lifecycle {
     phase: Phase,
     command: command::Owner,
     command_setup: Option<command::Setup>,
     command_events: Vec<command::Event>,
+    order: u8,
+    order_age: u8,
+    order_revision: u32,
     events: Option<super::event::Sequence>,
 }
 
@@ -65,6 +83,9 @@ impl Lifecycle {
             command: command::Owner::default(),
             command_setup,
             command_events: Vec::new(),
+            order: 0,
+            order_age: ORDER_RESELECT_DELAY,
+            order_revision: 0,
             events: None,
         }
     }
@@ -146,6 +167,9 @@ impl Lifecycle {
                         ..Default::default()
                     },
                 )?;
+                if event_visit == super::event::Visit::Enter {
+                    cues.extend(battle.clear_event_effects()?);
+                }
                 if event_visit == super::event::Visit::Return
                     && let Some(events) = self
                         .events
@@ -167,6 +191,20 @@ impl Lifecycle {
             let cues = if input.battle.paused {
                 candidate.world_update(battle, input.battle)?
             } else {
+                if battle.phase() == BattlePhase::Combat
+                    && self.command.input_kind() == command::InputKind::Command
+                    && let Some(order) = input.order
+                {
+                    ensure!(order <= 3, "invalid battle order");
+                    if order != self.order || self.order_age >= ORDER_RESELECT_DELAY {
+                        if order != self.order {
+                            self.command_events.push(command::Event::Cue(1));
+                        }
+                        self.order = order;
+                        self.order_age = 0;
+                        self.order_revision = self.order_revision.wrapping_add(1);
+                    }
+                }
                 let admission = self
                     .command_setup
                     .as_ref()
@@ -180,6 +218,15 @@ impl Lifecycle {
                     candidate,
                 )?;
                 self.command_events.extend(command.events);
+                if battle.phase() == BattlePhase::Combat {
+                    if self.order_age >= ORDER_APPLY_DELAY
+                        && self.command.controller().is_none()
+                        && candidate.active_order() != self.order
+                    {
+                        candidate.apply_order(battle, self.order)?;
+                    }
+                    self.order_age = self.order_age.saturating_add(1).min(ORDER_RESELECT_DELAY);
+                }
                 if command.paused {
                     input.battle.paused = true;
                     candidate.world_update(battle, input.battle)?
@@ -203,6 +250,14 @@ impl Lifecycle {
     /// Pending and visible command visits keep the admitted controller slot.
     pub fn command_controller(&self) -> Option<u8> {
         self.command.controller()
+    }
+
+    pub fn order_selection(&self) -> u8 {
+        self.order
+    }
+
+    pub fn order_revision(&self) -> u32 {
+        self.order_revision
     }
 
     pub fn command_input_kind(&self) -> command::InputKind {
@@ -259,33 +314,32 @@ impl Lifecycle {
                 BattleResult::Victory => {
                     candidate.choose_victory(battle)?;
                     presentation.request(Request::VictoryBanner, None, battle)?;
-                    battle.begin_transition(TransitionKind::FadeOut, [255; 3], FADE_STEP)?;
+                    battle.begin_transition(
+                        TransitionKind::FadeOut,
+                        [255; 3],
+                        VICTORY_FADE_OUT_STEP,
+                    )?;
                     Phase::VictoryFade
                 }
                 BattleResult::Defeat => {
                     presentation.request(Request::DefeatNotice, None, battle)?;
-                    presentation.request(
-                        Request::PlayMusic {
-                            track: DEFEAT_MUSIC,
-                            fade_ms: 100,
-                        },
-                        None,
-                        battle,
-                    )?;
-                    Phase::Defeat
+                    Phase::Defeat { age: 0 }
                 }
                 BattleResult::Escaped => {
-                    battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
                     match battle.departure_reason() {
-                        Some(DepartureReason::EnemyRetreat) => Phase::EnemyRetreat {
-                            // This visit also performs the first departure world update.
-                            remaining: ENEMY_RETREAT_UPDATES - 1,
-                        },
-                        Some(DepartureReason::ForcedEscape) => Phase::Closing,
-                        _ => {
-                            presentation.request(Request::EscapeNotice, None, battle)?;
-                            // Leave the success notice visible for one second before fading.
-                            Phase::EscapeNotice { remaining: 60 }
+                        Some(DepartureReason::EnemyRetreat) => {
+                            battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
+                            Phase::EnemyRetreat {
+                                // This visit also performs the first departure world update.
+                                remaining: ENEMY_RETREAT_UPDATES - 1,
+                            }
+                        }
+                        departure => {
+                            let forced = departure == Some(DepartureReason::ForcedEscape);
+                            if !forced {
+                                presentation.request(Request::EscapeNotice, None, battle)?;
+                            }
+                            Phase::EscapeNotice { age: 0, forced }
                         }
                     }
                 }
@@ -293,37 +347,49 @@ impl Lifecycle {
             entered = true;
         }
 
+        let victory_ready = battle.victory_animation_finished();
         let mut cues = candidate.world_update(battle, input.battle)?;
         if !entered {
             self.phase = match self.phase {
                 Phase::VictoryFade => {
-                    if battle.advance_transition()? {
-                        cues.extend(battle.retire_combat()?);
-                        cues.extend(battle.stop_result_voices()?);
-                        cues.extend(candidate.prepare_results(battle)?);
-                        presentation.request(
-                            Request::SynchronizeResults,
-                            candidate.results(),
-                            battle,
-                        )?;
-                        battle.begin_transition(TransitionKind::FadeIn, [255; 3], FADE_STEP)?;
-                        if candidate.result_style().play_music {
-                            presentation.request(
-                                Request::PlayMusic {
-                                    track: VICTORY_MUSIC,
-                                    fade_ms: 50,
-                                },
-                                None,
-                                battle,
-                            )?;
-                        }
-                        Phase::Results
+                    if victory_ready && battle.advance_transition()? {
+                        Phase::VictoryPrepare
                     } else {
                         Phase::VictoryFade
                     }
                 }
-                Phase::Results => {
-                    let visible = battle.advance_transition()?;
+                Phase::VictoryPrepare => {
+                    cues.extend(battle.retire_combat()?);
+                    cues.extend(battle.stop_result_voices()?);
+                    cues.extend(candidate.prepare_results(battle)?);
+                    presentation.request(
+                        Request::SynchronizeResults,
+                        candidate.results(),
+                        battle,
+                    )?;
+                    battle.begin_transition(
+                        TransitionKind::FadeIn,
+                        [255; 3],
+                        VICTORY_FADE_IN_STEP,
+                    )?;
+                    if candidate.result_style().play_music {
+                        presentation.request(
+                            Request::PlayMusic {
+                                track: VICTORY_MUSIC,
+                                fade_ms: 50,
+                            },
+                            None,
+                            battle,
+                        )?;
+                    }
+                    Phase::Results { age: 0 }
+                }
+                Phase::Results { age } => {
+                    cues.extend(candidate.result_advancement(age));
+                    let visible = age >= RESULT_FADE_HOLD && battle.advance_transition()?;
+                    let next = Phase::Results {
+                        age: age.saturating_add(1),
+                    };
                     if input.cook && candidate.update_cooking(battle)? {
                         presentation.request(
                             Request::SynchronizeResults,
@@ -333,26 +399,72 @@ impl Lifecycle {
                     }
                     // Cooking owns a simultaneous press so its new outcome stays readable.
                     if visible && input.confirm && !input.cook {
-                        if presentation.results_on_last_page() {
+                        if !presentation.results_on_last_page() {
+                            presentation.request(Request::NextResultPage, None, battle)?;
+                            next
+                        } else if age
+                            > RESULT_CONFIRM_DELAY
+                                + candidate.results().map_or(0, |results| {
+                                    if results.notices.iter().any(|notice| {
+                                        matches!(notice, ResultNotice::CompoundEx { .. })
+                                    }) {
+                                        COMPOUND_EX_CONFIRM_DELAY
+                                    } else {
+                                        0
+                                    }
+                                })
+                        {
                             candidate.accept_victory()?;
                             battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
                             Phase::Closing
                         } else {
-                            presentation.request(Request::NextResultPage, None, battle)?;
-                            Phase::Results
+                            next
                         }
                     } else {
-                        Phase::Results
+                        next
                     }
                 }
-                Phase::Defeat if input.confirm => {
-                    battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
-                    Phase::Closing
+                Phase::Defeat { age } => {
+                    if age == DEFEAT_NOTICE_DELAY {
+                        presentation.request(
+                            Request::PlayMusic {
+                                track: DEFEAT_MUSIC,
+                                fade_ms: 100,
+                            },
+                            None,
+                            battle,
+                        )?;
+                    }
+                    if age > DEFEAT_NOTICE_DELAY && input.confirm {
+                        battle.begin_transition(TransitionKind::FadeOut, [0; 3], FADE_STEP)?;
+                        Phase::Closing
+                    } else {
+                        Phase::Defeat {
+                            age: age.saturating_add(1),
+                        }
+                    }
                 }
-                Phase::EscapeNotice { remaining: 0 } => Phase::Closing,
-                Phase::EscapeNotice { remaining } => Phase::EscapeNotice {
-                    remaining: remaining - 1,
-                },
+                Phase::EscapeNotice { age, forced } => {
+                    let delay = if forced {
+                        FORCED_ESCAPE_NOTICE_DELAY
+                    } else {
+                        ESCAPE_NOTICE_DELAY
+                    };
+                    if age == delay {
+                        let speed = if forced {
+                            FORCED_ESCAPE_FADE_STEP
+                        } else {
+                            ESCAPE_FADE_STEP
+                        };
+                        battle.begin_transition(TransitionKind::FadeOut, [0; 3], speed)?;
+                        Phase::Closing
+                    } else {
+                        Phase::EscapeNotice {
+                            age: age + 1,
+                            forced,
+                        }
+                    }
+                }
                 Phase::EnemyRetreat { remaining } => {
                     let faded = remaining <= FADE_UPDATES && battle.advance_transition()?;
                     if remaining <= 1 && faded {

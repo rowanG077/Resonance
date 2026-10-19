@@ -262,19 +262,19 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
         (316 | 318, 1) => Some(0x87b3),
         _ => None,
     };
-    if let Some(voice) = voice {
-        if let Some(sound) = (resources.sound)(Sound::Stream(voice & 0x7fff))? {
-            attack.events.insert(
+    if let Some(voice) = voice
+        && let Some(sound) = (resources.sound)(Sound::Stream(voice & 0x7fff))?
+    {
+        attack.events.insert(
+            0,
+            (
                 0,
-                (
-                    0,
-                    AttackEvent::Voice {
-                        sound,
-                        priority: resonance_battle::VoicePriority::Action,
-                    },
-                ),
-            );
-        }
+                AttackEvent::Voice {
+                    sound,
+                    priority: resonance_battle::VoicePriority::Action,
+                },
+            ),
+        );
     }
     if matches!(native, 302..=304) && role == 0 {
         let at = source

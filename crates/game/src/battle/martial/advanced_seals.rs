@@ -28,7 +28,7 @@ impl Technique {
         for origin in [AttackOrigin::ActorRoot, AttackOrigin::TargetRoot] {
             attack.events.push((
                 0,
-                AttackEvent::ActionEffect {
+                AttackEvent::InitializedEffect {
                     appearance: EffectAppearance {
                         resource: resources.techniques.resource,
                         member: TALISMANS,
@@ -62,13 +62,21 @@ impl Technique {
             .martial_attack(self.catalogue, self.character as u8)?
             .clone();
         let hits = timeline.callback_hits.clone();
+        const MARKER: u16 = 115;
         const CONTACT_EFFECTS: [u16; 2] = [116, 117];
-        resources.effect(true, &CONTACT_EFFECTS)?;
+        resources.effect(true, &[MARKER, CONTACT_EFFECTS[0], CONTACT_EFFECTS[1]])?;
         let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
         let mut definition = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
         let ActionExecution::Attack(attack) = &mut definition.execution else {
             unreachable!()
         };
+        attack.events.push((
+            0,
+            AttackEvent::MarkCycloneTarget(EffectAppearance {
+                resource: resources.techniques.resource,
+                member: MARKER,
+            }),
+        ));
         const CONTACT_LIFETIME: u32 = 8;
         const CONTACT_SIZE: f32 = 100.;
         // The opening pose blends for four updates before the contact clock starts.
@@ -78,7 +86,7 @@ impl Technique {
                 .context("missing Cyclone Seal contact")?;
             attack.events.push((
                 at,
-                AttackEvent::ProjectileAt {
+                AttackEvent::CycloneContact {
                     definition: Arc::new(ProjectileDefinition {
                         lifetime: Some(CONTACT_LIFETIME),
                         velocity: [0.; 3],
@@ -103,22 +111,11 @@ impl Technique {
                             clashes: false,
                         }),
                     }),
-                    origin: AttackOrigin::TargetAim,
-                    heading: None,
-                    height: None,
-                },
-            ));
-            attack.events.push((
-                at,
-                AttackEvent::EffectAt {
                     appearance: EffectAppearance {
                         resource: resources.techniques.resource,
                         member: CONTACT_EFFECTS[index],
                     },
-                    origin: AttackOrigin::TargetAim,
-                    heading: Some(0.),
-                    scale: Some(1.),
-                    follow: true,
+                    opening: index == 0,
                 },
             ));
         }

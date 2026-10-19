@@ -59,10 +59,6 @@ fn candidate(mut actors: Vec<Actor>) -> PreparedBattle {
     prepared
 }
 
-fn battle(actors: Vec<Actor>) -> Battle {
-    candidate(actors).finish().unwrap()
-}
-
 fn request(actor: u8) -> BattleInput {
     BattleInput {
         actions: vec![ActionRequest {
@@ -75,7 +71,7 @@ fn request(actor: u8) -> BattleInput {
 }
 
 #[test]
-fn normal_contact_restores_one_tp_for_unblocked_damage_up_to_capacity() {
+fn contact_recovery_respects_success_capacity_and_small_hits() {
     use crate::{Affinity, ProtectionMode};
     for (case, arte, tp, expected) in [
         ("hit", false, 0, 1),
@@ -131,6 +127,34 @@ fn normal_contact_restores_one_tp_for_unblocked_damage_up_to_capacity() {
         contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
         assert!(cues.iter().any(|cue| matches!(cue, Cue::Hit { .. })));
         assert_eq!(battle.actors[0].tp, expected, "{case} arte={arte} tp={tp}");
+    }
+    for (kind, percent, hp, tp) in [
+        (crate::RecoveryKind::Hp, 10, 51, 0),
+        (crate::RecoveryKind::Tp, 3, 50, 1),
+    ] {
+        let mut owner = actor(Side::Party);
+        owner.tp = 0;
+        let mut prepared = candidate(vec![owner, actor(Side::Enemy)]);
+        let mut contact = definition();
+        Arc::make_mut(&mut contact).hit.arte = true;
+        crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0]))
+            .events = vec![
+            (
+                1,
+                crate::AttackEvent::Contact {
+                    definition: contact,
+                    duration: 1,
+                },
+            ),
+            (3, crate::AttackEvent::Drain { kind, percent }),
+        ];
+        let mut battle = prepared.finish().unwrap();
+        battle.step(request(0)).unwrap();
+        for _ in 0..8 {
+            battle.step(BattleInput::default()).unwrap();
+        }
+        assert_eq!(battle.actors[1].hp, 45);
+        assert_eq!((battle.actors[0].hp, battle.actors[0].tp), (hp, tp));
     }
 }
 
@@ -242,7 +266,7 @@ fn native_armor_survives_two_hits_then_cancels_later_work_and_clears_on_recovery
                 assert_eq!(hits, 3);
                 cancelled = true;
             }
-            if battle.activity(ActorId(1)) == crate::Activity::Recovering {
+            if !interrupted && battle.activity(ActorId(1)) == crate::Activity::Recovering {
                 assert_eq!(battle.actors[1].reaction.armor.threshold, 0);
             }
         }
@@ -350,7 +374,20 @@ fn recipients(frame: &BattleFrame) -> Vec<ActorId> {
 fn melee_windows_expire_and_rearm_without_repeating_targets() {
     let mut distant = actor(Side::Enemy);
     distant.position[0] = 1000.;
-    let mut battle = battle(vec![actor(Side::Party), actor(Side::Enemy), distant]);
+    let mut prepared = candidate(vec![actor(Side::Party), actor(Side::Enemy), distant]);
+    for (_, event) in
+        &mut crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0]))
+            .events
+    {
+        if let crate::AttackEvent::Contact { definition, .. } = event {
+            Arc::make_mut(definition).volume = crate::MeleeVolume::BodyCenter {
+                shape: HitShape::Sphere,
+                radius: 30.,
+                half_height: 30.,
+            };
+        }
+    }
+    let mut battle = prepared.finish().unwrap();
     assert!(recipients(&battle.step(request(0)).unwrap()).is_empty());
     assert_eq!(
         recipients(&battle.step(BattleInput::default()).unwrap()),

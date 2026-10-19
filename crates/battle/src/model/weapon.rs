@@ -17,6 +17,11 @@ pub enum WeaponPlayback {
         fallback: u16,
         initial: Playback,
     },
+    /// A body component follows action changes with an exact clip offset.
+    Body {
+        offset: u16,
+        initial: Playback,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +55,9 @@ const UV_REPEAT: i16 = 1000;
 #[derive(Debug, Clone)]
 pub struct WeaponDefinition {
     pub slot: u8,
-    pub attachment: u16,
+    pub initially_visible: bool,
+    pub attachment: Option<u16>,
+    pub effect_interval: Option<u16>,
     pub(crate) layers: Vec<WeaponLayerDefinition>,
     /// Rope segments use the primary layer's bones.
     pub(crate) links: Vec<[u16; 2]>,
@@ -67,7 +74,9 @@ impl WeaponDefinition {
     ) -> Result<Self> {
         let definition = Self {
             slot,
-            attachment,
+            initially_visible: true,
+            attachment: Some(attachment),
+            effect_interval: None,
             layers,
             links,
         };
@@ -79,9 +88,46 @@ impl WeaponDefinition {
         self.layers[0].resource
     }
 
+    pub fn bone_count(&self) -> usize {
+        self.layers[0].skeleton.bones.len()
+    }
+
     pub fn has_carried_motion(&self, clip: u16) -> bool {
-        !matches!(self.layers[0].playback, WeaponPlayback::Owner { .. })
-            && self.layers[0].motions.contains_key(&clip)
+        !matches!(
+            self.layers[0].playback,
+            WeaponPlayback::Owner { .. } | WeaponPlayback::Body { .. }
+        ) && self.layers[0].motions.contains_key(&clip)
+    }
+
+    pub(crate) fn is_body(&self) -> bool {
+        self.layers
+            .first()
+            .is_some_and(|layer| matches!(layer.playback, WeaponPlayback::Body { .. }))
+    }
+
+    #[cfg(feature = "test-support")]
+    pub fn body_layers(&self) -> Option<&[WeaponLayerDefinition]> {
+        self.is_body().then_some(&self.layers)
+    }
+
+    /// Extra body artwork has no equipment slot and may share the actor root.
+    pub fn body(attachment: Option<u16>, layers: Vec<WeaponLayerDefinition>) -> Result<Self> {
+        ensure!(
+            layers
+                .iter()
+                .all(|layer| matches!(layer.playback, WeaponPlayback::Body { .. })),
+            "body component requires mapped playback"
+        );
+        let definition = Self {
+            slot: u8::MAX,
+            initially_visible: true,
+            attachment,
+            effect_interval: None,
+            layers,
+            links: vec![],
+        };
+        definition.validate()?;
+        Ok(definition)
     }
 
     fn validate(&self) -> Result<()> {
@@ -126,7 +172,7 @@ impl WeaponDefinition {
             }
             let initial = match layer.playback {
                 WeaponPlayback::Rigid => continue,
-                WeaponPlayback::Local(initial) => initial,
+                WeaponPlayback::Local(initial) | WeaponPlayback::Body { initial, .. } => initial,
                 WeaponPlayback::Owner {
                     fallback, initial, ..
                 } => {
@@ -174,11 +220,14 @@ struct Layer {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Weapon {
-    definition: Arc<WeaponDefinition>,
+    pub(super) definition: Arc<WeaponDefinition>,
     layers: Vec<Layer>,
     detached: Option<Matrix>,
+    pub(super) dropped: bool,
     texture_age: u64,
     pub visible: bool,
+    /// Unequipped action weapons retain their last geometry until enabled again.
+    pub enabled: bool,
 }
 
 pub(super) struct PreparedPlay(Vec<Option<(u16, Clock)>>);
@@ -191,7 +240,10 @@ impl Weapon {
     pub(super) fn play_carried_pose(&mut self, clip: u16, rate: f32, repeat: bool) -> Result<()> {
         let definition = &self.definition.layers[0];
         ensure!(
-            !matches!(definition.playback, WeaponPlayback::Owner { .. }),
+            !matches!(
+                definition.playback,
+                WeaponPlayback::Owner { .. } | WeaponPlayback::Body { .. }
+            ),
             "carried pose requires an independent track"
         );
         let motion = definition
@@ -214,6 +266,52 @@ impl Weapon {
             self.layers[0].animation = Some((clip, animation));
         }
         self.layers[0].action_pose = true;
+        Ok(())
+    }
+
+    #[cfg(feature = "test-support")]
+    pub(super) fn restore_fixture_clock(
+        &mut self,
+        clip: u16,
+        pose: super::Pose,
+        elapsed_updates: u32,
+    ) -> Result<()> {
+        ensure!(
+            self.definition.is_body(),
+            "fixture clock requires a body component"
+        );
+        for (layer, definition) in self.layers.iter_mut().zip(&self.definition.layers) {
+            let motion = definition
+                .motions
+                .get(&clip)
+                .context("unprepared secondary ready clip")?;
+            let mut clock = Clock::new(
+                Playback {
+                    clip,
+                    frame: pose.frame,
+                    rate: pose.rate,
+                    repeat: pose.repeat,
+                },
+                motion.duration_frames,
+                0,
+            )?;
+            ensure!(
+                pose.loop_start.is_finite() && (0.0..=clock.end).contains(&pose.loop_start),
+                "invalid secondary ready loop origin"
+            );
+            clock.loop_start = pose.loop_start;
+            for _ in 0..elapsed_updates {
+                clock.step();
+            }
+            let (current, animation) = layer
+                .animation
+                .as_mut()
+                .context("missing secondary track")?;
+            *current = clip;
+            animation.start(clock);
+            animation.sample(&definition.skeleton, motion, 1., false)?;
+            animation.pending_sample = true;
+        }
         Ok(())
     }
 
@@ -244,16 +342,44 @@ impl Weapon {
         self.layers.iter_mut().map(|layer| &mut layer.shown)
     }
 
+    pub(super) fn body_clocks(&mut self) -> impl Iterator<Item = &mut Clock> {
+        self.layers
+            .iter_mut()
+            .zip(&self.definition.layers)
+            .filter(|(_, definition)| matches!(definition.playback, WeaponPlayback::Body { .. }))
+            .filter_map(|(layer, _)| {
+                layer
+                    .animation
+                    .as_mut()
+                    .map(|(_, animation)| &mut animation.clock)
+            })
+    }
+
+    pub(super) fn advance_body_pose(&mut self) -> Result<()> {
+        for (layer, definition) in self.layers.iter_mut().zip(&self.definition.layers) {
+            if matches!(definition.playback, WeaponPlayback::Body { .. })
+                && let Some((clip, animation)) = &mut layer.animation
+            {
+                animation.advance(&definition.skeleton, &definition.motions[clip])?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn new(definition: Arc<WeaponDefinition>, owner: &ModelFrame) -> Result<Self> {
         ensure!(
-            usize::from(definition.attachment) < owner.bones.len(),
+            definition
+                .attachment
+                .is_none_or(|bone| usize::from(bone) < owner.bones.len()),
             "invalid weapon attachment bone"
         );
         let mut layers = Vec::new();
         for (index, layer) in definition.layers.iter().enumerate() {
             let animation = match layer.playback {
                 WeaponPlayback::Rigid => None,
-                WeaponPlayback::Local(initial) | WeaponPlayback::Owner { initial, .. } => Some((
+                WeaponPlayback::Local(initial)
+                | WeaponPlayback::Owner { initial, .. }
+                | WeaponPlayback::Body { initial, .. } => Some((
                     initial.clip,
                     AnimatedPose::new(&layer.skeleton, &layer.motions[&initial.clip], initial)?,
                 )),
@@ -278,7 +404,9 @@ impl Weapon {
                     resource: layer.resource,
                     clip: animation.as_ref().map(|(clip, _)| *clip),
                     frame: animation.as_ref().map_or(0., |(_, pose)| pose.clock.frame),
-                    world: multiply(owner.world, owner.bones[usize::from(definition.attachment)]),
+                    world: definition.attachment.map_or(owner.world, |bone| {
+                        multiply(owner.world, owner.bones[usize::from(bone)])
+                    }),
                     bones: Arc::new(bones),
                     links: if index == 0 {
                         definition.links.clone()
@@ -291,11 +419,13 @@ impl Weapon {
             });
         }
         let mut weapon = Self {
+            visible: definition.initially_visible,
             definition,
             layers,
             detached: None,
+            dropped: false,
             texture_age: 0,
-            visible: true,
+            enabled: true,
         };
         weapon.step(owner, false)?;
         Ok(weapon)
@@ -317,11 +447,23 @@ impl Weapon {
         }
         let mut next = Self::new(definition, owner)?;
         next.apply_play(next.prepare_play(body, duration, 0)?);
+        for (layer, definition) in next.layers.iter_mut().zip(&next.definition.layers) {
+            if let Some((clip, animation)) = &mut layer.animation {
+                animation.sample(&definition.skeleton, &definition.motions[clip], 1., false)?;
+            }
+        }
         if let Some(previous) = previous {
             next.detached = previous.detached;
-            next.visible = previous.visible;
+            next.dropped = previous.dropped;
         }
         next.step(owner, false)?;
+        if let Some(previous) = previous {
+            next.visible = previous.visible;
+            next.enabled = previous.enabled;
+            for frame in next.frames_mut() {
+                frame.visible &= previous.visible && previous.enabled;
+            }
+        }
         Ok(next)
     }
 
@@ -342,6 +484,19 @@ impl Weapon {
             .layers
             .iter()
             .map(|layer| {
+                if let WeaponPlayback::Body { offset, .. } = layer.playback {
+                    let clip = body
+                        .clip
+                        .checked_add(offset)
+                        .context("body component clip overflow")?;
+                    let motion = layer
+                        .motions
+                        .get(&clip)
+                        .context("missing body component action motion")?;
+                    let clock =
+                        Clock::new(Playback { clip, ..body }, motion.duration_frames, blend)?;
+                    return Ok(Some((clip, clock)));
+                }
                 let WeaponPlayback::Owner {
                     offset, fallback, ..
                 } = layer.playback
@@ -398,8 +553,14 @@ impl Weapon {
         advance: bool,
         carried_advance: bool,
     ) -> Result<()> {
+        if !self.enabled {
+            for layer in &mut self.layers {
+                layer.shown.visible = false;
+            }
+            return Ok(());
+        }
         self.texture_age += u64::from(advance);
-        let world = self.detached.unwrap_or_else(|| self.attached_world(owner));
+        let world = self.world_at(owner, owner.world);
         let (_, rotation, _) =
             glam::Mat4::from_cols_array_2d(&world).to_scale_rotation_translation();
         for (layer, definition) in self.layers.iter_mut().zip(&self.definition.layers) {
@@ -467,11 +628,12 @@ impl Weapon {
         Ok(())
     }
 
-    fn attached_world(&self, owner: &ModelFrame) -> Matrix {
-        multiply(
-            owner.world,
-            owner.bones[usize::from(self.definition.attachment)],
-        )
+    pub(super) fn world_at(&self, owner: &ModelFrame, placement: Matrix) -> Matrix {
+        self.detached.unwrap_or_else(|| {
+            self.definition.attachment.map_or(placement, |bone| {
+                multiply(placement, owner.bones[usize::from(bone)])
+            })
+        })
     }
     pub fn detach(&mut self, world: Option<Matrix>) {
         self.detached = world;
@@ -504,6 +666,11 @@ mod tests {
                 ..Default::default()
             }
             .matrix(),
+            particle_world: Transform {
+                translation: [100., 200., 300.],
+                ..Default::default()
+            }
+            .matrix(),
             bones: Arc::new(vec![
                 Transform {
                     translation: [10., 20., 30.],
@@ -517,7 +684,9 @@ mod tests {
     fn definition() -> WeaponDefinition {
         WeaponDefinition {
             slot: 0,
-            attachment: 0,
+            attachment: Some(0),
+            effect_interval: None,
+            initially_visible: true,
             layers: vec![WeaponLayerDefinition {
                 resource: 70,
                 skeleton: Skeleton {
@@ -558,6 +727,23 @@ mod tests {
             }],
             links: vec![],
         }
+    }
+
+    #[test]
+    fn initially_hidden_attachment_stays_hidden_until_explicitly_shown() -> Result<()> {
+        let owner = owner();
+        let visible = Weapon::new(Arc::new(definition()), &owner)?;
+        assert!(visible.frames().all(|frame| frame.visible));
+        let mut definition = definition();
+        definition.initially_visible = false;
+        let mut hidden = Weapon::new(Arc::new(definition), &owner)?;
+        assert!(hidden.frames().all(|frame| !frame.visible));
+        hidden.step(&owner, true)?;
+        assert!(hidden.frames().all(|frame| !frame.visible));
+        hidden.visible = true;
+        hidden.step(&owner, false)?;
+        assert!(hidden.frames().all(|frame| frame.visible));
+        Ok(())
     }
 
     #[test]
@@ -781,23 +967,34 @@ mod tests {
         weapon.detach(Some(detached));
         weapon.step(&owner, false)?;
         assert!(weapon.frames().all(|frame| frame.world == detached));
-        weapon.visible = false;
-        weapon.step(&owner, false)?;
+        weapon.enabled = false;
+        let hidden: Vec<_> = weapon.frames().cloned().collect();
+        let mut moved_owner = owner.clone();
+        moved_owner.world[3][0] += 100.;
+        weapon.detach(None);
+        weapon.step(&moved_owner, true)?;
         assert!(weapon.frames().all(|frame| !frame.visible));
+        for (frame, previous) in weapon.frames().zip(&hidden) {
+            assert_eq!(frame.world, previous.world);
+            assert_eq!(frame.bones, previous.bones);
+            assert_eq!(frame.frame, previous.frame);
+        }
+        weapon.enabled = true;
+        weapon.step(&moved_owner, true)?;
+        assert!(weapon.frames().all(|frame| frame.visible));
+        assert_ne!(weapon.frames().next().unwrap().world, hidden[0].world);
         Ok(())
     }
 
     #[test]
-    fn weapon_admission_checks_playback_and_rigid_binding_follows_the_body() -> Result<()> {
+    fn model_components_validate_clips_and_keep_their_anchor() -> Result<()> {
         let mut missing = definition();
         missing.layers[0].motions.remove(&60);
         assert!(missing.validate().is_err());
-        let mut definition = definition();
-        definition.layers[0].playback = WeaponPlayback::Rigid;
-        assert!(definition.validate().is_err());
-        definition.layers[0].motions.clear();
+        let mut rigid = definition();
+        rigid.layers[0].playback = WeaponPlayback::Rigid;
         let mut owner = owner();
-        let mut weapon = Weapon::new(Arc::new(definition), &owner)?;
+        let mut weapon = Weapon::new(Arc::new(rigid), &owner)?;
         owner.bones = Arc::new(vec![
             Transform {
                 translation: [-10., 0., 0.],
@@ -807,7 +1004,42 @@ mod tests {
         ]);
         weapon.step(&owner, false)?;
         assert_eq!(weapon.layers[0].shown.clip, None);
-        assert_eq!(weapon.layers[0].shown.world, weapon.attached_world(&owner));
+        assert_eq!(
+            weapon.layers[0].shown.world,
+            weapon.world_at(&owner, owner.world)
+        );
+        let mut layers = definition().layers;
+        layers[0].playback = WeaponPlayback::Body {
+            offset: 60,
+            initial: Playback {
+                clip: 60,
+                frame: 1.5,
+                rate: 0.5,
+                repeat: true,
+            },
+        };
+        let mut component = Weapon::new(Arc::new(WeaponDefinition::body(None, layers)?), &owner)?;
+        let action = Playback {
+            clip: 30,
+            frame: 3.25,
+            rate: 0.5,
+            repeat: false,
+        };
+        component.play(action, 10., 0)?;
+        component.step(&owner, false)?;
+        assert_eq!(component.layers[0].shown.clip, Some(90));
+        assert_eq!(component.layers[0].shown.frame, 3.25);
+        assert_eq!(component.layers[0].shown.world, owner.world);
+        let held = component.layers[0].shown.clone();
+        assert!(
+            component
+                .play(Playback { clip: 31, ..action }, 10., 0)
+                .is_err()
+        );
+        component.step(&owner, false)?;
+        assert_eq!(component.layers[0].shown, held);
+        component.step(&owner, true)?;
+        assert_eq!(component.layers[0].shown.frame, 3.75);
         Ok(())
     }
 
@@ -830,11 +1062,17 @@ mod tests {
         assert_eq!(weapon.layers[0].shown.frame, carried.frame);
         assert_eq!(weapon.layers[0].shown.bones, carried.bones);
 
+        let placement = owner.world;
         owner.world[3][0] += 20.;
+        assert_eq!(weapon.world_at(&owner, placement), flight);
         weapon.detach(None);
         assert_eq!(weapon.layers[0].shown.world, flight);
+        assert_eq!(weapon.world_at(&owner, placement), carried.world);
         weapon.step(&owner, false)?;
-        assert_eq!(weapon.layers[0].shown.world, weapon.attached_world(&owner));
+        assert_eq!(
+            weapon.layers[0].shown.world,
+            weapon.world_at(&owner, owner.world)
+        );
         Ok(())
     }
 

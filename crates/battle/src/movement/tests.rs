@@ -52,12 +52,15 @@ fn start() -> BattleInput {
 
 #[test]
 fn braking_stops_without_reversing_and_preserves_airborne_hurt() {
-    for (speed, braking, expected) in [
-        (0.55, 0., 0.),
-        (0.56, 0., 0.56),
-        (1.04, 0.5, 0.),
-        (1.06, 0.5, 0.56),
-        (2.49, 1.5, 0.99),
+    for (height, speed, braking, expected) in [
+        (0., 0.55, 0., 0.),
+        (0., 0.56, 0., 0.56),
+        (0., 1.04, 0.5, 0.),
+        (0., 1.06, 0.5, 0.56),
+        (0., 2.49, 1.5, 0.99),
+        (20., 0.1, 3., 0.),
+        (20., 0.55, 3., 0.),
+        (20., 0.56, 3., 0.56),
     ] {
         for direction in [-1., 1.] {
             let mut movement = Movement {
@@ -65,7 +68,9 @@ fn braking_stops_without_reversing_and_preserves_airborne_hurt() {
                 braking,
                 ..Default::default()
             };
-            movement.brake(0., Activity::Idle);
+            movement.integrate_along(&mut [0.; 3], [1., 0., 0.]);
+            movement.brake(height, Activity::Idle);
+            assert_eq!(movement.forward_step, direction * speed);
             crate::tests::assert_close(movement.forward, direction * expected, 0.00001);
         }
     }
@@ -147,11 +152,21 @@ fn local_hit_stop_holds_actor_commands_and_motion_but_ticks_common_timers() {
             assert_eq!(frame.actors[0].heading, 90.);
             assert_eq!(frame.actions[0].2, 0);
         }
+        let center = battle.actors[0].effect_origin();
         let frame = battle.step(BattleInput::default()).unwrap();
         assert_eq!(frame.actors[0].position[0], 3.);
+        assert_eq!(
+            crate::EffectFollow::Center(ActorId(0)).position(&frame),
+            Some(center)
+        );
         assert_eq!(battle.actors[0].movement.forward, 3.);
         assert_eq!(frame.actions[0].2, 1);
+        let center = battle.actors[0].effect_origin();
         let resumed = battle.step(BattleInput::default()).unwrap();
+        assert_eq!(
+            crate::EffectFollow::Center(ActorId(0)).position(&resumed),
+            Some(center)
+        );
         assert_eq!(resumed.actors[0].position[0], 3. + 6. * target_direction);
         assert_eq!(resumed.actors[0].heading, 90. * target_direction);
         for direction in [
@@ -170,13 +185,16 @@ fn local_hit_stop_holds_actor_commands_and_motion_but_ticks_common_timers() {
 #[test]
 fn recovery_pauses_under_hit_stop_and_completes_once() {
     let mut battle = battle(crate::PreparedAttack {
-        events: vec![(
-            0,
-            crate::AttackEvent::Move {
-                forward: Some(3.),
-                vertical: None,
-            },
-        )],
+        events: vec![
+            (0, crate::AttackEvent::Braking(0.)),
+            (
+                0,
+                crate::AttackEvent::Move {
+                    forward: Some(3.),
+                    vertical: None,
+                },
+            ),
+        ],
         recovery: 2,
         ..crate::tests::attack(2)
     });
@@ -193,12 +211,17 @@ fn recovery_pauses_under_hit_stop_and_completes_once() {
     }
     let mut completions = 0;
     for _ in 0..32 {
+        let position = battle.actors[0].position;
         let frame = battle.step(BattleInput::default()).unwrap();
-        completions += frame
+        let completed = frame
             .cues
             .iter()
             .filter(|c| matches!(c, Cue::Completed { .. }))
             .count();
+        if completed != 0 {
+            assert_eq!(frame.actors[0].position, position);
+        }
+        completions += completed;
     }
     assert_eq!(completions, 1);
     assert!(battle.sequences().next().is_none());
@@ -209,11 +232,14 @@ fn recovery_pauses_under_hit_stop_and_completes_once() {
 #[test]
 fn airborne_recovery_waits_for_the_floor_and_menu_pause_preserves_the_countdown() {
     let mut battle = battle(crate::PreparedAttack {
+        events: vec![(0, crate::AttackEvent::Gravity(-0.25))],
         recovery: 2,
         ..crate::tests::attack(0)
     });
     battle.actors[0].position[1] = 2.;
+    battle.actors[0].movement.vertical = 2.;
     let started = battle.step(start()).unwrap();
+    assert_eq!(started.actors[0].position[1], 4.);
     let action = started.actions[0].0;
     let before = battle.actors[0].clone();
     let remaining = battle.action_recovery_remaining(action);
@@ -226,19 +252,26 @@ fn airborne_recovery_waits_for_the_floor_and_menu_pause_preserves_the_countdown(
         .unwrap();
     assert_eq!(paused.actors[0].state, before);
     assert_eq!(battle.action_recovery_remaining(action), remaining);
-    let mut completed = false;
+    // Recovery gravity already affected the velocity on its entry update.
+    let resumed = battle.step(BattleInput::default()).unwrap();
+    assert_eq!(resumed.actors[0].position[1], 5.);
+    let mut completions = 0;
     for _ in 0..12 {
         let frame = battle.step(BattleInput::default()).unwrap();
-        if frame.actions.is_empty() {
+        if frame.cues.contains(&Cue::Completed { action }) {
             assert_eq!(frame.actors[0].position[1], 0.);
-            assert_eq!(frame.actors[0].activity, Activity::Idle);
-            assert!(frame.cues.contains(&Cue::Completed { action }));
-            completed = true;
+            completions += 1;
+        }
+        if battle.actor_command_ready(ActorId(0)) {
             break;
         }
         assert_eq!(frame.actors[0].activity, Activity::Recovering);
     }
-    assert!(completed, "airborne recovery must finish after landing");
+    assert_eq!(completions, 1);
+    assert!(
+        battle.actor_command_ready(ActorId(0)),
+        "airborne recovery must finish after landing"
+    );
 }
 
 #[test]

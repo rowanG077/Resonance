@@ -25,15 +25,19 @@ pub(crate) struct Sequence {
     pub combo: Option<crate::control::ComboWindow>,
     pub started_at: u64,
     pub normal: Option<crate::control::NormalState>,
-    pub collision_bypass: bool,
     pub melee: Option<crate::melee::Window>,
     pub contact_target: Option<ActorId>,
+    /// A new primary pose clears its contact latch when blending finishes.
+    pub contact_blend_ends: Option<u32>,
     /// Any accepted contact, including guard, owned by this action.
     pub contact_made: bool,
     /// Selected Unison artes keep ordinary action playback, with scene-owned admission.
     pub unison: bool,
+    /// The first use waits for its acquisition presentation before starting.
+    pub learning: bool,
     pub struck_target: Option<ActorId>,
     pub struck_damage: i32,
+    pub cyclone_target: Option<(ActorId, [f32; 3])>,
     pub(crate) execution: Execution,
 }
 impl Sequence {
@@ -80,13 +84,15 @@ impl Sequence {
             },
             started_at,
             normal: None,
-            collision_bypass: false,
             melee: None,
             contact_target: None,
+            contact_blend_ends: None,
             contact_made: false,
             unison: false,
+            learning: false,
             struck_target: None,
             struck_damage: 0,
+            cyclone_target: None,
             execution,
         }
     }
@@ -104,7 +110,6 @@ impl Sequence {
 
     /// Discard future attack work without retracting already submitted contacts.
     pub(crate) fn cancel_attack_events(&mut self) {
-        self.collision_bypass = false;
         self.execution = Execution::Complete;
         self.melee = None;
     }
@@ -121,6 +126,7 @@ impl Sequence {
         }
         self.cancel_attack_events();
         self.execution = Execution::Recovering { remaining };
+        cues.push(Cue::RetireActionEffects(id));
         battle.clear_special_guard(self.actor);
         battle.clear_special_guard_pending(self.actor);
         let actor = &mut battle.actors[self.actor.index()];

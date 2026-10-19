@@ -90,18 +90,72 @@ fn coincident_destination_needs_no_detour_and_edge_routes_choose_inward() -> Res
 }
 
 #[test]
-fn arena_clamp_preserves_height_and_velocity_for_both_sides() {
+fn arena_boundary_rejects_or_slides_steps_and_preserves_vertical_motion() {
     for side in [Side::Party, Side::Enemy] {
-        for height in [0., 50.] {
-            let mut actor = at(side, 900., 0.);
-            actor.position[1] = height;
-            actor.movement.vertical = 7.;
-            constrain(&mut actor);
-            assert_eq!(actor.movement.steering.arena_contact(), ArenaContact::Slid);
+        for height in [0., 0.1, 50.] {
+            let mut battle = battle(vec![
+                at(Side::Party, 0., 0.),
+                at(side, 900., 0.),
+                at(Side::Enemy, 100., 0.),
+            ]);
+            battle.actors[0].control = Control::Manual;
+            battle.runtime[0].target = ActorId(2);
+            battle.actors[1].position[1] = height;
+            battle.actors[1].movement.vertical = 7.;
             let boundary = if side == Side::Party { 850. } else { 885. };
-            assert!((actor.position[0] - boundary).abs() < 0.001);
-            assert_eq!(actor.position[1], height);
-            assert_eq!(actor.movement.vertical, 7.);
+            let before = [800., 12., 0.];
+            for forced in [false, true] {
+                battle.actors[1].position[0] = 900.;
+                battle.constrain_actor(1, (!forced).then_some(before));
+                let actor = &battle.actors[1];
+                let blocked = height == 50. && !forced;
+                assert_eq!(
+                    actor.movement.steering.arena_contact(),
+                    if blocked {
+                        ArenaContact::Blocked
+                    } else {
+                        ArenaContact::Slid
+                    }
+                );
+                assert!(
+                    (actor.position[0] - if blocked { before[0] } else { boundary }).abs() < 0.001
+                );
+                assert_eq!(actor.position[1], height);
+                assert_eq!(actor.movement.vertical, 7.);
+            }
+            // The selected opponent keeps its position even on the ground.
+            battle.runtime[0].target = ActorId(1);
+            battle.actors[1].position[0] = 900.;
+            battle.constrain_actor(1, Some(before));
+            assert_eq!(battle.actors[1].position, [before[0], height, before[2]]);
+            assert_eq!(
+                battle.actors[1].movement.steering.arena_contact(),
+                ArenaContact::Blocked
+            );
+        }
+    }
+    // A central target line blocks the leader; an outer line permits sliding.
+    for line_z in [0., 552.5, 600.] {
+        let mut battle = battle(vec![
+            at(Side::Party, 700., line_z),
+            at(Side::Enemy, -100., line_z),
+        ]);
+        battle.runtime[0].target = ActorId(1);
+        let before = [500., 0., line_z];
+        battle.actors[0].position[0] = 900.;
+        battle.constrain_actor(0, Some(before));
+        if line_z == 0. {
+            assert_eq!(battle.actors[0].position, before);
+            assert_eq!(
+                battle.actors[0].movement.steering.arena_contact(),
+                ArenaContact::Blocked
+            );
+        } else {
+            assert!((planar_length(battle.actors[0].position) - 850.).abs() < 0.001);
+            assert_eq!(
+                battle.actors[0].movement.steering.arena_contact(),
+                ArenaContact::Slid
+            );
         }
     }
 }
@@ -111,13 +165,13 @@ fn escape_and_explicit_exemptions_skip_arena_clamping_but_keep_floor() {
     let mut battle = battle(vec![at(Side::Party, 900., 0.), at(Side::Enemy, 900., 0.)]);
     battle.actors[0].movement.steering.unrestricted_arena = true;
     battle.actors[0].position[1] = -1.;
-    battle.constrain_actor(0);
+    battle.constrain_actor(0, Some([800., 0., 0.]));
     assert_eq!(battle.actors[0].position, [900., 0., 0.]);
     battle.actors[1].movement.steering.leaving_arena = true;
-    battle.constrain_actor(1);
+    battle.constrain_actor(1, Some([800., 0., 0.]));
     assert_eq!(battle.actors[1].position[0], 900.);
     battle.actors[1].movement.steering.leaving_arena = false;
     battle.terminal.result = Some(BattleResult::Escaped);
-    battle.constrain_actor(1);
+    battle.constrain_actor(1, Some([800., 0., 0.]));
     assert_eq!(battle.actors[1].position[0], 900.);
 }

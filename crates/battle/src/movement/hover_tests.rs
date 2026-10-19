@@ -56,7 +56,22 @@ fn settling_uses_velocity_and_preserves_hover_profile_on_reset() {
 #[test]
 fn stopping_settles_without_bobbing_but_common_phase_keeps_running() {
     let mut battle = hovering_battle();
+    battle.actors[0].heading = -99.;
+    battle.actors[0].facing_direction = crate::control::direction_from_heading(-108.435);
+    battle.enter_idle(ActorId(0));
+    battle.maintain_ai_idle(ActorId(0));
+    assert!((battle.actors[0].heading + 99.).abs() < 0.001);
+
+    battle.actors[1].heading = 0.;
+    battle.actors[1].facing_direction = [1., 0., 0.];
+    battle.enter_idle(ActorId(1));
+    battle.maintain_ai_idle(ActorId(1));
+    assert_eq!(battle.actors[1].heading, 0.);
     battle.actors[1].movement.hover.settled = true;
+    battle.maintain_ai_idle(ActorId(1));
+    assert_eq!(battle.actors[1].heading, 22.5);
+    battle.maintain_ai_idle(ActorId(1));
+    assert!((battle.actors[1].heading - 22.5).abs() < 0.001);
     battle.actors[1].movement.hover.phase = 22;
     battle.actors[1].position[1] = 50.;
     battle.advance_hover(1, false).unwrap();

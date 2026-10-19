@@ -107,6 +107,10 @@ fn locomotion_updates_walk_run_acceleration_and_live_speed() -> Result<()> {
         battle.step(input([80, 0], false))?;
         assert_eq!(battle.actors[0].movement.forward, 10.);
         assert_eq!(battle.actors[0].position[0] - position, 10.);
+        battle.enter_idle(ActorId(0));
+        battle.step(input([80, 0], false))?;
+        assert_eq!(battle.actors[0].movement.locomotion, Locomotion::Run);
+        assert_eq!(battle.actors[0].movement.forward, 5.5);
         assert!(!battle.is_diagnostic());
     }
     Ok(())
@@ -114,6 +118,17 @@ fn locomotion_updates_walk_run_acceleration_and_live_speed() -> Result<()> {
 
 #[test]
 fn locomotion_reversal_brakes_before_turning_and_quick_turn_releases_stop() -> Result<()> {
+    for (heading, stick) in [(90.00002, -80), (-90.00002, 80)] {
+        let mut reversal = battle(Control::Manual);
+        reversal.actors[0].heading = heading;
+        let facing = [heading.signum(), 0., 0.];
+        reversal.actors[0].facing_direction = facing;
+        reversal.actors[0].movement.direction = facing;
+        reversal.actors[0].movement.target_direction = facing;
+        reversal.step(input([stick, 0], false))?;
+        assert_eq!(reversal.actors[0].movement.locomotion, Locomotion::Run);
+        crate::tests::assert_close(reversal.actors[0].heading, heading - 22.5, 0.001);
+    }
     let mut short_run = battle(Control::Manual);
     short_run.step(input([80, 0], false))?;
     short_run.step(input([-80, 0], false))?;
@@ -151,7 +166,7 @@ fn locomotion_reversal_brakes_before_turning_and_quick_turn_releases_stop() -> R
 }
 
 #[test]
-fn locomotion_keeps_airborne_momentum_and_samples_input_during_guard() -> Result<()> {
+fn locomotion_keeps_airborne_momentum_and_resumes_run_after_guard() -> Result<()> {
     let mut airborne = battle(Control::Manual);
     airborne.actors[0].position[1] = 100.;
     airborne.actors[0].movement.forward = 3.;
@@ -170,8 +185,8 @@ fn locomotion_keeps_airborne_momentum_and_samples_input_during_guard() -> Result
         guarded.step(input([80, 0], false))?;
     }
     assert!(!guarded.actors[0].guard.active);
-    assert_eq!(guarded.actors[0].movement.locomotion, Locomotion::Walk);
-    assert_eq!(guarded.actors[0].movement.forward, 5.);
+    assert_eq!(guarded.actors[0].movement.locomotion, Locomotion::Run);
+    assert!(guarded.actors[0].movement.forward > 5.);
     Ok(())
 }
 
@@ -194,6 +209,7 @@ fn companion_prepared_for(character: u8) -> PreparedBattle {
     }
     let prepared = &mut candidate.resources;
     prepared.actor_setup[0].companion = Some(crate::CompanionDefinition {
+        normal_attack_opening: false,
         initial_policy: [0, 0, 0],
         defaults: [3, 6, if colette { 2 } else { 5 }],
         limits: [crate::PolicyLimits {
@@ -283,6 +299,7 @@ fn approach_policy_battle(control: Control, colette: bool) -> Battle {
 
     if colette {
         prepared.resources.actor_setup[0].companion = Some(crate::CompanionDefinition {
+            normal_attack_opening: false,
             initial_policy: [0; 3],
             defaults: [3, 6, 2],
             limits: [crate::PolicyLimits {
@@ -504,8 +521,26 @@ fn command_target_projection_does_not_consume_controller_navigation() -> Result<
 
 #[test]
 fn target_navigation_cycles_live_targets_and_drops_unavailable_choices() -> Result<()> {
-    let mut battle = battle(Control::Manual);
     let owner = ActorId(0);
+    let mut parked = prepared(Control::Manual).with_arena_boundary().finish()?;
+    parked.actors[1].side = Side::Party;
+    parked.actors[1].position[0] = 300.;
+    parked.actors[2].position[0] = 1800.;
+    parked.runtime[0].target = ActorId(1);
+    for _ in 0..2 {
+        parked.step(input([0, 0], false))?;
+        assert_eq!(parked.target(owner), Some(ActorId(1)));
+        assert_eq!(parked.actors[2].position, [885., 0., 0.]);
+    }
+    assert_eq!(
+        parked.select_target_step(owner, Some(ActorId(1)), 0),
+        Some(ActorId(2))
+    );
+    parked.actors[1].availability = crate::ActorAvailability::Dead;
+    parked.step(input([0, 0], false))?;
+    assert_eq!(parked.target(owner), Some(ActorId(2)));
+
+    let mut battle = battle(Control::Manual);
     battle.actors[1].position[0] = 10.;
     battle.actors[2].position[0] = 20.;
     let mut selected = Some(ActorId(1));
@@ -535,7 +570,15 @@ fn target_tap_avoids_current_and_held_selector_freezes_actor_time() -> Result<()
     let mut battle = battle(Control::Manual);
     let mut tap = input([0, 0], false);
     tap.controllers[0].target.released = true;
-    assert_eq!(battle.step(tap)?.targets[0], Some(ActorId(2)));
+    let tapped = battle.step(tap)?;
+    assert_eq!(tapped.targets[0], Some(ActorId(2)));
+    assert!(matches!(
+        tapped.cues.as_slice(),
+        [Cue::TargetChanged {
+            actor: ActorId(0),
+            target: ActorId(2)
+        }]
+    ));
     battle.actors[0].reaction.protection.armor(90);
     for visit in 0..16 {
         let mut held = input([0, 0], false);
@@ -544,7 +587,14 @@ fn target_tap_avoids_current_and_held_selector_freezes_actor_time() -> Result<()
             pressed: visit == 0,
             released: false,
         };
-        if battle.step(held)?.target_selector.is_some() {
+        let frame = battle.step(held)?;
+        assert!(
+            !frame
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::TargetChanged { .. }))
+        );
+        if frame.target_selector.is_some() {
             break;
         }
     }
@@ -561,11 +611,24 @@ fn target_tap_avoids_current_and_held_selector_freezes_actor_time() -> Result<()
     assert_eq!(frame.actors[0].reaction.protection.remaining, remaining);
     assert_eq!(frame.actors[0].position, position);
     assert_eq!(frame.targets[0], Some(ActorId(1)));
+    assert!(matches!(
+        frame.cues.as_slice(),
+        [Cue::TargetChanged {
+            actor: ActorId(0),
+            target: ActorId(1)
+        }]
+    ));
     let frame = battle.step(BattleInput::default())?;
     assert_eq!(frame.target_selector, None);
     assert_eq!(frame.targets[0], Some(ActorId(1)));
     assert_eq!(frame.update, clock);
     assert_eq!(frame.actors[0].reaction.protection.remaining, remaining);
+    assert!(
+        !frame
+            .cues
+            .iter()
+            .any(|cue| matches!(cue, Cue::TargetChanged { .. }))
+    );
     let held = battle.step(BattleInput {
         paused: true,
         ..Default::default()
@@ -904,6 +967,17 @@ fn held_guard_survives_countdown_and_hit_stop_then_allows_attack() -> Result<()>
     for mode in [Control::Manual, Control::SemiAuto] {
         let mut battle = battle(mode);
         battle.set_diagnostics(Default::default());
+        let selected = battle.step(player_buttons(false, false, true, [0; 2]))?;
+        assert_eq!(selected.actors[0].activity, Activity::Guarding);
+        assert!(!selected.actors[0].guard.active);
+        let paused = battle.step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })?;
+        assert_eq!(paused.update, selected.update);
+        assert!(!paused.actors[0].guard.active);
+        let admitted = battle.step(player_buttons(false, false, true, [0; 2]))?;
+        assert!(admitted.actors[0].guard.active);
         for _ in 0..40 {
             battle.step(player_buttons(false, false, true, [0; 2]))?;
         }
@@ -980,7 +1054,9 @@ fn insufficient_tp_and_empty_shortcuts_do_not_admit_or_spend() -> Result<()> {
 #[test]
 fn technique_uses_player_range_and_approach_defers_payment_until_arrival() -> Result<()> {
     let mut near = shortcuts_battle(Control::SemiAuto);
-    near.step(player_buttons(false, true, false, [0; 2]))?;
+    let selected = near.step(player_buttons(false, true, false, [0; 2]))?;
+    assert!(selected.actions.is_empty());
+    assert_eq!(near.actors[0].tp, 40);
     wait_for_action(&mut near, crate::ActionKey(7))?;
     assert_eq!(near.actors[0].position[0], 0.);
     assert_eq!(near.actors[0].tp, 36);
@@ -1158,6 +1234,7 @@ fn airborne_party_and_turn_disabled_actions_do_not_wait_for_facing() -> Result<(
                 difficulty: 0,
                 choices: vec![crate::EnemyChoice {
                     action: crate::ActionKey(0),
+                    physical_arte: false,
                     weight: 1,
                     chain_group: 0,
                     followup_chance: 0,
@@ -1165,6 +1242,8 @@ fn airborne_party_and_turn_disabled_actions_do_not_wait_for_facing() -> Result<(
                     target_policy: Some(crate::TargetPolicy::Nearest),
                     target_allies: false,
                     return_to_formation: true,
+                    returning: None,
+                    return_speed: None,
                     guard_chance: 0,
                     range: [0, 0],
                     tp: 0,
@@ -1177,6 +1256,7 @@ fn airborne_party_and_turn_disabled_actions_do_not_wait_for_facing() -> Result<(
                 walk_override: None,
                 behavior: None,
                 walk_motion: None,
+                run_motion: None,
                 turn_ticks: 8,
             });
         }
@@ -1384,6 +1464,12 @@ fn target_selector_pauses_all_actors_and_actions_until_release() -> Result<()> {
 fn selector_release_changes_desired_facing_without_moving_or_turning_while_paused() -> Result<()> {
     for mode in [Control::Manual, Control::SemiAuto] {
         let mut battle = battle(mode);
+        let heading = 90_f32.next_up();
+        battle.actors[0].heading = heading;
+        for _ in 0..3 {
+            let idle = battle.step(BattleInput::default())?;
+            assert_eq!(idle.actors[0].heading, heading);
+        }
         battle.actors[0].heading = 0.;
         battle.actors[0].movement.direction = [0., 0., -1.];
         battle.actors[1].position = [200., 0., 0.];

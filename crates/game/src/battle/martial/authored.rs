@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail, ensure};
 use resonance_battle::{AttackEvent, AttackPose, EffectAppearance, PreparedAttack};
 use resonance_content::{
     battle_action::{ActionPose, ContactAttachments},
-    battle_martial::{Attack, PoseStart, contact_tick},
+    battle_martial::{Attack, PoseStart, gameplay_tick},
     battle_normal::Event,
 };
 use std::sync::Arc;
@@ -51,16 +51,13 @@ fn resolve_pose_sequence(
         previous = Some((at, step.pose));
     }
     let elapsed = |at: u16, pose_clock: bool| -> Result<u16> {
+        if !pose_clock && at != 0 {
+            return gameplay_tick(at, 0, &holds);
+        }
         let hold: u32 = holds
             .iter()
             .filter(|(start, _)| *start < at)
-            .map(|(start, blend)| {
-                u32::from(if *start == 0 || pose_clock {
-                    *blend
-                } else {
-                    blend.saturating_sub(1)
-                })
-            })
+            .map(|(_, blend)| u32::from(*blend))
             .sum();
         (u32::from(at) + hold)
             .try_into()
@@ -69,14 +66,19 @@ fn resolve_pose_sequence(
     let mut preceding_contacts = 0;
     for (at, event) in &mut attack.events {
         *at = if matches!(event, Event::Contact(_) | Event::Projectile { .. }) {
-            let elapsed = contact_tick(*at, preceding_contacts, &holds)?;
+            let elapsed = gameplay_tick(*at, preceding_contacts, &holds)?;
             if matches!(event, Event::Contact(_)) {
                 preceding_contacts = preceding_contacts
                     .checked_add(1)
                     .context("too many martial contact rows")?;
             }
             elapsed
-        } else if *at == 0 && matches!(event, Event::Forward(_) | Event::Vertical(_)) {
+        } else if *at == 0
+            && matches!(
+                event,
+                Event::Forward(_) | Event::Vertical(_) | Event::Gravity(_)
+            )
+        {
             holds.first().map_or(0, |(_, blend)| u16::from(*blend))
         } else {
             elapsed(
@@ -171,31 +173,23 @@ impl Technique {
         };
         // Grounded arte movement loses this speed each gameplay tick.
         const GROUND_BRAKING: f32 = 0.55;
-        let mut events = vec![(0, AttackEvent::Notice { duration: 90 })];
-        let projectile_arte = matches!(self.sequence, Sequence::DemonFang | Sequence::RayThrust);
-        if self.sequence != Sequence::DemonFang {
-            events.push((0, AttackEvent::Braking(GROUND_BRAKING)));
-        }
+        let mut events = vec![
+            (0, AttackEvent::Notice { duration: 90 }),
+            (0, AttackEvent::Braking(GROUND_BRAKING)),
+        ];
         if let Some(member) = attack.effect {
             resources.effect(true, &[member])?;
             let appearance = EffectAppearance {
                 resource: resources.techniques.resource,
                 member,
             };
-            let event = if projectile_arte {
-                // Keep the projectile recipes' existing effect ownership.
-                AttackEvent::Effect {
-                    appearance,
-                    tints: Default::default(),
-                    centered: false,
-                }
-            } else {
+            events.push((
+                0,
                 AttackEvent::ActionEffect {
                     appearance,
                     origin: resonance_battle::AttackOrigin::ActorRoot,
-                }
-            };
-            events.push((0, event));
+                },
+            ));
         }
         for (at, event) in &attack.events {
             let event = match event {
@@ -243,7 +237,6 @@ impl Technique {
                             shape: contact.shape,
                             radius: contact.radius,
                             half_height: contact.height,
-                            cooldown: contact.hit.cooldown,
                         }
                     } else {
                         resonance_battle::MeleeVolume::Attached {
@@ -251,7 +244,6 @@ impl Technique {
                             shape: contact.shape,
                             radius: contact.radius,
                             half_height: contact.height,
-                            cooldown: contact.hit.cooldown,
                         }
                     };
                     AttackEvent::Contact {
@@ -331,20 +323,34 @@ impl Technique {
             };
             events.push((*at, event));
         }
-        events.push((
-            attack.duration,
-            AttackEvent::Pose(pose(ActionPose {
-                clip: 0,
-                start: 0.,
-                end: None,
-                rate: 0.5,
-                blend: attack
-                    .recovery
-                    .try_into()
-                    .context("martial recovery exceeds limit")?,
-                repeat: true,
-            })?),
-        ));
+        let already_idle = attack
+            .events
+            .iter()
+            .rev()
+            .find(|(at, event)| {
+                *at <= attack.duration && matches!(event, Event::Pose(_) | Event::AnimationRate(_))
+            })
+            .is_some_and(|(_, event)| {
+                matches!(event, Event::Pose(pose)
+                    if pose.clip == 0 && pose.start == 0. && pose.end.is_none()
+                        && pose.rate == 0.5)
+            });
+        if !already_idle {
+            events.push((
+                attack.duration,
+                AttackEvent::Pose(pose(ActionPose {
+                    clip: 0,
+                    start: 0.,
+                    end: None,
+                    rate: 0.5,
+                    blend: attack
+                        .recovery
+                        .try_into()
+                        .context("martial recovery exceeds limit")?,
+                    repeat: true,
+                })?),
+            ));
+        }
         events.sort_by_key(|(at, _)| *at);
         Ok(ActionDefinition {
             normal: None,
@@ -381,7 +387,7 @@ mod tests {
             chain_at: Some(65),
             recovery: 10,
             effect: None,
-            events: vec![(46, Event::Forward(7.))],
+            events: vec![(0, Event::Gravity(0.1)), (46, Event::Forward(7.))],
             pose_sequence: Some(vec![
                 PoseStep {
                     start: PoseStart::At(0),
@@ -422,6 +428,13 @@ mod tests {
                 .events
                 .iter()
                 .any(|(at, event)| *at == 50 && matches!(event, Event::Forward(7.)))
+        );
+        assert!(
+            attack
+                .events
+                .iter()
+                .any(|(at, event)| *at == 4
+                    && matches!(event, Event::Gravity(value) if *value == 0.1))
         );
         assert!(attack.pose_sequence.is_none());
         // Re-preparation must not count the same blend holds twice.

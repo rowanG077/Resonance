@@ -200,6 +200,7 @@ fn taunt_recovery_stacks_traits_caps_vitals_and_does_not_roll_lucky_healing() {
         (crate::RecoveryKind::Hp, 80, 30),
     ] {
         assert!(cues.contains(&Cue::Recovered {
+            floating: false,
             actor: OWNER,
             kind,
             nominal,

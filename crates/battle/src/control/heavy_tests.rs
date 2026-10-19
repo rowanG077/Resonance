@@ -29,6 +29,9 @@ fn heavy_blocks_rising_attack_from_guard_without_committing_selection() -> Resul
                 assert_eq!(frame.actors[0].activity, Activity::Guarding);
                 assert!(frame.actions.is_empty());
             } else {
+                assert_eq!(frame.actors[0].activity, Activity::Approaching);
+                assert!(frame.actions.is_empty());
+                let frame = battle.step(BattleInput::default())?;
                 assert!(matches!(frame.actors[0].activity, Activity::Action));
                 let id = frame.actions[0].0;
                 assert_eq!(battle.action_definition(id), Some(crate::ActionKey(1)));

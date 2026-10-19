@@ -34,7 +34,9 @@ fn prepared_fixture(mode: Control, enabled: bool) -> PreparedBattle {
         release_pose: Default::default(),
         hide_primary_weapons: false,
         duration: 0,
-
+        profile_ticks: 0,
+        spell_ticks: 0,
+        fixed_timing: false,
         recovery: 0,
         release: Arc::new(crate::tests::volley()),
         threat: None,

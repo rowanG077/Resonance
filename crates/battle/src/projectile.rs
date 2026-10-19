@@ -42,6 +42,7 @@ pub struct ProjectileEffects {
     /// Emit once at the first struck actor when this projectile ricochets.
     pub rebound_projectile: Option<Arc<ProjectileDefinition>>,
     pub spin_on_rebound: bool,
+    pub departure_animation: Option<resonance_content::battle_effect::ModelAnimation>,
 }
 
 /// Prepared contact parameters for the standard projectile group.
@@ -193,6 +194,13 @@ impl ProjectileDefinition {
             seal.validate()?;
             ensure!(self.contact.is_some(), "projectile seal has no contact");
         }
+        if let Some(animation) = self.effects.departure_animation {
+            animation.validate()?;
+            ensure!(
+                self.motion.departure.is_some(),
+                "projectile departure animation has no departure"
+            );
+        }
         if let Some(projectile) = &self.effects.rebound_projectile {
             ensure!(
                 self.motion
@@ -223,6 +231,13 @@ pub struct ProjectileFrame {
     pub shadow: Option<ProjectileShadow>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Rebound {
+    Contact,
+    Ground,
+    Bounce,
+}
+
 pub(crate) struct Projectile {
     pub definition: Arc<ProjectileDefinition>,
     pub action: ActionId,
@@ -239,14 +254,14 @@ pub(crate) struct Projectile {
     rebound_target: Option<ActorId>,
     bounce: bool,
     ricocheted: bool,
-    departed: bool,
-    rebound: Option<bool>,
+    pub departed: bool,
+    rebound: Option<Rebound>,
     pub attack_power: u16,
     pub target_point: [f32; 3],
     pub pending_launch: bool,
     ground_emitted: bool,
-    cooldowns: [u8; crate::ACTOR_CAPACITY],
-    hits: [u8; crate::ACTOR_CAPACITY],
+    cooldowns: Vec<u8>,
+    hits: Vec<u8>,
 }
 
 const AQUA_EDGE_TURN_TICKS: u32 = 30;
@@ -258,6 +273,7 @@ impl Projectile {
         definition: Arc<ProjectileDefinition>,
         action: ActionId,
         frame: ProjectileFrame,
+        actor_count: usize,
     ) -> Self {
         Self {
             velocity: rotate(definition.velocity, frame.heading),
@@ -288,8 +304,8 @@ impl Projectile {
             target_point: [0.; 3],
             pending_launch: false,
             ground_emitted: false,
-            cooldowns: [0; crate::ACTOR_CAPACITY],
-            hits: [0; crate::ACTOR_CAPACITY],
+            cooldowns: vec![0; actor_count],
+            hits: vec![0; actor_count],
         }
     }
 
@@ -297,27 +313,32 @@ impl Projectile {
     pub fn initialize(
         &mut self,
         cues: &mut Vec<Cue>,
-        random: &mut crate::Random,
+        draw: impl FnMut(usize, f32) -> Result<u16>,
         direction: Option<[f32; 3]>,
-    ) -> Option<crate::EffectRequest> {
+    ) -> Result<Option<crate::EffectRequest>> {
         if direction.is_none() {
-            self.prepare_velocity(random);
+            self.prepare_velocity(draw)?;
         }
-        self.finish_launch(cues, direction)
+        Ok(self.finish_launch(cues, direction))
     }
 
     /// Consume authored jitter in emission order, before any deferred bone sampling.
-    pub(crate) fn prepare_velocity(&mut self, random: &mut crate::Random) {
+    pub(crate) fn prepare_velocity(
+        &mut self,
+        mut draw: impl FnMut(usize, f32) -> Result<u16>,
+    ) -> Result<()> {
         if self.definition.motion.bone_direction.is_none() && !self.definition.motion.aim_at_target
         {
             let mut local_velocity = self.definition.velocity;
-            for (velocity, amplitude) in local_velocity
+            for (axis, (velocity, amplitude)) in local_velocity
                 .iter_mut()
                 .zip(self.definition.motion.velocity_jitter)
+                .enumerate()
             {
-                if amplitude != 0. {
-                    let sample = f32::from(random.next_u16()) / f32::from(u16::MAX) * 2. - 1.;
-                    *velocity += sample * amplitude.abs();
+                if amplitude.abs() >= 1. {
+                    let steps = (amplitude * 10.) as i32;
+                    let sample = i32::from(draw(axis, amplitude)? as i16) % steps;
+                    *velocity = (sample as f32).mul_add(0.1, *velocity);
                 }
             }
             self.velocity = if self.definition.motion.world_direction {
@@ -329,6 +350,7 @@ impl Projectile {
                 self.velocity = rotate(self.velocity, self.frame.heading);
             }
         }
+        Ok(())
     }
 
     pub(crate) fn finish_launch(
@@ -353,6 +375,7 @@ impl Projectile {
         cues.push(Cue::ProjectileStarted {
             projectile: self.frame.id,
             action: self.action,
+            velocity: self.velocity,
         });
         self.definition
             .birth
@@ -391,8 +414,12 @@ impl Projectile {
         })
     }
 
-    pub fn take_rebound(&mut self) -> Option<bool> {
+    pub fn take_rebound(&mut self) -> Option<Rebound> {
         self.rebound.take()
+    }
+
+    pub fn pending_rebound_target(&self) -> Option<ActorId> {
+        self.rebound_target
     }
 
     pub fn take_rebound_projectile(&mut self) -> Option<(ActorId, Arc<ProjectileDefinition>)> {
@@ -462,7 +489,7 @@ impl Projectile {
             self.frame.position[1] = 0.;
             self.velocity[1] *= -self.definition.motion.response.unwrap().restitution;
             if self.ricocheted && self.definition.effects.spin_on_rebound {
-                self.rebound = Some(false);
+                self.rebound = Some(Rebound::Bounce);
             }
         }
         if (self.definition.clamp_ground || self.definition.motion.stop_on_ground)
@@ -507,6 +534,7 @@ impl Projectile {
             self.velocity = direction.map(|value| value * departure.return_speed);
             self.velocity[1] = departure.jump_speed;
             self.ricocheted = true;
+            self.frame.disarmed = true;
         }
         if active
             && let Some(response) = self.definition.motion.response
@@ -532,11 +560,15 @@ impl Projectile {
             self.ricocheted = true;
             if contact {
                 self.bounce = true;
-                if self.definition.effects.spin_on_rebound {
-                    self.rebound = Some(true);
-                }
-                self.frame.disarmed = true;
             }
+            if self.definition.effects.spin_on_rebound {
+                self.rebound = Some(if contact {
+                    Rebound::Contact
+                } else {
+                    Rebound::Ground
+                });
+            }
+            self.frame.disarmed = true;
         }
         self.frame.velocity = self.velocity;
         self.frame.contact_active = active && self.age != 0 && !self.frame.disarmed;
@@ -701,6 +733,7 @@ mod tests {
                 disarmed: false,
                 shadow: None,
             },
+            3,
         )
     }
 
@@ -803,7 +836,10 @@ mod tests {
         );
         projectile.frame.heading = 180.;
         projectile.acceleration = [2., 0., 0.];
-        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(0), None);
+        let mut random = crate::Random::new(0);
+        projectile
+            .initialize(&mut Vec::new(), |_, _| Ok(random.next_u16()), None)
+            .unwrap();
         for _ in 0..3 {
             projectile.step()?;
         }
@@ -831,7 +867,10 @@ mod tests {
         projectile.frame.position = [-700., 0., 0.];
         projectile.frame.heading = 90.;
         Arc::make_mut(&mut projectile.definition).offset = [0., 35., 0.];
-        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(0), None);
+        let mut random = crate::Random::new(0);
+        projectile
+            .initialize(&mut Vec::new(), |_, _| Ok(random.next_u16()), None)
+            .unwrap();
         projectile.target_point = [1200., 100., 0.];
         for _ in 0..30 {
             projectile.step()?;
@@ -876,7 +915,10 @@ mod tests {
         );
         Arc::get_mut(&mut projectile.definition).unwrap().lifetime = Some(12);
         projectile.target_point = [50., 25., 50.];
-        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(1), None);
+        let mut random = crate::Random::new(1);
+        projectile
+            .initialize(&mut Vec::new(), |_, _| Ok(random.next_u16()), None)
+            .unwrap();
         for age in 0..=12 {
             let before = projectile.frame.position;
             let direction = projectile.velocity;
@@ -928,7 +970,10 @@ mod tests {
             projectile.definition.validate()?;
             projectile.frame.position = position;
             projectile.target_point = [0., 80., 0.];
-            projectile.initialize(&mut Vec::new(), &mut crate::Random::new(0), None);
+            let mut random = crate::Random::new(0);
+            projectile
+                .initialize(&mut Vec::new(), |_, _| Ok(random.next_u16()), None)
+                .unwrap();
             projectile.step()?;
             for (actual, expected) in projectile
                 .frame
@@ -961,7 +1006,19 @@ mod tests {
         projectile.frame.position = [-500., 240., 0.];
         projectile.frame.heading = 90.00002;
         projectile.target_point = [-126.93901, 50., 45.05799];
-        projectile.initialize(&mut Vec::new(), &mut crate::Random::new(0), None);
+        let mut random = crate::Random::new(0);
+        let mut cues = Vec::new();
+        projectile.initialize(&mut cues, |_, _| Ok(random.next_u16()), None)?;
+        let launch_direction = cues
+            .iter()
+            .find_map(|cue| match cue {
+                Cue::ProjectileStarted { velocity, .. } => Some(*velocity),
+                _ => None,
+            })
+            .unwrap();
+        for (actual, expected) in launch_direction.into_iter().zip([0.5, -0.2, 0.3]) {
+            assert!((actual - expected).abs() < 0.000001);
+        }
         // Observed positions after 1, 2, 10 and 23 movements, including the turn past the target.
         let anchors = [
             (1, [-485., 234., 8.999994]),
@@ -974,6 +1031,17 @@ mod tests {
             while moved < at {
                 projectile.step()?;
                 moved += 1;
+            }
+            if at == 1 {
+                assert_ne!(projectile.frame.velocity, launch_direction);
+                for (actual, expected) in projectile
+                    .frame
+                    .velocity
+                    .into_iter()
+                    .zip([0.832314, -0.348516, 0.431034])
+                {
+                    assert!((actual - expected).abs() < 0.00001);
+                }
             }
             for (actual, expected) in projectile.frame.position.into_iter().zip(expected) {
                 assert!(
@@ -1029,7 +1097,13 @@ mod tests {
                         clashes: false,
                     });
                 projectile.definition.validate().unwrap();
-                let target = ActorId(1);
+                let mut projectile = Projectile::new(
+                    projectile.definition,
+                    projectile.action,
+                    projectile.frame,
+                    70,
+                );
+                let target = ActorId(69);
                 let admitted_hits = if limit == 0 {
                     u16::from(u8::MAX) + 1
                 } else {

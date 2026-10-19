@@ -99,7 +99,9 @@ fn equipment_publication_composes_available_art_without_blocking_stats() -> anyh
     let part = |slot, resource| {
         Arc::new(crate::WeaponDefinition {
             slot,
-            attachment: 0,
+            attachment: Some(0),
+            effect_interval: None,
+            initially_visible: true,
             layers: vec![crate::WeaponLayerDefinition {
                 texture_animation: None,
                 resource,
@@ -213,7 +215,9 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
     definition.idle_motions[0] = Some(0);
     definition.weapons.push(Arc::new(WeaponDefinition {
         slot: 0,
-        attachment: 0,
+        attachment: Some(0),
+        effect_interval: None,
+        initially_visible: true,
         layers: vec![WeaponLayerDefinition {
             texture_animation: None,
             resource: 8,
@@ -325,7 +329,9 @@ fn visual_faults_cannot_reject_committed_equipment() -> Result<()> {
         let definition = Arc::new(crate::tests::model_definition(7, [(0, 10.)]));
         let broken = Arc::new(WeaponDefinition {
             slot: 0,
-            attachment: 99,
+            attachment: Some(99),
+            effect_interval: None,
+            initially_visible: true,
             layers: vec![],
             links: vec![],
         });
@@ -368,7 +374,7 @@ fn appearance_follows_casting_defeat_holds_revival_and_results() -> Result<()> {
     definition.tint = [40, 50, 60, 173];
     definition.fade_on_defeat = true;
     definition.reactions.defeated = Some(1);
-    definition.reactions.get_up = Some(2);
+    definition.reactions.stagger_get_up = Some(2);
     let battle = PreparedBattle::new(
         vec![(actor(Side::Party), Default::default())],
         Default::default(),
@@ -386,7 +392,10 @@ fn appearance_follows_casting_defeat_holds_revival_and_results() -> Result<()> {
     frame.actors[0].activity = crate::Activity::Casting { held: true };
     models.advance(&mut frame, BattleClock::Held, true)?;
     assert_eq!(frame.models[0].tint, [40, 50, 60, 173]);
-    assert!(!frame.models[0].depth_write);
+    assert!(
+        frame.models[0].depth_write,
+        "authored translucency must still occlude the back-facing outline"
+    );
     assert_eq!(frame.models[0].light, Some([10., 0., 20.]));
     frame.actors[0].activity = crate::Activity::Idle;
     frame.update += 1;
@@ -400,12 +409,19 @@ fn appearance_follows_casting_defeat_holds_revival_and_results() -> Result<()> {
         frame.models[0].clip, 1,
         "death settles during the ending too"
     );
-    assert!(frame.models[0].tint[3] < 173);
+    assert_eq!(frame.models[0].tint, [0, 0, 0, 236]);
+    assert!(!frame.models[0].depth_write, "defeat fading releases depth");
     let held = frame.models[0].clone();
     for _ in 0..30 {
         models.advance(&mut frame, BattleClock::Held, false)?;
         assert_eq!(frame.models[0], held);
     }
+    frame.paused_actors.push(ActorId(0));
+    frame.update += 1;
+    models.advance(&mut frame, BattleClock::Running, false)?;
+    assert_eq!(frame.models[0].tint, [0, 0, 0, 224]);
+    assert_eq!(frame.models[0].frame, held.frame);
+    frame.paused_actors.clear();
     for _ in 0..30 {
         frame.update += 1;
         models.advance(&mut frame, BattleClock::Running, false)?;
@@ -419,6 +435,7 @@ fn appearance_follows_casting_defeat_holds_revival_and_results() -> Result<()> {
     assert_eq!(frame.models[0].clip, 2);
     assert_eq!(frame.models[0].tint, [40, 50, 60, 173]);
     assert!(frame.models[0].visible);
+    assert!(frame.models[0].depth_write, "revival restores body depth");
     frame.model_requests.push(crate::ModelRequest::Result {
         actor: ActorId(0),
         visible: true,

@@ -122,6 +122,8 @@ enum Phase {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Visit {
     Combat,
+    /// Retire the interrupted combat effects before the new scene is published.
+    Enter,
     Event,
     /// Combat owns the returned view; its clock resumes on the following visit.
     Return,
@@ -234,7 +236,7 @@ impl Sequence {
                 .context("battle rescue was already consumed")?;
             self.playback = Some(prepared.enter(&self.party)?);
             self.phase = Phase::Rescue;
-            return Ok(Visit::Event);
+            return Ok(Visit::Enter);
         }
         if let Some(playback) = &mut self.playback {
             playback.step(confirm, accelerate)?;

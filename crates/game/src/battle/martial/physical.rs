@@ -44,57 +44,7 @@ impl Technique {
         let ActionExecution::Attack(attack) = &mut action.execution else {
             unreachable!("martial preparation produces an attack")
         };
-        let recovery_pose = attack
-            .events
-            .iter()
-            .find_map(|(at, event)| match event {
-                AttackEvent::Pose(pose) if *at == attack.end_at => Some(*pose),
-                _ => None,
-            })
-            .context("missing Eagle recovery pose")?;
-        let landing_at = attack
-            .events
-            .iter()
-            .filter_map(|(at, event)| matches!(event, AttackEvent::Contact { .. }).then_some(*at))
-            .max()
-            .context("missing Eagle dive contact")?
-            + 1;
-        attack.events.retain(|(at, _)| *at < landing_at);
-        attack.chain_at = None;
-        let landing_pose = AttackPose {
-            motion: crate::battle::model::motion(model, 52)
-                .context("missing Eagle landing pose")?,
-            start: 0.,
-            end: None,
-            rate: recovery_pose.rate,
-            blend: 2,
-            repeat: false,
-        };
-        const LANDING_TICKS: u16 = 24;
-        // The ring is released only after the grounded pose and before recovery.
-        attack.events.push((
-            landing_at,
-            AttackEvent::Land {
-                pose: Some(landing_pose),
-                effect: Some(landing_effect),
-                settle: landing_ring.is_none().then_some(LANDING_TICKS),
-                recovery_pose: Some(recovery_pose),
-            },
-        ));
-        if let Some(projectile) = landing_ring {
-            attack
-                .events
-                .push((landing_at, AttackEvent::Projectile(projectile)));
-            attack.events.push((
-                landing_at,
-                AttackEvent::Land {
-                    pose: None,
-                    effect: None,
-                    settle: Some(LANDING_TICKS),
-                    recovery_pose: Some(recovery_pose),
-                },
-            ));
-        }
+        prepare_eagle_landing(attack, model, landing_effect, landing_ring)?;
         Ok(action)
     }
 
@@ -157,4 +107,64 @@ impl Technique {
         attack.events.sort_by_key(|(at, _)| *at);
         Ok(action)
     }
+}
+
+/// Complete the dive on landing for every actor that uses this physical arte.
+pub(in crate::battle) fn prepare_eagle_landing(
+    attack: &mut resonance_battle::PreparedAttack,
+    model: Option<&ModelDefinition>,
+    landing_effect: EffectAppearance,
+    landing_ring: Option<std::sync::Arc<resonance_battle::ProjectileDefinition>>,
+) -> Result<()> {
+    let recovery_pose = attack
+        .events
+        .iter()
+        .find_map(|(at, event)| match event {
+            AttackEvent::Pose(pose) if *at == attack.end_at => Some(*pose),
+            _ => None,
+        })
+        .context("missing Eagle recovery pose")?;
+    let landing_at = attack
+        .events
+        .iter()
+        .filter_map(|(at, event)| matches!(event, AttackEvent::Contact { .. }).then_some(*at))
+        .max()
+        .context("missing Eagle dive contact")?
+        + 1;
+    attack.events.retain(|(at, _)| *at < landing_at);
+    attack.chain_at = None;
+    let landing_pose = AttackPose {
+        motion: crate::battle::model::motion(model, 52).context("missing Eagle landing pose")?,
+        start: 0.,
+        end: None,
+        rate: recovery_pose.rate,
+        blend: 2,
+        repeat: false,
+    };
+    const LANDING_TICKS: u16 = 24;
+    // The ring is released only after the grounded pose and before recovery.
+    attack.events.push((
+        landing_at,
+        AttackEvent::Land {
+            pose: Some(landing_pose),
+            effect: Some(landing_effect),
+            settle: landing_ring.is_none().then_some(LANDING_TICKS),
+            recovery_pose: Some(recovery_pose),
+        },
+    ));
+    if let Some(projectile) = landing_ring {
+        attack
+            .events
+            .push((landing_at, AttackEvent::Projectile(projectile)));
+        attack.events.push((
+            landing_at,
+            AttackEvent::Land {
+                pose: None,
+                effect: None,
+                settle: Some(LANDING_TICKS),
+                recovery_pose: Some(recovery_pose),
+            },
+        ));
+    }
+    Ok(())
 }

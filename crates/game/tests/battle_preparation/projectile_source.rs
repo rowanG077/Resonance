@@ -9,6 +9,7 @@ fn preparation_binds_gameplay_and_distinct_effect_banks() -> Result<()> {
     let row = &mut table.records[0];
     row.birth_effect.bank = 2;
     row.contact.clashes = true;
+    row.contact.recoil_direction = resonance_battle::RecoilDirection::Travel;
     let mut hit = fixture_hit();
     hit.reaction.direction = resonance_battle::RecoilDirection::TowardContact;
     hit.reaction.hitstun = 40;
@@ -29,18 +30,18 @@ fn preparation_binds_gameplay_and_distinct_effect_banks() -> Result<()> {
     assert_eq!(resources.effects[&common.resource].members, [11]);
     assert_eq!(resources.effects[&local.resource].members, [28]);
     let reaction = contact.hit.reaction;
-    assert_eq!(reaction, hit.reaction);
+    let mut expected_reaction = hit.reaction;
+    expected_reaction.direction = resonance_battle::RecoilDirection::Travel;
+    assert_eq!(reaction, expected_reaction);
 
-    // Contact and motion survive omission of every optional effect bank.
-    let mut resources = ActionResources::default();
-    let silent = resources.projectile(&files, row, hit, &[])?;
-    assert_eq!(silent.velocity, definition.velocity);
-    assert_eq!(silent.active, definition.active);
-    assert!(silent.contact.as_ref().unwrap().clashes);
-    assert_eq!(silent.contact.as_ref().unwrap().hit.reaction, reaction);
-    assert!(silent.birth.is_none());
-    assert!(silent.effects.clash.is_none());
-    assert!(resources.effects.is_empty());
+    let error = ActionResources::default()
+        .projectile(&files, row, hit, &[])
+        .err()
+        .context("projectile accepted missing required artwork")?;
+    assert!(
+        format!("{error:#}").contains("effect 28 has no prepared bank 2"),
+        "{error:#}"
+    );
     Ok(())
 }
 

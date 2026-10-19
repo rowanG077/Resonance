@@ -99,7 +99,7 @@ impl Battle {
             let target = self.actor(request.target)?;
             Some((
                 target.conditions.prepare_buff(buff, false),
-                target.effect_origin(),
+                target.condition_label_origin(),
             ))
         } else {
             None
@@ -192,6 +192,12 @@ impl Battle {
         }
         let effect = self.prepare_item_effect(Release { user, target, item }, policy)?;
         self.commit_item_effect(effect, cues);
+        cues.push(Cue::ItemReleased {
+            user,
+            target,
+            effect: policy.effect,
+            discovered: false,
+        });
         Ok(())
     }
 
@@ -211,6 +217,7 @@ impl Battle {
                 let applied = hp.wrapping_sub(actor.hp);
                 actor.hp = hp;
                 cues.push(Cue::Recovered {
+                    floating: true,
                     kind: crate::RecoveryKind::Hp,
                     actor: recovery.actor,
                     nominal,
@@ -219,6 +226,7 @@ impl Battle {
             }
             if let Some((tp, nominal)) = recovery.tp {
                 cues.push(Cue::Recovered {
+                    floating: true,
                     actor: recovery.actor,
                     kind: RecoveryKind::Tp,
                     nominal,
@@ -241,7 +249,7 @@ impl Battle {
             }
         }
         if matches!(policy.effect, Effect::Scan) {
-            self.items.revealed |= 1 << request.target.index();
+            self.items.revealed.insert(request.target);
             cues.push(Cue::EnemyScanned {
                 actor: request.target,
             });

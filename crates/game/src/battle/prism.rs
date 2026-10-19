@@ -40,6 +40,7 @@ pub(super) fn prepare(
         at: TRANSITION_TICKS + 1,
         appearance: appearance(1),
         placement: resonance_battle::SpellEffectPlacement::Scene([0.; 3]),
+        deferred: true,
         captured_heading_offset: Some(HEADING_OFFSET),
     }];
     let mut projectiles = Vec::with_capacity(IMPACTS.len());
@@ -70,11 +71,12 @@ pub(super) fn prepare(
                 at,
                 appearance: appearance(member),
                 placement: resonance_battle::SpellEffectPlacement::Scene(offset),
+                deferred: true,
                 captured_heading_offset: Some(HEADING_OFFSET),
             });
         }
         projectiles.push(SpellProjectile {
-            at,
+            at: at + 1,
             definition: projectile,
             origin_offset: offset,
             launch: Default::default(),

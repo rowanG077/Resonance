@@ -16,6 +16,9 @@ fn paralyzed_player() -> Battle {
 
 fn enter(battle: &mut Battle) -> Result<()> {
     let frame = battle.step(input([0, 0], true))?;
+    assert_eq!(frame.actors[0].activity, Activity::Approaching);
+    assert!(frame.actions.is_empty());
+    let frame = battle.step(BattleInput::default())?;
     assert_eq!(frame.actors[0].activity, Activity::Hurt);
     assert!(frame.actions.is_empty());
     Ok(())
@@ -89,6 +92,11 @@ fn paralysis_blocks_commands_without_payment_and_recovers_without_artwork() -> R
         let tp = battle.actors[0].tp;
         let uses = battle.technique_uses(ActorId(0), 1);
         let frame = battle.step(player_buttons(!technique, technique, guard, [0; 2]))?;
+        assert_eq!(frame.actors[0].activity, Activity::Approaching);
+        assert!(frame.actions.is_empty());
+        assert_eq!(battle.actors[0].tp, tp);
+        assert_eq!(battle.technique_uses(ActorId(0), 1), uses);
+        let frame = battle.step(BattleInput::default())?;
         assert_eq!(frame.actors[0].activity, Activity::Hurt);
         assert!(frame.actions.is_empty());
         let position = battle.actors[0].position;

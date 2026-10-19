@@ -52,9 +52,7 @@ impl Battle {
             let owner = &self.actors[index];
             cues.push(Cue::ExSkillLabel {
                 actor,
-                position: std::array::from_fn(|axis| {
-                    owner.position[axis] + owner.body.center_offset[axis] * 2.
-                }),
+                position: owner.condition_label_origin(),
             });
         }
         self.actors[index].attack_power = 100;

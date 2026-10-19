@@ -105,7 +105,9 @@ struct ConditionTick {
 }
 
 const POISON_INTERVAL: u32 = 30;
-const REGENERATION_INTERVAL: u32 = 360;
+const POISON_CYCLE: u32 = 300;
+const PERSISTENT_POISON_CYCLE: u32 = 360;
+const REGENERATION_INTERVAL: u32 = 361;
 const DEFAULT_STAT_CONDITION_DURATION: u32 = 1800;
 const ACCURACY_CONDITIONS: ConditionSet = ConditionSet::of(&[AccuracyUp, AccuracyDown]);
 /// Check paralysis before admitting grounded controls.
@@ -121,7 +123,7 @@ pub(crate) fn paralysis_controller_roll(actor: &Actor, random: &mut crate::state
     roll < chance
 }
 
-/// Condition labels last 45 updates. Weak uses a distinct presentation category.
+/// Condition labels last 45 updates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConditionLabel {
     StatUp(Condition),
@@ -143,8 +145,10 @@ pub enum Buff {
     Flare,
     Guard,
     Acuity,
-    PhysicalAilmentGuard { persistent: bool },
-    MagicalAilmentGuard { persistent: bool },
+    PhysicalAilmentGuard,
+    MagicalAilmentGuard,
+    PhysicalBarrier { persistent: bool },
+    MagicalBarrier { persistent: bool },
     Quartz(Element),
     Revive,
     HolySong,
@@ -197,10 +201,6 @@ fn opposing_stat_condition(condition: Condition) -> Option<Condition> {
         AttackDown => AttackUp,
         DefenseUp => DefenseDown,
         DefenseDown => DefenseUp,
-        MagicAttackUp => MagicAttackDown,
-        MagicAttackDown => MagicAttackUp,
-        MagicDefenseUp => MagicDefenseDown,
-        MagicDefenseDown => MagicDefenseUp,
         _ => return None,
     })
 }
@@ -210,7 +210,7 @@ impl Conditions {
         let remaining = match condition {
             Paralysis | Heavy => Some(600),
             Flare | Guard | Acuity | Quartz => Some(1200),
-            PhysicalProtection | MagicalProtection | RecoveryDown => Some(900),
+            PhysicalBarrier | MagicalBarrier | RecoveryDown => Some(900),
             HolySong => Some(DEFAULT_STAT_CONDITION_DURATION),
             condition if STAT_CONDITIONS.contains(condition) => {
                 Some(DEFAULT_STAT_CONDITION_DURATION)
@@ -362,6 +362,9 @@ impl Conditions {
     pub(crate) fn clear_base(&mut self) -> bool {
         self.remove(self.base())
     }
+    pub(crate) fn retain_petrified(&mut self) -> bool {
+        self.remove(self.base().without(Petrified.into()))
+    }
     pub(crate) fn consume_revive(&mut self) {
         self.remove(Revive.into());
         self.intrinsic = self.intrinsic.without(Revive.into());
@@ -375,8 +378,11 @@ impl Conditions {
     pub(crate) fn rejects(&self, condition: Condition) -> bool {
         let active = self.effective();
         self.immunity().contains(condition)
-            || (active.contains(PhysicalProtection) && PHYSICAL_AILMENTS.contains(condition))
-            || ((active.contains(MagicalProtection) || self.traits.magical_ailment_guard)
+            || ((active.contains(PhysicalProtection) || active.contains(PhysicalBarrier))
+                && PHYSICAL_AILMENTS.contains(condition))
+            || ((active.contains(MagicalProtection)
+                || active.contains(MagicalBarrier)
+                || self.traits.magical_ailment_guard)
                 && MAGICAL_AILMENTS.contains(condition))
     }
     fn duration(&self, ticks: u32, extended: bool) -> u32 {
@@ -402,7 +408,7 @@ impl Conditions {
             return None;
         }
         self.set_effect(self.initial_effect(condition));
-        Some(if condition == Weak {
+        Some(if matches!(condition, Weak | Heavy | ReduceItemEffect) {
             ConditionLabel::StatusDown
         } else {
             ConditionLabel::Applied
@@ -533,11 +539,13 @@ impl Conditions {
             Buff::Flare => (Flare, Some(1200), None),
             Buff::Guard => (Guard, Some(1200), None),
             Buff::Acuity => (Acuity, Some(1200), None),
-            Buff::PhysicalAilmentGuard { persistent } => {
-                (PhysicalProtection, (!persistent).then_some(900), None)
+            Buff::PhysicalAilmentGuard => (PhysicalProtection, None, None),
+            Buff::MagicalAilmentGuard => (MagicalProtection, None, None),
+            Buff::PhysicalBarrier { persistent } => {
+                (PhysicalBarrier, (!persistent).then_some(900), None)
             }
-            Buff::MagicalAilmentGuard { persistent } => {
-                (MagicalProtection, (!persistent).then_some(900), None)
+            Buff::MagicalBarrier { persistent } => {
+                (MagicalBarrier, (!persistent).then_some(900), None)
             }
             Buff::Quartz(element) => (Quartz, Some(1200), Some(element)),
             Buff::Revive => (Revive, None, None),
@@ -552,21 +560,31 @@ impl Conditions {
             element,
         }
     }
-    /// Remove mutable effects completely. Return whether their enchantment also needs clearing.
+    /// Remove curable mutable effects. Return whether their enchantment also needs clearing.
     pub(crate) fn cure(&mut self, cure: Cure) -> bool {
         self.remove(match cure {
             Cure::Physical => PHYSICAL_AILMENTS,
             Cure::AntiMagic => STAT_CONDITIONS
                 .union(MAGICAL_AILMENTS)
-                .union(PROTECTION)
                 .union(ConditionSet::of(&[
+                    PhysicalProtection,
+                    MagicalProtection,
                     Flare,
                     Guard,
                     Acuity,
                     Revive,
                     DefenseHalved,
                 ])),
-            Cure::All => self.base(),
+            Cure::All => self.base().without(ConditionSet::of(&[
+                ShortStun,
+                AilmentResistance,
+                KillHpRecovery,
+                KillTpRecovery,
+                TpThird,
+                TpHalf,
+                CastingSpeed,
+                MovementBoost,
+            ])),
         })
     }
 
@@ -588,7 +606,11 @@ impl Conditions {
             {
                 self.periodic.push(PeriodicEffect {
                     condition,
-                    remaining: period,
+                    remaining: if POISON.contains(condition) {
+                        0
+                    } else {
+                        period
+                    },
                     period,
                 });
             }
@@ -599,9 +621,10 @@ impl Conditions {
         let mut expired = ConditionSet::EMPTY;
         for effect in &mut self.effects {
             if let Some(remaining) = &mut effect.remaining {
-                *remaining = remaining.saturating_sub(1);
                 if *remaining == 0 {
                     expired = expired.union(effect.condition.into());
+                } else {
+                    *remaining -= 1;
                 }
             }
         }
@@ -612,13 +635,33 @@ impl Conditions {
             *enchantment = None;
         }
         let active = self.effective();
+        let persistent = self
+            .intrinsic
+            .union(self.profile_intrinsic)
+            .union(self.equipment_overlay);
         let mut tick = ConditionTick::default();
         for effect in &mut self.periodic {
-            effect.remaining -= 1;
-            if effect.remaining != 0 {
-                continue;
+            if POISON.contains(effect.condition) {
+                // Starting and rearming a poison cycle each take one actor visit.
+                if effect.remaining == 0 {
+                    effect.remaining = if persistent.contains(effect.condition) {
+                        PERSISTENT_POISON_CYCLE
+                    } else {
+                        POISON_CYCLE
+                    };
+                    continue;
+                }
+                effect.remaining -= 1;
+                if !effect.remaining.is_multiple_of(effect.period) {
+                    continue;
+                }
+            } else {
+                effect.remaining -= 1;
+                if effect.remaining != 0 {
+                    continue;
+                }
+                effect.remaining = effect.period;
             }
-            effect.remaining = effect.period;
             match effect.condition {
                 PoisonMild if !active.contains(PoisonSevere) => tick.poison_percent = 1,
                 PoisonSevere => tick.poison_percent = 2,

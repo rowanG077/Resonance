@@ -69,6 +69,8 @@ pub struct ActionDefinition {
 #[derive(Debug, Clone, Default)]
 pub struct ActorSetup {
     pub techniques: Vec<crate::PreparedTechnique>,
+    /// Attached components can fight and receive hits without being selectable opponents.
+    pub target_excluded: bool,
     /// Maximum normal-chain count before another arte needs Super Blast.
     pub arte_chain_limit: Option<u8>,
     pub control: Option<Arc<crate::ControlDefinition>>,
@@ -77,14 +79,23 @@ pub struct ActorSetup {
     pub decision: Option<crate::DecisionDefinition>,
     pub overlimit_gain: u8,
     pub extended_overlimit: bool,
+    /// Finish this enemy's authored defeat pose before the victory wash begins.
+    pub wait_for_defeat_animation: bool,
+    /// Disappearing bodies keep their position throughout the fade.
+    pub stationary_defeat: bool,
     pub companion: Option<crate::CompanionDefinition>,
     pub enemy_decision: Option<crate::EnemyDecisionDefinition>,
     pub contact_recovery: bool,
+    /// Large opponents cannot be caught by Cyclone Seal.
+    pub resists_cyclone: bool,
     pub assist_shortcuts: crate::AssistShortcuts,
     pub special_guard: Option<ActionKey>,
     pub spell_charge: Option<crate::SpellChargeDefinition>,
+    pub cast_replacement: Option<crate::CastReplacement>,
     pub aerial_spells: bool,
     pub recovery_return: Option<crate::RecoveryReturnDefinition>,
+    /// Locomotion effect and its interval in controller updates.
+    pub movement_effect: Option<(crate::EffectAppearance, u16)>,
     /// Revival pose and its prepared completion time, independent of rendered frames.
     pub revival: Option<(crate::AttackPose, u32)>,
 }
@@ -127,8 +138,10 @@ pub struct PreparedBattle {
 #[derive(Debug)]
 pub(crate) struct BattleResources {
     pub(crate) actor_setup: Vec<ActorSetup>,
-    pub(crate) enemy_presentations: Vec<(ActorId, resonance_content::battle_enemy::Presentation)>,
+    pub(crate) formation_count: usize,
+    pub(crate) enemy_presentations: Vec<crate::EnemyPresentation>,
     pub(crate) defense_system: Option<crate::DefenseSystemDefinition>,
+    pub(crate) hosted_participants: Vec<crate::HostedParticipant>,
     pub(crate) unison_gauge: i16,
     pub(crate) unison_available: bool,
     pub(crate) escape: Option<crate::EscapeDefinition>,
@@ -205,6 +218,12 @@ impl PreparedBattle {
         self.validate_actor_special_guards()?;
         self.validate_actor_recovery_returns()?;
         for setup in &self.resources.actor_setup {
+            ensure!(
+                setup
+                    .movement_effect
+                    .is_none_or(|(_, interval)| interval != 0),
+                "invalid movement effect interval"
+            );
             if setup.assist_shortcuts.iter().any(Option::is_some) {
                 ensure!(
                     setup.control.is_some(),
@@ -303,7 +322,7 @@ impl PreparedBattle {
         Ok(self)
     }
 
-    /// Pan across the encounter, then hold actors while the camera settles.
+    /// Pan across the encounter, then hold combat while the camera settles.
     pub fn with_entry(mut self) -> Self {
         self.entry_remaining = ENTRY_RESUME_UPDATE;
         if let Some(camera) = &mut self.camera {
@@ -325,14 +344,12 @@ impl PreparedBattle {
                     .filter(|a| a.side == crate::Side::Party)
                     .count()
                     <= crate::PARTY_CAPACITY
-                && actors
-                    .iter()
-                    .filter(|a| a.side == crate::Side::Enemy)
-                    .count()
-                    <= crate::ENEMY_CAPACITY,
+                && actors.len() <= usize::from(u8::MAX) + 1,
             "battle roster exceeds participant limits or is empty"
         );
+        let actor_count = actors.len();
         for actor in &mut actors {
+            actor.reaction.contributor_hits.resize(actor_count, 0);
             actor.validate()?;
             ensure!(
                 actor.reaction.recoil.kind == crate::RecoilKind::Normal,
@@ -364,8 +381,10 @@ impl PreparedBattle {
             random_seed,
             resources: BattleResources {
                 actor_setup,
+                formation_count: 1,
                 enemy_presentations: Vec::new(),
                 defense_system: None,
+                hosted_participants: Vec::new(),
                 items: None,
                 grade_rank: 0,
                 overlimit_boosted_gain: false,
@@ -393,6 +412,73 @@ impl BattleResources {
     }
 }
 
+#[cfg(feature = "test-support")]
+impl crate::Battle {
+    /// Begin an observed active duration at the ready input boundary.
+    pub fn restore_fixture_overlimit(&mut self, actor: ActorId, remaining: u16) -> Result<()> {
+        self.actor(actor)?;
+        ensure!(
+            self.phase() == crate::BattlePhase::Combat,
+            "Over Limit fixture is not ready"
+        );
+        self.actors[actor.index()].overlimit = crate::OverLimit::active(remaining)?;
+        Ok(())
+    }
+
+    /// Restore carried motion at the observed ready boundary before an action begins.
+    pub fn restore_fixture_forward_speed(&mut self, actor: ActorId, speed: f32) -> Result<()> {
+        self.actor(actor)?;
+        ensure!(
+            speed.is_finite()
+                && (self.activity(actor) == crate::Activity::Idle
+                    || self.activity(actor) == crate::Activity::Defeated
+                        && self.actors[actor.index()].availability
+                            == crate::ActorAvailability::Dead),
+            "invalid fixture movement boundary"
+        );
+        self.actors[actor.index()].movement.forward = speed;
+        Ok(())
+    }
+
+    /// Restore observed navigation before the first simulation update.
+    pub fn restore_fixture_navigation(
+        &mut self,
+        actor: ActorId,
+        target: ActorId,
+        home: Option<([f32; 3], [f32; 3])>,
+    ) -> Result<()> {
+        ensure!(self.update == 0, "fixture navigation must precede updates");
+        self.actor(actor)?;
+        self.actor(target)?;
+        if let Some((position, offset)) = home {
+            ensure!(
+                position
+                    .iter()
+                    .chain(&offset)
+                    .all(|value| value.is_finite()),
+                "invalid fixture formation position"
+            );
+            // A fixed encounter anchor is not an actor's navigation destination.
+            if self
+                .prepared
+                .defense_system
+                .as_ref()
+                .is_none_or(|system| system.core != actor)
+            {
+                let steering = &mut self.actors[actor.index()].movement.steering;
+                steering.home = position;
+                steering.home_offset = offset;
+            }
+        }
+        if self.actor(actor)?.side == self.actor(target)?.side {
+            self.runtime[actor.index()].support_target = target;
+        } else {
+            self.runtime[actor.index()].set_target(target);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,7 +487,29 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn entry_pans_then_holds_actors_until_the_camera_settles() {
+    fn combined_roster_targets_and_advances_beyond_small_masks() -> Result<()> {
+        let mut actors = vec![(crate::tests::actor(Side::Enemy), ActorSetup::default()); 70];
+        actors[0].0.side = Side::Party;
+        let mut battle = PreparedBattle::new(actors, ActionDefinitions::default(), 1)?.finish()?;
+        let target = ActorId(69);
+        battle.items.revealed.insert(target);
+        battle.items.revealed.insert(ActorId(16));
+        battle.set_decision_target(ActorId(0), target)?;
+        battle.enter_knockdown(target, &mut Vec::new());
+        for _ in 0..20 {
+            let frame = battle.step(BattleInput::default())?;
+            assert_eq!(frame.actors.len(), 70);
+            assert!(frame.scanned_enemies.contains(target));
+            assert!(frame.scanned_enemies.contains(ActorId(16)));
+            assert!(!frame.scanned_enemies.contains(ActorId(5)));
+        }
+        assert_eq!(battle.target(ActorId(0)), Some(target));
+        assert_eq!(battle.actors[69].reaction.contributor_hits.len(), 70);
+        Ok(())
+    }
+
+    #[test]
+    fn entry_animates_while_combat_waits_for_the_camera() {
         let mut leader = crate::tests::actor(Side::Party);
         leader.control = Control::Manual;
         leader.position[0] = -300.;
@@ -421,13 +529,49 @@ mod tests {
             leader: ActorId(0),
             stage_pitch: 0.,
             auto_zoom: true,
+            yaw_limits: None,
         })
         .unwrap()
         .with_entry()
         .finish()
         .unwrap();
+        let mut model = crate::tests::model_definition(7, [(0, 2.), (1, 200.)]);
+        model.initial.repeat = false;
+        model.idle_motions = [Some(1); 2];
+        battle.set_models(
+            crate::Models::new(
+                battle.actors(),
+                vec![None, Some(Arc::new(model))],
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
+        let mut previous_pose = None;
         for update in 1..=106_u8 {
-            let frame = battle.step(BattleInput::default()).unwrap();
+            let mut frame = battle.step(BattleInput::default()).unwrap();
+            let clock = frame.clock;
+            battle.advance_models(&mut frame, clock, true).unwrap();
+            let pose = (frame.models[0].clip, frame.models[0].frame);
+            if update > 20 {
+                assert_eq!(pose.0, 1, "finished entrance switches to idle");
+                assert_ne!(Some(pose), previous_pose, "entry must keep animating");
+            }
+            previous_pose = Some(pose);
+            if update == 70 {
+                let mut paused = battle
+                    .step(BattleInput {
+                        paused: true,
+                        ..Default::default()
+                    })
+                    .unwrap();
+                let clock = paused.clock;
+                battle.advance_models(&mut paused, clock, false).unwrap();
+                assert_eq!(
+                    paused.models, frame.models,
+                    "menu pause still freezes poses"
+                );
+            }
             assert_eq!(
                 battle.phase(),
                 if update <= 59 {
@@ -724,7 +868,7 @@ mod tests {
         battle.actors[0].control = Control::Auto;
         battle.learning_members[0].member.forget(34)?;
         battle.runtime[0].special_guard_pending = Some(34);
-        assert!(!battle.consume_auto_special_guard(ActorId(0), &mut vec![])?);
+        assert!(!battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         assert_eq!(battle.runtime[0].special_guard_pending, None);
 
         let mut battle = special_battle();
@@ -739,7 +883,7 @@ mod tests {
         assert!(!battle.special_guard_family_available(ActorId(0)));
         battle.actors[0].control = Control::Auto;
         battle.runtime[0].special_guard_pending = Some(34);
-        assert!(!battle.consume_auto_special_guard(ActorId(0), &mut vec![])?);
+        assert!(!battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         battle.interrupt_actor(ActorId(0), &mut vec![]);
         assert!(battle.special_guard_family_available(ActorId(0)));
         Ok(())
@@ -803,7 +947,7 @@ mod tests {
         battle.actors[1].position[0] = 10_000.;
         battle.actors[0].control = Control::Auto;
         battle.runtime[0].special_guard_pending = Some(34);
-        assert!(battle.consume_auto_special_guard(ActorId(0), &mut vec![])?);
+        assert!(battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         assert_eq!(battle.runtime[0].special_guard_pending, None);
         assert_eq!(battle.activity(ActorId(0)), crate::Activity::Action);
 
@@ -813,7 +957,7 @@ mod tests {
                 base: Condition::Curse.into(),
                 ..Default::default()
             });
-        assert!(!battle.consume_auto_special_guard(ActorId(0), &mut vec![])?);
+        assert!(!battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         assert_eq!(battle.runtime[0].special_guard_pending, None);
 
         let mut battle = special_battle();
@@ -824,7 +968,7 @@ mod tests {
                 ..Default::default()
             });
         battle.runtime[0].special_guard_pending = Some(34);
-        assert!(battle.consume_auto_special_guard(ActorId(0), &mut vec![])?);
+        assert!(battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
 
         let mut battle = special_battle();
         battle.actors[0].control = Control::Auto;
@@ -834,13 +978,14 @@ mod tests {
                 .unwrap()
         );
         battle.runtime[0].special_guard_pending = Some(34);
-        assert!(battle.consume_auto_special_guard(ActorId(0), &mut vec![])?);
+        assert!(battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         Ok(())
     }
 
     #[test]
     fn special_guard_input_enters_action_and_cleans_up_on_finish() -> Result<()> {
         let mut battle = special_battle();
+        let initial_tp = battle.actors[0].tp;
         let binding = battle.prepared.special_guard(ActorId(0)).unwrap();
         let raw_cost = battle.prepared.actions.get(binding).unwrap().tp_cost;
         let expected_tp = battle.actors[0].tp
@@ -877,14 +1022,19 @@ mod tests {
         assert_eq!(frame.actors[0].activity, crate::Activity::Idle);
         assert_eq!(battle.technique_uses(ActorId(0), 34), Some(0));
         battle.step(guard())?;
-        battle.step(input())?;
+        let selected = battle.step(input())?;
+        assert!(selected.actions.is_empty());
+        assert!(!battle.actors[0].guard.active);
+        assert_eq!(battle.actors[0].tp, initial_tp);
+        assert_eq!(battle.technique_uses(ActorId(0), 34), Some(0));
+        let held = battle.step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })?;
+        assert!(held.actions.is_empty());
+        assert_eq!(battle.actors[0].tp, initial_tp);
+        battle.step(BattleInput::default())?;
         const ACTION_COMPLETION_BUDGET: usize = 60;
-        for _ in 0..ACTION_COMPLETION_BUDGET {
-            if battle.actors[0].guard.kind == crate::GuardKind::Special {
-                break;
-            }
-            battle.step(BattleInput::default())?;
-        }
         assert!(battle.actors[0].guard.active);
         assert_eq!(battle.actors[0].guard.kind, crate::GuardKind::Special);
         assert_eq!(battle.actors[0].tp, expected_tp);
@@ -899,6 +1049,16 @@ mod tests {
         assert_eq!(battle.actors[0].guard.kind, crate::GuardKind::Normal);
         assert_eq!(battle.actors[0].tp, expected_tp);
         assert_eq!(battle.technique_uses(ActorId(0), 34), Some(1));
+
+        let mut interrupted = special_battle();
+        interrupted.step(guard())?;
+        interrupted.step(input())?;
+        interrupted.interrupt_actor(ActorId(0), &mut vec![]);
+        let frame = interrupted.step(BattleInput::default())?;
+        assert!(frame.actions.is_empty());
+        assert!(!interrupted.actors[0].guard.active);
+        assert_eq!(interrupted.actors[0].tp, initial_tp);
+        assert_eq!(interrupted.technique_uses(ActorId(0), 34), Some(0));
         Ok(())
     }
 
@@ -936,6 +1096,7 @@ mod tests {
         };
         battle.step(guard())?;
         battle.step(input())?;
+        battle.step(BattleInput::default())?;
         assert_eq!(battle.actors[0].guard.kind, crate::GuardKind::Special);
         assert!(battle.actors[0].guard.active);
         assert_eq!(battle.technique_uses(ActorId(0), 34), Some(1));

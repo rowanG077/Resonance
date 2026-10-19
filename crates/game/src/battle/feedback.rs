@@ -13,6 +13,11 @@ pub struct Feedback {
     pub skill_ready: Option<EffectAppearance>,
     pub counter: Option<EffectAppearance>,
     pub entry_voice: Option<(ActorId, Sound)>,
+    pub target_changed: Option<Sound>,
+    pub result_advancement: Option<EffectAppearance>,
+    pub result_advancement_sound: Option<Sound>,
+    pub acquisition: Option<EffectAppearance>,
+    pub acquisition_sound: Option<Sound>,
     pub items: Option<super::items::Feedback>,
     pub contact_art: Option<super::contact_feedback::ContactArt>,
     pub contact_audio: Option<super::contact_audio::ContactAudio>,
@@ -36,6 +41,7 @@ pub struct CastingFeedback {
     pub charged_effect: EffectAppearance,
     pub stored_effect: EffectAppearance,
     pub release_effect: EffectAppearance,
+    pub opening_effect: Option<EffectAppearance>,
     pub tint: resonance_content::battle_effect::EffectTint,
 }
 
@@ -53,6 +59,7 @@ impl CastingFeedback {
 
 #[derive(Default)]
 pub struct ActorFeedback {
+    pub acquisition_motion: Option<MotionBinding>,
     pub overlimit: Option<OverLimitFeedback>,
     pub overlimit_voice: Option<Sound>,
     pub technique_command: Option<Sound>,

@@ -4,9 +4,22 @@ use anyhow::{Context, Result, ensure};
 
 pub use resonance_content::battle_action::EnemyRequirements;
 
+/// Finite branch draws for an observed enemy action sequence.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy, Debug)]
+pub struct FixtureEnemyChainInput {
+    pub clock: u32,
+    pub actor: ActorId,
+    pub row: usize,
+    pub chance: u16,
+    pub selection: Option<u16>,
+}
+
 #[derive(Debug, Clone)]
 pub struct EnemyChoice {
     pub action: crate::ActionKey,
+    /// Physical artes consume retained movement on their admission visit.
+    pub physical_arte: bool,
     pub weight: u8,
     pub chain_group: u8,
     pub followup_chance: u8,
@@ -14,6 +27,9 @@ pub struct EnemyChoice {
     pub target_policy: Option<TargetPolicy>,
     pub target_allies: bool,
     pub return_to_formation: bool,
+    pub returning: Option<crate::MotionBinding>,
+    /// A running return overrides the actor's ordinary walking speed.
+    pub return_speed: Option<f32>,
     /// Selected-row contact guard chance, including approach and idle visits.
     pub guard_chance: i8,
     pub range: [i16; 2],
@@ -35,10 +51,31 @@ pub struct EnemyDecisionDefinition {
     pub walk_override: Option<resonance_content::battle_action::EnemyWalkOverride>,
     pub behavior: Option<crate::EnemyBehavior>,
     pub walk_motion: Option<crate::MotionBinding>,
+    pub run_motion: Option<crate::MotionBinding>,
     pub turn_ticks: u8,
 }
 
+impl EnemyDecisionDefinition {
+    fn approach_parameters(&self, row: &EnemyChoice) -> crate::ApproachParameters {
+        row.approach.unwrap_or(crate::ApproachParameters {
+            minimum: row.approach_minimum,
+            maximum: row.approach_range,
+            motion: self.walk_motion,
+            motion_rate: 0.5,
+            speed: self.walk_speed,
+            turn_ticks: self.turn_ticks,
+        })
+    }
+}
+
 impl PreparedBattle {
+    /// Scale distant enemy engagement with the number of combined formations.
+    pub fn with_formation_count(mut self, count: usize) -> Result<Self> {
+        ensure!(count > 0, "empty battle encounter");
+        self.resources.formation_count = count;
+        Ok(self)
+    }
+
     pub(crate) fn validate_actor_enemy_decisions(&self) -> Result<()> {
         self.validate_enemy_behaviors()?;
         for (index, setup) in self.resources.actor_setup.iter().enumerate() {
@@ -84,6 +121,11 @@ impl PreparedBattle {
                     "invalid enemy eligibility conditions"
                 );
                 ensure!(
+                    row.return_speed
+                        .is_none_or(|speed| speed.is_finite() && speed > 0.),
+                    "invalid enemy return speed"
+                );
+                ensure!(
                     matches!(action.execution, crate::ActionExecution::LeaveArena)
                         || row.approach_minimum.is_finite()
                             && row.approach_range.is_finite()
@@ -105,6 +147,45 @@ impl PreparedBattle {
 }
 
 impl Battle {
+    /// Replay an observed enemy entry without rerunning weighted selection.
+    #[cfg(feature = "test-support")]
+    pub fn request_enemy_approach(
+        &mut self,
+        request: crate::ActionRequest,
+        combat_target: ActorId,
+    ) -> Result<bool> {
+        let definition = self.enemy_decision(request.actor)?;
+        let row = definition
+            .choices
+            .iter()
+            .find(|row| row.action == request.action)
+            .context("requested enemy action has no authored entry")?;
+        let parameters = definition.approach_parameters(row);
+        let allied_recipient = row.target_allies
+            || row.target_policy.unwrap_or(definition.strategy) == TargetPolicy::SelfTarget;
+        ensure!(
+            allied_recipient || request.target == combat_target,
+            "hostile action recipient differs from its approach target"
+        );
+        let accepted =
+            self.request_approach(request.actor, combat_target, request.action, parameters)?;
+        if accepted {
+            self.set_decision_target(request.actor, combat_target)?;
+            if allied_recipient {
+                self.set_approach_action_target(request.actor, request.target)?;
+            }
+        }
+        Ok(accepted)
+    }
+
+    pub(crate) fn enemy_physical_arte(&self, actor: ActorId, action: crate::ActionKey) -> bool {
+        self.enemy_choices(actor).is_some_and(|choices| {
+            choices
+                .iter()
+                .any(|row| row.action == action && row.physical_arte)
+        })
+    }
+
     pub fn enemy_choices(&self, actor: ActorId) -> Option<&[EnemyChoice]> {
         self.prepared
             .actor_setup
@@ -154,6 +235,27 @@ impl Battle {
         row: &EnemyChoice,
         followup_hit: Option<bool>,
     ) -> bool {
+        let Some(target) = self.target(owner) else {
+            return false;
+        };
+        let gap = self.body_gap(owner, target);
+        let maximum = if row.range[1] == 0 {
+            f32::INFINITY
+        } else {
+            f32::from(row.range[1])
+        };
+        gap >= f32::from(row.range[0])
+            && gap <= maximum
+            && self.enemy_choice_available(owner, index, row, followup_hit)
+    }
+
+    fn enemy_choice_available(
+        &self,
+        owner: ActorId,
+        index: usize,
+        row: &EnemyChoice,
+        followup_hit: Option<bool>,
+    ) -> bool {
         let actor = &self.actors[owner.index()];
         let definition = self.prepared.actor_setup[owner.index()]
             .enemy_decision
@@ -180,15 +282,7 @@ impl Battle {
         let Some(target) = self.target(owner) else {
             return false;
         };
-        let gap = self.body_gap(owner, target);
-        let maximum = if row.range[1] == 0 {
-            f32::INFINITY
-        } else {
-            f32::from(row.range[1])
-        };
         self.enemy_behavior_allows_choice(owner, index)
-            && gap >= f32::from(row.range[0])
-            && gap <= maximum
             && !(row.requirements.once_per_battle
                 && self.runtime[owner.index()]
                     .used_enemy_choices
@@ -271,6 +365,7 @@ impl Battle {
         } else {
             (party_count + 1).min(3)
         };
+        let cap = cap.saturating_mul(self.prepared.formation_count);
         let waiting = self.enemy_waiting_rank(owner) >= cap;
         let candidates: Vec<_> = if waiting {
             definition
@@ -295,7 +390,17 @@ impl Battle {
                 .map(|(index, row)| (index, u64::from(row.weight)))
                 .collect()
         };
-        let selected = self.weighted_enemy_choice(owner, candidates, waiting)?;
+        // The first action is the basic fallback. Its approach closes the gap
+        // when no action is currently in range; rear-row enemies still wait.
+        let fallback = (!waiting
+            && definition
+                .choices
+                .first()
+                .is_some_and(|row| self.enemy_choice_available(owner, 0, row, None)))
+        .then_some(0);
+        let selected = self
+            .weighted_enemy_choice(owner, candidates, waiting)?
+            .or(fallback);
         self.runtime[owner.index()].enemy_choice = selected;
         if let Some(index) = selected {
             let definition = self.enemy_decision(owner)?;
@@ -404,6 +509,74 @@ impl Battle {
         }
     }
 
+    #[cfg(feature = "test-support")]
+    pub fn install_fixture_enemy_chains(
+        &mut self,
+        actor: ActorId,
+        origin: u32,
+        mut inputs: Vec<FixtureEnemyChainInput>,
+    ) -> Result<()> {
+        ensure!(
+            self.fixture_enemy_chains.is_none(),
+            "chain inputs already installed"
+        );
+        let count = self.enemy_decision(actor)?.choices.len();
+        let mut previous = 0;
+        for input in &mut inputs {
+            ensure!(
+                input.actor == actor && input.row < count && input.clock > previous,
+                "invalid ordered enemy chain input"
+            );
+            previous = input.clock;
+            input.clock = input
+                .clock
+                .checked_add(origin)
+                .context("chain input clock overflow")?;
+        }
+        self.prepared.actor_setup[actor.index()]
+            .enemy_decision
+            .as_mut()
+            .unwrap()
+            .disabled_choices
+            .clear();
+        self.fixture_enemy_chains = Some(inputs.into());
+        Ok(())
+    }
+
+    #[cfg(feature = "test-support")]
+    pub fn fixture_enemy_choice(&self, actor: ActorId) -> Option<usize> {
+        self.runtime[actor.index()].enemy_choice
+    }
+
+    #[cfg(feature = "test-support")]
+    pub fn select_fixture_enemy_row(
+        &mut self,
+        actor: ActorId,
+        row: usize,
+    ) -> Result<crate::ActionKey> {
+        let action = self
+            .enemy_decision(actor)?
+            .choices
+            .get(row)
+            .context("unknown observed enemy row")?
+            .action;
+        self.runtime[actor.index()].enemy_choice = Some(row);
+        // An independent selection begins a new attack chain, even without travel.
+        self.actors[actor.index()].attack_power = 100;
+        Ok(action)
+    }
+
+    #[cfg(feature = "test-support")]
+    pub fn finish_fixture_enemy_chains(&self) -> Result<()> {
+        ensure!(
+            self.fixture_enemy_chains
+                .as_ref()
+                .is_none_or(|inputs| inputs.is_empty()),
+            "unused enemy chain inputs"
+        );
+        Ok(())
+    }
+
     pub(crate) fn chain_enemy(
         &mut self,
         id: crate::ActionId,
@@ -426,31 +599,85 @@ impl Battle {
         };
         let row = &self.enemy_decision(actor)?.choices[index];
         let chance = row.followup_chance;
+        let followup = row.chain_group != 0;
         let Some(group) = row.chain_group.checked_add(1) else {
             return Ok(false);
         };
-        if chance == 0 || self.random.next_u16() % 100 >= u16::from(chance) {
+        #[cfg(feature = "test-support")]
+        let recorded = if let Some(inputs) = &mut self.fixture_enemy_chains {
+            let input = inputs
+                .pop_front()
+                .context("unobserved enemy chain decision")?;
+            ensure!(
+                input.actor == actor
+                    && input.row == index
+                    && input.clock == self.ledger.combat_ticks,
+                "enemy chain decision differs: expected actor {:?}, row {}, combat tick {}; observed actor {:?}, row {}, combat tick {}",
+                input.actor,
+                input.row,
+                input.clock,
+                actor,
+                index,
+                self.ledger.combat_ticks
+            );
+            Some(input)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "test-support"))]
+        let recorded: Option<(u16, Option<u16>)> = None;
+        #[cfg(feature = "test-support")]
+        let recorded = recorded.map(|input| (input.chance, input.selection));
+        let draw = recorded.map_or_else(|| self.random.next_u16(), |input| input.0);
+        if draw % 100 >= u16::from(chance) {
+            ensure!(
+                recorded.is_none_or(|input| input.1.is_none()),
+                "unused chain selection draw"
+            );
             return Ok(false);
         }
-        let candidates = self
+        let candidates: Vec<_> = self
             .enemy_decision(actor)?
             .choices
             .iter()
             .enumerate()
             .filter(|(index, row)| {
-                row.chain_group == group
+                (!followup || row.chain_group == group)
                     && self.enemy_choice_eligible(
                         actor,
                         *index,
                         row,
-                        Some(self.runtime[actor.index()].enemy_effective_hit),
+                        followup.then_some(self.runtime[actor.index()].enemy_effective_hit),
                     )
             })
-            .map(|(index, row)| (index, u64::from(row.weight)))
+            .map(|(index, row)| (index, if followup { 1 } else { u64::from(row.weight) }))
             .collect();
-        let Some(index) = self.weighted_enemy_choice(actor, candidates, false)? else {
+        let total: u64 = candidates.iter().map(|(_, weight)| weight).sum();
+        if total == 0 {
+            ensure!(
+                recorded.is_none_or(|input| input.1.is_none()),
+                "selection draw has no eligible chain"
+            );
             return Ok(false);
+        }
+        let draw = match recorded {
+            Some((_, draw)) => draw.context("enemy chain selection lacks its observed draw")?,
+            None => self.random.next_u16(),
         };
+        // Priority applies when the weighted scan reaches that row.
+        let mut threshold = u64::from(draw) % total;
+        let definition = self.enemy_decision(actor)?;
+        let index = candidates
+            .into_iter()
+            .find_map(|(index, weight)| {
+                if threshold < weight || definition.choices[index].requirements.priority {
+                    Some(index)
+                } else {
+                    threshold -= weight;
+                    None
+                }
+            })
+            .expect("positive candidate total must select a row");
         let row = &self.enemy_decision(actor)?.choices[index];
         let action = row.action;
         let guard_chance = row.guard_chance;
@@ -494,9 +721,16 @@ impl Battle {
             .enemy_decision
             .as_ref()
             .and_then(|definition| definition.walk_override)
+            && self.runtime[index].enemy_walk_override.is_none()
             && self.actors[index].hp_percent() <= i16::from(value.hp_percent)
         {
             self.runtime[index].enemy_walk_override = Some(value.speed);
+            let (clip, replacement) = value.motion_alias;
+            self.model_requests
+                .push(crate::ModelRequest::MotionAliases {
+                    actor,
+                    aliases: [(clip, Some(replacement))].into(),
+                });
         }
     }
 
@@ -506,6 +740,7 @@ impl Battle {
         cues: &mut Vec<crate::Cue>,
     ) -> Result<()> {
         if self.defense_arm_waiting(owner)
+            || self.is_hosted(owner)
             || !self.decision_ready(owner)
             || !self.actors[owner.index()].movement.hover_ready()
         {
@@ -532,14 +767,7 @@ impl Battle {
                 cues,
             );
         }
-        let parameters = row.approach.unwrap_or(crate::ApproachParameters {
-            minimum: row.approach_minimum,
-            maximum: row.approach_range,
-            motion: definition.walk_motion,
-            motion_rate: 0.5,
-            speed: definition.walk_speed,
-            turn_ticks: definition.turn_ticks,
-        });
+        let parameters = definition.approach_parameters(row);
         let allied_recipient = row.target_allies
             || row.target_policy.unwrap_or(definition.strategy) == TargetPolicy::SelfTarget;
         if self.request_approach(owner, target, action, parameters)?
@@ -560,6 +788,7 @@ mod tests {
     fn choice(action: crate::ActionKey, weight: u8) -> EnemyChoice {
         EnemyChoice {
             action,
+            physical_arte: false,
             weight,
             chain_group: 0,
             followup_chance: 0,
@@ -567,6 +796,8 @@ mod tests {
             target_policy: None,
             target_allies: false,
             return_to_formation: true,
+            returning: None,
+            return_speed: None,
             guard_chance: 20,
             range: [0, 0],
             tp: 0,
@@ -607,6 +838,7 @@ mod tests {
                     walk_override: None,
                     behavior: None,
                     walk_motion: None,
+                    run_motion: None,
                     turn_ticks: 8,
                 }),
                 ..Default::default()
@@ -621,21 +853,40 @@ mod tests {
 
     #[test]
     fn allied_recipient_is_distinct_from_the_opponent_used_for_approach() -> Result<()> {
-        for (policy, target_allies, recipient) in [
-            (TargetPolicy::LowestHp, true, ActorId(2)),
-            (TargetPolicy::SelfTarget, false, ActorId(1)),
-            (TargetPolicy::NearestIncapacitated, true, ActorId(2)),
+        for (policy, target_allies, recipient, benefit) in [
+            (
+                TargetPolicy::LowestHp,
+                true,
+                ActorId(2),
+                Some(crate::SpellBenefit::Hp(30)),
+            ),
+            (
+                TargetPolicy::SelfTarget,
+                false,
+                ActorId(1),
+                Some(crate::SpellBenefit::Hp(30)),
+            ),
+            (
+                TargetPolicy::NearestIncapacitated,
+                true,
+                ActorId(2),
+                Some(crate::SpellBenefit::Resurrect(30)),
+            ),
+            (TargetPolicy::SelfTarget, true, ActorId(1), None),
         ] {
             let mut row = choice(crate::ActionKey(0), 1);
             row.target_allies = target_allies;
             row.target_policy = Some(policy);
             let mut prepared = prepared(vec![row], 2)?;
             let mut release = crate::tests::volley();
-            if policy == TargetPolicy::NearestIncapacitated {
+            if let Some(benefit) = benefit {
                 release.projectiles.clear();
                 release.recovery = vec![crate::SpellRecovery {
+                    duration: 1,
+                    effect_placement: Default::default(),
+                    flash: None,
                     at: 1,
-                    benefit: crate::SpellBenefit::Resurrect(30),
+                    benefit,
                     targets: crate::RecoveryTargets::Target,
                     effect: None,
                 }];
@@ -649,6 +900,9 @@ mod tests {
                         release_pose: Default::default(),
                         hide_primary_weapons: false,
                         duration: 1,
+                        profile_ticks: 1,
+                        spell_ticks: 0,
+                        fixed_timing: false,
                         recovery: 1,
                         release: std::sync::Arc::new(release),
                         threat: None,
@@ -673,7 +927,14 @@ mod tests {
             for _ in 0..40 {
                 battle.step(crate::BattleInput::default())?;
                 if let Some(volley) = battle.volleys.values().find(|volley| volley.actor == owner) {
-                    assert_eq!(volley.target, recipient);
+                    assert_eq!(
+                        volley.target,
+                        if benefit.is_some() {
+                            recipient
+                        } else {
+                            ActorId(0)
+                        }
+                    );
                     released = true;
                     break;
                 }
@@ -710,6 +971,15 @@ mod tests {
             let tp = battle.actors[1].tp;
             battle.advance_enemy_ai(owner, &mut Vec::new())?;
             assert!(battle.approach_within_range(owner.index()));
+            // Selection remains pending for its first visit, even without turning.
+            let entry = battle.step(crate::BattleInput::default())?;
+            assert_eq!(battle.activity(owner), crate::Activity::Approaching);
+            assert_eq!(battle.actors[1].position, position);
+            assert_eq!(battle.actors[1].heading, 30.);
+            assert_eq!(battle.actors[1].tp, tp);
+            assert!(!entry.cues.iter().any(|cue| matches!(cue,
+                crate::Cue::Started { actor, .. } if *actor == owner
+            )));
             let frame = battle.step(crate::BattleInput::default())?;
             assert_eq!(battle.activity(owner), crate::Activity::Action);
             assert_eq!(battle.actors[1].position, position);
@@ -737,12 +1007,21 @@ mod tests {
         battle.advance_enemy_ai(owner, &mut Vec::new())?;
         assert!(!battle.approach_within_range(owner.index()));
 
-        battle.actors[1].position[0] = radii + 195.;
-        assert!(battle.approach_within_range(owner.index()));
-        let position = battle.actors[1].position;
-        battle.step(crate::BattleInput::default())?;
+        let mut started = false;
+        for _ in 0..300 {
+            let frame = battle.step(crate::BattleInput::default())?;
+            if frame.cues.iter().any(|cue| {
+                matches!(cue,
+                    crate::Cue::Started { actor, .. } if *actor == owner
+                )
+            }) {
+                started = true;
+                break;
+            }
+        }
+        assert!(started, "enemy never reached its action range");
+        assert!(battle.body_gap(owner, ActorId(0)) <= 200.);
         assert_eq!(battle.activity(owner), crate::Activity::Action);
-        assert_eq!(battle.actors[1].position, position);
         Ok(())
     }
 
@@ -765,6 +1044,40 @@ mod tests {
         assert!((battle.actors[1].heading + 90.).abs() < 0.001);
         battle.step(crate::BattleInput::default())?;
         assert!((battle.actors[1].heading + 90.).abs() < 0.001);
+        for (physical_arte, casting) in [(false, false), (true, false), (false, true)] {
+            let mut row = choice(crate::ActionKey(0), 1);
+            row.physical_arte = physical_arte;
+            let mut prepared = prepared(vec![row], 1)?;
+            if casting {
+                prepared.resources.actions.entries[0] =
+                    std::sync::Arc::new(crate::tests::cast(60, 0));
+            }
+            let mut subject = prepared.finish()?;
+            subject.actors[1].heading = -90.;
+            subject.actors[1].movement.direction = [-1., 0., 0.];
+            subject.advance_enemy_ai(ActorId(1), &mut Vec::new())?;
+            let mut admitted = false;
+            for _ in 0..300 {
+                let position = subject.actors[1].position[0];
+                let forward = subject.actors[1].movement.forward;
+                subject.step(crate::BattleInput::default())?;
+                if matches!(
+                    subject.activity(ActorId(1)),
+                    crate::Activity::Action | crate::Activity::Casting { .. }
+                ) {
+                    assert!(forward > 0.);
+                    let expected = if physical_arte || casting {
+                        position - forward
+                    } else {
+                        position
+                    };
+                    assert_eq!(subject.actors[1].position[0], expected);
+                    admitted = true;
+                    break;
+                }
+            }
+            assert!(admitted);
+        }
         Ok(())
     }
 
@@ -780,6 +1093,7 @@ mod tests {
             .walk_override = Some(resonance_content::battle_action::EnemyWalkOverride {
             hp_percent: 25,
             speed: 2.83,
+            motion_alias: (1, 45),
         });
         let mut battle = prepared.finish()?;
         battle.advance_enemy_ai(ActorId(1), &mut Vec::new())?;
@@ -1062,7 +1376,7 @@ mod tests {
         assert_eq!(battle.actors[1].position[0], 897.);
         battle.step(crate::BattleInput::default())?;
         assert_eq!(battle.actors[1].position[0], 897.5);
-        assert_eq!(battle.actors[1].heading, 9.);
+        assert_eq!(battle.actors[1].heading, 18.);
         battle.step(crate::BattleInput::default())?;
         assert!(battle.actors[1].available());
         battle.step(crate::BattleInput::default())?;
@@ -1172,11 +1486,81 @@ mod tests {
             Some(1),
             "entry uses the real initial gap"
         );
-        for (x, expected) in [(50., 0), (500., 1)] {
+        for (x, expected) in [(50., 0), (500., 1), (1400., 0)] {
             let enemy = &mut battle.actors[1];
             enemy.position[0] = x;
 
             assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(expected));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn basic_attack_fallback_moves_into_range_and_respects_requirements() -> Result<()> {
+        let mut basic = choice(crate::ActionKey(0), 1);
+        basic.range = [0, 100];
+        basic.tp = 1;
+        let mut battle = battle(vec![basic])?;
+        let enemy = ActorId(1);
+        battle.actors[1].tp = 0;
+        assert_eq!(battle.choose_enemy_action(enemy)?, None);
+        battle.actors[1].tp = 1;
+        battle.prepared.actor_setup[1]
+            .enemy_decision
+            .as_mut()
+            .unwrap()
+            .disabled_choices
+            .push(0);
+        assert_eq!(battle.choose_enemy_action(enemy)?, None);
+        battle.prepared.actor_setup[1]
+            .enemy_decision
+            .as_mut()
+            .unwrap()
+            .disabled_choices
+            .clear();
+        battle.advance_enemy_ai(enemy, &mut vec![])?;
+        assert_eq!(battle.activity(enemy), crate::Activity::Approaching);
+        for _ in 0..400 {
+            let frame = battle.step(crate::BattleInput::default())?;
+            if frame.actions.iter().any(|(_, actor, _)| *actor == enemy) {
+                assert!(battle.body_gap(enemy, ActorId(0)) <= 100.);
+                return Ok(());
+            }
+        }
+        anyhow::bail!("enemy did not approach and attack")
+    }
+
+    #[test]
+    fn combined_formations_scale_engagement_without_restricting_nearby_enemies() -> Result<()> {
+        for (difficulty, party_count, allowance) in [(0, 1, 2), (0, 4, 3), (1, 4, 3), (2, 4, 8)] {
+            for formations in 1..=3 {
+                let source = prepared(vec![choice(crate::ActionKey(0), 1)], 25)?;
+                let mut participants: Vec<_> = source
+                    .actors
+                    .into_iter()
+                    .zip(source.resources.actor_setup)
+                    .collect();
+                for (_, setup) in participants.iter_mut().skip(1) {
+                    setup.enemy_decision.as_mut().unwrap().difficulty = difficulty;
+                }
+                participants.extend(
+                    (1..party_count)
+                        .map(|_| (crate::tests::actor(Side::Party), Default::default())),
+                );
+                let mut battle = PreparedBattle::new(participants, source.resources.actions, 7)?
+                    .with_formation_count(formations)?
+                    .finish()?;
+                let active = allowance * formations;
+                for index in 1..=25 {
+                    assert_eq!(
+                        battle.choose_enemy_action(ActorId(index))?,
+                        (usize::from(index) <= active).then_some(0),
+                        "difficulty={difficulty}, party={party_count}, formations={formations}, actor={index}"
+                    );
+                }
+                battle.actors[25].position = [0., 0., 250.];
+                assert_eq!(battle.choose_enemy_action(ActorId(25))?, Some(0));
+            }
         }
         Ok(())
     }

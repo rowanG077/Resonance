@@ -32,6 +32,18 @@ fn battle(actors: Vec<Actor>) -> Battle {
     candidate(actors).finish().unwrap()
 }
 
+fn finish_hurt(battle: &mut Battle, actor: ActorId) -> Result<Vec<Cue>> {
+    let mut cues = Vec::new();
+    // A one-second deadline catches stuck recovery without fixing its internal phases.
+    for _ in 0..60 {
+        cues.extend(battle.step(Default::default())?.cues);
+        if battle.actor_command_ready(actor) {
+            return Ok(cues);
+        }
+    }
+    panic!("actor did not finish hurt recovery");
+}
+
 fn rule() -> crate::HitRule {
     crate::HitRule {
         sound: None,
@@ -64,7 +76,7 @@ fn melee_contact_counts_once_and_applies_retaliation_only_to_survivors() -> Resu
 
         let mut victim = crate::tests::actor(Side::Enemy);
         victim.body.collider = Some(crate::Collider::sphere(2.));
-        victim.reaction.contributor_hits[0] = initial;
+        victim.reaction.contributor_hits = vec![initial];
         victim.hp = hp;
         victim.equipment.luck = u16::MAX;
         victim.equipment.reaction_ex.aid_revenge = true;
@@ -236,16 +248,19 @@ fn hurt_exit_recovers_attributed_vitals_and_clears_contributions() -> Result<()>
     victim.equipment.reaction_ex.damage_tp = true;
     victim.reaction.combo_damage = 333;
     victim.reaction.combo_hits = 10;
-    victim.reaction.contributor_hits[0] = 10; // The boost raises HP recovery from 5% to 6%.
+    victim.reaction.contributor_hits = vec![10]; // The boost raises HP recovery from 5% to 6%.
     let mut battle = battle(vec![party, victim]);
     battle.set_diagnostics(resonance_content::diagnostics::Diagnostics::new(false));
 
     battle.begin_hurt(ActorId(1), 1, &mut vec![]);
-    let cues = battle.step(crate::BattleInput::default())?.cues;
+    let cues = finish_hurt(&mut battle, ActorId(1))?;
     assert_eq!(battle.actors[0].hp, 110);
     assert_eq!(battle.actors[0].tp, 50);
     assert_eq!(battle.actors[1].tp, 9);
-    assert_eq!(battle.actors[1].reaction.contributor_hits, [0; 12]);
+    assert_eq!(
+        battle.actors[1].reaction.contributor_hits,
+        vec![0; battle.actors.len()]
+    );
     assert_eq!(battle.activity(ActorId(1)), Activity::Idle);
     let mut labels: Vec<_> = cues
         .iter()
@@ -256,7 +271,13 @@ fn hurt_exit_recovers_attributed_vitals_and_clears_contributions() -> Result<()>
         .collect();
     labels.sort();
     assert_eq!(labels, [ActorId(0), ActorId(1)]);
-    battle.step(crate::BattleInput::default())?;
+    let repeated = battle.step(crate::BattleInput::default())?.cues;
+    assert!(
+        repeated
+            .iter()
+            .all(|cue| !matches!(cue, Cue::Recovered { .. } | Cue::ExSkillLabel { .. }))
+    );
+    assert_eq!(battle.actors[0].hp, 110);
     assert_eq!(battle.actors[0].tp, 50);
     assert_eq!(battle.actors[1].tp, 9);
     assert!(!battle.is_diagnostic());
@@ -302,9 +323,22 @@ fn held_hurt_defers_recovery_then_large_tp_recovery_caps_at_capacity() -> Result
     let cues = battle.step(crate::BattleInput::default())?.cues;
     assert_eq!(battle.actors[1].tp, 6000);
     assert!(cues.is_empty());
-    battle.step(crate::BattleInput::default())?;
+    let cues = finish_hurt(&mut battle, ActorId(1))?;
     assert_eq!(battle.actors[1].tp, battle.actors[1].equipment.max_tp);
     assert_eq!(battle.activity(ActorId(1)), Activity::Idle);
+    assert_eq!(
+        cues.iter()
+            .filter(|cue| matches!(cue, Cue::Recovered { .. }))
+            .count(),
+        1
+    );
+    assert!(
+        battle
+            .step(Default::default())?
+            .cues
+            .iter()
+            .all(|cue| !matches!(cue, Cue::Recovered { .. } | Cue::ExSkillLabel { .. }))
+    );
     Ok(())
 }
 
@@ -325,8 +359,7 @@ fn combo_recovery_preserves_weak_above_cap_skips_defeated_and_has_minimum_one() 
     dead.hp = 0;
     dead.availability = crate::ActorAvailability::Dead;
     let mut enemy = crate::tests::actor(Side::Enemy);
-    enemy.reaction.contributor_hits[0] = 2;
-    enemy.reaction.contributor_hits[1] = 254;
+    enemy.reaction.contributor_hits = vec![2, 254];
     let mut battle = battle(vec![party, dead, enemy]);
     let mut cues = vec![];
     battle.finish_combo_recovery(ActorId(2), &mut cues);
@@ -337,6 +370,7 @@ fn combo_recovery_preserves_weak_above_cap_skips_defeated_and_has_minimum_one() 
     assert!(cues.iter().any(|c| matches!(
         c,
         Cue::Recovered {
+            floating: false,
             kind: crate::RecoveryKind::Hp,
             actor: ActorId(0),
             nominal: 10,

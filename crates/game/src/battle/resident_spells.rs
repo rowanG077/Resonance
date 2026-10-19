@@ -2,7 +2,8 @@
 use super::{ActionResources, EffectResource, recoil};
 use anyhow::{Context, Result};
 use resonance_battle::{
-    EffectAppearance, HitShape, PreparedSpell, ProjectileContact, ProjectileDefinition, SpellOrigin,
+    EffectAppearance, HitShape, PreparedSpell, ProjectileContact, ProjectileDefinition,
+    SpellEffect, SpellEffectPlacement, SpellOrigin,
 };
 use resonance_content::{battle_projectile, prepared::Files};
 use std::sync::Arc;
@@ -61,10 +62,10 @@ pub fn prepare(
                 .clone();
             template.contact.radius = 50.;
             template.contact.height = 50.;
-            hit.reaction.direction = resonance_battle::RecoilDirection::AwayFromContact;
+            template.contact.recoil_direction = resonance_battle::RecoilDirection::AwayFromContact;
             (
                 resources.projectile(files, &template, hit, &[])?,
-                27,
+                Some(27),
                 &[12, 22, 32][..],
             )
         }
@@ -93,7 +94,7 @@ pub fn prepare(
                     clashes: false,
                 }),
             }),
-            21,
+            Some(21),
             &[32, 37, 42][..],
         ),
         216 => (
@@ -106,7 +107,7 @@ pub fn prepare(
                 hit,
                 &[(1, bank)],
             )?,
-            27,
+            None,
             &[22][..],
         ),
         _ => unreachable!(),
@@ -115,29 +116,54 @@ pub fn prepare(
         contact.cooldown = rule.hit.cooldown;
     }
     projectile.validate()?;
-    let startup = EffectAppearance {
+    let startup = startup_member.map(|member| EffectAppearance {
         resource: bank.resource,
-        member: startup_member,
-    };
-    let mut effects = bank.clone();
-    effects.members = vec![startup.member];
-    resources.effect(effects)?;
+        member,
+    });
+    if let Some(startup) = startup {
+        let mut effects = bank.clone();
+        effects.members = vec![startup.member];
+        resources.effect(effects)?;
+    }
     let (origin, startup_tick, duration) = if spell == 208 {
-        // Release and target initialization precede the resident callback clock.
+        // The release visit precedes the resident callback's first age update.
         (
             SpellOrigin::Target,
-            7,
+            6,
             rule.duration
-                .checked_add(2)
+                .checked_add(1)
                 .context("Wind Blade duration overflow")?,
         )
+    } else if spell == 216 {
+        (
+            SpellOrigin::SceneGround { toward_caster: 1. },
+            1,
+            rule.duration,
+        )
     } else {
-        (SpellOrigin::TargetGround, 1, rule.duration)
+        (
+            SpellOrigin::GroundAtRelease { toward_caster: 1. },
+            0,
+            rule.duration,
+        )
+    };
+    let (startup, effects) = match (spell, startup) {
+        (212, Some(appearance)) => (
+            None,
+            vec![SpellEffect {
+                at: 0,
+                appearance,
+                placement: SpellEffectPlacement::Scene([0.; 3]),
+                deferred: true,
+                captured_heading_offset: Some(0.),
+            }],
+        ),
+        (_, startup) => (startup, vec![]),
     };
     Ok(PreparedSpell {
         policy: Default::default(),
         summon: None,
-        effects: vec![],
+        effects,
         recovery: vec![],
         projectiles: births
             .iter()
@@ -148,10 +174,14 @@ pub fn prepare(
         stage_tint: None,
         camera: None,
         duration,
-        startup: Some((
-            startup_tick,
-            resonance_battle::SpellStartup::Effect(startup),
-        )),
+        startup: startup.map(|effect| {
+            let effect = if spell == 208 {
+                resonance_battle::SpellStartup::DeferredEffect(effect)
+            } else {
+                resonance_battle::SpellStartup::Effect(effect)
+            };
+            (startup_tick, effect)
+        }),
         sound: None,
     })
 }
@@ -180,8 +210,9 @@ fn aqua_edge(
         definition.lifetime = Some(119);
         definition.contact.as_mut().unwrap().cooldown = rule.hit.cooldown;
         definition.validate()?;
+        // Allocation precedes the first visible projectile visit by one update.
         projectiles.push(resonance_battle::SpellProjectile::new(
-            1,
+            2,
             Arc::new(definition),
         ));
     }
@@ -220,6 +251,7 @@ fn icicle(
     template.contact.shape = HitShape::Cylinder;
     template.contact.radius = 90.;
     template.contact.height = 180.;
+    template.contact.recoil_direction = resonance_battle::RecoilDirection::AwayFromOwner;
     let mut projectiles = Vec::with_capacity(2);
     for (at, rule) in [
         (3, &rule.hit),
@@ -230,15 +262,14 @@ fn icicle(
                 .context("missing Icicle follow-up rule")?,
         ),
     ] {
-        let mut hit = super::hit::authored(rule, recoil)?;
-        hit.reaction.direction = resonance_battle::RecoilDirection::Travel;
+        let hit = super::hit::authored(rule, recoil)?;
         let mut projectile = resources.projectile(files, &template, hit, &[])?;
         Arc::make_mut(&mut projectile)
             .contact
             .as_mut()
             .unwrap()
             .cooldown = rule.cooldown;
-        projectiles.push(resonance_battle::SpellProjectile::new(at, projectile));
+        projectiles.push(resonance_battle::SpellProjectile::new(at + 1, projectile));
     }
     let appearance = EffectAppearance {
         resource: bank.resource,
@@ -250,7 +281,13 @@ fn icicle(
     Ok(PreparedSpell {
         policy: Default::default(),
         summon: None,
-        effects: vec![],
+        effects: vec![SpellEffect {
+            at: 0,
+            appearance,
+            placement: SpellEffectPlacement::Scene([0.; 3]),
+            deferred: true,
+            captured_heading_offset: Some(0.),
+        }],
         projectiles,
         recovery: vec![],
         origin: SpellOrigin::GroundAtRelease { toward_caster: 1. },
@@ -261,7 +298,7 @@ fn icicle(
             .duration
             .checked_add(1)
             .context("Icicle duration overflow")?,
-        startup: Some((0, resonance_battle::SpellStartup::Effect(appearance))),
+        startup: None,
         sound: None,
     })
 }

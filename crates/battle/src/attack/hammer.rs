@@ -12,7 +12,9 @@ pub struct HammerProjectile {
     pub ring: Option<HammerRing>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(any(test, feature = "test-support"), derive(serde::Deserialize))]
+#[cfg_attr(any(test, feature = "test-support"), serde(deny_unknown_fields))]
 pub struct HammerRing {
     pub count: u8,
     pub angle_step: f32,
@@ -69,7 +71,32 @@ impl HammerProjectile {
             let choice = choose(uses, luck, element, &mut battle.random);
             let mut projectile = Arc::clone(&self.choices[choice]);
             if let Some(ring) = self.ring {
-                Arc::make_mut(&mut projectile).velocity = ring.velocity(index, &mut battle.random);
+                #[cfg(any(test, feature = "test-support"))]
+                let observed = battle
+                    .random_inputs
+                    .as_mut()
+                    .map(|inputs| {
+                        inputs.hammer_ring(
+                            crate::random_inputs::Key {
+                                clock: battle.ledger.elapsed_ticks,
+                                owner: owner.index(),
+                                target: target.index(),
+                                action: action.0,
+                                contact: crate::random_inputs::Contact::Projectile(
+                                    battle.next_projectile,
+                                ),
+                            },
+                            index,
+                            ring,
+                        )
+                    })
+                    .transpose()?;
+                #[cfg(any(test, feature = "test-support"))]
+                let values =
+                    observed.unwrap_or_else(|| std::array::from_fn(|_| battle.random.next_u16()));
+                #[cfg(not(any(test, feature = "test-support")))]
+                let values = std::array::from_fn(|_| battle.random.next_u16());
+                Arc::make_mut(&mut projectile).velocity = ring.velocity(index, values);
             }
             battle.emit(projectile, action, owner, target, position)?;
         }
@@ -89,15 +116,15 @@ fn choose(uses: u16, luck: u16, element: Option<Element>, random: &mut Random) -
 }
 
 impl HammerRing {
-    fn velocity(self, index: u8, random: &mut Random) -> [f32; 3] {
+    fn velocity(self, index: u8, values: [u16; 3]) -> [f32; 3] {
         let angle = self.angle_step * f32::from(index);
-        let mut draw =
-            || (i32::from(random.next_u16() as i16) % i32::from(self.jitter_range)) as f32;
+        let [x, z, lift] =
+            values.map(|value| (i32::from(value as i16) % i32::from(self.jitter_range)) as f32);
         // Start on the actor's right; the shared projectile transform rotates
         // this local ring and its spawn offset together.
-        let x = (self.speed + self.speed_jitter * draw()) * angle.cos();
-        let z = (self.speed + self.speed_jitter * draw()) * angle.sin();
-        let y = self.lift + self.lift_jitter * draw();
+        let x = (self.speed + self.speed_jitter * x) * angle.cos();
+        let z = (self.speed + self.speed_jitter * z) * angle.sin();
+        let y = self.lift + self.lift_jitter * lift;
         [x, y, z]
     }
 }

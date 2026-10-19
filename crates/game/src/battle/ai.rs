@@ -30,6 +30,13 @@ pub fn definition(
         action_ids.len() == source.actions.rows.len(),
         "enemy action/decision row count differs"
     );
+    if let (Some(walk), Some(model)) = (policy.walk_override, model) {
+        let (clip, replacement) = walk.motion_alias;
+        ensure!(
+            model.motions.contains_key(&clip) && model.motions.contains_key(&replacement),
+            "missing low-health walking motion"
+        );
+    }
     let choices = source
         .actions
         .rows
@@ -59,6 +66,15 @@ pub fn definition(
                         turn_ticks: source.profile.turn_ticks,
                     },
                 ),
+                super::model::common_motion(
+                    model.filter(|_| !source.profile.traits.body_motion_disabled),
+                    if row.run_return {
+                        super::model::MotionRole::Run
+                    } else {
+                        super::model::MotionRole::Walk
+                    },
+                ),
+                row.run_return.then_some(source.profile.run_speed),
             )
         })
         .collect::<Result<_>>()?;
@@ -80,10 +96,11 @@ pub fn definition(
         behavior: policy
             .behavior
             .as_ref()
-            .map(|source| behavior(source, model))
+            .map(|behavior_source| behavior(behavior_source, model, &source.null_motions))
             .transpose()?
             .flatten(),
         walk_motion: None,
+        run_motion: super::model::common_motion(model, super::model::MotionRole::Run),
         turn_ticks: source.profile.turn_ticks,
     })
 }
@@ -91,11 +108,12 @@ pub fn definition(
 fn behavior(
     source: &resonance_content::battle_action::EnemyBehavior,
     model: Option<&resonance_battle::ModelDefinition>,
+    null_motions: &BTreeSet<u16>,
 ) -> Result<Option<resonance_battle::EnemyBehavior>> {
     use resonance_battle::EnemyBehavior;
     use resonance_content::battle_action::EnemyBehavior as Source;
     Ok(Some(match source {
-        Source::IndependentModel { .. } => return Ok(None),
+        Source::IndependentModel { .. } | Source::ActionWeapons { .. } => return Ok(None),
         Source::Retreat {
             hp_percent,
             after_ticks,
@@ -105,10 +123,12 @@ fn behavior(
         },
         Source::HealthStage {
             hp_percent,
+            initial_station,
             initial_actions,
             final_actions,
         } => EnemyBehavior::HealthStage {
             hp_percent: *hp_percent,
+            initial_station: *initial_station,
             initial_actions: initial_actions.clone(),
             final_actions: final_actions.clone(),
         },
@@ -123,10 +143,36 @@ fn behavior(
             stations: *stations,
             change_at: u32::from(*change_at),
         },
+        Source::ReplaceWeapon {
+            action,
+            hide_at,
+            replace_at,
+            source,
+            destination,
+            disabled_action,
+        } => {
+            let model = model.context("enemy weapon replacement requires a prepared body")?;
+            ensure!(
+                [source, destination]
+                    .into_iter()
+                    .all(|slot| model.weapons.iter().any(|weapon| weapon.slot == *slot)),
+                "enemy weapon replacement has an unprepared slot"
+            );
+            EnemyBehavior::ReplaceWeapon {
+                action: *action,
+                hide_at: u32::from(*hide_at),
+                replace_at: u32::from(*replace_at),
+                source: *source,
+                destination: *destination,
+                disabled_action: *disabled_action,
+            }
+        }
         Source::Transformation {
             reveal_hp_percent,
             revealed_bones,
             airborne_hp_percent,
+            airborne_walk_speed,
+            airborne_motions,
             hover_height,
             initial_actions,
             final_actions,
@@ -147,22 +193,26 @@ fn behavior(
                     })
                     .collect::<Result<_>>()?,
                 airborne_hp_percent: *airborne_hp_percent,
+                airborne_walk_speed: *airborne_walk_speed,
+                airborne_motions: airborne_motions
+                    .iter()
+                    .map(|&(clip, replacement)| {
+                        let replacement =
+                            (!null_motions.contains(&replacement)).then_some(replacement);
+                        ensure!(
+                            replacement.is_none_or(|clip| model.motions.contains_key(&clip)),
+                            "missing transformed enemy motion"
+                        );
+                        Ok((clip, replacement))
+                    })
+                    .collect::<Result<_>>()?,
                 hover_height: *hover_height,
                 initial_actions: initial_actions.clone(),
                 final_actions: final_actions.clone(),
             }
         }
-        Source::ModelParts {
-            bone_scales,
-            hidden_weapons,
-        } => {
+        Source::ModelParts { bone_scales } => {
             let model = model.context("enemy part overrides require a prepared body")?;
-            ensure!(
-                hidden_weapons
-                    .iter()
-                    .all(|slot| model.weapons.iter().any(|weapon| weapon.slot == *slot)),
-                "enemy part override has an unprepared weapon slot"
-            );
             EnemyBehavior::ModelParts {
                 bone_scales: bone_scales
                     .iter()
@@ -176,7 +226,6 @@ fn behavior(
                         Ok((u16::try_from(bone)?, [*scale; 3]))
                     })
                     .collect::<Result<_>>()?,
-                hidden_weapons: hidden_weapons.clone(),
             }
         }
     }))
@@ -186,12 +235,18 @@ fn choice(
     row: &resonance_content::battle_action::EnemyAction,
     action: resonance_battle::ActionKey,
     approach: Option<resonance_battle::ApproachParameters>,
+    returning: Option<resonance_battle::MotionBinding>,
+    return_speed: Option<f32>,
 ) -> Result<EnemyChoice> {
     if let Some(reason) = &row.unsupported_reason {
         anyhow::bail!("{reason}");
     }
     Ok(EnemyChoice {
         action,
+        physical_arte: matches!(
+            &row.execution,
+            Some(resonance_content::battle_action::EnemyExecution::Physical { .. })
+        ),
         weight: row.weight,
         chain_group: row.chain_group,
         followup_chance: row.followup_chance,
@@ -199,6 +254,8 @@ fn choice(
         target_policy: row.target_policy,
         target_allies: row.target_allies,
         return_to_formation: row.return_to_formation,
+        returning,
+        return_speed,
         guard_chance: row.guard_chance,
         range: row.range,
         tp: u16::from(row.tp),
@@ -233,6 +290,7 @@ mod tests {
                 ..Default::default()
             },
             return_to_formation: false,
+            run_return: false,
             range: [0, 0],
             approach_range: 100,
             approach_minimum: 0,
@@ -242,7 +300,7 @@ mod tests {
             execution: None,
             unsupported_reason: None,
         };
-        let prepared = choice(&row, resonance_battle::ActionKey(0), None)?;
+        let prepared = choice(&row, resonance_battle::ActionKey(0), None, None, None)?;
         assert_eq!(prepared.action, resonance_battle::ActionKey(0));
         assert_eq!(prepared.requirements, row.requirements);
         assert_eq!((prepared.chain_group, prepared.followup_chance), (1, 25));
@@ -254,12 +312,12 @@ mod tests {
         assert_eq!(disabled_by_flags(&rows, &BTreeSet::new())?, vec![1]);
         assert!(disabled_by_flags(&rows, &BTreeSet::from([73]))?.is_empty());
         assert_eq!(
-            choice(&rows[1], resonance_battle::ActionKey(1), None)?.action,
+            choice(&rows[1], resonance_battle::ActionKey(1), None, None, None)?.action,
             resonance_battle::ActionKey(1)
         );
         row.unsupported_reason = Some("custom action controller".into());
         assert!(
-            choice(&row, resonance_battle::ActionKey(0), None)
+            choice(&row, resonance_battle::ActionKey(0), None, None, None)
                 .unwrap_err()
                 .to_string()
                 .contains("custom action controller")

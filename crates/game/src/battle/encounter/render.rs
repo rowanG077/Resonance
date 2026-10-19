@@ -14,18 +14,48 @@ use std::{
     sync::Arc,
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RenderInstances {
+    Fixed(usize),
+    /// Bone offsets for each visual layer in the particle's sampled pose.
+    Particles(Vec<usize>),
+}
+
 pub struct RenderModel {
     pub resource: u32,
     pub skeleton: Skeleton,
     pub parts: Vec<PreviewPart>,
-    pub capacity: usize,
+    pub instances: RenderInstances,
     pub lit: bool,
-    /// Source particle declarations choose per-instance material state.
-    pub effect: bool,
     pub texture_channels: Vec<resonance_content::battle_profile::TextureChannel>,
     pub weapon_style: Option<resonance_content::battle_profile::WeaponStyle>,
     /// Hide only the named mesh, preserving its transform.
     pub suppressed_nodes: BTreeSet<usize>,
+    pub target_anchor: Option<TargetAnchor>,
+}
+
+#[derive(Clone, Copy)]
+pub struct TargetAnchor {
+    pub bone: Option<u16>,
+    pub offset: [f32; 3],
+}
+
+impl TargetAnchor {
+    pub(super) fn prepare(
+        anchor: &resonance_content::battle_profile::TargetAnchor,
+        skeleton: &Skeleton,
+    ) -> Self {
+        Self {
+            bone: (anchor.bone != 0).then_some(
+                if usize::from(anchor.bone) < skeleton.bones.len() {
+                    u16::from(anchor.bone)
+                } else {
+                    0
+                },
+            ),
+            offset: anchor.offset,
+        }
+    }
 }
 
 /// Colette's visual attachment shares the ordinary sampled-model renderer.
@@ -108,12 +138,12 @@ pub(super) fn wings(
             additive: true,
             uv_offsets: vec![],
         }],
-        capacity: usize::from(resonance_events::Wings::LAYERS),
+        instances: RenderInstances::Fixed(usize::from(resonance_events::Wings::LAYERS)),
         lit: false,
-        effect: false,
         texture_channels: vec![],
         weapon_style: None,
         suppressed_nodes: BTreeSet::new(),
+        target_anchor: None,
     };
     Ok((
         WingAccessory {
@@ -179,34 +209,50 @@ pub(super) fn effect_model(
     files: &resonance_content::prepared::Files,
     part: &resonance_content::battle_model::ModelPart,
     resource: u32,
+    animate_layers: bool,
 ) -> Result<Option<(resonance_battle::PreparedEffectModel, RenderModel)>> {
-    let prepared = crate::battle::model::effect(files, part, resource).map(|model| {
-        let parts = part
-            .layers
-            .iter()
-            .cloned()
-            .map(|mut layer| {
-                // The sampled pose includes attachments and animation.
-                layer.attached_to = None;
-                layer.animation = None;
-                layer
-            })
-            .collect();
-        (
-            model,
-            RenderModel {
-                resource,
-                skeleton: part.rig.skeleton.clone(),
-                parts,
-                capacity: resonance_battle::MAX_PARTICLES,
-                lit: true,
-                effect: true,
-                texture_channels: vec![],
-                suppressed_nodes: BTreeSet::new(),
-                weapon_style: None,
-            },
-        )
-    });
+    let prepared =
+        crate::battle::model::effect(files, part, resource, animate_layers).map(|model| {
+            let mut next_bone = part.rig.skeleton.bones.len();
+            let bone_offsets = part
+                .layers
+                .iter()
+                .map(|layer| {
+                    if let Some(skeleton) = part.layer_skeletons.get(&layer.scene.resource) {
+                        let offset = next_bone;
+                        next_bone += skeleton.bones.len();
+                        offset
+                    } else {
+                        0
+                    }
+                })
+                .collect();
+            let parts = part
+                .layers
+                .iter()
+                .cloned()
+                .map(|mut layer| {
+                    // The sampled pose includes attachments and animation.
+                    layer.attached_to = None;
+                    layer.animation = None;
+                    layer
+                })
+                .collect();
+            (
+                model,
+                RenderModel {
+                    resource,
+                    skeleton: part.rig.skeleton.clone(),
+                    parts,
+                    instances: RenderInstances::Particles(bone_offsets),
+                    lit: true,
+                    texture_channels: vec![],
+                    suppressed_nodes: BTreeSet::new(),
+                    target_anchor: None,
+                    weapon_style: None,
+                },
+            )
+        });
     files.diagnostics().attempt("battle effect model", prepared)
 }
 
@@ -220,7 +266,7 @@ pub(super) fn scene_bank(
 ) -> Result<crate::battle::EffectResource> {
     let mut prepared = BTreeMap::new();
     for (&slot, part) in bank.art.iter().flat_map(|art| &art.models) {
-        if let Some((model, mut render)) = effect_model(files, part, next_resource())? {
+        if let Some((model, mut render)) = effect_model(files, part, next_resource(), false)? {
             render.suppressed_nodes = suppressed_body_nodes(&part.rig.skeleton, false);
             prepared.insert(slot, model);
             models.push(render);
@@ -579,14 +625,14 @@ mod tests {
         mesh.extend(b"JSON");
         mesh.extend(json);
         files.insert("effect.glb".into(), mesh.into());
-        let (model, render) = effect_model(&files, &part, 1)?.unwrap();
+        let (model, render) = effect_model(&files, &part, 1, false)?.unwrap();
         assert_eq!(model.resource(), render.resource);
         part.layers[0].scene.bone_names.clear();
-        assert!(effect_model(&files, &part, 2)?.is_none());
+        assert!(effect_model(&files, &part, 2, false)?.is_none());
         assert_eq!(files.diagnostics().entries().len(), 1);
-        assert!(effect_model(&Files::default(), &part, 2).is_err());
+        assert!(effect_model(&Files::default(), &part, 2, false).is_err());
         part.layers[0].scene.bone_names.push("root".into());
-        assert!(effect_model(&files, &part, 3)?.is_some());
+        assert!(effect_model(&files, &part, 3, false)?.is_some());
         Ok(())
     }
 

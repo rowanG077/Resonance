@@ -43,7 +43,7 @@ fn prepared(initial: u16) -> PreparedBattle {
 }
 
 #[test]
-fn learning_during_normal_attacks_keeps_the_selected_action_and_cost() -> Result<()> {
+fn learning_during_normal_attacks_holds_then_releases_the_acquired_action_for_free() -> Result<()> {
     let mut battle = dormant_martial()?.finish()?;
     // One end-to-end scenario exercises actual learning; individual probability
     // boundaries are covered by the learning policy's explicit-roll tests.
@@ -57,9 +57,17 @@ fn learning_during_normal_attacks_keeps_the_selected_action_and_cost() -> Result
             &mut vec![],
         )?;
         let (&id, sequence) = battle.sequences().next().unwrap();
-        assert_eq!(sequence.action, crate::ActionKey(1));
-        assert_eq!(battle.actors[0].tp, tp);
         let learned = !battle.technique_acquisitions().is_empty();
+        assert_eq!(
+            sequence.action,
+            crate::ActionKey(if learned { 0 } else { 1 })
+        );
+        assert_eq!(battle.actors[0].tp, tp);
+        while battle.timed_hold_remaining().is_some() {
+            let frame = battle.step(BattleInput::default())?;
+            assert_eq!(frame.clock, crate::BattleClock::Learning(ActorId(0)));
+            assert_eq!(battle.sequence(&id).unwrap().age, 0);
+        }
         battle.step(BattleInput {
             interrupt: vec![id],
             ..Default::default()

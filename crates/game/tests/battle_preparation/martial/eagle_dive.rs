@@ -4,7 +4,7 @@ use resonance_battle::{Activity, ControlInput};
 #[test]
 #[ignore = "requires current Regal and encounter publications; CPU only"]
 fn eagle_dive_waits_for_landing_then_recovers() -> Result<()> {
-    let (mut battle, owner) = encounter(8, &[185])?;
+    let (mut battle, owner) = encounter(8, &[185], false)?;
     for _ in 0..60 {
         if battle.actors()[owner.index()].position[1] > 30. {
             break;

@@ -90,7 +90,6 @@ pub fn prepare_resources(
                             shape: contact.shape,
                             radius: contact.radius,
                             half_height: contact.height,
-                            cooldown: contact.hit.cooldown,
                         },
                         trail: None,
                     }),
@@ -176,9 +175,6 @@ pub fn prepare_resources(
                 }
             };
             events.push((*at, event));
-        }
-        if let Some(pose) = pose(attack.recovery_pose) {
-            events.push((attack.duration, AttackEvent::Pose(pose)));
         }
         events.sort_by_key(|(at, _)| *at);
         bindings.push(ActionDefinition {

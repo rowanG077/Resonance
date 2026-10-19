@@ -223,6 +223,7 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
                     slot: 0,
                     animation: None,
                     repeat: false,
+                    reverse_at: None,
                     program_animation: true,
                     attachment: None,
                 }),
@@ -263,6 +264,24 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
             (world * expected * local).to_cols_array_2d(),
         );
     }
+    let before = effects.particles[&id].frame.clone();
+    let age = effects.particles[&id].age;
+    let movement = glam::Mat4::from_translation(glam::Vec3::new(0., 7., 0.));
+    frame.models[0].bones = Arc::new(vec![(movement * expected).to_cols_array_2d()]);
+    effects.advance_particles_filtered(&frame, true)?;
+    let after = &effects.particles[&id];
+    assert_eq!(after.age, age);
+    assert_eq!(after.frame.state, before.state);
+    assert_eq!(
+        after.frame.model.as_ref().unwrap().frame,
+        before.model.as_ref().unwrap().frame
+    );
+    assert!(
+        glam::Mat4::from_cols_array_2d(&after.frame.model.as_ref().unwrap().world).abs_diff_eq(
+            movement * glam::Mat4::from_cols_array_2d(&before.model.as_ref().unwrap().world),
+            0.0001,
+        )
+    );
     Ok(())
 }
 
@@ -286,6 +305,21 @@ fn followed_model_uses_origin_delta_and_keeps_rotation_and_orbit_while_stationar
     let angles = particle.frame.state.angles;
     effects.advance_particles(&frame)?;
     assert_eq!(effects.particles[&id].frame.state.angles, angles);
+    let particle = effects.particles.get_mut(&id).unwrap();
+    particle.frame.state.angular_velocity = [0.; 3];
+    Arc::make_mut(&mut particle.definition)
+        .data
+        .follow_orientation = false;
+    for position in [[23., 24., 30.], [23., 34., 30.]] {
+        frame.projectiles[0].position = position;
+        effects.advance_particles(&frame)?;
+        assert_eq!(effects.particles[&id].frame.state.angles, angles);
+    }
+    Arc::make_mut(&mut effects.particles.get_mut(&id).unwrap().definition)
+        .data
+        .follow_orientation = true;
+    effects.advance_particles(&frame)?;
+    assert_eq!(effects.particles[&id].frame.state.angles[..2], [225., 90.]);
     Ok(())
 }
 
@@ -386,6 +420,7 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
                     slot: 0,
                     animation: None,
                     repeat: false,
+                    reverse_at: None,
                     program_animation: false,
                     attachment: None,
                 }),
@@ -411,9 +446,16 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
     );
     let mut frame = frame();
     frame.actors = [crate::Side::Party, crate::Side::Enemy]
-        .map(|side| crate::ActorFrame {
-            state: crate::tests::actor(side),
-            activity: crate::Activity::Idle,
+        .map(|side| {
+            let state = crate::tests::actor(side);
+            crate::ActorFrame {
+                effect_center: state.effect_origin(),
+                state,
+                activity: crate::Activity::Idle,
+                cast_releasing: false,
+                stun_remaining: 0,
+                stun_struggling: false,
+            }
         })
         .to_vec();
     frame.cues.push(crate::Cue::Effect(crate::EffectRequest {
@@ -446,7 +488,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     use resonance_content::battle_effect::{
         EffectOperation, ModelBinding, ParticleBirth, ScheduledEvent, ValueRange,
     };
-    let source = crate::tests::model_definition(41, [(0, 15.)]);
+    let source = crate::tests::model_definition(41, [(0, 15.), (1, 4.)]);
     let model = PreparedEffectModel::new(Arc::new(EffectModelDefinition {
         resource: 41,
         skeleton: source.skeleton,
@@ -474,6 +516,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         slot: 0,
         animation: None,
         repeat: false,
+        reverse_at: None,
         program_animation: true,
         attachment: None,
     });
@@ -583,21 +626,43 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
             .is_err()
         );
     }
+    let mut ordinary = (*definition.particles[&0]).clone();
+    ordinary.data.periodic_effect = None;
+    let binding = ordinary.model.as_mut().unwrap();
+    binding.animation = Some(0);
+    binding.repeat = true;
+    binding.program_animation = false;
+    let mut delayed_orientation = (*definition).clone();
+    Arc::make_mut(delayed_orientation.particles.get_mut(&0).unwrap())
+        .data
+        .follow_orientation = false;
     let bank = EffectBank::new(
         17,
         [(0, model)].into(),
-        [(1, definition), (2, child_effect)].into(),
+        [
+            (1, definition),
+            (2, child_effect),
+            (3, Arc::new(delayed_orientation)),
+        ]
+        .into(),
         &Default::default(),
     )?;
     let mut effects = Effects::new(vec![bank], None, 7, Default::default())?;
     let mut frame = frame();
     frame.actors = [crate::Side::Party, crate::Side::Enemy]
-        .map(|side| crate::ActorFrame {
-            state: crate::tests::actor(side),
-            activity: crate::Activity::Idle,
+        .map(|side| {
+            let state = crate::tests::actor(side);
+            crate::ActorFrame {
+                effect_center: state.effect_origin(),
+                state,
+                activity: crate::Activity::Idle,
+                cast_releasing: false,
+                stun_remaining: 0,
+                stun_struggling: false,
+            }
         })
         .to_vec();
-    frame.cues.push(crate::Cue::Effect(crate::EffectRequest {
+    let mut request = crate::EffectRequest {
         owner: ActorId(0),
         target: ActorId(0),
         appearance: crate::EffectAppearance {
@@ -609,15 +674,17 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         follow: Some(EffectFollow::Projectile(ProjectileId(1))),
         scale: 1.,
         tint: Default::default(),
-    }));
+    };
+    frame.cues.push(crate::Cue::Effect(request.clone()));
     let mut births = Vec::new();
     let mut origins = std::collections::BTreeMap::new();
     for tick in 0..=31 {
         frame.projectiles[0].position = [tick as f32 * 3., 20., 30.];
-        if tick == 10 {
+        if matches!(tick, 10 | 20 | 30) {
             frame.cues.push(crate::Cue::ProjectileRebound {
                 projectile: ProjectileId(1),
-                first: true,
+                first: tick != 30,
+                pitch: (tick == 20).then_some(120.),
             });
         }
         effects.advance(&frame, false)?;
@@ -625,11 +692,15 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         for parent in effects.particles.values().filter(|p| p.model.is_some()) {
             assert_eq!(parent.definition.data.follow_orientation, tick < 10);
             if tick >= 10 {
-                assert_eq!(parent.frame.state.angular_velocity[0], -6.);
-                assert!(
-                    (parent.frame.state.angles[0] - (264. - 6. * (tick - 10) as f32)).abs()
-                        < 0.0001
-                );
+                let (spin, pitch) = if tick < 20 {
+                    (-6., 264. - 6. * (tick - 10) as f32)
+                } else if tick < 30 {
+                    (-6., 114. - 6. * (tick - 20) as f32)
+                } else {
+                    (-3., 57. - 3. * (tick - 30) as f32)
+                };
+                assert_eq!(parent.frame.state.angular_velocity[0], spin);
+                assert!((parent.frame.state.angles[0] - pitch).abs() < 0.0001);
             }
         }
         for child in effects.particles.values().filter(|p| p.frame.member == 1) {
@@ -663,7 +734,33 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         }
     }
     assert_eq!(births, [0, 5, 8, 13, 16, 21, 24, 29]);
-    frame.projectiles.clear();
+    frame.cues.push(crate::Cue::ProjectileDeparture {
+        projectile: ProjectileId(1),
+        animation: resonance_content::battle_effect::ModelAnimation {
+            model: 0,
+            clip: 1,
+            frame: 0.,
+            rate: 0.5,
+            repeat: true,
+            blend_ticks: 4,
+        },
+    });
+    for expected in [0., 0., 0., 0., 0., 0.5, 1.] {
+        effects.advance(&frame, false)?;
+        frame.cues.clear();
+        let models: Vec<_> = effects
+            .frames()
+            .into_iter()
+            .filter_map(|p| p.model)
+            .collect();
+        assert_eq!(models.len(), 2);
+        assert!(
+            models
+                .iter()
+                .all(|model| model.clip == Some(1) && model.frame == expected)
+        );
+    }
+    let projectile = frame.projectiles.pop().unwrap();
     effects.advance(&frame, false)?;
     assert!(!effects.particles.is_empty());
     assert!(effects.particles.values().all(|p| p.frame.member == 1));
@@ -673,5 +770,88 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     }
     assert_eq!(effects.next_particle, next);
     assert!(effects.particles.is_empty());
+    for (followed, frames) in [(true, [0., 0.5]), (false, [0.5, 1.])] {
+        ordinary.data.follow_origin = followed;
+        let ordinary = effects
+            .spawn_particle(
+                Arc::new(ordinary.clone()),
+                ActorId(0),
+                ActorId(0),
+                [0.; 3],
+                0.,
+            )?
+            .unwrap();
+        for expected in frames {
+            effects.advance_particles(&frame)?;
+            assert_eq!(
+                effects.particles[&ordinary]
+                    .frame
+                    .model
+                    .as_ref()
+                    .unwrap()
+                    .frame,
+                expected
+            );
+        }
+    }
+    frame.projectiles.push(projectile);
+    request.appearance.member = 3;
+    let creation_origin = request.origin;
+    frame.cues = vec![
+        crate::Cue::ClearEffects,
+        crate::Cue::InitializedEffect(request.clone()),
+    ];
+    effects.advance(&frame, false)?;
+    let particle = effects
+        .particles
+        .values()
+        .find(|particle| particle.model.is_some())
+        .unwrap();
+    assert_eq!(particle.frame.origin, frame.projectiles[0].position);
+    assert_eq!(particle.orientation_origin, creation_origin);
+
+    request.appearance.member = 1;
+    frame.projectiles[0].velocity = [0., 1., 0.];
+    for (velocity, expected) in [([0., -1., 0.], [360., 0.]), ([1., 0., 0.], [270., 90.])] {
+        frame.cues = vec![
+            crate::Cue::ClearEffects,
+            crate::Cue::ProjectileStarted {
+                projectile: ProjectileId(1),
+                action: crate::ActionId(1),
+                velocity,
+            },
+            crate::Cue::InitializedEffect(request.clone()),
+        ];
+        effects.advance(&frame, false)?;
+        let particle = effects
+            .particles
+            .values()
+            .find(|p| p.model.is_some())
+            .unwrap();
+        assert_eq!(particle.frame.state.angles[..2], expected);
+    }
+    frame.cues.clear();
+    frame.projectiles[0].position[1] += 2.;
+    effects.advance(&frame, false)?;
+    let particle = effects
+        .particles
+        .values()
+        .find(|p| p.model.is_some())
+        .unwrap();
+    assert_eq!(particle.frame.state.angles[..2], [180., 0.]);
+    frame.projectiles[0].position[0] += 1.;
+    frame.projectiles[0].position[1] = 0.;
+    frame.projectiles[0].velocity = [0.; 3];
+    frame.cues.push(crate::Cue::ProjectileStopped {
+        projectile: ProjectileId(1),
+    });
+    effects.advance(&frame, false)?;
+    let particle = effects
+        .particles
+        .values()
+        .find(|p| p.model.is_some())
+        .unwrap();
+    assert_eq!(particle.frame.origin, frame.projectiles[0].position);
+    assert_eq!(particle.frame.state.angles[..2], [180., 0.]);
     Ok(())
 }

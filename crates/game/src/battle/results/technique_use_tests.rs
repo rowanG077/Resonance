@@ -210,7 +210,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
 
     // Neutral frames keep the command-owned selector alive and do not change
     // the ordinary controller target.
-    let (neutral, _) = command_visit(
+    let (neutral, neutral_events) = command_visit(
         &mut fixture,
         command::Input {
             controller: 0,
@@ -219,10 +219,11 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     )?;
     assert_eq!(neutral.target_selector, Some(actor));
     assert_eq!(fixture.battle.target(actor), Some(ordinary_target));
+    assert!(!neutral_events.contains(&command::Event::Cue(crate::battle::audio::TARGET_CHANGED)));
 
     // Direction and A share one command visit.  Direction is applied before
     // confirmation, including for an Auto owner whose BattleInput omits it.
-    let (cycled, _) = command_visit(
+    let (cycled, cycled_events) = command_visit(
         &mut fixture,
         command::Input {
             controller: 0,
@@ -234,6 +235,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
         selected_tech_target(&fixture).context("Tech page lost its cycled target")?;
     assert!(cycled.target_selector == Some(actor));
     assert_ne!(cycled_target, first_tech_target);
+    assert!(cycled_events.contains(&command::Event::Cue(crate::battle::audio::TARGET_CHANGED)));
     assert_eq!(fixture.battle.target(actor), Some(ordinary_target));
 
     let expected = fixture

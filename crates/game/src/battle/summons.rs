@@ -19,6 +19,8 @@ const SHADOW: u16 = 242;
 const ORIGIN: u16 = 243;
 const MAXWELL: u16 = 244;
 const ACTIVE_START: u16 = 1;
+// Summon contacts enter the next projectile update after their scene callback.
+const PROJECTILE_VISIT_DELAY: u16 = 1;
 const ENTRY_EFFECT: u16 = 36;
 const ENTRY_SOUND: u16 = 122;
 const HEALING_EFFECT: u16 = 20;
@@ -155,9 +157,13 @@ pub fn prepare(
             resources.effect(effect)?;
             hit.effect = Some(appearance(member));
         }
+        let mut definition = source.projectile.clone();
+        // Summon birth and trail effects belong to the active scene.
+        definition.birth_effect.bank = 6;
+        definition.trail_effect.bank = 6;
         let mut projectile = resources.projectile(
             files,
-            &source.projectile,
+            &definition,
             hit,
             &[(0, common), (1, techniques), (2, bank), (6, bank)],
         )?;
@@ -178,8 +184,7 @@ pub fn prepare(
         };
         for &heading in headings {
             contacts.push(SummonContact {
-                // Active callback zero follows the initialization update.
-                at: ACTIVE_START + tick,
+                at: ACTIVE_START + tick + PROJECTILE_VISIT_DELAY,
                 projectile: Arc::clone(&projectile),
                 point: if catalogue == UNDINE {
                     SummonPoint::Arrival(WAVES[index])
@@ -219,7 +224,7 @@ pub fn prepare(
                 heading,
             });
             contacts.push(SummonContact {
-                at,
+                at: at + PROJECTILE_VISIT_DELAY,
                 projectile: Arc::clone(&projectile),
                 point,
                 heading: if catalogue == LUNA {

@@ -225,7 +225,20 @@ impl crate::Battle {
     }
 }
 
-/// Normal guard uses physical defense or halves spell damage; Special Guard is stronger.
+/// Ordinary guard softens magic once, then yields to the hit reaction.
+pub(crate) fn soften_magic(target: &mut Actor, amount: i64) -> i64 {
+    if target.guard.active
+        && target.guard.kind == GuardKind::Normal
+        && !target.overlimit.is_active()
+    {
+        target.guard.active = false;
+        amount / 2
+    } else {
+        amount
+    }
+}
+
+/// Damage remaining when a contact stays guarded.
 fn percentage(owner: &Actor, target: &Actor, kind: DamageKind) -> i32 {
     if target.guard.kind == GuardKind::Special {
         if target.equipment.damage.special_guard_reduction {

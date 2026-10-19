@@ -18,7 +18,7 @@ fn battle(actor: Actor) -> Battle {
 }
 
 #[test]
-fn recovery_down_adds_ten_stagger_updates_and_expires() {
+fn recovery_down_extends_stagger_only_while_active() {
     let mut battle = battle(actor(Side::Party));
     battle
         .apply_recovery_down(ActorId(1), [40, 40, 112], &mut Vec::new())
@@ -29,11 +29,13 @@ fn recovery_down_adds_ten_stagger_updates_and_expires() {
             expected
         );
     }
-    for _ in 0..899 {
+    let lifetime = battle.actors[1]
+        .conditions
+        .remaining(crate::conditions::Condition::RecoveryDown)
+        .unwrap();
+    for _ in 0..=lifetime {
         battle.actors[1].advance_conditions(true);
     }
-    assert_eq!(hitstun(&battle.actors[0], &battle.actors[1], 30), 40);
-    battle.actors[1].advance_conditions(true);
     assert_eq!(hitstun(&battle.actors[0], &battle.actors[1], 30), 30);
 }
 
@@ -90,7 +92,8 @@ fn hurt_recovery_waits_for_movement_and_landing() {
         battle.runtime[0].task(),
         ActorTask::Recovering {
             remaining: 0,
-            after_hit: true
+            after_hit: true,
+            idle_pose: None,
         }
     ));
     assert!(!battle.actor_command_ready(owner));
@@ -141,6 +144,7 @@ fn hurt_recovery_waits_for_movement_and_landing() {
             ActorTask::Recovering {
                 remaining: 0,
                 after_hit,
+                idle_pose: None,
             },
         );
         if after_hit {

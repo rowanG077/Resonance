@@ -19,6 +19,7 @@ impl Battle {
             let (value, nominal) = actor.recovered_hp(i32::from(percentages.hp_percent));
             actor.hp = value;
             cues.push(Cue::Recovered {
+                floating: false,
                 kind: crate::RecoveryKind::Hp,
                 actor: ActorId(index as u8),
                 nominal,
@@ -28,6 +29,7 @@ impl Battle {
         if tick.regenerate_tp {
             let (value, nominal) = actor.recovered_tp(i16::from(percentages.tp_percent));
             cues.push(Cue::Recovered {
+                floating: false,
                 actor: ActorId(index as u8),
                 kind: RecoveryKind::Tp,
                 nominal,

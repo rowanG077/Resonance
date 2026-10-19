@@ -183,3 +183,34 @@ fn encounter_exchange_uses_prepared_roster_priority_without_random_draws() {
         46
     );
 }
+
+#[test]
+fn solo_speech_uses_the_condition_selected_celebration() {
+    let voices: Vec<_> = (0..5)
+        .map(|pose| [Some(Sound::Cue(pose * 2)), Some(Sound::Cue(pose * 2 + 1))])
+        .collect();
+    let mut state = context(&[Lloyd], &[]);
+    state.party_was_hit = true;
+    for (hp, expected_pose) in [(100, 0), (75, 0), (74, 2), (25, 2), (24, 1)] {
+        state.party[0].hp_percent = hp;
+        let selection = select(&state, || 1);
+        assert_eq!(selection.pose, expected_pose);
+        for variation in 0..2 {
+            assert_eq!(
+                ordinary_voice(Lloyd as u8, selection.pose, variation, &voices),
+                Some(Sound::Cue(u16::from(expected_pose) * 2 + variation)),
+            );
+        }
+    }
+    for sample in 0..2 {
+        assert_eq!(
+            ordinary_voice(Colette as u8, 2, sample, &voices),
+            Some(Sound::Cue(6))
+        );
+        assert_eq!(
+            ordinary_voice(Colette as u8, 3, sample, &voices),
+            Some(Sound::Cue(7))
+        );
+    }
+    assert_eq!(ordinary_voice(Lloyd as u8, 0, 0, &[]), None);
+}

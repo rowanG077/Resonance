@@ -1,6 +1,6 @@
 //! Prepared ordinary-item resources and a borrowed view of the session inventory.
 use super::{model::ModelSource, voice};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use resonance_battle::{ActorId, EffectAppearance, ModelDefinition, Sound, item};
 use resonance_content::{battle_effect::Tints, battle_profile::Profile, menu_data::Item};
 use std::{collections::BTreeMap, sync::Arc};
@@ -22,11 +22,12 @@ pub struct Feedback {
     pub sound: Option<Sound>,
     pub buff_tint: Option<[u8; 3]>,
     pub scan_tint: Option<[u8; 3]>,
-    pub voices: Vec<ItemVoice>,
+    pub actors: Vec<ActorFeedback>,
 }
 
 #[derive(Default)]
-pub struct ItemVoice {
+pub struct ActorFeedback {
+    pub use_offset: [f32; 3],
     pub used: Option<Sound>,
     pub discovery: Option<Sound>,
 }
@@ -41,7 +42,7 @@ pub fn prepare<'a>(
 ) -> Result<(item::Definition, Feedback)> {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
-    let mut voices = Vec::new();
+    let mut feedback = Vec::new();
     for (source, model, profile, quick) in actors {
         targets.push(item::TargetDefinition {
             inactive_selectable: profile.traits.inactive_item_target,
@@ -53,14 +54,21 @@ pub fn prepare<'a>(
                 "item roster contains a non-actor"
             );
             rows.push(None);
-            voices.push(ItemVoice::default());
+            feedback.push(ActorFeedback::default());
             continue;
         };
         rows.push(Some(item::ActorDefinition {
             motion: super::model::common_motion(model, super::model::MotionRole::Item),
             quick,
         }));
-        voices.push(ItemVoice {
+        feedback.push(ActorFeedback {
+            use_offset: *resolver
+                .party_table()
+                .item_use_offsets
+                .get(usize::from(
+                    character.checked_sub(1).context("zero character ID")?,
+                ))
+                .context("missing item-use effect offset")?,
             used: resolver.select(source, |v| v.item_use, &mut resolve)?,
             discovery: if character == super::party::Character::Raine as u8 {
                 resolver.absolute(source, Some(voice::Sound::Cue(878)), &mut resolve)?
@@ -87,7 +95,7 @@ pub fn prepare<'a>(
             sound: resolve(voice::Sound::Cue(76))?,
             scan_tint: tints.map(|tints| tints.actors.scan[..3].try_into().unwrap()),
             buff_tint: tints.map(|tints| tints.actors.buff[..3].try_into().unwrap()),
-            voices,
+            actors: feedback,
         },
     ))
 }
@@ -117,22 +125,10 @@ pub(super) fn policies() -> BTreeMap<u16, item::Policy> {
         (15, item::Effect::Buff(Buff::Flare)),
         (16, item::Effect::Buff(Buff::Guard)),
         (17, item::Effect::Buff(Buff::Acuity)),
-        (
-            18,
-            item::Effect::Buff(Buff::PhysicalAilmentGuard { persistent: true }),
-        ),
-        (
-            19,
-            item::Effect::Buff(Buff::PhysicalAilmentGuard { persistent: false }),
-        ),
-        (
-            20,
-            item::Effect::Buff(Buff::MagicalAilmentGuard { persistent: true }),
-        ),
-        (
-            21,
-            item::Effect::Buff(Buff::MagicalAilmentGuard { persistent: false }),
-        ),
+        (18, item::Effect::Buff(Buff::PhysicalAilmentGuard)),
+        (19, item::Effect::Buff(Buff::PhysicalAilmentGuard)),
+        (20, item::Effect::Buff(Buff::MagicalAilmentGuard)),
+        (21, item::Effect::Buff(Buff::MagicalAilmentGuard)),
         (37, Scan),
         (38, AllDivide),
         (39, Hourglass),

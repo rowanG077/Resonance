@@ -188,7 +188,7 @@ impl Inputs {
             retained,
             menus.monsters()?,
             menus.items.len(),
-            setup.formation()?,
+            setup.formations()?,
         )?;
         let party_profiles: battle_profile::Table = retained.json(battle_profile::PARTY_PATH)?;
         let party_positions = party_positions(menus, party)?;
@@ -196,20 +196,12 @@ impl Inputs {
             session.items.len() == menus.items.len(),
             "item definitions differ from the menu catalogue"
         );
-        // Decode artwork independently of item eligibility and combat attributes.
-        let records = retained
-            .diagnostics()
-            .attempt(
-                "battle equipment artwork",
-                (|| {
-                    let bank: serde_json::Value = retained.json(battle_model::WEAPONS_PATH)?;
-                    bank.get("records")
-                        .and_then(serde_json::Value::as_object)
-                        .cloned()
-                        .context("missing equipment attachment catalogue")
-                })(),
-            )?
-            .unwrap_or_default();
+        // Equipment rigs supply gameplay contact anchors as well as drawable models.
+        let bank: serde_json::Value = retained.json(battle_model::WEAPONS_PATH)?;
+        let records = bank
+            .get("records")
+            .and_then(serde_json::Value::as_object)
+            .context("missing equipment attachment catalogue")?;
         let equipped: BTreeSet<_> = party
             .formation
             .iter()
@@ -280,10 +272,7 @@ impl Inputs {
                 Ok(Some((kind, definition.allowed_characters, weapon)))
             })()
             .with_context(|| format!("equipment item {item}"));
-            let selected = retained
-                .diagnostics()
-                .attempt("battle equipment artwork", selected)?
-                .flatten();
+            let selected = selected?;
             if let Some((kind, allowed, weapon)) = selected {
                 available_equipment.insert(item, (kind, allowed));
                 weapons.insert(item, weapon);
@@ -301,14 +290,24 @@ impl Inputs {
                     items.insert(item, kind);
                 }
             }
+            let mut source: battle_model::Party =
+                retained.json(&battle_model::party_path(character))?;
+            if let Some(bank) = source.motion_variants.remove(&member.costume) {
+                ensure!(
+                    bank.clips.len() == source.parts.len(),
+                    "costume motion bank has different body layers"
+                );
+                source.motion_sha256 = bank.source_sha256;
+                source.null_motions = bank.null_motions;
+                for (part, clips) in source.parts.iter_mut().zip(bank.clips) {
+                    part.clips = clips;
+                }
+            }
             party_actors.push(PartyInput {
                 character,
                 position,
                 equipment: items,
-                source: retained.diagnostics().attempt(
-                    "party body descriptor",
-                    retained.json(&battle_model::party_path(character)),
-                )?,
+                source: Some(source),
                 motions: BTreeMap::new(),
             });
         }
@@ -342,6 +341,21 @@ impl Inputs {
                 enemy_models.insert(id, (source, BTreeMap::new()));
             }
         }
+        let has_host = enemies.spawns.first().is_some_and(|spawn| {
+            let enemy = enemies.resources[spawn.resource].monster.id;
+            enemy_definitions[&enemy].profile.traits.hosts_participants
+        });
+        if !has_host {
+            for definition in enemy_definitions.values_mut() {
+                let profile = &mut definition.profile;
+                if profile.hosted_body.take().is_some() {
+                    profile.traits.passable_for_allies = false;
+                    profile.traits.suppress_hurt_motion = false;
+                    profile.traits.push_obstacle_disabled = false;
+                    profile.traits.item_target_excluded = false;
+                }
+            }
+        }
         ensure!(
             enemy_definitions
                 .values()
@@ -366,19 +380,7 @@ impl Inputs {
                     model::merge_dependencies(&mut candidate_inventory, weapon.files.clone())
                 })
                 .with_context(|| format!("equipment item {item}"));
-            let available = files
-                .diagnostics()
-                .attempt("battle equipment artwork", merged)?
-                .is_some();
-            if !available {
-                weapons.remove(&item);
-                for actor in &mut party_actors {
-                    actor.equipment.remove(&item);
-                }
-                continue;
-            }
-            // Files reports missing payloads; component preparation omits their artwork.
-            // Cancellation still aborts the encounter candidate.
+            merged?;
             files = files.with_dependencies(root, weapon.files.clone(), cache, &cancelled)?;
             inventory = candidate_inventory;
         }

@@ -4,6 +4,25 @@ use crate::menu::strategy::{Input, Page, Strategy, Visit};
 use resonance_battle::StrategyRefresh;
 
 impl Candidate {
+    pub fn order_name(&self, order: u8) -> Result<&str> {
+        ensure!((1..=3).contains(&order), "invalid strategy preset order");
+        let index = usize::from(order - 1);
+        if let Some(presets) = &self.party.strategy_presets {
+            Ok(&presets[index].name)
+        } else {
+            Ok(&self
+                .menus
+                .strategy_text()?
+                .presets
+                .as_ref()
+                .context("Strategy presets were not prepared")?[index])
+        }
+    }
+
+    pub(in crate::battle) fn active_order(&self) -> u8 {
+        self.active_order
+    }
+
     pub fn strategy_page<'a>(&'a self, state: &'a Strategy) -> Page<'a> {
         state.page(self.menu_party(), &self.menus)
     }
@@ -31,15 +50,34 @@ impl Candidate {
     }
 
     pub(in crate::battle) fn finish_strategy(&mut self, battle: &mut Battle) -> Result<()> {
+        self.apply_order(battle, self.active_order)
+    }
+
+    pub(in crate::battle) fn apply_order(&mut self, battle: &mut Battle, order: u8) -> Result<()> {
+        ensure!(order <= 3, "invalid battle order");
+        let preset = order.checked_sub(1).map(|index| {
+            let index = usize::from(index);
+            self.party
+                .strategy_presets
+                .as_ref()
+                .map_or(&self.menus.strategy.presets[index], |presets| {
+                    &presets[index].members
+                })
+        });
         let rows: Vec<_> = self
             .setup
             .actors
             .iter()
             .map(|&(actor, character)| StrategyRefresh {
                 actor,
-                choices: self.party.members[usize::from(character - 1)].strategy,
+                choices: preset.map_or(
+                    self.party.members[usize::from(character - 1)].strategy,
+                    |members| members[usize::from(character - 1)],
+                ),
             })
             .collect();
-        battle.refresh_strategy(&rows)
+        battle.refresh_strategy(&rows)?;
+        self.active_order = order;
+        Ok(())
     }
 }

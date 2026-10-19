@@ -127,7 +127,7 @@ pub fn prepare(
             | 118
             | 120..=123
     ) {
-        return super::stored_recovery::prepare(catalogue, &scene, bank, resources);
+        return super::stored_recovery::prepare(catalogue, &scene, bank, techniques, resources);
     }
     if catalogue == super::photon::CATALOGUE {
         return super::photon::prepare(files, &scene, bank, resources);
@@ -158,19 +158,23 @@ pub fn prepare(
     if catalogue == ANGEL_FEATHERS {
         return angel_feathers(files, &scene, bank, resources, &recoil);
     }
-    let (lifetime, schedule): (_, &[(u16, usize)]) = match catalogue {
-        ERUPTION => (210, &[(30, 2), (60, 3), (90, 2)]),
-        STALAGMITE => (245, &[(44, 0), (60, 1), (90, 2)]),
-        GRAVE => (215, &[(34, 0), (78, 1), (88, 1), (98, 1), (108, 1)]),
+    let (lifetime, schedule): (_, &[(u16, usize, usize)]) = match catalogue {
+        ERUPTION => (210, &[(30, 2, 0), (60, 3, 1), (90, 2, 0)]),
+        STALAGMITE => (245, &[(44, 0, 0), (60, 1, 1), (90, 2, 2)]),
+        GRAVE => (
+            215,
+            &[(34, 0, 0), (78, 1, 1), (88, 1, 1), (98, 1, 1), (108, 1, 1)],
+        ),
         _ => unreachable!(),
     };
+    let initialization_ticks = u16::from(matches!(catalogue, ERUPTION | GRAVE | STALAGMITE));
     let mut projectiles = Vec::new();
-    for &(at, row) in schedule {
+    for &(at, row, rule_index) in schedule {
         let source = scene
             .projectiles
             .get(row)
             .context("missing ground spell pulse")?;
-        let rule = source.hit()?;
+        let rule = source.hit_variant(rule_index)?;
         let mut hit = super::hit::authored(rule, &recoil)?;
         if let Some(member) = rule.effect {
             let mut effects = bank.clone();
@@ -186,7 +190,7 @@ pub fn prepare(
             contact.cooldown = rule.cooldown;
         }
         projectiles.push(resonance_battle::SpellProjectile::new(
-            TRANSITION_TICKS + ACTIVE_START_TICKS + at,
+            TRANSITION_TICKS + ACTIVE_START_TICKS + at + initialization_ticks,
             projectile,
         ));
     }
@@ -203,10 +207,10 @@ pub fn prepare(
         effects: vec![],
         recovery: vec![],
         projectiles,
-        origin: if catalogue == GRAVE {
-            SpellOrigin::GroundAtRelease { toward_caster: 1. }
-        } else {
-            SpellOrigin::TargetGround
+        origin: match catalogue {
+            ERUPTION | STALAGMITE => SpellOrigin::SceneGround { toward_caster: 1. },
+            GRAVE => SpellOrigin::GroundAtRelease { toward_caster: 1. },
+            _ => SpellOrigin::TargetGround,
         },
         transition_ticks: TRANSITION_TICKS,
         stage_tint: stage_tint(scene.stage_color, lifetime)?,
@@ -214,7 +218,11 @@ pub fn prepare(
         duration: TRANSITION_TICKS + lifetime + SCENE_BOUNDARY_TICKS,
         startup: Some((
             TRANSITION_TICKS + 1,
-            resonance_battle::SpellStartup::Effect(startup),
+            if matches!(catalogue, ERUPTION | STALAGMITE) {
+                resonance_battle::SpellStartup::DeferredEffect(startup)
+            } else {
+                resonance_battle::SpellStartup::Effect(startup)
+            },
         )),
         sound: None,
     })
@@ -257,7 +265,7 @@ fn angel_feathers(
         projectile.contact.as_mut().unwrap().cooldown = rule.cooldown;
         projectile.validate()?;
         projectiles.push(resonance_battle::SpellProjectile::new(
-            TRANSITION_TICKS + at,
+            TRANSITION_TICKS + at + 1,
             Arc::new(projectile),
         ));
     }
@@ -278,7 +286,7 @@ fn angel_feathers(
             .context("Angel Feathers duration overflow")?,
         startup: Some((
             TRANSITION_TICKS + 1,
-            resonance_battle::SpellStartup::Effect(EffectAppearance {
+            resonance_battle::SpellStartup::DeferredEffect(EffectAppearance {
                 resource: bank.resource,
                 member: 1,
             }),

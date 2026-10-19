@@ -9,6 +9,11 @@ use resonance_content::{
 };
 use std::{collections::BTreeMap, path::Path};
 
+pub const TARGET_CHANGED: u16 = 108;
+pub const RESULT_ADVANCEMENT: u16 = 80;
+pub const STORED_SPELL_RELEASE: u16 = 122;
+pub const SPELL_RELEASE: u16 = 123;
+
 /// Metadata only; no score, sample or voice payload is loaded here.
 pub fn read(files: &Files) -> Result<Option<Audio>> {
     let decoded = (|| {

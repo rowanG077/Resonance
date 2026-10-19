@@ -66,6 +66,7 @@ fn construct_rewards_keeps_partial_charge_and_clears_full_or_active_overlimit() 
         character,
         pose: Some(0),
         group: None,
+        voice: None,
     });
     candidate.construct_rewards(&mut battle)?;
     for (&(id, character), (live, saved)) in

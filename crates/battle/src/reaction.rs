@@ -74,9 +74,9 @@ pub struct ContactTraits {
 }
 
 /// These clocks and impulses outlive the interrupted action.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Reaction {
-    pub(crate) contributor_hits: [u8; 12],
+    pub(crate) contributor_hits: Vec<u8>,
     pub stun: crate::Stun,
     pub stagger: crate::Stagger,
     pub protection: crate::Protection,
@@ -86,6 +86,7 @@ pub struct Reaction {
     pub direction: [f32; 3],
     pub hit_shake_disabled: bool,
     pub(crate) hit_shake_ticks: u8,
+    pub(crate) impact_ticks: u8,
     pub combo_hits: i32,
     pub combo_damage: i32,
     pub(crate) contact_recovery_sampled: bool,
@@ -96,7 +97,15 @@ pub struct Reaction {
 }
 
 impl Reaction {
-    pub(crate) fn contact_feedback(&mut self, guard: crate::GuardResult) {
+    /// Shared contact feedback clock for model and portrait displacement.
+    pub fn hit_shake_remaining(&self) -> u8 {
+        self.hit_shake_ticks
+    }
+
+    pub(crate) fn contact_feedback(&mut self, guard: crate::GuardResult) -> bool {
+        const IMPACT_INTERVAL: u8 = 4;
+        let repeated = self.impact_ticks != 0;
+        self.impact_ticks = IMPACT_INTERVAL;
         if !self.hit_shake_disabled {
             self.hit_shake_ticks = match guard {
                 crate::GuardResult::Broken => 14,
@@ -104,6 +113,7 @@ impl Reaction {
                 crate::GuardResult::None => 10,
             };
         }
+        repeated
     }
 
     pub(crate) fn hit_shake_offset(&self) -> [f32; 3] {
@@ -282,6 +292,7 @@ impl Battle {
         self.clear_technique_command(actor);
         enter_hurt(&mut self.actors[actor.index()]);
         self.set_task(actor.index(), ActorTask::Hurt { remaining });
+        self.runtime[actor.index()].enemy_behavior.hurt_pending = true;
     }
 
     /// A failed paralysis check stalls this command without paying its cost.
@@ -359,6 +370,44 @@ impl Battle {
             return Ok(true);
         }
         let kind = actor.reaction.recoil.kind;
+        let vertical = actor.movement.vertical;
+        // A completed grounded hit pose can transition directly into knockdown.
+        let down_pose_ready = kind == RecoilKind::Down
+            && !actor.airborne()
+            && vertical <= 0.
+            && self
+                .models
+                .as_ref()
+                .is_some_and(|models| models.motion_finished_this_update(id, false));
+        if (kind == RecoilKind::Down || kind.launching() && vertical != 0.)
+            && !down_pose_ready
+            && let Some(model) = self
+                .models
+                .as_ref()
+                .and_then(|models| models.definition(id))
+        {
+            let (clip, blend) = if kind == RecoilKind::Down {
+                const KNOCKDOWN_HURT_BLEND: u8 = 8;
+                (model.reactions.hurt[1], KNOCKDOWN_HURT_BLEND)
+            } else if vertical > 0. {
+                (model.reactions.rising, model.reactions.rising_blend)
+            } else {
+                (model.reactions.falling, model.reactions.falling_blend)
+            };
+            let motion = clip.map(|clip| crate::MotionBinding {
+                model: model.resource,
+                clip,
+            });
+            self.request_pose(
+                id,
+                motion,
+                crate::Pose {
+                    blend,
+                    restart: false,
+                    ..Default::default()
+                },
+            );
+        }
         if self.begin_contact_recovery(id, true, cues)? {
             return Ok(true);
         }
@@ -382,6 +431,16 @@ impl Battle {
             if kind.contact() {
                 self.actors[index].reaction.recoil.kind.land();
                 self.enter_knockdown(id, cues);
+                // Landing consumes one tick of the newly started down timer.
+                if let ActorTask::Knockdown(crate::knockdown::Recovery::Down { remaining }) =
+                    self.runtime[index].task()
+                {
+                    let remaining = remaining.saturating_sub(1);
+                    self.set_task(
+                        index,
+                        ActorTask::Knockdown(crate::knockdown::Recovery::Down { remaining }),
+                    );
+                }
                 self.initialize_knockdown_window(index, cues);
             } else if standing {
                 self.set_task(
@@ -389,6 +448,7 @@ impl Battle {
                     ActorTask::Recovering {
                         remaining: 0,
                         after_hit: true,
+                        idle_pose: None,
                     },
                 );
             } else {
@@ -406,7 +466,24 @@ impl Battle {
     }
 
     pub(crate) fn enter_idle(&mut self, id: ActorId) {
+        self.reset_idle_state(id);
+        let reaction = &mut self.actors[id.index()].reaction;
+        self.ledger.record_combo_damage(reaction.combo_damage);
+        reaction.contributor_hits.fill(0);
+        reaction.combo_hits = 0;
+        reaction.combo_damage = 0;
+        reaction.spell_revenge_used = false;
+    }
+
+    /// Reset activity without ending the received combo, for a staged attack.
+    pub(crate) fn reset_idle_state(&mut self, id: ActorId) {
         let index = id.index();
+        // Releasing guard clears protection now; the resting pose starts next update.
+        if self.activity(id) == Activity::Guarding
+            && let Some(models) = &mut self.models
+        {
+            models.preserve_pose_through(id, self.update + 1);
+        }
         let actor = &self.actors[index];
         let mobility = self.runtime[index].task().mobility();
         let after_hit = matches!(
@@ -444,6 +521,9 @@ impl Battle {
             0
         };
         let actor = &mut self.actors[index];
+        if !actor.movement.turning_disabled && actor.movement.hover_ready() {
+            actor.facing_direction = crate::control::direction_from_heading(actor.heading);
+        }
         actor.movement.reset_hover();
         actor.secondary_wind.set(false, 0);
         actor.control_ex_state.recover();
@@ -458,11 +538,6 @@ impl Battle {
         actor.guard.active = false;
         actor.guard.kind = crate::GuardKind::Normal;
         actor.guard.recovery = 0;
-        self.ledger.record_combo_damage(actor.reaction.combo_damage);
-        actor.reaction.contributor_hits = [0; crate::ACTOR_CAPACITY];
-        actor.reaction.combo_hits = 0;
-        actor.reaction.combo_damage = 0;
-        actor.reaction.spell_revenge_used = false;
         actor.movement.forward = 0.;
         actor.movement.vertical = 0.;
         actor.movement.acceleration = 0.;
@@ -478,7 +553,7 @@ impl Battle {
         runtime.idle_timer = delay;
         runtime.special_guard_pending = None;
         if let Some(control) = &mut runtime.control {
-            control.cancel_action();
+            control.resume_ground_input();
         }
         self.set_task(index, ActorTask::None);
         self.remember_idle_home(index);

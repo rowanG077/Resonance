@@ -70,7 +70,7 @@ fn fixture(combination: bool) -> Battle {
             let setup = ActorSetup {
                 control: (side == Side::Party).then(|| {
                     Arc::new(crate::ControlDefinition {
-                        normals: normals.clone(),
+                        normals,
                         shortcuts: [1, 0, 0, 0],
                         walk_speed: 1.,
                         run_speed: 2.,
@@ -237,6 +237,16 @@ fn opener_requires_its_own_action_and_effective_contact() {
 fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
     for combination in [false, true] {
         let mut battle = fixture(combination);
+        let mut model = crate::tests::model_definition(1, [(0, 100.), (1, 3.)]);
+        model.idle_motions = [Some(0); 2];
+        let model = Arc::new(model);
+        let mut models = crate::Models::new(
+            battle.actors(),
+            vec![Some(model.clone()), Some(model), None],
+            Default::default(),
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )
+        .unwrap();
         battle
             .prepare_shortcut(ActorId(1), 0, None)
             .unwrap()
@@ -251,6 +261,9 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
             .unwrap()
             .commit();
         let action = opening(&mut battle);
+        battle.actors[2].reaction.combo_hits = 3;
+        battle.actors[2].reaction.combo_damage = 30;
+        battle.actors[2].reaction.contributor_hits[0] = 3;
         contact(&mut battle, action);
         for _ in 0..4 {
             if battle
@@ -275,6 +288,9 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
         let staged = battle.step(select(0b11)).unwrap().unison.unwrap();
         assert_eq!(staged.phase, UnisonPhase::Staging);
         assert_eq!(staged.selected, [ActorId(0)]);
+        assert_eq!(battle.actors[2].reaction.combo_hits, 4);
+        assert_eq!(battle.actors[2].reaction.combo_damage, 31);
+        assert_eq!(battle.actors[2].reaction.contributor_hits[0], 4);
         let running = battle.step(select(0b10)).unwrap().unison.unwrap();
         assert_eq!(running.selected, [ActorId(0), ActorId(1)]);
         let mut saw_deferred = false;
@@ -282,13 +298,31 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
         let mut marked_defeat = false;
         let mut defeated = 0;
         let mut combined_phases = [false; 2];
+        let mut charge_frames = [0.; 2];
+        let mut combo = (4, 31);
         for _ in 0..160 {
-            let frame = battle.step(Default::default()).unwrap();
+            let mut frame = battle.step(Default::default()).unwrap();
+            let clock = frame.clock;
+            models.advance(&mut frame, clock, true).unwrap();
+            if battle.actors[2].available() {
+                let reaction = &battle.actors[2].reaction;
+                assert!(reaction.combo_hits >= combo.0);
+                assert!(reaction.combo_damage >= combo.1);
+                combo = (reaction.combo_hits, reaction.combo_damage);
+            }
             if let Some(unison) = &frame.unison {
                 combined_phases[0] |= unison.phase == UnisonPhase::CombinationPose;
                 combined_phases[1] |= unison.phase == UnisonPhase::Combined;
-                if unison.phase == UnisonPhase::Combined {
+                if unison.phase == UnisonPhase::CombinationPose {
+                    assert_eq!(unison.hidden, [ActorId(2)]);
+                    for model in &frame.models {
+                        assert_eq!(model.clip, 1, "charge pose reverted during the light scene");
+                        assert!(model.frame >= charge_frames[model.actor.index()]);
+                        charge_frames[model.actor.index()] = model.frame;
+                    }
+                } else if unison.phase == UnisonPhase::Combined {
                     assert!(unison.hidden.contains(&ActorId(1)));
+                    assert!(!unison.hidden.contains(&ActorId(2)));
                 }
             }
             for cue in &frame.cues {
@@ -315,7 +349,11 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
         assert!(saw_deferred && saw_followup && marked_defeat);
         assert!(!battle.unison.active());
         assert_eq!(defeated, 1);
+        assert_eq!(battle.ledger.maximum_combo, if combination { 8 } else { 6 });
+        assert_eq!(battle.ledger.maximum_combo_damage, combo.1 as u32);
+        assert_eq!(battle.actors[2].reaction.combo_hits, 0);
         assert_eq!(combined_phases, [combination; 2]);
+        assert_eq!(charge_frames, [if combination { 3. } else { 0. }; 2]);
         assert_eq!(
             battle.ledger.kills,
             if combination { [1, 0, 0] } else { [0, 1, 0] }

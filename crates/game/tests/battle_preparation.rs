@@ -59,6 +59,19 @@ mod poison;
 #[path = "battle_preparation/model.rs"]
 mod model;
 
+fn enter_battle(battle: &mut Battle) -> Result<()> {
+    for _ in 0..600 {
+        let frame = battle.step(BattleInput::default())?;
+        if battle.phase() == resonance_battle::BattlePhase::Combat
+            && !frame.clock.paused()
+            && !battle.is_paused()
+        {
+            return Ok(());
+        }
+    }
+    bail!("battle entry did not enable actor control")
+}
+
 fn prepare_party_fixture(
     files: &Files,
     menus: &resonance_content::menu_data::MenuData,
@@ -264,7 +277,7 @@ fn files() -> Files {
                 "motion": {"velocity_jitter": [0., 0., 0.], "speed": null,
                            "steering": null, "response": null},
                 "contact": {"damage_kind": "magic", "guarded": false, "recoil": 1,
-                    "direction": "away_from_owner", "repeat_limit": 0,
+                    "recoil_direction": "away_from_owner", "repeat_limit": 0,
                     "shape": {"kind": "cylinder"}, "radius": 10., "height": 20.,
                     "growth": [0., 0.], "offset": [0., 0., 0.],
                     "survives_contact": true, "clashes": false}
@@ -308,7 +321,8 @@ fn effects(
     frame: &resonance_battle::BattleFrame,
 ) -> impl Iterator<Item = &resonance_battle::EffectRequest> {
     frame.cues.iter().filter_map(|cue| match cue {
-        resonance_battle::Cue::Effect(request) => Some(request),
+        resonance_battle::Cue::Effect(request)
+        | resonance_battle::Cue::InitializedEffect(request) => Some(request),
         _ => None,
     })
 }

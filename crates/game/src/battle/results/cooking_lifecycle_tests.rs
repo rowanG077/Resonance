@@ -175,6 +175,7 @@ fn result_meal_publishes_once_after_all_recipients_are_ready() -> Result<()> {
         character,
         pose: None,
         group: None,
+        voice: None,
     });
     candidate.construct_rewards(&mut battle)?;
     assert_eq!(candidate.party.members[0].tp, 20);

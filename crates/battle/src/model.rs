@@ -17,6 +17,33 @@ pub use weapon::{
 };
 
 impl Models {
+    pub(crate) fn motion_duration(&self, actor: ActorId, clip: u16) -> Option<f32> {
+        let model = self.models.get(actor.index())?.as_ref()?;
+        model
+            .definition
+            .motion(model.resolve_clip(clip)?)
+            .ok()
+            .map(|motion| motion.duration_frames)
+    }
+
+    pub(crate) fn release_hosted_body(
+        &mut self,
+        actor: ActorId,
+        hurt: [Option<MotionBinding>; 2],
+    ) -> Result<()> {
+        let model = self
+            .models
+            .get_mut(actor.index())
+            .and_then(Option::as_mut)
+            .context("released participant has no model")?;
+        for binding in hurt.into_iter().flatten() {
+            model.duration(binding)?;
+        }
+        model.released_hurt = Some(hurt.map(|binding| binding.map(|binding| binding.clip)));
+        model.world_override = None;
+        Ok(())
+    }
+
     pub(crate) fn body_placements(&self) -> Vec<Option<Matrix>> {
         self.models
             .iter()
@@ -62,6 +89,38 @@ impl Models {
         Some(if gap < 0. { 0.01 } else { gap })
     }
 
+    fn approach_gap(
+        &self,
+        first_id: ActorId,
+        first: &Actor,
+        second_id: ActorId,
+        second: &Actor,
+    ) -> Option<f32> {
+        if !self.approach_geometry_active {
+            return self.body_gap(first_id, first, second_id, second);
+        }
+        let first_model = self.models.get(first_id.index())?.as_ref()?;
+        let second_model = self.models.get(second_id.index())?.as_ref()?;
+        if first_model.definition.body_spheres.is_empty()
+            || second_model.definition.body_spheres.is_empty()
+        {
+            return None;
+        }
+        let mut gap = f32::INFINITY;
+        for (&a, sphere) in self.approach_centers[first_id.index()]
+            .iter()
+            .zip(&first_model.definition.body_spheres)
+        {
+            for (&b, other) in self.approach_centers[second_id.index()]
+                .iter()
+                .zip(&second_model.definition.body_spheres)
+            {
+                gap = gap.min((a[0] - b[0]).hypot(a[2] - b[2]) - sphere.radius - other.radius);
+            }
+        }
+        Some(if gap < 0. { 0.01 } else { gap })
+    }
+
     /// Prepared artwork can be shared by a scene event without borrowing combat playback.
     pub fn definition(&self, actor: ActorId) -> Option<&Arc<ModelDefinition>> {
         self.models
@@ -93,26 +152,99 @@ impl Models {
     }
 
     pub(crate) fn anchor(&self, actor: ActorId, anchor: crate::MeleeAnchor) -> Result<[f32; 3]> {
+        self.anchor_at(actor, anchor, None)
+    }
+
+    pub(crate) fn anchor_at(
+        &self,
+        actor: ActorId,
+        anchor: crate::MeleeAnchor,
+        body_placement: Option<Matrix>,
+    ) -> Result<[f32; 3]> {
         let model = self
             .models
             .get(actor.index())
             .and_then(Option::as_ref)
             .context("missing melee model")?;
-        let (world, bones) = if anchor.resource == model.definition.resource {
-            (&model.shown.world, &model.shown.bones)
+        let (world, bones, bone) = if anchor.resource == model.definition.resource {
+            (
+                body_placement.unwrap_or(model.shown.world),
+                &model.shown.bones,
+                usize::from(anchor.bone),
+            )
         } else {
-            let frame = model
+            let original = model
+                .definition
                 .weapons
                 .iter()
-                .flat_map(|weapon| weapon.frames())
-                .find(|frame| frame.resource == anchor.resource)
+                .find(|weapon| weapon.primary_resource() == anchor.resource);
+            // A spare can move into another equipped slot. Prepared contact
+            // markers retain that slot while its geometry and bone order change.
+            let replacement = original.and_then(|original| {
+                model.weapons.iter().find(|weapon| {
+                    weapon.slot() == original.slot
+                        && weapon.definition.primary_resource() != anchor.resource
+                })
+            });
+            let (resource, bone) = if let Some(replacement) = replacement {
+                let original_bones = &original.unwrap().layers[0].skeleton.bones;
+                let selected = original_bones
+                    .get(usize::from(anchor.bone))
+                    .context("missing replaced melee bone")?;
+                let replacement_bones = &replacement.definition.layers[0].skeleton.bones;
+                let marker_group = |name: &str| {
+                    let name = name.as_bytes();
+                    if name
+                        .get(..2)
+                        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"at"))
+                    {
+                        name.get(2).copied().filter(u8::is_ascii_digit)
+                    } else {
+                        None
+                    }
+                };
+                let bone = if let Some(group) = marker_group(&selected.name) {
+                    // Contact groups enumerate markers in skeleton order; their names
+                    // may differ, or repeat, across equipped weapons.
+                    let ordinal = original_bones[..usize::from(anchor.bone)]
+                        .iter()
+                        .filter(|bone| marker_group(&bone.name) == Some(group))
+                        .count();
+                    replacement_bones
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, bone)| marker_group(&bone.name) == Some(group))
+                        .nth(ordinal)
+                        .map(|(bone, _)| bone)
+                } else {
+                    replacement_bones
+                        .iter()
+                        .position(|bone| bone.name == selected.name)
+                }
+                .context("replacement weapon has no matching melee bone")?;
+                (replacement.definition.primary_resource(), bone)
+            } else {
+                (anchor.resource, usize::from(anchor.bone))
+            };
+            let (weapon, frame) = model
+                .weapons
+                .iter()
+                .find_map(|weapon| {
+                    weapon
+                        .frames()
+                        .find(|frame| frame.resource == resource)
+                        .map(|frame| (weapon, frame))
+                })
                 .context("missing melee weapon")?;
-            (&frame.world, &frame.bones)
+            let world = body_placement
+                .filter(|_| weapon.enabled)
+                .map_or(frame.world, |placement| {
+                    weapon.world_at(&model.shown, placement)
+                });
+            (world, &frame.bones, bone)
         };
-        let bone = bones
-            .get(usize::from(anchor.bone))
-            .context("missing melee bone")?;
-        let matrix = resonance_content::animation::multiply(*world, *bone);
+        let bone = bones.get(bone).context("missing melee bone")?;
+        let matrix = resonance_content::animation::multiply(world, *bone);
         Ok([matrix[3][0], matrix[3][1], matrix[3][2]])
     }
     /// Copies the current primary track without sampling or advancing it.
@@ -131,6 +263,49 @@ impl Models {
             stopped: clock.stopped,
             finished: clock.finished,
         })
+    }
+
+    /// Read active subtree tracks without advancing or sampling them.
+    #[cfg(feature = "test-support")]
+    pub fn partial_motion_observations(
+        &self,
+        actor: ActorId,
+    ) -> impl Iterator<Item = (u16, u16, f32)> + '_ {
+        self.models
+            .get(actor.index())
+            .and_then(Option::as_ref)
+            .into_iter()
+            .flat_map(|model| model.parts.iter())
+            .map(|part| (part.bones[0], part.clip, part.animation.clock.frame))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn motion_blending(&self, actor: ActorId) -> bool {
+        self.models
+            .get(actor.index())
+            .and_then(Option::as_ref)
+            .is_some_and(|model| model.animation.clock.blending())
+    }
+
+    /// Locomotion clocks use readiness after this update's pose visit.
+    pub(crate) fn motion_ready_this_update(&self, actor: ActorId) -> bool {
+        self.models
+            .get(actor.index())
+            .and_then(Option::as_ref)
+            .is_none_or(|model| {
+                let clock = &model.animation.clock;
+                clock.blend_age.saturating_add(1) >= clock.blend
+            })
+    }
+
+    pub(crate) fn down_pose_ready(&self, actor: ActorId) -> bool {
+        self.models
+            .get(actor.index())
+            .and_then(Option::as_ref)
+            .is_none_or(|model| {
+                model.definition.reactions.down == Some(model.clip)
+                    && !model.animation.clock.blending()
+            })
     }
 }
 
@@ -167,6 +342,8 @@ pub struct ModelDefinition {
     /// Ordinary idle and optional party low-health idle.
     pub idle_motions: [Option<u16>; 2],
     pub idle_expression: [u8; 4],
+    /// Story-selected eyes take precedence over expressions and blinking.
+    pub forced_eye_frame: Option<u8>,
     pub blink: Option<resonance_content::battle_profile::Blink>,
     pub weapons: Vec<Arc<WeaponDefinition>>,
     pub shadow: Option<ShadowDefinition>,
@@ -184,13 +361,19 @@ pub struct BodySphere {
 /// Common actor poses resolved by scene playback.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReactionMotions {
+    pub walk: Option<u16>,
+    pub run: Option<u16>,
     pub jump: Option<u16>,
     pub backstep: Option<u16>,
     pub taunt: Option<u16>,
     pub returning: Option<u16>,
     pub stopping: Option<u16>,
     pub chant: Option<u16>,
+    pub chant_once: bool,
+    pub chant_rate: f32,
+    pub chant_loop_start: f32,
     pub cast: Option<u16>,
+    pub cast_recovery: Option<u16>,
     pub hurt: [Option<u16>; 2],
     pub guard: [Option<u16>; 2],
     pub stunned: Option<u16>,
@@ -200,6 +383,8 @@ pub struct ReactionMotions {
     pub falling: Option<u16>,
     /// Simulation updates held while blending into a falling hit reaction.
     pub falling_blend: u8,
+    pub stagger_down: Option<u16>,
+    pub stagger_get_up: Option<u16>,
     pub down: Option<u16>,
     pub get_up: Option<u16>,
     pub defeated: Option<u16>,
@@ -209,6 +394,10 @@ pub struct ReactionMotions {
 }
 
 impl ModelDefinition {
+    fn motion(&self, clip: u16) -> Result<&Motion> {
+        self.motions.get(&clip).context("unprepared battle motion")
+    }
+
     /// Bind authored contacts once; runtime contacts sample these exact bones.
     pub fn contact_anchors(
         &self,
@@ -245,6 +434,15 @@ impl ModelDefinition {
 
     /// Find the body's and carried weapons' markers for one contact group.
     pub fn contact_group_anchors(&self, group: u8) -> Vec<crate::MeleeAnchor> {
+        self.contact_group_anchors_with_weapons(group, &self.weapons)
+    }
+
+    /// Resolve the same markers for a prepared replacement weapon group.
+    pub fn contact_group_anchors_with_weapons(
+        &self,
+        group: u8,
+        weapons: &[Arc<WeaponDefinition>],
+    ) -> Vec<crate::MeleeAnchor> {
         let mut anchors = Vec::new();
         let mut collect = |resource, skeleton: &Skeleton, digit: usize, primary_group: u8| {
             for (bone, source) in skeleton.bones.iter().enumerate() {
@@ -264,7 +462,10 @@ impl ModelDefinition {
             }
         };
         collect(self.resource, &self.skeleton, 3, 0);
-        for weapon in &self.weapons {
+        for weapon in weapons {
+            if weapon.is_body() {
+                continue;
+            }
             // Contact markers belong to the primary layer, not its outline.
             // Its primary marker group belongs to the equipped weapon slot.
             let primary = &weapon.layers[0];
@@ -294,12 +495,16 @@ impl ModelDefinition {
                 .into_iter()
                 .chain(self.reactions.guard)
                 .chain([
+                    self.reactions.walk,
+                    self.reactions.run,
                     self.reactions.jump,
                     self.reactions.backstep,
                     self.reactions.taunt,
                     self.reactions.stunned,
                     self.reactions.rising,
                     self.reactions.falling,
+                    self.reactions.stagger_down,
+                    self.reactions.stagger_get_up,
                     self.reactions.down,
                     self.reactions.get_up,
                     self.reactions.defeated,
@@ -307,6 +512,7 @@ impl ModelDefinition {
                     self.reactions.stopping,
                     self.reactions.chant,
                     self.reactions.cast,
+                    self.reactions.cast_recovery,
                     self.reactions.breakfall,
                     self.reactions.airborne,
                     self.reactions.landing,
@@ -345,7 +551,31 @@ impl crate::Battle {
             .unwrap_or_else(|| crate::control::capsule_gap(first_actor, second_actor))
     }
 
-    pub fn set_models(&mut self, models: Models) {
+    pub(crate) fn approach_body_gap(&self, first: ActorId, second: ActorId) -> f32 {
+        let first_actor = &self.actors[first.index()];
+        let second_actor = &self.actors[second.index()];
+        self.models
+            .as_ref()
+            .and_then(|models| models.approach_gap(first, first_actor, second, second_actor))
+            .unwrap_or_else(|| crate::control::capsule_gap(first_actor, second_actor))
+    }
+
+    pub fn set_models(&mut self, mut models: Models) {
+        for (index, setup) in self.prepared.actor_setup.iter().enumerate() {
+            if matches!(
+                setup
+                    .enemy_decision
+                    .as_ref()
+                    .and_then(|decision| decision.behavior.as_ref()),
+                Some(crate::EnemyBehavior::ActionWeapons {
+                    idle_group: None,
+                    ..
+                })
+            ) && let Some(model) = models.models[index].as_mut()
+            {
+                model.primary_weapons_enabled(false);
+            }
+        }
         self.models = Some(models);
     }
 
@@ -368,7 +598,13 @@ impl crate::Battle {
             None
         };
         if let Some(models) = &mut self.models {
-            models.advance_with_release(frame, clock, settle, release_actor)?;
+            models.advance_with_release(
+                frame,
+                clock,
+                settle,
+                release_actor,
+                &self.prepared.hosted_participants,
+            )?;
         }
         for model in &mut frame.models {
             model.visible &= !self.capture_hidden(model.actor);
@@ -421,7 +657,7 @@ pub enum ModelMaterial {
 pub struct ModelFrame {
     pub actor: ActorId,
     pub visible: bool,
-    /// Opaque bodies write depth; translucent bodies do not.
+    /// Defeat fades stop writing depth; authored body opacity does not.
     pub depth_write: bool,
     pub tint: [u8; 4],
     pub material: ModelMaterial,
@@ -436,6 +672,8 @@ pub struct ModelFrame {
     pub blend_weight: f32,
     pub root_translation: [f32; 3],
     pub world: Matrix,
+    /// Placement sampled by following particles before the completed body is drawn.
+    pub particle_world: Matrix,
     pub bones: Arc<Vec<Matrix>>,
 }
 
@@ -450,6 +688,7 @@ struct Clock {
     finished: bool,
     blend: u8,
     blend_age: u8,
+    advance_during_blend: bool,
 }
 
 impl Clock {
@@ -473,18 +712,25 @@ impl Clock {
             finished: false,
             blend,
             blend_age: 0,
+            advance_during_blend: false,
         })
     }
 
     fn blending(&self) -> bool {
-        self.blend_age < self.blend
+        self.blend > 1 && self.blend_age < self.blend
     }
 
     fn step(&mut self) -> f32 {
-        if self.blending() {
+        let weight = if self.blending() {
             self.blend_age += 1;
-            return f32::from(self.blend_age) / (f32::from(self.blend) + 1.);
-        }
+            let weight = f32::from(self.blend_age) / (f32::from(self.blend) + 1.);
+            if !self.advance_during_blend {
+                return weight;
+            }
+            weight
+        } else {
+            1.
+        };
         if !self.stopped {
             let frame = self.frame + self.rate;
             let lower = if self.repeat { self.loop_start } else { 0. };
@@ -501,7 +747,7 @@ impl Clock {
                 frame
             };
         }
-        1.
+        weight
     }
 }
 
@@ -509,7 +755,7 @@ impl Clock {
 #[derive(Debug, Clone)]
 struct AnimatedPose {
     clock: Clock,
-    /// Pose visible when this playback replaced its predecessor.
+    /// Last unblended local pose; interrupted blends retain the same baseline.
     blend_from: Vec<pose::BonePose>,
     local: Vec<pose::BonePose>,
     pending_sample: bool,
@@ -530,13 +776,12 @@ impl AnimatedPose {
     }
 
     fn start(&mut self, clock: Clock) {
-        self.blend_from.clone_from(&self.local);
         self.clock = clock;
         self.pending_sample = true;
     }
 
     fn advance(&mut self, skeleton: &Skeleton, motion: &Motion) -> Result<f32> {
-        // A newly selected clip presents its start frame before its clock runs.
+        // Replacements retain the sample already produced by this update.
         if let Some(weight) = self.sample_pending(skeleton, motion)? {
             return Ok(weight);
         }
@@ -547,7 +792,7 @@ impl AnimatedPose {
     }
 
     fn sample_pending(&mut self, skeleton: &Skeleton, motion: &Motion) -> Result<Option<f32>> {
-        if !self.pending_sample {
+        if !std::mem::take(&mut self.pending_sample) {
             return Ok(None);
         }
         let blending = self.clock.blending();
@@ -556,7 +801,10 @@ impl AnimatedPose {
         } else {
             1.
         };
-        self.sample(skeleton, motion, weight, blending)?;
+        // A one-update transition explicitly replaces this update's sample.
+        if self.clock.blend == 1 {
+            self.sample(skeleton, motion, 1., false)?;
+        }
         Ok(Some(weight))
     }
 
@@ -567,27 +815,74 @@ impl AnimatedPose {
         weight: f32,
         blending: bool,
     ) -> Result<()> {
-        let mut sampled = pose::sample(skeleton, motion, self.clock.frame)?;
-        if blending {
-            for (index, (to, from)) in sampled.iter_mut().zip(&self.blend_from).enumerate() {
-                *to = if motion
-                    .tracks
-                    .iter()
-                    .any(|track| usize::from(track.bone) == index)
-                {
-                    pose::BonePose::complete(from.value().mix(to.value(), weight))
-                } else {
-                    self.local[index]
-                };
-            }
-        } else {
-            for (to, previous) in sampled.iter_mut().zip(&self.local) {
-                to.retain_unwritten(*previous);
-            }
+        // A replacement keeps the outgoing pose until its blend advances.
+        if blending && weight == 0. {
+            self.pending_sample = false;
+            return Ok(());
+        }
+        let sampled = (0..skeleton.bones.len())
+            .map(|bone| {
+                self.sampled_bone(skeleton, motion, bone, self.clock.frame, weight, blending)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if !blending {
+            self.blend_from.clone_from(&sampled);
         }
         self.local = sampled;
         self.pending_sample = false;
         Ok(())
+    }
+
+    fn sampled_bone(
+        &self,
+        skeleton: &Skeleton,
+        motion: &Motion,
+        bone: usize,
+        frame: f32,
+        weight: f32,
+        blending: bool,
+    ) -> Result<pose::BonePose> {
+        let track = motion
+            .tracks
+            .iter()
+            .find(|track| usize::from(track.bone) == bone);
+        let mut sampled = pose::sample_bone(skeleton.bones[bone].bind, track, frame)?;
+        if blending {
+            sampled = if track.is_some() {
+                pose::BonePose::complete(self.blend_from[bone].value().mix(sampled.value(), weight))
+            } else {
+                self.local[bone]
+            };
+        } else {
+            sampled.retain_unwritten(self.local[bone]);
+        }
+        Ok(sampled)
+    }
+
+    fn projected_bone(
+        &self,
+        skeleton: &Skeleton,
+        motion: &Motion,
+        bone: usize,
+        advance: bool,
+    ) -> Result<pose::BonePose> {
+        if self.pending_sample {
+            return if self.clock.blend == 1 {
+                self.sampled_bone(skeleton, motion, bone, self.clock.frame, 1., false)
+            } else {
+                Ok(self.local[bone])
+            };
+        }
+        if !advance {
+            return Ok(self.local[bone]);
+        }
+        let mut clock = self.clock.clone();
+        let blending = clock.blending();
+        let weight = clock.step();
+        if weight == 0. {
+            return Ok(self.local[bone]);
+        }
+        self.sampled_bone(skeleton, motion, bone, clock.frame, weight, blending)
     }
 
     fn pose(
@@ -633,6 +928,7 @@ const BLINK_STAGGER_TICKS: u32 = 20;
 #[derive(Debug, Clone)]
 struct PosePart {
     clip: u16,
+    bound_clip: u16,
     bones: Vec<u16>,
     animation: AnimatedPose,
 }
@@ -641,6 +937,8 @@ struct PosePart {
 pub(crate) struct Model {
     pub definition: Arc<ModelDefinition>,
     clip: u16,
+    bound_clip: u16,
+    motion_aliases: BTreeMap<u16, Option<u16>>,
     blink_ticks: u32,
     animation: AnimatedPose,
     parts: Vec<PosePart>,
@@ -651,19 +949,56 @@ pub(crate) struct Model {
     weapons: Vec<weapon::Weapon>,
     in_results: bool,
     tint_flash: Option<[u8; 3]>,
+    defeat_alpha: Option<u8>,
+    preserve_pose_update: Option<u64>,
+    world_override: Option<Matrix>,
+    released_hurt: Option<[Option<u16>; 2]>,
+    idle_pose_delay: Option<u8>,
 }
 
 /// Prepared clock writes for one immediate actor operation. Geometry and poses
 /// remain with their existing model; no mutable battle state is copied.
 pub(crate) struct PreparedPlay {
     clip: u16,
+    bound_clip: u16,
     clock: Clock,
     weapons: Vec<weapon::PreparedPlay>,
 }
 
 impl Model {
+    fn projected_bone(&self, bone: u16, advance: bool) -> Result<Matrix> {
+        let index = usize::from(bone);
+        let (animation, clip) = self
+            .parts
+            .iter()
+            .find(|part| part.bones.contains(&bone))
+            .map_or((&self.animation, self.bound_clip), |part| {
+                (&part.animation, part.bound_clip)
+            });
+        let mut local = animation.projected_bone(
+            &self.definition.skeleton,
+            self.definition.motion(clip)?,
+            index,
+            advance,
+        )?;
+        if let Some((_, scale)) = self.bone_scales.iter().rev().find(|(id, _)| *id == bone) {
+            local = pose::BonePose::complete(local.value().with_scale(*scale));
+        }
+        if bone == 0 {
+            local.suppress_translation(self.definition.suppress_root_translation);
+        }
+        let local = local.matrix();
+        Ok(
+            if let Some(parent) = self.definition.skeleton.bones[index].parent {
+                resonance_content::animation::multiply(self.projected_bone(parent, advance)?, local)
+            } else {
+                local
+            },
+        )
+    }
+
     fn body_points(&self, actor: &Actor) -> impl Iterator<Item = ([f32; 3], f32)> + '_ {
-        self.body_points_at(world(actor))
+        self.body_points_at(self.world_override.unwrap_or_else(|| world(actor)))
     }
 
     fn body_points_at(&self, world: Matrix) -> impl Iterator<Item = ([f32; 3], f32)> + '_ {
@@ -706,6 +1041,11 @@ impl Model {
             weapons: Vec::new(),
             in_results: false,
             tint_flash: None,
+            defeat_alpha: None,
+            preserve_pose_update: None,
+            world_override: None,
+            released_hurt: None,
+            idle_pose_delay: Some(0),
             secondary: vec![Default::default(); definition.secondary_motion.len()],
             shown: ModelFrame {
                 actor: actor_id,
@@ -723,10 +1063,13 @@ impl Model {
                 blend_weight: 1.,
                 root_translation: [0.; 3],
                 world: world(actor),
+                particle_world: world(actor),
                 bones: Arc::new(Vec::new()),
             },
             definition,
             clip: play.clip,
+            bound_clip: play.clip,
+            motion_aliases: BTreeMap::new(),
             animation,
             parts: Vec::new(),
             bone_scales: Vec::new(),
@@ -741,7 +1084,16 @@ impl Model {
             .definition
             .weapons
             .iter()
-            .map(|definition| weapon::Weapon::new(Arc::clone(definition), &model.shown))
+            .map(|definition| {
+                let mut component = weapon::Weapon::new(Arc::clone(definition), &model.shown)?;
+                if definition.is_body() {
+                    component.step(
+                        &model.shown,
+                        actor.availability != crate::ActorAvailability::Petrified,
+                    )?;
+                }
+                Ok(component)
+            })
             .collect::<Result<_>>()?;
         Ok(model)
     }
@@ -754,6 +1106,9 @@ impl Model {
         repeat: bool,
         blend: u8,
     ) -> Result<()> {
+        if self.motion_disabled(binding.clip) {
+            return Ok(());
+        }
         let prepared = self.prepare_play(binding, frame, rate, repeat, blend)?;
         self.apply_play(prepared);
         Ok(())
@@ -776,6 +1131,9 @@ impl Model {
         };
         Ok(PreparedPlay {
             clip: binding.clip,
+            bound_clip: self
+                .resolve_clip(binding.clip)
+                .context("empty battle motion")?,
             clock: Clock::new(playback, duration, blend)?,
             weapons: self
                 .weapons
@@ -788,9 +1146,11 @@ impl Model {
     pub(crate) fn apply_play(&mut self, prepared: PreparedPlay) {
         if !self.parts.is_empty() {
             self.animation.local = self.composed_local();
+            Self::compose_parts(&self.parts, &mut self.animation.blend_from, true);
             self.parts.clear();
         }
         self.clip = prepared.clip;
+        self.bound_clip = prepared.bound_clip;
         self.animation.start(prepared.clock);
         for (weapon, prepared) in self.weapons.iter_mut().zip(prepared.weapons) {
             weapon.apply_play(prepared);
@@ -820,17 +1180,23 @@ impl Model {
             pose.blend,
         )?;
         clock.loop_start = pose.loop_start.max(pose.frame);
+        clock.advance_during_blend = true;
         ensure!(
             clock.loop_start <= end,
             "partial-pose loop start exceeds end"
         );
         let local = self.composed_local();
+        let mut blend_from = self.animation.blend_from.clone();
+        Self::compose_parts(&self.parts, &mut blend_from, true);
         let part = PosePart {
             clip: binding.clip,
+            bound_clip: self
+                .resolve_clip(binding.clip)
+                .context("empty partial motion")?,
             bones,
             animation: AnimatedPose {
                 clock,
-                blend_from: local.clone(),
+                blend_from,
                 local,
                 pending_sample: true,
             },
@@ -849,17 +1215,26 @@ impl Model {
 
     fn composed_local(&self) -> Vec<pose::BonePose> {
         let mut local = self.animation.local.clone();
-        // Earlier prepared parts have precedence on overlapping bones.
-        for part in self.parts.iter().rev() {
-            for &bone in &part.bones {
-                local[usize::from(bone)] = part.animation.local[usize::from(bone)];
-            }
-        }
+        Self::compose_parts(&self.parts, &mut local, false);
         for &(bone, scale) in &self.bone_scales {
             let value = &mut local[usize::from(bone)];
             *value = pose::BonePose::complete(value.value().with_scale(scale));
         }
         local
+    }
+
+    fn compose_parts(parts: &[PosePart], local: &mut [pose::BonePose], retained: bool) {
+        // Earlier prepared parts have precedence on overlapping bones.
+        for part in parts.iter().rev() {
+            let pose = if retained {
+                &part.animation.blend_from
+            } else {
+                &part.animation.local
+            };
+            for &bone in &part.bones {
+                local[usize::from(bone)] = pose[usize::from(bone)];
+            }
+        }
     }
 
     pub(crate) fn set_bone_scales(&mut self, scales: Vec<(u16, [f32; 3])>) -> Result<()> {
@@ -896,8 +1271,36 @@ impl Model {
             .play_carried_pose(clip, rate, repeat)
     }
 
+    fn hurt_clip(&self, alternate: bool) -> Option<u16> {
+        self.released_hurt.unwrap_or(self.definition.reactions.hurt)[usize::from(alternate)]
+            .filter(|&clip| !self.motion_disabled(clip))
+    }
+
+    fn resolve_clip(&self, clip: u16) -> Option<u16> {
+        self.motion_aliases
+            .get(&clip)
+            .copied()
+            .unwrap_or(Some(clip))
+    }
+
+    fn set_motion_aliases(&mut self, aliases: BTreeMap<u16, Option<u16>>) {
+        if let Some(clip) = aliases.get(&self.clip).copied().unwrap_or(Some(self.clip)) {
+            self.bound_clip = clip;
+        }
+        for part in &mut self.parts {
+            if let Some(clip) = aliases.get(&part.clip).copied().unwrap_or(Some(part.clip)) {
+                part.bound_clip = clip;
+            }
+        }
+        self.motion_aliases = aliases;
+    }
+
+    fn motion_disabled(&self, clip: u16) -> bool {
+        self.motion_aliases.get(&clip) == Some(&None)
+    }
+
     pub fn hurt(&mut self, alternate: bool) -> Result<()> {
-        let Some(clip) = self.definition.reactions.hurt[usize::from(alternate)] else {
+        let Some(clip) = self.hurt_clip(alternate) else {
             return Ok(());
         };
         self.play(
@@ -919,9 +1322,10 @@ impl Model {
         );
         Ok(self
             .definition
-            .motions
-            .get(&binding.clip)
-            .context("unprepared battle motion")?
+            .motion(
+                self.resolve_clip(binding.clip)
+                    .context("empty battle motion")?,
+            )?
             .duration_frames)
     }
 
@@ -945,6 +1349,9 @@ impl Model {
                 _ => blink.frames[0],
             };
         }
+        if let Some(eyes) = self.definition.forced_eye_frame {
+            frame.texture_layers[0] = eyes;
+        }
         frame
     }
 
@@ -962,9 +1369,39 @@ impl Model {
             .find(|weapon| weapon.slot() == slot)
             .context("unprepared weapon visibility slot")?;
         weapon.visible = visible;
+        let visible = self.shown.visible && visible && weapon.enabled;
         for frame in weapon.frames_mut() {
-            frame.visible = self.shown.visible && visible;
+            frame.visible = visible;
         }
+        Ok(())
+    }
+
+    pub(crate) fn move_weapon(&mut self, source: u8, destination: u8) -> Result<()> {
+        ensure!(
+            source != destination,
+            "weapon replacement uses the same slot"
+        );
+        let from = self
+            .weapons
+            .iter()
+            .find(|weapon| weapon.slot() == source)
+            .context("unprepared replacement weapon")?;
+        let to = self
+            .weapons
+            .iter()
+            .find(|weapon| weapon.slot() == destination)
+            .context("unprepared replaced weapon slot")?;
+        let mut definition = (*from.definition).clone();
+        definition.slot = destination;
+        definition.attachment = to.definition.attachment;
+        let mut replacement = self.prepare_weapons(&[Arc::new(definition)])?.remove(0);
+        replacement.visible = true;
+        for frame in replacement.frames_mut() {
+            frame.visible = self.shown.visible;
+        }
+        self.weapons
+            .retain(|weapon| weapon.slot() != source && weapon.slot() != destination);
+        self.weapons.push(replacement);
         Ok(())
     }
 
@@ -976,8 +1413,21 @@ impl Model {
 
     pub(crate) fn attach_weapons(&mut self) {
         for weapon in &mut self.weapons {
-            weapon.detach(None);
+            if !weapon.dropped {
+                weapon.detach(None);
+            }
         }
+    }
+
+    pub(crate) fn drop_weapon(&mut self, slot: u8, world: Matrix) -> Result<()> {
+        let weapon = self
+            .weapons
+            .iter_mut()
+            .find(|weapon| weapon.slot() == slot)
+            .context("unprepared dropped weapon slot")?;
+        weapon.detach(Some(world));
+        weapon.dropped = true;
+        Ok(())
     }
 
     /// Stage child ownership while the body track stays live.
@@ -1009,7 +1459,7 @@ impl Model {
             },
             repeat: self.animation.clock.repeat,
         };
-        let duration = self.definition.motions[&self.clip].duration_frames;
+        let duration = self.definition.motion(self.bound_clip)?.duration_frames;
         definitions
             .iter()
             .map(|definition| {
@@ -1031,13 +1481,63 @@ impl Model {
         self.weapons = weapons;
     }
 
+    pub(crate) fn primary_weapons_visible(&mut self, visible: bool) {
+        for weapon in &mut self.weapons {
+            if weapon.slot() < 2 {
+                weapon.visible = visible;
+                let visible = visible && self.shown.visible && weapon.enabled;
+                for frame in weapon.frames_mut() {
+                    frame.visible = visible;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn primary_weapons_enabled(&mut self, enabled: bool) {
+        for weapon in &mut self.weapons {
+            if weapon.slot() < 2 {
+                weapon.enabled = enabled;
+                let visible = enabled && weapon.visible && self.shown.visible;
+                for frame in weapon.frames_mut() {
+                    frame.visible = visible;
+                }
+            }
+        }
+    }
+
     pub fn set_loop_start(&mut self, frame: f32) -> Result<()> {
         ensure!(
-            frame.is_finite() && (0. ..=self.animation.clock.end).contains(&frame),
+            frame.is_finite()
+                && (0. ..=self.animation.clock.end).contains(&frame)
+                && self
+                    .weapons
+                    .iter_mut()
+                    .flat_map(weapon::Weapon::body_clocks)
+                    .all(|clock| (0. ..=clock.end).contains(&frame)),
             "invalid battle animation loop start"
         );
         self.animation.clock.loop_start = frame;
+        for clock in self
+            .weapons
+            .iter_mut()
+            .flat_map(weapon::Weapon::body_clocks)
+        {
+            clock.loop_start = frame;
+        }
         Ok(())
+    }
+
+    /// Resume a bound idle pose without replacing its current sample or phase.
+    fn loop_idle(&mut self) {
+        for clock in std::iter::once(&mut self.animation.clock).chain(
+            self.weapons
+                .iter_mut()
+                .flat_map(weapon::Weapon::body_clocks),
+        ) {
+            clock.loop_start = 0.;
+            clock.repeat = true;
+            clock.stopped = false;
+        }
     }
 
     pub fn set_rate(&mut self, rate: f32) -> Result<()> {
@@ -1051,12 +1551,35 @@ impl Model {
 
     pub fn set_end(&mut self, end: f32) -> Result<()> {
         let clock = &mut self.animation.clock;
-        ensure!(
-            end.is_finite() && end >= clock.frame && end <= clock.end,
-            "invalid battle animation end"
-        );
+        // Playback intervals may span more than one cycle of their motion curves.
+        Clock::new(
+            Playback {
+                clip: self.clip,
+                frame: clock.frame,
+                rate: clock.rate,
+                repeat: clock.repeat,
+            },
+            end,
+            clock.blend,
+        )?;
         clock.end = end;
         Ok(())
+    }
+
+    fn idle_clip(&self, actor: &Actor) -> Option<u16> {
+        // Keep the bound rest cycle until it completes before changing its pose.
+        if self.definition.idle_motions.contains(&Some(self.clip)) && !self.animation.clock.finished
+        {
+            return Some(self.clip);
+        }
+        let ready = !matches!(
+            actor.control,
+            crate::Control::Manual | crate::Control::SemiAuto
+        ) || self.idle_pose_delay == Some(0);
+        let injured = actor.side == crate::Side::Party
+            && ready
+            && i64::from(actor.hp) * 4 < i64::from(actor.equipment.max_hp);
+        self.definition.idle_motions[usize::from(injured)].or(self.definition.idle_motions[0])
     }
 
     /// Select ongoing feedback from completed native state. Discrete hits and actions
@@ -1077,36 +1600,60 @@ impl Model {
             return Ok(());
         }
         let grounded = !actor.airborne();
+        let initial_loop = self.definition.initial.repeat
+            && self.animation.clock.repeat
+            && self.clip == self.definition.initial.clip;
         let reaction = self.definition.reactions;
         let mut blend = 8;
         let (clip, repeat) = match activity {
-            Activity::Defeated => (
-                if grounded {
-                    reaction.defeated.or(reaction.down)
+            Activity::Defeated => {
+                blend = if self.definition.fade_on_defeat || !grounded {
+                    4
                 } else {
-                    reaction.falling.or(reaction.hurt[0])
-                },
-                false,
-            ),
+                    12
+                };
+                (
+                    if self.definition.fade_on_defeat || grounded {
+                        reaction
+                            .defeated
+                            .or(reaction.down)
+                            .or(reaction.stagger_down)
+                    } else {
+                        reaction.hurt[0]
+                    },
+                    false,
+                )
+            }
             Activity::Guarding => (
                 reaction.guard[usize::from(!grounded && !actor.movement.flying)],
                 false,
             ),
-            Activity::Stunned if grounded => (reaction.stunned, true),
-            Activity::KnockedDown if grounded => (reaction.down, false),
-            Activity::GettingUp => (reaction.get_up, false),
-            Activity::Hurt
-                if actor.hit_stop == 0
-                    && actor.reaction.recoil.delay == 0
-                    && actor.reaction.recoil.kind.launching() =>
-            {
+            Activity::KnockedDown if grounded && actor.reaction.recoil.kind.contact() => {
+                let kind = actor.reaction.recoil.kind;
+                if kind.contact() && !kind.launching() {
+                    // A grounded knockdown keeps the hit pose through its final sample.
+                    let mut clock = self.animation.clock.clone();
+                    if *advance_outgoing && !self.animation.pending_sample {
+                        clock.step();
+                    }
+                    if !clock.finished {
+                        return Ok(());
+                    }
+                }
+                blend = if kind == crate::RecoilKind::Down {
+                    12
+                } else {
+                    4
+                };
+                (reaction.down.or(reaction.stagger_down), false)
+            }
+            Activity::GettingUp => {
+                blend = 4;
                 (
-                    if actor.movement.vertical > 0. {
-                        blend = reaction.rising_blend;
-                        reaction.rising
+                    if actor.reaction.recoil.kind.contact() {
+                        reaction.get_up
                     } else {
-                        blend = reaction.falling_blend;
-                        reaction.falling
+                        reaction.stagger_get_up
                     },
                     false,
                 )
@@ -1118,26 +1665,30 @@ impl Model {
                         Activity::Idle => {
                             actor.movement.locomotion == crate::Locomotion::Idle
                                 && actor.movement.forward == 0.
+                                && ((self.animation.clock.finished && !initial_loop)
+                                    || self.definition.idle_motions.contains(&Some(self.clip))
+                                    || [reaction.walk, reaction.run].contains(&Some(self.clip)))
                         }
                         _ => {
-                            reaction.cast != Some(self.clip)
+                            actor.side == crate::Side::Party
+                                && reaction.cast != Some(self.clip)
                                 && self.animation.clock.finished
                                 && !self.animation.clock.repeat
                         }
                     } =>
             {
                 self.shown.texture_layers = self.definition.idle_expression;
-                let injured = actor.side == crate::Side::Party
-                    && i64::from(actor.hp) * 4 < i64::from(actor.equipment.max_hp);
-                (
-                    self.definition.idle_motions[usize::from(injured)]
-                        .or(self.definition.idle_motions[0]),
-                    true,
-                )
+                (self.idle_clip(actor), true)
             }
             _ => return Ok(()),
         };
-        if let Some(clip) = clip
+        let clip = clip.filter(|&clip| !self.motion_disabled(clip));
+        if repeat
+            && matches!(activity, Activity::Idle | Activity::Recovering)
+            && clip == Some(self.clip)
+        {
+            self.loop_idle();
+        } else if let Some(clip) = clip
             && (self.clip != clip || self.animation.clock.repeat != repeat)
         {
             self.advance_outgoing(advance_outgoing)?;
@@ -1191,7 +1742,7 @@ impl Model {
     fn sample_pose(&mut self, advance: bool) -> Result<()> {
         self.sample_main(advance)?;
         for part in &mut self.parts {
-            let motion = &self.definition.motions[&part.clip];
+            let motion = self.definition.motion(part.bound_clip)?;
             if advance {
                 part.animation.advance(&self.definition.skeleton, motion)?;
             } else {
@@ -1212,7 +1763,7 @@ impl Model {
     }
 
     fn sample_main(&mut self, advance: bool) -> Result<()> {
-        let motion = &self.definition.motions[&self.clip];
+        let motion = self.definition.motion(self.bound_clip)?;
         let weight = if advance {
             Some(self.animation.advance(&self.definition.skeleton, motion)?)
         } else {
@@ -1258,8 +1809,12 @@ impl Model {
             )?
         };
         let mut placement = secondary::Placement::actor(actor);
-        for (axis, offset) in actor.reaction.hit_shake_offset().into_iter().enumerate() {
-            placement.world[3][axis] += offset;
+        if let Some(world) = self.world_override {
+            placement.world = world;
+        } else {
+            for (axis, offset) in actor.reaction.hit_shake_offset().into_iter().enumerate() {
+                placement.world[3][axis] += offset;
+            }
         }
         let world = placement.world;
         if let Some(advance) = secondary_advance {
@@ -1305,11 +1860,11 @@ impl ModelSampler {
         advance: bool,
     ) -> Result<(ModelFrame, Vec<WeaponFrame>)> {
         let model = &mut self.0;
-        let motion = model
-            .definition
-            .motions
-            .get(&sample.clip)
-            .context("missing scene actor motion")?;
+        let motion = model.definition.motion(
+            model
+                .resolve_clip(sample.clip)
+                .context("empty scene motion")?,
+        )?;
         ensure!(
             sample.frame.is_finite()
                 && (0. ..=motion.duration_frames).contains(&sample.frame)
@@ -1328,8 +1883,15 @@ impl ModelSampler {
                 sample.blend_ticks,
             )?;
         }
-        let motion = &model.definition.motions[&sample.clip];
+        let motion = model.definition.motion(
+            model
+                .resolve_clip(sample.clip)
+                .context("empty scene motion")?,
+        )?;
         model.clip = sample.clip;
+        model.bound_clip = model
+            .resolve_clip(sample.clip)
+            .context("empty scene motion")?;
         model.animation.clock.frame = sample.frame;
         model.animation.sample(
             &model.definition.skeleton,

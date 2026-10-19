@@ -3,6 +3,8 @@ use crate::{ActorId, Battle, NormalAttack, PreparedBattle, PreparedTechnique};
 use anyhow::{Context, Result, ensure};
 use resonance_content::battle_recoil::strategy_guard_recovery;
 
+const NORMAL_OPENING_MIN_HP_PERCENT: i16 = 30;
+
 /// Raw saved choices; zero resolves through the prepared character defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompanionPolicy {
@@ -24,6 +26,8 @@ pub struct StrategyRefresh {
 
 #[derive(Debug, Clone)]
 pub struct CompanionDefinition {
+    /// Start with normal attacks unless hurt or assigned a ranged/unrestricted strategy.
+    pub normal_attack_opening: bool,
     pub initial_policy: [u8; 3],
     pub defaults: [u8; 3],
     pub limits: [PolicyLimits; 9],
@@ -172,8 +176,15 @@ impl Battle {
                 .is_some_and(|_| u32::from(actor.tp) >= self.action_quote(owner, technique.action))
     }
 
-    fn support_choice(&self, owner: ActorId, threshold: u8) -> Option<CompanionAction> {
+    fn support_choice(&mut self, owner: ActorId, threshold: u8) -> Option<CompanionAction> {
         let side = self.actors[owner.index()].side;
+        let wounded = self.actors.iter().enumerate().filter(|(_, actor)| {
+            actor.side == side && actor.available() && actor.hp_percent() <= i16::from(threshold)
+        });
+        let needs_group_heal = wounded.clone().count() >= 2;
+        let healing_target = wounded
+            .min_by_key(|(_, actor)| actor.hp_percent())
+            .map(|(i, _)| ActorId(i as u8));
         for (revival, target) in [
             (
                 true,
@@ -185,30 +196,38 @@ impl Battle {
                     })
                     .map(|(i, _)| ActorId(i as u8)),
             ),
-            (
-                false,
-                self.actors
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, actor)| {
-                        actor.side == side
-                            && actor.available()
-                            && actor.hp_percent() <= i16::from(threshold)
-                    })
-                    .min_by_key(|(_, actor)| actor.hp_percent())
-                    .map(|(i, _)| ActorId(i as u8)),
-            ),
+            (false, healing_target),
         ] {
-            if let Some(target) = target
-                && let Some(technique) = self.companion_techniques(owner).find(|row| {
+            let Some(target) = target else { continue };
+            let mut choices: Vec<_> = self
+                .companion_techniques(owner)
+                .filter(|row| {
                     (if revival {
                         row.capabilities.revives
                     } else {
                         row.capabilities.healing
                     }) && self.usable_companion_technique(owner, row)
                 })
-            {
-                return Some(CompanionAction::technique(technique, target));
+                .map(|row| {
+                    let group = !revival
+                        && self.prepared.casting(row.action).is_some_and(|cast| {
+                            cast.release.recovery.iter().any(|pulse| {
+                                matches!(
+                                    pulse.targets,
+                                    crate::RecoveryTargets::LivingAllies
+                                        | crate::RecoveryTargets::Area { .. }
+                                )
+                            })
+                        });
+                    (CompanionAction::technique(row, target), group)
+                })
+                .collect();
+            // Prefer group healing for multiple injured allies, with single-target
+            // healing as the fallback when no group spell is usable.
+            let group = needs_group_heal && choices.iter().any(|(_, group)| *group);
+            choices.retain(|(_, is_group)| *is_group == group);
+            if !choices.is_empty() {
+                return Some(choices[usize::from(self.random.next_u16()) % choices.len()].0);
             }
         }
         None
@@ -221,9 +240,9 @@ impl Battle {
         strategy: [u8; 3],
     ) -> Result<Option<CompanionAction>> {
         let limits = self.companion(owner)?.limits[usize::from(strategy[1])];
-        if strategy[1] == 5
-            || strategy[2] != 6 && self.actors[owner.index()].tp_percent() <= i16::from(limits.tp)
-        {
+        let reserve_reached =
+            strategy[2] != 6 && self.actors[owner.index()].tp_percent() <= i16::from(limits.tp);
+        if strategy[1] == 5 || matches!(strategy[1], 1..=4) && reserve_reached {
             return Ok(None);
         }
         let mut choices: Vec<_> = self
@@ -256,6 +275,11 @@ impl Battle {
             return Ok(None);
         }
         let choice = &choices[usize::from(self.random.next_u16()) % choices.len()];
+        // Moderation, healing and support policies reduce offensive use below
+        // their reserve instead of refusing every affordable technique.
+        if reserve_reached && self.random.next_u16() % 100 >= 25 {
+            return Ok(None);
+        }
         Ok(Some(CompanionAction::technique(choice, target)))
     }
 
@@ -298,20 +322,30 @@ impl Battle {
             return Ok(());
         };
         self.set_decision_target(owner, target)?;
-        let threshold = self.companion(owner)?.limits[usize::from(strategy[1])].healing;
+        let limits = self.companion(owner)?.limits[usize::from(strategy[1])];
         let action = if strategy[1] != 5 {
-            self.support_choice(owner, threshold)
+            self.support_choice(owner, limits.healing)
         } else {
             None
         };
         let action = match action {
             Some(action) => Some(action),
+            None if self.companion(owner)?.normal_attack_opening
+                && !matches!(strategy[2], 4..=6)
+                && self.actors[index].hp_percent() >= NORMAL_OPENING_MIN_HP_PERCENT =>
+            {
+                None
+            }
             None => self.offensive_choice(owner, target, strategy)?,
         };
         let defensive = matches!(strategy[2], 4 | 5);
         let action = match action {
             Some(action) => action,
             None if defensive
+                && self.actors[index].tp_percent() > i16::from(limits.tp)
+                && self
+                    .companion_techniques(owner)
+                    .any(|row| self.usable_companion_technique(owner, row))
                 && self
                     .actors
                     .iter()

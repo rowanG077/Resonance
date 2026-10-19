@@ -106,7 +106,7 @@ impl Battle {
             .reaction
             .protection
             .protect_transition(90);
-        self.recover_vitals(id, kind.percent(), false, cues)?;
+        self.recover_vitals(id, kind.percent(), false, false, cues)?;
         let label = match kind {
             RescueKind::Ring | RescueKind::Doll(_) => {
                 crate::conditions::ConditionLabel::EquipmentEffect
@@ -117,9 +117,7 @@ impl Battle {
         cues.push(Cue::ConditionLabel {
             actor: id,
             kind: label,
-            position: std::array::from_fn(|axis| {
-                self.actors[index].body.center_offset[axis] * 2. + self.actors[index].position[axis]
-            }),
+            position: self.actors[index].condition_label_origin(),
         });
         match kind {
             RescueKind::AngelTear => self.runtime[index].angel_tear_armed = false,

@@ -79,8 +79,8 @@ impl ColdEncounter {
 fn changed_enemy_families_prepare_their_linked_models_and_actions() -> Result<()> {
     let mut fixture = ColdEncounter::load()?;
     let party = Party::new(&fixture.session, Default::default())?;
-    // Sheena/Corrine, Meredy, Yggdrasill, Defense System, Sword Dancer, and Bacura.
-    for formation in [16, 83, 34, 43, 87, 88, 89, 93] {
+    // Includes mounted knights and Undine's separately animated cape.
+    for formation in [16, 83, 34, 43, 87, 88, 89, 93, 354, 98, 24] {
         fixture
             .prepare_formation(&party, formation)
             .with_context(|| format!("prepare changed enemy formation {formation}"))?;
@@ -121,6 +121,7 @@ fn mixed_parties_prepare_spells_and_audio() -> Result<()> {
         let mut party = Party::new(&fixture.session, Default::default())?;
         party.formation = formation.to_vec();
         party.field_leader = formation[0];
+        assert_eq!(party.members[1].costume, 0);
         // Retaliation skills are native gameplay; neither needs a spell or artwork binding.
         use resonance_content::menu_data::ex_effect;
         for (character, skill) in [(2, ex_effect::REFLECT_DAMAGE), (4, ex_effect::AID_REVENGE)] {
@@ -175,6 +176,21 @@ fn mixed_parties_prepare_spells_and_audio() -> Result<()> {
             }
         }
         assert!(!assets.files.diagnostics().has_errors());
+        let mut battle = live(prepared.core);
+        for _ in 0..240 {
+            let frame = battle.step(Default::default())?;
+            if battle.phase() == BattlePhase::Combat
+                && frame.clock == resonance_battle::BattleClock::Running
+            {
+                break;
+            }
+        }
+        assert_eq!(battle.phase(), BattlePhase::Combat);
+        assert_eq!(
+            battle.snapshot().clock,
+            resonance_battle::BattleClock::Running
+        );
+        assert!(!battle.is_diagnostic());
     }
     Ok(())
 }
@@ -224,6 +240,7 @@ fn learned_ray_thrust_uses_its_prepared_projectile_and_feedback() -> Result<()> 
                 Cue::ProjectileStarted {
                     projectile: id,
                     action: handle,
+                    ..
                 } if battle.action_definition(*handle) == Some(action) => projectile = Some(*id),
                 Cue::Hit {
                     source: ContactSource::Projectile(id),

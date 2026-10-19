@@ -52,6 +52,8 @@ pub(crate) struct Particle {
     pub definition: Arc<ParticleDefinition>,
     pub frame: ParticleFrame,
     pub follow: Option<crate::EffectFollow>,
+    /// Last position sampled for orientation; held while orientation following is disabled.
+    pub(crate) orientation_origin: [f32; 3],
     target: ActorId,
 
     pub model: Option<crate::PreparedEffectModel>,
@@ -66,6 +68,14 @@ pub(crate) struct Particle {
     uv_elapsed: u32,
     uv_scroll: [i32; 2],
     floor_effect_emitted: bool,
+}
+
+pub(crate) fn model_follow_angles(direction: [f32; 3]) -> [f32; 2] {
+    let [x, y, z] = crate::distance::normalize(direction);
+    [
+        y.clamp(-1., 1.).acos().to_degrees() + 180.,
+        x.atan2(z).to_degrees(),
+    ]
 }
 
 impl Particle {
@@ -100,7 +110,6 @@ impl Particle {
             add(&mut state.acceleration, self.definition.data.jerk);
         }
         let mut child_member = None;
-        let previous_origin = self.frame.origin;
         if let Some(origin) = followed_origin {
             self.frame.origin = origin;
         }
@@ -131,12 +140,11 @@ impl Particle {
         }
         if self.definition.data.follow_orientation {
             let delta: [f32; 3] =
-                std::array::from_fn(|i| self.frame.origin[i] - previous_origin[i]);
+                std::array::from_fn(|i| self.frame.origin[i] - self.orientation_origin[i]);
             if crate::distance::length(delta) >= 0.1 {
-                let [x, y, z] = crate::distance::normalize(delta);
-                state.angles[0] = y.clamp(-1., 1.).acos().to_degrees() + 180.;
-                state.angles[1] = x.atan2(z).to_degrees();
+                [state.angles[0], state.angles[1]] = model_follow_angles(delta);
             }
+            self.orientation_origin = self.frame.origin;
         } else if !self.definition.data.fixed_orientation {
             add(&mut state.angles, state.angular_velocity);
             if self.definition.data.linear_orbit
@@ -214,22 +222,23 @@ impl Particle {
             "particle motion overflow"
         );
         if let Some(model) = &mut self.model {
-            if !fresh
-                || !self
-                    .definition
-                    .model
-                    .is_some_and(|binding| binding.program_animation)
-            {
+            let detached_animation = !self.definition.data.follow_origin
+                && self.definition.model.is_some_and(|binding| {
+                    binding.animation.is_some() && !binding.program_animation
+                });
+            if !fresh || detached_animation {
                 model.advance()?;
             }
-            self.frame.model = Some(model.sample(
-                &self.frame,
-                &mut self.model_secondary,
-                self.definition.data.model_elevation,
-                self.definition.data.model_ground_relative,
-                model_parent,
-            )?);
+            if self
+                .definition
+                .model
+                .is_some_and(|binding| binding.reverse_at.map(u32::from) == Some(self.age - 1))
+            {
+                // Playback changes take effect after the current displayed pose.
+                model.reverse();
+            }
         }
+        self.sample_model(model_parent, true)?;
         Ok(child_member.map(|member| crate::EffectRequest {
             owner: self.frame.owner,
             target: self.target,
@@ -245,6 +254,24 @@ impl Particle {
             scale: 1.,
             tint: Default::default(),
         }))
+    }
+
+    fn sample_model(
+        &mut self,
+        parent: Option<resonance_content::animation::Matrix>,
+        advance: bool,
+    ) -> Result<()> {
+        if let Some(model) = &self.model {
+            self.frame.model = Some(model.sample(
+                &self.frame,
+                &mut self.model_secondary,
+                self.definition.data.model_elevation,
+                self.definition.data.model_ground_relative,
+                parent,
+                advance,
+            )?);
+        }
+        Ok(())
     }
 }
 
@@ -429,6 +456,7 @@ impl Effects {
                 definition,
                 frame,
                 follow: None,
+                orientation_origin: origin,
                 target,
                 age: 0,
                 fade,
@@ -546,7 +574,11 @@ impl Effects {
         if let Some(animation) = animation {
             model_state.play(animation)?;
         } else if let Some(clip) = binding.animation {
-            model_state.play_repeating(clip, binding.repeat)?;
+            model_state.play_repeating_from(
+                &self.banks[&bank].models[&binding.slot],
+                clip,
+                binding.repeat,
+            )?;
         }
         let particle = self.particles.get_mut(&handle).unwrap();
         particle.model = Some(model_state);
@@ -584,29 +616,40 @@ impl Effects {
         only_pause_effects: bool,
     ) -> Result<Vec<crate::Cue>> {
         let mut cues = Vec::new();
-        let mut ids: std::collections::VecDeque<_> = self.particles.keys().copied().collect();
+        let mut ids = std::mem::take(&mut self.particle_visits);
+        ids.extend(self.particles.keys().copied());
         while let Some(id) = ids.pop_front() {
-            if only_pause_effects && !self.particles[&id].definition.data.during_pause {
+            let frozen = only_pause_effects && !self.particles[&id].definition.data.during_pause;
+            if frozen && self.particles[&id].age == 0 {
                 continue;
             }
             let origin = self.particles[&id]
                 .follow
-                .and_then(|follow| follow.position(frame));
-            if self.particles[&id]
-                .definition
-                .data
-                .lifetime
-                .is_some_and(|duration| self.particles[&id].age >= duration)
+                .and_then(|follow| follow.particle_position(frame));
+            if !frozen
+                && self.particles[&id]
+                    .definition
+                    .data
+                    .lifetime
+                    .is_some_and(|duration| self.particles[&id].age >= duration)
             {
                 self.particles.remove(&id);
             } else {
-                let result = self
-                    .particle_parent_world(id, frame)
-                    .and_then(|parent| self.particles.get_mut(&id).unwrap().step(origin, parent));
+                let result = self.particle_parent_world(id, frame).and_then(|parent| {
+                    let particle = self.particles.get_mut(&id).unwrap();
+                    if frozen {
+                        if parent.is_some() {
+                            particle.sample_model(parent, false)?;
+                        }
+                        Ok(None)
+                    } else {
+                        particle.step(origin, parent)
+                    }
+                });
                 match result {
                     Ok(Some(request)) => {
                         let first_child = self.next_particle;
-                        let result = self.emit_child(&request, frame, &mut cues);
+                        let result = self.emit_child(&request, frame, &mut cues, false);
                         self.diagnostics.attempt("battle child effect", result)?;
                         // New children receive one visit after existing siblings.
                         // The shared particle budget bounds this queue.
@@ -620,15 +663,25 @@ impl Effects {
                 }
             }
         }
+        self.particle_visits = ids;
         Ok(cues)
     }
 
+    /// Publish owned particle snapshots while retaining the caller's allocation.
+    pub fn write_frames(&self, output: &mut Vec<ParticleFrame>) {
+        output.clear();
+        output.extend(
+            self.particles
+                .values()
+                .filter(|p| p.age > 0)
+                .map(|p| p.frame.clone()),
+        );
+    }
+
     pub fn frames(&self) -> Vec<ParticleFrame> {
-        self.particles
-            .values()
-            .filter(|p| p.age > 0)
-            .map(|p| p.frame.clone())
-            .collect()
+        let mut frames = Vec::new();
+        self.write_frames(&mut frames);
+        frames
     }
 }
 

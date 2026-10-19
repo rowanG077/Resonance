@@ -1,8 +1,8 @@
 //! A team attack temporarily owns actor admission and scene placement.
 use crate::{
     ActionDefinition, ActionExecution, ActionId, ActionKey, ActionRequest, ActorId, Battle,
-    CameraPose, Cue, EffectAppearance, EffectFollow, EffectRequest, MotionBinding, Pose,
-    PreparedAttack, Side, Sound,
+    CameraPose, Cue, EffectAppearance, EffectRequest, MotionBinding, Pose, PreparedAttack, Side,
+    Sound,
 };
 use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeSet, sync::Arc};
@@ -338,7 +338,8 @@ impl State {
             .filter(|actor| {
                 self.staged()
                     && run.phase != UnisonPhase::Staging
-                    && Some(*actor) != run.target
+                    // The two-person pose excludes the target until the attack starts.
+                    && (Some(*actor) != run.target || run.phase == UnisonPhase::CombinationPose)
                     && if let Some(combined) = &run.combined {
                         !combined.roles.iter().any(|role| {
                             role.actor == *actor
@@ -963,9 +964,9 @@ impl State {
             owner: actor,
             target: actor,
             appearance: definition.windup_effect,
-            origin: battle.actors[actor.index()].position,
+            origin: battle.actors[actor.index()].effect_origin(),
             heading: battle.actors[actor.index()].heading,
-            follow: Some(EffectFollow::Actor(actor)),
+            follow: None,
             scale: battle.actors[actor.index()].effect_scale,
             tint: Default::default(),
         }));
@@ -1040,7 +1041,11 @@ impl Run {
             let actor = ActorId(index as u8);
             battle.end_overlimit(actor)?;
             if battle.actors[index].available() {
-                battle.enter_idle(actor);
+                if Some(actor) == self.target {
+                    battle.reset_idle_state(actor);
+                } else {
+                    battle.enter_idle(actor);
+                }
             }
             battle.actors[index].hit_stop = 0;
         }
@@ -1172,9 +1177,9 @@ impl Run {
                 owner: actor,
                 target: actor,
                 appearance: prelude.effect,
-                origin: battle.actors[actor.index()].position,
+                origin: battle.actors[actor.index()].effect_origin(),
                 heading: 0.,
-                follow: Some(EffectFollow::Actor(actor)),
+                follow: None,
                 scale: battle.actors[actor.index()].effect_scale,
                 tint: Default::default(),
             }));
@@ -1280,6 +1285,7 @@ impl Run {
                 || definition.members[self.selections.last().unwrap().slot].actor,
                 |combined| combined.actors[0],
             );
+            battle.record_technical_smash(target, true, finisher, cues);
             battle.enter_death(target, cues);
             if finisher {
                 battle.ledger.finisher();

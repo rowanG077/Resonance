@@ -23,6 +23,9 @@ pub(crate) struct Approach {
     range_required: bool,
     /// An enemy completes its retreat independently of the forward threshold.
     retreating: bool,
+    /// Keep selection separate from an immediately usable action's admission.
+    entry_pending: bool,
+    elapsed: u16,
 }
 
 impl Battle {
@@ -45,9 +48,10 @@ impl Battle {
     }
 
     fn approach_in_range(&self, index: usize, approach: Approach) -> bool {
-        let gap = self.body_gap(ActorId(index as u8), approach.target);
+        let gap = self.approach_body_gap(ActorId(index as u8), approach.target);
         !approach.range_required
-            || approach.retreating && gap >= approach.parameters.minimum
+            || approach.retreating
+                && gap > approach.parameters.minimum - self.actors[index].movement.forward
             || gap >= approach.parameters.minimum && gap <= approach.parameters.maximum
             || gap < approach.parameters.minimum
                 && self.actors[index].movement.steering.arena_contact() != crate::ArenaContact::None
@@ -149,8 +153,9 @@ impl Battle {
                 && parameters.turn_ticks > 0,
             "invalid approach parameters"
         );
-        let retreating = owner.control == crate::Control::Enemy
-            && self.body_gap(actor, target) < parameters.minimum;
+        let retreating = range_required
+            && owner.control == crate::Control::Enemy
+            && self.approach_body_gap(actor, target) < parameters.minimum;
         let index = actor.index();
         self.runtime[index].combo = Default::default();
         if let Some(control) = &mut self.runtime[index].control {
@@ -174,6 +179,8 @@ impl Battle {
                 parameters,
                 range_required,
                 retreating,
+                entry_pending: true,
+                elapsed: 0,
             }),
         );
         self.actors[index].movement.locomotion = if self.approach_within_range(index) {
@@ -194,7 +201,7 @@ impl Battle {
                 self.actors[index].facing_direction,
             );
             // A fresh approach starts toward its destination, not along a previous retreat.
-            let direction = if self.body_gap(actor, target) < parameters.minimum {
+            let direction = if self.approach_body_gap(actor, target) < parameters.minimum {
                 direction.map(|value| -value)
             } else {
                 direction
@@ -313,29 +320,122 @@ impl Battle {
             self.cancel_approach(index)?;
             return Ok(false);
         }
-        let gap = self.body_gap(actor, approach.target);
-        approach.retreating |= self.actors[index].control == crate::Control::Enemy
+        let motion_ready = self
+            .models
+            .as_ref()
+            .is_none_or(|models| models.motion_ready_this_update(actor));
+        let entry_pending = approach.entry_pending;
+        approach.entry_pending = false;
+        let gap = self.approach_body_gap(actor, approach.target);
+        approach.retreating |= approach.range_required
+            && self.actors[index].control == crate::Control::Enemy
             && gap < approach.parameters.minimum;
+        let in_range = self.approach_in_range(index, approach);
+        let enemy = self.actors[index].control == crate::Control::Enemy;
+        let walking = enemy
+            && approach.range_required
+            && (!in_range || self.actors[index].movement.locomotion == crate::Locomotion::Run);
+        if enemy && entry_pending {
+            // Enemy selection finishes the outgoing idle hover before approach takes over.
+            self.advance_hover(index, true)?;
+        }
+        if walking && entry_pending {
+            let direction = crate::distance::planar_direction(
+                self.actors[approach.target.index()].position,
+                self.actors[index].position,
+                self.actors[index].movement.direction,
+            );
+            let direction = if approach.retreating {
+                direction.map(|value| -value)
+            } else {
+                direction
+            };
+            let owner = &mut self.actors[index];
+            owner.movement.direction = direction;
+            owner.facing_direction = direction;
+            crate::control::face(
+                owner,
+                direction,
+                180. / f32::from(approach.parameters.turn_ticks),
+            );
+            self.set_task(index, ActorTask::Approach(approach));
+            return Ok(true);
+        }
+        approach.elapsed = approach.elapsed.saturating_add(u16::from(motion_ready));
+        self.emit_movement_effect(actor, approach.elapsed, cues);
+        if walking {
+            // Finish this movement visit before admitting an action from its starting gap.
+            self.move_approach(actor, approach, gap)?;
+        }
+        let airborne_selection = entry_pending
+            && in_range
+            && self.actors[index].airborne()
+            && !self.actors[index].movement.flying;
+        let direction =
+            if enemy && !approach.retreating && (!approach.range_required || airborne_selection) {
+                self.actors[index].movement.direction
+            } else {
+                crate::distance::planar_direction(
+                    self.actors[approach.target.index()].position,
+                    self.actors[index].position,
+                    self.actors[index].movement.direction,
+                )
+            };
         if matches!(
             self.actors[index].control,
             crate::Control::Auto | crate::Control::Enemy
-        )
-            && self.approach_in_range(index, approach)
+        ) && in_range
         {
             // Once an automatic actor arrives, finish facing without chasing changes in posed bounds.
             approach.range_required = false;
         }
         self.set_task(index, ActorTask::Approach(approach));
-        let direction = crate::distance::planar_direction(
-            self.actors[approach.target.index()].position,
-            self.actors[index].position,
-            self.actors[index].movement.direction,
-        );
-        self.actors[index].movement.target_direction = direction;
-        if self.approach_in_range(index, approach) {
+        if in_range {
             self.actors[index].movement.locomotion = crate::Locomotion::Action;
-            self.actors[index].movement.forward = 0.;
-            if !self.actors[index].movement.hover_ready() {
+            if walking {
+                if enemy && approach.retreating && !self.actors[index].movement.flying {
+                    self.model_requests.push(crate::ModelRequest::Common {
+                        actor,
+                        pose: crate::CommonPose::Stopping,
+                    });
+                }
+                if !approach.retreating {
+                    let owner = &mut self.actors[index];
+                    crate::control::face(
+                        owner,
+                        direction,
+                        180. / f32::from(approach.parameters.turn_ticks),
+                    );
+                    owner.movement.direction = owner.movement.target_direction;
+                    owner.facing_direction = owner.movement.direction;
+                }
+                return Ok(true);
+            }
+            if !enemy {
+                self.actors[index].movement.forward = 0.;
+            }
+            if enemy && approach.retreating {
+                // Finish coasting away before turning back toward the target.
+                let owner = &mut self.actors[index];
+                owner.movement.integrate(&mut owner.position);
+                let stopped = if owner.movement.flying {
+                    owner.movement.forward = 0.;
+                    true
+                } else {
+                    owner
+                        .movement
+                        .brake(owner.position[1], Activity::Approaching)
+                };
+                self.advance_hover(index, false)?;
+                let stop_finished = self.actors[index].movement.flying
+                    || self
+                        .models
+                        .as_ref()
+                        .is_none_or(|models| models.stop_finished_this_update(actor, true));
+                if !stopped || !self.actors[index].movement.hover_ready() || !stop_finished {
+                    return Ok(true);
+                }
+            } else if !self.actors[index].movement.hover_ready() {
                 let owner = &mut self.actors[index];
                 owner.movement.integrate(&mut owner.position);
                 self.advance_hover(index, false)?;
@@ -344,6 +444,9 @@ impl Battle {
             if self.pending_aerial_jump(actor, self.pending_technique(actor)) {
                 self.begin_queued_jump(actor);
                 return self.update_mobility(actor, cues);
+            }
+            if entry_pending && self.actors[index].side == crate::Side::Party {
+                return Ok(true);
             }
             let owner = &mut self.actors[index];
             let ready = if owner.control == crate::Control::Manual
@@ -359,7 +462,13 @@ impl Battle {
                     180. / f32::from(approach.parameters.turn_ticks),
                 )
             };
-            if !ready {
+            if !ready || entry_pending {
+                return Ok(true);
+            }
+            if enemy && approach.retreating {
+                // Retreat finishes facing before the following visit admits the action.
+                approach.retreating = false;
+                self.set_task(index, ActorTask::Approach(approach));
                 return Ok(true);
             }
             self.set_task(index, ActorTask::None);
@@ -379,19 +488,35 @@ impl Battle {
                 return Ok(true);
             }
             if self.prepared.actions[request.action].normal.is_some() {
-                self.runtime[index].target = approach.target;
+                self.runtime[index].set_target(approach.target);
                 self.runtime[index].control.as_mut().unwrap().attack_target = approach.target;
                 self.runtime[index].combo = Default::default();
             }
             self.start_admitted_action(request, cues)?;
-            return Ok(true);
+            return Ok(matches!(
+                self.prepared.actions[request.action].execution,
+                crate::ActionExecution::Attack(_)
+            ) && !self.enemy_physical_arte(actor, request.action));
         }
+        if !walking {
+            self.move_approach(actor, approach, gap)?;
+        }
+        Ok(true)
+    }
+
+    fn move_approach(&mut self, actor: ActorId, approach: Approach, gap: f32) -> Result<()> {
+        let index = actor.index();
+        let direction = crate::distance::planar_direction(
+            self.actors[approach.target.index()].position,
+            self.actors[index].position,
+            self.actors[index].movement.direction,
+        );
         let destination = if gap < approach.parameters.minimum {
             std::array::from_fn(|axis| {
                 self.actors[index].position[axis] - direction[axis] * approach.parameters.minimum
             })
         } else {
-            self.actors[approach.target.index()].position
+            self.actor_start_centers[approach.target.index()]
         };
         let destination = self.steer_approach(actor, approach.target, destination)?;
         let speed = self.runtime[index]
@@ -400,36 +525,34 @@ impl Battle {
         let owner = &mut self.actors[index];
         owner.movement.locomotion = crate::Locomotion::Run;
         let desired = crate::distance::planar_direction(destination, owner.position, direction);
-        owner.movement.direction = crate::control::turn_direction(
-            owner.movement.direction,
-            desired,
-            180. / f32::from(approach.parameters.turn_ticks),
-        );
+        const DIRECTION_BLEND: f32 = 0.1;
+        owner.movement.direction = crate::distance::normalize(std::array::from_fn(|axis| {
+            owner.movement.direction[axis] * (1. - DIRECTION_BLEND)
+                + desired[axis] * DIRECTION_BLEND
+        }));
         let movement = owner.movement.direction;
         crate::control::face(
             owner,
             movement,
             180. / f32::from(approach.parameters.turn_ticks),
         );
-        let desired_gap = if owner.control == crate::Control::Enemy {
-            if approach.retreating {
-                approach.parameters.minimum
-            } else {
-                approach.parameters.maximum
-            }
+        let limit = owner.run_limit(speed, owner.conditions.effective());
+        if owner.control == crate::Control::Enemy {
+            owner.movement.integrate(&mut owner.position);
+            owner.movement.forward =
+                (owner.movement.forward + crate::movement::RUN_ACCELERATION).min(limit);
         } else {
-            approach
+            let desired_gap = approach
                 .parameters
                 .minimum
-                .midpoint(approach.parameters.maximum)
-        };
-        let remaining = (gap - desired_gap).abs();
-        owner.movement.forward = (owner.movement.forward + crate::movement::RUN_ACCELERATION)
-            .min(owner.run_limit(speed, owner.conditions.effective()))
-            .min(remaining);
-        owner.movement.integrate(&mut owner.position);
+                .midpoint(approach.parameters.maximum);
+            owner.movement.forward = (owner.movement.forward + crate::movement::RUN_ACCELERATION)
+                .min(limit)
+                .min((gap - desired_gap).abs());
+            owner.movement.integrate(&mut owner.position);
+        }
         self.advance_hover(index, true)?;
-        Ok(true)
+        Ok(())
     }
 
     pub(crate) fn approach_normal(&self, actor: ActorId) -> Option<crate::NormalAttack> {

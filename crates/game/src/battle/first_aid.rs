@@ -20,6 +20,9 @@ pub fn prepare(bank: &EffectResource, resources: &mut ActionResources) -> Result
         effects: vec![],
         projectiles: Vec::new(),
         recovery: vec![SpellRecovery {
+            duration: 1,
+            effect_placement: Default::default(),
+            flash: None,
             at: 11,
             benefit: resonance_battle::SpellBenefit::Hp(30),
             targets: resonance_battle::RecoveryTargets::Target,

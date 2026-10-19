@@ -1,20 +1,65 @@
 use super::{ARENA_RADIUS, Actor, ActorId, distance, planar_length};
+use anyhow::Result;
 
 const BODY_SPACING: f32 = 8.;
-const RETREAT_DISTANCE: f32 = 150.;
+const POSITION_CELL_SIZE: f32 = 100.;
+const MAX_OCCUPIED_RADIUS: u8 = 3;
 
 pub(super) fn clearance(actor: &Actor, obstacle: &Actor) -> f32 {
     actor.body_radius() + obstacle.body_radius() + BODY_SPACING
 }
 
-pub(super) fn retreat(actor: &Actor, target: &Actor) -> [f32; 3] {
-    let away = distance::planar_direction(actor.position, target.position, [-1., 0., 0.]);
-    let distance = clearance(actor, target) + RETREAT_DISTANCE;
-    [
-        actor.position[0] + away[0] * distance,
-        0.,
-        actor.position[2] + away[2] * distance,
-    ]
+/// Sample increasingly wider clear positions near the actor, away from its target.
+pub(super) fn clear_position(
+    actors: &[Actor],
+    owner: ActorId,
+    target: ActorId,
+    mut random: impl FnMut() -> Result<u16>,
+) -> Result<Option<[f32; 3]>> {
+    let cell = |position: [f32; 3]| {
+        [position[0], position[2]].map(|value| (value / POSITION_CELL_SIZE) as i16)
+    };
+    let origin = cell(actors[owner.index()].position);
+    let target = cell(actors[target.index()].position);
+    let limit = (ARENA_RADIUS / POSITION_CELL_SIZE) as i16;
+    for radius in 1..=limit + 1 {
+        let span = (radius + 1) as u16;
+        let mut occupied = true;
+        for _ in 0..(radius * 2 + 1).pow(2) {
+            let sample = [random()?, random()?];
+            let candidate = std::array::from_fn::<_, 2, _>(|axis| {
+                (origin[axis] + (sample[axis] % span) as i16).clamp(-limit, limit)
+            });
+            let distance =
+                |from: [i16; 2]| (from[0] - candidate[0]).abs() + (from[1] - candidate[1]).abs();
+            occupied = actors.iter().any(|actor| {
+                if actor.availability == crate::ActorAvailability::Absent {
+                    return false;
+                }
+                let center = cell(actor.position);
+                let radius = i16::from(
+                    actor
+                        .movement
+                        .steering
+                        .positioning_radius
+                        .min(MAX_OCCUPIED_RADIUS),
+                );
+                (0..2).all(|axis| (center[axis] - candidate[axis]).abs() <= radius)
+            });
+            if !occupied && distance(target) > distance(origin) {
+                return Ok(Some([
+                    f32::from(candidate[0]) * POSITION_CELL_SIZE,
+                    0.,
+                    f32::from(candidate[1]) * POSITION_CELL_SIZE,
+                ]));
+            }
+        }
+        // Expand only while the sampled neighborhood remains occupied.
+        if !occupied {
+            break;
+        }
+    }
+    Ok(None)
 }
 
 /// Prefer the requested position, then the nearest clear side of an obstructing body.
@@ -83,20 +128,6 @@ mod tests {
         actor.position = position;
         actor.body.collider = Some(crate::Collider::sphere(radius));
         actor
-    }
-
-    #[test]
-    fn retreat_moves_away_from_target_and_handles_coincident_positions() {
-        let owner = body(Side::Party, [0.; 3], 20.);
-        let target = body(Side::Enemy, [100., 0., 0.], 40.);
-        let destination = retreat(&owner, &target);
-        assert!(destination[0] < 0.);
-        assert!(planar_length(destination) > clearance(&owner, &target));
-        assert!(
-            retreat(&owner, &owner)
-                .iter()
-                .all(|value| value.is_finite())
-        );
     }
 
     #[test]

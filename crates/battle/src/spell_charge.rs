@@ -10,21 +10,7 @@ pub struct SpellChargeDefinition {
 impl Battle {
     pub(crate) fn spell_target(&self, actor: ActorId, release: &crate::PreparedSpell) -> ActorId {
         let runtime = &self.runtime[actor.index()];
-        let allied = !release.recovery.is_empty()
-            || self.prepared.actor_setup[actor.index()]
-                .enemy_decision
-                .as_ref()
-                .is_some_and(|definition| {
-                    runtime
-                        .enemy_choice
-                        .and_then(|row| definition.choices.get(row))
-                        .is_some_and(|row| {
-                            row.target_allies
-                                || row.target_policy.unwrap_or(definition.strategy)
-                                    == crate::TargetPolicy::SelfTarget
-                        })
-                });
-        if allied {
+        if release.uses_support_target() {
             runtime.support_target
         } else {
             runtime.target
@@ -82,9 +68,7 @@ impl Battle {
         let owner = &self.actors[index];
         cues.push(Cue::ExSkillLabel {
             actor,
-            position: std::array::from_fn(|axis| {
-                owner.position[axis] + owner.body.center_offset[axis] * 2.
-            }),
+            position: owner.condition_label_origin(),
         });
         self.stop_voice(actor, cues);
         if self.has_pending_item(actor)
@@ -133,6 +117,11 @@ impl Battle {
             .casting(action)
             .context("spell release requires a casting action")?;
         let release = casting.release.clone();
+        let phase = if release.transition_ticks > 0 {
+            crate::CastPhase::SceneOpening
+        } else {
+            crate::CastPhase::Released
+        };
         let release_pose = casting.release_pose;
         let target = self.spell_target(actor, &release);
         let started = if let Some(summon) = &release.summon {
@@ -140,12 +129,21 @@ impl Battle {
                 && self.begin_summon_entry(summon.entry, release, actor, target, parent, cues)?
         } else {
             let resident = self.release_volley(release, actor, target, slot, parent, cues)?;
+            if let Some(resident) = resident {
+                self.volleys.get_mut(&resident).unwrap().scene_action = (phase
+                    == crate::CastPhase::SceneOpening
+                    && !(parent.is_some()
+                        && matches!(release_pose, crate::CastReleasePose::Scene { .. })))
+                .then_some(action);
+            }
             if let (
                 Some(resident),
                 Some(parent),
-                crate::CastReleasePose::SustainAfter {
+                crate::CastReleasePose::Scene {
                     opening,
-                    hold_ticks,
+                    release,
+                    release_loop_start,
+                    at,
                 },
             ) = (resident, parent, release_pose)
             {
@@ -153,8 +151,10 @@ impl Battle {
                     Some(crate::release::CastPoseTransition {
                         parent,
                         action,
-                        opening,
-                        at: hold_ticks,
+                        opening: opening.map(|pose| pose.motion),
+                        release,
+                        release_loop_start,
+                        at,
                     });
             }
             resident.is_some()
@@ -165,7 +165,7 @@ impl Battle {
         cues.push(Cue::Casting {
             actor,
             action,
-            phase: crate::CastPhase::Released,
+            phase,
         });
         Ok(true)
     }
@@ -177,7 +177,7 @@ impl Battle {
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
         let index = actor.index();
-        let reaction = self.actors[index].reaction;
+        let reaction = &self.actors[index].reaction;
         if !self.actors[index].equipment.spell_revenge
             || reaction.spell_revenge_used
             || reaction.recoil.kind == crate::RecoilKind::Normal

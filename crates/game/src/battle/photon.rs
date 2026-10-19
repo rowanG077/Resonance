@@ -39,7 +39,7 @@ pub(super) fn prepare(
             .context("orb projectile has no contact")?
             .cooldown = rule.cooldown;
         projectiles.push(resonance_battle::SpellProjectile::new(
-            TRANSITION_TICKS + ACTIVE_START_TICKS + at,
+            TRANSITION_TICKS + ACTIVE_START_TICKS + at + 1,
             projectile,
         ));
     }
@@ -57,7 +57,7 @@ pub(super) fn prepare(
         duration: TRANSITION_TICKS + LIFETIME + SCENE_BOUNDARY_TICKS,
         startup: Some((
             TRANSITION_TICKS + 1,
-            SpellStartup::Effect(EffectAppearance {
+            SpellStartup::DeferredEffect(EffectAppearance {
                 resource: bank.resource,
                 member: 1,
             }),

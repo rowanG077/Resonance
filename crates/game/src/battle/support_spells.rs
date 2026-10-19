@@ -2,8 +2,8 @@
 use super::{ActionResources, EffectResource};
 use anyhow::{Context, Result};
 use resonance_battle::{
-    EffectAppearance, PreparedSpell, RecoveryTargets, SpellBenefit, SpellOrigin, SpellRecovery,
-    SpellStartup, conditions::Condition,
+    EffectAppearance, PreparedSpell, RecoveryEffectPlacement, RecoveryTargets, SpellBenefit,
+    SpellOrigin, SpellPolicy, SpellRecovery, conditions::Condition,
 };
 use resonance_content::battle_projectile::Table;
 
@@ -61,8 +61,8 @@ pub fn prepare(
         ),
         107 => (Some(41), 0, buff(Condition::AttackUp)),
         110 => (Some(22), 0, buff(Condition::DefenseUp)),
-        116 => (Some(35), 141, SpellBenefit::Tp(15)),
-        142 => (None, 1, SpellBenefit::Resurrect(0)),
+        116 => (Some(35), 0, SpellBenefit::Tp(15)),
+        142 => (None, 0, SpellBenefit::Resurrect(0)),
         192 => (Some(20), 11, distance_healing(25)),
         193 => (Some(20), 11, SpellBenefit::Hp(35)),
         194 => (Some(20), 11, distance_healing(45)),
@@ -78,20 +78,39 @@ pub fn prepare(
         resources.effect(artwork)?;
     }
     let delayed = at != 0;
-    let startup_effect = catalogue == 116;
+    let transfer = catalogue == 116;
     Ok(PreparedSpell {
-        policy: Default::default(),
+        policy: if transfer {
+            SpellPolicy::TransferRecovery {
+                appearance: effect.context("missing transfer artwork")?,
+                apex: 1100.,
+                speed: 15.,
+                benefit,
+            }
+        } else {
+            Default::default()
+        },
         summon: None,
         effects: vec![],
         projectiles: Vec::new(),
-        recovery: vec![SpellRecovery {
-            at,
-            benefit,
-            targets: RecoveryTargets::Target,
-            effect: effect
-                .filter(|_| !startup_effect)
-                .map(|effect| (effect, Default::default())),
-        }],
+        recovery: if transfer {
+            vec![]
+        } else {
+            vec![SpellRecovery {
+                duration: 1,
+                flash: None,
+                at,
+                benefit,
+                targets: RecoveryTargets::Target,
+                effect_placement: match catalogue {
+                    101 => RecoveryEffectPlacement::RecipientRoot,
+                    104 => RecoveryEffectPlacement::CasterFacingCenter,
+                    110 => RecoveryEffectPlacement::RecipientFacingCenter,
+                    _ => Default::default(),
+                },
+                effect: effect.map(|effect| (effect, Default::default())),
+            }]
+        },
         // Immediate pulses select the recipient directly and need no retained point.
         origin: if delayed {
             SpellOrigin::Target
@@ -102,9 +121,7 @@ pub fn prepare(
         stage_tint: None,
         camera: None,
         duration,
-        startup: effect
-            .filter(|_| startup_effect)
-            .map(|effect| (1, SpellStartup::Effect(effect))),
+        startup: None,
         sound: None,
     })
 }

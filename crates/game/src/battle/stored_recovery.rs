@@ -2,8 +2,8 @@
 use super::{ActionResources, EffectResource, stored_spells};
 use anyhow::{Context, Result};
 use resonance_battle::{
-    EffectAppearance, PreparedSpell, RecoveryTargets, SpellBenefit, SpellOrigin, SpellRecovery,
-    SpellStartup,
+    EffectAppearance, PreparedSpell, RecoveryEffectPlacement, RecoveryTargets, SpellBenefit,
+    SpellOrigin, SpellRecovery, SpellStartup,
     conditions::{Buff, Condition, Cure},
 };
 use resonance_content::battle_scene::Scene;
@@ -16,6 +16,7 @@ pub(super) fn prepare(
     catalogue: u16,
     scene: &Scene,
     bank: &EffectResource,
+    techniques: &EffectResource,
     resources: &mut ActionResources,
 ) -> Result<PreparedSpell> {
     if catalogue == ACID_RAIN {
@@ -36,7 +37,7 @@ pub(super) fn prepare(
             SpellBenefit::Cure(Cure::Physical),
             Area {
                 radius: scene.recovery_radius.context("missing Purify radius")?,
-                inclusive: false,
+                inclusive: true,
             },
             None,
         ),
@@ -92,18 +93,44 @@ pub(super) fn prepare(
         artwork.members.push(member);
     }
     resources.effect(artwork)?;
+    let recipient_member = match catalogue {
+        102 => Some(37),
+        105 => Some(42),
+        108 => Some(41),
+        111 => Some(22),
+        _ => None,
+    };
+    let recipient_effect = if let Some(member) = recipient_member {
+        let mut artwork = techniques.clone();
+        artwork.members = vec![member];
+        resources.effect(artwork)?;
+        Some(EffectAppearance {
+            resource: techniques.resource,
+            member,
+        })
+    } else {
+        secondary_member
+            .map(|member| EffectAppearance { member, ..effect })
+            .or_else(|| (age == 0).then_some(effect))
+    };
     let mut recovery = vec![SpellRecovery {
+        duration: if catalogue == 102 { 141 } else { 1 },
+        effect_placement: match catalogue {
+            102 | 103 | 105 | 108 | 109 | 111 | 112 | 123 => {
+                RecoveryEffectPlacement::RecipientFacingCenter
+            }
+            106 => RecoveryEffectPlacement::RecipientFacingCenterUnscaled,
+            _ => Default::default(),
+        },
+        flash: None,
         at: stored_spells::TRANSITION_TICKS + 1 + age,
         benefit,
         targets,
-        effect: secondary_member
-            .map(|member| EffectAppearance { member, ..effect })
-            .or_else(|| (age == 0).then_some(effect))
-            .map(|effect| (effect, Default::default())),
+        effect: recipient_effect.map(|effect| (effect, Default::default())),
     }];
     let immunity = match catalogue {
-        103 => Some(Buff::PhysicalAilmentGuard { persistent: false }),
-        106 => Some(Buff::MagicalAilmentGuard { persistent: false }),
+        103 => Some(Buff::PhysicalBarrier { persistent: false }),
+        106 => Some(Buff::MagicalBarrier { persistent: false }),
         _ => None,
     };
     if let Some(buff) = immunity {
@@ -132,7 +159,11 @@ pub(super) fn prepare(
         effects: vec![],
         projectiles: Vec::new(),
         recovery,
-        origin: SpellOrigin::Target,
+        origin: if catalogue == 121 {
+            SpellOrigin::TargetGround
+        } else {
+            SpellOrigin::Target
+        },
         transition_ticks: stored_spells::TRANSITION_TICKS,
         stage_tint: stored_spells::stage_tint(
             Some(
@@ -151,7 +182,7 @@ pub(super) fn prepare(
             + stored_spells::SCENE_BOUNDARY_TICKS,
         startup: (age != 0).then_some((
             stored_spells::TRANSITION_TICKS + 1,
-            SpellStartup::Effect(effect),
+            SpellStartup::DeferredEffect(effect),
         )),
         sound: None,
     })
@@ -179,6 +210,9 @@ fn acid_rain(
         effects: vec![],
         projectiles: vec![],
         recovery: vec![SpellRecovery {
+            duration: 1,
+            effect_placement: Default::default(),
+            flash: None,
             at: stored_spells::TRANSITION_TICKS
                 + stored_spells::ACTIVE_START_TICKS
                 + APPLICATION_TICK,
@@ -199,7 +233,7 @@ fn acid_rain(
             + stored_spells::SCENE_BOUNDARY_TICKS,
         startup: Some((
             stored_spells::TRANSITION_TICKS + 1,
-            SpellStartup::Effect(effect),
+            SpellStartup::DeferredEffect(effect),
         )),
         sound: None,
     })

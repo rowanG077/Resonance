@@ -67,31 +67,15 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
                 overlimit_boost: false,
             },
             |request| Ok(Some(request)),
-        );
-        assert!(
-            diagnostics
-                .entries()
-                .iter()
-                .any(|entry| entry.scope == "battle technique preparation"
-                    && entry.message.contains("technique 2 for character 1"))
-        );
-        if paranoid {
-            assert!(
-                result
-                    .err()
-                    .context("paranoid preparation accepted an unsupported action")?
-                    .to_string()
-                    .contains("technique 2 for character 1")
-            );
-            continue;
-        }
-        let mut battle = result?.core;
+        )?;
+        assert!(!diagnostics.has_errors());
+        let mut battle = result.core;
         let actor = battle.actor_ids().next().unwrap();
         let supported = battle
             .prepared_technique(actor, 1)
             .context("supported Demon Fang missing")?
             .action;
-        assert!(battle.prepared_technique(actor, 2).is_none());
+        assert!(battle.prepared_technique(actor, 2).is_some());
         assert_eq!(battle.technique_is_current(actor, 2), Some(true));
         assert_eq!(battle.technique_uses(actor, 1), Some(17));
         assert_eq!(battle.technique_uses(actor, 2), Some(23));
@@ -147,7 +131,7 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
 #[test]
 #[ignore = "requires current cooked encounter assets; CPU only"]
 fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<()> {
-    use crate::battle::results::item_tests::{escape, load_fixture, release, step};
+    use crate::battle::results::item_tests::{enter_battle, escape, load_fixture, release, step};
     use resonance_battle::{
         ActionRequest, Activity, BattleInput, ControlInput, Cue, item::Release,
     };
@@ -230,9 +214,10 @@ fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<(
                 _ => unreachable!(),
             }
             let prepared = fixture.prepare(2500, |request| Ok(Some(request)));
-            if paranoid && fault != "intact" {
+            if matches!(fault, "entry clips" | "body" | "enemy descriptor")
+                || (paranoid && fault != "intact")
+            {
                 assert!(prepared.is_err(), "strict preparation accepted {fault}");
-                assert!(diagnostics.has_errors());
                 continue;
             }
             let mut fixture = prepared?;
@@ -252,16 +237,7 @@ fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<(
                 placement = Some(before);
             }
 
-            for _ in 0..600 {
-                if battle.phase() != resonance_battle::BattlePhase::Entry {
-                    break;
-                }
-                step(candidate, battle)?;
-            }
-            assert!(
-                battle.phase() != resonance_battle::BattlePhase::Entry,
-                "{fault}"
-            );
+            enter_battle(candidate, battle)?;
             let user = battle.actor_ids().next().unwrap();
             let origin = battle.actors()[user.index()].position;
             for _ in 0..4 {

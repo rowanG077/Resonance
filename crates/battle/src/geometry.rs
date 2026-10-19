@@ -132,13 +132,17 @@ impl crate::Actor {
     }
 
     /// Scale and rotate an actor-local point around the current root.
-    pub(crate) fn local_point(&self, offset: [f32; 3]) -> [f32; 3] {
+    pub fn local_point(&self, offset: [f32; 3]) -> [f32; 3] {
         let offset = rotate(offset.map(|v| v * self.body.scale), self.heading);
         std::array::from_fn(|i| self.position[i] + offset[i])
     }
 
     pub fn effect_origin(&self) -> [f32; 3] {
         self.local_point(self.body.center_offset)
+    }
+
+    pub fn condition_label_origin(&self) -> [f32; 3] {
+        std::array::from_fn(|axis| self.position[axis] + 2. * self.body.center_offset[axis])
     }
 
     pub fn audio_position(&self) -> [f32; 3] {

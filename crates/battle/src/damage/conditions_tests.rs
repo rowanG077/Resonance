@@ -58,6 +58,7 @@ fn stat_conditions_change_damage_in_the_expected_direction_without_changing_base
         ),
     ] {
         let mut owner = actor(Side::Party);
+        owner.casting_state.power_percent = 100;
         owner.equipment.stats.slash = 400;
         owner.equipment.stats.intelligence = 400;
         owner.equipment.stats.accuracy = 30;
@@ -100,24 +101,30 @@ fn stat_conditions_change_damage_in_the_expected_direction_without_changing_base
 }
 
 #[test]
-fn physical_buffs_and_arte_bonus_affect_physical_hits_while_protection_reduces_both_kinds() {
+fn physical_buffs_and_protection_apply_their_damage_modifiers() {
     for kind in [DamageKind::Slash, DamageKind::Magic] {
         let mut owner = actor(Side::Party);
-        owner.equipment.stats.slash = 400;
-        owner.equipment.stats.intelligence = 400;
+        owner.casting_state.power_percent = 100;
+        owner.equipment.stats.slash = 202;
+        owner.equipment.stats.intelligence = 101;
+        owner.equipment.stats.accuracy = 15;
         let mut target = actor(Side::Enemy);
         target.hp = 2000;
         target.equipment.max_hp = 2000;
         let amount = |owner: &Actor, target: &Actor, arte| {
             let mut rule = hit(kind);
             rule.arte = arte;
+            rule.power = Power::Percent(150);
             resolve(
                 owner,
                 &mut target.clone(),
                 rule,
                 100,
                 [0.; 3],
-                &mut neutral_roll,
+                &mut |draw| match draw {
+                    Draw::Critical => 0,
+                    _ => neutral_roll(draw),
+                },
                 false,
             )
             .amount
@@ -139,11 +146,50 @@ fn physical_buffs_and_arte_bonus_affect_physical_hits_while_protection_reduces_b
             kind == DamageKind::Slash
         );
         owner.equipment.damage.physical_arte_boost = false;
+        for condition in [
+            Condition::PhysicalBarrier,
+            Condition::MagicalBarrier,
+            Condition::PhysicalProtection,
+            Condition::MagicalProtection,
+        ] {
+            owner.conditions = Conditions::new(Layers {
+                base: condition.into(),
+                ..Default::default()
+            });
+            let protected = amount(&owner, &target, false);
+            if matches!(
+                condition,
+                Condition::PhysicalProtection | Condition::MagicalProtection
+            ) {
+                assert!(protected < baseline, "{kind:?} {condition:?}");
+            } else {
+                assert_eq!(protected, baseline, "{kind:?} {condition:?}");
+            }
+        }
+
         owner.conditions = Conditions::new(Layers {
-            base: crate::conditions::PROTECTION,
+            base: Condition::Flare.into(),
             ..Default::default()
         });
-        assert!(amount(&owner, &target, false) < baseline);
+        owner.equipment.damage.physical_damage_boost = true;
+        assert_eq!(
+            amount(&owner, &target, false),
+            if kind == DamageKind::Slash { 283 } else { 151 }
+        );
+        owner.conditions = Conditions::new(Layers {
+            base: crate::conditions::PROTECTION.union(Condition::Flare.into()),
+            ..Default::default()
+        });
+        owner.equipment.damage.physical_arte_boost = true;
+        target.conditions = Conditions::new(Layers {
+            base: Condition::Guard.into(),
+            ..Default::default()
+        });
+        target.equipment.damage.physical_damage_reduction = true;
+        assert_eq!(
+            amount(&owner, &target, true),
+            if kind == DamageKind::Slash { 199 } else { 120 }
+        );
     }
 }
 
@@ -323,10 +369,12 @@ fn paralysis_applies_after_guard_break_and_refreshes_until_expiry() {
         false,
     );
     assert_eq!(target.conditions.remaining(Condition::Paralysis), Some(600));
-    for _ in 0..600 {
+    let lifetime = target.conditions.remaining(Condition::Paralysis).unwrap();
+    for _ in 0..=lifetime {
         target.advance_conditions(true);
     }
     assert_eq!(target.conditions.remaining(Condition::Paralysis), None);
+    assert!(!target.conditions.effective().contains(Condition::Paralysis));
 }
 
 #[test]
@@ -381,8 +429,10 @@ fn hit_conditions_apply_through_armor_but_skip_defeated_targets() {
 fn ailment_guards_block_their_own_group_and_explicit_immunity_blocks_both() {
     use crate::conditions::Buff;
     let owner = actor(Side::Party);
-    let physical = Buff::PhysicalAilmentGuard { persistent: false };
-    let magical = Buff::MagicalAilmentGuard { persistent: false };
+    let physical = Buff::PhysicalAilmentGuard;
+    let magical = Buff::MagicalAilmentGuard;
+    let physical_barrier = Buff::PhysicalBarrier { persistent: false };
+    let magical_barrier = Buff::MagicalBarrier { persistent: false };
     for (buff, condition, immune, accepted) in [
         (physical, HitAilment::Curse, false, false),
         (physical, HitAilment::Weak, false, true),
@@ -390,13 +440,17 @@ fn ailment_guards_block_their_own_group_and_explicit_immunity_blocks_both() {
         (magical, HitAilment::Curse, false, true),
         (physical, HitAilment::Weak, true, false),
         (magical, HitAilment::Curse, true, false),
+        (physical_barrier, HitAilment::Curse, false, false),
+        (physical_barrier, HitAilment::Weak, false, true),
+        (magical_barrier, HitAilment::Weak, false, false),
+        (magical_barrier, HitAilment::Curse, false, true),
     ] {
         let mut target = actor(Side::Enemy);
         target.hp = 1000;
         target.equipment.max_hp = 1000;
         target.conditions = Conditions::new(Layers {
             immunity: if immune {
-                Condition::from(condition).into()
+                condition.into()
             } else {
                 ConditionSet::EMPTY
             },
@@ -432,7 +486,7 @@ fn ailment_guards_block_their_own_group_and_explicit_immunity_blocks_both() {
         assert_eq!(target.hp, 1000 - result.amount);
         assert_eq!(label.is_some(), accepted, "{buff:?}/{condition:?}/{immune}");
         if accepted {
-            assert!(target.conditions.effective().contains(condition.into()));
+            assert!(target.conditions.effective().contains(condition));
         } else {
             assert_eq!(target.conditions, before);
         }

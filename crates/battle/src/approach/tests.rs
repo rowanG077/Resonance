@@ -118,6 +118,33 @@ fn approach_enters_range_and_commits_payment_and_learning_once() -> Result<()> {
             assert_eq!(battle.technique_uses(ActorId(0), 1), Some(50));
         }
     }
+    let mut battle = fixture(100., 0., 200.);
+    battle.actors[0].heading = 90.;
+    battle.actors[1].position = [100., 0., 100.];
+    let tp = battle.actors[0].tp;
+    let mut turning_updates = 0;
+    let mut started = false;
+    for _ in 0..UPDATE_BUDGET {
+        let frame = step(&mut battle)?;
+        if !frame.actions.is_empty() {
+            assert_eq!(frame.actions.len(), 1);
+            started = true;
+            break;
+        }
+        turning_updates += 1;
+        assert_eq!(battle.actors[0].tp, tp);
+    }
+    assert!(started && turning_updates > 0);
+    assert!((battle.actors[0].heading - 45.).abs() < 0.001);
+    assert_eq!(battle.actors[0].tp, tp - 7);
+    step(&mut battle)?;
+    assert_eq!(battle.actors[0].tp, tp - 7);
+
+    let mut enemy = controlled_fixture(400., 0., 100., Control::Enemy);
+    for position in [0., 0., 0.5, 1.5] {
+        step(&mut enemy)?;
+        assert_eq!(enemy.actors[0].position[0], position);
+    }
     Ok(())
 }
 
@@ -155,8 +182,13 @@ fn minimum_range_retreats_and_then_attacks() -> Result<()> {
         let mut started = false;
         let mut reached_range = false;
         let mut alignment_position = None;
+        let mut coasted = false;
         for _ in 0..UPDATE_BUDGET {
             reached_range |= battle.body_gap(ActorId(0), ActorId(1)) >= minimum;
+            let coasting = control == Control::Enemy
+                && battle.actors[0].movement.locomotion == crate::Locomotion::Action
+                && battle.actors[0].movement.forward > 0.;
+            let previous_position = battle.actors[0].position;
             started |= step(&mut battle)?.cues.iter().any(|cue| {
                 matches!(
                     cue,
@@ -166,9 +198,15 @@ fn minimum_range_retreats_and_then_attacks() -> Result<()> {
                     }
                 )
             });
+            if coasting {
+                assert!(battle.actors[0].position[0] < previous_position[0]);
+                coasted = true;
+            }
             if let Some(position) = alignment_position {
                 assert_eq!(battle.actors[0].position, position);
-            } else if battle.actors[0].movement.locomotion == crate::Locomotion::Action {
+            } else if battle.actors[0].movement.locomotion == crate::Locomotion::Action
+                && (control != Control::Enemy || battle.actors[0].movement.forward == 0.)
+            {
                 alignment_position = Some(battle.actors[0].position);
             }
             if started {
@@ -178,7 +216,10 @@ fn minimum_range_retreats_and_then_attacks() -> Result<()> {
         assert!(started, "{control:?} thresholds {minimum}/{maximum}");
         assert!(reached_range);
         assert!(battle.actors[0].position[0] < 0.);
-        if turning_body {
+        if control == Control::Enemy {
+            assert!(coasted);
+            assert_eq!(battle.actors[0].movement.forward, 0.);
+        } else if turning_body {
             assert!(battle.body_gap(ActorId(0), ActorId(1)) < minimum);
         } else {
             assert!(battle.body_gap(ActorId(0), ActorId(1)) >= minimum);
@@ -202,21 +243,16 @@ fn opposite_initial_direction_recovers_and_reaches_a_moving_target() -> Result<(
     let mut battle = fixture(300., 0., 100.);
     let parameters = battle.runtime[0].task().approach().unwrap().parameters;
     battle.actors[0].movement.direction = [-1., 0., 0.];
-    assert!(battle.request_approach(
-        ActorId(0),
-        ActorId(1),
-        crate::ActionKey(0),
-        parameters,
-    )?);
+    assert!(battle.request_approach(ActorId(0), ActorId(1), crate::ActionKey(0), parameters,)?);
     step(&mut battle)?;
     assert!(battle.actors[0].position[0] > 0.);
     assert_eq!(battle.actors[0].heading, 90.);
 
-    battle.actors[0].movement.direction = [-1., 0., 0.];
-    battle.actors[0].heading = -90.;
-    step(&mut battle)?;
-    assert!(battle.actors[0].movement.direction[2].abs() > 0.1);
     battle.actors[1].position[2] = 150.;
+    // Steering consumes the target's sampled center on the following visit.
+    step(&mut battle)?;
+    step(&mut battle)?;
+    assert!(battle.actors[0].movement.direction[2] > 0.);
     let mut started = false;
     for _ in 0..UPDATE_BUDGET {
         started |= step(&mut battle)?.cues.iter().any(|cue| {
@@ -262,17 +298,4 @@ fn interruption_drops_approach_without_moving_twice() -> Result<()> {
     assert!(battle.runtime[0].task().approach().is_none());
     assert_eq!(battle.actors[0].position, before);
     Ok(())
-}
-
-#[test]
-fn turn_is_bounded_and_handles_zero_and_opposite_directions() {
-    let current = [1., 0., 0.];
-    assert_eq!(
-        crate::control::turn_direction(current, [0.; 3], 15.),
-        current
-    );
-    let turned = crate::control::turn_direction(current, [-1., 0., 0.], 15.);
-    let angle = turned[0].atan2(turned[2]).to_degrees();
-    assert!((angle - 75.).abs() < 0.001);
-    assert!((crate::distance::length(turned) - 1.).abs() < 0.0001);
 }

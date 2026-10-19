@@ -50,6 +50,7 @@ fn prepared_fixture(control: Control) -> Result<PreparedBattle> {
         normals,
     }));
     actors[0].companion = Some(CompanionDefinition {
+        normal_attack_opening: false,
         initial_policy: [0; 3],
         defaults: [1, 5, 1],
         limits: [PolicyLimits {
@@ -323,7 +324,10 @@ fn enemy_fixture() -> Result<Battle> {
         difficulty: 0,
         choices: vec![crate::EnemyChoice {
             action: crate::ActionKey(0),
+            physical_arte: false,
             return_to_formation: true,
+            returning: None,
+            return_speed: None,
             weight: 1,
             chain_group: 0,
             followup_chance: 0,
@@ -342,6 +346,7 @@ fn enemy_fixture() -> Result<Battle> {
         walk_override: None,
         behavior: None,
         walk_motion: None,
+        run_motion: None,
         turn_ticks: 8,
     });
 

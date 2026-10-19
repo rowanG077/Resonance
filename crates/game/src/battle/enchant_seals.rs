@@ -39,12 +39,16 @@ pub(super) fn prepare(
     let tint = tints
         .effect(usize::from(index))
         .context("missing elemental seal colors")?;
+    let [r, g, b, _] = tints.actors.buff;
     Ok(PreparedSpell {
         policy: Default::default(),
         summon: None,
         projectiles: vec![],
         effects: vec![],
         recovery: vec![SpellRecovery {
+            duration: 1,
+            effect_placement: Default::default(),
+            flash: Some([r, g, b]),
             at: 0,
             benefit: SpellBenefit::Buff(Buff::Quartz(element)),
             targets: RecoveryTargets::Target,

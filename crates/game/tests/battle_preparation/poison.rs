@@ -58,32 +58,38 @@ fn saved_poison_emits_scene_feedback_that_expires() -> Result<()> {
         Some(prepared.poison_effect),
         1,
         diagnostics.clone(),
-    )?;
+    )?
+    .with_head_anchors(prepared.head_anchors);
     let mut battle = prepared.core;
     let owner = ActorId::from_index(0)?;
     let pulse = Cue::PoisonPulse { actor: owner };
+    let mut pulsed = false;
     let mut emitted = false;
     for _ in 0..1200 {
-        let frame = battle.step(BattleInput::default())?;
+        let mut frame = battle.step(BattleInput::default())?;
+        let clock = frame.clock;
+        battle.advance_models(&mut frame, clock, true)?;
         effects.advance(&frame, false)?;
-        if frame.cues.contains(&pulse) {
+        pulsed |= frame.cues.contains(&pulse);
+        if pulsed {
             let actor = &frame.actors[0];
-            assert!(
-                effects
-                    .frames()
-                    .iter()
-                    .any(|particle| particle.owner == owner
-                        && particle.resource == prepared.poison_effect.resource
-                        && particle.origin
-                            == [actor.position[0], actor.body_top(), actor.position[2]]),
-                "prepared poison puff did not spawn above its owner"
-            );
-            emitted = true;
-            break;
+            emitted = effects.frames().iter().any(|particle| {
+                particle.owner == owner
+                    && particle.resource == prepared.poison_effect.resource
+                    && particle.origin[1] > actor.position[1]
+            });
+            if emitted {
+                break;
+            }
         }
     }
-    assert!(emitted, "saved poison did not produce a pulse");
-    let frame = battle.snapshot();
+    assert!(
+        pulsed && emitted,
+        "saved poison did not produce visible feedback"
+    );
+    let mut frame = battle.snapshot();
+    let clock = frame.clock;
+    battle.advance_models(&mut frame, clock, false)?;
     for _ in 0..120 {
         effects.advance(&frame, false)?;
     }

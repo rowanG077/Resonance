@@ -61,7 +61,6 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
                         shape: contact.shape,
                         radius: contact.radius,
                         half_height: contact.height,
-                        cooldown: contact.hit.cooldown,
                     }
                 } else {
                     resonance_battle::MeleeVolume::Attached {
@@ -69,7 +68,6 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
                         shape: contact.shape,
                         radius: contact.radius,
                         half_height: contact.height,
-                        cooldown: contact.hit.cooldown,
                     }
                 };
                 AttackEvent::Contact {

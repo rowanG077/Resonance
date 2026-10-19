@@ -55,12 +55,36 @@ impl ProjectileShot {
         let mut position = std::array::from_fn(|axis| owner.position[axis] + offset[axis]);
         let mut definition = Arc::clone(&self.definition);
         if let Some(scatter) = self.scatter {
-            let mut sample =
-                |range: u16| (i32::from(battle.random.next_u16() as i16) % i32::from(range)) as f32;
-            position[0] += scatter.position_step * sample(scatter.position_range);
-            position[2] += scatter.position_step * sample(scatter.position_range);
+            #[cfg(any(test, feature = "test-support"))]
+            let observed = battle
+                .random_inputs
+                .as_mut()
+                .map(|inputs| {
+                    inputs.scatter(
+                        crate::random_inputs::Key {
+                            clock: battle.ledger.elapsed_ticks,
+                            owner: actor.index(),
+                            target: target.index(),
+                            action: action.0,
+                            contact: crate::random_inputs::Contact::Projectile(
+                                battle.next_projectile,
+                            ),
+                        },
+                        scatter,
+                    )
+                })
+                .transpose()?;
+            #[cfg(any(test, feature = "test-support"))]
+            let [x, z, lateral] =
+                observed.unwrap_or_else(|| std::array::from_fn(|_| battle.random.next_u16()));
+            #[cfg(not(any(test, feature = "test-support")))]
+            let [x, z, lateral] = std::array::from_fn(|_| battle.random.next_u16());
+            let sample =
+                |value: u16, range: u16| (i32::from(value as i16) % i32::from(range)) as f32;
+            position[0] += scatter.position_step * sample(x, scatter.position_range);
+            position[2] += scatter.position_step * sample(z, scatter.position_range);
             Arc::make_mut(&mut definition).velocity[0] +=
-                scatter.lateral_step * sample(scatter.lateral_range);
+                scatter.lateral_step * sample(lateral, scatter.lateral_range);
         }
         battle.emit_at(definition, action, actor, target, position, heading)?;
         Ok(())

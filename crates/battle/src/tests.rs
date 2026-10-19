@@ -44,10 +44,12 @@ pub(crate) fn assign_action(prepared: &mut PreparedBattle, owner: usize, action:
                 walk_override: None,
                 behavior: None,
                 walk_motion: None,
+                run_motion: None,
                 turn_ticks: 1,
             });
         definition.choices.push(EnemyChoice {
             action,
+            physical_arte: false,
             weight: 1,
             chain_group: 0,
             followup_chance: 0,
@@ -58,6 +60,8 @@ pub(crate) fn assign_action(prepared: &mut PreparedBattle, owner: usize, action:
             target_policy: None,
             target_allies: false,
             return_to_formation: false,
+            returning: None,
+            return_speed: None,
             guard_chance: 0,
             range: [0, 0],
             tp: 0,
@@ -75,7 +79,7 @@ pub(crate) fn revive(
     cues: &mut Vec<Cue>,
 ) -> anyhow::Result<()> {
     let dead = battle.actor(actor)?.availability == ActorAvailability::Dead;
-    battle.recover_vitals(actor, percent, false, cues)?;
+    battle.recover_vitals(actor, percent, false, true, cues)?;
     if dead {
         battle.enter_revival(actor, cues);
     }
@@ -315,6 +319,7 @@ pub(crate) fn model_definition(
         reactions: Default::default(),
         idle_motions: [None; 2],
         idle_expression: [0; 4],
+        forced_eye_frame: None,
         blink: None,
         weapons: vec![],
 
@@ -349,6 +354,9 @@ pub(crate) fn cast(duration: u32, cost: u16) -> ActionDefinition {
         execution: ActionExecution::Casting(Arc::new(CastingDefinition {
             chant: vec![],
             duration,
+            profile_ticks: i16::try_from(duration).unwrap(),
+            spell_ticks: 0,
+            fixed_timing: false,
             release_pose: Default::default(),
             hide_primary_weapons: false,
             recovery: 0,

@@ -29,24 +29,49 @@ fn party_rows(lanes: &[usize]) -> Vec<[f32; 2]> {
 }
 
 fn enemy_rows(lanes: &[usize]) -> Vec<[f32; 2]> {
-    const FRONT_DISTANCE: f32 = 200.;
-    const ROW_SPACING: f32 = 140.;
-    // Diagonal spacing keeps members in the same lane visibly distinct.
-    const MEMBER_SPACING: [f32; 2] = [55., 140.];
+    const ROW_X: [f32; 3] = [100., 350., 600.];
+    const DEPTH_STAGGER: [f32; 3] = [50., 50., -50.];
+    const LEADING_ROW_Z: [f32; 8] = [0., -250., 250., -450., -650., 450., 650., -800.];
+    const SINGLE_MEMBER_Z: [f32; 3] = [150., -150., 150.];
+    const MEMBER_WIDTH_SPACING: f32 = 250.;
+    const GROUP_CENTERING_STEP: f32 = 200.;
+    // Large rosters occupy a compact grid instead of extending a row beyond
+    // the arena. Normal formations keep their authored row arrangement.
+    if lanes.len() > LEADING_ROW_Z.len() {
+        let depth = (lanes.len() as f32).sqrt().ceil() as usize;
+        let width = lanes.len().div_ceil(depth);
+        const GRID_FRONT: f32 = 100.;
+        const GRID_BACK: f32 = 700.;
+        const GRID_WIDTH: f32 = 800.;
+        let depth_step = ((GRID_BACK - GRID_FRONT) / (depth - 1) as f32).min(MEMBER_WIDTH_SPACING);
+        let width_step = (GRID_WIDTH / (width - 1) as f32).min(MEMBER_WIDTH_SPACING);
+        return (0..lanes.len())
+            .map(|i| {
+                [
+                    GRID_FRONT + (i / width) as f32 * depth_step,
+                    ((i % width) as f32 - (width - 1) as f32 * 0.5) * width_step,
+                ]
+            })
+            .collect();
+    }
+    let leading_lane = lanes.iter().copied().min();
     lanes
         .iter()
         .enumerate()
         .map(|(index, &lane)| {
             let count = lanes.iter().filter(|&&other| other == lane).count();
-            let column = lanes[..index]
+            let ordinal = lanes[..index]
                 .iter()
                 .filter(|&&other| other == lane)
                 .count();
-            let offset = column as f32 - (count - 1) as f32 / 2.;
-            [
-                FRONT_DISTANCE + lane as f32 * ROW_SPACING + offset * MEMBER_SPACING[0],
-                offset * MEMBER_SPACING[1],
-            ]
+            let z = if Some(lane) == leading_lane {
+                LEADING_ROW_Z[ordinal]
+            } else if count == 1 {
+                SINGLE_MEMBER_Z[lane]
+            } else {
+                GROUP_CENTERING_STEP * (count / 2) as f32 - MEMBER_WIDTH_SPACING * ordinal as f32
+            };
+            [ROW_X[lane] + DEPTH_STAGGER[lane] * ordinal as f32, z]
         })
         .collect()
 }
@@ -86,9 +111,7 @@ pub(super) fn enemy_positions(
     mut roll: impl FnMut() -> u16,
 ) -> Result<Vec<[f32; 2]>> {
     ensure!(
-        !spawns.is_empty()
-            && spawns.len() <= resonance_battle::ENEMY_CAPACITY
-            && spawns.len() == choices.len(),
+        !spawns.is_empty() && spawns.len() == choices.len(),
         "invalid enemy placement roster"
     );
     let automatic = spawns[0].position.is_none();

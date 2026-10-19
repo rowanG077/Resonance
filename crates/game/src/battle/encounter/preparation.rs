@@ -3,7 +3,7 @@ use super::{Inputs, Prepared, RenderModel, assets::EquipmentKind, render, resour
 use crate::battle::model::MotionRole;
 use crate::battle::{self, EffectResource, command, entry, model};
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{Sound, SpellChargeDefinition};
+use resonance_battle::{Sound, SpellChargeDefinition, WeaponDefinition};
 use resonance_content::{
     battle_model, battle_profile, menu_data::MenuData, model_preview::PreviewPart,
 };
@@ -14,20 +14,7 @@ use std::{
 
 const HAMMER_MODEL: u8 = 1;
 const HAMMER_EFFECT: u16 = 14;
-
-fn enemy_aura(enemy: u8) -> Option<(u16, u16)> {
-    // Package program and observed interval, in combat updates.
-    match enemy {
-        67 => Some((1, 61)),         // Fire Element
-        117 => Some((1, 13)),        // Fire Bird
-        180 => Some((1, 12)),        // Ktugach
-        185 => Some((1, 60)),        // Iubaris
-        198 => Some((1, 120)),       // Volt
-        202 => Some((1, 60)),        // Shadow
-        236..=238 => Some((1, 250)), // Yggdrasill and Mithos
-        _ => None,
-    }
-}
+const COLETTE_WING_CENTER_RISE: f32 = 10.;
 
 /// Source state observed when the field asks to enter battle. The independent
 /// battle seed is captured once; preparation may be retried without new draws.
@@ -179,6 +166,9 @@ impl ActorRow<'_> {
     fn prepare_control(&mut self, inputs: &Inputs, level_difference: i8) -> Result<()> {
         self.setup.overlimit_gain = self.profile.overlimit_gain;
         self.setup.extended_overlimit = self.extended_overlimit;
+        self.setup.wait_for_defeat_animation = self.profile.traits.wait_for_defeat_animation;
+        self.setup.stationary_defeat =
+            self.profile.death_motion == 0 && !self.profile.traits.retain_defeated_body;
         let party = &inputs.party;
         let table = &inputs.party_profiles;
         let catalogue = &inputs.catalogue;
@@ -210,7 +200,9 @@ impl ActorRow<'_> {
                     blend: 4,
                 };
                 let duration = model.motions[&motion.clip].duration_frames / pose.rate;
-                setup.revival = Some((pose, duration.floor() as u32 + u32::from(pose.blend) + 1));
+                // Retain the final pose through completion, then initialize idle next visit.
+                let ticks = duration.floor() as u32 + u32::from(pose.blend) + 2;
+                setup.revival = Some((pose, ticks));
             }
         }
         setup.contact_recovery = !enemy || profile.traits.enemy_contact_recovery;
@@ -220,6 +212,7 @@ impl ActorRow<'_> {
             } else {
                 profile.run_speed
             },
+            run_speed: profile.run_speed,
             turn_ticks: profile.turn_ticks,
             disabled: enemy && party.settings.preferences.battle_rank >= 1,
         });
@@ -280,6 +273,10 @@ impl ActorRow<'_> {
         } = self;
         let mut controls = if let model::ModelSource::Party(character) = *source {
             battle::feedback::ActorFeedback {
+                acquisition_motion: model::common_motion(
+                    artwork.as_deref(),
+                    model::MotionRole::Acquisition,
+                ),
                 overlimit: None,
                 overlimit_voice: voices.absolute(
                     *source,
@@ -306,8 +303,17 @@ impl ActorRow<'_> {
             "invalid Over Limit effect scale"
         );
         if let Some(model) = artwork {
+            let bone = match source {
+                model::ModelSource::Party(_) => model
+                    .skeleton
+                    .bones
+                    .iter()
+                    .position(|bone| bone.name == "Bone_sebone01")
+                    .context("party model is missing its Over Limit body anchor")?,
+                _ => usize::from(profile.overlimit_bone),
+            };
             ensure!(
-                usize::from(profile.overlimit_bone) < model.skeleton.bones.len(),
+                bone < model.skeleton.bones.len(),
                 "Over Limit effect bone is missing"
             );
             controls.overlimit = Some(battle::feedback::OverLimitFeedback {
@@ -315,7 +321,9 @@ impl ActorRow<'_> {
                     resource: common_id,
                     member: 45,
                 },
-                bone: profile.overlimit_bone,
+                bone: bone
+                    .try_into()
+                    .context("Over Limit effect bone exceeds u8")?,
                 scale: profile.overlimit_scale,
             });
         }
@@ -369,12 +377,13 @@ pub struct PreparedEnemyMember {
     pub next_resource: u32,
     models: Vec<RenderModel>,
     render_trails: Vec<super::RenderTrail>,
+    weapon_groups: Vec<Vec<Arc<WeaponDefinition>>>,
 }
 
 impl Inputs {
     pub fn prepare_enemy_member(
         &self,
-        spawn: usize,
+        spawn_index: usize,
         resource: u32,
         first_resource: u32,
         random: &mut resonance_battle::Random,
@@ -382,7 +391,7 @@ impl Inputs {
         let spawn = self
             .enemies
             .spawns
-            .get(spawn)
+            .get(spawn_index)
             .context("missing enemy spawn")?;
         if let Some(reason) = &spawn.unsupported_reason {
             anyhow::bail!("{reason}");
@@ -411,6 +420,11 @@ impl Inputs {
             .get(&monster.id)
             .map(|(source, motions)| {
                 let body = (|| {
+                    ensure!(
+                        definition.profile.traits.secondary_body_entry
+                            == source.secondary_body.is_some(),
+                        "secondary body metadata is not prepared"
+                    );
                     let scene = &monster
                         .preview
                         .parts
@@ -432,8 +446,7 @@ impl Inputs {
                                 &definition.profile,
                                 actor.side,
                                 motions,
-                                actor.hp,
-                                actor.equipment.max_hp,
+                                (actor.hp, actor.equipment.max_hp),
                                 false,
                             )?,
                             suppress_root_translation: [false; 3],
@@ -447,40 +460,132 @@ impl Inputs {
         let mut handles = Handles::new(first_resource);
         let mut models = Vec::new();
         let mut render_trails = Vec::new();
+        let mut weapon_groups = Vec::new();
         if let Some(model) = &mut model {
             let source = &self.enemy_models[&monster.id].0;
+            let mut body_parts = render::enemy_body_parts(
+                &monster.preview.parts,
+                source.body_variant,
+                spawn.texture_variant,
+            )?;
+            if let Some(secondary) = &source.secondary_body {
+                body_parts.retain(|part| {
+                    !secondary
+                        .model
+                        .layers
+                        .iter()
+                        .any(|layer| layer.scene.mesh == part.scene.mesh)
+                });
+            }
             models.push(RenderModel {
                 resource,
                 skeleton: source.body.skeleton.clone(),
-                parts: render::enemy_body_parts(
-                    &monster.preview.parts,
-                    source.body_variant,
-                    spawn.texture_variant,
-                )?,
-                capacity: 1,
+                parts: body_parts,
+                instances: render::RenderInstances::Fixed(1),
                 lit: true,
-                effect: false,
                 texture_channels: definition.profile.texture_channels.clone(),
+                target_anchor: Some(render::TargetAnchor::prepare(
+                    &definition.profile.target_anchor,
+                    &source.body.skeleton,
+                )),
                 suppressed_nodes: render::suppressed_body_nodes(
                     &source.body.skeleton,
                     definition.profile.traits.show_body_attachments,
                 ),
                 weapon_style: None,
             });
+            if let Some(secondary) = &source.secondary_body {
+                let primary = secondary
+                    .model
+                    .layers
+                    .first()
+                    .context("secondary body has no layers")?;
+                let attachment = primary
+                    .attached_to
+                    .as_ref()
+                    .map(|name| {
+                        source
+                            .body
+                            .skeleton
+                            .bones
+                            .iter()
+                            .position(|bone| &bone.name == name)
+                            .map(|bone| bone as u16)
+                            .context("secondary body attachment is absent")
+                    })
+                    .transpose()?;
+                let idle = if definition.profile.initial_motion_override != 0 {
+                    definition.profile.initial_motion_override
+                } else {
+                    definition.profile.initial_motion
+                };
+                let resting = model.initial.clip == u16::from(idle);
+                let clip = if resting {
+                    if definition.profile.initial_motion_override != 0 {
+                        u16::from(definition.profile.initial_motion_override)
+                    } else {
+                        secondary.motion_offset
+                    }
+                } else {
+                    model
+                        .initial
+                        .clip
+                        .checked_add(secondary.motion_offset)
+                        .context("secondary body entry clip overflow")?
+                };
+                let duration = primary
+                    .scene
+                    .clips
+                    .iter()
+                    .find(|motion| motion.resource_slot == clip)
+                    .context("secondary body entry motion is absent")?
+                    .duration_seconds
+                    * resonance_content::animation::FRAME_HZ;
+                ensure!(
+                    duration.is_finite() && duration > 0.,
+                    "invalid secondary body entry duration"
+                );
+                let initial = resonance_battle::Playback {
+                    clip,
+                    frame: if resting && model.initial.frame == 0. {
+                        f32::from(random.next_u16()) % duration
+                    } else {
+                        model.initial.frame
+                    },
+                    ..model.initial
+                };
+                let mut secondary_models = Vec::new();
+                let resources = render_weapon_layers(
+                    &secondary.model,
+                    Default::default(),
+                    &mut handles,
+                    &mut secondary_models,
+                );
+                for render in &mut secondary_models {
+                    render.weapon_style = None;
+                }
+                let component = battle::weapon::secondary_body(
+                    &self.files,
+                    secondary,
+                    &resources,
+                    attachment,
+                    initial,
+                )?;
+                Arc::get_mut(model)
+                    .context("enemy body shared before secondary body")?
+                    .weapons
+                    .push(component);
+                models.extend(secondary_models);
+            }
             ensure!(
                 spawn.weapon_variant == 0 || source.attachments.contains_key(&0),
                 "enemy weapon variant has no equipped attachment"
             );
-            for (&slot, base_part) in &source.attachments {
-                let (part, trail) = if slot == 0 && spawn.weapon_variant != 0 {
-                    let variant = source
-                        .weapon_variants
-                        .get(&spawn.weapon_variant)
-                        .context("enemy weapon variant is not prepared")?;
-                    (&variant.model, Some(&variant.trail))
-                } else {
-                    (base_part, source.trails.get(&slot))
-                };
+            let mut prepare_weapon = |slot,
+                                      part: &battle_model::ModelPart,
+                                      trail: Option<&battle_model::TrailMaterial>,
+                                      animation: Option<&battle_model::AttachmentAnimation>|
+             -> Result<Option<Arc<WeaponDefinition>>> {
                 let mut render = Vec::new();
                 let prepared = (|| {
                     let style = *definition
@@ -507,15 +612,21 @@ impl Inputs {
                                 repeat: true,
                             })
                         });
-                    let weapon = battle::weapon::prepare(
+                    let mut weapon = battle::weapon::prepare(
                         &self.files,
                         part,
                         slot,
                         bone,
                         &resources,
                         playback,
-                        None,
+                        animation,
                     )?;
+                    Arc::get_mut(&mut weapon)
+                        .context("enemy attachment shared before initialization")?
+                        .initially_visible = definition
+                        .weapon_visibility
+                        .get(&slot)
+                        .is_none_or(|visibility| visibility.visible(spawn_index));
                     Ok(weapon)
                 })();
                 let Some(weapon) = self
@@ -523,13 +634,9 @@ impl Inputs {
                     .diagnostics()
                     .attempt("enemy attachment", prepared)?
                 else {
-                    continue;
+                    return Ok(None);
                 };
                 let resource = weapon.primary_resource();
-                Arc::get_mut(model)
-                    .context("enemy body shared before attachment")?
-                    .weapons
-                    .push(weapon);
                 models.extend(render);
                 if let Some(&material) = trail
                     && let Some(render) = render::weapon_trail(
@@ -544,6 +651,63 @@ impl Inputs {
                 {
                     render_trails.push(render);
                 }
+                Ok(Some(weapon))
+            };
+            let mut prepared_weapons = BTreeMap::new();
+            for (&slot, base_part) in &source.attachments {
+                let (part, trail, animation) = if slot == 0 && spawn.weapon_variant != 0 {
+                    let variant = source
+                        .weapon_variants
+                        .get(&spawn.weapon_variant)
+                        .context("enemy weapon variant is not prepared")?;
+                    (
+                        &variant.model,
+                        Some(&variant.trail),
+                        variant.animation.as_ref(),
+                    )
+                } else {
+                    (
+                        base_part,
+                        source.trails.get(&slot),
+                        source.uv_animation.get(&slot),
+                    )
+                };
+                if let Some(weapon) = prepare_weapon(slot, part, trail, animation)? {
+                    prepared_weapons.insert((slot, slot), Arc::clone(&weapon));
+                    Arc::get_mut(model)
+                        .context("enemy body shared before attachment")?
+                        .weapons
+                        .push(weapon);
+                }
+            }
+            if let Some(resonance_content::battle_action::EnemyBehavior::ActionWeapons {
+                groups,
+                ..
+            }) = &definition.actions.policy.behavior
+            {
+                for group in groups {
+                    let mut weapons = Vec::new();
+                    for &(identity, slot) in group {
+                        if let std::collections::btree_map::Entry::Vacant(entry) =
+                            prepared_weapons.entry((identity, slot))
+                        {
+                            let variant = source
+                                .weapon_variants
+                                .get(&identity)
+                                .context("enemy action weapon is not prepared")?;
+                            let weapon = prepare_weapon(
+                                slot,
+                                &variant.model,
+                                Some(&variant.trail),
+                                variant.animation.as_ref(),
+                            )?
+                            .context("enemy action weapon artwork is missing")?;
+                            entry.insert(weapon);
+                        }
+                        weapons.push(Arc::clone(&prepared_weapons[&(identity, slot)]));
+                    }
+                    weapon_groups.push(weapons);
+                }
             }
         }
         Ok(PreparedEnemyMember {
@@ -552,6 +716,7 @@ impl Inputs {
             next_resource: handles.resource,
             models,
             render_trails,
+            weapon_groups,
         })
     }
 
@@ -591,7 +756,7 @@ impl Inputs {
         let mut body = None;
         if let (Some(source), Some(setup)) = (&input.source, setup.model) {
             let resource = setup.resource;
-            let prepared = (|| {
+            let prepared: Result<_> = (|| {
                 let body = model::body(
                     &self.files,
                     &source.body,
@@ -604,13 +769,16 @@ impl Inputs {
                 let render = RenderModel {
                     resource,
                     skeleton: source.body.skeleton.clone(),
-                    capacity: 1,
+                    instances: render::RenderInstances::Fixed(1),
                     lit: true,
-                    effect: false,
                     texture_channels: render::party_texture_channels(
                         &profile.texture_channels,
                         source.parts.first().context("missing party body")?,
                     )?,
+                    target_anchor: Some(render::TargetAnchor::prepare(
+                        &profile.target_anchor,
+                        &source.body.skeleton,
+                    )),
                     suppressed_nodes: render::suppressed_body_nodes(
                         &source.body.skeleton,
                         profile.traits.show_body_attachments,
@@ -631,14 +799,10 @@ impl Inputs {
                 };
                 Ok((body, render))
             })();
-            if let Some((prepared, render)) = self
-                .files
-                .diagnostics()
-                .attempt("party body artwork", prepared)?
-            {
-                body = Some(prepared);
-                models.push(render);
-            }
+            let (prepared, render) =
+                prepared.with_context(|| format!("party body for character {character}"))?;
+            body = Some(prepared);
+            models.push(render);
         }
         let current = &self.party.members[usize::from(character - 1)];
         let performances =
@@ -659,15 +823,8 @@ impl Inputs {
                 let shield = matches!(kind, EquipmentKind::Shield);
                 let component =
                     self.prepare_equipment(character, profile, source, item, shield, &mut handles);
-                let Some(mut component) = self.files.diagnostics().attempt(
-                    "battle equipment artwork",
-                    component.with_context(|| {
-                        format!("equipment item {item} for character {character}")
-                    }),
-                )?
-                else {
-                    continue;
-                };
+                let mut component = component
+                    .with_context(|| format!("equipment item {item} for character {character}"))?;
                 models.append(&mut component.models);
                 render_trails.append(&mut component.render_trails);
                 if current.equipment[if shield { 5 } else { 0 }] == item {
@@ -753,8 +910,22 @@ impl Inputs {
         let mut render_trails = Vec::new();
         let mut rows = Vec::new();
         let mut bindings = battle::ActionDefinitions::default();
-        let mut feedback = battle::feedback::Feedback::default();
-        let mut common_members = BTreeSet::from([9, 14, 15, 17, 19, 42, 44, 45, 48, 50]);
+        let mut feedback = battle::feedback::Feedback {
+            target_changed: sound(battle::voice::Sound::Cue(battle::audio::TARGET_CHANGED))?,
+            result_advancement: Some(resonance_battle::EffectAppearance {
+                resource: common_id,
+                member: 20,
+            }),
+            result_advancement_sound: sound(Sound::Cue(battle::audio::RESULT_ADVANCEMENT))?,
+            acquisition: Some(resonance_battle::EffectAppearance {
+                resource: common_id,
+                member: 13,
+            }),
+            acquisition_sound: sound(Sound::Cue(77))?,
+            ..Default::default()
+        };
+        let mut common_members =
+            BTreeSet::from([9, 13, 14, 15, 17, 19, 20, 42, 43, 44, 45, 46, 48, 50]);
         let mut performances = Vec::new();
         let mut prepared_equipment = BTreeMap::new();
         let mut postures = Vec::new();
@@ -776,8 +947,7 @@ impl Inputs {
                         profile,
                         resonance_battle::Side::Party,
                         motions,
-                        i32::from(member.hp),
-                        loadout.attributes.max_hp,
+                        (i32::from(member.hp), loadout.attributes.max_hp),
                         member.ailments.petrified,
                     )
                     .with_context(|| format!("initial playback for character {character}")),
@@ -804,6 +974,31 @@ impl Inputs {
                 handles.resource,
                 style.celebrate.then_some(victory),
             )?;
+            if let Some(eyes) = resonance_content::appearance::forced_face(
+                u32::from(character),
+                options.colette_state,
+            ) && let Some(model) = &mut prepared.model
+            {
+                Arc::make_mut(model).forced_eye_frame = Some(eyes);
+            }
+            if let Some(name) = resonance_content::appearance::hidden_accessory(
+                u32::from(character),
+                &options.event_flags,
+            ) && let Some(body) = prepared
+                .models
+                .iter_mut()
+                .find(|body| body.resource == resource)
+                && let Some(node) = body
+                    .skeleton
+                    .bones
+                    .iter()
+                    .position(|bone| bone.name == name)
+            {
+                body.suppressed_nodes.insert(node);
+            }
+            if character == battle::party::Character::Colette as u8 && options.colette_state != 0 {
+                prepared.actor.body.center_offset[1] += COLETTE_WING_CENTER_RISE;
+            }
             if self.events.is_some() && character == 9 {
                 prepared.actor.availability = resonance_battle::ActorAvailability::Absent;
             }
@@ -938,7 +1133,8 @@ impl Inputs {
             .flat_map(|art| &art.models)
         {
             let resource = handles.resource();
-            if let Some((model, render)) = render::effect_model(&self.files, part, resource)? {
+            if let Some((model, render)) = render::effect_model(&self.files, part, resource, false)?
+            {
                 technique_models.insert(slot, model);
                 models.push(render);
             }
@@ -969,7 +1165,7 @@ impl Inputs {
                     .get(&0)
                     .context("Colette's primary weapon artwork is missing")?;
                 if let Some((model, render)) =
-                    render::effect_model(&self.files, part, handles.resource())?
+                    render::effect_model(&self.files, part, handles.resource(), true)?
                 {
                     variants.insert(weapon.primary_resource(), model);
                     models.push(render);
@@ -1022,11 +1218,10 @@ impl Inputs {
             {
                 let model_resource = handles.resource();
                 if let Some((model, mut render)) =
-                    render::effect_model(&self.files, part, model_resource)?
+                    render::effect_model(&self.files, part, model_resource, false)?
                 {
                     if independent == Some(slot) {
-                        render.effect = false;
-                        render.capacity = instances;
+                        render.instances = render::RenderInstances::Fixed(instances);
                     }
                     prepared.insert(slot, model);
                     models.push(render);
@@ -1038,34 +1233,61 @@ impl Inputs {
                 })?;
                 independent_models.extend(std::iter::repeat_n(model.clone(), instances));
             }
-            let mut bank = bank.cloned();
-            if enemy == 67 {
-                let bank = Arc::make_mut(bank.as_mut().context("missing Fire Element aura bank")?);
-                // Only passive program 1 uses these three declarations. Its
-                // particles remain visible through age 61 before renewal.
-                for member in [0, 1, 2] {
-                    let particle = bank
-                        .actors
-                        .get_mut(member)
-                        .context("missing Fire Element aura particle")?
-                        .template_mut()?;
-                    ensure!(
-                        particle.lifetime == Some(60),
-                        "unexpected Fire Element aura lifetime"
-                    );
-                    particle.lifetime = Some(61);
+            let mut members: BTreeSet<_> = self.enemy_definitions[&enemy]
+                .profile
+                .passive_effects
+                .iter()
+                .map(|effect| effect.program)
+                .collect();
+            members.extend(
+                self.enemy_definitions[&enemy]
+                    .profile
+                    .idle_effect
+                    .map(|effect| effect.program),
+            );
+            members.extend(
+                self.enemy_definitions[&enemy]
+                    .profile
+                    .movement_effect
+                    .map(|effect| effect.program),
+            );
+            if let Some(resonance_content::battle_action::EnemyBehavior::ActionWeapons {
+                effect,
+                ..
+            }) = &self.enemy_definitions[&enemy].actions.policy.behavior
+            {
+                members.insert(*effect);
+            }
+            if let Some((model, _)) = self.enemy_models.get(&enemy) {
+                members.extend(model.uv_animation.iter().filter_map(|(&slot, animation)| {
+                    (animation.effect_interval != 0).then_some(u16::from(slot))
+                }));
+                if model.weapon_variants.values().any(|variant| {
+                    variant
+                        .animation
+                        .as_ref()
+                        .is_some_and(|animation| animation.effect_interval != 0)
+                }) {
+                    members.insert(0);
                 }
             }
-            let members = enemy_aura(enemy)
-                .map(|(program, _)| program)
-                .into_iter()
-                .collect();
+            if let Some(resonance_content::battle_enemy::Opening::Entrance(entrance)) = self
+                .enemy_definitions[&enemy]
+                .presentation
+                .as_ref()
+                .and_then(|presentation| presentation.opening.as_ref())
+            {
+                members.extend(entrance.cues.iter().filter_map(|(_, cue)| match cue {
+                    resonance_content::battle_enemy::EntranceCue::Effect(member) => Some(*member),
+                    _ => None,
+                }));
+            }
             enemy_banks.insert(
                 enemy,
                 EffectResource {
-                    bank,
+                    bank: bank.cloned(),
                     resource,
-                    members,
+                    members: members.into_iter().collect(),
                     models: prepared,
                 },
             );
@@ -1090,6 +1312,7 @@ impl Inputs {
             .map(|(&id, bank)| Ok((id, prepare_scene(bank)?)))
             .collect::<Result<BTreeMap<_, _>>>()?;
         let mut enemy_resources = BTreeMap::new();
+        let mut enemy_weapon_groups = BTreeMap::new();
         let mut result_enemies = Vec::new();
         let mut enemy_entry_rows = Vec::new();
         for (spawn_index, spawn) in self.enemies.spawns.iter().enumerate() {
@@ -1110,12 +1333,19 @@ impl Inputs {
                     .iter_mut()
                     .find(|existing| existing.resource == model.resource)
                 {
-                    existing.capacity += model.capacity;
+                    match (&mut existing.instances, model.instances) {
+                        (
+                            render::RenderInstances::Fixed(total),
+                            render::RenderInstances::Fixed(count),
+                        ) => *total += count,
+                        _ => anyhow::bail!("duplicate particle render resource"),
+                    }
                 } else {
                     models.push(model);
                 }
             }
             render_trails.extend(prepared.render_trails);
+            enemy_weapon_groups.insert(rows.len(), prepared.weapon_groups);
             let actor = prepared.actor;
             let model = prepared.model;
             enemy_entry_rows.push(source.entry_row);
@@ -1127,15 +1357,43 @@ impl Inputs {
                 steal_chance: monster.steal_chance,
                 reward: battle::rewards::EnemyReward::from_monster(monster, spawn.variant)?,
             });
-            if let Some((member, interval)) = enemy_aura(monster.id) {
-                passive_effects.push((
-                    resonance_battle::ActorId::from_index(rows.len())?,
-                    resonance_battle::EffectAppearance {
+            for (effect, idle_only) in source
+                .profile
+                .passive_effects
+                .iter()
+                .map(|effect| (effect, false))
+                .chain(
+                    source
+                        .profile
+                        .idle_effect
+                        .iter()
+                        .map(|effect| (effect, true)),
+                )
+            {
+                passive_effects.push(resonance_battle::PassiveEffect {
+                    actor: resonance_battle::ActorId::from_index(rows.len())?,
+                    appearance: resonance_battle::EffectAppearance {
                         resource: enemy_banks[&monster.id].resource,
-                        member,
+                        member: effect.program,
                     },
-                    interval,
-                ));
+                    interval: effect.interval,
+                    idle_only,
+                    weapon: None,
+                });
+            }
+            for weapon in model.iter().flat_map(|model| &model.weapons) {
+                if let Some(interval) = weapon.effect_interval {
+                    passive_effects.push(resonance_battle::PassiveEffect {
+                        actor: resonance_battle::ActorId::from_index(rows.len())?,
+                        appearance: resonance_battle::EffectAppearance {
+                            resource: enemy_banks[&monster.id].resource,
+                            member: u16::from(weapon.slot),
+                        },
+                        interval,
+                        idle_only: false,
+                        weapon: Some(weapon.primary_resource()),
+                    });
+                }
             }
             rows.push(ActorRow {
                 actor,
@@ -1148,7 +1406,20 @@ impl Inputs {
                     .context("unsupported enemy target strategy")?,
                 source: model::ModelSource::Enemy(monster.id),
                 model,
-                setup: Default::default(),
+                setup: resonance_battle::ActorSetup {
+                    target_excluded: source.profile.hosted_body.is_some(),
+                    resists_cyclone: source.profile.camera_category >= 2,
+                    movement_effect: source.profile.movement_effect.map(|effect| {
+                        (
+                            resonance_battle::EffectAppearance {
+                                resource: enemy_banks[&monster.id].resource,
+                                member: effect.program,
+                            },
+                            effect.interval,
+                        )
+                    }),
+                    ..Default::default()
+                },
             });
         }
         let enemy_positions =
@@ -1224,8 +1495,17 @@ impl Inputs {
         for (row_index, row) in rows.iter_mut().enumerate() {
             match row.source {
                 model::ModelSource::Party(character) => {
-                    let actions =
-                        resources.party(character, row.model.as_deref(), &mut bindings)?;
+                    let null_motions = &self.party_actors[row_index]
+                        .source
+                        .as_ref()
+                        .context("party model is not prepared")?
+                        .null_motions;
+                    let actions = resources.party(
+                        character,
+                        row.model.as_deref(),
+                        null_motions,
+                        &mut bindings,
+                    )?;
                     let member = &party.members[usize::from(character - 1)];
                     for technique in member
                         .techniques
@@ -1240,12 +1520,38 @@ impl Inputs {
                     }) {
                         row.setup.spell_charge = None;
                     }
+                    if character == battle::party::Character::Colette as u8 {
+                        use battle::colette_spells::{HOLY_JUDGMENT, HOLY_SONG, JUDGMENT};
+                        const TRAINED_SPELL_USES: u16 = 50;
+                        const HOLY_JUDGMENT_ONE_IN: u16 = 16;
+                        row.setup.cast_replacement = Some(resonance_battle::CastReplacement {
+                            input: *actions
+                                .techniques
+                                .get(&HOLY_SONG)
+                                .context("Holy Song is not prepared")?,
+                            output: *actions
+                                .techniques
+                                .get(&HOLY_JUDGMENT)
+                                .context("Holy Judgment is not prepared")?,
+                            required_uses: &[
+                                (HOLY_SONG, TRAINED_SPELL_USES),
+                                (JUDGMENT, TRAINED_SPELL_USES),
+                            ],
+                            one_in: HOLY_JUDGMENT_ONE_IN,
+                        });
+                    }
                     row.actions = Some(actions);
                 }
                 model::ModelSource::Enemy(enemy) => {
                     let source = &self.enemy_definitions[&enemy];
-                    let actions =
-                        resources.enemy(enemy, row.model.as_deref(), source, &mut bindings)?;
+                    let weapon_groups = enemy_weapon_groups.remove(&row_index).unwrap_or_default();
+                    let actions = resources.enemy(
+                        enemy,
+                        row.model.as_deref(),
+                        source,
+                        &weapon_groups,
+                        &mut bindings,
+                    )?;
                     let mut decision = battle::ai::definition(
                         enemy,
                         source,
@@ -1255,6 +1561,43 @@ impl Inputs {
                     )?;
                     decision.walk_motion =
                         model::common_motion(row.model.as_deref(), MotionRole::Walk);
+                    if let Some(resonance_content::battle_action::EnemyBehavior::ActionWeapons {
+                        actions,
+                        idle_group,
+                        effect,
+                        anchors,
+                        drop_on_hurt,
+                        ..
+                    }) = &source.actions.policy.behavior
+                    {
+                        let model = row.model.as_ref().context("missing enemy weapon model")?;
+                        let body = &self.enemy_models[&enemy].0.body;
+                        let anchor = |slot| -> Result<_> {
+                            Ok(resonance_battle::MeleeAnchor {
+                                resource: model.resource,
+                                bone: *body
+                                    .attachments
+                                    .get(&slot)
+                                    .context("missing enemy weapon effect attachment")?,
+                            })
+                        };
+                        decision.behavior = Some(resonance_battle::EnemyBehavior::ActionWeapons {
+                            groups: weapon_groups,
+                            actions: actions.clone(),
+                            idle_group: *idle_group,
+                            effect: resonance_battle::EffectAppearance {
+                                resource: resources.enemy_effects[&enemy].resource,
+                                member: *effect,
+                            },
+                            anchors: anchors
+                                .iter()
+                                .map(|&slot| anchor(slot))
+                                .collect::<Result<_>>()?,
+                            drop_on_hurt: drop_on_hurt
+                                .map(|drop| Ok::<_, anyhow::Error>((drop, anchor(drop.slot)?)))
+                                .transpose()?,
+                        });
+                    }
                     if enemy == 191 {
                         battle::enemy_stage::apply_sword(
                             self.enemies.spawns[row_index - self.party_actors.len()].variant,
@@ -1323,6 +1666,43 @@ impl Inputs {
                     .context("Defense System core body is not prepared")?,
             )?)
         };
+        let mut hosted_participants = Vec::new();
+        if defense_system.is_none()
+            && let Some(host) = rows.get(self.party_actors.len())
+            && host.profile.traits.hosts_participants
+        {
+            for (slot, row) in rows[self.party_actors.len()..].iter().enumerate().skip(1) {
+                let Some(release) = row.profile.hosted_body else {
+                    continue;
+                };
+                let model = host
+                    .model
+                    .as_deref()
+                    .context("participant host body is not prepared")?;
+                let marker = format!("pa{:02}_", slot - 1);
+                let bone = model
+                    .skeleton
+                    .bones
+                    .iter()
+                    .position(|bone| bone.name.to_ascii_lowercase().starts_with(&marker))
+                    .with_context(|| format!("participant host is missing {marker} attachment"))?;
+                hosted_participants.push(resonance_battle::HostedParticipant {
+                    actor: ids[self.party_actors.len() + slot],
+                    host: ids[self.party_actors.len()],
+                    anchor: resonance_battle::MeleeAnchor {
+                        resource: model.resource,
+                        bone: bone.try_into()?,
+                    },
+                    release,
+                    released_hurt: [
+                        model::common_motion(row.model.as_deref(), MotionRole::Hurt),
+                        model::motion(row.model.as_deref(), 4).or_else(|| {
+                            model::common_motion(row.model.as_deref(), MotionRole::Hurt)
+                        }),
+                    ],
+                });
+            }
+        }
         let empty_weapons = BTreeMap::new();
         let unison_members: Vec<_> = rows
             .iter()
@@ -1378,6 +1758,7 @@ impl Inputs {
             )?)
         };
         let mut action_resources = resources.prepared;
+        let enemy_effects = resources.enemy_effects;
         let ambient_effect = if let Some(interval) = self.stage.recurring_interval {
             let resource = handles.resource();
             action_resources.effect(EffectResource {
@@ -1441,16 +1822,53 @@ impl Inputs {
             let model::ModelSource::Enemy(enemy) = source else {
                 continue;
             };
-            if let Some(mut presentation) = self.enemy_definitions[&enemy].presentation {
-                if let Some(opening) = &mut presentation.opening {
-                    opening.sound = voices.absolute(source, opening.sound, &mut sound)?;
+            if let Some(mut presentation) = self.enemy_definitions[&enemy].presentation.clone() {
+                use resonance_content::battle_enemy::{EntranceCue, Opening};
+                match &mut presentation.opening {
+                    Some(Opening::Voice(opening)) => {
+                        opening.sound = voices.absolute(source, opening.sound, &mut sound)?;
+                    }
+                    Some(Opening::Entrance(entrance)) => {
+                        for (_, cue) in &mut entrance.cues {
+                            match cue {
+                                EntranceCue::Voice(line) => {
+                                    *line = voices
+                                        .absolute(source, Some(*line), &mut sound)?
+                                        .context("entrance voice is unavailable")?
+                                }
+                                EntranceCue::Sound(line) => {
+                                    *line =
+                                        sound(*line)?.context("entrance sound is unavailable")?
+                                }
+                                EntranceCue::Pose { clip, .. } => ensure!(
+                                    rows[index]
+                                        .model
+                                        .as_ref()
+                                        .is_some_and(|model| model.motions.contains_key(clip)),
+                                    "entrance motion {clip} is unavailable"
+                                ),
+                                _ => {}
+                            }
+                        }
+                    }
+                    None => {}
                 }
-                enemy_presentations.push((ids[index], presentation));
+                enemy_presentations.push(resonance_battle::EnemyPresentation {
+                    actor: ids[index],
+                    definition: presentation,
+                    model: rows[index]
+                        .model
+                        .as_ref()
+                        .context("enemy presentation model is missing")?
+                        .resource,
+                    effects: enemy_effects[&enemy].resource,
+                });
             }
         }
         let enemy_opening = self.events.is_none()
-            && enemy_presentations.iter().any(|(actor, presentation)| {
-                actor.index() == self.party_actors.len() && presentation.opening.is_some()
+            && enemy_presentations.iter().any(|prepared| {
+                prepared.actor.index() == self.party_actors.len()
+                    && prepared.definition.opening.is_some()
             });
         if self.enemies.settings.entry_voice && !enemy_opening {
             let mut choices = Vec::new();
@@ -1521,6 +1939,9 @@ impl Inputs {
             leader: ids[camera_leader],
             stage_pitch: self.stage.camera_pitch_offset,
             auto_zoom: party.settings.preferences.battle_auto_zoom,
+            yaw_limits: defense_system
+                .as_ref()
+                .map(|_| battle::defense_system::CAMERA_YAW_LIMITS),
         };
         let items_forbidden = self
             .enemy_definitions
@@ -1576,25 +1997,69 @@ impl Inputs {
                 feedback.self_cure_notice = Some(notice);
             }
         }
+        let stun_particle = self
+            .common_effects
+            .as_ref()
+            .map(|source| {
+                self.files.diagnostics().attempt(
+                    "stun bird artwork",
+                    source.particle(19).map(|data| {
+                        Arc::new(resonance_battle::ParticleDefinition {
+                            resource: common_id,
+                            member: 19,
+                            model: None,
+                            data: data.clone(),
+                        })
+                    }),
+                )
+            })
+            .transpose()?
+            .flatten();
         let effects = action_resources
             .effects
             .values()
             .filter_map(|effect| effect.bank.as_ref().map(|source| (effect, source)))
             .map(|(effect, source)| {
-                render::effects(
+                let mut render = render::effects(
                     effect.resource,
                     source,
                     &effect.members,
                     tints.as_ref(),
                     self.files.diagnostics(),
-                )
+                )?;
+                if effect.resource == common_id && stun_particle.is_some() {
+                    render.members.insert(19);
+                }
+                Ok(render)
             })
             .collect::<Result<_>>()?;
+        let head_anchors = rows
+            .iter()
+            .map(|row| {
+                let mut anchor = row.profile.head_anchor;
+                if let Some(model) = &row.model {
+                    if matches!(row.source, model::ModelSource::Party(_)) {
+                        anchor.bone = model
+                            .skeleton
+                            .bones
+                            .iter()
+                            .position(|bone| bone.name == "Bone_atama")
+                            .and_then(|index| u8::try_from(index).ok())
+                            .unwrap_or(0);
+                    } else if usize::from(anchor.bone) >= model.skeleton.bones.len() {
+                        anchor.bone = 0;
+                    }
+                }
+                anchor
+            })
+            .collect();
         let model_definitions = rows.iter().map(|row| row.model.clone()).collect();
         let participants = rows.into_iter().map(|row| (row.actor, row.setup)).collect();
         let mut core =
             resonance_battle::PreparedBattle::new(participants, bindings, random.state())?
+                .with_formation_count(self.setup.formations()?.len())?
                 .with_enemy_presentations(enemy_presentations)?
+                .with_hosted_participants(hosted_participants)?
                 .with_entry_choices(entry_choices)?
                 .with_arena_boundary()
                 .with_hover_bobbing(hover_bobbing)?
@@ -1658,13 +2123,17 @@ impl Inputs {
                 let Some(profile) = &voices.profile(source)?.voices else {
                     continue;
                 };
-                let mut choices = Vec::new();
-                for &line in &profile.victory {
-                    if let Some(voice) = voices.absolute(source, Some(line), &mut sound)? {
-                        choices.push(voice);
-                    }
-                }
-                if !choices.is_empty() {
+                let choices = profile
+                    .victory
+                    .iter()
+                    .map(|pair| {
+                        Ok([
+                            voices.absolute(source, Some(pair[0]), &mut sound)?,
+                            voices.absolute(source, Some(pair[1]), &mut sound)?,
+                        ])
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                if choices.iter().flatten().any(Option::is_some) {
                     victory_voices.insert(character, choices);
                 }
             }
@@ -1710,6 +2179,7 @@ impl Inputs {
             level_difference,
             actors: party_roster,
             formation: self.setup.formation()?,
+            formation_count: self.setup.formations()?.len(),
             style,
             story: options
                 .story
@@ -1772,6 +2242,12 @@ impl Inputs {
                 resource: common_id,
                 member: 44,
             },
+            holy_song_effect: resonance_battle::EffectAppearance {
+                resource: common_id,
+                member: 43,
+            },
+            stun_particle,
+            head_anchors,
             ambient_effect,
             passive_effects,
             trails: render_trails,
@@ -1838,12 +2314,12 @@ fn render_weapon_layers(
                 resource,
                 skeleton: skeleton.clone(),
                 parts: vec![layer],
-                capacity: 1,
+                instances: render::RenderInstances::Fixed(1),
                 lit: true,
-                effect: false,
                 texture_channels: vec![],
                 suppressed_nodes: BTreeSet::new(),
                 weapon_style: Some(style),
+                target_anchor: None,
             });
             resource
         })

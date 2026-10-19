@@ -11,6 +11,7 @@ struct Link {
     anchor: MeleeAnchor,
     hidden: bool,
     release_kind: crate::RecoilKind,
+    release_hitstun: Option<u16>,
 }
 
 #[derive(Debug, Default)]
@@ -34,6 +35,14 @@ impl Battle {
 
     pub(crate) fn is_captured(&self, victim: ActorId) -> bool {
         self.runtime[victim.index()].capture.held_by.is_some()
+    }
+
+    #[cfg(feature = "test-support")]
+    pub fn fixture_capture(&self, victim: ActorId) -> Option<(ActorId, bool)> {
+        self.runtime[victim.index()]
+            .capture
+            .held_by
+            .map(|link| (link.captor, link.hidden))
     }
 
     pub(crate) fn capture_contact(
@@ -75,6 +84,7 @@ impl Battle {
             anchor,
             hidden: false,
             release_kind: self.actors[victim.index()].reaction.recoil.kind,
+            release_hitstun: None,
         };
         self.runtime[captor.index()].capture.held_victim = Some(victim);
         self.runtime[victim.index()].capture.held_by = Some(link);
@@ -83,7 +93,11 @@ impl Battle {
     }
 
     /// Use the completed model pose. Neither hurt timing nor velocity advances here.
-    pub(crate) fn follow_capture(&mut self, victim: ActorId) -> Result<bool> {
+    pub(crate) fn follow_capture(
+        &mut self,
+        victim: ActorId,
+        placements: &[Option<resonance_content::animation::Matrix>],
+    ) -> Result<bool> {
         let Some(link) = self.runtime[victim.index()].capture.held_by else {
             return Ok(false);
         };
@@ -100,13 +114,21 @@ impl Battle {
             self.interrupt_capture(link.captor);
             return Ok(false);
         }
+        let placement = placements
+            .get(link.captor.index())
+            .copied()
+            .flatten()
+            .context("capture lost captor placement")?;
         let mut position = self
             .models
             .as_ref()
             .context("capture lost model playback")?
-            .anchor(link.captor, link.anchor)?;
+            .anchor_at(link.captor, link.anchor, Some(placement))?;
         position[1] -= self.actors[victim.index()].body.center_offset[1];
         self.actors[victim.index()].position = position;
+        if let Some(hitstun) = link.release_hitstun {
+            self.release_captured(link.captor, hitstun);
+        }
         Ok(true)
     }
 
@@ -143,7 +165,16 @@ impl Battle {
         }
     }
 
-    pub(crate) fn release_captured(&mut self, captor: ActorId, hitstun: u16) {
+    /// Finish following this update's attachment before applying the release impulse.
+    pub(crate) fn request_capture_release(&mut self, captor: ActorId, hitstun: u16) {
+        if let Some(victim) = self.held_victim(captor)
+            && let Some(link) = &mut self.runtime[victim.index()].capture.held_by
+        {
+            link.release_hitstun = Some(hitstun);
+        }
+    }
+
+    fn release_captured(&mut self, captor: ActorId, hitstun: u16) {
         let Some(victim) = self.runtime[captor.index()].capture.held_victim.take() else {
             return;
         };
@@ -164,7 +195,7 @@ impl Battle {
             },
         );
         // Clamp the release point without integrating the authored impulse twice.
-        self.constrain_actor(victim.index());
+        self.constrain_actor(victim.index(), None);
     }
 
     pub(crate) fn interrupt_capture(&mut self, captor: ActorId) {
@@ -273,7 +304,6 @@ mod tests {
                             shape: crate::HitShape::Sphere,
                             radius: 60.,
                             half_height: 0.,
-                            cooldown: 1,
                         },
                         trail: None,
                         hit: crate::HitRule {
@@ -322,6 +352,9 @@ mod tests {
                     definition: Arc::new(terminal_contact),
                 },
             ));
+            crate::tests::attack_mut(&mut action)
+                .events
+                .push((3, AttackEvent::ReleaseCaptured { hitstun: 30 }));
             let mut prepared = crate::PreparedBattle::new(
                 vec![(target, Default::default()), (owner, Default::default())],
                 vec![action].into(),
@@ -436,11 +469,20 @@ mod tests {
             battle.captured_visibility(captor, true);
             visible(&mut battle, true)?;
             battle.captured_visibility(captor, false);
-            battle.release_captured(captor, 30);
+            battle.step(BattleInput::default())?;
             visible(&mut battle, true)?;
             assert!(!battle.is_captured(victim));
             assert_eq!(battle.held_victim(captor), None);
-            assert_eq!(battle.actors[victim.index()].position, position);
+            let release_anchor = battle.models.as_ref().unwrap().anchor(captor, anchor)?;
+            assert_ne!(battle.actors[victim.index()].position, position);
+            assert_eq!(
+                battle.actors[victim.index()].position,
+                [
+                    release_anchor[0],
+                    release_anchor[1] - 12.,
+                    release_anchor[2]
+                ]
+            );
             assert_eq!(battle.actors[victim.index()].movement.vertical, 16.);
             assert_eq!(
                 battle.actors[victim.index()].reaction.recoil.kind,

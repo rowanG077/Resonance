@@ -43,6 +43,7 @@ fn elapsed_time_and_trails_continue_past_short_clocks_until_optional_retirement(
                 disarmed: false,
                 shadow: None,
             },
+            2,
         );
         let mut emissions = Vec::new();
         for age in 0..=40_000 {

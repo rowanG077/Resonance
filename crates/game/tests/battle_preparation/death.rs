@@ -26,6 +26,7 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
         lethal_rescue_names: ["Angel Tear", "Revive", "Resurrect", "Ring", "Doll"]
             .map(str::to_owned),
         overlimit_voices: [None; 9],
+        item_use_offsets: [[0.; 3]; 9],
         default_strategy: [[0; 3]; 10],
         companion_policy: Default::default(),
         source_sha256: "a".repeat(64),

@@ -68,12 +68,23 @@ fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> R
         } else {
             Side::Party
         };
-        let owner = crate::tests::actor(owner_side);
+        let mut owner = crate::tests::actor(owner_side);
+        owner.position = [100., 0., 0.];
         let mut target = crate::tests::actor(target_side);
         target.body.scale = 2.;
         target.body.collider = Some(crate::Collider::sphere(1.));
         let hp = target.hp;
         let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
+        let mut owner_model = crate::tests::model_definition(8, [(0, 1.)]);
+        owner_model.skeleton.bones.push(Bone {
+            name: "attack".into(),
+            parent: Some(0),
+            bind_channels: TransformChannels(8),
+            bind: Transform {
+                translation: [96., 0., 0.],
+                ..Default::default()
+            },
+        });
         let mut model = crate::tests::model_definition(7, [(0, 1.)]);
         model.skeleton.bones.push(Bone {
             name: "dm5_target".into(),
@@ -100,7 +111,7 @@ fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> R
         ]);
         battle.set_models(crate::Models::new(
             battle.actors(),
-            vec![None, Some(Arc::new(model))],
+            vec![Some(Arc::new(owner_model)), Some(Arc::new(model))],
             Default::default(),
             resonance_content::diagnostics::Diagnostics::new(true),
         )?);
@@ -111,7 +122,10 @@ fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> R
                 action: ActionId(1),
             },
             owner: ActorId(0),
-            origin: Origin::World([96., 0., 0.]),
+            origin: Origin::Bone(crate::MeleeAnchor {
+                resource: 8,
+                bone: 1,
+            }),
             radius: 0.,
             height: 0.,
             shape: HitShape::Sphere,
@@ -120,7 +134,9 @@ fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> R
             struck: Vec::new(),
         })?;
         let mut cues = Vec::new();
-        contacts.resolve(&mut battle, &mut cues, &[])?;
+        // The attachment uses its current pose with the placement before movement.
+        let placements = [Some(glam::Mat4::IDENTITY.to_cols_array_2d())];
+        contacts.resolve(&mut battle, &mut cues, &placements)?;
         assert_eq!(battle.actors[1].hp, hp - 10);
         let impacts: Vec<_> = cues
             .iter()
@@ -158,6 +174,7 @@ fn hp_drain_uses_nominal_damage_and_requires_an_unsuppressed_hit() -> Result<()>
     assert_eq!(battle.actors[1].hp, 0);
     assert_eq!(battle.actors[0].hp, 1000);
     assert!(cues.contains(&Cue::Recovered {
+        floating: true,
         actor: ActorId(0),
         kind: crate::RecoveryKind::Hp,
         nominal: 100,
@@ -200,14 +217,11 @@ fn hp_drain_uses_nominal_damage_and_requires_an_unsuppressed_hit() -> Result<()>
                 cues.iter().any(|cue| matches!(cue, Cue::Recovered { .. })),
                 eligible
             );
-            assert_eq!(
-                battle.actors[1].reaction.hit_shake_ticks,
-                match guard {
-                    GuardResult::None => 10,
-                    GuardResult::Blocked { .. } => 6,
-                    GuardResult::Broken => 14,
-                }
-            );
+            assert!(cues.iter().any(|cue| matches!(
+                cue,
+                Cue::Hit { result, .. }
+                    if result.guard == if armored { GuardResult::None } else { guard }
+            )));
         }
     }
     for affinity in [Affinity::Absorb, Affinity::Immune] {
@@ -496,7 +510,7 @@ fn authored_contact_effect_uses_the_hit_point_and_respects_guard_permission() ->
         let effects: Vec<_> = cues
             .iter()
             .filter_map(|cue| match cue {
-                Cue::Effect(request) => Some(request),
+                Cue::DeferredEffect(request) => Some(request),
                 _ => None,
             })
             .collect();
@@ -569,7 +583,8 @@ fn native_melee_volume_turns_scales_and_follows_the_owner_without_a_model() -> R
     };
     definition.validate()?;
     let mut battle =
-        crate::tests::prepared(vec![owner.clone(), front, behind, owner], 1).finish()?;
+        crate::tests::prepared(vec![owner.clone(), front.clone(), behind, owner, front], 1)
+            .finish()?;
     let mut contacts = Contacts::default();
     contacts.melee(ActorId(0), ActionId(1), &definition, &[])?;
     contacts.melee(ActorId(3), ActionId(2), &definition, &[])?;
@@ -577,7 +592,7 @@ fn native_melee_volume_turns_scales_and_follows_the_owner_without_a_model() -> R
     for actor in &mut battle.actors {
         actor.position[0] += 100.;
     }
-    battle.push_bodies(&previous, &[100.; 4], &[]);
+    battle.push_bodies(&previous, &[100.; 5], &[]);
     for (actual, expected) in contacts.0[0]
         .position(&battle)?
         .into_iter()
@@ -587,8 +602,22 @@ fn native_melee_volume_turns_scales_and_follows_the_owner_without_a_model() -> R
     }
     let mut cues = vec![];
     contacts.resolve(&mut battle, &mut cues, &[])?;
-    assert_eq!(battle.actors[1].hp, 40);
+    assert_eq!(battle.actors[1].hp, 45, "one contact per victim per update");
+    assert_eq!(
+        battle.actors[4].hp, 45,
+        "separate melee markers can hit different victims"
+    );
     assert_eq!(battle.actors[2].hp, 50);
+    contacts.melee(ActorId(3), ActionId(2), &definition, &[])?;
+    contacts.resolve(&mut battle, &mut Vec::new(), &[])?;
+    assert_eq!(
+        battle.actors[1].hp, 40,
+        "the skipped attack remains eligible"
+    );
+    assert_eq!(
+        battle.actors[4].hp, 45,
+        "one marker accepts only its first eligible victim"
+    );
     let mut invalid = definition.clone();
     let crate::MeleeVolume::Fixed { offset, .. } = &mut invalid.volume else {
         unreachable!()
@@ -596,11 +625,18 @@ fn native_melee_volume_turns_scales_and_follows_the_owner_without_a_model() -> R
     offset[0] = f32::NAN;
     assert!(invalid.validate().is_err());
 
-    for (height, expected_hp) in [(140., 45), (540., 50)] {
+    for (height, published, expected_hp) in [
+        (140., false, 45),
+        (540., false, 50),
+        (140., true, 45),
+        (540., true, 50),
+    ] {
         let mut owner = crate::tests::actor(Side::Enemy);
-        owner.body.center_offset = [0., height, 0.];
+        owner.body.center_offset = [10., height, 20.];
+        owner.body.scale = 2.;
+        owner.heading = 90.;
         let mut target = crate::tests::actor(Side::Party);
-        target.position = [-20., 80., 0.];
+        target.position = [40., 80., -20.];
         target.body.collider = Some(crate::Collider::sphere(30.));
         let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
         let definition = MeleeDefinition {
@@ -610,14 +646,25 @@ fn native_melee_volume_turns_scales_and_follows_the_owner_without_a_model() -> R
                 shape: HitShape::Sphere,
                 radius: 120.,
                 half_height: 120.,
-                cooldown: 20,
             },
         };
         definition.validate()?;
-        assert_eq!(definition.volume.cooldown(), 20);
         let mut contacts = Contacts::default();
         contacts.melee(ActorId(0), ActionId(1), &definition, &[])?;
-        contacts.resolve(&mut battle, &mut vec![], &[])?;
+        let placement = published.then_some([
+            [0., 0., -2., 0.],
+            [-2., 0., 0., 0.],
+            [0., 2., 0., 0.],
+            [0., 0., 0., 1.],
+        ]);
+        if published {
+            battle.actors[0].position[1] += 1000.;
+            assert_eq!(
+                contacts.0[0].position_at(&battle, placement)?,
+                [40., height * 2., -20.],
+            );
+        }
+        contacts.resolve(&mut battle, &mut vec![], &[placement])?;
         assert_eq!(battle.actors[1].hp, expected_hp);
     }
     Ok(())
@@ -953,7 +1000,7 @@ fn ledger_counts_party_defeats_and_guarded_contacts() -> Result<()> {
 }
 
 #[test]
-fn ordinary_projectile_hits_once_restores_tp_and_retires() -> Result<()> {
+fn overlapping_projectiles_each_hit_once_restore_tp_and_retire() -> Result<()> {
     for matching_action in [true, false] {
         let mut owner = crate::tests::actor(Side::Party);
         owner.control = Control::Manual;
@@ -977,52 +1024,56 @@ fn ordinary_projectile_hits_once_restores_tp_and_retires() -> Result<()> {
                 0,
             )),
         );
-        battle.emit(
-            Arc::new(ProjectileDefinition {
-                lifetime: Some(20),
-                velocity: [2., 0., 0.],
-                acceleration: [0.; 3],
+        let projectile = Arc::new(ProjectileDefinition {
+            lifetime: Some(20),
+            velocity: [2., 0., 0.],
+            acceleration: [0.; 3],
+            offset: [0.; 3],
+            clamp_ground: true,
+            active: None,
+            birth: None,
+            motion: Default::default(),
+            effects: Default::default(),
+            contact: Some(crate::ProjectileContact {
+                hit: HitRule {
+                    sound: None,
+                    effect_on_guard: false,
+                    effect: None,
+                    overlimit_pause: false,
+                    kind: DamageKind::Slash,
+                    arte: false,
+                    power: Power::Fixed(8),
+                    element: HitElement::Neutral,
+                    prevents_defeat: false,
+                    finisher_grade: false,
+                    hp_drain: false,
+                    guard: GuardRule::default(),
+                    reaction: Default::default(),
+                    condition: None,
+                },
+                cooldown: 20,
+                repeat_limit: 0,
+                radius: 1.,
+                height: 2.,
+                shape: HitShape::Sphere,
                 offset: [0.; 3],
-                clamp_ground: true,
-                active: None,
-                birth: None,
-                motion: Default::default(),
-                effects: Default::default(),
-                contact: Some(crate::ProjectileContact {
-                    hit: HitRule {
-                        sound: None,
-                        effect_on_guard: false,
-                        effect: None,
-                        overlimit_pause: false,
-                        kind: DamageKind::Slash,
-                        arte: false,
-                        power: Power::Fixed(8),
-                        element: HitElement::Neutral,
-                        prevents_defeat: false,
-                        finisher_grade: false,
-                        hp_drain: false,
-                        guard: GuardRule::default(),
-                        reaction: Default::default(),
-                        condition: None,
-                    },
-                    cooldown: 20,
-                    repeat_limit: 0,
-                    radius: 1.,
-                    height: 2.,
-                    shape: HitShape::Sphere,
-                    offset: [0.; 3],
-                    radius_growth: 0.,
-                    height_growth: 0.,
-                    survives_contact: false,
-                    clashes: false,
-                }),
+                radius_growth: 0.,
+                height_growth: 0.,
+                survives_contact: false,
+                clashes: false,
             }),
-            ActionId(1),
-            ActorId(0),
-            ActorId(1),
-            [0.; 3],
-        )?;
+        });
+        for _ in 0..2 {
+            battle.emit(
+                Arc::clone(&projectile),
+                ActionId(1),
+                ActorId(0),
+                ActorId(1),
+                [0.; 3],
+            )?;
+        }
         let (mut hits, mut expired) = (0, 0);
+        let mut last_hit_update = None;
         for _ in 0..25 {
             let frame = battle.step(crate::BattleInput::default())?;
             for cue in &frame.cues {
@@ -1032,6 +1083,8 @@ fn ordinary_projectile_hits_once_restores_tp_and_retires() -> Result<()> {
                         result,
                         ..
                     } => {
+                        assert_ne!(last_hit_update, Some(frame.update));
+                        last_hit_update = Some(frame.update);
                         hits += 1;
                         assert_eq!(result.hp_change, -8);
                     }
@@ -1040,9 +1093,9 @@ fn ordinary_projectile_hits_once_restores_tp_and_retires() -> Result<()> {
                 }
             }
         }
-        assert_eq!((hits, expired), (1, 1));
-        assert_eq!(battle.actors[1].hp, 92);
-        assert_eq!(battle.actors[0].tp, 2);
+        assert_eq!((hits, expired), (2, 2));
+        assert_eq!(battle.actors[1].hp, 84);
+        assert_eq!(battle.actors[0].tp, 3);
         assert!(battle.projectiles.is_empty());
         assert!(!battle.is_diagnostic());
         assert_eq!(

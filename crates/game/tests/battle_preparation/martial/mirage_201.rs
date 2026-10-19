@@ -3,7 +3,7 @@ use super::*;
 #[test]
 #[ignore = "requires current Regal and encounter publications; CPU only"]
 fn learned_mirage_moves_and_completes() -> Result<()> {
-    let (mut battle, owner) = encounter(8, &[])?;
+    let (mut battle, owner) = encounter(8, &[], false)?;
     let action = battle.record_technique_acquisition(owner, 201)?;
     let before = battle.actors()[owner.index()].clone();
     let first = battle.step(BattleInput {
