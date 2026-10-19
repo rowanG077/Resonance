@@ -1,5 +1,6 @@
 //! Sparse animation curves and deterministic, renderer-independent bone poses.
 mod codec;
+pub mod pose;
 mod skeleton;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -219,17 +220,23 @@ impl Skeleton {
     }
 
     pub fn sample_matrix(&self, motion: &Motion, frame: f32, bone: u16) -> Result<Matrix> {
-        ensure!(
-            frame.is_finite() && frame >= 0. && frame <= motion.duration_frames,
-            "motion frame outside clip"
-        );
-        self.sampled_global(motion, frame, bone, 0)
+        self.sample_layered_matrix(&[(motion, frame)], bone)
+    }
+
+    /// Later layers replace only the bones they animate, retaining other branches.
+    pub fn sample_layered_matrix(&self, layers: &[(&Motion, f32)], bone: u16) -> Result<Matrix> {
+        for &(motion, frame) in layers {
+            ensure!(
+                frame.is_finite() && frame >= 0. && frame <= motion.duration_frames,
+                "motion frame outside clip"
+            );
+        }
+        self.sampled_global(layers, bone, 0)
     }
 
     fn sampled_global(
         &self,
-        motion: &Motion,
-        frame: f32,
+        layers: &[(&Motion, f32)],
         index: u16,
         depth: usize,
     ) -> Result<Matrix> {
@@ -238,17 +245,23 @@ impl Skeleton {
             .bones
             .get(usize::from(index))
             .context("missing attachment bone")?;
-        let local = motion
-            .tracks
+        let local = layers
             .iter()
-            .find(|track| track.bone == index)
+            .rev()
+            .find_map(|&(motion, frame)| {
+                motion
+                    .tracks
+                    .iter()
+                    .find(|track| track.bone == index)
+                    .map(|track| (track, frame))
+            })
             .map_or_else(
                 || Ok(bone.bind.matrix()),
-                |track| track.sample_matrix(frame, bone.bind),
+                |(track, frame)| track.sample_matrix(frame, bone.bind),
             )?;
         match bone.parent {
             Some(parent) => Ok(multiply(
-                self.sampled_global(motion, frame, parent, depth + 1)?,
+                self.sampled_global(layers, parent, depth + 1)?,
                 local,
             )),
             None => Ok(local),
@@ -375,7 +388,7 @@ impl Transform {
     }
 
     pub fn matrix(self) -> Matrix {
-        let [x, y, z, w] = self.rotation;
+        let [x, y, z, w] = normalize(self.rotation);
         let [sx, sy, sz] = self.scale;
         [
             [
@@ -897,6 +910,19 @@ mod tests {
         .matrix();
         let point = transform_point(rotated, [1., 0., 0.]);
         assert!(point[0].abs() < 0.00001 && (point[1] - 1.).abs() < 0.00001);
+        // Close-angle crossfades must not shrink the skeleton.
+        let from = Transform {
+            rotation: euler_rotation([0., 0., 170.]),
+            ..Transform::default()
+        };
+        let to = Transform {
+            rotation: euler_rotation([0., 0., 174.]),
+            ..Transform::default()
+        };
+        for basis in &from.blend(to, 0.5).matrix()[..3] {
+            let length_squared: f32 = basis[..3].iter().map(|v| v * v).sum();
+            assert!((length_squared - 1.).abs() < 0.00001);
+        }
         let track = Track {
             bone: 0,
             bind_channels: TransformChannels(0),

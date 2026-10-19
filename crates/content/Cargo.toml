@@ -8,6 +8,7 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 sha2.workspace = true
+glam.workspace = true
 
 [features]
 test-support = []

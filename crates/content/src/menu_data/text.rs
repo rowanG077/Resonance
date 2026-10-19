@@ -29,6 +29,15 @@ impl MenuText {
         Ok(())
     }
 
+    pub fn single_line(&self) -> Result<&[MenuSpan]> {
+        self.validate()?;
+        let [line] = self.lines.as_slice() else {
+            anyhow::bail!("menu prompt must have one line");
+        };
+        ensure!(!line.is_empty(), "menu prompt has no spans");
+        Ok(line)
+    }
+
     pub fn texts(&self) -> impl Iterator<Item = &str> {
         self.lines.iter().flatten().filter_map(|s| match s {
             MenuSpan::Text { text, .. } => Some(text.as_str()),

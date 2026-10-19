@@ -152,6 +152,21 @@ impl DialogueArt {
     }
 }
 impl BitmapFont {
+    /// Validate a single line. A space may be supplied by the renderer's advance.
+    pub fn validate_text(&self, text: &str) -> Result<()> {
+        ensure!(
+            !text.is_empty() && !text.chars().any(char::is_control),
+            "invalid single-line text"
+        );
+        for character in text.chars().filter(|&ch| ch != ' ') {
+            ensure!(
+                self.glyphs.contains_key(&character),
+                "glyph {character:?} was not prepared"
+            );
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<()> {
         crate::validate_asset_path(&self.texture)?;
         ensure!(
