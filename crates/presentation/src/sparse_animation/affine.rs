@@ -55,22 +55,6 @@ impl From<resonance_content::animation::pose::LocalPose> for Pose {
     }
 }
 
-impl From<resonance_content::animation::pose::LocalPose> for Pose {
-    fn from(value: resonance_content::animation::pose::LocalPose) -> Self {
-        use resonance_content::animation::pose::LocalPose;
-        match value {
-            LocalPose::Trs(value) => Self::Trs(Transform {
-                translation: Vec3::from_array(value.translation),
-                rotation: Quat::from_array(value.rotation),
-                scale: Vec3::from_array(value.scale),
-            }),
-            LocalPose::Affine(value) => {
-                Self::Affine(Affine3A::from_mat4(Mat4::from_cols_array_2d(&value)))
-            }
-        }
-    }
-}
-
 pub(crate) fn rotation(matrix: Affine3A) -> Quat {
     Quat::from_array(
         resonance_content::animation::matrix_rotation(Mat4::from(matrix).to_cols_array_2d())

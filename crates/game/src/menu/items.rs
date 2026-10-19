@@ -247,33 +247,6 @@ impl Menu {
         true
     }
 
-    pub(super) fn open_items(&mut self) {
-        let state = &mut self.inventory;
-        state.page_fade = 231 - MAIN_SLIDE_STEP;
-        state.page_closing = false;
-        state.scroll = 0;
-        state.destination = None;
-        state.target_opacity = 0;
-        state.target_closing = false;
-        state.description_previous = Description::None;
-        state.description_fade = DESCRIPTION_FADE_START;
-    }
-
-    pub(super) fn return_to_items(&mut self) {
-        self.page = Page::Items;
-        self.open_items();
-        self.fade_item_description();
-    }
-
-    pub(super) fn close_items(&mut self, destination: Page) -> bool {
-        if !self.admit_page(destination) {
-            return false;
-        }
-        self.inventory.destination = Some(destination);
-        self.inventory.page_closing = true;
-        true
-    }
-
     pub fn item_description(&self) -> Description {
         if self.inventory.notice.is_some() {
             return Description::None;
