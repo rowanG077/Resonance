@@ -56,6 +56,12 @@ impl GameWorld {
             }
             actor.appearance.costume_frame =
                 appearance::costume_frame(actor.resource, &self.event_flags);
+            if let Some(name) = appearance::hidden_accessory(actor.resource, &self.event_flags)
+                && let Some(model) = resources.model(actor.model_resource())
+                && let Some(index) = model.names.iter().position(|node| node == name)
+            {
+                actor.appearance.hidden_nodes.insert(index as u16);
+            }
         }
     }
 

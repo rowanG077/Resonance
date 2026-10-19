@@ -85,17 +85,16 @@ fn original_physical_scenes_match_frozen_meshes_and_materials() -> Result<()> {
                 let mut metadata = serde_json::to_value(&actual)?;
                 metadata["mesh"] = expected["mesh"].clone();
                 ensure!(metadata == expected, "physical scene metadata differs");
-                let mut mesh = crate::scene::glb::Glb::read(&output.path().join(&actual.mesh))?;
+                let mesh = crate::scene::glb::Glb::read(&output.path().join(&actual.mesh))?;
                 let frozen = crate::scene::glb::Glb::read(&baseline.join(expected_mesh))?;
                 for (bone, node) in mesh.json["nodes"]
-                    .as_array_mut()
+                    .as_array()
                     .context("model nodes")?
-                    .iter_mut()
+                    .iter()
                     .take(actual.bone_names.len())
                     .enumerate()
                 {
                     ensure!(node["extras"]["resonance_bone"] == bone, "bone binding");
-                    node.as_object_mut().unwrap().remove("extras");
                 }
                 ensure!(
                     mesh.json == frozen.json && mesh.binary == frozen.binary,

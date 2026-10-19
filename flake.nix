@@ -12,10 +12,20 @@
       eachSystem = nixpkgs.lib.genAttrs systems;
     in
     {
+      packages = eachSystem (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          dolphin-observer = import ./nix/dolphin.nix { inherit pkgs; };
+        }
+      );
       devShells = eachSystem (
         system:
         let
           pkgs = import nixpkgs { inherit system; };
+          dolphinObserver = import ./nix/dolphin.nix { inherit pkgs; };
           platformLibraries =
             with pkgs;
             lib.optionals stdenv.hostPlatform.isLinux [
@@ -52,7 +62,7 @@
                 p.pillow
               ]))
               lz4
-              dolphin-emu
+              dolphinObserver
               nodejs
               typescript
               esbuild

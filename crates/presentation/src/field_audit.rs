@@ -74,7 +74,7 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
         && state
             .live
             .as_ref()
-            .is_none_or(|s| s.ready_for_field && s.assets.map_id == art.map);
+            .is_none_or(|s| s.ready_for_field && s.map_id() == art.map);
     applied.expected = expected(&state.get().events.world, |resource| {
         art.models.get(&resource).map_or(1, Vec::len)
     });
@@ -99,7 +99,7 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
             for part in art.secondary_parts(actor.model_resource()) {
                 applied.expected.insert(Request::SecondaryMotion(id, part));
             }
-            if actor.casts_shadow {
+            if actor.casts_shadow && state.get().events.world.tick >= actor.visible_from {
                 applied.expected.insert(Request::Shadow(id));
             }
         }

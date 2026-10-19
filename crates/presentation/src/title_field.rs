@@ -58,7 +58,7 @@ pub(super) fn load(
         .context("missing title glow sprite")?
         .clone();
     let events =
-        resonance_game::title_events::start(&files.read(&assets.script.path)?, &assets, |path| {
+        resonance_game::title_events::start(&files.read(&assets.script)?, &assets, |path| {
             files.read(path)
         })?;
     Ok((Scene { assets, glow }, events))

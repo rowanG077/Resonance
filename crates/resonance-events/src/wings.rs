@@ -10,7 +10,6 @@ pub(crate) const AUTOMATIC_WINGS: i32 = 90021;
 const ECHO_INTERVAL: u32 = 8;
 const ECHO_LIFETIME: u32 = 2 * ECHO_INTERVAL;
 const LAYER_POSE_DELAYS: [f32; 3] = [6., 8., 0.];
-const IDLE_RATE: f32 = 0.002;
 const FEATHER_PULSE_AMPLITUDE: f32 = 0.125;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +43,17 @@ pub struct WingEntrance {
 
 impl Wings {
     pub const LAYERS: u8 = 3;
+    pub const FLIGHT_RATE: f32 = 0.002;
+    pub const FLIGHT_TILT: [i32; 2] = [-180, -90];
+    pub const ATTACHMENT_BONE: &'static str = "Bone_sebone03";
+
+    pub fn new(style: WingStyle) -> Self {
+        Self {
+            style,
+            attachment: None,
+            echoes: Vec::new(),
+        }
+    }
 
     pub fn entrance(&self, pass: u8, age: u32) -> Option<WingEntrance> {
         let weight = match self.style {
@@ -100,11 +110,7 @@ impl Wings {
 impl Actor {
     pub fn set_wings(&mut self, style: WingStyle) {
         self.autonomy = None;
-        self.wings = Some(Wings {
-            style,
-            attachment: None,
-            echoes: Vec::new(),
-        });
+        self.wings = Some(Wings::new(style));
         self.collidable = false;
         self.contact = crate::ActorContact::None;
         self.grounded = false;
@@ -210,10 +216,10 @@ impl GameWorld {
                 .context("Colette wing motion is missing")?;
             let mut actor = Actor::new(COLETTE_WINGS_RESOURCE, [0.; 3]);
             actor.set_wings(WingStyle::Layered);
-            actor.tilt = [-180, -90];
+            actor.tilt = Wings::FLIGHT_TILT;
             actor.attachment = Some(Attachment {
                 actor: 2,
-                bone: "Bone_sebone03".into(),
+                bone: Wings::ATTACHMENT_BONE.into(),
             });
             let mut animation = Animation::new(
                 COLETTE_WINGS_RESOURCE,
@@ -222,7 +228,7 @@ impl GameWorld {
                 self.tick,
             );
             // Flight wings advance at 0.2% of the normal animation speed.
-            animation.rate = IDLE_RATE;
+            animation.rate = Wings::FLIGHT_RATE;
             actor.animation = Some(animation);
             self.insert_actor(AUTOMATIC_WINGS, actor);
             self.automatic_wings = Some((self.actors[&AUTOMATIC_WINGS].instance, parent));

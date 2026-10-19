@@ -7,6 +7,7 @@ enum Command {
     DialogueClosed,
     DialogueReady,
     ActorMotion,
+    ActorExit,
     ActorAnimation,
     ActorHeading,
     Camera,
@@ -24,7 +25,8 @@ impl Command {
             1 => Self::Resource,
             2 => Self::DialogueClosed,
             3 => Self::DialogueReady,
-            4 | 6 => Self::ActorMotion,
+            4 => Self::ActorMotion,
+            6 => Self::ActorExit,
             7 => Self::ActorAnimation,
             8 => Self::Camera,
             9..=13 => Self::CameraPath(code as u8),
@@ -95,12 +97,15 @@ impl NativeHost<'_> {
                 }
             }
             // Portrait scenes have no actor motion or media preparation delay.
-            (ActorMotion | MediaReady, true) => return self.yield_update(),
+            (ActorMotion | ActorExit | MediaReady, true) => return self.yield_update(),
             (MediaComplete | MediaLoaded | MediaPosition, true) => Wait::SkitMedia {
                 id: (command == MediaLoaded).then_some(value as u32),
                 position: (command == MediaPosition && value >= 0).then_some(value as u32),
             },
-            (ActorMotion, false) => Wait::ActorMotion(actor),
+            (ActorExit, false) if actor != self.world.controlled_actor => {
+                Wait::DespawnAfterMotion(actor)
+            }
+            (ActorMotion | ActorExit, false) => Wait::ActorMotion(actor),
             (ActorAnimation, false) => Wait::ActorAnimation(actor),
             (ActorHeading, false) => Wait::ActorHeading(actor),
             (Camera, false) => Wait::Camera {

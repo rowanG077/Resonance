@@ -110,18 +110,19 @@ clock. Simulation remains at 60000/1001 updates per second.
 | Pause / resume | F7 | — |
 | Skip current cutscene / cancel skip | F8 | — |
 
-Combat is not implemented yet. Replay testing skips battles as victories, without
-awarding loot, so the original field events can continue. Use
-`--skip-battles=false` to inspect pending battle requests instead. Unsupported
-field scripts still report errors during normal play.
+Combat is not implemented on this branch. Battle skipping is off by default. Open **Shift+Tab** and click **Skip battles**
+or press **B** while the menu is open to toggle it for the session. Skipped
+encounters count as victories without loot. The `--skip-battles` launch option
+starts with skipping enabled. Unsupported field scripts still report errors
+during normal play.
 
 Press **Shift+Tab** at the title or during play to visit Sylvarant towns and dungeon
 start/end checkpoints. Up/Down selects a row; Left/Right or Page Up/Down changes
 pages. Press Enter, click a row, or use 1–0 for that page; Escape closes the menu.
-Each jump resets the run and skips battles. Dungeon starts have fresh puzzles;
-seal checkpoints have their puzzles solved and place you just before the final
-room. Martel starts before the ring pickup; later checkpoints include the
-Sorcerer's Ring. Disk saves are unchanged.
+Each jump resets the run and preserves the battle-skipping setting. Dungeon
+starts have fresh puzzles; seal checkpoints have their puzzles solved and place
+you just before the final room. Martel starts before the ring pickup; later
+checkpoints include the Sorcerer's Ring. Disk saves are unchanged.
 At the Palmacosta Ranch end checkpoint, use the Radar ring to reveal the final
 teleporter, then interact with it.
 

@@ -1,6 +1,6 @@
 //! Owned, resumable score rendering. There are no worker threads or channels.
-use super::{BusFrame, ClockStart, LiveControls, kernel::Kernel};
-use crate::package::Loaded;
+use super::{BusFrame, LiveControls, kernel::Kernel};
+use crate::{BLOCK_FRAMES, CONTROLS_PER_BLOCK, package::Loaded};
 use anyhow::{Context, Result, ensure};
 use std::sync::Arc;
 
@@ -13,15 +13,31 @@ self_cell::self_cell!(
 );
 
 pub struct Stream {
-    state: Option<Owned>,
-    shared: Option<super::shared::Stream>,
+    output: super::shared::Stream,
+    /// Standalone playback owns its clock; live playback uses the mixer's clock.
+    clock: Option<super::shared::Synthesizer>,
 }
 impl Stream {
     pub fn new(loaded: Arc<Loaded>, looping: bool) -> Result<Self> {
-        Self::with_clock(loaded, looping, ClockStart::Running)
+        Self::standalone(loaded, looping, false)
     }
-    pub fn cold(loaded: Arc<Loaded>, looping: bool) -> Result<Self> {
-        Self::with_clock(loaded, looping, ClockStart::Cold)
+    pub(super) fn recorded(loaded: Arc<Loaded>, looping: bool) -> Result<Self> {
+        Self::standalone(loaded, looping, true)
+    }
+    fn standalone(loaded: Arc<Loaded>, looping: bool, record: bool) -> Result<Self> {
+        let clock = super::shared::Synthesizer::default();
+        let output = clock.start_recorded(loaded, looping, record)?;
+        Ok(Self {
+            output,
+            clock: Some(clock),
+        })
+    }
+    pub(super) fn take_preview(&self) -> super::Preview {
+        self.clock
+            .as_ref()
+            .unwrap()
+            .take_preview(&self.output)
+            .unwrap()
     }
     pub fn in_synthesizer(
         loaded: Arc<Loaded>,
@@ -29,97 +45,68 @@ impl Stream {
         synth: &super::shared::Synthesizer,
     ) -> Result<Self> {
         Ok(Self {
-            state: None,
-            shared: Some(synth.start(loaded, looping)?),
+            output: synth.start(loaded, looping)?,
+            clock: None,
         })
     }
-    pub fn is_shared(&self) -> bool {
-        self.shared.is_some()
+    /// Pause musical time and retire held notes on the next mixer block.
+    /// Resuming preserves the event cursor, controllers, tempo and shared RNG.
+    pub fn pause(&mut self, paused: bool) -> Result<()> {
+        self.output.pause(paused)
     }
     pub fn started(&self) -> bool {
-        self.shared.as_ref().is_none_or(|s| s.started())
+        self.output.started()
+    }
+    /// End of PCM already queued on the mixer's frame clock.
+    pub fn submitted_until(&self) -> u64 {
+        self.output.submitted_until()
     }
     pub fn shared_control_boundary(&self) -> bool {
-        self.shared.as_ref().is_some_and(|s| s.control_boundary())
+        self.output.control_boundary()
     }
-    pub fn set_shared_controls(&self, controls: [LiveControls; 5]) -> Result<()> {
-        if let Some(shared) = &self.shared {
-            shared.controls(controls)?;
-        }
-        Ok(())
+    pub fn set_shared_controls(&self, controls: [LiveControls; CONTROLS_PER_BLOCK]) -> Result<()> {
+        self.output.controls(controls)
     }
-    pub fn shared_frame(&self) -> Result<Option<BusFrame>> {
-        Ok(self
-            .shared
-            .as_ref()
-            .context("stream is not shared")?
-            .frame())
-    }
-    fn with_clock(loaded: Arc<Loaded>, looping: bool, clock: ClockStart) -> Result<Self> {
-        ensure!(
-            !super::shared::requires_shared(&loaded.resources),
-            "cue requires shared synthesizer state; use Stream::in_synthesizer"
-        );
-        Ok(Self {
-            shared: None,
-            state: Some(Owned::try_new(loaded, |loaded| {
-                Kernel::new(
-                    &loaded.resources,
-                    &loaded.score,
-                    &loaded.tables,
-                    None,
-                    looping,
-                    clock,
-                )
-            })?),
-        })
+    pub fn shared_frame(&self) -> Option<BusFrame> {
+        self.output.frame()
     }
     pub fn block(&mut self, controls: LiveControls) -> Result<Option<Vec<BusFrame>>> {
-        self.block_envelope([controls; 5])
+        self.block_envelope([controls; CONTROLS_PER_BLOCK])
     }
-    /// Collect one block for offline rendering. Live mixing writes directly
-    /// into the caller's buffer through `render_block`.
-    pub fn block_envelope(&mut self, controls: [LiveControls; 5]) -> Result<Option<Vec<BusFrame>>> {
-        let mut block = [[[0; 2]; 3]; 160];
+    /// Offline convenience. Live mixing uses the caller-owned buffer in `render_block`.
+    pub fn block_envelope(
+        &mut self,
+        controls: [LiveControls; CONTROLS_PER_BLOCK],
+    ) -> Result<Option<Vec<BusFrame>>> {
+        let mut block = [[[0; 2]; 3]; BLOCK_FRAMES];
         let len = self.render_block(controls, &mut block)?;
         Ok((len > 0).then(|| block[..len].to_vec()))
     }
     pub fn render_block(
         &mut self,
-        controls: [LiveControls; 5],
-        output: &mut [BusFrame; 160],
+        controls: [LiveControls; CONTROLS_PER_BLOCK],
+        output: &mut [BusFrame; BLOCK_FRAMES],
     ) -> Result<usize> {
-        validate_controls(controls)?;
-        ensure!(
-            self.shared.is_none(),
-            "shared cues must use the synthesizer frame clock"
-        );
-        let Some(state) = &mut self.state else {
-            return Ok(0);
-        };
-        state.with_dependent_mut(|_, kernel| {
-            let block = kernel.next_block(|frame| {
-                let input = controls[(frame % 160 / 32) as usize];
-                LiveControls {
-                    release: input.release && frame.is_multiple_of(160),
-                    ..input
-                }
-            })?;
-            let Some(block) = block else {
-                return Ok(0);
-            };
-            output[..block.len()].copy_from_slice(block);
-            Ok(block.len())
-        })
-    }
-    pub fn stop(&mut self) -> Result<()> {
-        self.state.take();
-        self.shared.take();
-        Ok(())
+        let clock = self
+            .clock
+            .as_ref()
+            .context("shared cues must use the synthesizer frame clock")?;
+        self.output.controls(controls)?;
+        let mut length = 0;
+        for target in output {
+            clock.advance()?;
+            if let Some(frame) = self.output.frame() {
+                *target = frame;
+                length += 1;
+            } else {
+                *target = [[0; 2]; 3];
+            }
+        }
+        Ok(length)
     }
 }
 
-pub(super) fn validate_controls(controls: [LiveControls; 5]) -> Result<()> {
+pub(super) fn validate_controls(controls: [LiveControls; CONTROLS_PER_BLOCK]) -> Result<()> {
     ensure!(
         controls.iter().all(|c| c.volume.is_finite()
             && (0.0..=1.0).contains(&c.volume)

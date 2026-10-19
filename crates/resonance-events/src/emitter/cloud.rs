@@ -18,6 +18,10 @@ pub(super) struct Cloud {
 }
 
 impl Cloud {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Keep independent timing and mutable emission state explicit at the call site"
+    )]
     pub fn emit(
         &mut self,
         (owner, center): (i32, [f32; 3]),

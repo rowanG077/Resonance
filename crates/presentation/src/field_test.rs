@@ -31,27 +31,6 @@ impl std::ops::DerefMut for Scene {
     }
 }
 impl Scene {
-    pub(crate) fn restore(
-        root: &std::path::Path,
-        checkpoint: resonance_game::field::FieldCheckpoint,
-    ) -> Result<Self> {
-        let package = new_game::FieldPackage::prepare(
-            root,
-            checkpoint.map_id,
-            &mut Default::default(),
-            || false,
-        )?;
-        let mut field = package.restore(
-            &checkpoint,
-            Arc::new(package.files.json("game/session-data.json")?),
-            Arc::new(package.files.json("game/skits.json")?),
-            new_game::available_fields(root)?,
-        )?;
-        let audio =
-            crate::field_audio::validation::Playback::new((*package.audio).clone(), &mut field);
-        Ok(Self { field, audio })
-    }
-
     pub(crate) fn story(
         root: &std::path::Path,
         map: u32,
@@ -195,7 +174,7 @@ impl Scene {
         let package =
             new_game::FieldPackage::prepare(root, request.map, &mut Default::default(), || false)?;
         let mut field = package.transition(&self.field)?;
-        self.audio.enter((*package.audio).clone(), &mut field)?;
+        self.audio.enter(package.audio.clone(), &mut field)?;
         self.field.events.cancel();
         self.field = field;
         Ok(())

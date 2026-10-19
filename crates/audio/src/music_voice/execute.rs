@@ -1,5 +1,5 @@
 //! Typed instrument operations compiled by the importer.
-use super::{Envelope, HostRequest, PanRamp, Parameters, Sweep, Voice, VolumeRamp, Wait};
+use super::{Envelope, HostRequest, PanRamp, Parameters, Sweep, Voice, Wait};
 use crate::{
     data::{
         Command, Comparison, Controller, Envelope as Definition, Interpolation, Operand, PanAxis,
@@ -10,17 +10,22 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 
 impl Voice<'_> {
-    pub(super) fn commands(&mut self, controls: &mut super::Controls) -> Result<()> {
-        let mut instructions = 0;
+    pub(super) fn commands(
+        &mut self,
+        controls: &mut super::Controls,
+        fuel: &mut usize,
+    ) -> Result<()> {
         while !self.done && self.ready() {
             if self.wait.until != 0 {
                 self.wait_reference = self.wait.until.min(self.now());
             }
-            instructions += 1;
             ensure!(
-                instructions <= 65536,
-                "music program instruction budget exhausted"
+                *fuel > 0,
+                "music program {} instruction budget exhausted at {}",
+                self.macro_id,
+                self.pc
             );
+            *fuel -= 1;
             let command = *self
                 .resources
                 .program(self.macro_id)?
@@ -32,20 +37,11 @@ impl Voice<'_> {
             self.wait = Wait::default();
             match command {
                 Command::Noop => {}
-                Command::End => {
-                    // Macro teardown frees allocation priority, but the DSP
-                    // sample and its control jobs continue until completion.
-                    self.done = true;
-                    self.set_priority(0);
-                }
+                Command::End => self.finish_program(),
                 Command::SetVariable { destination, value } => {
                     self.set_variable(destination, i32::from(value), controls)?
                 }
                 Command::VoiceHandle { destination, child } => {
-                    ensure!(
-                        self.random.is_some(),
-                        "voice handles require the shared synthesizer"
-                    );
                     self.set_variable(
                         destination,
                         if child { self.last_child } else { self.handle } as i32,
@@ -53,10 +49,6 @@ impl Voice<'_> {
                     )?;
                 }
                 Command::SendMessage { target, value } => {
-                    ensure!(
-                        self.random.is_some(),
-                        "macro messages require the shared synthesizer"
-                    );
                     let target = match target {
                         crate::data::MessageTarget::Handle(variable) => {
                             super::MessageTarget::Handle(self.variable(variable, controls)? as u32)
@@ -127,10 +119,6 @@ impl Voice<'_> {
                     priority,
                     max_voices,
                 } => {
-                    ensure!(
-                        self.random.is_some(),
-                        "child macros require the shared synthesizer"
-                    );
                     self.last_child = u32::MAX;
                     if self.resources.programs.contains_key(&program) {
                         self.host_request = Some(HostRequest::Spawn {
@@ -138,8 +126,8 @@ impl Voice<'_> {
                                 macro_id: program,
                                 key: (i16::from(self.original_key) + i16::from(key_offset))
                                     .clamp(0, 127) as u8,
-                                velocity: (self.volume >> 16) as u8,
-                                pan: (self.pan[0].value >> 16) as u8,
+                                velocity: (self.volume >> 16).min(127) as u8,
+                                pan: (self.pan[0].value() >> 16).clamp(0, 127) as u8,
                                 priority,
                                 max_voices,
                             },
@@ -160,12 +148,7 @@ impl Voice<'_> {
                     program,
                     instruction,
                 } => {
-                    if self
-                        .random
-                        .as_ref()
-                        .context("random branch requires the shared synthesizer")?
-                        .next() as u8
-                        >= minimum
+                    if self.random.next() as u8 >= minimum
                         && self.resources.programs.contains_key(&program)
                     {
                         self.macro_id = program;
@@ -188,10 +171,7 @@ impl Voice<'_> {
                         0 => {
                             self.loop_remaining = if matches!(command, Command::RandomLoop { .. }) {
                                 ensure!(count != 0, "random loop requires a nonzero bound");
-                                self.random
-                                    .as_ref()
-                                    .context("random loop requires the shared synthesizer")?
-                                    .below(count)
+                                self.random.below(count)
                             } else {
                                 count
                             }
@@ -210,37 +190,31 @@ impl Voice<'_> {
                 Command::Envelope { envelope } => {
                     self.parameters = match envelope {
                         Definition::Ordinary(p) => Parameters::Ordinary(p),
-                        Definition::Dls(p) => Parameters::Dls(p.resolve(
-                            &self.tables.dls,
-                            self.velocity,
-                            self.original_key,
-                        )?),
+                        Definition::Dls(p) => {
+                            Parameters::Dls(p.resolve(self.velocity, self.original_key)?)
+                        }
                     };
+                    self.envelope = Envelope::new(self.parameters, self.tables)?;
                 }
                 Command::PitchEnvelope {
                     envelope,
                     sustain,
                     depth_8,
                 } => {
-                    let mut parameters =
-                        envelope.resolve(&self.tables.dls, self.velocity, self.original_key)?;
-                    parameters.sustain = 193
-                        - u16::from(self.tables.dls.inverse[usize::from((sustain >> 2).min(1023))]);
+                    let parameters = envelope.resolve(sustain, self.velocity, self.original_key)?;
                     self.pitch_envelope = Some((
                         crate::dls::Envelope::new(parameters, &self.tables.dls)?,
                         depth_8,
                     ));
                 }
                 Command::StartSample { sample } => {
-                    self.changed_source(true);
-                    self.stopped_subframe = None;
                     ensure!(
                         !self.interaural_delay || self.tables.mix.spatial.is_some(),
                         "instrument requires uncooked spatial audio tables"
                     );
                     self.delay = self.interaural_delay.then(Default::default);
                     let cursor = resample::SampleCursor::new(self.resources.sample(sample)?)?;
-                    let ratio = self.tables.pitch.ratio(
+                    let ratio = crate::pitch::ratio(
                         (i32::from(self.key) << 16) + (i32::from(self.cents) << 16) / 100,
                         cursor.sample(),
                     )?;
@@ -251,28 +225,14 @@ impl Voice<'_> {
                         Interpolation::Linear => resample::Mode::Linear,
                         Interpolation::Direct => resample::Mode::Direct,
                     };
-                    self.source = Some((cursor, resample::Resampler::new(mode, ratio)?));
+                    self.source = Some((cursor, resample::Resampler::new(mode, ratio)));
                     self.sample_finished = false;
                     self.envelope = Envelope::new(self.parameters, self.tables)?;
-                    self.released = false;
                 }
                 Command::StopSample => {
-                    if self.source_active() {
-                        self.stopped_subframe = Some((self.frame + self.block_phase) % 160 / 32);
-                    }
-                    self.source = None;
-                    self.sample_finished = true;
+                    self.break_source();
                 }
-                Command::Release => {
-                    self.changed_source(false);
-                    if !self.released {
-                        self.envelope.release();
-                        if let Some((envelope, _)) = &mut self.pitch_envelope {
-                            envelope.release();
-                        }
-                        self.released = true;
-                    }
-                }
+                Command::Release => self.release_envelopes(),
                 Command::PitchOffset {
                     from_original,
                     semitones,
@@ -315,10 +275,7 @@ impl Voice<'_> {
                     } else {
                         (low.min(high), high.max(low))
                     };
-                    let random = self
-                        .random
-                        .as_ref()
-                        .context("random note requires the shared synthesizer")?;
+                    let random = &self.random;
                     self.cents = if random_cents {
                         (random.below(201) as i16 - 100) as i8
                     } else {
@@ -348,8 +305,7 @@ impl Voice<'_> {
                     } else {
                         self.volume
                     };
-                    self.volume =
-                        ((start >> 5).wrapping_mul(u32::from(factor)) >> 7).min(127 << 16);
+                    self.volume = scale_volume(start, factor);
                 }
                 Command::SetVolume {
                     factor,
@@ -367,6 +323,7 @@ impl Voice<'_> {
                     if let Some(curve) = curve {
                         self.volume = curve.translate(self.volume);
                     }
+                    self.volume_ramp = None;
                 }
                 Command::FadeVolume {
                     factor,
@@ -382,7 +339,11 @@ impl Voice<'_> {
                     if from_silence {
                         self.volume = 0;
                     }
-                    self.volume_ramp = Some(VolumeRamp::new(self.volume, target, milliseconds));
+                    self.volume_ramp = Some(crate::volume::Ramp::new(
+                        self.volume as i32,
+                        target,
+                        crate::volume::frames_from_millis(u64::from(milliseconds))?,
+                    ));
                 }
                 Command::Auxiliary { bus, value } => {
                     ensure!(bus < 2 && value < 128, "invalid auxiliary control");
@@ -396,17 +357,11 @@ impl Voice<'_> {
                 } => {
                     self.selectors[target as usize] = Some((source, scale));
                 }
-                Command::SetAge { value } => self.priority_age = u32::from(value) << 15,
+                Command::SetAge { value } => self.set_age(i32::from(value)),
                 Command::AddAge { value } => {
-                    self.priority_age = (((self.priority_age >> 15) as i32 + i32::from(value))
-                        .clamp(0, 65535) as u32)
-                        << 15
+                    self.set_age(self.priority_age.value() + i32::from(value));
                 }
-                Command::AgePeriod { milliseconds } => {
-                    self.age_decay = (self.priority_age >> 8)
-                        .checked_div(milliseconds)
-                        .unwrap_or(0) as u16;
-                }
+                Command::AgePeriod { milliseconds } => self.set_age_period(milliseconds)?,
                 Command::PitchSweep {
                     slot,
                     step_hz,
@@ -443,7 +398,16 @@ impl Voice<'_> {
                         };
                         self.wait = Wait {
                             until: milliseconds
-                                .map_or(u64::MAX, |duration| base + u64::from(duration) * 256),
+                                .map(|duration| {
+                                    crate::volume::frames_from_millis(u64::from(duration)).and_then(
+                                        |frames| {
+                                            base.checked_add(frames)
+                                                .context("wait deadline overflow")
+                                        },
+                                    )
+                                })
+                                .transpose()?
+                                .unwrap_or(u64::MAX),
                             key_off,
                             sample_end,
                         };
@@ -459,13 +423,12 @@ impl Voice<'_> {
                         && !(sample_end && self.sample_ended())
                     {
                         let until = if let Some(ticks) = ticks {
-                            let bpm = self.bpm_1024 >> 10;
-                            ensure!((1..=1000).contains(&bpm), "invalid beat-wait tempo");
-                            let denominator = ((bpm << 3) * 0x600) / 0xf0;
+                            // Scores use 384 ticks per quarter note. Sample tempo when issued.
                             let duration =
-                                ((u32::from(ticks) << 16) / denominator).wrapping_mul(1000) >> 5;
+                                (u64::from(ticks) * 60 * 1024 * u64::from(crate::SOURCE_RATE))
+                                    .div_ceil(u64::from(self.bpm_1024) * 384);
                             self.wait_reference
-                                .checked_add(u64::from(duration))
+                                .checked_add(duration)
                                 .context("beat wait overflow")?
                         } else {
                             u64::MAX
@@ -486,23 +449,20 @@ impl Voice<'_> {
                         && !(key_off && self.key_off)
                         && !(sample_end && self.sample_ended())
                     {
-                        let duration = self
-                            .random
-                            .as_ref()
-                            .context("random wait requires the shared synthesizer")?
-                            .below(upper_ms);
+                        let duration = self.random.below(upper_ms);
                         self.wait = Wait {
-                            until: self.now() + u64::from(duration) * 256,
+                            until: self.now()
+                                + crate::volume::frames_from_millis(u64::from(duration))?,
                             key_off,
                             sample_end,
                         };
                     }
                 }
-                Command::Priority { value } => self.set_priority(value),
+                Command::Priority { value } => self.priority = value,
                 Command::ExclusiveGroup { group, kill } => {
                     self.exclusive_group = group;
                     self.host_request = (group != 0).then_some(HostRequest::Group { group, kill });
-                    if group != 0 && self.random.is_some() {
+                    if group != 0 {
                         break;
                     }
                 }
@@ -547,22 +507,13 @@ impl Voice<'_> {
                     self.vibrato.scale_by_modulation = scale_by_modulation;
                     self.vibrato.oscillator.set(period_ms, reverse);
                 }
-                Command::Lfo { period_ms } => self.lfo.set_lfo(period_ms),
-                Command::TremoloFromLfo => self.lfo_to_tremolo = true,
+                Command::Lfo { period_ms } => self.lfo.set(period_ms, false),
+                Command::TremoloInput { input } => self.tremolo_input = input,
                 Command::Tremolo {
                     scale,
                     modulation_scale,
                 } => self.tremolo = modulation::Tremolo::new(scale, modulation_scale),
             }
-        }
-        if instructions != 0
-            && self.wait.until > self.now()
-            && let Some(random) = &self.random
-        {
-            self.wait_order = random.schedule();
-        }
-        if instructions != 0 {
-            self.runnable = None;
         }
         Ok(())
     }
@@ -572,7 +523,7 @@ impl Voice<'_> {
             self.wait.until = if milliseconds == u16::MAX {
                 u64::MAX
             } else {
-                u64::from(milliseconds) * 256
+                crate::volume::frames_from_millis(u64::from(milliseconds)).unwrap()
                     + if from_start {
                         self.macro_started_at.unwrap()
                     } else {
@@ -595,41 +546,27 @@ impl Voice<'_> {
             Operand::Variable(variable) => self.variable(variable, controls)? as i16,
             Operand::Constant(value) => value,
         };
-        crate::control::evaluate(&[crate::control::Term {
-            value,
-            signed: true,
-            scale,
-            combine: crate::control::Combine::Set,
-        }])
+        Ok(crate::control::signed(value, scale))
     }
 
     fn variable(&self, variable: Variable, controls: &super::Controls) -> Result<i32> {
         Ok(match variable {
-            Variable::Controller(controller) => {
-                ensure!(
-                    self.random.is_some(),
-                    "controller operands require the shared synthesizer"
-                );
-                i32::from(match controller {
-                    Controller::Paired(index) => *controls
-                        .paired
-                        .get(usize::from(index))
-                        .context("invalid paired controller")?,
-                    Controller::PitchBend => controls.pitch_bend,
-                    Controller::Surround => controls.surround,
-                    Controller::Lfo => (i32::from(self.lfo.value) * 2 + 8192) as u16,
-                })
-            }
+            Variable::Controller(controller) => i32::from(match controller {
+                Controller::Paired(index) => *controls
+                    .paired
+                    .get(usize::from(index))
+                    .context("invalid paired controller")?,
+                Controller::PitchBend => controls.pitch_bend,
+                Controller::Surround => controls.surround,
+                Controller::Lfo => (i32::from(self.lfo.value) * 2 + 8192) as u16,
+            }),
             Variable::Local(index) => *self
                 .variables
                 .get(usize::from(index))
                 .context("invalid local macro variable")?,
             Variable::Global(index) => {
                 ensure!(index < 16, "invalid global macro variable");
-                self.random
-                    .as_ref()
-                    .context("global variables require the shared synthesizer")?
-                    .variable(index)
+                self.random.variable(index)
             }
         })
     }
@@ -642,10 +579,6 @@ impl Voice<'_> {
     ) -> Result<()> {
         match variable {
             Variable::Controller(controller) => {
-                ensure!(
-                    self.random.is_some(),
-                    "controller operands require the shared synthesizer"
-                );
                 let value = (value as i16).clamp(0, 16383) as u16;
                 match controller {
                     Controller::Paired(index) => {
@@ -671,12 +604,35 @@ impl Voice<'_> {
             }
             Variable::Global(index) => {
                 ensure!(index < 16, "invalid global macro variable");
-                self.random
-                    .as_ref()
-                    .context("global variables require the shared synthesizer")?
-                    .set_variable(index, value);
+                self.random.set_variable(index, value);
             }
         }
         Ok(())
+    }
+}
+
+fn scale_volume(volume: u32, factor: u16) -> u32 {
+    ((u64::from(volume >> 5) * u64::from(factor)) >> 7).min(127 << 16) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scale_volume;
+
+    #[test]
+    fn volume_scaling_preserves_ordinary_gain_and_saturates_monotonically() {
+        let maximum = 127 << 16;
+        for volume in [0, 1 << 16, 64 << 16, maximum] {
+            assert_eq!(scale_volume(volume, 0), 0);
+            assert_eq!(scale_volume(volume, 2048), volume / 2);
+            assert_eq!(scale_volume(volume, 4096), volume);
+            let mut previous = 0;
+            for factor in 0..=u16::MAX {
+                let scaled = scale_volume(volume, factor);
+                assert!((previous..=maximum).contains(&scaled));
+                previous = scaled;
+            }
+        }
+        assert_eq!(scale_volume(maximum, u16::MAX), maximum);
     }
 }

@@ -16,6 +16,16 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+
+/// Bevy retries these states when the shader or one of its imports arrives.
+pub(crate) fn shader_pending(error: &bevy::shader::ShaderCacheError) -> bool {
+    use bevy::shader::ShaderCacheError;
+    matches!(
+        error,
+        ShaderCacheError::ShaderNotLoaded(_) | ShaderCacheError::ShaderImportNotYetAvailable
+    )
+}
+
 #[derive(Resource, Clone, Default)]
 pub(super) struct Shared(pub Arc<Mutex<Report>>);
 
@@ -36,7 +46,7 @@ pub(super) fn capture_submitted(
     }
 }
 #[derive(Default)]
-pub(super) struct Report {
+pub(crate) struct Report {
     pub armed: bool,
     pub expected: HashSet<MainEntity>,
     pub pending: HashSet<MainEntity>,
@@ -53,6 +63,18 @@ pub(super) fn rendered(
     queue: Res<RenderQueue>,
 ) {
     let mut report = shared.0.lock().unwrap();
+    render_report(&mut report, &phases, &quads, &cache, &device, &queue);
+}
+
+/// The same submitted-draw fence is used by menu previews and battle loading.
+pub(crate) fn render_report(
+    report: &mut Report,
+    phases: &ViewSortedRenderPhases<Transparent3d>,
+    quads: &ViewSortedRenderPhases<Transparent2d>,
+    cache: &PipelineCache,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+) {
     if !report.armed || report.expected.is_empty() || report.completed.load(Ordering::Acquire) {
         return;
     }
@@ -61,7 +83,7 @@ pub(super) fn rendered(
         return;
     }
     let mut ready = HashSet::new();
-    for (entity, pipeline) in crate::field_warm::draws(&phases, &quads) {
+    for (entity, pipeline) in crate::field_warm::draws(phases, quads) {
         if !report.expected.contains(&entity) {
             continue;
         }
@@ -69,7 +91,9 @@ pub(super) fn rendered(
             CachedPipelineState::Ok(_) => {
                 ready.insert(entity);
             }
-            CachedPipelineState::Err(error) => report.error = Some(error.to_string()),
+            CachedPipelineState::Err(error) if !shader_pending(error) => {
+                report.error = Some(error.to_string())
+            }
             _ => {}
         }
     }

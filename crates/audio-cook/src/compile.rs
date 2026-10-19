@@ -1,279 +1,24 @@
 //! Compile original resources to the device-independent musical model.
 use crate::{
-    bank::{Bank, MusicSetup, ObjectKind, Page},
-    instrument, read, song,
+    bank::{Bank, MusicSetup, Page},
+    instrument, song,
 };
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use resonance_audio::{
-    data::{self, Command, Envelope, Event, EventKind, Interpolation, Note, Resources, Score},
+    data::{self, Event, EventKind, Note, Resources, Score},
     music_voice::Controls,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-pub fn programs(bank: &Bank<'_>, roots: impl IntoIterator<Item = u16>) -> Result<Resources> {
-    let mut pending: Vec<_> = roots.into_iter().collect();
-    let mut unsupported = Vec::new();
-    let mut resources = Resources {
-        programs: BTreeMap::new(),
-        samples: BTreeMap::new(),
-    };
-    while let Some(id) = pending.pop() {
-        if resources.programs.contains_key(&id) {
-            continue;
-        }
-        ensure!(
-            resources.programs.len() < 65536,
-            "excessive instrument program count"
-        );
-        let bytes = bank.object(ObjectKind::Macro, id)?;
-        ensure!(
-            bytes.len().is_multiple_of(8) && bytes.len() <= 65536 * 8,
-            "invalid instrument program length"
-        );
-        let mut program = Vec::new();
-        for (pc, bytes) in bytes.chunks_exact(8).enumerate() {
-            let a = read::u32(bytes, 0)?;
-            let b = read::u32(bytes, 4)?;
-            let command = match command(bank, a, b)
-                .with_context(|| format!("instrument {id}, instruction {pc}: {a:08x} {b:08x}"))
-            {
-                Ok(command) => command,
-                Err(error) => {
-                    ensure!(
-                        unsupported.len() < 64,
-                        "too many unsupported instrument commands: {}",
-                        unsupported.join("\n")
-                    );
-                    unsupported.push(format!("{error:#}"));
-                    continue;
-                }
-            };
-            match command {
-                Command::Jump { program, .. } | Command::KeyOffTrap { program, .. } => {
-                    pending.push(program)
-                }
-                Command::RandomBranch { program, .. }
-                | Command::SpawnMacro { program, .. }
-                | Command::MessageTrap { program, .. }
-                    if bank.object(ObjectKind::Macro, program).is_ok() =>
-                {
-                    pending.push(program)
-                }
-                Command::StartSample { sample } => {
-                    if let std::collections::btree_map::Entry::Vacant(entry) =
-                        resources.samples.entry(sample)
-                    {
-                        entry.insert(bank.sample(sample)?.into());
-                    }
-                }
-                _ => {}
-            }
-            program.push(command);
-        }
-        resources.programs.insert(id, program);
-    }
-    ensure!(
-        unsupported.is_empty(),
-        "unsupported instrument commands:\n{}",
-        unsupported.join("\n")
-    );
-    resources.validate()?;
-    Ok(resources)
-}
+pub use crate::decode::programs;
 
-pub(crate) fn command(bank: &Bank<'_>, a: u32, b: u32) -> Result<Command> {
-    let variable = |index: u8| {
-        if index & 31 < 16 {
-            data::Variable::Local(index & 15)
-        } else {
-            data::Variable::Global(index & 15)
-        }
-    };
-    let a = a & !0x80;
-    Ok(match a as u8 {
-        0 => Command::End,
-        0x06 => Command::Jump {
-            program: (a >> 16) as u16,
-            instruction: usize::from(b as u16),
-        },
-        0x08 => Command::SpawnMacro {
-            program: (a >> 16) as u16,
-            instruction: b as u16,
-            key_offset: (a >> 8) as i8,
-            priority: (b >> 16) as u8,
-            max_voices: (b >> 24) as u8,
-        },
-        0x05 | 0x0e | 0x13 | 0x15 | 0x17 | 0x60..=0x65 | 0x70 | 0x71 => {
-            crate::decode::command(bank, a, b)?.mixer()?
-        }
-        0x0c => {
-            let bytes = bank.object(ObjectKind::Table, (a >> 8) as u16)?;
-            let envelope = if a >> 24 == 0 {
-                Envelope::Ordinary(crate::parameters::ordinary(bytes)?)
-            } else {
-                Envelope::Dls(crate::parameters::dls(bytes)?)
-            };
-            Command::Envelope { envelope }
-        }
-        0x10 => crate::decode::command(bank, a, b)?.mixer()?,
-        0x11 => Command::StopSample,
-        0x12 => Command::Release,
-        0x18 => {
-            ensure!(
-                b >> 16 == 0 || (b >> 8) & 1 != 0,
-                "beat-based pitch-offset waits are not implemented"
-            );
-            Command::PitchOffset {
-                from_original: a >> 24 != 0,
-                semitones: (a >> 8) as i8,
-                cents: (a >> 16) as i8,
-                wait_ms: (b >> 16) as u16,
-                from_start: b & 1 != 0,
-            }
-        }
-        0x19 => {
-            ensure!(
-                b >> 16 == 0 || (b >> 8) & 1 != 0,
-                "beat-based SetNote waits are not implemented"
-            );
-            Command::SetNote {
-                key: ((a >> 8) & 127) as u8,
-                cents: (a >> 16) as i8,
-                wait_ms: (b >> 16) as u16,
-                from_start: b & 1 != 0,
-            }
-        }
-        0x21 => Command::ScaleVolume {
-            from_velocity: a >> 24 != 0,
-            factor: (a >> 8) as u16,
-        },
-        0x0d | 0x0f | 0x14 => crate::decode::command(bank, a, b)?.mixer()?,
-        0x40..=0x4c => crate::decode::command(bank, a, b)?.mixer()?,
-        0x30 => Command::AddAge {
-            value: (a >> 16) as i16,
-        },
-        0x31 => Command::SetAge {
-            value: (a >> 16) as u16,
-        },
-        0x38 => Command::AgePeriod { milliseconds: b },
-        0x1d | 0x1e => {
-            ensure!(
-                (b >> 8) as u8 == 1 && b & 255 == 0,
-                "unsupported pitch-sweep wait"
-            );
-            Command::PitchSweep {
-                slot: if a as u8 == 0x1d {
-                    data::SweepSlot::First
-                } else {
-                    data::SweepSlot::Second
-                },
-                step_hz: (a >> 16) as i16,
-                period: (a >> 8) as u8,
-                wait_ms: (b >> 16) as u16,
-            }
-        }
-        0x20 => {
-            let bytes = bank.pitch_envelope((a >> 8) as u16)?;
-            let coarse = i32::from(b as i8) * 256;
-            let fine = i32::from((b >> 8) as i8) * 256 / 100;
-            Command::PitchEnvelope {
-                envelope: crate::parameters::dls(bytes)?,
-                sustain: u16::from_le_bytes(bytes[8..10].try_into()?).min(4095),
-                depth_8: (if coarse < 0 {
-                    coarse - fine
-                } else {
-                    coarse + fine
-                }) as i16,
-            }
-        }
-        0x28 => {
-            let program = (a >> 16) as u16;
-            let instruction = (b & 0xffff) as usize;
-            match (a >> 8) as u8 {
-                0 => Command::KeyOffTrap {
-                    program,
-                    instruction,
-                },
-                2 => Command::MessageTrap {
-                    program,
-                    instruction,
-                },
-                slot => bail!("unsupported instrument trap slot {slot}"),
-            }
-        }
-        0x29 => match (a >> 8) as u8 {
-            0 => Command::ClearKeyOffTrap,
-            2 => Command::ClearMessageTrap,
-            slot => bail!("unsupported instrument trap slot {slot}"),
-        },
-        0x2a => Command::SendMessage {
-            target: if (a >> 8) as u8 != 0 {
-                data::MessageTarget::Handle(variable(b as u8))
-            } else {
-                ensure!(
-                    a >> 16 != 0xffff,
-                    "host message callbacks are not implemented"
-                );
-                data::MessageTarget::Macro((a >> 16) as u16)
-            },
-            value: variable((b >> 8) as u8),
-        },
-        0x2b => Command::ReceiveMessage {
-            destination: variable((a >> 8) as u8),
-        },
-        0x2c => Command::VoiceHandle {
-            destination: variable((a >> 8) as u8),
-            child: (a >> 16) as u8 != 0,
-        },
-        0x04 | 0x07 => crate::decode::command(bank, a, b)?.mixer()?,
-        0x36 => Command::Priority {
-            value: (a >> 8) as u8,
-        },
-        0x58 => Command::VolumeCurve {
-            alternate: (a >> 8) as u8 != 0,
-            interaural_delay: (a >> 16) as u8 != 0,
-        },
-        0x59 => Command::ExclusiveGroup {
-            group: (a >> 8) as u8,
-            kill: (a >> 16) as u8 != 0,
-        },
-        0x5a => {
-            let mode = match (a >> 8) as u8 {
-                0 => Interpolation::Polyphase,
-                1 => Interpolation::Linear,
-                2 => Interpolation::Direct,
-                _ => bail!("unsupported interpolation mode"),
-            };
-            ensure!(((a >> 16) as u8) < 4, "invalid interpolation coefficients");
-            Command::Interpolation {
-                mode,
-                coefficients: (a >> 16) as u8,
-            }
-        }
-        0x22 => Command::ModulationDepth {
-            semitones: (a >> 8) as i8,
-            cents: (a >> 16) as i8,
-        },
-        0x1c => crate::decode::command(bank, a, b)?.mixer()?,
-        0x50 => {
-            ensure!(
-                (a >> 8) as u8 == 0 && b == 0,
-                "only LFO 0 with default phase is implemented"
-            );
-            Command::Lfo {
-                period_ms: (a >> 16) as u16,
-            }
-        }
-        0x23 => Command::Tremolo {
-            scale: (a >> 8) as u16,
-            modulation_scale: b as u16,
-        },
-        opcode => bail!("unsupported instrument opcode {opcode:#04x}"),
-    })
-}
-
-pub fn music(bank: &Bank<'_>, song: &song::Song, setup: &MusicSetup) -> Result<(Resources, Score)> {
-    let score = score(song, setup, |_, page, key, velocity| {
+pub fn music(
+    bank: &Bank<'_>,
+    song: &song::Song,
+    setup: &MusicSetup,
+    sustains: &crate::parameters::Sustains,
+) -> Result<(Resources, Score)> {
+    let score = score(song, setup, |page, key, velocity| {
         page.map_or_else(
             || Ok(Vec::new()),
             |page| instrument::resolve(bank, page, key, velocity, 64),
@@ -289,36 +34,27 @@ pub fn music(bank: &Bank<'_>, song: &song::Song, setup: &MusicSetup) -> Result<(
         })
         .map(|v| v.macro_id)
         .collect();
-    let resources = self::programs(bank, roots)?;
+    let resources = self::programs(bank, roots, sustains)?;
     score.validate(&resources)?;
     Ok((resources, score))
 }
 
-/// Bind every note to its cooked instrument voices. Resolver indices refer to
-/// all original events in first-traversal then loop order, including events
-/// which only change program state and produce no output command.
+/// Bind every note to its cooked instrument voices.
 pub fn score(
     song: &song::Song,
     setup: &MusicSetup,
-    mut resolve: impl FnMut(usize, Option<Page>, u8, u8) -> Result<Vec<Note>>,
+    mut resolve: impl FnMut(Option<Page>, u8, u8) -> Result<Vec<Note>>,
 ) -> Result<Score> {
     let (loop_start_tick, end_tick) = song.playback_interval()?;
     let mut programs = setup.channels.map(|c| c.program);
     let first = song.events();
-    let first_events = events(setup, &first, 0, &mut programs, &mut resolve)?;
-    let loop_events = events(
-        setup,
-        &song.loop_events()?,
-        first.len(),
-        &mut programs,
-        &mut resolve,
-    )?;
+    let first_events = events(setup, &first, &mut programs, &mut resolve)?;
+    let loop_events = events(setup, &song.loop_events()?, &mut programs, &mut resolve)?;
     Ok(Score {
         origin: data::ScoreOrigin::Sequence,
         initial_bpm_1024: song.initial_bpm_1024,
         loop_start_tick,
         end_tick,
-        has_master_track: song.has_master_track,
         tempos: song
             .tempos
             .iter()
@@ -342,12 +78,11 @@ pub fn score(
 fn events(
     setup: &MusicSetup,
     events: &[song::Event],
-    first_index: usize,
     programs: &mut [u8; 16],
-    resolve: &mut impl FnMut(usize, Option<Page>, u8, u8) -> Result<Vec<Note>>,
+    resolve: &mut impl FnMut(Option<Page>, u8, u8) -> Result<Vec<Note>>,
 ) -> Result<Vec<Event>> {
     let mut output = Vec::new();
-    for (index, event) in events.iter().enumerate() {
+    for event in events {
         use song::EventKind as Original;
         let current_program = programs
             .get_mut(usize::from(event.channel))
@@ -390,12 +125,7 @@ fn events(
                 velocity,
                 length,
             } => {
-                let voices = resolve(
-                    first_index + index,
-                    setup.page(event.channel, *current_program),
-                    key,
-                    velocity,
-                )?;
+                let voices = resolve(setup.page(event.channel, *current_program), key, velocity)?;
                 EventKind::Notes {
                     source: data::VoiceSource::Sequence {
                         group: setup.group,
@@ -419,6 +149,7 @@ fn events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     fn arrangement() -> (song::Song, MusicSetup) {
         use song::EventKind::{Command, Modulation, Note, Pattern};
@@ -428,7 +159,6 @@ mod tests {
             length: 2,
         };
         let song = song::Song {
-            has_master_track: false,
             initial_bpm_1024: 120 * 1024,
             loop_start_tick: 2,
             tempos: Vec::new(),
@@ -492,11 +222,11 @@ mod tests {
     }
 
     #[test]
-    fn score_binding_counts_skipped_events_and_keeps_program_state_across_loops() -> Result<()> {
+    fn score_binding_keeps_program_state_across_loops() -> Result<()> {
         let (song, setup) = arrangement();
         let mut calls = Vec::new();
-        let score = score(&song, &setup, |index, page, key, velocity| {
-            calls.push((index, page.map(|page| page.object), key, velocity));
+        let score = score(&song, &setup, |page, key, velocity| {
+            calls.push((page.map(|page| page.object), key, velocity));
             Ok(page
                 .into_iter()
                 .map(|page| Note {
@@ -513,11 +243,11 @@ mod tests {
         assert_eq!(
             calls,
             [
-                (0, None, 60, 90),
-                (3, Some(12), 61, 91),
-                (5, Some(15), 62, 92),
-                (9, Some(15), 61, 91),
-                (11, Some(15), 62, 92),
+                (None, 60, 90),
+                (Some(12), 61, 91),
+                (Some(15), 62, 92),
+                (Some(15), 61, 91),
+                (Some(15), 62, 92),
             ]
         );
         assert_eq!(
@@ -562,7 +292,7 @@ mod tests {
         let (mut song, setup) = arrangement();
         for channel in [16, 255] {
             song.tracks[0].events[1].channel = channel;
-            let error = score(&song, &setup, |_, _, _, _| Ok(Vec::new()))
+            let error = score(&song, &setup, |_, _, _| Ok(Vec::new()))
                 .err()
                 .unwrap();
             assert_eq!(

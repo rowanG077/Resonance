@@ -58,6 +58,37 @@ fn location_menu_pages_and_shortcuts_select_visible_rows() {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn fixed_camera_save_rebuilds_the_room_view() -> Result<()> {
+    let root = assets_root()?;
+    let mut field = configured(ASGARD_RANCH, 211, |entry| {
+        entry.position = [-400., -1500., -100.];
+        entry
+            .persistent
+            .memory
+            .write(0xe0, symphonia_script::Width::S32, 3200)?;
+        Ok(())
+    })?;
+    field.advance_until(FieldSession::player_has_control)?;
+    let camera = field.events.world.field_camera.as_ref().unwrap();
+    assert!(!camera.current().anchor_to_actor);
+    let eye = camera.current().position;
+    let saved = field.checkpoint()?;
+    assert!(saved.camera.is_none());
+    let package = new_game::FieldPackage::prepare(&root, 211, &mut Default::default(), || false)?;
+    let (mut restored, checkpoint) = package.restore(&saved, new_game::available_fields(&root)?)?;
+    crate::saves::assert_checkpoint(&checkpoint.unwrap(), &saved)?;
+    let camera = restored.events.world.field_camera.as_ref().unwrap();
+    assert!(!camera.current().anchor_to_actor);
+    for (actual, expected) in camera.position.into_iter().zip(eye) {
+        assert!((actual - expected).abs() < 0.01, "camera changed on load");
+    }
+    restored.step(Default::default())?;
+    assert!(restored.player_has_control());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn location_menu_checkpoints_are_playable() -> Result<()> {
     let root = assets_root()?;
     let mut cache = Default::default();
@@ -377,6 +408,7 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
     assert!(!field.events.world.event_flags.contains(&154));
     assert!(field.events.world.actors.contains_key(&200));
     for (id, x) in [(8001, -1000.), (8002, 1000.)] {
+        field.advance_until(FieldSession::player_has_control)?;
         let drone = field.actor_mut(id);
         drone.position = [x, 900., 0.];
         drone.face(180.);
@@ -392,7 +424,14 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
             pressed_buttons: [Button::Ring].into(),
             ..Default::default()
         })?;
-        field.ticks(60, FieldInput::default())?;
+        field.until(dialogue_input(), |field| {
+            skip_battle(field)?;
+            Ok(if id == 8001 {
+                field.events.world.actors.contains_key(&401)
+            } else {
+                field.events.world.event_flags.contains(&154)
+            })
+        })?;
         let enemy = field.actor(id).enemy.as_ref().unwrap();
         assert!(enemy.pause_ticks > 0);
         assert_eq!(
@@ -418,6 +457,7 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
     );
     let mut previous = [field.actor(8001).position, field.actor(8002).position];
     field.until(dialogue_input(), |field| {
+        skip_battle(field)?;
         for (id, before) in [8001, 8002].into_iter().zip(&mut previous) {
             let actor = &field.events.world.actors[&id];
             let enemy = actor.enemy.as_ref().unwrap();
@@ -810,9 +850,13 @@ fn iselia_damage_spheres_keep_moving() -> Result<()> {
         field.advance_until(FieldSession::player_has_control)?;
         // Let reverse clips cross zero before measuring: they previously moved
         // once, then froze together at the first sample for the rest of play.
-        field.ticks(1200, FieldInput::default())?;
+        for _ in 0..1200 {
+            skip_battle(&mut field)?;
+            field.step(FieldInput::default())?;
+        }
         let mut bounds = vec![([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]); count];
         for _ in 0..1200 {
+            skip_battle(&mut field)?;
             field.step(FieldInput::default())?;
             for (i, (min, max)) in bounds.iter_mut().enumerate() {
                 let actor = field.actor(first + i as i32);
@@ -920,6 +964,27 @@ fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
         Ok(saw_movie && (f.player_has_control() || f.events.world.field_transition.is_some()))
     })?;
     assert!(saw_movie);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn triet_ring_clears_the_boulders_blocking_the_chest() -> Result<()> {
+    let mut field = enter(TRIET_START, 219, None)?;
+    field.advance_until(FieldSession::player_has_control)?;
+    let player = field.events.world.controlled_actor;
+    field.actor_mut(player).position = [-4180., -2000., 78.];
+    field.actor_mut(player).face(270.);
+    field.step(FieldInput {
+        pressed_buttons: [Button::Ring].into(),
+        ..Default::default()
+    })?;
+    field.ticks(90, FieldInput::default())?;
+    assert!(field.events.world.event_flags.contains(&271));
+    for id in [7551, 7552] {
+        assert!(!field.events.world.actors.contains_key(&id));
+    }
+    assert!(field.player_has_control());
     Ok(())
 }
 
@@ -1037,6 +1102,9 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
             // Approach from the front, through the cup's invisible talk marker.
             // A side-only shot misses that marker and cannot catch interception.
             field.ticks(30, field.walking([0., 1.]))?;
+            // Keep the shot off-centre: the assembly's visual bounds overlap
+            // this path, but the cup's authored target should receive the hit.
+            field.actor_mut(player).position[0] -= 24.;
         } else {
             actor.position = [center[0] + 150., center[1], 0.];
             actor.face(270.);
@@ -1087,9 +1155,11 @@ fn iselia_first_tutorial_skips_both_battles_and_enters_the_overworld() -> Result
     let request = field.events.world.world_transition.as_ref().unwrap();
     assert_eq!((request.location, request.direction), (2, 6));
     let root = assets_root()?;
+    let mut cache = Default::default();
     let package = resonance_game::overworld::Prepared::load(
         &root,
-        &mut Default::default(),
+        resonance_content::prepared::Files::load(&root, &[], &mut cache, || false)?,
+        &mut cache,
         new_game::available_fields(&root)?,
         || false,
     )?;

@@ -7,7 +7,6 @@ use resonance_content::{
     field::FieldAssets,
     font::{BitmapFont, DialogueArt},
     prepared::Files,
-    session::SessionData,
 };
 use resonance_events::input::{Button, Buttons};
 use resonance_events::{PersistentState, party::Party};
@@ -41,11 +40,10 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
         &mut Default::default(),
         || false,
     )?);
-    let package = new_game::FieldPackage::load(root, files.clone(), map, &mut Default::default())?;
+    let package = new_game::FieldPackage::load(files.clone(), map, &mut Default::default())?;
     let effects: FieldEffects = files.json(&package.assets.effects)?;
     effects.validate()?;
-    let data: Arc<SessionData> = Arc::new(files.json("game/session-data.json")?);
-    let skits: Arc<resonance_content::skit::SkitCatalog> = Arc::new(files.json("game/skits.json")?);
+    let data = &package.data;
     let art: DialogueArt = files.json("ui/dialogue.json")?;
     let font: BitmapFont = files.json(&art.font)?;
     let available_fields = new_game::available_fields(root)?;
@@ -66,14 +64,9 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
     let position = std::array::from_fn(|axis| floor.iter().map(|p| p[axis]).sum::<f32>() / 3.);
     let new = |checkpoint: Option<&FieldCheckpoint>| -> Result<(FieldSession, Playback)> {
         let mut field = if let Some(checkpoint) = checkpoint {
-            package.restore(
-                checkpoint,
-                data.clone(),
-                skits.clone(),
-                available_fields.clone(),
-            )?
+            package.restore(checkpoint, available_fields.clone())?.0
         } else {
-            let mut party = Party::new(&data, Default::default())?;
+            let mut party = Party::new(data, Default::default())?;
             party.formation = if story >= 2000 {
                 vec![1, 2, 3]
             } else {
@@ -88,8 +81,6 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
                 .write(0x40, symphonia_script::Width::S32, story)?;
             let mut field = package.enter(FieldEntry {
                 persistent,
-                data: Some(data.clone()),
-                skits: Some(skits.clone()),
                 position,
                 available_fields: available_fields.clone(),
                 ..Default::default()

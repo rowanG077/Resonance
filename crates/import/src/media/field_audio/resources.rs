@@ -438,7 +438,7 @@ mod tests {
             let manifest: Manifest = serde_json::from_slice(&fs::read(path)?)?;
             let field: FieldAssets =
                 serde_json::from_slice(&fs::read(root.join(&manifest.inputs.field))?)?;
-            let required = catalogue.resources(&fs::read(root.join(&field.script.path))?)?;
+            let required = catalogue.resources(&fs::read(root.join(&field.script))?)?;
             let mut available = BTreeSet::new();
             for audio in &manifest.inputs.audio {
                 let bank: FieldAudio = serde_json::from_slice(&fs::read(root.join(audio))?)?;

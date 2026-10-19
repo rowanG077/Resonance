@@ -1,0 +1,153 @@
+--- a/Source/Core/Core/MemoryWatcher.h
++++ b/Source/Core/Core/MemoryWatcher.h
+@@ -7,4 +7,5 @@
+ 
+ #include <map>
++#include <optional>
+ #include <string>
+ #include <sys/socket.h>
+@@ -38,7 +39,11 @@
+   void ParseLine(const std::string& line);
+   u32 ChasePointer(const Core::CPUThreadGuard& guard, const std::string& line);
++  std::optional<u32> ChaseMEM1Pointer(const Core::CPUThreadGuard& guard, const std::string& line);
++  std::string ComposeMEM1Messages(const Core::CPUThreadGuard& guard);
+   std::string ComposeMessages(const Core::CPUThreadGuard& guard);
+ 
+   bool m_running = false;
++  bool m_mem1 = false;
++  bool m_invalid_location = false;
+ 
+   int m_fd;
+--- a/Source/Core/Core/MemoryWatcher.cpp
++++ b/Source/Core/Core/MemoryWatcher.cpp
+@@ -4,4 +4,5 @@
+ #include "Core/MemoryWatcher.h"
+ 
++#include <charconv>
+ #include <cstring>
+ #include <fstream>
+@@ -40,4 +41,10 @@
+ 
+   std::string line;
++  if (std::getline(locations, line))
++  {
++    m_mem1 = line == "# mem1-v2";
++    if (!m_mem1)
++      ParseLine(line);
++  }
+   while (std::getline(locations, line))
+     ParseLine(line);
+@@ -53,7 +60,27 @@
+   std::istringstream offsets(line);
+   offsets >> std::hex;
+-  u32 offset;
+-  while (offsets >> offset)
+-    m_addresses[line].push_back(offset);
++  if (m_mem1)
++  {
++    std::string token;
++    while (offsets >> token)
++    {
++      u32 offset;
++      const auto [end, error] =
++          std::from_chars(token.data(), token.data() + token.size(), offset, 16);
++      if (error != std::errc{} || end != token.data() + token.size())
++      {
++        m_invalid_location = true;
++        return;
++      }
++      m_addresses[line].push_back(offset);
++    }
++    m_invalid_location |= m_addresses[line].empty();
++  }
++  else
++  {
++    u32 offset;
++    while (offsets >> offset)
++      m_addresses[line].push_back(offset);
++  }
+ }
+ 
+@@ -79,6 +106,82 @@
+ }
+ 
++std::optional<u32> MemoryWatcher::ChaseMEM1Pointer(const Core::CPUThreadGuard& guard,
++                                                  const std::string& line)
++{
++  // This opt-in contract admits only physical MEM1 and its cached alias. It does
++  // not depend on the guest's temporary data-translation state at the VI boundary.
++  const auto physical = [](u64 address) -> std::optional<u32> {
++    if (address >= 0x80000000 && address <= 0x817ffffc)
++      address -= 0x80000000;
++    if (address > 0x017ffffc)
++      return std::nullopt;
++    return static_cast<u32>(address);
++  };
++  u32 value = 0;
++  const auto& offsets = m_addresses.at(line);
++  for (size_t index = 0; index < offsets.size(); ++index)
++  {
++    if (index != 0)
++    {
++      if (value == 0)
++        return 0;
++      if (!physical(value))
++        return std::nullopt;
++    }
++    const auto address = physical(static_cast<u64>(value) + offsets[index]);
++    if (!address)
++      return std::nullopt;
++    const auto result = PowerPC::MMU::HostTryRead<u32>(
++        guard, *address, PowerPC::RequestedAddressSpace::Physical);
++    if (!result)
++      return std::nullopt;
++    value = result->value;
++  }
++  return value;
++}
++
++std::string MemoryWatcher::ComposeMEM1Messages(const Core::CPUThreadGuard& guard)
++{
++  // Sorted location IDs replace repeated pointer expressions on the wire.
++  // The header is present on every real VI, including an unchanged row.
++  std::string message = "# mem1-v2\n1\n";
++  message.reserve(message.size() + m_values.size() * 8);
++  const auto append = [&message](u32 value) {
++    for (int shift = 24; shift >= 0; shift -= 8)
++      message.push_back(static_cast<char>((value >> shift) & 0xff));
++  };
++  if (m_invalid_location || m_values.size() >= 0x80000000)
++  {
++    append(0xffffffff);
++    append(0);
++    return message;
++  }
++
++  u32 id = 0;
++  for (auto& [address, current_value] : m_values)
++  {
++    const auto value = ChaseMEM1Pointer(guard, address);
++    if (!value)
++    {
++      append(id | 0x80000000);
++      append(0);
++      return message;
++    }
++    if (*value != current_value)
++    {
++      current_value = *value;
++      append(id);
++      append(*value);
++    }
++    ++id;
++  }
++  return message;
++}
++
+ std::string MemoryWatcher::ComposeMessages(const Core::CPUThreadGuard& guard)
+ {
++  if (m_mem1)
++    return ComposeMEM1Messages(guard);
++
+   std::ostringstream message_stream;
+   message_stream << std::hex;

@@ -7,7 +7,6 @@ use bevy::{
         render_resource::{TextureFormat, TextureUsages},
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
-    sprite_render::Material2dPlugin,
     window::ExitCondition,
 };
 use resonance_content::{HEIGHT, SCENE_HEIGHT, WIDTH};
@@ -19,6 +18,8 @@ use std::path::Path;
 pub struct Probe {
     pub state: resonance_content::overworld::TravelState,
     pub story: i32,
+    #[serde(default)]
+    pub event_flags: std::collections::BTreeSet<u16>,
     /// Settle the camera without stepping scripts, travel, or audio.
     #[serde(default = "camera_ticks")]
     pub camera_ticks: u16,
@@ -69,11 +70,13 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
     let root = root.canonicalize()?;
     let package = Arc::new(game::Prepared::load(
         &root,
+        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
         &mut Default::default(),
         (0..547).collect(),
         || false,
     )?);
     let mut persistent = resonance_events::PersistentState {
+        event_flags: probe.event_flags.clone(),
         party: Some(resonance_events::party::Party::new(
             package.resources.session_data.as_ref().unwrap(),
             Default::default(),
@@ -140,6 +143,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
         let skits = resonance_game::skit::Prepared::load(
             package.resources.skits.as_ref().unwrap().clone(),
             &package.files,
+            &package.resources,
         )?;
         session.active_skit = Some(resonance_game::skit::Playback::start(
             &skits[&id],
@@ -206,9 +210,10 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
     .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
         resonance_game::clock::UPDATE_STEP,
     ))
-    .add_plugins(MaterialPlugin::<TitleSurface>::default())
-    .add_plugins(Material2dPlugin::<TitleOutput>::default())
-    .add_plugins(Material2dPlugin::<crate::field_ui::Surface>::default())
+    .add_plugins((
+        crate::materials::install_surface_material,
+        crate::materials::install_output_materials,
+    ))
     .add_plugins(crate::draw_order::DrawOrderPlugin)
     .init_resource::<crate::display::Display>()
     .init_resource::<crate::scene::SampledImages>()
@@ -249,9 +254,9 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             .after(ui)
             .before(capture),
     );
+    crate::field_ui::install(&mut app);
     crate::materials::install(&mut app);
     sparse_animation::install(&mut app);
-    crate::overworld::embed_shaders(&mut app);
     crate::renderer::configure(&mut app);
     let ready = crate::RenderReady::default();
     app.insert_resource(ready.clone());
@@ -292,6 +297,7 @@ fn setup(
             ..default()
         },
         RenderTarget::Image(source.clone().into()),
+        crate::FieldOverlayCamera,
         crate::camera::overlay_alignment(),
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::Fixed {
@@ -399,7 +405,7 @@ fn capture(
             .map(|(slot, _)| slot.0).collect::<Vec<_>>()})
         })
         .collect();
-    let state = serde_json::json!({"kind":"overworld-development-observer", "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "late_asset_reads": resident.late_reads.load(Ordering::Acquire)});
+    let state = serde_json::json!({"kind":"overworld-development-observer", "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "late_asset_reads": resident.unprepared_reads.load(Ordering::Acquire)});
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
         move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
             match crate::screenshot::write(&event.image, &path, Some(&state)) {

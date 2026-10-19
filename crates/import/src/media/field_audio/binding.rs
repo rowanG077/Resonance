@@ -2,8 +2,9 @@ use super::*;
 use crate::media::voice_library::Archive;
 use std::collections::BTreeSet;
 
-pub(super) fn voices(
-    workspace: &Workspace,
+pub(crate) fn voices(
+    library: &Path,
+    extracted: &Path,
     executable: &[u8],
     additional: Option<&Path>,
     ids: &BTreeSet<u32>,
@@ -16,14 +17,14 @@ pub(super) fn voices(
         .collect::<BTreeSet<_>>()
     {
         let source = directory.path(group)?;
-        let mut archive =
-            Archive::source(&workspace.output, &workspace.extracted, additional, &source)?;
+        let mut archive = Archive::source(library, extracted, additional, &source)?;
         for &id in ids.range(group..=(group | 0xffff)) {
-            let mut voice = archive.voice((id & 0xffff) as usize)?;
+            let metadata = archive.voice((id & 0xffff) as usize)?;
             ensure!(
-                voice.source_name.ends_with(".ahx"),
+                metadata.source_name.ends_with(".ahx"),
                 "field voice {id:#x} is not AHX"
             );
+            let mut voice = metadata.voice;
             if voice.source_sample_rate == super::super::SAMPLE_RATE {
                 voice.sample_rate = super::super::PLAYBACK_RATE;
             }
@@ -84,7 +85,6 @@ mod tests {
                 expected.insert(
                     id,
                     (
-                        entry.name.clone(),
                         crate::digest(&bytes),
                         crate::read::u32(&bytes, 8)?,
                         crate::read::u32(&bytes, 12)?,
@@ -95,13 +95,17 @@ mod tests {
         assert_eq!(owners.values().filter(|&&disc| disc == 1).count(), 8);
         assert_eq!(owners.values().filter(|&&disc| disc == 2).count(), 5);
         let workspace = Workspace::open(&primary, &cooked)?;
-        let bound = voices(&workspace, &executable, Some(&additional), &ids)?;
+        let bound = voices(
+            &workspace.output,
+            &workspace.extracted,
+            &executable,
+            Some(&additional),
+            &ids,
+        )?;
         assert_eq!(bound.len(), 26);
         for (&id, voice) in &bound {
             assert_eq!(voice.sample_rate, 32028);
-            let (name, hash, rate, frames) = &expected[&id];
-            assert_eq!(&voice.source_name, name);
-            assert_eq!(&voice.source_sha256, hash);
+            let (hash, rate, frames) = &expected[&id];
             assert_eq!(&voice.source_sample_rate, rate);
             assert_eq!(&voice.frames, frames);
             assert_eq!(voice.asset.path, format!("audio/streams/{hash}.wav"));
@@ -110,10 +114,25 @@ mod tests {
             .into_iter()
             .filter(|id| owners[&(id & 0xffff_0000)] == 2)
             .collect();
-        assert!(voices(&workspace, &executable, None, &disc_two_ids).is_err());
+        assert!(
+            voices(
+                &workspace.output,
+                &workspace.extracted,
+                &executable,
+                None,
+                &disc_two_ids
+            )
+            .is_err()
+        );
         drop(workspace);
         let workspace = Workspace::open(&additional, &cooked)?;
-        let direct = voices(&workspace, &executable, None, &disc_two_ids)?;
+        let direct = voices(
+            &workspace.output,
+            &workspace.extracted,
+            &executable,
+            None,
+            &disc_two_ids,
+        )?;
         for (id, voice) in direct {
             assert_eq!(
                 serde_json::to_value(voice)?,

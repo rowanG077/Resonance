@@ -18,8 +18,7 @@ fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
     assets.validate().unwrap();
     let data: SessionData = cooked("game/session-data.json");
     let data = Arc::new(data);
-    let program =
-        Arc::new(Program::decode(&fs::read(root.join(&assets.script.path)).unwrap()).unwrap());
+    let program = Arc::new(Program::decode(&fs::read(root.join(&assets.script)).unwrap()).unwrap());
     let resources = Arc::new(ResourceLibrary {
         messages: cooked(&assets.messages),
         session_data: Some(data.clone()),

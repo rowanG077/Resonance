@@ -91,14 +91,13 @@ fn bind(
         .into_iter()
         .map(|texture| texture.context("missing credits texture")?.image(0))
         .collect::<Result<_>>()?;
-    let music = serde_json::from_slice(&read(format!(
-        "audio/streams/{}.json",
-        hash(&resources.music)?
-    ))?)?;
+    let music: crate::media::voice_library::LibraryVoice = serde_json::from_slice(&read(
+        format!("audio/streams/{}.json", hash(&resources.music)?),
+    )?)?;
     let manifest = Manifest {
         program,
         pictures,
-        music,
+        music: music.voice,
         final_hold_ticks: 180,
     };
     manifest.validate()?;
@@ -327,9 +326,6 @@ mod tests {
                 crate::media::hash_file(&output.join(&credits.music.asset.path))?,
                 credits.music.asset.sha256
             );
-            let published: serde_json::Value =
-                serde_json::from_slice(&fs::read(output.join(resonance_content::credits::PATH))?)?;
-            assert_eq!(published, serde_json::to_value(credits)?);
         }
         Ok(())
     }

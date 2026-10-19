@@ -34,7 +34,7 @@ impl<const N: usize> Tween<N> {
     pub fn settled(&self) -> bool {
         self.remaining.is_none() && self.speed == 0.
     }
-    fn step(&mut self) {
+    pub(crate) fn step(&mut self) {
         let delta: [f64; N] = std::array::from_fn(|i| self.target[i] - self.value[i]);
         let distance = delta.iter().map(|v| v * v).sum::<f64>().sqrt();
         let amount = if let Some(remaining) = self.remaining {

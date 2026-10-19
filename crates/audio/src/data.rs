@@ -109,6 +109,15 @@ pub enum ControlTarget {
     PostAuxiliaryB,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TremoloInput {
+    #[default]
+    Midpoint,
+    Zero,
+    Lfo,
+}
+
 impl ControlTarget {
     pub(crate) const COUNT: usize = Self::PostAuxiliaryB as usize + 1;
 }
@@ -219,7 +228,7 @@ pub enum Command {
         envelope: Envelope,
     },
     PitchEnvelope {
-        envelope: dls::Definition,
+        envelope: dls::Timing,
         sustain: u16,
         depth_8: i16,
     },
@@ -360,7 +369,9 @@ pub enum Command {
     Lfo {
         period_ms: u16,
     },
-    TremoloFromLfo,
+    TremoloInput {
+        input: TremoloInput,
+    },
     Tremolo {
         scale: u16,
         modulation_scale: u16,
@@ -373,6 +384,16 @@ pub struct Resources {
 }
 
 impl Command {
+    fn destination(&self) -> Option<Variable> {
+        match *self {
+            Self::SetVariable { destination, .. }
+            | Self::Calculate { destination, .. }
+            | Self::VoiceHandle { destination, .. }
+            | Self::ReceiveMessage { destination } => Some(destination),
+            _ => None,
+        }
+    }
+
     pub(crate) fn variables(&self) -> [Option<Variable>; 3] {
         match *self {
             Self::SetVariable { destination, .. }
@@ -421,118 +442,129 @@ impl Resources {
             self.programs.values().map(Vec::len).sum::<usize>() <= 1_000_000,
             "music program budget exceeded"
         );
-        for program in self.programs.values() {
+        for (&program_id, program) in &self.programs {
             ensure!(
                 !program.is_empty() && program.len() <= 65536,
                 "invalid instrument program length"
             );
-            for command in program {
-                for variable in command.variables().into_iter().flatten() {
-                    match variable {
-                        Variable::Local(index) | Variable::Global(index) => {
-                            ensure!(index < 16, "macro variable index exceeds register bank")
+            for (instruction, command) in program.iter().enumerate() {
+                (|| -> Result<()> {
+                    ensure!(
+                        !matches!(
+                            command.destination(),
+                            Some(Variable::Controller(Controller::Paired(6)))
+                        ),
+                        "RPN data-entry controller writes are not implemented"
+                    );
+                    for variable in command.variables().into_iter().flatten() {
+                        match variable {
+                            Variable::Local(index) | Variable::Global(index) => {
+                                ensure!(index < 16, "macro variable index exceeds register bank")
+                            }
+                            Variable::Controller(Controller::Paired(index)) => {
+                                ensure!(index < 32, "paired controller index exceeds bank")
+                            }
+                            Variable::Controller(_) => {}
                         }
-                        Variable::Controller(Controller::Paired(index)) => {
-                            ensure!(index < 32, "paired controller index exceeds bank")
+                    }
+                    match *command {
+                        Command::SendMessage {
+                            target: MessageTarget::Macro(u16::MAX),
+                            ..
+                        } => {
+                            anyhow::bail!("host message callbacks are not implemented");
                         }
-                        Variable::Controller(_) => {}
+                        Command::Jump {
+                            program,
+                            instruction,
+                        }
+                        | Command::KeyOffTrap {
+                            program,
+                            instruction,
+                        } => {
+                            ensure!(
+                                instruction < self.program(program)?.len(),
+                                "instrument jump target is out of bounds"
+                            );
+                        }
+                        Command::StartSample { sample } => {
+                            self.sample(sample)?;
+                        }
+                        Command::RandomBranch {
+                            program,
+                            instruction,
+                            ..
+                        }
+                        | Command::MessageTrap {
+                            program,
+                            instruction,
+                        } => {
+                            ensure!(
+                                self.programs
+                                    .get(&program)
+                                    .is_none_or(|commands| instruction < commands.len()),
+                                "instrument conditional target is out of bounds"
+                            );
+                        }
+                        Command::SpawnMacro {
+                            program,
+                            instruction,
+                            ..
+                        } => {
+                            ensure!(
+                                self.programs
+                                    .get(&program)
+                                    .is_none_or(
+                                        |commands| usize::from(instruction) < commands.len()
+                                    ),
+                                "child macro entry is out of bounds"
+                            );
+                        }
+                        Command::Loop { instruction, .. }
+                        | Command::RandomLoop { instruction, .. }
+                        | Command::Branch { instruction, .. } => {
+                            ensure!(
+                                instruction < program.len(),
+                                "instrument loop target is out of bounds"
+                            );
+                            ensure!(
+                                !matches!(command, Command::RandomLoop { count: 0, .. }),
+                                "random loop requires a nonzero bound"
+                            );
+                        }
+                        Command::Interpolation { coefficients, .. } => {
+                            ensure!(coefficients < 4, "invalid interpolation coefficients")
+                        }
+                        Command::PitchEnvelope {
+                            envelope, sustain, ..
+                        } => {
+                            ensure!(sustain <= 193, "invalid pitch envelope sustain");
+                            envelope.validate()?;
+                        }
+                        Command::SetNote { key, .. } => {
+                            ensure!(key < 128, "invalid instrument key")
+                        }
+                        Command::Auxiliary { bus, value } => ensure!(
+                            bus < 2 && value < 128,
+                            "invalid instrument auxiliary control"
+                        ),
+                        Command::VolumeControl { value } => {
+                            ensure!(value < 16384, "invalid volume selector")
+                        }
+                        Command::Envelope {
+                            envelope: Envelope::Ordinary(p),
+                        } => ensure!(p.sustain <= 32767, "invalid ordinary sustain"),
+                        Command::Envelope {
+                            envelope: Envelope::Dls(p),
+                        } => {
+                            ensure!(p.sustain <= 193, "invalid DLS logarithmic sustain");
+                            p.timing.validate()?;
+                        }
+                        _ => {}
                     }
-                }
-                match *command {
-                    Command::SetVariable {
-                        destination: Variable::Controller(Controller::Paired(6)),
-                        ..
-                    }
-                    | Command::Calculate {
-                        destination: Variable::Controller(Controller::Paired(6)),
-                        ..
-                    } => {
-                        anyhow::bail!("RPN data-entry controller writes are not implemented");
-                    }
-                    Command::SendMessage {
-                        target: MessageTarget::Macro(u16::MAX),
-                        ..
-                    } => {
-                        anyhow::bail!("host message callbacks are not implemented");
-                    }
-                    Command::Jump {
-                        program,
-                        instruction,
-                    }
-                    | Command::KeyOffTrap {
-                        program,
-                        instruction,
-                    } => {
-                        ensure!(
-                            instruction < self.program(program)?.len(),
-                            "instrument jump target is out of bounds"
-                        );
-                    }
-                    Command::StartSample { sample } => {
-                        self.sample(sample)?;
-                    }
-                    Command::RandomBranch {
-                        program,
-                        instruction,
-                        ..
-                    }
-                    | Command::MessageTrap {
-                        program,
-                        instruction,
-                    } => {
-                        ensure!(
-                            self.programs
-                                .get(&program)
-                                .is_none_or(|commands| instruction < commands.len()),
-                            "instrument conditional target is out of bounds"
-                        );
-                    }
-                    Command::SpawnMacro {
-                        program,
-                        instruction,
-                        ..
-                    } => {
-                        ensure!(
-                            self.programs
-                                .get(&program)
-                                .is_none_or(|commands| usize::from(instruction) < commands.len()),
-                            "child macro entry is out of bounds"
-                        );
-                    }
-                    Command::Loop { instruction, .. }
-                    | Command::RandomLoop { instruction, .. }
-                    | Command::Branch { instruction, .. } => {
-                        ensure!(
-                            instruction < program.len(),
-                            "instrument loop target is out of bounds"
-                        );
-                        ensure!(
-                            !matches!(command, Command::RandomLoop { count: 0, .. }),
-                            "random loop requires a nonzero bound"
-                        );
-                    }
-                    Command::Interpolation { coefficients, .. } => {
-                        ensure!(coefficients < 4, "invalid interpolation coefficients")
-                    }
-                    Command::PitchEnvelope { sustain, .. } => {
-                        ensure!(sustain <= 4095, "invalid pitch envelope sustain")
-                    }
-                    Command::SetNote { key, .. } => ensure!(key < 128, "invalid instrument key"),
-                    Command::Auxiliary { bus, value } => ensure!(
-                        bus < 2 && value < 128,
-                        "invalid instrument auxiliary control"
-                    ),
-                    Command::VolumeControl { value } => {
-                        ensure!(value < 16384, "invalid volume selector")
-                    }
-                    Command::Envelope {
-                        envelope: Envelope::Ordinary(p),
-                    } => ensure!(p.sustain <= 32767, "invalid ordinary sustain"),
-                    Command::Envelope {
-                        envelope: Envelope::Dls(p),
-                    } => ensure!(p.sustain_index <= 128, "invalid DLS sustain index"),
-                    _ => {}
-                }
+                    Ok(())
+                })()
+                .with_context(|| format!("instrument {program_id} instruction {instruction}"))?;
             }
         }
         let mut total = 0usize;
@@ -564,12 +596,76 @@ impl Resources {
     }
 }
 
+#[cfg(test)]
+mod envelope_validation_tests {
+    use super::*;
+
+    #[test]
+    fn preparation_checks_all_note_timings_and_keeps_valid_long_envelopes() {
+        let wide = dls::Timing {
+            attack_timecents: 1_600_000_000,
+            decay_timecents: 0,
+            release_ms: 100,
+            attack_velocity_scale: 1_600_000_000,
+            decay_key_scale: i32::MIN,
+        };
+        for (timing, valid) in [
+            (wide, true),
+            (
+                dls::Timing {
+                    attack_timecents: i32::MAX,
+                    attack_velocity_scale: i32::MAX,
+                    ..wide
+                },
+                false,
+            ),
+            (
+                dls::Timing {
+                    decay_timecents: i32::MAX,
+                    decay_key_scale: i32::MAX,
+                    ..wide
+                },
+                false,
+            ),
+        ] {
+            assert!(timing.resolve(0, 0, 0).is_ok());
+            for command in [
+                Command::Envelope {
+                    envelope: Envelope::Dls(dls::Definition {
+                        timing,
+                        sustain: 96,
+                    }),
+                },
+                Command::PitchEnvelope {
+                    envelope: timing,
+                    sustain: 96,
+                    depth_8: 16,
+                },
+            ] {
+                let resources = Resources {
+                    programs: BTreeMap::from([(7, vec![command])]),
+                    samples: BTreeMap::new(),
+                };
+                let result = resources.validate();
+                if valid {
+                    result.unwrap();
+                } else {
+                    let error = format!("{:#}", result.unwrap_err());
+                    assert!(error.contains("instrument 7 instruction 0"));
+                    assert!(error.contains("DLS duration exceeds the source clock"));
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventKind {
     Notes {
         source: VoiceSource,
         voices: Vec<Note>,
+        /// Arrangement duration. Sound effects end through their macros or release controls.
         length: u16,
     },
     Volume {
@@ -645,7 +741,6 @@ pub struct Score {
     pub loop_start_tick: u32,
     /// Inclusive time at which all queued events have finished and looping may resume.
     pub end_tick: u32,
-    pub has_master_track: bool,
     pub tempos: Vec<Tempo>,
     pub controls: [Controls; 16],
     pub first_events: Vec<Event>,
@@ -665,7 +760,7 @@ impl Score {
             );
         }
         ensure!(
-            self.loop_start_tick < self.end_tick && self.end_tick < u32::MAX - 65536,
+            self.origin == ScoreOrigin::SoundEffect || self.loop_start_tick < self.end_tick,
             "invalid musical loop interval"
         );
         ensure!(

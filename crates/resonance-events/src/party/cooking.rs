@@ -1,8 +1,5 @@
+use super::stats::recover;
 use super::*;
-use super::{
-    items::{INCAPACITATED, REVIVAL_CLEARS},
-    stats::recover,
-};
 use resonance_content::menu_data::{Ingredient, MealEffect, MenuData};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -66,28 +63,19 @@ impl Party {
                     .all(|&ingredient| self.ingredient_count(data, ingredient) > 0)
             })
     }
-    /// Rejected meals consume neither ingredients nor random draws. Successful
-    /// attempts, including failed dishes, consume food and train the cook.
-    pub fn cook(
-        &mut self,
-        data: &MenuData,
-        mut random: impl FnMut() -> u32,
-    ) -> Result<Meal, CookingError> {
+    /// The available chef's character ID, shared by meal admission and result prompts.
+    pub fn cooking_chef(&self, data: &MenuData) -> Result<u8, CookingError> {
         use CookingError::*;
         let chef = usize::from(self.cooking.chef);
-        let recipe_id = usize::from(self.cooking.recipe);
         let Some(member) = self.members.get(chef) else {
             return Err(UnavailableCook);
         };
-        if !self.formation.contains(&(self.cooking.chef + 1))
-            || member.conditions & INCAPACITATED != 0
-        {
+        if !self.formation.contains(&(self.cooking.chef + 1)) || !member.can_lead_field() {
             return Err(UnavailableCook);
         }
-        let Some(recipe) = data.cooking.recipes.get(recipe_id) else {
-            return Err(UnknownRecipe);
-        };
-        if !self.cooking.knows(self.cooking.recipe) {
+        if !self.cooking.knows(self.cooking.recipe)
+            || usize::from(self.cooking.recipe) >= data.cooking.recipes.len()
+        {
             return Err(UnknownRecipe);
         }
         if self.cooking.full {
@@ -96,6 +84,19 @@ impl Party {
         if !self.has_ingredients(data, self.cooking.recipe) {
             return Err(MissingIngredients);
         }
+        Ok(self.cooking.chef + 1)
+    }
+    /// Rejected meals consume neither ingredients nor random draws. Successful
+    /// attempts, including failed dishes, consume food and train the cook.
+    pub fn cook(
+        &mut self,
+        data: &MenuData,
+        mut random: impl FnMut() -> u32,
+    ) -> Result<Meal, CookingError> {
+        let chef = usize::from(self.cooking_chef(data)? - 1);
+        let recipe_id = usize::from(self.cooking.recipe);
+        let recipe = &data.cooking.recipes[recipe_id];
+        let member = &self.members[chef];
         let grade = usize::from(member.cooking[recipe_id] / 3);
         let extra = &recipe.cooks[chef].grades[grade];
         let available_extras = extra
@@ -103,7 +104,8 @@ impl Party {
             .iter()
             .filter(|&&v| self.ingredient_count(data, v) > 0)
             .count();
-        let chance = 100 + i32::from(member.stats(data).luck) / 2
+        // Derived luck is already in display units.
+        let chance = 100 + i32::from(member.stats(data).luck) / 20
             - [15, 10, 5][grade]
             - recipe.required.len() as i32
             - available_extras as i32;
@@ -223,19 +225,28 @@ impl Party {
                     TpRecovery if !member.knocked_out() => {
                         recover(&mut member.tp, tp, amount);
                     }
-                    CurePoison => member.conditions &= !0x60,
-                    CureParalysis => member.conditions &= !0x80,
-                    CurePetrify => member.conditions &= !0x100,
-                    CureCurse => member.conditions &= !0x200,
-                    Revive if member.knocked_out() => {
-                        member.conditions &= !REVIVAL_CLEARS;
-                        recover(&mut member.hp, hp, 35);
+                    CurePoison => member.ailments.poison = Poison::None,
+                    CureParalysis => member.ailments.paralysis = false,
+                    CurePetrify => member.ailments.petrified = false,
+                    CureCurse => member.ailments.curse = false,
+                    Revive => {
+                        member.revive(35);
                     }
-                    AttackBoost => member.conditions |= 0x1000,
-                    DefenseBoost => member.conditions |= 0x4000,
-                    AccuracyBoost => member.conditions |= 0x10000,
-                    MagicAttackBoost => member.conditions |= 0x40000,
-                    MagicDefenseBoost => member.conditions |= 0x100000,
+                    AttackBoost => {
+                        member.queued_buffs.insert(StatBuff::AttackUp);
+                    }
+                    DefenseBoost => {
+                        member.queued_buffs.insert(StatBuff::DefenseUp);
+                    }
+                    AccuracyBoost => {
+                        member.queued_buffs.insert(StatBuff::AccuracyUp);
+                    }
+                    MagicAttackBoost => {
+                        member.queued_buffs.insert(StatBuff::MagicAttackUp);
+                    }
+                    MagicDefenseBoost => {
+                        member.queued_buffs.insert(StatBuff::MagicDefenseUp);
+                    }
                     _ => {}
                 }
             }

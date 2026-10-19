@@ -37,13 +37,7 @@ pub(crate) fn update(world: &mut World) {
     else {
         return;
     };
-    if target != Target::Title
-        && !(if world.resource::<new_game::Session>().overworld.is_some() {
-            crate::overworld::ready(world)
-        } else {
-            crate::field_view::ready(world)
-        })
-    {
+    if target != Target::Title && !new_game::scene_ready(world) {
         return;
     }
     let result = match target {
@@ -193,6 +187,8 @@ fn show_game_over(world: &mut World) -> Result<()> {
         color_mask: image,
         coverage: Coverage::default(),
         opaque: false,
+        additive: false,
+        texture_effect: Default::default(),
     });
     let background = world.resource::<crate::Art>().images[14].clone();
     let quad = world.resource_mut::<Assets<Mesh>>().add(Rectangle::new(

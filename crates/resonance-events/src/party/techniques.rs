@@ -1,11 +1,37 @@
 use super::*;
 use super::{
-    items::{CURABLE, INCAPACITATED, KNOCKED_OUT, RECOVERY_CUE, REMEDY_CUE},
+    items::{RECOVERY_CUE, REMEDY_CUE},
     stats::recover,
 };
 use resonance_content::menu_data::{MenuData, TechniqueUse};
 
 impl Member {
+    pub(super) fn acquire_level_techniques(
+        &mut self,
+        definition: &resonance_content::session::CharacterDefinition,
+        can_learn: impl Fn(u16) -> Result<bool, String>,
+    ) -> Result<Vec<u16>, String> {
+        let mut learned = Vec::new();
+        // Catalogue order determines acquisition notices and empty shortcuts.
+        for &technique in &definition.allowed_techniques {
+            if !self.techniques.contains(&technique)
+                && definition
+                    .level_techniques
+                    .range(..=self.level)
+                    .any(|(_, ids)| ids.contains(&technique))
+                && can_learn(technique)?
+            {
+                self.techniques.insert(technique);
+                self.disabled_techniques.remove(&technique);
+                if let Some(slot) = self.shortcuts.iter_mut().find(|slot| **slot == 0) {
+                    *slot = technique;
+                }
+                learned.push(technique);
+            }
+        }
+        Ok(learned)
+    }
+
     pub fn technique_cost(&self, data: &MenuData, id: u16, at_save_point: bool) -> u16 {
         if at_save_point
             && let Some(cost) = self
@@ -22,15 +48,7 @@ impl Member {
         } else {
             u16::from(tech.tp)
         };
-        if self.equipment.contains(&407) {
-            // Faerie Ring
-            cost / 2
-        } else if self.equipment.contains(&406) {
-            // Emerald Ring
-            cost * 2 / 3
-        } else {
-            cost
-        }
+        self.tp_discount(data).apply(u32::from(cost)) as u16
     }
 }
 
@@ -84,6 +102,8 @@ impl Party {
         if !target.techniques.contains(&id) || tech.alternatives[0] == 0 {
             return Ok(false);
         }
+        // Forgetting clears current membership and assignments while retaining
+        // acquisition history and use counts.
         for id in tech.alternatives {
             self.remove_technique(member, id);
         }
@@ -126,7 +146,7 @@ impl Party {
             return Ok(None);
         };
         let cost = caster_data.technique_cost(data, id, at_save_point);
-        if caster_data.conditions & INCAPACITATED != 0
+        if !caster_data.can_lead_field()
             || !caster_data.techniques.contains(&id)
             || caster_data.tp < cost
         {
@@ -146,20 +166,21 @@ impl Party {
                 continue;
             }
             let member = &mut self.members[index];
-            let old = (member.hp, member.conditions);
+            let old = (member.hp, member.ailments);
             match action {
                 TechniqueUse::Recover { hp, .. } if !member.knocked_out() => {
                     let maximum = member.maximum_vitals()[0];
                     recover(&mut member.hp, maximum, hp.into());
                 }
-                TechniqueUse::Cure { .. } if !member.knocked_out() => member.conditions &= !CURABLE,
-                TechniqueUse::Revive if member.knocked_out() => {
-                    member.conditions &= !(KNOCKED_OUT | CURABLE);
-                    member.hp = (u32::from(member.maximum_vitals()[0]) * 30 / 100) as u16;
+                TechniqueUse::Cure { .. } if !member.knocked_out() => {
+                    member.ailments = Default::default();
+                }
+                TechniqueUse::Revive => {
+                    member.revive(30);
                 }
                 _ => (),
             }
-            changed |= old != (member.hp, member.conditions);
+            changed |= old != (member.hp, member.ailments);
         }
         if changed {
             self.members[caster].tp -= cost;

@@ -7,6 +7,7 @@ impl Drawing<'_> {
         let state = &menu.ex_skills;
         let data = &menu.resources.as_ref().unwrap().data;
         let ex = &data.ex_skills;
+        let captions = data.ex_skill_text()?;
         let member = menu.member();
         let gems = menu.ex_gems();
         let choices = menu.ex_choices();
@@ -22,14 +23,14 @@ impl Drawing<'_> {
         let bottom = (fade * 112 / 256) as f32;
         self.opacity = opacity;
         self.offset = [0., -(fade * 76 / 256) as f32];
-        self.heading(&ex.labels["title"])?;
+        self.heading(menu_label(&captions.labels, "title")?)?;
         self.offset = [0., bottom];
-        self.frame_detail([16., 336., 604., 92.], true, self.menu_color(), true);
+        self.frame_detail([16., 336., 604., 92.], true, self.menu_color(), true)?;
         self.offset = [left, 0.];
-        self.frame([16., 60., 246., 140.]);
-        self.frame([16., 210., 246., 116.]);
-        self.portrait(menu.member_index(), member.conditions, [208., 16.]);
-        self.technique([280., 16.], member.technique_balance);
+        self.frame([16., 60., 246., 140.])?;
+        self.frame([16., 210., 246., 116.])?;
+        self.portrait(menu.member_index(), member, [208., 16.])?;
+        self.technique([280., 16.], member.technique_balance)?;
         self.opacity = if state.focus == Focus::Character {
             opacity
         } else {
@@ -63,9 +64,11 @@ impl Drawing<'_> {
             let y = 92. + slot as f32 * 26.;
             let level = member.ex_gems[slot];
             let label = match level {
-                0 => ex.labels["gem_empty"].clone(),
-                5 => ex.labels["gem_max"].clone(),
-                level => ex.labels["gem_level"].replace("%u", &level.to_string()),
+                0 => menu_label(&captions.labels, "gem_empty")?.to_owned(),
+                5 => menu_label(&captions.labels, "gem_max")?.to_owned(),
+                level => {
+                    menu_label(&captions.labels, "gem_level")?.replace("%u", &level.to_string())
+                }
             };
             self.text(&label, [32., y], 20., GOLD)?;
             let id = member.ex_skills[slot];
@@ -84,7 +87,11 @@ impl Drawing<'_> {
                     .required
                     .contains(&id);
                 self.text(
-                    &ex.skills[&id].name,
+                    &captions
+                        .skills
+                        .get(&id)
+                        .context("EX skill caption was not prepared")?
+                        .name,
                     [112., y],
                     20.,
                     if enabled { WHITE } else { DISABLED },
@@ -113,12 +120,14 @@ impl Drawing<'_> {
             for (row, &level) in gems.iter().skip(start).take(rows).enumerate() {
                 let id = ex.gem_items[usize::from(level - 1)];
                 let item = &data.items[usize::from(id)];
+                let item_text = data.item_text(id)?;
                 let y = 218. + row as f32 * 25. - scroll as f32;
                 self.sprite(
-                    self.spec.sprites.items[usize::from(item.category - 1)],
+                    self.spec
+                        .sprite(Sprite::Items, usize::from(item.category - 1))?,
                     [24., y],
                 );
-                self.text(&item.name, [48., y], 16., WHITE)?;
+                self.text(&item_text.name, [48., y], 16., WHITE)?;
                 self.text(":", [196., y], 16., 5)?;
                 self.number(u32::from(party.items[&id]), [244., y], [16., 24.], 5)?;
             }
@@ -131,7 +140,11 @@ impl Drawing<'_> {
             }
             for (row, id) in choices.iter().skip(start).take(rows).enumerate() {
                 self.text(
-                    &ex.skills[id].name,
+                    &captions
+                        .skills
+                        .get(id)
+                        .context("EX skill caption was not prepared")?
+                        .name,
                     [48., 218. + row as f32 * 25. - scroll as f32],
                     20.,
                     if member.ex_skills.contains(id) {
@@ -151,21 +164,24 @@ impl Drawing<'_> {
             choices.len()
         };
         if first > 0 {
-            self.scroll_arrow(SCROLL_UP, [127., 202.]);
+            self.scroll_arrow(SCROLL_UP, [127., 202.])?;
         }
         if first + VISIBLE_CHOICES < list_count {
-            self.scroll_arrow(SCROLL_DOWN, [127., 312.]);
+            self.scroll_arrow(SCROLL_DOWN, [127., 312.])?;
         }
         self.offset = [right, 0.];
         if !compounds.is_empty() {
-            self.frame([270., 60., 140., compounds.len() as f32 * 28. + 6.]);
+            self.frame([270., 60., 140., compounds.len() as f32 * 28. + 6.])?;
             for (row, &i) in compounds.iter().enumerate() {
                 let y = 63. + row as f32 * 28.;
                 if state.focus == Focus::Compounds && row == state.compound {
                     self.highlight([278., y, 128., 24.], 255);
                 }
                 self.text(
-                    &ex.skills[&ex.characters[menu.member_index()].compounds[usize::from(i)].skill]
+                    &captions
+                        .skills
+                        .get(&ex.characters[menu.member_index()].compounds[usize::from(i)].skill)
+                        .context("EX compound caption was not prepared")?
                         .name,
                     [278., y],
                     16.,
@@ -179,7 +195,7 @@ impl Drawing<'_> {
         }
         if choosing_gem {
             self.ex_preview_offset(state.preview_opacity);
-            self.frame([420., 210., 200., 116.]);
+            self.frame([420., 210., 200., 116.])?;
             for (row, id) in choices.iter().enumerate() {
                 let (position, size) = if choices.len() > VISIBLE_CHOICES {
                     (
@@ -189,12 +205,21 @@ impl Drawing<'_> {
                 } else {
                     ([436., 218. + row as f32 * 25.], [20., 24.])
                 };
-                self.text_size(&ex.skills[id].name, position, size, WHITE)?;
+                self.text_size(
+                    &captions
+                        .skills
+                        .get(id)
+                        .context("EX skill caption was not prepared")?
+                        .name,
+                    position,
+                    size,
+                    WHITE,
+                )?;
             }
         }
         if state.focus == Focus::SkillList {
             self.ex_preview_offset(state.preview_opacity);
-            self.frame([420., 60., 200., 266.]);
+            self.frame([420., 60., 200., 266.])?;
             let current = member.stats(data);
             let preview = preview.stats(data);
             for (row, (key, a, b)) in [
@@ -223,9 +248,9 @@ impl Drawing<'_> {
                     continue;
                 }
                 let y = 80. + row as f32 * 26.;
-                self.text(&ex.labels[key], [428., y], 16., GOLD)?;
+                self.text(menu_label(&captions.labels, key)?, [428., y], 16., GOLD)?;
                 self.number(a.into(), [526., y], [16., 24.], WHITE)?;
-                self.text(&data.labels["stat_arrow"], [526., y], 16., 5)?;
+                self.text(data.label("stat_arrow")?, [526., y], 16., 5)?;
                 self.number(
                     b.into(),
                     [606., y],
@@ -240,10 +265,14 @@ impl Drawing<'_> {
         }
         if state.preview_previous_opacity != 0 {
             self.ex_preview_offset(state.preview_previous_opacity);
-            self.frame([420., 210., 200., 116.]);
+            self.frame([420., 210., 200., 116.])?;
             for (row, id) in choices.iter().take(VISIBLE_CHOICES).enumerate() {
                 self.text(
-                    &ex.skills[id].name,
+                    &captions
+                        .skills
+                        .get(id)
+                        .context("EX skill caption was not prepared")?
+                        .name,
                     [436., 218. + row as f32 * 26.],
                     20.,
                     WHITE,
@@ -251,7 +280,7 @@ impl Drawing<'_> {
             }
             if choices.len() > VISIBLE_CHOICES {
                 self.opacity = opacity;
-                self.scroll_arrow(SCROLL_DOWN, [504., 312.]);
+                self.scroll_arrow(SCROLL_DOWN, [504., 312.])?;
             }
         }
         self.offset = [0., bottom];
@@ -280,28 +309,37 @@ impl Drawing<'_> {
     fn ex_description(&mut self, menu: &Menu, description: Description) -> Result<()> {
         let data = &menu.resources.as_ref().unwrap().data;
         let ex = &data.ex_skills;
+        let captions = data.ex_skill_text()?;
         if let Description::Skill(id) = description {
             let skill = &ex.skills[&id];
-            self.shadowed_text(&skill.name, [40., 336.], 28., 2.)?;
-            let activation = &ex.activation_labels[&skill.activation];
+            let caption = &captions
+                .skills
+                .get(&id)
+                .context("EX skill caption was not prepared")?;
+            self.shadowed_text(&caption.name, [40., 336.], 28., 2.)?;
+            let activation = captions
+                .activation_labels
+                .get(&skill.activation)
+                .context("EX activation label was not prepared")?;
             let x = 612. - self.text_width(activation, 16.)?;
             self.text(activation, [x, 340.], 16., 5)?;
             if let Some(tendency) = skill.tendency {
                 let label = match tendency {
-                    ExTendency::Technical => &data.status.technical_type,
-                    ExTendency::Strike => &data.status.strike_type,
+                    ExTendency::Technical => &data.status_text()?.technical_type,
+                    ExTendency::Strike => &data.status_text()?.strike_type,
                 };
                 self.text(
                     label,
                     [
-                        x - 8. - self.text_width(&data.status.strike_type, 16.)?,
+                        x - 8. - self.text_width(&data.status_text()?.strike_type, 16.)?,
                         340.,
                     ],
                     16.,
                     WHITE,
                 )?;
             }
-            for (row, line) in skill.description.lines.iter().enumerate() {
+            caption.description.validate()?;
+            for (row, line) in caption.description.lines.iter().enumerate() {
                 let mut x = 72.;
                 let y = 372. + row as f32 * 26.;
                 for span in line {
@@ -311,7 +349,7 @@ impl Drawing<'_> {
                             x += self.text_width(text, 20.)?;
                         }
                         MenuSpan::Button { sprite } => {
-                            self.button(usize::from(*sprite), [x, y]);
+                            self.button(usize::from(*sprite), [x, y])?;
                             x += 24.;
                         }
                     }
@@ -323,12 +361,12 @@ impl Drawing<'_> {
         Ok(())
     }
 
-    pub(super) fn ex_cursors(&mut self, menu: &Menu, cursor: &resonance_content::font::UiTexture) {
+    pub(super) fn ex_cursors(&mut self, menu: &Menu) {
         let state = &menu.ex_skills;
         let left = -(i32::from(state.transition.page_fade) * 296 / 256) as f32;
         let alpha = (255 - state.transition.page_fade) >> 1;
         if state.focus != Focus::Character {
-            self.cursor([32. + left, 72.], cursor, alpha);
+            self.cursor([32. + left, 72.], alpha);
         }
         if matches!(
             state.focus,
@@ -339,15 +377,21 @@ impl Drawing<'_> {
             } else {
                 112.
             };
-            self.cursor([x + left, 100. + state.slot as f32 * 26.], cursor, alpha);
+            self.cursor([x + left, 100. + state.slot as f32 * 26.], alpha);
         }
     }
 
     pub(super) fn ex_popup(&mut self, menu: &Menu) -> Result<Option<[f32; 2]>> {
         if let Focus::Confirm { yes, replacing } = menu.ex_skills.focus {
-            let labels = &menu.resources.as_ref().unwrap().data.ex_skills.labels;
+            let labels = &menu
+                .resources
+                .as_ref()
+                .unwrap()
+                .data
+                .ex_skill_text()?
+                .labels;
             return self.popup_layout(
-                &labels[if replacing { "replace_gem" } else { "set_gem" }],
+                menu_label(labels, if replacing { "replace_gem" } else { "set_gem" })?,
                 Some(yes),
                 menu.ex_skills.popup_opacity,
                 Some([284., 72., 28.]),

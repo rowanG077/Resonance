@@ -1,12 +1,18 @@
 //! Character texture selections tied to story content.
 use std::collections::BTreeSet;
 
+const LLOYD: u32 = 1;
 const COLETTE: u32 = 2;
 const GENIS: u32 = 3;
 const RAINE: u32 = 4;
 const PRESEA: u32 = 7;
 const CRUXIS_CRYSTAL_RECEIVED: u16 = 24;
+const EXSPHERE_UNCOVERED: u16 = 29;
 pub const ANGEL_PROGRESS: u16 = 0x4c;
+
+pub fn hidden_accessory(resource: u32, flags: &BTreeSet<u16>) -> Option<&'static str> {
+    (resource == LLOYD && flags.contains(&EXSPHERE_UNCOVERED)).then_some("obj_nuno01")
+}
 
 pub fn costume_frame(resource: u32, flags: &BTreeSet<u16>) -> u8 {
     match resource {

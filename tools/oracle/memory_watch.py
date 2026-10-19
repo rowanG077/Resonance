@@ -6,7 +6,14 @@ Only oracle tooling consumes it; the player and importer do not.
 """
 import json
 import socket
+import struct
 import threading
+
+MEM1_HEADER = b"# mem1-v2\n1\n"
+MEM1_WORD = struct.Struct(">II")
+# A complete battle object pool with model transforms fits in this bounded
+# Unix datagram. UDP's smaller payload limit does not apply to this socket.
+MEM1_DATAGRAM_BYTES = 128 * 1024
 
 
 LOCATIONS = {
@@ -68,7 +75,8 @@ LOCATIONS = {
 
 
 class Watcher:
-    def __init__(self, user_path, output, extra=None):
+    def __init__(self, user_path, output, extra=None, *, mem1=False):
+        self.mem1 = mem1
         self.locations = dict(LOCATIONS)
         self.aliases = {}
         for address, name in (extra or {}).items():
@@ -78,9 +86,11 @@ class Watcher:
                     self.aliases.setdefault(address, []).append(name)
             else:
                 self.locations[address] = name
+        self.address_ids = sorted(self.locations)
         directory = user_path / "MemoryWatcher"
         directory.mkdir()
-        (directory / "Locations.txt").write_text("\n".join(self.locations) + "\n")
+        (directory / "Locations.txt").write_text(
+            ("# mem1-v2\n" if mem1 else "") + "\n".join(self.locations) + "\n")
         socket_path = directory / "MemoryWatcher"
         if len(str(socket_path).encode()) >= 104:
             raise ValueError("MemoryWatcher requires a short Unix socket path")
@@ -101,24 +111,44 @@ class Watcher:
         try:
             while True:
                 try:
-                    data, _, flags, _ = self.connection.recvmsg(65536)
+                    data, _, flags, _ = self.connection.recvmsg(MEM1_DATAGRAM_BYTES)
                 except TimeoutError:
                     if self.stopping.is_set():
                         break
                     continue
                 if flags & socket.MSG_TRUNC or not data.endswith(b"\0"):
                     raise ValueError("truncated MemoryWatcher datagram")
-                lines = data[:-1].decode("ascii").splitlines()
-                if len(lines) % 2:
-                    raise ValueError("incomplete MemoryWatcher word pair")
                 changes = {}
-                for address, value in zip(lines[::2], lines[1::2]):
-                    if address not in self.locations or address in changes:
-                        raise ValueError("unexpected MemoryWatcher address")
-                    changes[address] = int(value, 16)
-                    values[self.locations[address]] = changes[address]
+                if self.mem1:
+                    if not data.startswith(MEM1_HEADER):
+                        raise ValueError("Dolphin lacks the required mem1-v2 observer; use the patched oracle build")
+                    payload = data[len(MEM1_HEADER):-1]
+                    if len(payload) % MEM1_WORD.size:
+                        raise ValueError("incomplete MemoryWatcher word pair")
+                    for location_id, value in MEM1_WORD.iter_unpack(payload):
+                        if location_id == 0xffffffff:
+                            raise ValueError("invalid MEM1 location")
+                        address_id = location_id & 0x7fffffff
+                        if address_id >= len(self.address_ids):
+                            raise ValueError("unexpected MemoryWatcher location ID")
+                        address = self.address_ids[address_id]
+                        if location_id & 0x80000000:
+                            raise ValueError(f"invalid MEM1 read for {self.locations[address]} ({address})")
+                        if address in changes:
+                            raise ValueError("duplicate MemoryWatcher location ID")
+                        changes[address] = value
+                else:
+                    lines = data[:-1].decode("ascii").splitlines()
+                    if len(lines) % 2:
+                        raise ValueError("incomplete MemoryWatcher word pair")
+                    for address, value in zip(lines[::2], lines[1::2]):
+                        if address not in self.locations or address in changes:
+                            raise ValueError("unexpected MemoryWatcher address")
+                        changes[address] = int(value, 16)
+                for address, value in changes.items():
+                    values[self.locations[address]] = value
                     for name in self.aliases.get(address, []):
-                        values[name] = changes[address]
+                        values[name] = value
                 self.log.write(json.dumps({"vi_sample": self.rows, "changes": changes,
                                            **values}) + "\n")
                 self.log.flush()
@@ -137,4 +167,5 @@ class Watcher:
         complete = not self.thread.is_alive() and self.error is None and self.rows > 0
         return {"complete": complete, "vi_samples": self.rows,
                 "locations": self.locations, "aliases": self.aliases, "game_memory_modified": False,
-                "debugger_enabled": False, "error": self.error}
+                "debugger_enabled": False, "error": self.error,
+                "address_space": "mem1-v2" if self.mem1 else "effective"}

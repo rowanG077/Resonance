@@ -208,7 +208,12 @@ impl crate::GameWorld {
             });
         }
         if let Some(party) = &mut self.party {
-            party.battles.record(&party.formation, 0);
+            party.battles.combat_ticks = 0;
+            party.battles.total = party.battles.total.saturating_add(1).min(9999);
+            for &member in party.formation.iter().take(4) {
+                let count = &mut party.battles.participation[usize::from(member - 1)];
+                *count = count.saturating_add(1).min(9999);
+            }
         }
         // Restore after the resumed caller has applied its battle-transition
         // fade, so that fade cannot leave the retained field track muted.

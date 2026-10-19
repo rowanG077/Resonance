@@ -648,11 +648,18 @@ fn item_pictures(
     Ok(paths)
 }
 
-fn save_artwork_layout() -> Vec<(u32, tpl::TplTexture)> {
+fn save_artwork_layout(executable: &[u8]) -> Result<Vec<(u32, tpl::TplTexture)>> {
+    // Packed RGB5A3 artwork: nine 32x32 icons followed by one 96x32 banner.
     const ICONS: u32 = 0x80221dbc;
-    const ICON_BYTES: u32 = 32 * 32 * 2;
     const ICON_COUNT: u32 = 9;
-    (0..=ICON_COUNT)
+    const ICON_BYTES: u32 = 32 * 32 * 2;
+    const BANNER_BYTES: u32 = 96 * 32 * 2;
+    dol::slice(
+        executable,
+        ICONS,
+        (ICON_COUNT * ICON_BYTES + BANNER_BYTES) as usize,
+    )?;
+    Ok((0..=ICON_COUNT)
         .map(|index| {
             let is_banner = index == ICON_COUNT;
             (
@@ -671,7 +678,7 @@ fn save_artwork_layout() -> Vec<(u32, tpl::TplTexture)> {
                 },
             )
         })
-        .collect()
+        .collect())
 }
 
 fn save_artwork(
@@ -681,7 +688,7 @@ fn save_artwork(
 ) -> Result<Vec<String>> {
     let mut paths = Vec::new();
     let mut images = Vec::new();
-    let layout = save_artwork_layout();
+    let layout = save_artwork_layout(executable)?;
     for (index, (address, descriptor)) in layout.iter().enumerate() {
         let name = if index + 1 == layout.len() {
             "embedded/save-artwork/banner".into()
@@ -723,12 +730,12 @@ fn save_artwork(
 
 #[test]
 #[ignore = "requires both extracted discs; no media conversion or playback"]
-fn original_save_artwork_preserves_icons_and_complete_banner_layout() -> Result<()> {
+fn save_artwork_preserves_icons_and_complete_banner_layout() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
     let mut first = None;
     for disc in [1, 2] {
         let executable = fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
-        let images = save_artwork_layout();
+        let images = save_artwork_layout(&executable)?;
         assert_eq!(images.len(), 10);
         let mut source_bytes = Vec::new();
         for (index, (address, descriptor)) in images.iter().enumerate() {

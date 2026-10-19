@@ -145,6 +145,7 @@ fn begin_frame(
     movie: Option<Res<crate::movie::Playback>>,
     profile: Option<Res<render_profile::Shared>>,
     diagnostics: Option<Res<bevy::diagnostic::DiagnosticsStore>>,
+    field_cameras: Query<&Camera, crate::FieldCameraFilter>,
 ) {
     let now = Instant::now();
     let previous = monitor.frame_started.replace(now);
@@ -171,13 +172,14 @@ fn begin_frame(
                     "render_diagnostics":profile.as_ref().and(diagnostics.as_ref()).map(|d| d.iter().filter_map(|v| v.value().map(|value| (v.path().as_str(),value))).collect::<std::collections::BTreeMap<_,_>>()),
                     "resolution":display.as_ref().map(|d| d.0),
                     "window_resolution":window.as_ref().map(|w| crate::Resolution { width: w.physical_width(), height: w.physical_height() }),
+                    "active_field_cameras":field_cameras.iter().filter(|camera| camera.is_active).count(),
                     "phase": if pending.is_some() || session.is_some() && resident.as_ref().is_some_and(|r| !r.active.load(std::sync::atomic::Ordering::Acquire)) {"field_preparation"} else if movie.as_ref().is_some_and(|m| m.active) {"movie"} else if session.is_some() {"field"} else {"title"},
-                    "map":session.as_ref().map(|s| s.assets.map_id),
-                    "tick":session.as_ref().map(|s| s.field.events.tick()),
+                    "map":session.as_ref().map(|s| s.map_id()),
+                    "tick":session.as_ref().map(|s| s.events().tick()),
                     "resources": {"images":images.as_ref().map(|a| a.len()), "meshes":meshes.as_ref().map(|a| a.len()), "surfaces":surfaces.as_ref().map(|a| a.len()),
                         "sampler_hits":sampled.as_ref().map(|s| s.hits), "sampler_misses":sampled.as_ref().map(|s| s.misses),
                         "memory_reads":resident.as_ref().map(|r| r.memory_reads.load(std::sync::atomic::Ordering::Relaxed)),
-                        "late_reads":resident.as_ref().map(|r| r.late_reads.load(std::sync::atomic::Ordering::Relaxed))}}),
+                        "late_reads":resident.as_ref().map(|r| r.unprepared_reads.load(std::sync::atomic::Ordering::Relaxed))}}),
             )?;
             if let Some(summary) = summary {
                 line(

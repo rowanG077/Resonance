@@ -24,8 +24,8 @@ pub(super) fn update(
         state
             .live
             .as_ref()
-            .filter(|s| s.overworld.is_none() && s.ready_for_field && s.audio.is_none())
-            .map(|s| &s.field)
+            .filter(|s| s.is_field() && s.ready_for_field && s.audio.is_none())
+            .map(|s| s.field())
     });
     let desired = field
         .filter(|f| !f.menu_is_open() && f.active_skit.is_none())

@@ -22,7 +22,7 @@ use std::{
 
 pub(super) mod pacing;
 #[cfg(test)]
-pub(super) mod tests;
+pub(crate) mod tests;
 
 type AudioBuffer = resonance_playback::Pcm;
 
@@ -54,7 +54,6 @@ pub(super) struct Playback {
     frames: VecDeque<VideoFrame>,
     buffer: Arc<AudioBuffer>,
     reported_underruns: u64,
-    captured: Option<VideoFrame>,
     audio_entity: Option<Entity>,
     texture: Handle<Image>,
     ended: bool,
@@ -156,9 +155,9 @@ impl Playback {
     }
     pub fn load(root: &Path, options: &RunOptions) -> Result<Self> {
         if options.skip_intro
-            || options.tick.is_some()
+            || matches!(options.capture_at, Some(crate::CaptureAt::TitleTick(_)))
             || options.replay.is_some()
-            || options.boot_frame.is_some()
+            || matches!(options.capture_at, Some(crate::CaptureAt::BootTick(_)))
         {
             return Ok(Self::default());
         }
@@ -168,20 +167,12 @@ impl Playback {
             )?)?;
         asset.validate()?;
         let path = root.join(&asset.path);
-        let (decoder, captured) = if let Some(index) = options.movie_frame {
-            (
-                None,
-                Some(MovieDecoder::frame(&path, asset.clone(), index)?),
-            )
-        } else {
-            (Some(MovieDecoder::open(&path, asset.clone())?), None)
-        };
+        let decoder = Some(MovieDecoder::open(&path, asset.clone())?);
         Ok(Self {
             active: true,
             resource: Some(0),
             asset: Some(asset),
             decoder,
-            captured,
             ..Default::default()
         })
     }
@@ -195,6 +186,7 @@ impl Playback {
         self.buffer.finish();
         self.stream.take();
         self.decoder.take();
+        self.pending_events.clear();
         self.frames.clear();
         if let Some(entity) = self.audio_entity.take() {
             commands.entity(entity).despawn();
@@ -230,10 +222,6 @@ pub(super) fn setup(
         .asset
         .as_ref()
         .map_or((WIDTH, HEIGHT), |a| (a.width, a.height));
-    let bytes = movie.captured.take().map_or_else(
-        || vec![0; width as usize * height as usize * 4],
-        |frame| frame.rgba,
-    );
     let mut image = Image::new(
         Extent3d {
             width,
@@ -241,7 +229,7 @@ pub(super) fn setup(
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        bytes,
+        vec![0; width as usize * height as usize * 4],
         TextureFormat::Rgba8Unorm,
         default(),
     );
@@ -279,32 +267,24 @@ pub(super) fn setup(
     ));
 }
 
-#[allow(clippy::too_many_arguments)] // Movie decoding, input, texture upload, and playback ownership.
-pub(super) fn update(
+#[allow(clippy::too_many_arguments)] // Device input and movie ownership.
+/// Input policy shared by render-frame player input and fixed-update scenarios.
+pub(super) fn controls(
     mut commands: Commands,
     mut movie: ResMut<Playback>,
-    options: Res<RunOptions>,
     input: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
     mut pending: ResMut<PendingInput>,
     mut cameras: Query<&mut Camera, With<MovieCamera>>,
-    mut images: ResMut<Assets<Image>>,
-    mut audio_assets: ResMut<Assets<MovieAudio>>,
-    sinks: Query<&AudioSink>,
-    mut exit: MessageWriter<AppExit>,
-    recording: Option<Res<super::playthrough::Recording>>,
     ready: Res<super::timing::Ready>,
     boot: Res<super::boot::Playback>,
-    testing: Option<Res<super::testing::Controls>>,
+    scenario: Option<ResMut<super::saves::ScenarioInput>>,
 ) {
-    if !ready.0 || recording.is_some_and(|r| !r.started) {
+    if !ready.0 || !movie.active || boot.active() {
         return;
     }
-    for mut camera in &mut cameras {
-        camera.is_active = movie.active && !boot.active();
-    }
-    if !movie.active || options.movie_frame.is_some() || boot.active() {
-        return;
+    if let Some(mut scenario) = scenario {
+        scenario.acknowledge_input();
     }
     let skip_pressed = input.just_pressed(KeyCode::Enter)
         || input.just_pressed(KeyCode::Escape)
@@ -312,7 +292,7 @@ pub(super) fn update(
             .iter()
             .any(|pad| pad.just_pressed(GamepadButton::Start));
     let ignore_skip = std::mem::take(&mut movie.ignore_initial_skip);
-    let skip = skip_pressed && !ignore_skip || testing.as_ref().is_some_and(|c| c.skipping);
+    let skip = skip_pressed && !ignore_skip;
     if skip {
         info!("Movie skipped");
         movie.finish(&mut commands, &mut pending);
@@ -324,7 +304,28 @@ pub(super) fn update(
     if input.just_pressed(KeyCode::Space) {
         movie.paused = !movie.paused;
     }
-    if testing.as_ref().is_some_and(|c| c.paused) {
+}
+
+#[allow(clippy::too_many_arguments)] // Movie decoding, texture upload, and playback ownership.
+pub(super) fn update(
+    mut commands: Commands,
+    mut movie: ResMut<Playback>,
+    mut pending: ResMut<PendingInput>,
+    mut cameras: Query<&mut Camera, With<MovieCamera>>,
+    mut images: ResMut<Assets<Image>>,
+    mut audio_assets: ResMut<Assets<MovieAudio>>,
+    sinks: Query<&AudioSink>,
+    mut exit: MessageWriter<AppExit>,
+    ready: Res<super::timing::Ready>,
+    boot: Res<super::boot::Playback>,
+) {
+    if !ready.0 {
+        return;
+    }
+    for mut camera in &mut cameras {
+        camera.is_active = movie.active && !boot.active();
+    }
+    if !movie.active || boot.active() {
         return;
     }
     if let Err(error) = advance(
@@ -507,12 +508,12 @@ impl Playback {
             _ => self.presented_frame,
         }
     }
-    pub(super) fn audio_sink<'a>(&self, sinks: &'a Query<&AudioSink>) -> Option<&'a AudioSink> {
-        self.audio_entity.and_then(|entity| sinks.get(entity).ok())
-    }
     pub(super) fn position(&self, world: &World) -> Option<Duration> {
         self.audio_entity
             .and_then(|entity| world.get::<AudioSink>(entity))
             .map(AudioSink::position)
+    }
+    pub(super) fn audio_sink<'a>(&self, sinks: &'a Query<&AudioSink>) -> Option<&'a AudioSink> {
+        self.audio_entity.and_then(|entity| sinks.get(entity).ok())
     }
 }

@@ -15,6 +15,7 @@ struct SurfaceUniform {
     fog_color: vec4<f32>,
     fog_range: vec4<f32>, // XYZ: material start/end/exponent; W: use field view fog.
     alpha_cutoff: f32,
+    ambient_scale: vec4<f32>,
 };
 
 #ifdef BINDLESS
@@ -91,5 +92,14 @@ fn sample_toon(slot: u32, uv: vec2<f32>) -> vec4<f32> {
     return textureSample(bindless_textures_2d[indices[slot].toon], bindless_samplers_filtering[indices[slot].toon_sampler], uv);
 #else
     return textureSample(toon_texture, toon_sampler, uv);
+#endif
+}
+
+// GXInit table1 is [R,R,R,A]. Call on decoded TEV inputs, never toon weights.
+fn tev_input(color: vec4<f32>) -> vec4<f32> {
+#ifdef RED_CHANNEL
+    return color.rrra;
+#else
+    return color;
 #endif
 }

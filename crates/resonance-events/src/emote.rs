@@ -125,7 +125,7 @@ pub fn sprites(kind: Kind, tick: u32, phase: u32) -> Vec<Sprite> {
             mark(28., 90., entrance, [left, 112., left + 32., 144.]);
         }
         ColorBurst => {
-            let poses = if (clock / 8) % 2 == 0 {
+            let poses = if (clock / 8).is_multiple_of(2) {
                 [
                     (-20., 24., 50., 192., 50.),
                     (-4., 24., 90., 128., 30.),
@@ -143,7 +143,7 @@ pub fn sprites(kind: Kind, tick: u32, phase: u32) -> Vec<Sprite> {
                 ]
             };
             for ((x, z, size, left, rotation), width) in
-                poses.into_iter().zip(if (clock / 8) % 2 == 0 {
+                poses.into_iter().zip(if (clock / 8).is_multiple_of(2) {
                     [50., 65., 45., 90., 50.]
                 } else {
                     [55., 1., 30., 30., 30.]

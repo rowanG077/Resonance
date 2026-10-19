@@ -11,6 +11,7 @@ mod enemy_source;
 pub use ambient::AmbientSound;
 pub mod battle;
 pub use autonomy::{Activity, Autonomy, Behavior};
+mod diagnostic;
 mod face;
 pub use face::EyeBlink;
 pub mod field_damage;
@@ -20,6 +21,7 @@ mod resources;
 mod scheduler;
 mod trigger;
 mod wings;
+pub use diagnostic::{EventInstanceObservation, WaitObservation};
 pub use wings::{WingEcho, WingStyle, Wings};
 mod world;
 pub use animation::Animation;
@@ -28,6 +30,7 @@ pub use resources::{
     ResourceKind, ResourceLibrary,
 };
 pub use scheduler::EventRuntime;
+pub use world::random as libc_random;
 pub use world::{
     ACTOR_CONTACT_HEIGHT, Actor, ActorContact, ActorMotion, ActorRole, Appearance, Attachment,
     AudioCommand, BoneAdjustment, BoneScale, BoneTarget, CameraTrack, Emote, Enemy, EventRecord,
@@ -42,7 +45,6 @@ pub mod caption;
 pub mod collision;
 pub mod dialogue;
 pub mod effect;
-mod gameplay_random;
 pub mod input;
 pub mod model_particle;
 pub mod party;
@@ -50,7 +52,7 @@ mod persistent;
 pub mod projectile;
 pub mod ring;
 pub mod rumble;
-pub use gameplay_random::GameplayRandom;
+pub use resonance_content::random::Random as GameplayRandom;
 pub mod menu;
 pub mod session_screen;
 pub mod skit;

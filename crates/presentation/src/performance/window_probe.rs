@@ -18,23 +18,32 @@ pub fn run_window_probe(
     output: &Path,
     resolution: crate::Resolution,
 ) -> anyhow::Result<()> {
-    run(root, output, resolution, None)
+    run(root, output, resolution, None, None, None)
 }
 
-/// Measure a constant physical resolution through the live classroom sequence.
-/// The window manager must honor the requested size; a mismatch fails the run.
+/// Measure a fixed render resolution through the live classroom or an checkpoint.
+/// Record the compositor's physical output size and require it to remain stable.
 pub fn run_frame_benchmark(
     root: &Path,
     output: &Path,
     resolution: crate::Resolution,
     seconds: u64,
     profile: bool,
+    checkpoint: Option<&Path>,
+    replay: Option<&crate::saves::CheckpointReplay>,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
         seconds >= 30,
         "benchmark requires at least 30 field seconds"
     );
-    run(root, output, resolution, Some((seconds, profile)))
+    run(
+        root,
+        output,
+        resolution,
+        Some((seconds, profile)),
+        checkpoint,
+        replay,
+    )
 }
 
 fn run(
@@ -42,7 +51,13 @@ fn run(
     output: &Path,
     resolution: crate::Resolution,
     benchmark: Option<(u64, bool)>,
+    checkpoint: Option<&Path>,
+    replay: Option<&crate::saves::CheckpointReplay>,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        replay.is_none() || checkpoint.is_some(),
+        "replay requires an checkpoint"
+    );
     anyhow::ensure!(!output.exists(), "window probe output already exists");
     std::fs::create_dir_all(output)?;
     let compare_output =
@@ -65,22 +80,27 @@ fn run(
             "pid":std::process::id(), "silent":true, "fixed_render_resolution":true,
             "forced_window_resize":benchmark.is_none(), "compare_output":compare_output,
             "requested_window_resolution":surface_size.unwrap_or(resolution),
+            "checkpoint":checkpoint,
+            "replay":replay.is_some(),
         }))?,
     )?;
     let (mut app, _) = crate::build_app_with_display(
         crate::RunOptions {
             script_root: None,
-            saves: Default::default(),
+            saves: crate::saves::SaveOptions {
+                load: checkpoint.map(Path::to_path_buf),
+                directory: Some(output.join("slots")),
+                ..Default::default()
+            },
             assets: root.into(),
-            tick: compare_output.then_some(920),
+            capture_at: None,
+            paranoid: true,
             presentation_start: None,
             capture: None,
             reveal: true,
             selected: 0,
             silent: true,
             replay: None,
-            movie_frame: None,
-            boot_frame: None,
             skip_intro: true,
             skip_battles: false,
             allow_incomplete_scripts: false,
@@ -107,6 +127,12 @@ fn run(
             super::render_profile::install(&mut app);
         }
     }
+    if compare_output {
+        let mut menu = app.world_mut().resource_mut::<crate::Menu>();
+        for _ in 0..920 {
+            menu.0.step(Default::default());
+        }
+    }
     super::install(
         &mut app,
         super::PerformanceOptions {
@@ -116,6 +142,10 @@ fn run(
         false,
     )?;
     let completed = Arc::new(AtomicBool::new(false));
+    if let Some(replay) = replay {
+        crate::saves::install_benchmark_replay(&mut app, replay, output, completed.clone())?;
+    }
+
     if compare_output {
         super::window_output::install(
             &mut app,
@@ -134,6 +164,9 @@ fn run(
         output: output.into(),
         screenshots: 0,
         benchmark,
+        checkpoint: checkpoint.is_some(),
+        replay: replay.is_some(),
+        measured_window: None,
         completed: completed.clone(),
     })
     .add_systems(
@@ -161,6 +194,9 @@ struct Probe {
     output: PathBuf,
     screenshots: u8,
     benchmark: Option<(u64, bool)>,
+    checkpoint: bool,
+    replay: bool,
+    measured_window: Option<UVec2>,
     completed: Arc<AtomicBool>,
 }
 #[allow(clippy::too_many_arguments)] // Diagnostic input, field state, window and finite lifetime.
@@ -178,7 +214,9 @@ fn drive(
     images: Res<Assets<Image>>,
     projections: Query<(&Projection, &bevy::camera::RenderTarget)>,
 ) {
-    input.reset_all();
+    if !probe.replay {
+        input.reset_all();
+    }
     let source = *probe.source.get_or_insert(targets.source.id());
     let stable = display.0 == probe.size
         && targets.source.id() == source
@@ -208,21 +246,46 @@ fn drive(
         exit.write(AppExit::error());
         return;
     }
-    if movie.active {
+    if movie.active && !probe.replay {
         if movie.presented_frame.is_some_and(|frame| frame > 60) {
             input.press(KeyCode::Escape);
         }
         return;
     }
+    let window_size = UVec2::new(window.physical_width(), window.physical_height());
+    if probe
+        .measured_window
+        .is_some_and(|size| size != window_size)
+    {
+        error!(
+            "Benchmark physical window size changed to {}x{}",
+            window_size.x, window_size.y
+        );
+        exit.write(AppExit::error());
+        return;
+    }
+    if probe.replay {
+        if session
+            .as_ref()
+            .is_some_and(|session| session.ready_for_field)
+        {
+            probe.measured_window.get_or_insert(window_size);
+        }
+        return;
+    }
+
     let Some(session) = session else {
         if probe.started.elapsed().as_secs() >= 20 && menu.0.tick.is_multiple_of(30) {
             input.press(KeyCode::Enter);
         }
         return;
     };
-    let field = &session.field;
+    if !session.is_field() {
+        return;
+    }
+    let field = session.field();
     let tick = field.events.tick();
-    if session.assets.map_id == 5 {
+    if session.map_id() == 5 {
         if tick >= 360
             && let Some(choice) = field.events.world.choices.get(&1)
         {
@@ -238,22 +301,14 @@ fn drive(
         }
         return;
     }
-    if !session.ready_for_field || movie.presented_frame.is_none() || tick <= 30 {
+    if !session.ready_for_field
+        || (!probe.checkpoint && movie.presented_frame.is_none())
+        || tick <= 30
+    {
         return;
     }
-    if probe.benchmark.is_some()
-        && (window.physical_width() != probe.size.width
-            || window.physical_height() != probe.size.height)
-    {
-        error!(
-            "Benchmark requires {}x{}, actual window is {}x{}",
-            probe.size.width,
-            probe.size.height,
-            window.physical_width(),
-            window.physical_height()
-        );
-        exit.write(AppExit::error());
-        return;
+    if probe.benchmark.is_some() {
+        probe.measured_window.get_or_insert(window_size);
     }
     let elapsed = probe
         .field
@@ -321,7 +376,7 @@ fn drive(
         probe.resize = 4;
         info!("Window probe: requested restore at startup size");
     }
-    if elapsed >= probe.benchmark.map_or(50, |(s, _)| s) {
+    if !probe.checkpoint && elapsed >= probe.benchmark.map_or(50, |(s, _)| s) {
         info!("Window probe complete");
         probe.completed.store(true, Ordering::Release);
         exit.write(AppExit::Success);

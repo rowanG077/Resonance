@@ -256,7 +256,6 @@ impl Controller {
     }
     pub(crate) fn blocks_control(&self) -> bool {
         self.casts.iter().any(|cast| match cast.ability {
-            Ability::Sunlight => false,
             Ability::Bubble(_) => matches!(cast.phase, Phase::Windup | Phase::BubbleRising),
             _ => cast.pose.is_some() || cast.phase == Phase::Windup,
         })

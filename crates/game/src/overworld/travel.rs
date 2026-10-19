@@ -46,6 +46,12 @@ pub struct Context<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShipAction {
+    Embark,
+    Disembark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cue {
     Denied,
     /// Play the party leader's mounting/dismounting clip. Completion is tied to
@@ -153,6 +159,29 @@ impl Travel {
     }
     pub fn response(&self) -> i8 {
         self.response
+    }
+
+    pub fn ship_action(
+        &self,
+        context: &Context<'_>,
+        rules: &Rules,
+    ) -> Option<(ShipAction, Position)> {
+        if !self.player_has_control() || !context.event_flags.contains(&23) {
+            return None;
+        }
+        match self.state.mount {
+            Mount::Ship => rules
+                .disembark_destination(self.state.position)
+                .map(|destination| (ShipAction::Disembark, destination)),
+            Mount::Foot | Mount::Noishe
+                if !(context.rheairds_owned && context.event_flags.contains(&22)) =>
+            {
+                rules
+                    .embark_destination(self.state.position, self.response)
+                    .map(|destination| (ShipAction::Embark, destination))
+            }
+            _ => None,
+        }
     }
     pub fn slope(&self) -> [f32; 3] {
         self.slope
@@ -331,13 +360,12 @@ impl Travel {
                     }
                 }
                 Mount::Ship => {
-                    if context.event_flags.contains(&23)
-                        && let Some(destination) = rules.disembark_destination(self.state.position)
-                    {
+                    if let Some((_, destination)) = self.ship_action(context, rules) {
                         // The player returns to land immediately; the ship then
                         // scales away over thirty updates.
                         let anchorage = self.state.position;
                         self.state.position = destination;
+                        self.state.altitude = destination.map()[2];
                         self.begin(
                             Mount::Foot,
                             Phase::Ship {
@@ -355,10 +383,7 @@ impl Travel {
                     if context.rheairds_owned && context.event_flags.contains(&22) {
                         self.state.altitude = self.state.position.map()[2];
                         self.begin(Mount::Rheairds, Phase::Flight, cues)?;
-                    } else if context.event_flags.contains(&23)
-                        && let Some(destination) =
-                            rules.embark_destination(self.state.position, self.response)
-                    {
+                    } else if let Some((_, destination)) = self.ship_action(context, rules) {
                         self.begin(
                             Mount::Ship,
                             Phase::Ship {

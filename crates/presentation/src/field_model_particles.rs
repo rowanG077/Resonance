@@ -1,6 +1,6 @@
 //! Model particles share field assets, but have separate instances and draw state.
 use super::{
-    draw_order::{DrawOrder, MODEL_EFFECTS},
+    draw_order::{DrawOrder, Layer},
     field_audit::{Applied, Request},
     field_effects::effect_rotation,
     field_view::{Art, State},
@@ -212,7 +212,11 @@ pub(super) fn sync(
                 }
                 commands.entity(child).insert((
                     MeshMaterial3d(part.materials[index].clone()),
-                    DrawOrder(MODEL_EFFECTS + spec.draw_order, part.handle as usize),
+                    DrawOrder(
+                        Layer::ModelEffects(spec.draw_order),
+                        part.handle as usize,
+                        0,
+                    ),
                 ));
             }
             part.prepared = true;

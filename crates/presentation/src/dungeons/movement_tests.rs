@@ -325,6 +325,58 @@ fn stacked_blocks_can_be_moved_in_martel_triet_and_palmacosta() -> Result<()> {
     Ok(())
 }
 
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn asgard_crates_can_be_pushed_and_pulled_to_reach_the_backdoor() -> Result<()> {
+    let mut field = configured(ASGARD_RANCH, 208, |entry| {
+        entry
+            .persistent
+            .memory
+            .write(0xe0, symphonia_script::Width::S32, 3200)?;
+        let party = entry.persistent.party.as_mut().unwrap();
+        party.formation = vec![5, 2, 3];
+        party.field_leader = 5;
+        Ok(())
+    })?;
+    field.advance_until(FieldSession::player_has_control)?;
+    for (block, facing, movement, cells) in [
+        (211, [0., -1.], [0., -1.], 1),
+        (212, [-1., 0.], [-1., 0.], 2),
+        (213, [0., 1.], [0., -1.], 2),
+    ] {
+        let start = field.actor(block).position;
+        grab_block(&mut field, block, facing)?;
+        push(&mut field, movement, cells * 50)?;
+        field.step(FieldInput::default())?;
+        let end = field.actor(block).position;
+        for axis in 0..2 {
+            assert!((end[axis] - start[axis] - movement[axis] * 150. * cells as f32).abs() < 1.);
+        }
+    }
+    let player = field.events.world.controlled_actor;
+    for target in [
+        [1425., 750.],
+        [1425., 1030.],
+        [1575., 1300.],
+        [1575., 1500.],
+    ] {
+        for _ in 0..240 {
+            let position = field.actor(player).position;
+            let delta = [target[0] - position[0], target[1] - position[1]];
+            let distance = delta[0].hypot(delta[1]);
+            if distance < 5. || field.events.world.field_transition.is_some() {
+                break;
+            }
+            field.step(field.walking(delta.map(|v| v / distance)))?;
+        }
+    }
+    assert_eq!(
+        field.events.world.field_transition.as_ref().map(|t| t.map),
+        Some(215)
+    );
+    Ok(())
+}
+
 fn grab_block(field: &mut Scene, block: i32, direction: [f32; 2]) -> Result<()> {
     let start = field.actor(block).position;
     let player = field.events.world.controlled_actor;

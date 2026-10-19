@@ -5,7 +5,8 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
+pub const SHARED_PATH: &str = "shared.preload.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -41,19 +42,13 @@ impl Inputs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Manifest {
+pub struct Manifest<Entry = File> {
     pub version: u32,
     pub map_id: u32,
     pub inputs: Inputs,
-    /// A missing separately cooked input keeps this inventory incomplete.
-    /// This does not certify that every original native has been implemented.
+    /// Separately cooked media inputs that are not yet available.
     pub missing_inputs: BTreeSet<String>,
-    pub files: BTreeMap<String, File>,
-    /// Unique on-disk bytes; deliberately not an estimate of decoded RAM/VRAM.
-    pub total_file_bytes: u64,
-    pub scenes: Vec<Scene>,
-    pub features: BTreeSet<Feature>,
-    pub scripts: Vec<Script>,
+    pub files: BTreeMap<String, Entry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,90 +75,78 @@ pub enum Role {
     Movie,
 }
 
-/// The renderer reads full material/sampler/skeleton recipes from the referenced
-/// FieldAssets part. Prepare all clips and materials, including hidden ones.
+/// Dependencies used by every field, published once.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Scene {
-    /// None refers to FieldAssets.parts; Some refers to the matching actor.
-    pub actor_resource: Option<u32>,
-    pub part: usize,
-    pub mesh: String,
-    pub scene_index: usize,
-    pub animation_indices: Vec<usize>,
-    pub material_indices: Vec<usize>,
+pub struct Shared<Entry = File> {
+    pub version: u32,
+    pub files: BTreeMap<String, Entry>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Feature {
-    FieldGeometry,
-    Actors,
-    Animation,
-    SecondaryMotion,
-    TextureAnimation,
-    ToonLighting,
-    Outlines,
-    ContactShadows,
-    Dialogue,
-    Choices,
-    Subtitles,
-    Billboards,
-    Emotes,
-    Audio,
-    Movies,
+impl Shared {
+    pub fn validate(&self) -> Result<()> {
+        self.validate_structure()?;
+        validate_files(&self.files)
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Script {
-    pub path: String,
-    /// Default entry plus every active registry entry; branch conditions are
-    /// never used to prune the decoder's control-flow traversal.
-    pub entry_pcs: BTreeSet<u32>,
-    pub instruction_count: usize,
-    pub native_calls: Vec<NativeCall>,
+impl<Entry> Shared<Entry> {
+    /// Check the container before admitting only the dependencies a caller needs.
+    pub fn validate_structure(&self) -> Result<()> {
+        ensure!(
+            self.version == VERSION,
+            "unsupported shared preload version"
+        );
+        ensure!(
+            !self.files.contains_key(SHARED_PATH),
+            "shared inventory includes itself"
+        );
+        Ok(())
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NativeCall {
-    pub opcode: u8,
-    /// Research label only, not a verified ABI or support classification.
-    pub name: Option<String>,
-    pub pcs: Vec<u32>,
+fn validate_files(files: &BTreeMap<String, File>) -> Result<()> {
+    for (path, file) in files {
+        file.validate(path)?;
+    }
+    Ok(())
+}
+
+impl File {
+    pub fn validate(&self, path: &str) -> Result<()> {
+        validate_asset_path(path)?;
+        ensure!(
+            self.sha256.len() == 64
+                && self.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+                && !self.roles.is_empty(),
+            "invalid preload file {path}"
+        );
+        Ok(())
+    }
 }
 
 impl Manifest {
+    pub fn validate(&self) -> Result<()> {
+        self.validate_structure()?;
+        validate_files(&self.files)
+    }
+}
+
+impl<Entry> Manifest<Entry> {
     pub fn is_complete(&self) -> bool {
         self.missing_inputs.is_empty()
     }
 
-    pub fn validate(&self) -> Result<()> {
+    pub(crate) fn validate_structure(&self) -> Result<()> {
         self.inputs.validate()?;
         ensure!(self.version == VERSION, "unsupported field preload version");
         ensure!(
             self.files.contains_key(&self.inputs.field),
             "missing field input"
         );
-        let manifest_path = self.inputs.manifest_path()?;
-        let mut total = 0u64;
-        for (path, file) in &self.files {
-            validate_asset_path(path)?;
-            ensure!(path != &manifest_path, "preload manifest includes itself");
-            ensure!(
-                file.sha256.len() == 64
-                    && file.sha256.bytes().all(|b| b.is_ascii_hexdigit())
-                    && !file.roles.is_empty(),
-                "invalid preload file {path}"
-            );
-            total = total
-                .checked_add(file.bytes)
-                .ok_or_else(|| anyhow::anyhow!("preload size overflow"))?;
-        }
         ensure!(
-            total == self.total_file_bytes,
-            "preload byte count differs from inventory"
+            !self.files.contains_key(&self.inputs.manifest_path()?),
+            "preload manifest includes itself"
         );
         for path in self.inputs.audio.iter().chain(&self.inputs.movies) {
             ensure!(
@@ -177,23 +160,6 @@ impl Manifest {
                 .all(|p| self.inputs.audio.contains(p) || self.inputs.movies.contains(p)),
             "unknown missing preload input"
         );
-        for scene in &self.scenes {
-            ensure!(
-                self.files
-                    .get(&scene.mesh)
-                    .is_some_and(|f| f.roles.contains(&Role::Mesh)),
-                "scene mesh missing from preload"
-            );
-        }
-        for script in &self.scripts {
-            ensure!(
-                self.files
-                    .get(&script.path)
-                    .is_some_and(|f| f.roles.contains(&Role::Script))
-                    && !script.entry_pcs.is_empty(),
-                "script missing from preload"
-            );
-        }
         Ok(())
     }
 }
