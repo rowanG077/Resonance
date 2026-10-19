@@ -1,7 +1,10 @@
-//! A shared native priority pool with authored per-source voice limits.
+//! Shared slots with separate music/effect budgets and authored per-source limits.
 //! Startup protects equal-priority layers until their first macro pass. Child allocation
 //! also protects its parent. External sample-stream reservations are separate.
-use crate::{data::VoiceSource, sequence::VOICE_BUDGET};
+use crate::{
+    data::{ScoreOrigin, VoiceSource},
+    sequence::{MUSIC_VOICE_BUDGET, SOUND_EFFECT_VOICE_BUDGET, VOICE_BUDGET},
+};
 use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,10 +121,18 @@ impl Pool {
         max_voices: u8,
         blocked: Option<Lease>,
     ) -> Option<Lease> {
+        let limit = match source.origin() {
+            ScoreOrigin::Sequence => MUSIC_VOICE_BUDGET,
+            ScoreOrigin::SoundEffect => SOUND_EFFECT_VOICE_BUDGET,
+        };
         let occupants = || self.slots.iter().flatten();
+        let own_class = occupants()
+            .filter(|voice| voice.source.origin() == source.origin())
+            .count()
+            >= limit;
         let own_source =
             occupants().filter(|voice| voice.source == source).count() >= usize::from(max_voices);
-        let candidate = if !own_source && !self.available.is_empty() {
+        let candidate = if !own_class && !own_source && !self.available.is_empty() {
             self.available.pop_front()
         } else {
             occupants()
@@ -129,6 +140,7 @@ impl Pool {
                     (voice.initialized || voice.priority < priority)
                         && Some(voice.lease) != blocked
                         && voice.priority <= priority
+                        && (!own_class || voice.source.origin() == source.origin())
                         && (!own_source || voice.source == source)
                 })
                 .min_by_key(|voice| (voice.priority, voice.age, voice.lease.generation))
@@ -261,23 +273,30 @@ mod tests {
     }
 
     #[test]
-    fn music_and_sounds_share_the_budget_and_replace_by_priority_then_age() {
+    fn music_and_sounds_keep_their_budgets_and_replace_by_priority_then_age() {
         let mut pool = Pool::default();
-        let sounds: Vec<_> = (0..VOICE_BUDGET)
+        let sounds: Vec<_> = (0..SOUND_EFFECT_VOICE_BUDGET)
             .map(|_| pool.allocate(SOUND, 9, u8::MAX).unwrap())
             .collect();
+        let music: Vec<_> = (0..MUSIC_VOICE_BUDGET)
+            .map(|_| pool.allocate(SEQUENCE, 1, u8::MAX).unwrap())
+            .collect();
         assert!(
-            pool.allocate(SEQUENCE, 9, u8::MAX).is_none(),
+            pool.allocate(SOUND, 9, u8::MAX).is_none(),
             "equal-priority starting layers are protected until initialized"
         );
         for (age, &lease) in sounds.iter().enumerate() {
             pool.update(lease, (9, age as u32), true);
         }
-        assert!(pool.allocate(SEQUENCE, 8, u8::MAX).is_none());
-        let replacement = pool.allocate(SEQUENCE, 10, u8::MAX).unwrap();
+        assert!(pool.allocate(SOUND, 8, u8::MAX).is_none());
+        let replacement = pool.allocate(SOUND, 10, u8::MAX).unwrap();
         assert_eq!(replacement.slot, sounds[0].slot);
         assert!(!pool.owns(sounds[0]));
         assert!(pool.owns(replacement));
+        assert!(music.iter().all(|&lease| pool.owns(lease)));
+        let instrument = pool.allocate(SEQUENCE, 2, u8::MAX).unwrap();
+        assert_eq!(instrument.slot, music[0].slot);
+        assert!(sounds[1..].iter().all(|&lease| pool.owns(lease)));
         pool.free(replacement);
         let reused = pool.allocate(SOUND, 0, u8::MAX).unwrap();
         assert_eq!(reused.slot, replacement.slot);

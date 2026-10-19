@@ -498,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires original sound banks and RESONANCE_DSP_COEFFICIENTS; silent in-memory synthesis"]
+    #[ignore = "requires original sound banks; silent in-memory synthesis"]
     fn original_layered_random_cues_share_music_clock_and_finish_after_release() -> Result<()> {
         use anyhow::Context;
         use resonance_audio::{
@@ -565,6 +565,11 @@ mod tests {
                 unreachable!()
             };
             *allocation = source;
+            if matches!(source, VoiceSource::Sequence { .. }) {
+                // Keep the note alive until the test releases the shared streams.
+                *length = u16::MAX;
+                score.end_tick = u32::from(*length);
+            }
             let package = Package {
                 version: resonance_audio::package::VERSION,
                 programs: resources.programs,

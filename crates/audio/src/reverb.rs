@@ -6,6 +6,8 @@ use std::collections::VecDeque;
 const MAX_PREDELAY_SECONDS: f32 = 0.1;
 const TAIL_FADE_FRAMES: u32 = crate::SOURCE_RATE / 10;
 const COMB_DELAYS: [usize; 2] = [1789, 1999];
+// Auxiliary processing returns two synthesis blocks after the direct bus.
+const AUXILIARY_RETURN_FRAMES: usize = 2 * crate::BLOCK_FRAMES;
 
 /// Parameters: coloration, mix, decay seconds, damping, pre-delay seconds.
 pub(crate) fn validate_parameters(parameters: [f32; 5]) -> Result<()> {
@@ -107,6 +109,7 @@ pub struct StandardReverb {
 /// effect tails survive source replacement and overlap before final clipping.
 pub struct Studio {
     effects: [StandardReverb; 2],
+    returns: VecDeque<[i64; 2]>,
     music_reverb: [f32; 5],
     sound_parameters: [f32; 5],
 }
@@ -117,6 +120,7 @@ impl Studio {
                 StandardReverb::new(parameters[0])?,
                 StandardReverb::new(parameters[1])?,
             ],
+            returns: vec![[0; 2]; AUXILIARY_RETURN_FRAMES].into(),
             music_reverb: parameters[0],
             sound_parameters: parameters[1],
         })
@@ -128,6 +132,7 @@ impl Studio {
     /// No effect has a remaining audible tail. Dry input is never retained.
     pub fn is_silent(&self) -> bool {
         self.effects.iter().all(|effect| effect.remaining == 0)
+            && self.returns.iter().all(|frame| *frame == [0; 2])
     }
 
     /// Apply a preset without interrupting the existing effect tail.
@@ -155,13 +160,18 @@ impl Studio {
     }
 
     pub fn process(&mut self, buses: [[i32; 2]; 3]) -> [i32; 2] {
-        let mut output = buses[0].map(i64::from);
+        let returned = self.returns.pop_front().unwrap();
+        let mut next = [0i64; 2];
         for (effect, bus) in self.effects.iter_mut().zip(&buses[1..]) {
-            for (channel, sample) in output.iter_mut().zip(effect.process(*bus)) {
+            for (channel, sample) in next.iter_mut().zip(effect.process(*bus)) {
                 *channel += i64::from(sample);
             }
         }
-        output.map(|sample| sample.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
+        self.returns.push_back(next);
+        std::array::from_fn(|channel| {
+            (i64::from(buses[0][channel]) + returned[channel])
+                .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+        })
     }
 }
 
@@ -296,8 +306,26 @@ mod tests {
             let mut studio = Studio::new([[0., 0., 1., 0., 0.]; 2]).unwrap();
             // Exercise both saturating sums and cancellation after an
             // intermediate sum exceeds i32, in both stereo polarities.
-            assert_eq!(studio.process([full, full, second_aux]), full);
+            for _ in 0..=AUXILIARY_RETURN_FRAMES {
+                assert_eq!(studio.process([full, full, second_aux]), full);
+            }
         }
+    }
+
+    #[test]
+    fn studio_delays_auxiliary_returns_without_delaying_direct_audio() {
+        let mut studio = Studio::new([[0., 0., 1., 0., 0.]; 2]).unwrap();
+        assert_eq!(
+            studio.process([[2000, -3000], [10000, -20000], [30000, 40000]]),
+            [2000, -3000]
+        );
+        for _ in 1..AUXILIARY_RETURN_FRAMES {
+            assert!(!studio.is_silent());
+            assert_eq!(studio.process([[0; 2]; 3]), [0; 2]);
+        }
+        assert!(!studio.is_silent());
+        assert_eq!(studio.process([[0; 2]; 3]), [24000, 12000]);
+        assert!(studio.is_silent());
     }
 
     #[test]
@@ -407,7 +435,8 @@ mod tests {
         studio.process([[0; 2], [i32::MAX, i32::MIN], [0; 2]]);
         let mut tail = Vec::new();
         // 20 ms of decay, 100 ms for queued input and a 100 ms fade.
-        let limit = (0.22 * crate::SOURCE_RATE as f32).ceil() as usize + 1;
+        let limit =
+            (0.22 * crate::SOURCE_RATE as f32).ceil() as usize + AUXILIARY_RETURN_FRAMES + 1;
         while !studio.is_silent() {
             assert!(tail.len() < limit);
             tail.push(studio.process([[0; 2]; 3]));
@@ -425,14 +454,13 @@ mod tests {
                 .flatten()
                 .all(|sample| sample.unsigned_abs() < peak / 20)
         );
-        assert_eq!(tail.last(), Some(&[0; 2]));
         for _ in 0..crate::SOURCE_RATE / 10 {
             assert_eq!(studio.process([[0; 2]; 3]), [0; 2]);
         }
     }
 
     #[test]
-    fn auxiliary_dry_return_is_immediate_and_keeps_channels_separate() {
+    fn reverb_filter_keeps_the_unfiltered_return_and_channels_separate() {
         let mut reverb = StandardReverb::new([1.0, 0.5, 1.0, 0.8, 0.01]).unwrap();
         assert_eq!(reverb.process([10000, -10000]), [3000, -3000]);
         for _ in 0..100 {
