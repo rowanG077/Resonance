@@ -38,8 +38,8 @@ impl Artwork {
         let manifest: Manifest = files.json(resonance_content::credits::PATH)?;
         manifest.validate()?;
         let audio = Audio {
-            clip: Arc::new(crate::field_audio::Clip::decode(
-                files.read(&manifest.music.asset.path)?.to_vec(),
+            clip: Arc::new(crate::field_audio::Clip::prepare(
+                files.read(&manifest.music.asset.path)?,
                 &manifest.music,
             )?),
             rate: manifest.music.sample_rate,
@@ -63,6 +63,8 @@ impl Artwork {
                 color_mask: image.clone(),
                 coverage: default(),
                 opaque: false,
+                additive: false,
+                texture_effect: Default::default(),
             }));
             images.push(image);
         }
@@ -393,8 +395,8 @@ fn advance(world: &mut World) {
         return;
     }
     let mut session = world.resource_mut::<crate::new_game::Session>();
-    session.field.play_time.advance();
-    session.field.events.world.played_ticks = session.field.play_time.total();
+    session.advance_play_time();
+    session.events_mut().world.played_ticks = session.play_time().total();
     if complete {
         let request = session.events_mut().world.screen_request.take().unwrap();
         if let Err(error) = request.operation.complete(Some(0)) {

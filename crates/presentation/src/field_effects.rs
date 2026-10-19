@@ -1,7 +1,7 @@
 //! Camera-facing sprites from cooked recipes and live event state.
 use super::sparse_animation::affine::Helper as TransformHelper;
 use super::{
-    draw_order::{DrawOrder, EFFECT_UI_OFFSET, EFFECTS},
+    draw_order::{DrawOrder, Layer},
     field_animation::Rig,
     field_audit::{Applied, Request},
     field_view::{ActorPart, State},
@@ -33,6 +33,8 @@ pub(super) struct EffectDraw;
 
 #[derive(Resource)]
 pub(super) struct Artwork {
+    drawn: std::collections::BTreeSet<Request>,
+    drawn_tick: Option<u32>,
     spec: FieldEffects,
     textures: Vec<Handle<Image>>,
     materials: Vec<Handle<TitleSurface>>,
@@ -43,6 +45,18 @@ pub(super) struct Artwork {
     refraction_texture: [Handle<Image>; 2],
 }
 impl Artwork {
+    pub(super) fn drawn(&self, request: &Request, tick: u32) -> bool {
+        self.drawn_tick == Some(tick) && self.drawn.contains(request)
+    }
+    pub(super) fn diagnostic(&self, world: &resonance_events::GameWorld) -> serde_json::Value {
+        serde_json::json!({
+            "emotes": world.emotes.iter().filter(|(id, _)| self.drawn(&Request::Emote(**id), world.tick))
+                .map(|(id, emote)| serde_json::json!({"id":id,"actor":emote.actor,"kind":emote.kind})).collect::<Vec<_>>(),
+            "billboards": world.billboards.iter().filter(|(id, _)| self.drawn(&Request::Billboard(**id), world.tick))
+                .map(|(id, effect)| serde_json::json!({"id":id,"recipe":effect.recipe})).collect::<Vec<_>>()
+        })
+    }
+
     pub(super) fn palette(&self, index: u8) -> [u8; 4] {
         self.spec.palette[usize::from(index)]
     }
@@ -173,6 +187,8 @@ impl Artwork {
             VerticalAnchor::Center,
         );
         Ok(Self {
+            drawn: Default::default(),
+            drawn_tick: None,
             spec,
             textures,
             materials,
@@ -250,6 +266,13 @@ impl Quad {
             color,
         }
     }
+    fn visible(&self) -> bool {
+        self.color[3] > 0.
+            && Vec3::from_array(self.positions[0]).distance(Vec3::from_array(self.positions[1]))
+                > 1.
+            && Vec3::from_array(self.positions[0]).distance(Vec3::from_array(self.positions[3]))
+                > 1.
+    }
     pub(super) fn mesh<'a>(quads: impl IntoIterator<Item = &'a Self>) -> Mesh {
         let mut positions = Vec::new();
         let mut uv = Vec::new();
@@ -312,6 +335,8 @@ pub(super) fn render(
         return;
     }
     let world = &state.get().events.world;
+    art.drawn.clear();
+    art.drawn_tick = Some(world.tick);
     let Some(camera) = &world.field_camera else {
         return;
     };
@@ -384,7 +409,10 @@ pub(super) fn render(
             ],
             effect.anchor,
         );
-        quads.push((EFFECTS, layer, quad));
+        if quad.visible() {
+            art.drawn.insert(Request::Billboard(id));
+        }
+        quads.push((Layer::Effects, layer, quad));
         applied.ack(Request::Billboard(id));
     }
     let roots: BTreeMap<_, _> = actors
@@ -459,7 +487,10 @@ pub(super) fn render(
             for vertex in &mut quad.positions {
                 *vertex = (center + camera.rotation * Vec3::from_array(*vertex)).to_array();
             }
-            quads.push((EFFECTS + EFFECT_UI_OFFSET, layer, quad));
+            if quad.visible() {
+                art.drawn.insert(request.clone());
+            }
+            quads.push((Layer::EffectOverlay, layer, quad));
         }
         applied.ack(request);
     }
@@ -478,7 +509,7 @@ fn sync_draws(
     meshes: &mut Assets<Mesh>,
     materials: &[Handle<TitleSurface>],
     draws: &mut Vec<Vec<(Entity, Handle<Mesh>)>>,
-    quads: &[(u32, usize, Quad)],
+    quads: &[(Layer, usize, Quad)],
 ) {
     // field_warm prepares every binding offscreen. Live draws only need meshes
     // for actual effects; rewriting placeholder meshes would upload all unused
@@ -504,7 +535,7 @@ fn sync_draws(
             Mesh3d(mesh),
             MeshMaterial3d(materials[layer].clone()),
             Visibility::Inherited,
-            DrawOrder(pass, order),
+            DrawOrder(pass, order, 0),
         ));
         used[layer] += 1;
     }
@@ -548,7 +579,7 @@ mod tests {
         let mut draws = Vec::new();
         let quad = |layer, x| {
             (
-                EFFECTS,
+                Layer::Effects,
                 layer,
                 Quad::new(
                     Vec3::new(x, 0., 0.),

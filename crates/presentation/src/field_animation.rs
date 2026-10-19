@@ -8,6 +8,7 @@ use super::field_view::{ActorPart, Art, State};
 use super::sparse_animation::affine::{Locals, Pose};
 use bevy::prelude::*;
 use frame::Frame;
+use std::collections::BTreeSet;
 
 #[derive(Component)]
 pub(super) struct Rig {
@@ -15,6 +16,7 @@ pub(super) struct Rig {
     pub(super) sampled: bool,
     bones: Vec<(Entity, Transform)>,
     camera_facing: Vec<Entity>,
+    secondary_bones: BTreeSet<usize>,
     from: Vec<Frame>,
     presented: Vec<Frame>,
     bind_channels: Vec<u8>,
@@ -37,6 +39,12 @@ pub(super) fn bind(
         let spec = &art.models[&part.resource][part.part].spec;
         let mut rig = Rig::from_scene(root, spec.bone_names.len(), &children, &nodes)
             .expect("prepared animation skeleton must contain every bone");
+        rig.secondary_bones.extend(
+            spec.secondary_motion
+                .chains
+                .iter()
+                .flat_map(|chain| chain.joints.iter().map(|joint| usize::from(joint.node))),
+        );
         for clip in &art.models[&part.resource][part.part].clips {
             for track in &clips.get(clip).expect("prepared sparse clip").0.tracks {
                 rig.bind_channels[usize::from(track.bone)] = track.bind_channels.0;
@@ -212,6 +220,7 @@ impl Rig {
             authored_channels: vec![0; bones.len()],
             bones,
             camera_facing: Vec::new(),
+            secondary_bones: BTreeSet::new(),
             from: previous.clone(),
             presented: previous.clone(),
             clip: None,
@@ -256,7 +265,9 @@ impl Rig {
     }
 
     fn blend_bone(&mut self, index: usize, pose: &mut Frame, weight: f32, animated: bool) {
-        if !animated {
+        // Cloth and hair resume their rest target when explicit motion ends;
+        // carrying a previous clip's bend would pin the dynamics to that pose.
+        if !animated && !self.secondary_bones.contains(&index) {
             *pose = self.presented[index];
         } else if weight < 1. {
             *pose = self.from[index].mix(
@@ -332,6 +343,29 @@ pub(super) fn blend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn secondary_bones_return_to_rest_when_the_next_clip_omits_them() {
+        let rest = Transform::from_xyz(0., 10., 0.);
+        let mut rig = Rig::new(vec![(Entity::PLACEHOLDER, rest); 2]);
+        rig.secondary_bones.insert(0);
+        let folded = rest.with_rotation(Quat::from_rotation_x(1.));
+        for i in 0..2 {
+            rig.blend_bone(i, &mut Frame::from(folded), 1., true);
+        }
+        rig.from = rig.presented.clone();
+        for (weight, angle) in [(0.5, 0.5), (1., 0.)] {
+            for i in 0..2 {
+                let mut pose = Frame::sample(rest.into(), 0, frame::TRS);
+                rig.blend_bone(i, &mut pose, weight, false);
+                let expected = if i == 0 { angle } else { 1. };
+                let rotation =
+                    super::super::sparse_animation::affine::rotation(pose.pose.global().affine());
+                assert!(rotation.angle_between(Quat::from_rotation_x(expected)) < 0.001);
+                assert_eq!(pose.pose.global().translation(), rest.translation);
+            }
+        }
+    }
+
     #[test]
     fn interrupted_blends_start_from_the_visible_pose_and_omitted_bones_stay_put() {
         let mut rig = Rig::new(vec![(Entity::PLACEHOLDER, Transform::IDENTITY)]);

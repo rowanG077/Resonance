@@ -2,6 +2,10 @@ use super::*;
 
 fn fixture() -> App {
     let mut app = App::new();
+    app.add_message::<AppExit>();
+    app.insert_resource(crate::diagnostics::Diagnostics(
+        resonance_content::diagnostics::Diagnostics::new(true),
+    ));
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
             Duration::ZERO,
@@ -37,15 +41,14 @@ fn fixture() -> App {
             script_root: None,
             saves: Default::default(),
             assets: PathBuf::new(),
-            tick: None,
+            capture_at: None,
+            paranoid: true,
             presentation_start: Some(2365),
             capture: None,
             reveal: false,
             selected: 0,
             silent: true,
             replay: None,
-            movie_frame: None,
-            boot_frame: None,
             skip_intro: true,
             skip_battles: false,
             allow_incomplete_scripts: false,
@@ -126,18 +129,14 @@ fn loading_duration_does_not_change_replay_or_blink_phase() {
 fn recorder_preparation_and_static_readbacks_consume_no_ticks() {
     let mut app = fixture();
     app.world_mut().resource_mut::<Ready>().0 = true;
-    app.init_resource::<playthrough::Recording>();
-    assert_frozen(&mut app, 128);
-    app.world_mut()
-        .resource_mut::<playthrough::Recording>()
-        .started = true;
     app.world_mut().run_schedule(FixedUpdate);
     assert_eq!(app.world().resource::<Menu>().0.tick, 1);
     assert_eq!(app.world().resource::<Clock>().0.tick(), 2366);
-    let mut options = app.world_mut().resource_mut::<RunOptions>();
-    options.tick = Some(1);
-    options.capture = Some("unused.png".into());
-    assert_frozen(&mut app, 128);
+    for _ in 0..128 {
+        app.update();
+    }
+    assert_eq!(app.world().resource::<Menu>().0.tick, 1);
+    assert_eq!(app.world().resource::<Clock>().0.tick(), 2366);
 }
 
 #[test]

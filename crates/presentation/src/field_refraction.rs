@@ -37,6 +37,10 @@ impl Ready {
     pub fn get(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
+    #[cfg(test)]
+    pub(super) fn completed() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
 }
 #[derive(Clone, Copy, Default, ShaderType)]
 struct Pulse {

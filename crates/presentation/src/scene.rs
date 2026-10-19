@@ -425,7 +425,7 @@ fn bind_materials(
             .expect("title mesh must have a declared material slot");
         commands.entity(entity).insert((
             MeshMaterial3d(binding.surface.clone()),
-            DrawOrder(binding.draw_order, 0),
+            DrawOrder(crate::draw_order::Layer::Scene(binding.draw_order), 0, 0),
         ));
     }
 }

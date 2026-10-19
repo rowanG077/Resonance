@@ -52,7 +52,6 @@ struct Report {
     submitted: bool,
     completed: Arc<AtomicBool>,
     failure: Option<String>,
-    prepared_pipeline_count: usize,
     seen: usize,
     missing: Vec<MainEntity>,
 }
@@ -70,7 +69,6 @@ struct Preparation {
 #[derive(Resource)]
 struct PreparedMaterials {
     fields: HashMap<u32, Bindings>,
-    sampler_misses: u64,
 }
 #[derive(Clone, Default)]
 struct Bindings {
@@ -139,7 +137,7 @@ fn retire(
     retained: Option<Res<PreparedMaterials>>,
     shared: Res<Shared>,
 ) {
-    if session.as_ref().is_some_and(|s| s.overworld.is_none()) || pending.is_some() {
+    if session.as_ref().is_some_and(|s| s.is_field()) || pending.is_some() {
         return;
     }
     if session.is_none() {
@@ -171,8 +169,14 @@ fn begin(
     mut surfaces: ResMut<Assets<TitleSurface>>,
     mut sampled: ResMut<super::scene::SampledImages>,
     ui: Option<Res<super::field_ui::Artwork>>,
+    ui_materials: Res<Assets<super::field_ui::Surface>>,
+    server: Res<AssetServer>,
+    mut failures: super::field_view::Failures,
     session: Option<Res<super::new_game::Session>>,
-    backdrop: Query<Entity, With<super::menu_backdrop::Quad>>,
+    backdrop: Query<
+        (&Mesh2d, &MeshMaterial2d<super::menu_backdrop::Material>),
+        With<super::menu_backdrop::Quad>,
+    >,
     scenes: Res<Assets<WorldAsset>>,
     meshes: Res<Assets<Mesh>>,
 ) {
@@ -180,8 +184,8 @@ fn begin(
         return;
     };
     if session.is_none_or(|s| {
-        s.overworld.is_some()
-            || s.assets.map_id != art.map
+        s.overworld().is_some()
+            || s.map_id() != art.map
             || s.events().world.field_transition.is_some()
             || s.events().world.world_transition.is_some()
     }) {
@@ -192,10 +196,18 @@ fn begin(
     {
         return;
     }
-    let Some(ui) = ui.filter(|ui| ui.ready(&images)) else {
+    let Some(ui) = ui else {
         return;
     };
-    let Ok(backdrop) = backdrop.single() else {
+    match ui.essential_ready(&images, &server) {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            failures.fatal("field essential artwork", error);
+            return;
+        }
+    }
+    let Ok((backdrop_mesh, backdrop_material)) = backdrop.single() else {
         return;
     };
     let mut entities = Vec::new();
@@ -203,7 +215,6 @@ fn begin(
         map: Some(art.map),
         ..Default::default()
     };
-    report.expected.insert(backdrop.into());
     let target = images.add(Image::new_target_texture(
         64,
         64,
@@ -247,7 +258,29 @@ fn begin(
             ))
             .id(),
     );
-    for (mesh, material) in ui.prepared_layers() {
+    // Loading may freeze the live cameras until preparation finishes. Warm the
+    // menu backdrop offscreen too, so readiness never depends on that frozen view.
+    let backdrop = commands
+        .spawn((
+            backdrop_mesh.clone(),
+            backdrop_material.clone(),
+            Transform::default(),
+            RenderLayers::layer(LAYER),
+            NoFrustumCulling,
+        ))
+        .id();
+    report.expected.insert(backdrop.into());
+    entities.push(backdrop);
+    for (mesh, material, essential) in ui.prepared_layers() {
+        // Optional pages may still be loading, or may never be selected. Their
+        // missing textures must not enter the mandatory submission fence.
+        if !essential
+            && !ui_materials
+                .get(material)
+                .is_some_and(|surface| surface.images_ready(&images))
+        {
+            continue;
+        }
         let entity = commands
             .spawn((
                 Mesh2d(mesh.clone()),
@@ -450,6 +483,7 @@ fn convert(
     mut commands: Commands,
     preparation: Option<ResMut<Preparation>>,
     shared: Res<Shared>,
+    resident: Res<Resident>,
     mut scenes: Query<(Entity, &mut Scene)>,
     children: Query<&Children>,
     meshes: Query<&super::materials::MaterialSlot>,
@@ -472,7 +506,15 @@ fn convert(
                 let index = match slot.index(scene.materials.len()) {
                     Ok(index) => index,
                     Err(error) => {
-                        report.failure = Some(format!("field {}: {error}", preparation.map));
+                        let error = format!("field {}: {error}", preparation.map);
+                        if resident
+                            .diagnostics
+                            .report("field warm draw", anyhow::anyhow!(error.clone()))
+                            .is_err()
+                        {
+                            report.failure = Some(error);
+                        }
+                        commands.entity(child).insert(Visibility::Hidden);
                         continue;
                     }
                 };
@@ -538,7 +580,7 @@ fn complete(
     shared: Res<Shared>,
     resident: Res<Resident>,
     refraction: Res<super::field_refraction::Ready>,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: super::field_view::Failures,
     mut logged: Local<u64>,
     names: Query<(
         Option<&Name>,
@@ -547,7 +589,6 @@ fn complete(
         Option<&ViewVisibility>,
         Option<&InheritedVisibility>,
     )>,
-    sampled: Res<super::scene::SampledImages>,
     retained: Option<ResMut<PreparedMaterials>>,
 ) {
     let Some(preparation) = preparation else {
@@ -572,8 +613,7 @@ fn complete(
         }
     }
     if let Some(error) = &report.failure {
-        error!("Field preparation failed: {error}");
-        exit.write(AppExit::error());
+        failures.fatal("field preparation", anyhow::anyhow!(error.clone()));
         return;
     }
     if report.completed.load(Ordering::Acquire) && refraction.get() {
@@ -592,50 +632,36 @@ fn complete(
             retained
                 .fields
                 .insert(preparation.map, preparation.retained.clone());
-            retained.sampler_misses = sampled.misses;
         } else {
             commands.insert_resource(PreparedMaterials {
                 fields: [(preparation.map, preparation.retained.clone())].into(),
-                sampler_misses: sampled.misses,
             });
         }
         commands.remove_resource::<Preparation>();
     } else if preparation.started.elapsed().as_secs() > 120 {
-        error!(
-            "Field {} GPU preparation timed out ({} expected draws)",
-            preparation.map,
-            report.expected.len()
+        failures.fatal(
+            "field preparation",
+            anyhow::anyhow!(
+                "Field {} GPU preparation timed out ({} expected draws)",
+                preparation.map,
+                report.expected.len()
+            ),
         );
-        exit.write(AppExit::error());
     }
 }
 
-fn guard(
-    shared: Res<Shared>,
-    resident: Res<Resident>,
-    prepared: Option<Res<PreparedMaterials>>,
-    sampled: Res<super::scene::SampledImages>,
-    mut exit: MessageWriter<AppExit>,
-) {
-    let mut report = shared.0.lock().unwrap();
-    if resident.late_reads.load(Ordering::Relaxed) > 0 && report.failure.is_none() {
-        report.failure = Some(format!(
-            "field {:?} attempted a late or undeclared asset read",
-            report.map
-        ));
-    }
-    if resident.active.load(Ordering::Acquire)
-        && prepared.is_some_and(|p| sampled.misses != p.sampler_misses)
-        && report.failure.is_none()
+fn guard(shared: Res<Shared>, resident: Res<Resident>, mut exit: MessageWriter<AppExit>) {
+    let report = shared.0.lock().unwrap();
+    let failure = report.failure.clone().or_else(|| {
+        (resident.unprepared_reads.load(Ordering::Relaxed) > 0)
+            .then(|| format!("field {:?} attempted an undeclared asset read", report.map))
+    });
+    if let Some(error) = failure
+        && resident
+            .diagnostics
+            .report("field GPU", anyhow::anyhow!(error))
+            .is_err()
     {
-        report.failure = Some(format!(
-            "field {:?} created an unprepared texture/sampler binding",
-            report.map
-        ));
-    }
-    if let Some(error) = &report.failure {
-        debug_assert!(false, "{error}");
-        error!("{error}");
         exit.write(AppExit::error());
     }
 }
@@ -657,32 +683,24 @@ fn rendered(
     if report.map.is_none() {
         return;
     }
-    use bevy::render::render_resource::PipelineDescriptor;
-    let relevant = || {
-        cache.pipelines().filter(|p| matches!(&p.descriptor,
-        PipelineDescriptor::RenderPipelineDescriptor(d) if matches!(d.label.as_deref(),Some("resonance/surface" | "resonance/field-ui" | "resonance/refraction" | "resonance/menu-backdrop"))))
-    };
-    let count = relevant().count();
+
     if resident.active.load(Ordering::Acquire) {
-        if count != report.prepared_pipeline_count
-            || relevant().any(|p| !matches!(p.state, CachedPipelineState::Ok(_)))
-        {
-            for pipeline in relevant().skip(report.prepared_pipeline_count) {
-                if let PipelineDescriptor::RenderPipelineDescriptor(d) = &pipeline.descriptor {
-                    error!(
-                        "Unprepared pipeline {:?}: vertex={:?}, cull={:?}, depth={:?}, fragment={:?}",
-                        d.label,
-                        d.vertex.buffers,
-                        d.primitive.cull_mode,
-                        d.depth_stencil,
-                        d.fragment.as_ref().map(|f| (&f.shader_defs, &f.targets))
-                    );
-                }
+        let error = report.pipelines.iter().find_map(|&pipeline| {
+            if let CachedPipelineState::Err(error) = cache.get_render_pipeline_state(pipeline)
+                && !crate::model_preview::gpu::shader_pending(error)
+            {
+                Some(error.to_string())
+            } else {
+                None
             }
-            report.failure = Some(format!(
-                "field {:?} requested an unprepared rendering pipeline after activation (prepared {}, now {})",
-                report.map, report.prepared_pipeline_count, count
-            ));
+        });
+        if let Some(error) = error
+            && resident
+                .diagnostics
+                .report("field draw pipeline", anyhow::anyhow!(error.clone()))
+                .is_err()
+        {
+            report.failure = Some(error);
         }
         return;
     }
@@ -699,31 +717,39 @@ fn rendered(
     for (entity, pipeline) in draws(&phases3, &phases2) {
         if report.expected.contains(&entity) {
             report.pipelines.insert(pipeline);
-            if matches!(
-                cache.get_render_pipeline_state(pipeline),
-                CachedPipelineState::Ok(_)
-            ) {
-                seen.insert(entity);
+            match cache.get_render_pipeline_state(pipeline) {
+                CachedPipelineState::Ok(_) => {
+                    seen.insert(entity);
+                }
+                CachedPipelineState::Err(error)
+                    if !crate::model_preview::gpu::shader_pending(error) =>
+                {
+                    if resident
+                        .diagnostics
+                        .report("field draw pipeline", anyhow::anyhow!("{error}"))
+                        .is_err()
+                    {
+                        report.failure = Some(error.to_string());
+                        return;
+                    }
+                    // Bevy omits this failed draw. Other draws still have to
+                    // complete their own preparation and submission.
+                    report.expected.remove(&entity);
+                    report.pipelines.remove(&pipeline);
+                }
+                _ => {}
             }
         }
     }
+    seen.retain(|entity| report.expected.contains(entity));
     report.seen = seen.len();
     report.missing = report.expected.difference(&seen).copied().collect();
-    if let Some(pipeline) = cache
-        .pipelines()
-        .find(|p| matches!(p.state, CachedPipelineState::Err(_)))
-    {
-        report.failure = Some(format!("render pipeline failed: {:?}", pipeline.state));
-        return;
-    }
-    if !report.expected.is_empty()
-        && seen == report.expected
+    if seen == report.expected
         && report
             .images
             .iter()
             .all(|image| images.get(*image).is_some())
     {
-        report.prepared_pipeline_count = count;
         report.submitted = true;
         let done = report.completed.clone();
         queue.on_submitted_work_done(move || done.store(true, Ordering::Release));
@@ -745,6 +771,31 @@ pub(super) fn draws<'a>(
             .flat_map(|p| p.items.values())
             .map(|p| (p.entity.1, p.pipeline));
     models.chain(ui)
+}
+
+#[cfg(test)]
+pub(super) fn begin_test_startup(world: &mut World) -> bool {
+    use bevy::ecs::system::RunSystemOnce;
+    world.run_system_once(begin).unwrap();
+    world.contains_resource::<Preparation>()
+}
+
+/// CPU tests acknowledge only the GPU completion; activation still runs through
+/// the production preparation owner and its completion system.
+#[cfg(test)]
+pub(super) fn complete_test_startup(world: &mut World) {
+    use bevy::ecs::system::RunSystemOnce;
+    assert!(world.resource::<Preparation>().roots.is_empty());
+    world.run_system_once(effects).unwrap();
+    world
+        .resource::<Shared>()
+        .0
+        .lock()
+        .unwrap()
+        .completed
+        .store(true, Ordering::Release);
+    world.insert_resource(super::field_refraction::Ready::completed());
+    world.run_system_once(complete).unwrap();
 }
 
 #[cfg(test)]
@@ -842,6 +893,7 @@ mod tests {
             .spawn((super::super::materials::MaterialSlot(1), ChildOf(root)))
             .id();
         world.insert_resource(Shared::default());
+        world.init_resource::<Resident>();
         world.insert_resource(Preparation {
             map: 340,
             roots: vec![root],
@@ -874,5 +926,28 @@ mod tests {
         let report = world.resource::<Shared>().0.lock().unwrap();
         assert_eq!(report.expected, HashSet::from([selected.into()]));
         assert_eq!(world.resource::<Preparation>().converted, 1);
+    }
+
+    #[test]
+    fn unprepared_field_reads_honor_the_session_policy_without_panicking() {
+        for paranoid in [false, true] {
+            let mut world = World::new();
+            world.init_resource::<Resident>();
+            let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
+            let mut resident = world.resource_mut::<Resident>();
+            resident.diagnostics = diagnostics.clone();
+            resident.active.store(true, Ordering::Release);
+            resident.unprepared_reads.store(1, Ordering::Release);
+            world.insert_resource(Shared::default());
+            world.init_resource::<Messages<AppExit>>();
+            world.run_system_once(guard).unwrap();
+            assert_eq!(!world.resource::<Messages<AppExit>>().is_empty(), paranoid);
+            assert!(world.resource::<Resident>().active.load(Ordering::Acquire));
+            assert!(
+                diagnostics.entries()[0]
+                    .message
+                    .contains("undeclared asset read")
+            );
+        }
     }
 }

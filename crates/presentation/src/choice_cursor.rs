@@ -27,7 +27,7 @@ pub(super) fn overlay_rect([left, top, right, bottom]: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub(super) struct Trail {
     anchor: Option<[i32; 2]>,
     remaining: u8,

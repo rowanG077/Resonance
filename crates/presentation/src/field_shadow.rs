@@ -62,13 +62,16 @@ pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
             )
         })
         .collect();
-    let Some(session) = world.get_resource::<crate::new_game::Session>() else {
+    let Some(session) = world
+        .get_resource::<crate::new_game::Session>()
+        .filter(|session| session.is_field())
+    else {
         return serde_json::Value::Null;
     };
-    let collision = session.field.collision();
+    let collision = session.field().collision();
     serde_json::Value::Array(
         session
-            .field
+            .field()
             .events
             .world
             .actors
@@ -143,7 +146,7 @@ pub(super) fn sync(
                 Transform::default(),
                 Visibility::Hidden,
                 // Contact shadows darken translucent floor effects too.
-                DrawOrder(crate::draw_order::CONTACT_SHADOWS, 0),
+                DrawOrder(crate::draw_order::Layer::Shadows, 0, 0),
                 Shadow(id, actor.instance),
             ))
             .id();
@@ -212,7 +215,7 @@ pub(super) fn pose(
             .iter()
             .position(|id| *id == shadow.0)
             .expect("shadow actor has a submission order");
-        order.set_if_neq(DrawOrder(crate::draw_order::CONTACT_SHADOWS, actor_order));
+        order.set_if_neq(DrawOrder(crate::draw_order::Layer::Shadows, actor_order, 0));
         let anchor = anchors.get(&shadow.0);
         *visibility = Visibility::Hidden;
         if actor.visible

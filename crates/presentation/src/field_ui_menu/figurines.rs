@@ -6,10 +6,10 @@ impl Drawing<'_> {
         let fade = u32::from(state.view.page_fade);
         self.opacity = 255 - state.view.page_fade;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.heading(&menu.resources.as_ref().unwrap().data.figurines.title)?;
+        self.heading(&menu.figurines_data()?.title)?;
         let left = -((fade * 383 / 256) as f32);
         self.offset = [left, 0.];
-        self.framed([32., 60., 320., 368.], true);
+        self.framed([32., 60., 320., 368.], true)?;
         let mut anchor = self.catalogue_list(
             menu.figurine_records()
                 .iter()

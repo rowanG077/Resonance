@@ -1,7 +1,11 @@
 //! Retain the last field image on the GPU while a menu owns the screen.
 use super::{field_view::State, materials::TitleOutput};
 use bevy::{
-    core_pipeline::{Core3dSystems, schedule::Core3d},
+    core_pipeline::{
+        Core3dSystems,
+        schedule::{Core2d, Core3d},
+        upscaling::upscaling,
+    },
     image::ImageSampler,
     prelude::*,
     render::{
@@ -11,20 +15,25 @@ use bevy::{
         render_resource::*,
         renderer::{RenderContext, ViewQuery},
         texture::GpuImage,
+        view::ViewTarget,
     },
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d, Material2dPlugin},
 };
-use std::sync::atomic::Ordering;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-struct Material {
+pub(super) struct Material {
     #[texture(0)]
     #[sampler(1)]
     image: Handle<Image>,
     #[uniform(2)]
     enabled: u32,
 }
+
 impl Material2d for Material {
     fn fragment_shader() -> ShaderRef {
         "embedded://resonance_presentation/menu_backdrop.wgsl".into()
@@ -46,10 +55,43 @@ impl Material2d for Material {
 pub(super) struct Quad;
 
 #[derive(Component, Clone, ExtractComponent)]
-struct Capture {
+pub(super) struct Capture {
     source: Handle<Image>,
     target: Handle<Image>,
     generation: u64,
+    completed: Arc<AtomicBool>,
+}
+
+/// Retain the current scene before dialogue and field fades are composited.
+#[derive(Component, Clone, ExtractComponent)]
+pub(super) struct SceneCapture(pub Capture);
+
+impl SceneCapture {
+    pub(super) fn copy(
+        &self,
+        source: &Texture,
+        images: &RenderAssets<GpuImage>,
+        context: &mut RenderContext,
+    ) {
+        if !self.0.ready() {
+            copy(&self.0, source, images, &mut None, context);
+        }
+    }
+}
+
+impl Capture {
+    pub(super) fn once(source: Handle<Image>, target: Handle<Image>) -> Self {
+        Self {
+            source,
+            target,
+            generation: 0,
+            completed: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub(super) fn ready(&self) -> bool {
+        self.completed.load(Ordering::Acquire)
+    }
 }
 struct Backdrop {
     entity: Entity,
@@ -59,18 +101,26 @@ struct Backdrop {
     field: Option<(u32, u32)>,
 }
 
+/// One prepared battle menu capture, using the same GPU copy and material as
+/// field menus. Its quad participates in the encounter's ordinary warmup.
+
 pub(super) fn install(app: &mut App) {
     bevy::asset::embedded_asset!(app, "menu_backdrop.wgsl");
     app.add_plugins((
         Material2dPlugin::<Material>::default(),
         ExtractComponentPlugin::<Capture>::default(),
+        ExtractComponentPlugin::<SceneCapture>::default(),
     ))
     .add_systems(
         PostUpdate,
         sync.before(bevy::transform::TransformSystems::Propagate),
     );
     app.sub_app_mut(RenderApp)
-        .add_systems(Core3d, capture.before(Core3dSystems::Prepass));
+        .add_systems(Core3d, capture.before(Core3dSystems::Prepass))
+        .add_systems(Core3d, capture_scene.after(upscaling))
+        // Battle requests attach to the warmed HUD camera. Its upscaling pass
+        // has just composed this visit's HUD into the retained source image.
+        .add_systems(Core2d, capture.after(upscaling));
 }
 
 #[allow(clippy::too_many_arguments)] // Allocate once, then only update the held-frame request.
@@ -110,21 +160,17 @@ fn sync(
             .id();
         Backdrop {
             entity,
-            capture: Capture {
-                source: output.source.clone(),
-                target,
-                generation: 0,
-            },
+            capture: Capture::once(output.source.clone(), target),
             material,
             held: false,
             field: None,
         }
     });
     let field = state
-        .checkpoint
+        .live
         .as_ref()
-        .map(|s| &s.0)
-        .or_else(|| state.live.as_ref().map(|s| &s.field));
+        .filter(|s| s.is_field())
+        .map(|s| s.field());
     let identity = field.map(|f| (f.map_id, f.events.tick()));
     // Closing has one fully transparent pose before field simulation resumes.
     let held = field.is_some_and(|f| f.menu_is_open())
@@ -156,21 +202,45 @@ fn sync(
 fn capture(
     view: ViewQuery<&Capture>,
     images: Res<RenderAssets<GpuImage>>,
-    mut copied: Local<u64>,
+    mut copied: Local<Option<(AssetId<Image>, u64)>>,
     mut context: RenderContext,
 ) {
     let request = view.into_inner();
-    if *copied == request.generation {
+    if let Some(source) = images.get(&request.source) {
+        copy(request, &source.texture, &images, &mut copied, &mut context);
+    }
+}
+
+fn capture_scene(
+    view: ViewQuery<(&SceneCapture, &ViewTarget)>,
+    images: Res<RenderAssets<GpuImage>>,
+    mut context: RenderContext,
+) {
+    let (request, target) = view.into_inner();
+    // The field camera skips output: the UI camera publishes their shared
+    // texture afterward. Copy the scene before that composition adds fades.
+    request.copy(target.main_texture(), &images, &mut context);
+}
+
+fn copy(
+    request: &Capture,
+    source: &Texture,
+    images: &RenderAssets<GpuImage>,
+    copied: &mut Option<(AssetId<Image>, u64)>,
+    context: &mut RenderContext,
+) {
+    let identity = (request.target.id(), request.generation);
+    if *copied == Some(identity) {
         return;
     }
-    let (Some(source), Some(target)) = (images.get(&request.source), images.get(&request.target))
-    else {
+    let Some(target) = images.get(&request.target) else {
         return;
     };
     context.command_encoder().copy_texture_to_texture(
-        source.texture.as_image_copy(),
+        source.as_image_copy(),
         target.texture.as_image_copy(),
-        source.texture_descriptor.size,
+        source.size(),
     );
-    *copied = request.generation;
+    *copied = Some(identity);
+    request.completed.store(true, Ordering::Release);
 }

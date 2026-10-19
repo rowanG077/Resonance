@@ -13,7 +13,6 @@ const PAGE_SIZE: usize = 10;
 pub(super) struct Menu {
     state: State,
     selected: usize,
-    pub testing: bool,
 }
 
 #[derive(Default)]
@@ -88,7 +87,7 @@ fn available(world: &World) -> bool {
             .is_some_and(|b| b.active())
         && !world.contains_resource::<loading::Pending>()
         && !world.contains_resource::<new_game::Request>()
-        && !world.contains_resource::<super::saves::WorldLoad>()
+        && !world.contains_resource::<super::saves::Quickload>()
 }
 
 pub(super) fn controls(world: &mut World) {
@@ -96,29 +95,30 @@ pub(super) fn controls(world: &mut World) {
     let mouse = world.get_resource::<ButtonInput<MouseButton>>();
     let clicked = mouse.is_some_and(|buttons| buttons.just_pressed(MouseButton::Left));
     let mouse_held = mouse.is_some_and(|buttons| buttons.pressed(MouseButton::Left));
-    let row = world
+    let pointer = world
         .query::<&Window>()
         .iter(world)
         .next()
         .and_then(|window| {
-            overlay::row_at(
+            Some((
                 window.cursor_position()?,
                 Vec2::new(window.width(), window.height()),
-            )
+            ))
         });
     let available = available(world);
+    if world.resource::<Menu>().open()
+        && (keys.just_pressed(KeyCode::KeyB)
+            || clicked
+                && pointer.is_some_and(|(cursor, size)| overlay::battle_button_at(cursor, size)))
+    {
+        let mut options = world.resource_mut::<super::RunOptions>();
+        options.skip_battles = !options.skip_battles;
+        return;
+    }
     if clicked
         && world.resource::<Menu>().open()
-        && let Some(button) = world
-            .query::<&Window>()
-            .iter(world)
-            .next()
-            .and_then(|window| {
-                overlay::testing_button_at(
-                    window.cursor_position()?,
-                    Vec2::new(window.width(), window.height()),
-                )
-            })
+        && let Some(button) =
+            pointer.and_then(|(cursor, size)| overlay::testing_button_at(cursor, size))
     {
         super::testing::press(world, button);
         if button == 2 {
@@ -148,7 +148,6 @@ pub(super) fn controls(world: &mut World) {
                 menu.state = match result {
                     Ok(candidate) => {
                         activate(world, candidate);
-                        menu.testing = true;
                         State::AwaitRelease
                     }
                     Err(error) => {
@@ -198,7 +197,9 @@ pub(super) fn controls(world: &mut World) {
             menu.turn_page(true);
         }
         let mut choose = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space);
-        if clicked && let Some(row) = row {
+        if clicked
+            && let Some(row) = pointer.and_then(|(cursor, size)| overlay::row_at(cursor, size))
+        {
             choose |= menu.select_row(row);
         }
         if let Some(index) = [
@@ -241,7 +242,7 @@ fn activate(world: &mut World, candidate: new_game::Session) {
     world.remove_resource::<new_game::TransitionFailure>();
     if let Some(mut current) = world.get_resource_mut::<new_game::Session>() {
         let changing_field =
-            current.overworld.is_some() || current.assets.map_id != candidate.assets.map_id;
+            current.overworld().is_some() || current.map_id() != candidate.map_id();
         current.replace_loaded(candidate);
         // Cold rooms must submit their UI draws during GPU preparation. Holding
         // the old scene cameras (as for a warm quickload) prevents that submission.
@@ -250,7 +251,7 @@ fn activate(world: &mut World, candidate: new_game::Session) {
     } else {
         new_game::activate(world, candidate);
     }
-    let map = world.resource::<new_game::Session>().assets.map_id;
+    let map = world.resource::<new_game::Session>().map_id();
     for mut window in world.query::<&mut Window>().iter_mut(world) {
         window.title =
             format!("Resonance — Field test / map {map} — Shift+Tab: Locations / Tab: Party");

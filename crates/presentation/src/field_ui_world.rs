@@ -20,14 +20,21 @@ impl Artwork {
         images: &mut Assets<Image>,
     ) -> Result<Self> {
         let mut common = super::Artwork::load_shared(
-            |path| Ok(files.read(path)?.to_vec()),
+            files,
+            files
+                .json::<resonance_content::session::SessionData>("game/session-data.json")?
+                .experience
+                .into(),
             &BTreeMap::new(),
             server,
             materials,
             images,
         )?;
         common.prepare(commands, meshes, materials);
-        let map = map::Artwork::prepare(&common.menu, commands, meshes);
+        common
+            .images
+            .extend(common.menu.prepare_world_maps(materials)?);
+        let map = map::Artwork::prepare(&common.menu, commands, meshes)?;
         let mut placeholder = Batch::default();
         placeholder.quad([0., 0., 1., 1.], [0.5; 4], [0.; 4]);
         let mesh = meshes.add(placeholder.mesh([common.font.width, common.font.height]));

@@ -29,34 +29,38 @@ pub(super) fn prepare(
 
 #[allow(clippy::too_many_arguments)] // Shared clock with title, movie and field readiness gates.
 pub(super) fn advance_clock(
-    options: Res<RunOptions>,
     mut clock: ResMut<Clock>,
     ready: Res<Ready>,
     movie: Res<movie::Playback>,
     boot: Res<boot::Playback>,
-    recording: Option<Res<playthrough::Recording>>,
     loading: Option<Res<super::loading::Pending>>,
+    quickload: Option<Res<super::saves::Quickload>>,
     resident: Option<Res<super::loading::Resident>>,
     mut session: Option<ResMut<super::new_game::Session>>,
+    game_over: Option<Res<super::session_screen::GameOver>>,
 ) {
     // Presentation age continues across movies and title entries;
     // pure loading waits do not advance it.
-    if options.capture.is_none()
-        && loading.is_none()
-        && (session.is_none() || resident.is_none_or(|r| r.active.load(Ordering::Acquire)))
-        && session.as_ref().is_none_or(|s| {
-            s.events().world.field_transition.is_none()
-                && s.events().world.world_transition.is_none()
-        })
-        && ready.0
-        && recording.is_none_or(|r| r.started)
+    if loading.is_none()
+        && quickload.is_none()
+        && (session.is_none()
+            || resident
+                .as_ref()
+                .is_none_or(|r| r.active.load(Ordering::Acquire)))
+        && session
+            .as_ref()
+            .is_none_or(|session| !session.events().battle_pending() || game_over.is_some())
+        && session
+            .as_ref()
+            .is_none_or(|s| s.events().world.field_transition.is_none())
+        && (session.is_some() || ready.0)
         && (boot.active() || !movie.active || movie.is_presenting())
     {
         clock.0.advance();
         if movie.active
             && let Some(session) = &mut session
         {
-            session.field.play_time.advance();
+            session.advance_play_time();
         }
     }
 }

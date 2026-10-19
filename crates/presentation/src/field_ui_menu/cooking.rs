@@ -1,21 +1,29 @@
 use super::*;
-use resonance_content::menu_data::{Ingredient, MealEffect, RECIPE_COUNT, RECIPE_ROWS};
+use resonance_content::menu_data::{Ingredient, RECIPE_COUNT, RECIPE_ROWS};
 use resonance_game::menu::cooking::{Content, Focus};
 
 impl Drawing<'_> {
-    fn recipe_icon(&mut self, recipe: usize, [x, y]: [f32; 2], size: f32) {
+    fn recipe_icon(&mut self, recipe: usize, [x, y]: [f32; 2], size: f32) -> Result<()> {
         self.sprite_rect(
-            self.spec.sprites.recipes[recipe],
+            self.spec.sprite(Sprite::Recipes, recipe)?,
             [x, y, x + size, y + size],
             [1.; 4],
         );
+        Ok(())
     }
     fn cooking_description(&mut self, menu: &Menu, recipe: usize) -> Result<()> {
         let party = menu.party();
         if party.cooking.knows(recipe as u8) {
-            self.recipe_icon(recipe, [32., 350.], 64.);
+            self.recipe_icon(recipe, [32., 350.], 64.)?;
             self.text(
-                &menu.resources.as_ref().unwrap().data.cooking.recipes[recipe].description,
+                &menu
+                    .resources
+                    .as_ref()
+                    .unwrap()
+                    .data
+                    .cooking_text()?
+                    .recipe(recipe)?
+                    .description,
                 [118., 344.],
                 20.,
                 WHITE,
@@ -35,15 +43,26 @@ impl Drawing<'_> {
             Ingredient::None => ("", 0),
             Ingredient::Item(id) => {
                 let item = &data.items[usize::from(id)];
-                (item.name.as_str(), item.category)
+                let item_text = data.item_text(id)?;
+                (item_text.name.as_str(), item.category)
             }
             Ingredient::Any(id) => {
                 let group = &data.cooking.groups[usize::from(id)];
-                (group.name.as_str(), group.category)
+                (
+                    data.cooking_text()?
+                        .groups
+                        .get(usize::from(id))
+                        .context("ingredient caption was not prepared")?
+                        .as_str(),
+                    group.category,
+                )
             }
         };
         if category > 0 {
-            self.sprite(self.spec.sprites.items[usize::from(category - 1)], [x, y]);
+            self.sprite(
+                self.spec.sprite(Sprite::Items, usize::from(category - 1))?,
+                [x, y],
+            );
         }
         self.text(name, [x + 24., y], 16., color)
     }
@@ -51,6 +70,7 @@ impl Drawing<'_> {
         let state = &menu.cooking;
         let data = &menu.resources.as_ref().unwrap().data;
         let catalog = &data.cooking;
+        let captions = data.cooking_text()?;
         let party = menu.party();
         let (chef, recipe_id) = menu.cooking_selection();
         let recipe = &catalog.recipes[recipe_id];
@@ -71,18 +91,18 @@ impl Drawing<'_> {
             });
         self.opacity = opacity;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.heading(&self.spec.labels["cooking"])?;
+        self.heading(menu_label(&self.spec.labels, "cooking")?)?;
         self.offset = [0., -((fade * 44 / 256) as f32)];
         if state.focus == Focus::Header && state.popup.as_ref().is_none_or(|p| !p.active) {
-            let label = &catalog.labels["cook"];
+            let label = menu_label(&captions.labels, "cook")?;
             let width = self.text_width(label, 24.)?;
-            self.button(10, [600. - width, 20.]);
+            self.button(10, [600. - width, 20.])?;
             self.text(label, [624. - width, 20.], 24., WHITE)?;
         }
         self.offset = [right, 0.];
-        self.frame([404., 60., 216., 266.]);
+        self.frame([404., 60., 216., 266.])?;
         self.offset = [0., bottom];
-        self.frame_detail([16., 336., 604., 92.], true, self.menu_color(), true);
+        self.frame_detail([16., 336., 604., 92.], true, self.menu_color(), true)?;
         if state.description_opacity != 0 && state.description_previous != 0 {
             self.opacity = state.description_opacity;
             self.cooking_description(menu, state.description_previous)?;
@@ -95,8 +115,8 @@ impl Drawing<'_> {
         self.cooking_description(menu, recipe_id)?;
         self.opacity = opacity;
         self.offset = [left, 0.];
-        self.frame([16., 60., 378., 48.]);
-        self.frame([16., 118., 378., 208.]);
+        self.frame([16., 60., 378., 48.])?;
+        self.frame([16., 118., 378., 208.])?;
         self.highlight(
             [
                 28.,
@@ -111,20 +131,21 @@ impl Drawing<'_> {
             },
         );
         self.text(menu.character_name(chef), [28., 60.], 20., WHITE)?;
-        self.portrait(chef, party.members[chef].conditions, [320., 46.]);
+        self.portrait(chef, &party.members[chef], [320., 46.])?;
         if known {
             let stars = usize::from(recipe.cooks[chef].base_stars);
             for i in 0..stars + 1 {
                 self.sprite(
-                    self.spec.sprites.cooking_stars[usize::from(i >= stars - 1 + grade)],
+                    self.spec
+                        .sprite(Sprite::CookingStars, usize::from(i >= stars - 1 + grade))?,
                     [152. + i as f32 * 24., 60.],
                 );
             }
         }
         let selected = party.cooking.recipe;
-        self.recipe_icon(usize::from(selected), [28., 84.], 24.);
+        self.recipe_icon(usize::from(selected), [28., 84.], 24.)?;
         self.text(
-            &catalog.recipes[usize::from(selected)].name,
+            &captions.recipe(usize::from(selected))?.name,
             [52., 84.],
             20.,
             if party.has_ingredients(data, selected) {
@@ -151,7 +172,7 @@ impl Drawing<'_> {
             Vec::new()
         };
         let mut y = 60.;
-        let label = &catalog.labels["required"];
+        let label = menu_label(&captions.labels, "required")?;
         self.text(
             label,
             [
@@ -171,7 +192,7 @@ impl Drawing<'_> {
                     [0.5; 4],
                     [128. / 255., 128. / 255., 128. / 255., 1.],
                 );
-                let label = &catalog.labels["additional"];
+                let label = menu_label(&captions.labels, "additional")?;
                 let size = if result.is_some() { 20. } else { 24. };
                 self.text(
                     label,
@@ -234,13 +255,13 @@ impl Drawing<'_> {
                     136. + (row / 2) as f32 * 27. - scroll as f32,
                 ];
                 if known {
-                    self.recipe_icon(id, [x, y], 24.);
+                    self.recipe_icon(id, [x, y], 24.)?;
                 }
                 self.text(
                     if known {
-                        &catalog.recipes[id].name
+                        &captions.recipe(id)?.name
                     } else {
-                        &catalog.labels["locked"]
+                        menu_label(&captions.labels, "locked")?
                     },
                     [x + 24., y],
                     16.,
@@ -253,10 +274,10 @@ impl Drawing<'_> {
             }
             self.clip_rows(starts, [136., 325.]);
             if state.first > 0 {
-                self.scroll_arrow(SCROLL_UP, [193., 120.]);
+                self.scroll_arrow(SCROLL_UP, [193., 120.])?;
             }
             if state.first + RECIPE_ROWS < RECIPE_COUNT {
-                self.scroll_arrow(SCROLL_DOWN, [193., 317.]);
+                self.scroll_arrow(SCROLL_DOWN, [193., 317.])?;
             }
             if state.focus == Focus::Recipes {
                 [anchor[0] + left, anchor[1] + 8.]
@@ -273,7 +294,7 @@ impl Drawing<'_> {
                 if state.focus == Focus::Cooks && slot == state.chef_slot {
                     self.highlight([x, y, 72., 96.], 255);
                 }
-                self.portrait(usize::from(id - 1), member.conditions, [x + 4., y]);
+                self.portrait(usize::from(id - 1), member, [x + 4., y])?;
                 let [hp, tp] = member.maximum_vitals();
                 for (is_tp, value, maximum, top) in [
                     (false, member.hp, hp, y + 63.),
@@ -299,34 +320,11 @@ impl Drawing<'_> {
         let Some(popup) = &menu.cooking.popup else {
             return Ok(());
         };
-        let catalog = &menu.resources.as_ref().unwrap().data.cooking;
-        let (title, effects, ingredients) = match &popup.content {
-            Content::Notice(key) => (catalog.labels[key.label()].clone(), Vec::new(), &[][..]),
-            Content::Meal(meal) => {
-                let recipe = menu.party().cooking.recipe;
-                let title = format!(
-                    "{}{}{}",
-                    catalog.labels["result_join"],
-                    catalog.recipes[usize::from(recipe)].name,
-                    catalog.labels[if meal.success { "success" } else { "failure" }]
-                );
-                let mut effects: Vec<_> = meal
-                    .effects
-                    .iter()
-                    .map(|(&effect, amount)| {
-                        let label = &catalog.effects[effect as usize];
-                        if matches!(effect, MealEffect::HpRecovery | MealEffect::TpRecovery) {
-                            format!("{label} {amount}%")
-                        } else {
-                            label.clone()
-                        }
-                    })
-                    .collect();
-                if effects.is_empty() {
-                    effects.push(catalog.labels["no_effect"].clone());
-                }
-                (title, effects, meal.ingredients.as_slice())
-            }
+        let data = &menu.resources.as_ref().unwrap().data;
+        let (title, effects) = popup.content.text(data, menu.party().cooking.recipe)?;
+        let ingredients = match &popup.content {
+            Content::Meal(meal) => meal.ingredients.as_slice(),
+            Content::Notice(_) => &[],
         };
         let mut width = self.text_width(&title, 24.)?;
         for effect in &effects {
@@ -342,7 +340,8 @@ impl Drawing<'_> {
             ((448. - height) / 2.).trunc(),
         ];
         self.plane = 2;
-        self.quad(
+        self.quad_role(
+            DrawRole::Background,
             FONT,
             self.screen,
             [0.5; 4],
@@ -351,7 +350,7 @@ impl Drawing<'_> {
         self.opacity = popup.opacity;
         self.shade([x - 12., y - 12., x + width + 12., y + height + 12.]);
         if matches!(popup.content, Content::Notice(_)) {
-            let colors = &mut self.batches[self.plane * self.layers_per_plane + FONT].colors;
+            let colors = &mut self.batch_role(DrawRole::Background, FONT).colors;
             let start = colors.len() - 4;
             colors[start..].rotate_left(2);
         }
@@ -360,7 +359,7 @@ impl Drawing<'_> {
             [x - 12., y - 12., width + 24., height + 24.],
             false,
             self.popup_color(),
-        );
+        )?;
         self.text(&title, [x, y], 24., WHITE)?;
         for (row, &id) in ingredients.iter().enumerate() {
             self.cooking_ingredient(
