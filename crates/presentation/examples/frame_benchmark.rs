@@ -11,18 +11,34 @@ fn main() -> anyhow::Result<()> {
     let seconds = args.next().unwrap_or_else(|| "120".into()).parse()?;
     let profile = args.next().is_some_and(|arg| arg == "profile");
     let save = args.next().map(std::path::PathBuf::from);
+    let encounter = save
+        .as_deref()
+        .map(|save| -> anyhow::Result<_> {
+            use resonance_events::battle::{DefeatPolicy, Encounter, Setup};
+            Ok((
+                save,
+                Setup {
+                    encounter: Encounter::Formation(args.next().expect("FORMATION").parse()?),
+                    arena: args.next().expect("ARENA").parse()?,
+                    defeat: DefeatPolicy::ResumeEvent,
+                    music: None,
+                    route: [0; 5],
+                },
+            ))
+        })
+        .transpose()?;
     let replay = args
         .next()
         .map(|path| -> anyhow::Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
         .transpose()?;
     anyhow::ensure!(args.next().is_none(), "unexpected argument");
     resonance_presentation::run_frame_benchmark(
-        std::path::Path::new("local/all-assets"),
+        &root,
         std::path::Path::new(&output),
         size,
         seconds,
         profile,
-        save.as_deref(),
+        encounter,
         replay.as_ref(),
     )
 }

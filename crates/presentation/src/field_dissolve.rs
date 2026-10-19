@@ -8,11 +8,13 @@ use bevy::{
             ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
             UniformComponentPlugin,
         },
+        render_asset::RenderAssets,
         render_resource::{
             binding_types::{sampler, texture_2d, uniform_buffer},
             *,
         },
         renderer::{RenderContext, RenderDevice, ViewQuery},
+        texture::GpuImage,
         view::ViewTarget,
     },
 };
@@ -21,6 +23,9 @@ use bevy::{
 struct Settings {
     opacity: Vec4,
 }
+
+#[derive(Component, Clone, Copy, ExtractComponent)]
+struct FadingOut(bool);
 
 #[derive(Component, Clone, Copy, ExtractComponent)]
 struct BattleCapture {
@@ -153,6 +158,7 @@ pub(super) fn install(app: &mut App) {
     bevy::asset::embedded_asset!(app, "field_dissolve.wgsl");
     app.add_plugins((
         ExtractComponentPlugin::<Settings>::default(),
+        ExtractComponentPlugin::<FadingOut>::default(),
         ExtractComponentPlugin::<BattleCapture>::default(),
         UniformComponentPlugin::<Settings>::default(),
     ))
@@ -175,7 +181,7 @@ fn sync(
 ) {
     if art.is_none() {
         for view in &views {
-            commands.entity(view).remove::<Settings>();
+            commands.entity(view).remove::<(Settings, FadingOut)>();
         }
         return;
     }
@@ -185,7 +191,12 @@ fn sync(
         .as_ref()
         .map_or(0., |f| f.alpha(world.tick));
     let feedback = alpha == 0. && world.frame_feedback != 0;
+    let fading_out = world
+        .fade
+        .as_ref()
+        .is_some_and(|fade| fade.to > fade.from && fade.alpha(world.tick) > 0.);
     for view in &views {
+        commands.entity(view).insert(FadingOut(fading_out));
         commands.entity(view).insert(Settings {
             opacity: Vec4::new(
                 if feedback { 128. / 255. } else { alpha / 255. },
@@ -293,14 +304,18 @@ fn render(
         &Settings,
         &DynamicUniformIndex<Settings>,
         Option<&BattleCapture>,
+        Option<&FadingOut>,
+        Option<&super::menu_backdrop::SceneCapture>,
     )>,
     pipeline: Res<Pipeline>,
     cache: Res<PipelineCache>,
     uniforms: Res<ComponentUniforms<Settings>>,
+    images: Res<RenderAssets<GpuImage>>,
     mut history: Local<Option<History>>,
     mut context: RenderContext,
 ) {
-    let (camera, target, settings, index, battle) = view.into_inner();
+    let (camera, target, settings, index, battle, fade, capture) = view.into_inner();
+    let fading_out = fade.is_some_and(|fade| fade.0);
     let Some(gpu_pipeline) = cache.get_render_pipeline(pipeline.id) else {
         return;
     };
@@ -319,7 +334,9 @@ fn render(
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: source.format(),
-            usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+            usage: TextureUsages::COPY_SRC
+                | TextureUsages::COPY_DST
+                | TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         *history = Some(History {
@@ -330,6 +347,14 @@ fn render(
         });
     }
     let history = history.as_mut().unwrap();
+    // Scripts may retire actors under a fade before requesting battle. Keep
+    // the last visible scene for the shatter instead of exposing that cleanup.
+    if fading_out
+        && !replace
+        && let Some(capture) = capture
+    {
+        capture.copy(&history.texture, &images, &mut context);
+    }
     let feedback = battle.filter(|frame| frame.generation.is_some());
     let mut capture_feedback = false;
     if let Some(frame) = feedback {
@@ -367,11 +392,13 @@ fn render(
         feedback.cursor.generation = None;
     }
     if replace || settings.opacity.x == 0. {
-        context.command_encoder().copy_texture_to_texture(
-            source.as_image_copy(),
-            history.texture.as_image_copy(),
-            source.size(),
-        );
+        if replace || !fading_out {
+            context.command_encoder().copy_texture_to_texture(
+                source.as_image_copy(),
+                history.texture.as_image_copy(),
+                source.size(),
+            );
+        }
         return;
     }
     if history
@@ -420,7 +447,7 @@ fn render(
             history.feedback.as_ref().unwrap().next.as_image_copy(),
             source.size(),
         );
-    } else if settings.opacity.y != 0. {
+    } else if settings.opacity.y != 0. && !fading_out {
         context.command_encoder().copy_texture_to_texture(
             source.as_image_copy(),
             history.texture.as_image_copy(),

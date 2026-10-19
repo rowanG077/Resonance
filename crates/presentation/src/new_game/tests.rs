@@ -250,6 +250,12 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
             pressed_buttons: [resonance_events::input::Button::Cancel].into(),
             ..Default::default()
         });
+        for _ in 0..60 {
+            if menu.page == Page::Main {
+                break;
+            }
+            menu.step(FieldInput::default());
+        }
         assert_eq!(menu.page, Page::Main);
 
         let mut invalid_gameplay = (*session.files()).clone();
@@ -1902,6 +1908,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
         assert!(!app.world().resource::<Session>().ready_for_field);
         assert_eq!(app.world().resource::<movie::Playback>().resource, Some(4));
         while app.world().resource::<movie::Playback>().active {
+            app.world_mut().run_system_once(movie::controls).unwrap();
             app.world_mut().run_system_once(movie::update).unwrap();
             super::super::playthrough::attach::<movie::MovieAudio>(app.world_mut(), &mixer)?;
             let movie = app.world().resource::<movie::Playback>();
@@ -1932,7 +1939,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
                 .press(KeyCode::Enter);
-            app.world_mut().run_system_once(movie::update).unwrap();
+            app.world_mut().run_system_once(movie::controls).unwrap();
         }
         assert!(!app.world().resource::<movie::Playback>().active);
         assert_eq!(

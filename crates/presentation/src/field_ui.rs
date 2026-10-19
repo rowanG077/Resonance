@@ -14,7 +14,9 @@ pub(crate) mod session_screen;
 pub(super) use failure::update as transition_failure;
 #[path = "field_ui_fade.rs"]
 mod fade;
-pub(super) use battle_ui::{Artwork as BattleHud, EnemyHud as BattleEnemyHud, PartyHudInput};
+pub(super) use battle_ui::{
+    ActorMarkers, Artwork as BattleHud, EnemyHud as BattleEnemyHud, PartyHudInput, RibbonInput,
+};
 #[path = "game_over_ui.rs"]
 mod game_over_ui;
 pub(super) use game_over_ui::Artwork as GameOverArt;
@@ -141,8 +143,17 @@ pub(super) struct Surface {
     coverage: Coverage,
     opaque: bool,
     additive: bool,
+    texture_effect: TextureEffect,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum TextureEffect {
+    #[default]
+    Plain,
     /// Channel swap: both texture and raster become [R,R,R,A].
-    red_channel: bool,
+    RedChannel,
+    /// A translucent atlas pattern clipped by the glyph's alpha.
+    GlyphPattern,
 }
 impl Surface {
     pub(super) fn images_ready(&self, images: &Assets<Image>) -> bool {
@@ -157,10 +168,10 @@ impl Surface {
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) struct SurfaceKey(bool, bool, bool);
+pub(super) struct SurfaceKey(bool, bool, TextureEffect);
 impl From<&Surface> for SurfaceKey {
     fn from(surface: &Surface) -> Self {
-        Self(surface.opaque, surface.additive, surface.red_channel)
+        Self(surface.opaque, surface.additive, surface.texture_effect)
     }
 }
 impl Material2d for Surface {
@@ -175,14 +186,26 @@ impl Material2d for Surface {
     }
     fn specialize(
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
+        layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         key: bevy::sprite_render::Material2dKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/field-ui".into());
-        if key.bind_group_data.2
+        if key.bind_group_data.2 == TextureEffect::RedChannel
             && let Some(fragment) = &mut descriptor.fragment
         {
             fragment.shader_defs.push("RED_CHANNEL".into());
+        }
+        if key.bind_group_data.2 == TextureEffect::GlyphPattern {
+            descriptor.vertex.buffers = vec![layout.0.get_layout(&[
+                Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+                Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
+                Mesh::ATTRIBUTE_UV_1.at_shader_location(3),
+                Mesh::ATTRIBUTE_COLOR.at_shader_location(4),
+            ])?];
+            descriptor.vertex.shader_defs.push("GLYPH_PATTERN".into());
+            if let Some(fragment) = &mut descriptor.fragment {
+                fragment.shader_defs.push("GLYPH_PATTERN".into());
+            }
         }
         if key.bind_group_data.1
             && let Some(fragment) = &mut descriptor.fragment
@@ -278,7 +301,7 @@ impl MenuOverlay {
             color_mask: image,
             coverage: Coverage::default(),
             additive: false,
-            red_channel: false,
+            texture_effect: Default::default(),
             opaque: false,
         });
         let artwork = menu::MenuArtwork::load(
@@ -506,7 +529,7 @@ impl Artwork {
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
                     additive: false,
-                    red_channel: false,
+                    texture_effect: Default::default(),
                     opaque: false,
                 })
             })
@@ -569,11 +592,12 @@ impl Artwork {
     }
     pub(super) fn skit_ready(
         &self,
-        _session: &FieldSession,
+        session: &FieldSession,
         images: &Assets<Image>,
-        _server: &AssetServer,
+        server: &AssetServer,
     ) -> Result<bool> {
-        Ok(self.skits.ready(images))
+        self.skits
+            .ready(session.active_skit.as_ref(), images, server)
     }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_menu(
@@ -610,7 +634,7 @@ impl Artwork {
         images: &mut Assets<Image>,
         server: &AssetServer,
     ) -> Result<bool> {
-        let result = self.skit_ready(session, images, server).and_then(|ready| {
+        self.skit_ready(session, images, server).and_then(|ready| {
             if !ready {
                 return Ok(false);
             }
@@ -623,8 +647,7 @@ impl Artwork {
                 images,
             )?;
             Ok(true)
-        });
-        result
+        })
     }
     pub fn menu_settled(&self, menu: &resonance_game::menu::Menu, tick: u32) -> bool {
         self.menu.visually_settled(menu, tick)
@@ -855,7 +878,7 @@ impl DialogueOverlay {
                     coverage: Coverage::default(),
                     opaque: false,
                     additive: false,
-                    red_channel: false,
+                    texture_effect: Default::default(),
                 })
             })
             .collect();
@@ -977,7 +1000,8 @@ impl DialogueDraw<'_> {
                 // Capture head height once, then follow the actor’s ground position.
                 // Following animated head XY makes dialogue drift during turns.
                 self.head_heights.entry(request.operation.id()).or_insert(
-                    ((*head - Vec3::from_array(actor.position)).dot(camera.up)).trunc() + 30.,
+                    ((*head - Vec3::from_array(actor.position)).dot(camera.up)).trunc()
+                        + HEAD_ANCHOR_PADDING,
                 );
             }
         }
@@ -985,16 +1009,13 @@ impl DialogueDraw<'_> {
             let Some(request) = displayed_dialogue(player, world.dialogue.get(&slot)) else {
                 continue;
             };
-            let (rect, pointer) = layout_with_camera(
-                &self.font,
+            let (rect, pointer, above) = layout_with_camera(
+                self.font,
                 request,
                 player,
                 &camera,
-                &self.attached_positions,
-                self.head_heights
-                    .get(&request.operation.id())
-                    .copied()
-                    .unwrap_or(170.),
+                self.attached_positions,
+                self.head_heights.get(&request.operation.id()).copied(),
                 self.resolution,
             )?;
             let opening = player.opening_fraction();
@@ -1498,6 +1519,7 @@ fn layout(
         head_height,
         resolution,
     )
+    .map(|(rect, pointer, _)| (rect, pointer))
 }
 
 fn layout_with_camera(
@@ -1506,9 +1528,9 @@ fn layout_with_camera(
     player: &DialoguePlayer,
     camera: &DialogueCamera,
     attached_positions: &BTreeMap<i32, Vec3>,
-    head_height: f32,
+    head_height: Option<f32>,
     resolution: super::Resolution,
-) -> Result<([f32; 4], Option<[f32; 2]>)> {
+) -> Result<([f32; 4], Option<[f32; 2]>, bool)> {
     let mut width = 0f32;
     let mut height = 25f32;
     for page in &player.pages {
@@ -1560,6 +1582,7 @@ fn layout_with_camera(
                 || matches!(request.anchor, DialogueAnchor::Actor(_))
         })
         .map(|position| project(position + camera.up * 80.));
+    let mut above = box_above_speaker(request.flags, pointer);
     // Center integer pixel dimensions without introducing half-pixel offsets.
     // Truncating only after subtraction shifts odd-sized boxes by one pixel.
     let half_width = (width / 2.).trunc();
@@ -1588,11 +1611,7 @@ fn layout_with_camera(
                 project(
                     position
                         + camera.up
-                            * if above {
-                                head_height + f32::from(request.height_offset)
-                            } else {
-                                0.
-                            },
+                            * (head_height.unwrap_or(170.) + f32::from(request.height_offset)),
                 )
             });
             let mut upper_top = head[1] - 24. - height;
@@ -2066,13 +2085,14 @@ mod tests {
             .init_asset::<Image>()
             .init_asset::<Mesh>()
             .init_asset::<Surface>()
-            .init_asset::<bevy::gltf::Gltf>()
+            .init_asset::<WorldAsset>()
             .init_asset::<crate::sparse_animation::Clip>()
             .init_asset::<crate::materials::TitleSurface>()
             .register_asset_loader(bevy::image::ImageLoader::new(
                 bevy::image::CompressedImageFormats::NONE,
             ))
             .init_resource::<Controls>()
+            .init_resource::<crate::display::Display>()
             .init_resource::<crate::scene::SampledImages>()
             .init_resource::<crate::field_warm::Shared>()
             .add_message::<AppExit>();
@@ -2347,40 +2367,26 @@ mod tests {
                 live.field_mut().menu = None;
                 live.field_mut().active_skit = active_skit.take();
             }
-            let stale = {
-                let mut art = world.resource_mut::<Artwork>();
-                art.skits.layers[0].visible = true;
-                art.skits.layers[0].entity
-            };
-            world.entity_mut(stale).insert(Visibility::Visible);
             let before_skit = world.resource::<Session>().field().events.tick();
             world.run_system_once(advance_live).unwrap();
             world.flush();
             assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
-            assert_eq!(completion.is_pending(), paranoid);
-            assert_eq!(world.get::<Visibility>(stale), Some(&Visibility::Hidden));
             assert_eq!(
-                world.resource::<Session>().field().active_skit.is_some(),
-                paranoid
+                world.contains_resource::<crate::field_view::RecoverField>(),
+                !paranoid
             );
-            assert!(
-                world
-                    .resource::<Artwork>()
-                    .skits
-                    .layers
-                    .iter()
-                    .all(|layer| !layer.visible)
+            // Required active art stops this scene; its owner handles return to
+            // title. Do not complete the script as if the skit had played.
+            assert!(completion.is_pending());
+            assert!(world.resource::<Session>().field().active_skit.is_some());
+            assert_eq!(
+                world.resource::<Session>().field().events.tick(),
+                before_skit
             );
-            if !paranoid {
-                caller.step()?;
-                assert!(
-                    caller.main_finished(),
-                    "skit failure stranded its script caller"
-                );
-                world.run_system_once(draw).unwrap();
-                world.run_system_once(advance_live).unwrap();
-                assert!(world.resource::<Session>().field().events.tick() > before_skit);
-            }
+            assert_eq!(
+                diagnostics.entries().last().unwrap().scope,
+                "field skit artwork"
+            );
         }
         Ok(())
     }
@@ -2601,7 +2607,7 @@ mod tests {
             [2., 4., 6., 8.],
             [0.25, 0.5, 0.75, 1.],
         );
-        let mesh = batch.mesh([8, 16]);
+        let mesh = batch.clone().mesh([8, 16]);
         assert!(mesh.attribute(Mesh::ATTRIBUTE_UV_1).is_none());
         let bevy::mesh::VertexAttributeValues::Float32x2(uv) =
             mesh.attribute(Mesh::ATTRIBUTE_UV_0).unwrap()
@@ -2609,6 +2615,14 @@ mod tests {
             panic!("wrong UV format")
         };
         assert_eq!(uv, &[[0.25, 0.25], [0.75, 0.25], [0.75, 0.5], [0.25, 0.5]]);
+        batch.pattern_uv = vec![[4., 8.], [8., 8.], [8., 16.], [4., 16.]];
+        let patterned = batch.mesh([8, 16]);
+        let bevy::mesh::VertexAttributeValues::Float32x2(pattern_uv) =
+            patterned.attribute(Mesh::ATTRIBUTE_UV_1).unwrap()
+        else {
+            panic!("wrong pattern UV format")
+        };
+        assert_eq!(pattern_uv, &[[0.5, 0.5], [1., 0.5], [1., 1.], [0.5, 1.]]);
         let image = Handle::<Image>::default();
         let surface = Surface {
             source: image.clone(),
@@ -2618,9 +2632,12 @@ mod tests {
             coverage: Coverage::default(),
             opaque: false,
             additive: false,
-            red_channel: false,
+            texture_effect: Default::default(),
         };
-        assert_eq!(SurfaceKey::from(&surface), SurfaceKey(false, false, false));
+        assert_eq!(
+            SurfaceKey::from(&surface),
+            SurfaceKey(false, false, TextureEffect::Plain)
+        );
     }
 
     #[test]

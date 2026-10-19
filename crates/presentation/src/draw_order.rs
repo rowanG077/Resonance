@@ -33,8 +33,26 @@ pub(super) enum ActorLayer {
 }
 
 /// Layer, instance order, then material order within that instance.
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ExtractComponent)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct DrawOrder(pub Layer, pub usize, pub u32);
+
+impl DrawOrder {
+    pub(super) fn field_model(mut layer: Layer, instance: usize, material: u32) -> Self {
+        use resonance_content::field::MODEL_DRAW_SPAN;
+        // Preserve body/outline passes, but finish an instance's materials
+        // before another instance can cover them with translucent depth writes.
+        match &mut layer {
+            Layer::Scene(stage) | Layer::FieldOverlay(stage) | Layer::ModelEffects(stage) => {
+                *stage += material / MODEL_DRAW_SPAN * MODEL_DRAW_SPAN;
+            }
+            _ => unreachable!("field model layer"),
+        }
+        Self(layer, instance, material % MODEL_DRAW_SPAN)
+    }
+}
+
+#[derive(Resource, Default)]
+struct VisibleOrders(MainEntityHashMap<DrawOrder>);
 
 pub(super) struct DrawOrderPlugin;
 impl Plugin for DrawOrderPlugin {
@@ -112,7 +130,7 @@ mod tests {
     fn unsynced_visible_meshes_publish_current_orders_and_remove_stale_draws() {
         let mut main = MainWorld::default();
         let field_order = DrawOrder(Layer::Scene(2), 0, 1);
-        let actor_order = DrawOrder(Layer::Scene(0), 0, 0);
+        let actor_order = DrawOrder(Layer::Actor(0, ActorLayer::Body), 0, 0);
         // Ordinary mesh draws use main-world keys without a RenderEntity.
         let field = main.spawn((field_order, ViewVisibility::VISIBLE)).id();
         let actor = main.spawn((actor_order, ViewVisibility::HIDDEN)).id();
@@ -131,7 +149,7 @@ mod tests {
                 .contains_key(&actor_key)
         );
 
-        let changed_order = DrawOrder(Layer::FieldOverlay(1), 3, 4);
+        let changed_order = DrawOrder(Layer::Actor(1, ActorLayer::Front), 3, 4);
         {
             let mut main = render.resource_mut::<MainWorld>();
             main.entity_mut(field).insert(ViewVisibility::HIDDEN);

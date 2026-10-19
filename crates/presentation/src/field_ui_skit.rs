@@ -82,7 +82,7 @@ impl Artwork {
                 color_mask: image.clone(),
                 coverage: Coverage::default(),
                 additive: false,
-                red_channel: false,
+                texture_effect: Default::default(),
                 opaque: false,
             });
             canvases.push(Canvas {
@@ -102,11 +102,26 @@ impl Artwork {
             warm: Vec::new(),
         })
     }
-    pub fn ready(&self, images: &Assets<Image>) -> bool {
-        self.images
-            .values()
-            .flatten()
-            .all(|image| images.contains(image.id()))
+    pub fn ready(
+        &self,
+        playback: Option<&resonance_game::field::SkitPlayback>,
+        images: &Assets<Image>,
+        server: &AssetServer,
+    ) -> Result<bool> {
+        let Some(scene) = playback.and_then(|playback| playback.events.world.skit.as_ref()) else {
+            return Ok(true);
+        };
+        let mut ready = true;
+        for portrait in scene.portraits.values() {
+            for image in self
+                .images
+                .get(&portrait.resource)
+                .context("uncooked skit portrait")?
+            {
+                ready &= crate::field_view::image_ready(server, images, image)?;
+            }
+        }
+        Ok(ready)
     }
     pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
         if !self.layers.is_empty() {

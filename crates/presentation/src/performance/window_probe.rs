@@ -21,7 +21,7 @@ pub fn run_window_probe(
     run(root, output, resolution, None, None, None)
 }
 
-/// Measure a fixed render resolution through the live classroom or an checkpoint.
+/// Measure a fixed render resolution through the live classroom or an encounter.
 /// Record the compositor's physical output size and require it to remain stable.
 pub fn run_frame_benchmark(
     root: &Path,
@@ -29,7 +29,7 @@ pub fn run_frame_benchmark(
     resolution: crate::Resolution,
     seconds: u64,
     profile: bool,
-    checkpoint: Option<&Path>,
+    encounter: Option<(&Path, resonance_events::battle::Setup)>,
     replay: Option<&crate::saves::CheckpointReplay>,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
@@ -41,7 +41,7 @@ pub fn run_frame_benchmark(
         output,
         resolution,
         Some((seconds, profile)),
-        checkpoint,
+        encounter,
         replay,
     )
 }
@@ -51,12 +51,12 @@ fn run(
     output: &Path,
     resolution: crate::Resolution,
     benchmark: Option<(u64, bool)>,
-    checkpoint: Option<&Path>,
+    encounter: Option<(&Path, resonance_events::battle::Setup)>,
     replay: Option<&crate::saves::CheckpointReplay>,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
-        replay.is_none() || checkpoint.is_some(),
-        "replay requires an checkpoint"
+        replay.is_none() || encounter.is_some(),
+        "replay requires an encounter"
     );
     anyhow::ensure!(!output.exists(), "window probe output already exists");
     std::fs::create_dir_all(output)?;
@@ -80,7 +80,8 @@ fn run(
             "pid":std::process::id(), "silent":true, "fixed_render_resolution":true,
             "forced_window_resize":benchmark.is_none(), "compare_output":compare_output,
             "requested_window_resolution":surface_size.unwrap_or(resolution),
-            "checkpoint":checkpoint,
+            "encounter":encounter.as_ref().map(|(save, setup)| serde_json::json!({"save":save,"setup":format!("{setup:?}")})),
+            "republish_each_frame":std::env::var_os("RESONANCE_BENCH_REPUBLISH").is_some(),
             "replay":replay.is_some(),
         }))?,
     )?;
@@ -88,7 +89,7 @@ fn run(
         crate::RunOptions {
             script_root: None,
             saves: crate::saves::SaveOptions {
-                load: checkpoint.map(Path::to_path_buf),
+                load: encounter.as_ref().map(|(save, _)| save.to_path_buf()),
                 directory: Some(output.join("slots")),
                 ..Default::default()
             },
@@ -126,6 +127,13 @@ fn run(
         if profile {
             super::render_profile::install(&mut app);
         }
+        if std::env::var_os("RESONANCE_BENCH_REPUBLISH").is_some() {
+            app.add_systems(Update, |battle: Option<ResMut<crate::battle::Owner>>| {
+                if let Some(mut battle) = battle {
+                    battle.republish();
+                }
+            });
+        }
     }
     if compare_output {
         let mut menu = app.world_mut().resource_mut::<crate::Menu>();
@@ -145,7 +153,39 @@ fn run(
     if let Some(replay) = replay {
         crate::saves::install_benchmark_replay(&mut app, replay, output, completed.clone())?;
     }
-
+    if let Some((_, setup)) = &encounter {
+        let setup = setup.clone();
+        let mut ready_since = None;
+        let mut requested = false;
+        // Effect replays begin at the saved scene, before its field script advances.
+        // The ordinary entry benchmark retains its ten-second field baseline.
+        let field_seconds = if replay.is_some() { 0 } else { 10 };
+        app.add_systems(Update, move |world: &mut World| {
+            if requested
+                || !crate::new_game::scene_ready(world)
+                || !world.contains_resource::<crate::field_audio::Control>()
+            {
+                return;
+            }
+            let mut session = world.resource_mut::<crate::new_game::Session>();
+            if !session.is_field() || !session.field().player_has_control() {
+                return;
+            }
+            if ready_since
+                .get_or_insert_with(Instant::now)
+                .elapsed()
+                .as_secs()
+                >= field_seconds
+            {
+                session
+                    .events_mut()
+                    .world
+                    .request_battle(setup.clone())
+                    .expect("benchmark encounter");
+                requested = true;
+            }
+        });
+    }
     if compare_output {
         super::window_output::install(
             &mut app,
@@ -164,8 +204,9 @@ fn run(
         output: output.into(),
         screenshots: 0,
         benchmark,
-        checkpoint: checkpoint.is_some(),
+        checkpoint: encounter.is_some(),
         replay: replay.is_some(),
+        battle: None,
         measured_window: None,
         completed: completed.clone(),
     })
@@ -196,6 +237,7 @@ struct Probe {
     benchmark: Option<(u64, bool)>,
     checkpoint: bool,
     replay: bool,
+    battle: Option<Instant>,
     measured_window: Option<UVec2>,
     completed: Arc<AtomicBool>,
 }
@@ -213,8 +255,11 @@ fn drive(
     targets: Res<crate::display::Targets>,
     images: Res<Assets<Image>>,
     projections: Query<(&Projection, &bevy::camera::RenderTarget)>,
+    battle: Option<Res<crate::battle::Owner>>,
 ) {
-    input.reset_all();
+    if !probe.replay {
+        input.reset_all();
+    }
     let source = *probe.source.get_or_insert(targets.source.id());
     let stable = display.0 == probe.size
         && targets.source.id() == source
@@ -244,9 +289,44 @@ fn drive(
         exit.write(AppExit::error());
         return;
     }
-    if movie.active {
+    if movie.active && !probe.replay {
         if movie.presented_frame.is_some_and(|frame| frame > 60) {
             input.press(KeyCode::Escape);
+        }
+        return;
+    }
+    let window_size = UVec2::new(window.physical_width(), window.physical_height());
+    if probe
+        .measured_window
+        .is_some_and(|size| size != window_size)
+    {
+        error!(
+            "Benchmark physical window size changed to {}x{}",
+            window_size.x, window_size.y
+        );
+        exit.write(AppExit::error());
+        return;
+    }
+    if probe.replay {
+        if session
+            .as_ref()
+            .is_some_and(|session| session.ready_for_field)
+        {
+            probe.measured_window.get_or_insert(window_size);
+        }
+        return;
+    }
+    if let Some(battle) = battle {
+        if battle.presenting()
+            && probe
+                .battle
+                .get_or_insert_with(Instant::now)
+                .elapsed()
+                .as_secs()
+                >= probe.benchmark.map_or(50, |(seconds, _)| seconds)
+        {
+            probe.completed.store(true, Ordering::Release);
+            exit.write(AppExit::Success);
         }
         return;
     }
@@ -277,22 +357,14 @@ fn drive(
         }
         return;
     }
-    if !session.ready_for_field || movie.presented_frame.is_none() || tick <= 30 {
+    if !session.ready_for_field
+        || (!probe.checkpoint && movie.presented_frame.is_none())
+        || tick <= 30
+    {
         return;
     }
-    if probe.benchmark.is_some()
-        && (window.physical_width() != probe.size.width
-            || window.physical_height() != probe.size.height)
-    {
-        error!(
-            "Benchmark requires {}x{}, actual window is {}x{}",
-            probe.size.width,
-            probe.size.height,
-            window.physical_width(),
-            window.physical_height()
-        );
-        exit.write(AppExit::error());
-        return;
+    if probe.benchmark.is_some() {
+        probe.measured_window.get_or_insert(window_size);
     }
     let elapsed = probe
         .field
@@ -360,7 +432,7 @@ fn drive(
         probe.resize = 4;
         info!("Window probe: requested restore at startup size");
     }
-    if elapsed >= probe.benchmark.map_or(50, |(s, _)| s) {
+    if !probe.checkpoint && elapsed >= probe.benchmark.map_or(50, |(s, _)| s) {
         info!("Window probe complete");
         probe.completed.store(true, Ordering::Release);
         exit.write(AppExit::Success);

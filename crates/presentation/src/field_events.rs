@@ -64,7 +64,7 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
     let position = std::array::from_fn(|axis| floor.iter().map(|p| p[axis]).sum::<f32>() / 3.);
     let new = |checkpoint: Option<&FieldCheckpoint>| -> Result<(FieldSession, Playback)> {
         let mut field = if let Some(checkpoint) = checkpoint {
-            package.restore(checkpoint, available_fields.clone())?
+            package.restore(checkpoint, available_fields.clone())?.0
         } else {
             let mut party = Party::new(data, Default::default())?;
             party.formation = if story >= 2000 {

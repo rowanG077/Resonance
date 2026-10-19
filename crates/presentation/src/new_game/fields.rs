@@ -174,15 +174,20 @@ impl FieldPackage {
         &self,
         checkpoint: &FieldCheckpoint,
         available_fields: BTreeSet<u32>,
-    ) -> Result<FieldSession> {
+    ) -> Result<(FieldSession, Option<FieldCheckpoint>)> {
         let entry = checkpoint
             .clone()
             .entry(&self.assets, self.data.clone(), available_fields)?;
         let kind = entry.kind;
         let mut field = self.enter(entry)?;
-        if kind == resonance_game::field::EntryKind::Restore {
+        let restored = if kind == resonance_game::field::EntryKind::Restore {
             initialize_checkpoint(&mut field, checkpoint, &self.data)?;
-        }
+            Some(field.checkpoint()?)
+        } else {
+            None
+        };
+        // Record the loaded state before an entry script takes control. New
+        // Game Plus starts a new story and has no restored exploration frame.
         self.queue_entry(&mut field, kind);
         Ok((field, restored))
     }

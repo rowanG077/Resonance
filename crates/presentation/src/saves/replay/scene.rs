@@ -158,7 +158,7 @@ pub(crate) fn diagnostic(world: &World) -> Result<serde_json::Value> {
         "movie":world.get_resource::<crate::movie::Playback>().filter(|movie| movie.active)
             .map(|movie| serde_json::json!({"resource":movie.resource,"frame":movie.presented_frame})),
         "battle_entry":world.get_resource::<crate::battle::Owner>()
-            .and_then(|battle| battle.entry_diagnostic()),
+            .and_then(|battle| battle.entry_diagnostic(world)),
         "game_over":world.get_resource::<crate::game_over::Active>().map(|active|active.diagnostic()),
         "load":world.get_resource::<super::super::title::TitleMenu>().map(|load| {
             let menu = &load.0;

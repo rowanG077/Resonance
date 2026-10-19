@@ -638,9 +638,10 @@ fn bind(
                                         {
                                             0
                                         }
-                                        // The native secondary terrain pass (water,
-                                        // shore foam and foliage) follows all opaque
-                                        // terrain and actors, with depth writes off.
+                                        // Water follows opaque scenery and actors.
+                                        // Vehicle effects must follow water so it
+                                        // cannot paint over their additive light.
+                                        Model::Actor(203 | 213 | 214) => 4 << 20,
                                         Model::Tile(_) if part.spec.resource == 2 => 3 << 20,
                                         Model::Tile(_) => 1 << 20,
                                         _ => 2 << 20,

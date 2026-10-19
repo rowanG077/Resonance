@@ -208,7 +208,7 @@ fn begin(
             return;
         }
     }
-    let Ok(backdrop) = backdrop.single() else {
+    let Ok((backdrop_mesh, backdrop_material)) = backdrop.single() else {
         return;
     };
     let mut entities = Vec::new();
@@ -259,6 +259,19 @@ fn begin(
             ))
             .id(),
     );
+    // Loading may freeze the live cameras until preparation finishes. Warm the
+    // menu backdrop offscreen too, so readiness never depends on that frozen view.
+    let backdrop = commands
+        .spawn((
+            backdrop_mesh.clone(),
+            backdrop_material.clone(),
+            Transform::default(),
+            RenderLayers::layer(LAYER),
+            NoFrustumCulling,
+        ))
+        .id();
+    report.expected.insert(backdrop.into());
+    entities.push(backdrop);
     for (mesh, material, essential) in ui.prepared_layers() {
         // Optional pages may still be loading, or may never be selected. Their
         // missing textures must not enter the mandatory submission fence.

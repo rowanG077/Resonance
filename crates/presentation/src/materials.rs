@@ -463,6 +463,9 @@ impl Material for TitleSurface {
             if key.bind_group_data.multiply_alpha_only {
                 fragment.shader_defs.push("MULTIPLY_ALPHA_ONLY".into());
             }
+            if key.bind_group_data.clip_below_floor {
+                fragment.shader_defs.push("CLIP_BELOW_FLOOR".into());
+            }
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.bind_group_data.blend_state();
             }

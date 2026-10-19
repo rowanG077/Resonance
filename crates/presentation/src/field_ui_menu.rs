@@ -266,6 +266,7 @@ pub(super) struct MenuArtwork {
     band: DepthBand,
     active_page: Option<ActivePage>,
     world_notice: WorldNotice,
+    ship_notice: WorldNotice,
     trail: super::super::choice_cursor::Trail,
 }
 /// Native world notices slide down from the top while their alpha approaches 255.
@@ -315,12 +316,22 @@ impl MenuArtwork {
         (material.material.clone(), material.size)
     }
 
+    pub(super) fn world_hud_art(&self) -> Result<(Handle<Surface>, [u32; 2], Vec<[u32; 4]>)> {
+        let atlas = &self.materials[&ATLAS];
+        Ok((
+            atlas.material.clone(),
+            atlas.size,
+            self.spec.sprites.group(Sprite::WorldHud)?.to_vec(),
+        ))
+    }
+
     pub(super) fn prepare_world_maps(
         &mut self,
         materials: &mut Assets<Surface>,
     ) -> Result<Vec<Handle<Image>>> {
         // The world HUD draws these materials outside the menu's submission path.
         MenuArt::WORLD_MAP_TEXTURES
+            .chain([MenuArt::ATLAS_TEXTURE])
             .map(|index| {
                 let prepared = self
                     .materials
@@ -351,13 +362,22 @@ impl MenuArtwork {
                 FieldAction::Shop => "shop",
                 FieldAction::Examine => "examine",
                 FieldAction::Open => "open",
+                FieldAction::Push => "push",
+                FieldAction::Pull => "pull",
+                FieldAction::Operate => "operate",
+                FieldAction::Switch => "switch",
                 FieldAction::Climb => "climb",
                 FieldAction::Descend => "descend",
                 FieldAction::Jump => "jump",
+                FieldAction::Hit => "hit",
+                FieldAction::Read => "read",
                 FieldAction::Rest => "rest",
+                FieldAction::Eat => "eat",
                 FieldAction::Leave => "go_out",
                 FieldAction::Move => "move",
                 FieldAction::Grab => "grab",
+                FieldAction::Question => "question",
+                FieldAction::Exclamation => "exclamation",
                 FieldAction::Save => "save",
                 FieldAction::Warp => "warp",
             },
@@ -385,7 +405,7 @@ impl MenuArtwork {
                 color_mask: image.clone(),
                 coverage: Coverage::default(),
                 additive: false,
-                red_channel: false,
+                texture_effect: Default::default(),
                 opaque: texture.opaque,
             });
             let key = MaterialKey::Texture(index);
@@ -408,7 +428,7 @@ impl MenuArtwork {
             color_mask: cursor_image.clone(),
             coverage: Coverage::default(),
             additive: false,
-            red_channel: false,
+            texture_effect: Default::default(),
             opaque: false,
         });
         prepared.insert(
@@ -463,6 +483,7 @@ impl MenuArtwork {
             band: DepthBand::Field,
             active_page: None,
             world_notice: Default::default(),
+            ship_notice: Default::default(),
             trail: Default::default(),
         })
     }
@@ -752,6 +773,7 @@ impl MenuArtwork {
 
     pub(crate) fn render_battle_results_panel(
         &mut self,
+        offsets: impl Iterator<Item = f32>,
         font: &BitmapFont,
         dialogue: &DialogueArt,
         preferences: &resonance_content::menu_data::CustomizeSettings,
@@ -759,7 +781,9 @@ impl MenuArtwork {
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let mut draw = self.begin_drawing(font, dialogue, Some(preferences), 0)?;
-        draw.colored_frame([96., 351., 520., 39.], false, draw.popup_color())?;
+        for offset in offsets {
+            draw.colored_frame([96. + offset, 351., 520., 39.], false, draw.popup_color())?;
+        }
         let mut batches = draw.batches;
         // Results already use the 480-row overlay canvas. Undo the menu's
         // 448-row expansion for this panel, including its frame corners.
@@ -852,7 +876,23 @@ impl MenuArtwork {
             } else {
                 None
             };
-            if menu.is_none() && shop.is_none() && crafting.is_none() && notice.is_none() {
+            let ship_notice = if let Source::World(session, _) = source {
+                let label = session.ship_action().map(|action| match action {
+                    resonance_game::overworld::travel::ShipAction::Embark => "Embark",
+                    resonance_game::overworld::travel::ShipAction::Disembark => "Disembark",
+                });
+                self.ship_notice
+                    .step(session.events.tick(), label.map(|label| (label, false)))
+                    .filter(|_| session.player_has_control())
+            } else {
+                None
+            };
+            if menu.is_none()
+                && shop.is_none()
+                && crafting.is_none()
+                && notice.is_none()
+                && ship_notice.is_none()
+            {
                 self.clear_page(commands);
                 return Ok(());
             }
@@ -860,11 +900,16 @@ impl MenuArtwork {
                 menu.map(|menu| ActivePage::Menu(menu.page))
                     .or_else(|| shop.map(|_| ActivePage::Shop))
                     .or_else(|| crafting.map(|_| ActivePage::Crafting))
-                    .or_else(|| notice.as_ref().map(|_| ActivePage::WorldNotice)),
+                    .or_else(|| {
+                        notice
+                            .as_ref()
+                            .or(ship_notice.as_ref())
+                            .map(|_| ActivePage::WorldNotice)
+                    }),
             );
             let item_visual = menu
                 .filter(|menu| menu.page == Page::Items)
-                .map(|menu| items::Visual::from_menu(menu));
+                .map(items::Visual::from_menu);
             let preferences = menu
                 .and_then(Menu::preferences)
                 .or_else(|| shop.map(|(_, party)| &party.settings.preferences))
@@ -1140,6 +1185,10 @@ impl MenuArtwork {
                     draw.world_button(6, "Enter", [504., 76.])?;
                     draw.world_button(8, "Leave", [504., 104.])?;
                 }
+            } else if let Some((label, _, opacity)) = ship_notice {
+                draw.opacity = opacity;
+                let x = 616. - draw.text_width(&label, 24.)? - 24.;
+                draw.world_button(8, &label, [x, 24.])?;
             }
             let trail = draw.trail;
             let drawing = draw.batches;
@@ -2321,9 +2370,13 @@ impl Drawing<'_> {
             ] {
                 self.time(ticks, [478., y], size, color, ticks % 60 > 30)?;
             }
-            for (key, y) in [("encounter", 257.), ("combo", 343.)] {
+            let battles = &checkpoint.progress().party.battles;
+            for (key, value, y) in [
+                ("encounter", battles.total, 257.),
+                ("combo", battles.maximum_combo, 343.),
+            ] {
                 self.text(menu_label(&self.spec.labels, key)?, [478., y], 20., GOLD)?;
-                self.number(0, [574., y + 28.], [16., 24.], WHITE)?;
+                self.number(u32::from(value), [574., y + 28.], [16., 24.], WHITE)?;
             }
         }
         self.offset = header_offset;
@@ -2382,13 +2435,12 @@ impl Drawing<'_> {
         first: usize,
         statistics: Option<&resonance_content::menu_data::MenuData>,
     ) -> Result<()> {
-        for (index, &id) in party
-            .formation
-            .iter()
-            .enumerate()
-            .skip(first)
-            .take(resonance_game::menu::VISIBLE_PARTY)
-        {
+        let visible = if compact {
+            party.formation.len()
+        } else {
+            resonance_game::menu::VISIBLE_PARTY
+        };
+        for (index, &id) in party.formation.iter().enumerate().skip(first).take(visible) {
             let member = &party.members[usize::from(id - 1)];
             let [max_hp, max_tp] = member.maximum_vitals();
             let name = member
