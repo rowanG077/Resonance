@@ -1,5 +1,5 @@
 //! Item and title descriptions and statistics shared by player menu pages.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 mod cooking;
@@ -7,6 +7,7 @@ pub mod crafting;
 mod customize;
 mod ex_skills;
 mod manual;
+mod presentation;
 mod rename;
 mod status;
 mod strategy;
@@ -17,6 +18,7 @@ pub use cooking::*;
 pub use customize::*;
 pub use ex_skills::*;
 pub use manual::*;
+pub use presentation::*;
 pub use rename::*;
 pub use status::*;
 pub use strategy::{STRATEGY_COUNTS, StrategyData, StrategyOption, StrategyPreset};
@@ -24,7 +26,11 @@ pub use synopsis::*;
 pub use text::*;
 pub use world_map::*;
 
-pub const TECHNIQUE_COUNT: usize = 253;
+pub const MANUAL_PATH: &str = "game/menu/manual.json";
+pub const FIGURINES_PATH: &str = "game/menu/figurines.json";
+pub const SYNOPSIS_PATH: &str = "game/menu/synopsis.json";
+pub const CUSTOMIZE_PATH: &str = "game/menu/customize.json";
+pub const RENAME_PATH: &str = "game/menu/rename.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -60,32 +66,21 @@ pub struct MenuData {
     pub version: u32,
     pub items: Vec<Item>,
     pub titles: Vec<Vec<Title>>,
-    pub full_names: Vec<String>,
-    pub rename: RenameData,
-    pub labels: BTreeMap<String, String>,
-    pub item_categories: Vec<String>,
-    pub inventory_categories: Vec<String>,
-    pub item_group_prompt: MenuText,
-    pub item_bottle_count: MenuText,
+    pub initial_names: [String; 9],
     pub techniques: Vec<Technique>,
     pub strategy: StrategyData,
-    pub synopsis: SynopsisData,
     pub cooking: CookingData,
     #[serde(default)]
     pub crafting: crafting::Data,
-    pub customize: CustomizeData,
     pub status: StatusData,
     pub world_map: WorldMapData,
-    pub monsters: crate::monster::MonsterBook,
-    pub manual: TrainingManual,
-    pub figurines: crate::figurine::FigurineBook,
     pub ex_skills: ExSkillData,
+    #[serde(default)]
+    pub presentation: MenuPresentation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Technique {
-    pub name: String,
-    pub description: String,
     pub tp: u8,
     pub tp_percent: bool,
     pub unison_usable: bool,
@@ -110,12 +105,11 @@ pub enum TechniqueUse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
-    pub name: String,
-    pub description: String,
-    pub details: String,
     pub category: u8,
     #[serde(default)]
     pub field_usable: bool,
+    /// Original item usage bit2, independent of the field-use effect.
+    pub battle_usable: bool,
     #[serde(default)]
     pub view: Option<ItemView>,
     /// Slash, thrust, defense, intelligence, accuracy, evasion, luck.
@@ -136,7 +130,10 @@ pub enum ItemAttention {
     LowTp,
     LowVitals,
     Knockout,
+    /// A physical ailment curable by an ordinary remedy.
     Ailment,
+    AllAilments,
+    MagicalAilment,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -163,8 +160,6 @@ pub enum ItemUse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Title {
-    pub name: String,
-    pub description: String,
     /// Same order as the character's seven base growth statistics.
     pub growth: [u8; 7],
     /// Replaces the story-selected model variant while this title is equipped.
@@ -186,37 +181,62 @@ pub enum Costume {
 }
 
 impl MenuData {
-    pub const VERSION: u32 = 26;
+    pub const VERSION: u32 = 34;
+    /// Admit optional labels independently while keeping gameplay records typed.
+    pub fn load(files: &crate::prepared::Files) -> Result<Self> {
+        Self::decode(&files.read("game/menu-data.json")?, files.diagnostics())
+    }
+
+    pub fn decode(bytes: &[u8], diagnostics: &crate::diagnostics::Diagnostics) -> Result<Self> {
+        let mut source: serde_json::Value = serde_json::from_slice(bytes)?;
+        let presentation = source
+            .as_object_mut()
+            .context("menu data must be an object")?
+            .remove("presentation")
+            .unwrap_or_default();
+        let mut data: Self = serde_json::from_value(source)?;
+        data.presentation = MenuPresentation::decode(presentation, diagnostics)?;
+        Ok(data)
+    }
+
+    /// Complete cook-time validation, including pages a session may never open.
     pub fn validate(&self) -> Result<()> {
         self.grade_shop.validate()?;
-        self.rename.validate()?;
-        self.item_group_prompt.validate()?;
-        self.item_bottle_count.validate()?;
+        self.validate_gameplay()?;
+        self.presentation.validate(self)?;
+        for text in self.texts() {
+            ensure!(
+                text.len() <= 4096 && text.chars().all(|c| !c.is_control() || c == '\n'),
+                "invalid menu text {text:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// Shared inventory, character, technique and battle data. Optional page
+    /// resources are validated when that page is selected.
+    pub fn validate_gameplay(&self) -> Result<()> {
         ensure!(
-            self.item_group_prompt.lines.len() == 1 && self.item_bottle_count.lines.len() == 1,
-            "invalid item prompt"
-        );
-        ensure!(
-            self.version == Self::VERSION
-                && self.items.len() == 528
-                && self.item_categories.len() == 48
-                && self.inventory_categories.len() == 9
-                && self.techniques.len() == TECHNIQUE_COUNT,
+            self.version == Self::VERSION && !self.items.is_empty(),
             "invalid menu item data"
         );
         ensure!(
-            self.full_names.len() == 9
-                && self.titles.len() == 9
+            self.titles.len() == 9
                 && self
                     .titles
                     .iter()
-                    .all(|titles| (1..32).contains(&titles.len())),
+                    .all(|titles| !titles.is_empty() && titles.len() <= usize::from(u8::MAX)),
             "invalid menu character data"
+        );
+        ensure!(
+            self.initial_names.iter().all(|name| !name.is_empty()
+                && name.len() <= 12
+                && name.bytes().all(|b| (32..127).contains(&b))),
+            "invalid initial character name"
         );
         for item in &self.items {
             ensure!(
-                usize::from(item.category) < self.item_categories.len()
-                    && usize::from(item.transforms_to) < self.items.len(),
+                item.category < 48 && usize::from(item.transforms_to) < self.items.len(),
                 "invalid item category or transformation"
             );
             ensure!(
@@ -242,108 +262,22 @@ impl MenuData {
                 "invalid technique {id}: {tech:?}"
             );
         }
-        self.strategy.validate()?;
-        self.synopsis.validate()?;
+        self.strategy.validate_rules()?;
         self.cooking.validate(self.items.len())?;
         self.crafting.validate(self.items.len())?;
-        self.customize.validate()?;
-        self.status.validate(&self.items)?;
-        self.world_map.validate(self.items.len())?;
-        self.monsters.validate(self.items.len())?;
-        self.manual.validate()?;
-        self.figurines.validate()?;
-        self.ex_skills.validate(self.items.len())?;
-        for text in self.texts() {
-            ensure!(
-                text.len() <= 4096 && text.chars().all(|c| !c.is_control() || c == '\n'),
-                "invalid menu text {text:?}"
-            );
-        }
-        for key in [
-            "unison_title",
-            "unison_player",
-            "tech_unison",
-            "tech_unison_title",
-            "status",
-            "next",
-            "strength",
-            "defense",
-            "slash",
-            "accuracy",
-            "attack",
-            "thrust",
-            "evasion",
-            "intelligence",
-            "luck",
-            "weapon",
-            "body",
-            "head",
-            "arm",
-            "accessory_1",
-            "accessory_2",
-            "optimal",
-            "remove",
-            "change_order",
-            "optimal_selection",
-            "optimal_slash",
-            "optimal_thrust",
-            "alphabetical",
-            "parameter",
-            "stat_arrow",
-            "preview_loading",
-            "item_defense",
-            "item_accuracy",
-            "item_evasion",
-            "item_intelligence",
-            "item_luck",
-            "party_swap_target",
-            "party_leader",
-            "party_swap",
-            "collectors_book",
-            "transform_full",
-            "transform_empty",
-        ] {
-            ensure!(
-                self.labels.get(key).is_some_and(|s| !s.is_empty()),
-                "missing menu label {key}"
-            );
-        }
+        self.ex_skills.validate_rules(self.items.len())?;
         Ok(())
     }
 
+    pub fn label(&self, key: &str) -> Result<&str> {
+        presentation::required_label(&self.presentation.labels, key)
+    }
+
     pub fn texts(&self) -> impl Iterator<Item = &str> {
-        self.items
+        self.initial_names
             .iter()
-            .flat_map(|item| [&item.name, &item.description, &item.details])
-            .chain(
-                self.titles
-                    .iter()
-                    .flatten()
-                    .flat_map(|title| [&title.name, &title.description]),
-            )
-            .chain(&self.full_names)
-            .chain(self.labels.values())
-            .chain(&self.item_categories)
-            .chain(&self.inventory_categories)
-            .chain(
-                self.techniques
-                    .iter()
-                    .flat_map(|t| [&t.name, &t.description]),
-            )
             .map(String::as_str)
-            .chain(self.item_group_prompt.texts())
-            .chain(self.item_bottle_count.texts())
-            .chain(self.strategy.texts())
-            .chain(self.rename.texts())
-            .chain(self.synopsis.texts())
-            .chain(self.cooking.texts())
+            .chain(self.presentation.texts())
             .chain(self.crafting.texts())
-            .chain(self.customize.texts())
-            .chain(self.status.texts())
-            .chain(self.world_map.texts())
-            .chain(self.monsters.texts())
-            .chain(self.manual.texts())
-            .chain(self.figurines.texts())
-            .chain(self.ex_skills.texts())
     }
 }
