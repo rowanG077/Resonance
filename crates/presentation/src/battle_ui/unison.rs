@@ -38,8 +38,8 @@ pub(super) fn layers(
     palette: &Palette,
     notices: &[HudLayer],
     materials: &mut Assets<Surface>,
-    mut load: impl FnMut(&resonance_content::font::UiTexture, bool) -> Result<Option<Handle<Image>>>,
-) -> Result<Vec<HudLayer>> {
+    mut load: impl FnMut(&resonance_content::font::UiTexture, bool, bool) -> Handle<Image>,
+) -> Vec<HudLayer> {
     let mut definitions = vec![
         palette.solid.clone().at(Depth::Unison),
         palette.solid.clone().at(Depth::Unison).foreground(),
@@ -52,7 +52,7 @@ pub(super) fn layers(
             .foreground(),
     ];
     for texture in &art.unison_buttons {
-        let image = load(texture, false)?.context("battle Unison button atlas is missing")?;
+        let image = load(texture, false, true);
         definitions.push(
             LayerDefinition::new(image, [texture.width, texture.height], Depth::Unison)
                 .foreground()
@@ -68,7 +68,7 @@ pub(super) fn layers(
             .foreground()
             .foreground()
     }));
-    Ok(palette.layers(definitions, materials))
+    palette.layers(definitions, materials)
 }
 
 impl Artwork {

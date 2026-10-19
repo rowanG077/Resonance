@@ -2,6 +2,10 @@
 use super::*;
 
 /// Stretch atlas glyphs with separate spacing and a vertical color gradient.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Glyph dimensions, spacing, slant, and colors are independent drawing attributes."
+)]
 pub(super) fn italic(
     batch: &mut Batch,
     font: &BitmapFont,

@@ -1,8 +1,10 @@
 //! Prepared battle geometry drawn from gameplay poses and scene-owned particles.
 //! Model matrices already map cooked Z-up bones into battle Y-up coordinates.
 use resonance_events::effect::Blend;
-use resonance_game::battle::encounter::{RenderEffect, RenderModel, RenderTrail};
+use resonance_game::battle::encounter::{RenderEffect, RenderInstances, RenderModel, RenderTrail};
 mod effects;
+mod model_particles;
+pub(super) use model_particles::Stats as ModelParticleStats;
 mod scene_sample;
 mod shadows;
 mod stage_color;
@@ -17,7 +19,7 @@ use anyhow::{Context, Result, ensure};
 use bevy::{
     camera::{
         CameraProjection, RenderTarget, SubCameraView,
-        visibility::{NoFrustumCulling, RenderLayers},
+        visibility::{NoCpuCulling, NoFrustumCulling, RenderLayers},
     },
     core_pipeline::{core_2d::Transparent2d, core_3d::Transparent3d, tonemapping::Tonemapping},
     ecs::system::SystemParam,
@@ -51,6 +53,8 @@ use std::{
 // Layer 28 belongs to the live Shift+Tab overlay.
 pub(super) const LAYER: usize = 26;
 pub(super) const WARM_LAYER: usize = 27;
+// Scene cloning runs after these commands, so budget queued roots rather than enqueue time.
+const PREPARATION_ROOTS_PER_UPDATE: usize = 64;
 
 fn model_uv(rectangle: [i16; 4]) -> [f32; 2] {
     std::array::from_fn(|axis| {
@@ -282,6 +286,7 @@ pub(super) struct AssetsForView<'w> {
     pub surfaces: ResMut<'w, Assets<TitleSurface>>,
     pub meshes: ResMut<'w, Assets<Mesh>>,
     pub gltfs: Res<'w, Assets<Gltf>>,
+    pub scenes: Res<'w, Assets<WorldAsset>>,
     pub inverse_bindposes: Res<'w, Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 }
 
@@ -303,17 +308,14 @@ struct Node {
     suffix: Mat4,
 }
 struct Part {
-    spec: PreviewPart,
+    spec: Arc<PreviewPart>,
     gltf: Handle<Gltf>,
     textures: Vec<Handle<Image>>,
     root: Option<Entity>,
     nodes: Vec<Node>,
     draws: Vec<(Entity, usize)>,
     suppressed_draws: Vec<Entity>,
-    shadow_geometry: Vec<shadows::Geometry>,
     materials: Vec<Handle<TitleSurface>>,
-    variants: BTreeMap<ModelStyle, Vec<Handle<TitleSurface>>>,
-    shared_variants: BTreeSet<ModelStyle>,
     depth_materials: Vec<Handle<TitleSurface>>,
     red_materials: Vec<Handle<TitleSurface>>,
     red_depth_materials: Vec<Handle<TitleSurface>>,
@@ -346,8 +348,9 @@ fn bone_effect_groups(skeleton: &Skeleton) -> [Vec<usize>; 16] {
 struct Model {
     skeleton: Skeleton,
     effect_groups: [Vec<usize>; 16],
+    shadow_bounds: shadows::Bounds,
+    target_anchor: Option<resonance_game::battle::encounter::TargetAnchor>,
     lit: bool,
-    effect: bool,
     texture_channels: Vec<resonance_content::battle_profile::TextureChannel>,
     weapon_style: Option<WeaponStyle>,
     suppressed_nodes: BTreeSet<usize>,
@@ -357,7 +360,6 @@ struct Model {
 enum Key {
     Actor(ActorId),
     Weapon(ActorId, u8),
-    Particle(ParticleId),
     Independent(usize),
     Accessory(ActorId, u8),
 }
@@ -373,6 +375,7 @@ pub(super) struct View {
     scenery_update: Option<u64>,
     scenery_alpha: BTreeMap<u8, u8>,
     models: BTreeMap<u32, Model>,
+    model_particles: model_particles::Pool,
     wings: Option<wings::State>,
     effects: effects::Effects,
     trails: trails::Trails,
@@ -383,6 +386,7 @@ pub(super) struct View {
     warmup: Option<Warmup>,
     prepared: bool,
     active: bool,
+    held_pose: Vec<(Entity, GlobalTransform)>,
 }
 
 fn actor_visible(frame: &BattleFrame, actor: ActorId) -> bool {
@@ -393,10 +397,55 @@ fn actor_visible(frame: &BattleFrame, actor: ActorId) -> bool {
 }
 
 impl View {
+    pub(crate) fn stage_color(&self) -> [u8; 4] {
+        self.stage_color.color()
+    }
+
+    pub fn target_anchor(&self, frame: &BattleFrame, actor: ActorId) -> Option<[f32; 3]> {
+        let model = frame
+            .models
+            .iter()
+            .find(|model| model.actor == actor && model.visible && actor_visible(frame, actor))?;
+        let anchor = self.models.get(&model.resource)?.target_anchor?;
+        let actor = frame.actors.get(actor.index())?;
+        let Some(bone) = anchor.bone else {
+            return Some(std::array::from_fn(|axis| {
+                actor.position[axis] + actor.body.center_offset[axis] * actor.body.scale * 2.
+            }));
+        };
+        let bone = model.bones.get(usize::from(bone))?;
+        let origin = (Mat4::from_cols_array_2d(&model.world) * Mat4::from_cols_array_2d(bone))
+            .transform_point3(Vec3::ZERO);
+        let offset = Quat::from_rotation_y(actor.heading.to_radians())
+            * (Vec3::from_array(anchor.offset) * actor.body.scale);
+        Some((origin + offset).to_array())
+    }
+
+    pub fn body_center(&self, frame: &BattleFrame, actor: ActorId) -> Option<[f32; 3]> {
+        let model = frame
+            .models
+            .iter()
+            .find(|model| model.actor == actor && model.visible && actor_visible(frame, actor))?;
+        let body = self.models.get(&model.resource)?;
+        let instance = body
+            .instances
+            .iter()
+            .find(|instance| instance.key == Some(Key::Actor(actor)))?;
+        if !instance
+            .parts
+            .iter()
+            .any(|part| !part.disabled && part.spec.scene.outline_color.is_none())
+        {
+            return None;
+        }
+        body.shadow_bounds
+            .center(Mat4::from_cols_array_2d(&model.world), &model.bones)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn load_with_diagnostics(
         stage: Stage,
-        files: &resonance_content::prepared::Files,
+        scenery_models: BTreeMap<u8, resonance_game::battle::stage::Model>,
         models: Vec<RenderModel>,
         wings: Option<resonance_game::battle::encounter::WingAccessory>,
         toon: Handle<Image>,
@@ -408,11 +457,6 @@ impl View {
         let stage_valid = diagnostics
             .attempt("battle stage", stage.validate())?
             .is_some();
-        let scenery_models = if stage_valid {
-            resonance_game::battle::stage::Model::load(files, &stage)?
-        } else {
-            BTreeMap::new()
-        };
         let scenery = stage
             .layers
             .iter()
@@ -420,6 +464,7 @@ impl View {
             .map(|(&slot, part)| (slot, Part::load(part.clone(), server)))
             .collect();
         let mut prepared = BTreeMap::new();
+        let mut model_particles = model_particles::Pool::default();
         for model in models {
             let resource = model.resource;
             let result = (|| -> Result<()> {
@@ -430,19 +475,22 @@ impl View {
                     "invalid battle texture channels"
                 );
                 ensure!(
-                    model.capacity > 0 && !model.parts.is_empty(),
+                    !matches!(model.instances, RenderInstances::Fixed(0))
+                        && !model.parts.is_empty(),
                     "empty battle model {}",
                     model.resource
                 );
                 let mut parts = Vec::new();
-                for part in model.parts {
+                let mut particle_offsets = Vec::new();
+                for (index, part) in model.parts.into_iter().enumerate() {
                     let validation = (|| -> Result<()> {
                         ensure!(
                             part.attached_to.is_none(),
                             "battle model attachments require a prepared sampled resource"
                         );
                         ensure!(
-                            part.scene.bone_names.len() == model.skeleton.bones.len(),
+                            matches!(&model.instances, RenderInstances::Particles(_))
+                                || part.scene.bone_names.len() == model.skeleton.bones.len(),
                             "battle model skeleton differs from geometry"
                         );
                         ensure!(
@@ -458,19 +506,33 @@ impl View {
                         )?
                         .is_some()
                     {
-                        parts.push(part);
+                        if let RenderInstances::Particles(offsets) = &model.instances {
+                            particle_offsets.push(
+                                *offsets
+                                    .get(index)
+                                    .context("missing particle layer bone offset")?,
+                            );
+                        }
+                        parts.push(Part::load(part, server));
                     }
                 }
-                let instances = (0..model.capacity)
-                    .map(|_| Instance {
-                        key: None,
-                        parts: parts
-                            .iter()
-                            .cloned()
-                            .map(|part| Part::load(part, server))
-                            .collect(),
-                    })
-                    .collect();
+                let instances = match model.instances {
+                    RenderInstances::Fixed(count) => (0..count)
+                        .map(|_| Instance {
+                            key: None,
+                            parts: parts.iter().map(Part::new_instance).collect(),
+                        })
+                        .collect(),
+                    RenderInstances::Particles(_) => {
+                        model_particles.load(
+                            resource,
+                            parts,
+                            particle_offsets,
+                            model.suppressed_nodes.clone(),
+                        )?;
+                        Vec::new()
+                    }
+                };
                 ensure!(
                     !prepared.contains_key(&model.resource),
                     "duplicate battle render resource {}",
@@ -482,9 +544,10 @@ impl View {
                             model.resource,
                             Model {
                                 effect_groups: bone_effect_groups(&model.skeleton),
+                                shadow_bounds: shadows::Bounds::prepare(&model.skeleton),
+                                target_anchor: model.target_anchor,
                                 skeleton: model.skeleton,
                                 lit: model.lit,
-                                effect: model.effect,
                                 texture_channels: model.texture_channels,
                                 weapon_style: model.weapon_style,
                                 suppressed_nodes: model.suppressed_nodes,
@@ -513,6 +576,7 @@ impl View {
             scenery_update: None,
             scenery_alpha: BTreeMap::new(),
             models: prepared,
+            model_particles,
             wings: wings.map(wings::State::new),
             effects,
             trails: trails::Trails::load(trail_assets, server, diagnostics.clone())?,
@@ -524,6 +588,7 @@ impl View {
             warmup: None,
             prepared: false,
             active: false,
+            held_pose: Vec::new(),
         })
     }
 
@@ -537,6 +602,7 @@ impl View {
                     .flat_map(|i| &i.parts)
                     .flat_map(|p| &p.textures),
             )
+            .chain(self.model_particles.images())
             .chain(self.effects.images())
             .chain(self.trails.images())
     }
@@ -551,6 +617,7 @@ impl View {
                     .flat_map(|i| &mut i.parts)
                     .flat_map(|p| &mut p.textures),
             )
+            .chain(self.model_particles.images_mut())
             .chain(self.effects.images_mut())
             .chain(self.trails.images_mut())
     }
@@ -558,7 +625,12 @@ impl View {
     fn warm_entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.scenery
             .iter()
-            .flat_map(|(_, p)| p.draws.iter().map(|&(e, _)| e))
+            .flat_map(|(_, p)| {
+                p.draws
+                    .iter()
+                    .map(|&(e, _)| e)
+                    .chain(p.warm.iter().copied())
+            })
             .chain(
                 self.models
                     .values()
@@ -571,6 +643,7 @@ impl View {
                             .chain(p.warm.iter().copied())
                     }),
             )
+            .chain(self.model_particles.warm_draws())
             .chain(self.effects.entities())
             .chain(self.trails.entities())
     }
@@ -589,6 +662,20 @@ impl View {
         if self.prepared {
             return Ok(true);
         }
+        let phase_timing = |phase: &'static str, started: std::time::Instant, ready: bool| {
+            let elapsed_ms = started.elapsed().as_secs_f64() * 1000.;
+            // Loading and fence polling may span many display frames.
+            if elapsed_ms >= 1. || ready {
+                debug!(
+                    target: "resonance_presentation::battle_entry",
+                    phase,
+                    elapsed_ms,
+                    ready,
+                    "Battle view preparation"
+                );
+            }
+        };
+        let started = std::time::Instant::now();
         if self.camera.is_none() {
             *warmup.0.lock().unwrap() = Report {
                 diagnostics: Some(self.diagnostics.clone()),
@@ -628,10 +715,15 @@ impl View {
             &diagnostics,
             "battle image",
         )?;
-        if !self.images().all(|h| assets.images.contains(h)) {
+        let images_ready = self.images().all(|h| assets.images.contains(h));
+        phase_timing("recover/images", started, false);
+        if !images_ready {
             return Ok(false);
         }
+        let started = std::time::Instant::now();
+        let mut queued_roots = 0;
         for (slot, part) in &mut self.scenery {
+            let had_root = part.root.is_some();
             let result = part.prepare(
                 commands,
                 server,
@@ -643,25 +735,24 @@ impl View {
                 self.scenery_models[slot].skeleton.bones.len(),
                 None,
                 &BTreeSet::new(),
-                None,
                 false,
                 true,
-                None,
             );
             if let Err(error) = result {
                 self.diagnostics
                     .report(&format!("battle scenery {}", part.spec.scene.mesh), error)?;
                 part.disable(commands);
             }
+            queued_roots += usize::from(!had_root && part.root.is_some());
+            if queued_roots >= PREPARATION_ROOTS_PER_UPDATE {
+                phase_timing("scenery/models", started, false);
+                return Ok(false);
+            }
         }
-        let model_styles = self.effects.model_styles();
         for model in self.models.values_mut() {
-            for index in 0..model.instances.len() {
-                let (earlier, remaining) = model.instances.split_at_mut(index);
-                let instance = &mut remaining[0];
-                for (part_index, part) in instance.parts.iter_mut().enumerate() {
-                    let prototype =
-                        (model.effect && index > 0).then(|| &earlier[0].parts[part_index]);
+            for (index, instance) in model.instances.iter_mut().enumerate() {
+                for part in &mut instance.parts {
+                    let had_root = part.root.is_some();
                     let result = part.prepare(
                         commands,
                         server,
@@ -673,10 +764,8 @@ impl View {
                         model.skeleton.bones.len(),
                         model.weapon_style,
                         &model.suppressed_nodes,
-                        model.effect.then_some(&model_styles),
-                        !model.effect && model.weapon_style.is_none(),
+                        model.weapon_style.is_none(),
                         index == 0,
-                        prototype,
                     );
                     if let Err(error) = result {
                         self.diagnostics.report(
@@ -685,9 +774,27 @@ impl View {
                         )?;
                         part.disable(commands);
                     }
+                    queued_roots += usize::from(!had_root && part.root.is_some());
+                    if queued_roots >= PREPARATION_ROOTS_PER_UPDATE {
+                        phase_timing("scenery/models", started, false);
+                        return Ok(false);
+                    }
                 }
             }
         }
+        if !self.model_particles.prepare(
+            commands,
+            server,
+            assets,
+            &mut self.sampled,
+            &self.toon,
+            &self.effects.model_styles(),
+            &self.diagnostics,
+        )? {
+            return Ok(false);
+        }
+        phase_timing("scenery/models", started, false);
+        let started = std::time::Instant::now();
         self.effects.prepare(
             commands,
             &mut assets.meshes,
@@ -698,6 +805,8 @@ impl View {
         self.effects.set_layer(commands, WARM_LAYER, true);
         self.trails.prepare(commands, assets, &mut self.sampled)?;
         self.trails.set_layer(commands, WARM_LAYER, true);
+        phase_timing("effects/trails", started, false);
+        let started = std::time::Instant::now();
         if !self.scenery.iter().all(|(_, p)| p.bound)
             || !self
                 .models
@@ -731,6 +840,7 @@ impl View {
         }
         report.armed = true;
         self.prepared = report.completed.load(Ordering::Acquire);
+        phase_timing("fence poll", started, self.prepared);
         Ok(self.prepared)
     }
 
@@ -740,6 +850,8 @@ impl View {
 
     /// Retained field camera/roots are hidden by the caller in this same handoff.
     pub fn activate(&mut self, commands: &mut Commands, target: RenderTarget) -> Result<()> {
+        let started = std::time::Instant::now();
+        let mut relayered_parts = 0;
         ensure!(
             self.prepared && !self.active,
             "battle view is not ready to activate"
@@ -754,6 +866,7 @@ impl View {
         );
         for (slot, part) in &self.scenery {
             part.layer(commands, LAYER, true);
+            relayered_parts += usize::from(part.root.is_some());
             let layer = if *slot == 0 || *slot >= 4 {
                 Layer::Scene(0)
             } else {
@@ -772,9 +885,11 @@ impl View {
             for instance in &model.instances {
                 for part in &instance.parts {
                     part.layer(commands, LAYER, false);
+                    relayered_parts += usize::from(part.root.is_some());
                 }
             }
         }
+        self.model_particles.activate(commands);
         self.effects.set_layer(commands, LAYER, false);
         self.trails.set_layer(commands, LAYER, false);
         let warmup = self
@@ -794,6 +909,12 @@ impl View {
                 .collect(),
             ..default()
         };
+        debug!(
+            target: "resonance_presentation::battle_entry",
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.,
+            relayered_parts,
+            "Battle view activation"
+        );
         Ok(())
     }
 
@@ -834,6 +955,10 @@ impl View {
         self.trails.advance(frame, paused)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The scene borrows independently owned ECS transforms, projections, materials, and meshes."
+    )]
     pub fn apply(
         &mut self,
         (frame, particles): (&BattleFrame, &[resonance_battle::ParticleFrame]),
@@ -932,21 +1057,22 @@ impl View {
                 }
                 part.visible(commands, color[3] != 0);
                 part.apply(world, &scenery_poses[slot], globals)?;
+                let material = if frame.hourglass_remaining != 0 {
+                    ModelMaterial::RedChannel
+                } else {
+                    ModelMaterial::Normal
+                };
                 part.tint(
                     color,
                     None,
-                    if frame.hourglass_remaining != 0 {
-                        ModelMaterial::RedChannel
-                    } else {
-                        ModelMaterial::Normal
-                    },
+                    material,
                     false,
                     self.stage.light_position,
-                    None,
                     true,
                     surfaces,
                 )?;
                 part.stage_materials(
+                    material,
                     self.stage
                         .texture_animations
                         .get(slot)
@@ -956,6 +1082,12 @@ impl View {
                     fog_distance,
                     surfaces,
                 )?;
+                let materials = part.appearance_materials(material, true)?;
+                for &(draw, index) in &part.draws {
+                    commands
+                        .entity(draw)
+                        .insert_if_neq(MeshMaterial3d(materials[index].clone()));
+                }
                 Ok(())
             })();
             if let Err(error) = result {
@@ -987,11 +1119,6 @@ impl View {
                     .map(|m| (m.resource, Key::Weapon(m.owner, m.slot))),
             )
             .chain(
-                particles
-                    .iter()
-                    .filter_map(|p| p.model.as_ref().map(|m| (m.resource, Key::Particle(p.id)))),
-            )
-            .chain(
                 frame
                     .independent_models
                     .iter()
@@ -1005,6 +1132,10 @@ impl View {
             .collect();
         for (&resource, model) in &mut self.models {
             for instance in &mut model.instances {
+                if instance.key.is_none() {
+                    continue;
+                }
+                // Only claimed slots can need hiding; dormant pools stay hidden.
                 for part in &instance.parts {
                     part.visible(commands, false);
                 }
@@ -1013,9 +1144,6 @@ impl View {
                     .is_some_and(|key| !wanted.contains(&(resource, key)))
                 {
                     instance.key = None;
-                    for part in &instance.parts {
-                        part.visible(commands, false);
-                    }
                 }
             }
         }
@@ -1038,7 +1166,6 @@ impl View {
                 Some(model.texture_layers),
                 model.light,
                 None,
-                None,
                 &order,
                 commands,
                 globals,
@@ -1056,7 +1183,6 @@ impl View {
                 true,
                 &model.world,
                 &model.bones,
-                None,
                 None,
                 None,
                 model.texture_scroll,
@@ -1080,7 +1206,6 @@ impl View {
                 &wing.bones,
                 None,
                 None,
-                None,
                 Some(wing.uv),
                 &order,
                 commands,
@@ -1102,78 +1227,73 @@ impl View {
                 None,
                 None,
                 None,
-                None,
                 &order,
                 commands,
                 globals,
                 surfaces,
             )?;
         }
+        self.model_particles.retain(particles, commands, surfaces);
+        self.model_particles.clear_pose();
         for (index, particle) in particles.iter().enumerate() {
-            if let Some(model) = &particle.model {
-                let Some((style, pass)) = self.diagnostics.attempt(
-                    &format!(
-                        "battle model particle {}:{}",
-                        particle.resource, particle.member
-                    ),
-                    self.effects.model_pass(particle, &order),
-                )?
-                else {
-                    continue;
-                };
-                self.model(
-                    model.resource,
-                    Key::Particle(particle.id),
-                    true,
-                    particle.state.colors[0].map(|value| value as u8),
-                    None,
-                    ModelMaterial::Normal,
-                    true,
-                    &model.world,
-                    &model.bones,
-                    None,
-                    None,
-                    Some((style, pass, index, model_uv(particle.state.uv))),
-                    None,
-                    &order,
-                    commands,
-                    globals,
-                    surfaces,
-                )?;
+            if particle.model.is_none() {
+                continue;
             }
+            let result = (|| {
+                let (style, pass) = self.effects.model_pass(particle, &order)?;
+                self.model_particles.apply(
+                    particle,
+                    style,
+                    pass,
+                    index,
+                    self.stage.light_position,
+                    commands,
+                    surfaces,
+                )
+            })();
+            if result.is_err() {
+                self.model_particles.hide(particle.id, commands);
+            }
+            self.diagnostics.attempt(
+                &format!(
+                    "battle model particle {}:{}",
+                    particle.resource, particle.member
+                ),
+                result,
+            )?;
         }
-        let actor_shadows = frame
+        let mut actor_shadows = Vec::new();
+        for model in frame
             .models
             .iter()
             .filter(|model| model.visible && actor_visible(frame, model.actor))
-            .filter_map(|model| model.shadow.map(|shadow| (model, shadow)))
-            .map(|(model, shadow)| {
-                let body = self
-                    .models
-                    .get(&model.resource)
-                    .context("missing shadow body")?;
-                let instance = body
-                    .instances
-                    .iter()
-                    .find(|instance| instance.key == Some(Key::Actor(model.actor)))
-                    .context("missing shadow body instance")?;
-                let radius = instance
-                    .parts
-                    .iter()
-                    .filter(|part| !part.disabled)
-                    .flat_map(|part| &part.shadow_geometry)
-                    .map(|geometry| {
-                        geometry.radius(
-                            Mat4::from_cols_array_2d(&model.world),
-                            &model.bones,
-                            Vec3::from_array(frame.actors[model.actor.index()].position),
-                        )
-                    })
-                    .fold(0_f32, f32::max)
-                    * shadow.scale;
-                Ok((shadow.position, radius, shadow.color))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        {
+            let Some(shadow) = model.shadow else {
+                continue;
+            };
+            let body = self
+                .models
+                .get(&model.resource)
+                .context("missing shadow body")?;
+            let instance = body
+                .instances
+                .iter()
+                .find(|instance| instance.key == Some(Key::Actor(model.actor)))
+                .context("missing shadow body instance")?;
+            if instance
+                .parts
+                .iter()
+                .any(|part| !part.disabled && part.spec.scene.outline_color.is_none())
+                && let Some((position, radius)) = body.shadow_bounds.sample(
+                    Mat4::from_cols_array_2d(&model.world),
+                    &model.bones,
+                    shadow.scale,
+                    shadow.position[1],
+                )
+            {
+                actor_shadows.push((position, radius, shadow.color));
+            }
+        }
         let result = self.effects.apply(
             (frame, &actor_shadows),
             &self.models,
@@ -1200,7 +1320,33 @@ impl View {
         if let Err(error) = result {
             self.diagnostics.report("battle trails", error)?;
         }
+        self.held_pose.clear();
+        let parts = self.scenery.iter().map(|(_, part)| part).chain(
+            self.models
+                .values()
+                .flat_map(|model| &model.instances)
+                .filter(|instance| instance.key.is_some())
+                .flat_map(|instance| &instance.parts),
+        );
+        for part in parts {
+            for entity in part
+                .root
+                .into_iter()
+                .chain(part.nodes.iter().map(|node| node.entity))
+            {
+                self.held_pose.push((entity, *globals.get(entity)?));
+            }
+        }
+        self.held_pose
+            .extend_from_slice(self.model_particles.held_pose());
+        self.held_pose
+            .push((camera_entity, *globals.get(camera_entity)?));
         Ok(())
+    }
+
+    /// Keep sampled affine poses after ordinary propagation between simulation updates.
+    pub fn restore_pose(&self, globals: &mut Query<&mut GlobalTransform>) -> Result<()> {
+        restore_pose(&self.held_pose, globals)
     }
 
     #[allow(clippy::too_many_arguments)] // One authoritative pose and the existing ECS render resources.
@@ -1217,7 +1363,6 @@ impl View {
         bones: &[Matrix],
         texture_layers: Option<[u8; 4]>,
         light: Option<[f32; 3]>,
-        effect: Option<(ModelStyle, Layer, usize, [f32; 2])>,
         texture_scroll: Option<(usize, [f32; 2])>,
         actor_order: &ActorOrder,
         commands: &mut Commands,
@@ -1253,37 +1398,25 @@ impl View {
                 Key::Independent(index) => {
                     Layer::Actor(actor_order.independent(index)?, ActorLayer::Body)
                 }
-                Key::Particle(_) => {
-                    effect
-                        .context("model particle has no prepared draw style")?
-                        .1
-                }
             };
             for part in &mut instance.parts {
                 if part.disabled {
                     continue;
                 }
                 let result = (|| -> Result<()> {
-                    if let Some((style, _, _, _)) = effect {
-                        part.own_effect_materials(style, surfaces)?;
-                    }
                     part.visible(commands, visible);
                     part.apply(Mat4::from_cols_array_2d(world), bones, globals)?;
                     part.tint(
                         tint,
                         outline_tint,
                         material,
-                        effect.map_or(model.lit, |(style, _, _, _)| style.lit),
+                        model.lit,
                         light.unwrap_or(self.stage.light_position),
-                        effect.map(|(style, _, _, _)| style),
                         depth_write,
                         surfaces,
                     )?;
-                    if let Some((style, _, _, uv)) = effect {
-                        part.scroll_uv(Some(style), material, depth_write, None, uv, surfaces)?;
-                    }
                     if let Some((texture, uv)) = texture_scroll {
-                        part.scroll_uv(None, material, depth_write, Some(texture), uv, surfaces)?;
+                        part.scroll_uv(material, depth_write, Some(texture), uv, surfaces)?;
                     }
                     if let Some(layers) = texture_layers {
                         part.expression(
@@ -1295,35 +1428,20 @@ impl View {
                         )?;
                     }
                     for &(draw, index) in &part.draws {
-                        if let Some((style, _, instance, _)) = effect {
-                            let materials = part
-                                .variants
-                                .get(&style)
-                                .context("unprepared model particle style")?;
-                            commands.entity(draw).insert((
-                                MeshMaterial3d(materials[index].clone()),
-                                DrawOrder(
-                                    order,
-                                    instance,
-                                    part.spec.scene.materials[index].draw_order,
-                                ),
+                        let material =
+                            part.appearance_materials(material, depth_write)?[index].clone();
+                        let instance = match key {
+                            Key::Accessory(_, pass) => usize::from(pass),
+                            _ => 0,
+                        };
+                        commands
+                            .entity(draw)
+                            .insert_if_neq(MeshMaterial3d(material))
+                            .insert_if_neq(DrawOrder(
+                                order,
+                                instance,
+                                part.spec.scene.materials[index].draw_order,
                             ));
-                        } else {
-                            commands.entity(draw).insert((
-                                MeshMaterial3d(
-                                    part.appearance_materials(None, material, depth_write)?[index]
-                                        .clone(),
-                                ),
-                                DrawOrder(
-                                    order,
-                                    match key {
-                                        Key::Accessory(_, pass) => usize::from(pass),
-                                        _ => 0,
-                                    },
-                                    part.spec.scene.materials[index].draw_order,
-                                ),
-                            ));
-                        }
                     }
                     Ok(())
                 })();
@@ -1352,6 +1470,10 @@ impl View {
         Ok(())
     }
 
+    pub fn model_particle_stats(&self) -> ModelParticleStats {
+        self.model_particles.stats()
+    }
+
     pub fn despawn(self, commands: &mut Commands) {
         // The retained field/title may specialize again as soon as it is restored.
         if let Some(warmup) = &self.warmup {
@@ -1374,9 +1496,69 @@ impl View {
                 }
             }
         }
+        self.model_particles.despawn(commands);
         self.effects.despawn(commands);
         self.trails.despawn(commands);
     }
+}
+
+fn surface_recipes(
+    spec: &PreviewPart,
+    textures: &[Handle<Image>],
+    images: &mut Assets<Image>,
+    sampled: &mut crate::scene::SampledImages,
+    toon: &Handle<Image>,
+    lit: bool,
+    weapon_style: Option<WeaponStyle>,
+) -> Result<Vec<TitleSurface>> {
+    let mut surfaces = Vec::with_capacity(spec.scene.materials.len());
+    for (index, material) in spec.scene.materials.iter().enumerate() {
+        let binding = |binding: &resonance_content::TextureBinding| -> Result<_> {
+            Ok((
+                textures
+                    .get(binding.texture)
+                    .context("invalid battle material texture")?
+                    .clone(),
+                binding.clone(),
+            ))
+        };
+        let color = crate::scene::sampled_image(
+            material.color.as_ref().map(binding).transpose()?,
+            images,
+            sampled,
+        );
+        let multiply = crate::scene::sampled_image(
+            material.multiply.as_ref().map(binding).transpose()?,
+            images,
+            sampled,
+        );
+        let mut surface = TitleSurface {
+            vertex_color: material.vertex_color,
+            multiply,
+            uv_offsets: Vec4::from_array(spec.uv_offsets.get(index).copied().unwrap_or([0.; 4])),
+            constant_color: spec.scene.outline_color_for(material).is_some(),
+            tint: spec
+                .scene
+                .outline_color_for(material)
+                .map_or(Vec4::ONE, |color| {
+                    Vec4::from_array(color.map(|value| f32::from(value) / 255.))
+                }),
+            toon_ramp: (lit && spec.scene.outline_color.is_none() && material.color.is_some())
+                .then(|| toon.clone()),
+            shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
+            blend: if spec.additive {
+                Some(Blend::Additive)
+            } else {
+                (material.blend || lit).then_some(Blend::Alpha)
+            },
+            depth_write: material.depth_write,
+            cull: material.cull,
+            ..TitleSurface::textured(color)
+        };
+        apply_weapon_style(&mut surface, weapon_style);
+        surfaces.push(surface);
+    }
+    Ok(surfaces)
 }
 
 impl Part {
@@ -1387,38 +1569,49 @@ impl Part {
         self.nodes.clear();
         self.draws.clear();
         self.suppressed_draws.clear();
-        self.shadow_geometry.clear();
         self.warm.clear();
         self.bound = true;
         self.disabled = true;
     }
 
     fn load(spec: PreviewPart, server: &AssetServer) -> Self {
+        let gltf = server.load(spec.scene.mesh.clone());
+        let textures = spec
+            .scene
+            .textures
+            .iter()
+            .map(|path| {
+                server
+                    .load_builder()
+                    .with_settings(|s: &mut ImageLoaderSettings| {
+                        s.is_srgb = false;
+                        s.sampler = ImageSampler::linear();
+                    })
+                    .load(path.clone())
+            })
+            .collect();
+        Self::unbound(spec.into(), gltf, textures)
+    }
+
+    fn new_instance(&self) -> Self {
+        Self::unbound(
+            Arc::clone(&self.spec),
+            self.gltf.clone(),
+            self.textures.clone(),
+        )
+    }
+
+    fn unbound(spec: Arc<PreviewPart>, gltf: Handle<Gltf>, textures: Vec<Handle<Image>>) -> Self {
         Self {
-            gltf: server.load(spec.scene.mesh.clone()),
-            textures: spec
-                .scene
-                .textures
-                .iter()
-                .map(|path| {
-                    server
-                        .load_builder()
-                        .with_settings(|s: &mut ImageLoaderSettings| {
-                            s.is_srgb = false;
-                            s.sampler = ImageSampler::linear();
-                        })
-                        .load(path.clone())
-                })
-                .collect(),
             spec,
+            gltf,
+            textures,
             root: None,
             nodes: Vec::new(),
             draws: Vec::new(),
             suppressed_draws: Vec::new(),
-            shadow_geometry: Vec::new(),
             materials: Vec::new(),
-            variants: BTreeMap::new(),
-            shared_variants: BTreeSet::new(),
+
             depth_materials: Vec::new(),
             red_materials: Vec::new(),
             red_depth_materials: Vec::new(),
@@ -1442,10 +1635,8 @@ impl Part {
         bone_count: usize,
         weapon_style: Option<WeaponStyle>,
         suppressed_nodes: &BTreeSet<usize>,
-        effect_styles: Option<&BTreeSet<ModelStyle>>,
         body: bool,
         warm_variants: bool,
-        prototype: Option<&Part>,
     ) -> Result<()> {
         if self.bound {
             return Ok(());
@@ -1458,101 +1649,26 @@ impl Part {
             return Ok(());
         };
         if self.root.is_none() {
-            if let Some(prototype) = prototype {
-                if prototype.disabled {
-                    self.disable(commands);
-                    return Ok(());
-                }
-                if prototype.root.is_none() {
-                    return Ok(());
-                }
-                self.share_effect_materials(prototype);
-            } else {
-                ensure!(
-                    gltf.meshes.len() == self.spec.scene.materials.len(),
-                    "battle material count differs from cooked geometry"
-                );
-                for (index, material) in self.spec.scene.materials.iter().enumerate() {
-                    let binding = |binding: &resonance_content::TextureBinding| -> Result<_> {
-                        Ok((
-                            self.textures
-                                .get(binding.texture)
-                                .context("invalid battle material texture")?
-                                .clone(),
-                            binding.clone(),
-                        ))
-                    };
-                    let color = crate::scene::sampled_image(
-                        material.color.as_ref().map(binding).transpose()?,
-                        &mut assets.images,
-                        sampled,
-                    );
-                    let multiply = crate::scene::sampled_image(
-                        material.multiply.as_ref().map(binding).transpose()?,
-                        &mut assets.images,
-                        sampled,
-                    );
-                    let mut surface = TitleSurface {
-                        vertex_color: material.vertex_color,
-                        multiply,
-                        uv_offsets: Vec4::from_array(
-                            self.spec.uv_offsets.get(index).copied().unwrap_or([0.; 4]),
-                        ),
-                        constant_color: self.spec.scene.outline_color.is_some(),
-                        tint: outline(&self.spec),
-                        toon_ramp: (lit
-                            && self.spec.scene.outline_color.is_none()
-                            && material.color.is_some())
-                        .then(|| toon.clone()),
-                        shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
-                        blend: if self.spec.additive {
-                            Some(Blend::Additive)
-                        } else {
-                            (material.blend || lit).then_some(Blend::Alpha)
-                        },
-                        depth_write: material.depth_write,
-                        cull: material.cull,
-                        ..TitleSurface::textured(color)
-                    };
-                    apply_weapon_style(&mut surface, weapon_style);
-                    self.materials.push(assets.surfaces.add(surface));
-                }
-                if body {
-                    self.prepare_body_depth(&mut assets.surfaces)?;
-                }
-                if body || weapon_style.is_some() {
-                    self.prepare_red_materials(&mut assets.surfaces)?;
-                }
-                if let Some(styles) = effect_styles {
-                    for &style in styles {
-                        let variants = self
-                            .materials
-                            .iter()
-                            .map(|handle| {
-                                let mut surface = assets.surfaces.get(handle).unwrap().clone();
-                                surface.toon_ramp = (style.lit
-                                    && !surface.constant_color
-                                    && surface.color.is_some())
-                                .then(|| toon.clone());
-                                surface.blend = Some(style.blend);
-                                surface.depth_test = style.depth_test;
-                                surface.depth_write = style.depth_write;
-                                surface.depth_equal = true;
-                                if !surface.constant_color {
-                                    surface.cull = if style.cull_back {
-                                        resonance_content::CullFace::Back
-                                    } else {
-                                        resonance_content::CullFace::None
-                                    };
-                                }
-                                assets.surfaces.add(surface)
-                            })
-                            .collect();
-                        self.variants.insert(style, variants);
-                    }
-                    self.shared_variants.extend(self.variants.keys().copied());
-                }
+            ensure!(
+                gltf.meshes.len() == self.spec.scene.materials.len(),
+                "battle material count differs from cooked geometry"
+            );
+            self.materials = surface_recipes(
+                &self.spec,
+                &self.textures,
+                &mut assets.images,
+                sampled,
+                toon,
+                lit,
+                weapon_style,
+            )?
+            .into_iter()
+            .map(|surface| assets.surfaces.add(surface))
+            .collect();
+            if body {
+                self.prepare_body_depth(&mut assets.surfaces)?;
             }
+            self.prepare_red_materials(&mut assets.surfaces)?;
             self.root = Some(
                 commands
                     .spawn((
@@ -1649,18 +1765,6 @@ impl Part {
                     // Hide the object while retaining anchors and skinning transforms for
                     // its children.
                     self.suppressed_draws.push(entity);
-                } else if body && self.spec.scene.outline_color.is_none() {
-                    self.shadow_geometry.push(shadows::Geometry::prepare(
-                        assets
-                            .meshes
-                            .get(&mesh.0)
-                            .context("missing shadow body mesh")?,
-                        skin,
-                        &assets.inverse_bindposes,
-                        &indices,
-                        bone,
-                        suffix,
-                    )?);
                 }
                 // Instances share mesh layouts and material recipes. One set of
                 // variant draws prepares their pipelines without duplicate skins.
@@ -1690,43 +1794,6 @@ impl Part {
         Ok(())
     }
 
-    fn share_effect_materials(&mut self, prototype: &Self) {
-        self.materials = prototype.materials.clone();
-        self.variants = prototype.variants.clone();
-        self.shared_variants = self.variants.keys().copied().collect();
-    }
-
-    fn own_effect_materials(
-        &mut self,
-        style: ModelStyle,
-        surfaces: &mut Assets<TitleSurface>,
-    ) -> Result<()> {
-        if !self.shared_variants.contains(&style) {
-            return Ok(());
-        }
-        let materials = self
-            .variants
-            .get(&style)
-            .context("unprepared model particle style")?
-            .iter()
-            .map(|handle| {
-                surfaces
-                    .get(handle)
-                    .cloned()
-                    .context("missing model particle material template")
-            })
-            .collect::<Result<Vec<_>>>()?;
-        self.variants.insert(
-            style,
-            materials
-                .into_iter()
-                .map(|material| surfaces.add(material))
-                .collect(),
-        );
-        self.shared_variants.remove(&style);
-        Ok(())
-    }
-
     fn apply(
         &self,
         world: Mat4,
@@ -1753,25 +1820,28 @@ impl Part {
         material: ModelMaterial,
         lit: bool,
         light: [f32; 3],
-        style: Option<ModelStyle>,
         depth_write: bool,
         surfaces: &mut Assets<TitleSurface>,
     ) -> Result<()> {
         if self.disabled {
             return Ok(());
         }
-        let materials = self.appearance_materials(style, material, depth_write)?;
+        let materials = self.appearance_materials(material, depth_write)?;
         for handle in materials {
             let surface = surfaces
                 .get(handle)
                 .context("prepared battle material is missing")?;
-            let base = outline(&self.spec);
+            let base = if surface.constant_color {
+                outline(&self.spec)
+            } else {
+                Vec4::ONE
+            };
             let rgb = Vec3::new(
                 f32::from(color[0]) / 64.,
                 f32::from(color[1]) / 64.,
                 f32::from(color[2]) / 64.,
             );
-            let (ambient, tint, field_light) = if self.spec.scene.outline_color.is_some()
+            let (ambient, tint, field_light) = if surface.constant_color
                 && let Some(outline) = outline_tint
             {
                 // Alternate models use a constant outline color.
@@ -1849,28 +1919,21 @@ impl Part {
     }
 
     fn warm_materials(&self) -> impl Iterator<Item = &Vec<Handle<TitleSurface>>> {
-        self.variants.values().chain(
-            [
-                &self.depth_materials,
-                &self.red_materials,
-                &self.red_depth_materials,
-            ]
-            .into_iter()
-            .filter(|handles| !handles.is_empty()),
-        )
+        [
+            &self.depth_materials,
+            &self.red_materials,
+            &self.red_depth_materials,
+        ]
+        .into_iter()
+        .filter(|handles| !handles.is_empty())
     }
 
     fn appearance_materials(
         &self,
-        style: Option<ModelStyle>,
         material: ModelMaterial,
         depth_write: bool,
     ) -> Result<&[Handle<TitleSurface>]> {
         if material == ModelMaterial::RedChannel && self.spec.scene.outline_color.is_none() {
-            ensure!(
-                style.is_none(),
-                "particle model requested actor-only red-channel material"
-            );
             let handles = if depth_write {
                 &self.red_materials
             } else {
@@ -1882,21 +1945,12 @@ impl Part {
             );
             Ok(handles)
         } else {
-            self.materials(style, depth_write)
+            self.materials(depth_write)
         }
     }
 
-    fn materials(
-        &self,
-        style: Option<ModelStyle>,
-        depth_write: bool,
-    ) -> Result<&[Handle<TitleSurface>]> {
-        if let Some(style) = style {
-            Ok(self
-                .variants
-                .get(&style)
-                .context("unprepared model particle material")?)
-        } else if depth_write {
+    fn materials(&self, depth_write: bool) -> Result<&[Handle<TitleSurface>]> {
+        if depth_write {
             Ok(&self.materials)
         } else {
             ensure!(
@@ -1909,7 +1963,6 @@ impl Part {
 
     fn scroll_uv(
         &self,
-        style: Option<ModelStyle>,
         material: ModelMaterial,
         depth_write: bool,
         texture: Option<usize>,
@@ -1917,7 +1970,7 @@ impl Part {
         surfaces: &mut Assets<TitleSurface>,
     ) -> Result<()> {
         for (index, handle) in self
-            .appearance_materials(style, material, depth_write)?
+            .appearance_materials(material, depth_write)?
             .iter()
             .enumerate()
         {
@@ -1950,6 +2003,7 @@ impl Part {
 
     fn stage_materials(
         &self,
+        appearance: ModelMaterial,
         animations: &[resonance_content::battle_stage::TextureAnimation],
         tick: u64,
         fog: Option<&resonance_content::battle_stage::Fog>,
@@ -1962,7 +2016,13 @@ impl Part {
         let fog_color = fog.map_or(Vec4::ZERO, |fog| {
             Vec4::from_array(fog.color.map(|v| f32::from(v) / 255.))
         });
-        for (material, handle) in self.spec.scene.materials.iter().zip(&self.materials) {
+        for (material, handle) in self
+            .spec
+            .scene
+            .materials
+            .iter()
+            .zip(self.appearance_materials(appearance, true)?)
+        {
             let uv = [&material.color, &material.multiply].map(|binding| {
                 binding
                     .as_ref()
@@ -1993,7 +2053,7 @@ impl Part {
         surfaces: &mut Assets<TitleSurface>,
     ) -> Result<()> {
         for (index, handle) in self
-            .appearance_materials(None, appearance, depth_write)?
+            .appearance_materials(appearance, depth_write)?
             .iter()
             .enumerate()
         {
@@ -2022,7 +2082,7 @@ impl Part {
 
     fn visible(&self, commands: &mut Commands, visible: bool) {
         if let Some(root) = self.root {
-            commands.entity(root).insert(if visible {
+            commands.entity(root).insert_if_neq(if visible {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden
@@ -2032,7 +2092,9 @@ impl Part {
     fn layer(&self, commands: &mut Commands, layer: usize, visible: bool) {
         self.visible(commands, visible);
         for &entity in &self.warm {
-            commands.entity(entity).insert(Visibility::Hidden);
+            commands
+                .entity(entity)
+                .insert((Visibility::Hidden, NoCpuCulling));
         }
         for entity in self
             .root
@@ -2103,6 +2165,16 @@ fn apply_nodes(
         *globals.get_mut(node.entity)? = GlobalTransform::from(bevy::math::Affine3A::from_mat4(
             world * matrix * node.suffix,
         ));
+    }
+    Ok(())
+}
+
+fn restore_pose(
+    poses: &[(Entity, GlobalTransform)],
+    globals: &mut Query<&mut GlobalTransform>,
+) -> Result<()> {
+    for &(entity, pose) in poses {
+        globals.get_mut(entity)?.set_if_neq(pose);
     }
     Ok(())
 }
@@ -2337,10 +2409,36 @@ mod tests {
 
     #[test]
     fn attachment_suppression_preserves_child_draws_and_warmup_layers() {
-        let mut world = World::new();
-        let root = world.spawn(Visibility::Inherited).id();
-        let object = world.spawn((Visibility::Inherited, ChildOf(root))).id();
-        let child = world.spawn((Visibility::Inherited, ChildOf(object))).id();
+        use bevy::camera::{primitives::Frustum, visibility::VisibilityPlugin};
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), VisibilityPlugin))
+            .init_asset::<Mesh>()
+            .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
+        let world = app.world_mut();
+        world.spawn((
+            Camera::default(),
+            Frustum::default(),
+            RenderLayers::layer(LAYER),
+        ));
+        let root = world
+            .spawn((Visibility::Inherited, GlobalTransform::default()))
+            .id();
+        let object = world
+            .spawn((
+                Mesh3d::default(),
+                NoFrustumCulling,
+                GlobalTransform::default(),
+                ChildOf(root),
+            ))
+            .id();
+        let child = world
+            .spawn((
+                Mesh3d::default(),
+                NoFrustumCulling,
+                GlobalTransform::default(),
+                ChildOf(object),
+            ))
+            .id();
         let part = Part {
             spec: PreviewPart {
                 scene: serde_json::from_value(serde_json::json!({
@@ -2353,7 +2451,8 @@ mod tests {
                 attached_to: None,
                 additive: false,
                 uv_offsets: vec![],
-            },
+            }
+            .into(),
             gltf: Handle::default(),
             textures: vec![],
             root: Some(root),
@@ -2367,10 +2466,8 @@ mod tests {
                 .collect(),
             draws: vec![(object, 0), (child, 1)],
             suppressed_draws: vec![object],
-            shadow_geometry: vec![],
             materials: vec![],
-            variants: BTreeMap::new(),
-            shared_variants: BTreeSet::new(),
+
             depth_materials: Vec::new(),
             red_materials: Vec::new(),
             red_depth_materials: Vec::new(),
@@ -2412,6 +2509,7 @@ mod tests {
             constant_color: true,
             ..Default::default()
         });
+        let textured = surfaces.add(TitleSurface::default());
         let mut part = Part {
             spec: PreviewPart {
                 scene: serde_json::from_value(serde_json::json!({
@@ -2423,17 +2521,16 @@ mod tests {
                 attached_to: None,
                 additive: false,
                 uv_offsets: vec![],
-            },
+            }
+            .into(),
             gltf: Handle::default(),
             textures: vec![],
             root: None,
             nodes: vec![],
             draws: vec![],
             suppressed_draws: vec![],
-            shadow_geometry: vec![],
-            materials: vec![handle.clone()],
-            variants: BTreeMap::new(),
-            shared_variants: BTreeSet::new(),
+            materials: vec![handle.clone(), textured.clone()],
+
             depth_materials: Vec::new(),
             red_materials: Vec::new(),
             red_depth_materials: Vec::new(),
@@ -2450,7 +2547,6 @@ mod tests {
             ModelMaterial::Normal,
             true,
             [123., 456., 789.],
-            None,
             true,
             &mut surfaces,
         )?;
@@ -2462,6 +2558,11 @@ mod tests {
         assert_eq!(surface.ambient_scale, Vec3::ONE);
         assert_eq!(surface.field_light, Vec4::ZERO);
         assert!(surface.constant_color);
+        // Textured surfaces within the same outline layer retain their colors and opacity.
+        assert_eq!(
+            surfaces.get(&textured).unwrap().tint,
+            Vec4::new(3., 1., 1., 173. / 255.)
+        );
         // A carried model receives its own initialized black outline, never
         // the body's red. The same generic consumer resolves its alpha255
         // sentinel by an integer shift, not a baked127/255 multiplication.
@@ -2473,7 +2574,6 @@ mod tests {
             ModelMaterial::Normal,
             true,
             [123., 456., 789.],
-            None,
             true,
             &mut surfaces,
         )?;
@@ -2494,7 +2594,7 @@ mod tests {
         }
         // Primary geometry does not become constant red just because the body
         // also supplied a second-pass color.
-        part.spec.scene.outline_color = None;
+        Arc::make_mut(&mut part.spec).scene.outline_color = None;
         surfaces.get_mut(&handle).unwrap().constant_color = false;
         part.tint(
             body,
@@ -2502,7 +2602,6 @@ mod tests {
             ModelMaterial::Normal,
             false,
             [123., 456., 789.],
-            None,
             true,
             &mut surfaces,
         )?;
@@ -2732,6 +2831,25 @@ mod tests {
             Vec3::new(13.5, 25., 35.)
         );
         assert_eq!(drawn.transform_vector3(Vec3::Y), Vec3::new(0.5, 1., 0.));
+        let held = [root, hidden, mesh]
+            .map(|entity| (entity, *world.get::<GlobalTransform>(entity).unwrap()));
+        // Ordinary propagation can replace globals even when the battle clock is held.
+        for entity in [root, hidden, mesh] {
+            *world.get_mut::<GlobalTransform>(entity).unwrap() = GlobalTransform::IDENTITY;
+        }
+        world
+            .run_system_once(move |mut globals: Query<&mut GlobalTransform>| {
+                restore_pose(&held, &mut globals).unwrap();
+            })
+            .unwrap();
+        assert_eq!(
+            world.get::<GlobalTransform>(mesh).unwrap().to_matrix(),
+            drawn
+        );
+        assert_eq!(
+            world.get::<GlobalTransform>(hidden).unwrap().translation(),
+            Vec3::new(10., 20., 30.)
+        );
     }
     #[test]
     fn body_depth_materials_are_prepared_and_keep_both_passes_appearance() -> Result<()> {
@@ -2784,17 +2902,15 @@ mod tests {
                     attached_to: None,
                     additive: false,
                     uv_offsets: vec![[0.125, 0.25, 0.375, 0.5]],
-                },
+                }.into(),
                 gltf: Handle::default(),
                 textures: vec![],
                 root: None,
                 nodes: vec![],
                 draws: vec![],
                 suppressed_draws: vec![],
-                shadow_geometry: vec![],
                 materials: vec![handle],
-                variants: BTreeMap::new(),
-                shared_variants: BTreeSet::new(),
+
                 depth_materials: Vec::new(),
                 red_materials: Vec::new(),
                 red_depth_materials: Vec::new(),
@@ -2807,14 +2923,14 @@ mod tests {
         // Separate parts match the primary and constant-color alternate banks.
         let mut primary_part = part(primary.clone(), false)?;
         let mut alternate_part = part(alternate.clone(), true)?;
-        assert!(primary_part.materials(None, false).is_err());
-        assert!(alternate_part.materials(None, false).is_err());
+        assert!(primary_part.materials(false).is_err());
+        assert!(alternate_part.materials(false).is_err());
         primary_part.prepare_body_depth(&mut surfaces)?;
         alternate_part.prepare_body_depth(&mut surfaces)?;
         let count = surfaces.len();
         assert_eq!(count, 4);
-        let primary_depth = primary_part.materials(None, false)?[0].clone();
-        let alternate_depth = alternate_part.materials(None, false)?[0].clone();
+        let primary_depth = primary_part.materials(false)?[0].clone();
+        let alternate_depth = alternate_part.materials(false)?[0].clone();
         for (ordinary, faded) in [(&primary, &primary_depth), (&alternate, &alternate_depth)] {
             let a = surfaces.get(ordinary).unwrap();
             let b = surfaces.get(faded).unwrap();
@@ -2845,7 +2961,6 @@ mod tests {
                 ModelMaterial::Normal,
                 true,
                 [150., 300., 200.],
-                None,
                 false,
                 &mut surfaces,
             )?;
@@ -2896,7 +3011,6 @@ mod tests {
         // Wing layers draw without depth writes; scrolling must reach that
         // selected material while preserving the unscrolled texture stage.
         primary_part.scroll_uv(
-            None,
             ModelMaterial::Normal,
             false,
             Some(0),
@@ -2911,14 +3025,14 @@ mod tests {
             surfaces.get(&primary).unwrap().uv_offsets,
             Vec4::new(0.125, 0.5, 0.375, 0.75)
         );
-        assert_eq!(primary_part.materials(None, true)?, [primary]);
-        assert_eq!(alternate_part.materials(None, true)?, [alternate]);
+        assert_eq!(primary_part.materials(true)?, [primary]);
+        assert_eq!(alternate_part.materials(true)?, [alternate]);
         assert_eq!(surfaces.len(), count); // Runtime appearance/selection allocates nothing.
 
         // Both depth recipes must be warmed before either sampled material is used.
         assert!(
             primary_part
-                .appearance_materials(None, ModelMaterial::RedChannel, true)
+                .appearance_materials(ModelMaterial::RedChannel, true)
                 .is_err()
         );
         primary_part.prepare_red_materials(&mut surfaces)?;
@@ -2926,10 +3040,9 @@ mod tests {
         assert_eq!(surfaces.len(), count + 2); // No red constant-outline recipe.
         assert!(alternate_part.red_materials.is_empty());
         assert!(alternate_part.red_depth_materials.is_empty());
-        let red =
-            primary_part.appearance_materials(None, ModelMaterial::RedChannel, true)?[0].clone();
+        let red = primary_part.appearance_materials(ModelMaterial::RedChannel, true)?[0].clone();
         let red_depth =
-            primary_part.appearance_materials(None, ModelMaterial::RedChannel, false)?[0].clone();
+            primary_part.appearance_materials(ModelMaterial::RedChannel, false)?[0].clone();
         let warmed: Vec<_> = primary_part.warm_materials().flatten().cloned().collect();
         assert_eq!(
             warmed,
@@ -2973,12 +3086,11 @@ mod tests {
                 material,
                 true,
                 [150., 300., 200.],
-                None,
                 depth,
                 &mut surfaces,
             )?;
             primary_part.expression(&channels, [2, 3, 0, 0], material, depth, &mut surfaces)?;
-            let handle = &primary_part.appearance_materials(None, material, depth)?[0];
+            let handle = &primary_part.appearance_materials(material, depth)?[0];
             let surface = surfaces.get(handle).unwrap();
             assert_eq!(surface.red_channel, material == ModelMaterial::RedChannel);
             assert_eq!(surface.ambient_scale, Vec3::splat(f32::from(rgb) / 64.));
@@ -2992,7 +3104,6 @@ mod tests {
             ModelMaterial::RedChannel,
             true,
             [150., 300., 200.],
-            None,
             false,
             &mut surfaces,
         )?;
@@ -3011,15 +3122,13 @@ mod tests {
         let mut weapon = part(weapon_handle.clone(), false)?;
         weapon.prepare_red_materials(&mut surfaces)?;
         assert_eq!(weapon.warm_materials().count(), 1);
-        let stone_weapon =
-            weapon.appearance_materials(None, ModelMaterial::RedChannel, true)?[0].clone();
+        let stone_weapon = weapon.appearance_materials(ModelMaterial::RedChannel, true)?[0].clone();
         weapon.tint(
             [64, 64, 64, 101],
             None,
             ModelMaterial::RedChannel,
             false,
             [150., 300., 200.],
-            None,
             true,
             &mut surfaces,
         )?;
@@ -3032,79 +3141,6 @@ mod tests {
         assert_eq!(surface.tint, Vec4::new(1., 1., 1., 101. / 255.));
         assert!(!surfaces.get(&weapon_handle).unwrap().red_channel);
 
-        // Unused model instances share warm material templates. Only the
-        // selected style is copied before an instance changes tint or UVs.
-        let style = ModelStyle {
-            lit: false,
-            blend: Blend::Subtractive,
-            depth_test: true,
-            depth_write: false,
-            cull_back: true,
-        };
-        let other_style = ModelStyle {
-            blend: Blend::Additive,
-            ..style
-        };
-        let template = surfaces.add(TitleSurface {
-            blend: Some(style.blend),
-            ..Default::default()
-        });
-        let mut prototype = part(template.clone(), false)?;
-        prototype.variants.insert(style, vec![template.clone()]);
-        prototype
-            .variants
-            .insert(other_style, vec![weapon_handle.clone()]);
-        prototype.shared_variants.extend([style, other_style]);
-        let material_count = surfaces.len();
-        let mut instances = (0..resonance_battle::MAX_PARTICLES)
-            .map(|_| {
-                let mut instance = part(template.clone(), false)?;
-                instance.share_effect_materials(&prototype);
-                Ok(instance)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        assert_eq!(surfaces.len(), material_count);
-        for (index, instance) in instances.iter_mut().take(2).enumerate() {
-            instance.own_effect_materials(style, &mut surfaces)?;
-            instance.own_effect_materials(style, &mut surfaces)?;
-            instance.tint(
-                [64, 64, 64, 64 + index as u8],
-                None,
-                ModelMaterial::Normal,
-                false,
-                [0.; 3],
-                Some(style),
-                false,
-                &mut surfaces,
-            )?;
-            instance.scroll_uv(
-                Some(style),
-                ModelMaterial::Normal,
-                false,
-                None,
-                [index as f32, 0.],
-                &mut surfaces,
-            )?;
-        }
-        assert_eq!(surfaces.len(), material_count + 2);
-        let first = surfaces.get(&instances[0].variants[&style][0]).unwrap();
-        let second = surfaces.get(&instances[1].variants[&style][0]).unwrap();
-        assert_ne!(first.tint, second.tint);
-        assert_ne!(first.uv_offsets, second.uv_offsets);
-        assert_eq!(surfaces.get(&template).unwrap().tint, Vec4::ONE);
-        assert_eq!(surfaces.get(&template).unwrap().uv_offsets, Vec4::ZERO);
-        assert!(
-            instances[2..]
-                .iter()
-                .all(|instance| instance.variants[&style] == [template.clone()])
-        );
-        assert!(
-            instances
-                .iter()
-                .all(|instance| instance.variants[&other_style] == [weapon_handle.clone()])
-        );
-        prototype.own_effect_materials(style, &mut surfaces)?;
-        assert_ne!(prototype.variants[&style][0], template);
         Ok(())
     }
 }

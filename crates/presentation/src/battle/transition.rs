@@ -12,7 +12,6 @@ use bevy::{
         render_resource::{PipelineCache, TextureFormat},
         renderer::{RenderDevice, RenderQueue},
     },
-    sprite_render::AlphaMode2d,
 };
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
@@ -51,12 +50,21 @@ pub(super) struct State {
     mesh: Handle<Mesh>,
     pieces: Vec<Piece>,
     size: Vec2,
-    color: Color,
-    age: u16,
+    age: Option<u16>,
+    mesh_age: Option<u16>,
     activated: bool,
+    crack_color: Color,
 }
 
 impl State {
+    pub(super) fn diagnostic(&self) -> serde_json::Value {
+        serde_json::json!({
+            "age": self.age,
+            "captured": self.capture.ready(),
+            "activated": self.activated,
+        })
+    }
+
     pub(super) fn ready(&self) -> Result<bool> {
         let warmup = self.warmup.0.lock().unwrap();
         if let Some(error) = &warmup.error {
@@ -99,7 +107,15 @@ fn rendered(
     );
 }
 
-pub(super) fn begin(world: &mut World, white: bool, seed: u64) -> Result<()> {
+fn crack_color(formations: usize) -> Color {
+    match formations {
+        0 | 1 => Color::WHITE,
+        2 => Color::linear_rgb(1., 0.5, 0.),
+        _ => Color::linear_rgb(1., 0., 0.),
+    }
+}
+
+pub(super) fn begin(world: &mut World, seed: u64, formations: usize) -> Result<()> {
     let source = world.resource::<crate::display::Targets>().source.clone();
     let descriptor = world
         .resource::<Assets<Image>>()
@@ -107,11 +123,20 @@ pub(super) fn begin(world: &mut World, white: bool, seed: u64) -> Result<()> {
         .context("battle transition lost its outgoing image")?
         .texture_descriptor
         .size;
-    let capture_camera = world
-        .query_filtered::<Entity, With<crate::FieldOverlayCamera>>()
+    let (capture_camera, camera_active) = world
+        .query_filtered::<(Entity, &Camera), With<crate::FieldCamera>>()
         .iter(world)
         .next()
+        .map(|(entity, camera)| (entity, camera.is_active))
         .context("battle transition lost its outgoing camera")?;
+    let field = world.resource::<crate::new_game::Session>().events();
+    debug!(
+        target: "resonance_presentation::battle_entry",
+        field_tick = field.tick(),
+        fade_alpha = field.world.fade.as_ref().map(|fade| fade.alpha(field.tick())),
+        camera_active,
+        "Battle transition captures the field before UI and fades"
+    );
     let mut image = Image::new_target_texture(
         descriptor.width,
         descriptor.height,
@@ -121,19 +146,17 @@ pub(super) fn begin(world: &mut World, white: bool, seed: u64) -> Result<()> {
     image.sampler = ImageSampler::linear();
     let image = world.resource_mut::<Assets<Image>>().add(image);
     let capture = crate::menu_backdrop::Capture::once(source.clone(), image.clone());
-    world.entity_mut(capture_camera).insert(capture.clone());
+    world
+        .entity_mut(capture_camera)
+        .insert(crate::menu_backdrop::SceneCapture(capture.clone()));
     let size = world.resource::<crate::display::Display>().0.ui_size();
     let pieces = pieces(seed);
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
-        .add(mesh(&pieces, size, 0));
+        .add(mesh(&pieces, size, None));
     let material = world
-        .resource_mut::<Assets<ColorMaterial>>()
-        .add(ColorMaterial {
-            texture: Some(image),
-            alpha_mode: AlphaMode2d::Blend,
-            ..default()
-        });
+        .resource_mut::<Assets<crate::menu_backdrop::Material>>()
+        .add(crate::menu_backdrop::Material::visible(image));
     let entity = world
         .spawn((
             Mesh2d(mesh.clone()),
@@ -160,6 +183,7 @@ pub(super) fn begin(world: &mut World, white: bool, seed: u64) -> Result<()> {
             Camera {
                 order: -2,
                 clear_color: ClearColorConfig::None,
+                output_mode: crate::renderer::COMPOSITED_OUTPUT,
                 ..default()
             },
             RenderTarget::Image(warm_target.into()),
@@ -183,9 +207,10 @@ pub(super) fn begin(world: &mut World, white: bool, seed: u64) -> Result<()> {
         mesh,
         pieces,
         size,
-        color: if white { Color::WHITE } else { Color::BLACK },
-        age: 0,
+        age: None,
+        mesh_age: None,
         activated: false,
+        crack_color: crack_color(formations),
     });
     Ok(())
 }
@@ -194,27 +219,48 @@ pub(super) fn dispose(world: &mut World) {
     if let Some(state) = world.remove_resource::<State>() {
         state.warmup.0.lock().unwrap().armed = false;
         if let Ok(mut camera) = world.get_entity_mut(state.capture_camera) {
-            camera.remove::<crate::menu_backdrop::Capture>();
+            camera.remove::<crate::menu_backdrop::SceneCapture>();
         }
         world.despawn(state.entity);
         world.despawn(state.camera);
     }
 }
 
-fn advance(state: Option<ResMut<State>>) {
+fn advance(
+    state: Option<ResMut<State>>,
+    owner: Option<Res<Owner>>,
+    audio: Option<Res<crate::field_audio::Control>>,
+    mut exit: MessageWriter<AppExit>,
+) {
     if let Some(mut state) = state
-        && state.ready().unwrap_or(false)
+        && let Some(age) = state.age
     {
-        state.age = state.age.saturating_add(1).min(END_TICK);
+        // Show the cracks during preparation, but only uncover a ready battle.
+        if age >= HOLD_TICKS && !owner.as_ref().is_some_and(|owner| owner.presenting()) {
+            return;
+        }
+        if age == HOLD_TICKS
+            && let Some(audio) = audio
+            && let Err(error) = audio.battle_entry()
+        {
+            error!("Battle entry sound failed: {error:#}");
+            exit.write(AppExit::error());
+        }
+        state.age = Some(age.saturating_add(1).min(END_TICK));
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bevy injects each independently accessed resource and query as a system parameter."
+)]
 fn render(
     mut commands: Commands,
     state: Option<ResMut<State>>,
     owner: Option<Res<Owner>>,
     display: Res<crate::display::Display>,
     mut cameras: Query<&mut Camera>,
+    field_cameras: Query<Entity, crate::FieldCameraFilter>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -232,9 +278,9 @@ fn render(
     }
     commands
         .entity(state.capture_camera)
-        .remove::<crate::menu_backdrop::Capture>();
+        .remove::<crate::menu_backdrop::SceneCapture>();
     let battle_visible = owner.as_ref().is_some_and(|owner| owner.presenting());
-    if battle_visible && state.age == END_TICK {
+    if battle_visible && state.age == Some(END_TICK) {
         state.warmup.0.lock().unwrap().armed = false;
         commands.entity(state.entity).despawn();
         commands.entity(state.camera).despawn();
@@ -247,17 +293,34 @@ fn render(
             RenderTarget::Image(state.target.clone().into()),
             overlay_projection(display.0),
         ));
+        // The GPU copy now owns the outgoing image; the field no longer needs
+        // to render while the battle warms behind the shatter.
+        for entity in &field_cameras {
+            if let Ok(mut camera) = cameras.get_mut(entity) {
+                camera.is_active = false;
+            }
+        }
         state.activated = true;
+        state.age = Some(0);
+        debug!(
+            target: "resonance_presentation::battle_entry",
+            age = ?state.age,
+            "Battle transition retained field image"
+        );
     }
     if let Ok(mut camera) = cameras.get_mut(state.camera) {
-        camera.clear_color = if battle_visible {
-            ClearColorConfig::None
+        camera.clear_color = if state.age.is_some_and(|age| age <= HOLD_TICKS) {
+            // Only the narrow cracks expose this backing; motion reveals battle.
+            ClearColorConfig::Custom(state.crack_color)
         } else {
-            ClearColorConfig::Custom(state.color)
+            ClearColorConfig::None
         };
     }
-    if let Some(mut target) = meshes.get_mut(&state.mesh) {
+    if state.age != state.mesh_age
+        && let Some(mut target) = meshes.get_mut(&state.mesh)
+    {
         *target = mesh(&state.pieces, state.size, state.age);
+        state.mesh_age = state.age;
     }
 }
 
@@ -309,18 +372,18 @@ fn pieces(seed: u64) -> Vec<Piece> {
     result
 }
 
-fn mesh(pieces: &[Piece], size: Vec2, age: u16) -> Mesh {
-    let motion = age.saturating_sub(HOLD_TICKS) as f32;
-    let alpha = if age >= END_TICK {
+fn mesh(pieces: &[Piece], size: Vec2, age: Option<u16>) -> Mesh {
+    let motion = age.unwrap_or_default().saturating_sub(HOLD_TICKS) as f32;
+    let alpha = if age.is_some_and(|age| age >= END_TICK) {
         0.
     } else {
-        1. - age.saturating_sub(FADE_START) as f32 * FADE_STEP
+        1. - age.unwrap_or_default().saturating_sub(FADE_START) as f32 * FADE_STEP
     };
     let mut positions = Vec::with_capacity(pieces.len() * 3);
     let mut uv = Vec::with_capacity(positions.capacity());
     for piece in pieces {
         let center = (piece.center - Vec2::splat(0.5)) * size;
-        let center = center * CRACK_SPREAD;
+        let center = center * if age.is_some() { CRACK_SPREAD } else { 1. };
         let offset = center / (size * 0.5) * EDGE_SPEED * motion;
         let angle = piece.spin * motion;
         let rotation = Mat2::from_angle(angle * ROLL_MULTIPLIER);
@@ -348,7 +411,10 @@ mod tests {
     use bevy::mesh::VertexAttributeValues;
 
     #[test]
-    fn fragments_hold_then_tumble_and_finish_transparent() {
+    fn captured_image_cracks_then_holds_before_motion() {
+        assert_eq!(crack_color(1), Color::WHITE);
+        assert_eq!(crack_color(2), Color::linear_rgb(1., 0.5, 0.));
+        assert_eq!(crack_color(3), crack_color(10));
         let pieces = pieces(7);
         let area: f32 = pieces
             .iter()
@@ -358,9 +424,23 @@ mod tests {
             })
             .sum();
         assert!((area - 1.).abs() < 0.00001);
-        let held = mesh(&pieces, Vec2::new(640., 480.), 0);
-        let before = mesh(&pieces, Vec2::new(640., 480.), HOLD_TICKS);
-        let moving = mesh(&pieces, Vec2::new(640., 480.), HOLD_TICKS + 1);
+        let preparing = mesh(&pieces, Vec2::new(640., 480.), None);
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            preparing.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("fragment positions");
+        };
+        for (position, corner) in positions.iter().zip(pieces.iter().flat_map(|p| p.corners)) {
+            let expected = (corner - Vec2::splat(0.5)) * Vec2::new(640., -480.);
+            assert!(Vec2::new(position[0], position[1]).distance(expected) < 0.0001);
+        }
+        let held = mesh(&pieces, Vec2::new(640., 480.), Some(0));
+        assert_ne!(
+            preparing.attribute(Mesh::ATTRIBUTE_POSITION),
+            held.attribute(Mesh::ATTRIBUTE_POSITION)
+        );
+        let before = mesh(&pieces, Vec2::new(640., 480.), Some(HOLD_TICKS));
+        let moving = mesh(&pieces, Vec2::new(640., 480.), Some(HOLD_TICKS + 1));
         assert_eq!(
             held.attribute(Mesh::ATTRIBUTE_POSITION),
             before.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -369,7 +449,7 @@ mod tests {
             held.attribute(Mesh::ATTRIBUTE_POSITION),
             moving.attribute(Mesh::ATTRIBUTE_POSITION)
         );
-        let end = mesh(&pieces, Vec2::new(640., 480.), END_TICK);
+        let end = mesh(&pieces, Vec2::new(640., 480.), Some(END_TICK));
         let Some(VertexAttributeValues::Float32x4(colors)) = end.attribute(Mesh::ATTRIBUTE_COLOR)
         else {
             panic!("fragment colors");

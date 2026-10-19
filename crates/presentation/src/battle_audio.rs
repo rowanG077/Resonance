@@ -160,6 +160,37 @@ enum Handoff {
 static NEXT_COMMAND_ID: AtomicU64 = AtomicU64::new(1);
 
 impl Control {
+    pub(crate) fn battle_entry(&self) -> Result<()> {
+        let index = resonance_content::field_audio::ServiceCue::BattleEntry as i16;
+        self.diagnostics.attempt(
+            "battle entry sound",
+            (|| {
+                if self.in_field {
+                    self.send(AudioCommand::Sound {
+                        id: index,
+                        pan: 64,
+                        volume: 127,
+                        slot: None,
+                    })
+                } else {
+                    self.enqueue_battle(Command::Sound {
+                        category: EffectCategory::Battle,
+                        binding: Sound::Cue(index as u16),
+                        score: self
+                            .assets
+                            .sounds
+                            .get(&index)
+                            .context("battle entry sound was not prepared with the field")?
+                            .clone(),
+                        x: None,
+                        priority: 1,
+                    })
+                }
+            })(),
+        )?;
+        Ok(())
+    }
+
     fn enqueue_battle(&self, command: Command) -> Result<()> {
         let command_id = NEXT_COMMAND_ID.fetch_add(1, Ordering::Relaxed);
         debug!(
@@ -653,7 +684,18 @@ impl Frames {
                     stereo: self.stereo,
                     reverb: self.studio.music_reverb(),
                 };
-                self.sounds.clear();
+                let effects = self
+                    .sounds
+                    .drain(..)
+                    .filter_map(|mut sound| {
+                        (sound.cue
+                            == Some(resonance_content::field_audio::ServiceCue::BattleEntry as i16))
+                        .then(|| {
+                            sound.volume *= f32::from(self.levels[1]) / 127.;
+                            sound
+                        })
+                    })
+                    .collect();
                 self.stop_voice()?;
                 self.assets = assets.mixer.clone();
                 self.levels = [settings.music, 127, 127];
@@ -662,7 +704,7 @@ impl Frames {
                     assets,
                     field,
                     settings,
-                    effects: vec![],
+                    effects,
                     voices: vec![],
                     stop_music: false,
                     voice_streams_paused: false,
@@ -753,7 +795,7 @@ impl Frames {
                 let mut player = ScorePlayer::new(score, false, &self.synth)?;
                 player.controls.pan = Some(pan);
                 // Battle importance is lower-first; native allocation is higher-first.
-                // System feedback occupies the next priority tier, with no reserved slots.
+                // System feedback takes precedence within the sound-effect budget.
                 player.controls.priority = Some(match category {
                     EffectCategory::Battle => u16::from(u8::MAX - priority),
                     EffectCategory::System => u16::from(u8::MAX) + 1,
@@ -1826,24 +1868,45 @@ mod tests {
 
     #[test]
     fn battle_handoff_uses_existing_decoder_and_restores_field_settings() -> Result<()> {
-        let (source, mut control) = Arc::new(mixer()).session();
+        let mut field_assets = mixer();
+        let entry = resonance_content::field_audio::ServiceCue::BattleEntry as i16;
+        field_assets.sounds.insert(entry, test_score());
+        field_assets.sounds.insert(1, test_score());
+        let (source, mut control) = Arc::new(field_assets).session();
         control.levels([33, 44, 55])?;
         let mut frames = source.decoder();
         frames.frame()?;
         let field = frames.assets.clone();
+        control.battle_entry()?;
+        control.send(AudioCommand::Sound {
+            id: 1,
+            pan: 64,
+            volume: 127,
+            slot: None,
+        })?;
+        frames.frame()?;
+        assert_eq!(frames.sounds.len(), 2);
         let mut playback = Playback::begin(&mut control, assets(), settings(), None)?;
         frames.frame()?;
         assert_eq!(frames.levels, [91, 127, 127]);
         assert!(!frames.stereo);
         assert!(frames.battle.is_some());
         assert!(!Arc::ptr_eq(&frames.assets, &field));
+        assert!(frames.sounds.is_empty());
+        let retained = &frames.battle.as_ref().unwrap().effects;
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].cue, Some(entry));
+        assert_eq!(retained[0].volume, 44. / 127.);
+        control.battle_entry()?;
+        frames.frame()?;
+        assert_eq!(frames.battle.as_ref().unwrap().effects.len(), 2);
         assert!(playback.finish(&mut control, true)?);
         frames.frame()?;
         assert!(frames.battle.is_none());
         assert!(Arc::ptr_eq(&frames.assets, &field));
         assert_eq!(frames.levels, [33, 44, 55]);
         assert!(frames.stereo);
-        assert_eq!(control.rendered_frames(), 3);
+        assert_eq!(control.rendered_frames(), 5);
         Ok(())
     }
     #[test]
@@ -1884,7 +1947,7 @@ mod tests {
     fn battle_effects_share_voice_allocation_and_keep_system_feedback_audible() -> Result<()> {
         use resonance_audio::{
             data::{Command as Macro, EventKind, ScoreOrigin, VoiceSource},
-            sequence::VOICE_BUDGET,
+            sequence::SOUND_EFFECT_VOICE_BUDGET,
         };
         const SOURCE_FRAMES: usize = 3 * BLOCK_FRAMES;
         let release_end = SOURCE_FRAMES + resonance_audio::RELEASE_FRAMES as usize;
@@ -1902,7 +1965,7 @@ mod tests {
                 unreachable!()
             };
             *source = VoiceSource::SoundEffect { id };
-            voices[0].max_voices = VOICE_BUDGET as u8;
+            voices[0].max_voices = SOUND_EFFECT_VOICE_BUDGET as u8;
             Ok(Arc::new(Loaded::new(resources, score, tables, reverbs)?))
         };
         let quiet = score(1, 8, false)?;
@@ -1922,7 +1985,7 @@ mod tests {
         };
         // All requests arrive before the first control pass. Important system feedback
         // must still enter a full pool of not-yet-initialized combat voices.
-        for index in 0..VOICE_BUDGET {
+        for index in 0..SOUND_EFFECT_VOICE_BUDGET {
             frames.apply_battle_command(sound(
                 &quiet,
                 EffectCategory::Battle,
@@ -1943,7 +2006,7 @@ mod tests {
         for frame in 0..release_end + 2 * BLOCK_FRAMES {
             if frame == BLOCK_FRAMES {
                 // Higher combat importance can replace combat voices, but not system feedback.
-                for _ in 0..VOICE_BUDGET {
+                for _ in 0..SOUND_EFFECT_VOICE_BUDGET {
                     frames.apply_battle_command(sound(
                         &stronger,
                         EffectCategory::Battle,
@@ -1954,10 +2017,13 @@ mod tests {
             }
             pcm.push(frames.frame()?.unwrap()[0]);
             if frame == 2 * BLOCK_FRAMES {
-                assert_eq!(frames.battle.as_ref().unwrap().effects.len(), VOICE_BUDGET);
+                assert_eq!(
+                    frames.battle.as_ref().unwrap().effects.len(),
+                    SOUND_EFFECT_VOICE_BUDGET
+                );
             }
         }
-        let combat_only_ceiling = (2 * VOICE_BUDGET * 16) as f32 / 32768.;
+        let combat_only_ceiling = (2 * SOUND_EFFECT_VOICE_BUDGET * 16) as f32 / 32768.;
         assert!(pcm[0] > combat_only_ceiling && pcm[2 * BLOCK_FRAMES] > combat_only_ceiling);
         assert!(
             pcm[SOURCE_FRAMES] > combat_only_ceiling,
@@ -1972,12 +2038,12 @@ mod tests {
                 .all(|&value| value == pcm[release_end])
         );
         assert!(
-            pcm[release_end] > (VOICE_BUDGET * 8) as f32 / 32768.,
+            pcm[release_end] > (SOUND_EFFECT_VOICE_BUDGET * 8) as f32 / 32768.,
             "higher combat importance did not replace weaker voices"
         );
         assert_eq!(
             frames.battle.as_ref().unwrap().effects.len(),
-            VOICE_BUDGET - 1,
+            SOUND_EFFECT_VOICE_BUDGET - 1,
             "finished and rejected programs retained persistent players"
         );
         assert!(frames.sounds.is_empty());

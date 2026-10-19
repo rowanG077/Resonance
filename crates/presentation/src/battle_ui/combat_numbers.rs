@@ -14,11 +14,14 @@ const RECOVERY_LIFETIME: u32 = RECOVERY_HOLD + FADE_DURATION;
 #[derive(Default)]
 pub(super) struct Numbers {
     pub(super) actors: Vec<ActorNumbers>,
+    pub(super) presentation_tick: u64,
 }
 
 #[derive(Default)]
 pub(super) struct ActorNumbers {
     pub(super) trails: [i16; 2],
+    pub(super) vitals: Option<[i32; 2]>,
+    previous_vitals: [i32; 2],
     floating: Vec<FloatingNumber>,
     next_slot: usize,
     recovery: [Option<RecoveryNumber>; 2],
@@ -46,6 +49,27 @@ struct RecoveryNumber {
 }
 
 impl ActorNumbers {
+    fn advance_vitals(&mut self, current: [i32; 2]) {
+        // A contact or recovery appears before its counter starts changing.
+        let target = if self.vitals.is_some() {
+            self.previous_vitals
+        } else {
+            current
+        };
+        self.previous_vitals = current;
+        let displayed = self.vitals.get_or_insert(current);
+        for (row, (value, target)) in displayed.iter_mut().zip(target).enumerate() {
+            // Large changes count quickly, then settle one unit at a time.
+            let steps: &[i32] = if row == 0 { &[100, 10, 1] } else { &[10, 1] };
+            for &step in steps {
+                let difference = target - *value;
+                if difference.abs() > step || step == 1 {
+                    *value += difference.signum() * step;
+                }
+            }
+        }
+    }
+
     fn advance(&mut self, current: [i16; 2], elapsed: u32) {
         for (trail, value) in self.trails.iter_mut().zip(current) {
             *trail = trail.saturating_sub(elapsed.min(100) as i16).max(value);
@@ -80,8 +104,17 @@ impl ActorNumbers {
         });
     }
 
-    fn recover(&mut self, kind: RecoveryKind, value: i32, origin: [f32; 3], side: Side) {
-        self.float(value, NumberStyle::Recovery(kind), origin);
+    fn recover(
+        &mut self,
+        kind: RecoveryKind,
+        value: i32,
+        origin: [f32; 3],
+        side: Side,
+        floating: bool,
+    ) {
+        if floating {
+            self.float(value, NumberStyle::Recovery(kind), origin);
+        }
         if side != Side::Party {
             return;
         }
@@ -95,9 +128,12 @@ impl ActorNumbers {
 
 impl Numbers {
     pub(super) fn advance(&mut self, frame: &BattleFrame, elapsed: u32) {
+        self.presentation_tick += 1;
         self.actors
             .resize_with(frame.actors.len(), ActorNumbers::default);
         for (numbers, actor) in self.actors.iter_mut().zip(&frame.actors) {
+            // The displayed counters continue settling while menus hold combat.
+            numbers.advance_vitals([actor.hp, i32::from(actor.tp)]);
             numbers.advance([actor.hp_percent(), actor.tp_percent()], elapsed);
         }
         for cue in &frame.cues {
@@ -128,16 +164,21 @@ impl Numbers {
                 }
                 Cue::Recovered {
                     actor,
+                    floating,
                     kind,
                     nominal,
                     ..
-                } => {
+                } if !frame.cues.iter().any(
+                    |cue| matches!(cue, Cue::Rescued { actor: rescued, .. } if *rescued == actor),
+                ) =>
+                {
                     let recipient = &frame.actors[actor.index()];
                     self.actors[actor.index()].recover(
                         kind,
                         nominal,
                         recipient.effect_origin(),
                         recipient.side,
+                        floating,
                     );
                 }
                 _ => {}
@@ -299,8 +340,8 @@ mod tests {
     #[test]
     fn recovery_accumulates_until_expiry_and_trails_follow_vitals() {
         let mut numbers = ActorNumbers::default();
-        numbers.recover(RecoveryKind::Hp, 12, [10., 80., 0.], Side::Party);
-        numbers.recover(RecoveryKind::Hp, 7, [20., 80., 0.], Side::Party);
+        numbers.recover(RecoveryKind::Hp, 12, [10., 80., 0.], Side::Party, true);
+        numbers.recover(RecoveryKind::Hp, 7, [20., 80., 0.], Side::Party, true);
         numbers.advance([100, 80], 0);
         assert_eq!(numbers.recovery[0].as_ref().unwrap().value, 19);
         assert_eq!(
@@ -318,9 +359,9 @@ mod tests {
         assert_eq!(numbers.trails, [40, 30]);
         assert!(numbers.recovery[0].is_none());
         assert!(numbers.floating.is_empty());
-        numbers.recover(RecoveryKind::Hp, 5, [0.; 3], Side::Party);
+        numbers.recover(RecoveryKind::Hp, 5, [0.; 3], Side::Party, true);
         assert_eq!(numbers.recovery[0].as_ref().unwrap().value, 5);
-        numbers.recover(RecoveryKind::Tp, 0, [0.; 3], Side::Enemy);
+        numbers.recover(RecoveryKind::Tp, 0, [0.; 3], Side::Enemy, true);
         assert!(numbers.recovery[1].is_none());
         let number = numbers.floating.last().unwrap();
         assert_eq!(number.value, 0);
@@ -328,5 +369,30 @@ mod tests {
             number.style,
             NumberStyle::Recovery(RecoveryKind::Tp)
         ));
+
+        let mut actor = super::super::fixtures::actor(Default::default());
+        actor.tp = 100;
+        let mut frame = super::super::fixtures::frame(actor);
+        let mut numbers = Numbers::default();
+        numbers.advance(&frame, 1);
+        assert_eq!(numbers.actors[0].vitals, Some([800, 100]));
+        frame.actors[0].hp = 543;
+        frame.actors[0].tp = 66;
+        // Menu pause holds feedback lifetimes but permits the counters to settle.
+        numbers.advance(&frame, 0);
+        assert_eq!(numbers.actors[0].vitals, Some([800, 100]));
+        numbers.advance(&frame, 0);
+        assert_eq!(numbers.actors[0].vitals, Some([689, 89]));
+        assert_eq!(numbers.presentation_tick, 3);
+        for _ in 0..30 {
+            numbers.advance(&frame, 0);
+        }
+        assert_eq!(numbers.actors[0].vitals, Some([543, 66]));
+        frame.actors[0].hp = 800;
+        frame.actors[0].tp = 100;
+        numbers.advance(&frame, 0);
+        assert_eq!(numbers.actors[0].vitals, Some([543, 66]));
+        numbers.advance(&frame, 0);
+        assert_eq!(numbers.actors[0].vitals, Some([654, 77]));
     }
 }

@@ -193,6 +193,10 @@ fn strip(batch: &mut Batch, rect: [f32; 4], mut colors: [[u8; 4]; 4], opacity: u
     party::slanted_quad(batch, rect, [0.5; 4], 6., colors);
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Glyph dimensions, slant, colors, and opacity are independent drawing attributes."
+)]
 fn italic(
     batch: &mut Batch,
     font: &BitmapFont,

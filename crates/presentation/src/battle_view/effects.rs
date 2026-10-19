@@ -18,14 +18,13 @@ use bevy::{
 };
 use resonance_battle::{BattleFrame, MAX_PARTICLES, ParticleFrame};
 use resonance_content::{
-    TextureBinding,
+    TextureBinding, TextureWrap,
     battle_effect::EffectTexture as Texture,
     battle_effect::{
         declaration::Declaration,
         visual::{ModelVisual, ParticleVisual},
     },
     diagnostics::Diagnostics,
-    texture::Filter,
 };
 use resonance_game::battle::encounter::{RenderEffect, WingAccessory};
 use std::collections::{BTreeMap, BTreeSet};
@@ -51,6 +50,7 @@ struct MaterialKey {
     blend: u8,
     depth_test: bool,
     depth_write: bool,
+    clip_below_floor: bool,
     cull_back: bool,
 }
 
@@ -84,6 +84,7 @@ impl MaterialKey {
         alpha: Option<usize>,
         cull_back: bool,
         blend: Option<u8>,
+        clip_below_floor: bool,
     ) -> Self {
         Self {
             resource,
@@ -93,6 +94,7 @@ impl MaterialKey {
             blend: blend.unwrap_or(visual.blend),
             depth_test: visual.depth_test,
             depth_write: visual.depth_write,
+            clip_below_floor,
             cull_back,
         }
     }
@@ -109,6 +111,9 @@ pub(super) struct Effects {
     materials: BTreeMap<MaterialKey, Handle<TitleSurface>>,
     warm: Vec<Entity>,
     draws: Vec<Draw>,
+    // Scene-sampling triangles stay on the CPU instead of being uploaded as a draw.
+    sample_mesh: Mesh,
+    vertices: geometry::Vertices,
     wing_resource: Option<u32>,
     prepared: bool,
 }
@@ -290,6 +295,8 @@ impl Effects {
             materials: BTreeMap::new(),
             warm: Vec::new(),
             draws: Vec::new(),
+            sample_mesh: warm_mesh(),
+            vertices: geometry::Vertices::default(),
             wing_resource: wings.map(|wings| wings.resource),
             prepared: false,
         })
@@ -352,7 +359,17 @@ impl Effects {
                 }
                 let t = &self.banks[&key.resource].textures[&key.slot][index];
                 sampled_image(
-                    Some((t.images[&page].clone(), binding(&t.spec))),
+                    Some((
+                        t.images[&page].clone(),
+                        // Particle atlases clamp even when the shared image requests tiling.
+                        TextureBinding {
+                            texture: 0,
+                            wrap_u: TextureWrap::Clamp,
+                            wrap_v: TextureWrap::Clamp,
+                            nearest_min: false,
+                            nearest_mag: false,
+                        },
+                    )),
                     images,
                     sampled,
                 )
@@ -366,6 +383,7 @@ impl Effects {
                 blend: Some(Blend::try_from(i32::from(key.blend)).map_err(anyhow::Error::msg)?),
                 depth_test: key.depth_test,
                 depth_write: key.depth_write,
+                clip_below_floor: key.clip_below_floor,
                 depth_equal: true,
                 cull: if key.cull_back {
                     resonance_content::CullFace::Back
@@ -416,6 +434,11 @@ impl Effects {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        clippy::type_complexity,
+        reason = "Keep sampled scene inputs separate from render resources and commands."
+    )]
     pub fn apply(
         &mut self,
         (frame, actor_shadows): (&BattleFrame, &[([f32; 3], f32, [u8; 4])]),
@@ -465,67 +488,82 @@ impl Effects {
                         Ok(Mat4::from_cols_array_2d(&model.world) * Mat4::from_cols_array_2d(bone))
                     })
                     .transpose()?;
-                let mesh = if let Some(group) = particle.state.effect_group {
-                    let model = frame
-                        .models
-                        .iter()
-                        .find(|model| model.actor == particle.owner)
-                        .context("missing particle group owner")?;
-                    if !model.visible {
-                        return Ok(());
-                    }
-                    let bones = models
-                        .get(&model.resource)
-                        .and_then(|model| model.effect_groups.get(usize::from(group)))
-                        .context("unprepared particle effect group")?;
-                    let world = Mat4::from_cols_array_2d(&model.world);
-                    let points = bones
-                        .iter()
-                        .map(|&index| {
+                let draw = self
+                    .draws
+                    .get(count)
+                    .context("battle particles exceeded prepared draw capacity")?;
+                let mut mesh_asset;
+                let mesh: &mut Mesh = if declaration.particle_visual()?.scene_sample.is_some() {
+                    &mut self.sample_mesh
+                } else {
+                    mesh_asset = meshes
+                        .get_mut(&draw.mesh)
+                        .context("missing prepared particle mesh")?;
+                    &mut mesh_asset
+                };
+                let visible = geometry::update_mesh(mesh, &mut self.vertices, |vertices| {
+                    if let Some(group) = particle.state.effect_group {
+                        let model = frame
+                            .models
+                            .iter()
+                            .find(|model| model.actor == particle.owner)
+                            .context("missing particle group owner")?;
+                        if !model.visible {
+                            vertices.clear();
+                            return Ok(());
+                        }
+                        let bones = models
+                            .get(&model.resource)
+                            .and_then(|model| model.effect_groups.get(usize::from(group)))
+                            .context("unprepared particle effect group")?;
+                        let world = Mat4::from_cols_array_2d(&model.world);
+                        let points = bones.iter().map(|&index| {
                             let bone = model
                                 .bones
                                 .get(index)
                                 .context("missing particle group bone")?;
                             Ok((world * Mat4::from_cols_array_2d(bone))
                                 .transform_point3(Vec3::ZERO))
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                    geometry::group_mesh(
-                        &particle.state,
-                        particle.heading,
-                        declaration,
-                        size,
-                        camera,
-                        &points,
-                    )?
-                } else {
-                    geometry::mesh(particle, declaration, size, camera, bone_world)?
-                };
-                let Some(mesh) = mesh else {
+                        });
+                        geometry::group(
+                            vertices,
+                            &particle.state,
+                            particle.heading,
+                            declaration,
+                            size,
+                            camera,
+                            points,
+                        )?;
+                    } else {
+                        geometry::particle(
+                            vertices,
+                            particle,
+                            declaration,
+                            size,
+                            camera,
+                            bone_world,
+                        )?;
+                    }
+                    Ok(())
+                })?;
+                if !visible {
                     return Ok(());
-                };
+                }
                 if let Some(offset) = declaration.particle_visual()?.scene_sample {
                     let alpha = key.alpha.context("scene particle has no opacity palette")?;
                     let mask = bank.textures[&key.slot][1].images[&alpha].clone();
                     scene_samples.push(
-                        &mesh,
+                        mesh,
                         mask,
                         offset,
                         declaration.particle_visual()?.depth_test,
                     )?;
                     return Ok(());
                 }
-                let draw = self
-                    .draws
-                    .get_mut(count)
-                    .context("battle particles exceeded prepared draw capacity")?;
                 let surface = self
                     .materials
                     .get(&key)
                     .context("particle selected an unprepared material")?;
-                *meshes
-                    .get_mut(&draw.mesh)
-                    .context("missing prepared particle mesh")? = mesh;
                 let visual = declaration.particle_visual()?;
                 let major = actor_order.effect(particle.draw_after, visual.after_actor)?;
                 commands.entity(draw.entity).insert((
@@ -549,18 +587,21 @@ impl Effects {
         if let Some(resource) = self.wing_resource {
             let texture = &self.banks[&resource].textures[&0][0].spec;
             for (index, palette) in WingAccessory::SPARKLE_PALETTES.into_iter().enumerate() {
-                let Some(mesh) = geometry::wing_sparkles(
-                    wing_sparkles
-                        .iter()
-                        .filter(|sparkle| sparkle.palette() == palette),
-                    camera,
-                ) else {
+                let mut sparkles = wing_sparkles
+                    .iter()
+                    .filter(|sparkle| sparkle.palette() == palette)
+                    .peekable();
+                if sparkles.peek().is_none() {
                     continue;
-                };
+                }
                 let draw = &self.draws[MAX_PARTICLES + 2 + index];
-                *meshes
+                let mut mesh = meshes
                     .get_mut(&draw.mesh)
-                    .context("missing wing sparkle mesh")? = mesh;
+                    .context("missing wing sparkle mesh")?;
+                geometry::update_mesh(&mut mesh, &mut self.vertices, |vertices| {
+                    geometry::wing_sparkles(vertices, sparkles, camera);
+                    Ok(())
+                })?;
                 let key = wing_key(resource, texture.palette_image(0, palette)?);
                 let material = self
                     .materials
@@ -586,19 +627,23 @@ impl Effects {
                 )
             }));
         for additive in [false, true] {
-            let Some(mesh) = geometry::shadows(
-                shadows
-                    .clone()
-                    .filter(|s| s.3 == additive)
-                    .map(|(p, r, c, _)| (p, r, c)),
-            ) else {
+            let mut footprints = shadows
+                .clone()
+                .filter(|s| s.3 == additive)
+                .map(|(p, r, c, _)| (p, r, c))
+                .peekable();
+            if footprints.peek().is_none() {
                 continue;
-            };
-            let draw = &mut self.draws[MAX_PARTICLES + usize::from(additive)];
-            let surface = &self.materials[&shadow_key(additive)];
-            *meshes
+            }
+            let draw = &self.draws[MAX_PARTICLES + usize::from(additive)];
+            let mut mesh = meshes
                 .get_mut(&draw.mesh)
-                .context("missing prepared shadow mesh")? = mesh;
+                .context("missing prepared shadow mesh")?;
+            geometry::update_mesh(&mut mesh, &mut self.vertices, |vertices| {
+                geometry::shadows(vertices, footprints);
+                Ok(())
+            })?;
+            let surface = &self.materials[&shadow_key(additive)];
             commands.entity(draw.entity).insert((
                 MeshMaterial3d(surface.clone()),
                 Visibility::Inherited,
@@ -623,6 +668,7 @@ impl Effects {
                     None,
                     particle.state.cull_back,
                     particle.state.blend,
+                    declaration.template()?.state.effect_group.is_some(),
                 ),
                 [1; 2],
             ));
@@ -644,6 +690,7 @@ impl Effects {
                 alpha,
                 particle.state.cull_back,
                 particle.state.blend,
+                declaration.template()?.state.effect_group.is_some(),
             ),
             [page.width, page.height],
         ))
@@ -760,6 +807,7 @@ fn shadow_key(additive: bool) -> MaterialKey {
         blend: u8::from(additive),
         depth_test: true,
         depth_write: false,
+        clip_below_floor: false,
         // Cull back faces for the shadow fan.
         cull_back: true,
     }
@@ -774,28 +822,13 @@ fn wing_key(resource: u32, color: usize) -> MaterialKey {
         blend: 1,
         depth_test: true,
         depth_write: false,
+        clip_below_floor: false,
         cull_back: false,
     }
 }
 
 fn palette(texture: &Texture, index: u8, set: u8) -> Result<usize> {
     texture.palette_image(set, index)
-}
-
-fn binding(texture: &Texture) -> TextureBinding {
-    let nearest = |filter| {
-        matches!(
-            filter,
-            Filter::Nearest | Filter::NearestMipmapNearest | Filter::NearestMipmapLinear
-        )
-    };
-    TextureBinding {
-        texture: 0,
-        wrap_u: texture.sampler.wrap[0],
-        wrap_v: texture.sampler.wrap[1],
-        nearest_min: nearest(texture.sampler.min_filter),
-        nearest_mag: nearest(texture.sampler.mag_filter),
-    }
 }
 
 fn spawn(commands: &mut Commands, mesh: Handle<Mesh>, surface: Handle<TitleSurface>) -> Entity {
@@ -864,6 +897,7 @@ fn material_keys(resource: u32, bank: &Bank) -> Result<BTreeSet<MaterialKey>> {
                         alpha,
                         cull,
                         Some(blend),
+                        declaration.template()?.state.effect_group.is_some(),
                     ));
                 }
             }
@@ -876,10 +910,9 @@ fn material_keys(resource: u32, bank: &Bank) -> Result<BTreeSet<MaterialKey>> {
 mod tests {
     use super::*;
     use resonance_content::{
-        TextureWrap,
         battle_effect::visual::{ParticleShape, ParticleTexture},
         font::UiTexture,
-        texture::{Sampler, TextureLod},
+        texture::{Filter, Sampler, TextureLod},
     };
 
     fn masked_particle() -> Declaration {
@@ -1044,7 +1077,8 @@ mod tests {
                     color,
                     Some(1),
                     cull,
-                    blend
+                    blend,
+                    declaration.template().unwrap().state.effect_group.is_some(),
                 )));
             }
         }
@@ -1075,6 +1109,7 @@ mod tests {
                 slot: 0,
                 animation: None,
                 repeat: false,
+                reverse_at: None,
                 program_animation: false,
                 attachment: None,
             },

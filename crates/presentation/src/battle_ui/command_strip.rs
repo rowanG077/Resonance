@@ -14,7 +14,46 @@ const WHITE: [u8; 4] = [128, 128, 128, 255];
 pub(super) struct Motion {
     selected: Option<Command>,
     since: u32,
-    trail: crate::choice_cursor::Trail,
+    trail: CursorTrail,
+}
+
+/// Movement leaves a fading trail between selection anchors; idle bobbing does not.
+#[derive(Default)]
+struct CursorTrail {
+    anchor: Option<[i32; 2]>,
+    previous: [i32; 2],
+    since: u32,
+}
+
+impl CursorTrail {
+    fn sample(&mut self, tick: u32, position: [i32; 2]) -> impl Iterator<Item = ([i32; 2], u8)> {
+        const COPIES: i32 = 8;
+        const OPACITY: u32 = 224;
+        const COPY_FADE: u32 = 16;
+        const TICK_FADE: u32 = 8;
+        if self.anchor.is_none() {
+            self.previous = position;
+        }
+        let anchor = self.anchor.get_or_insert(position);
+        if *anchor != position {
+            self.previous = *anchor;
+            *anchor = position;
+            self.since = tick;
+        }
+        let moving = self.previous != position;
+        let age = tick.wrapping_sub(self.since).min(OPACITY / TICK_FADE);
+        let step: [i32; 2] =
+            std::array::from_fn(|axis| (self.previous[axis] - position[axis]) / COPIES);
+        (0..COPIES).filter_map(move |copy| {
+            let opacity = OPACITY.saturating_sub(copy as u32 * COPY_FADE + age * TICK_FADE);
+            (moving && opacity != 0).then(|| {
+                (
+                    std::array::from_fn(|axis| position[axis] + copy * step[axis]),
+                    opacity as u8,
+                )
+            })
+        })
+    }
 }
 
 pub(super) fn validate_font(art: &CommandArt, font: &BitmapFont) -> Result<()> {
@@ -38,7 +77,6 @@ impl Artwork {
         tick: u32,
         pending: Option<resonance_battle::item::Release>,
         characters: &[u8],
-        _user_name: Option<&str>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -150,7 +188,7 @@ fn emblem(
                 }
             }
             2 => {
-                if part == 3 && (!selected || (phase + 30) / 18 & 1 != 0) {
+                if part == 3 && (!selected || ((phase + 30) / 18) & 1 != 0) {
                     continue;
                 }
                 if selected && part == 0 {
@@ -250,7 +288,11 @@ fn nameplate(
     sprite(batch, [x, y, 16., 40.], [u + 64, v, 16, 40], color);
 }
 
-fn label(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Glyph dimensions, spacing, slant, and color are independent drawing attributes."
+)]
+pub(super) fn label(
     batch: &mut Batch,
     font: &BitmapFont,
     text: &str,
@@ -419,9 +461,6 @@ fn draw(
             )?;
         }
     }
-    let bob = (a.motion.cursor_bob * half_sine(tick.wrapping_mul(8))).trunc();
-    cursor[0] += bob;
-    cursor[1] -= bob;
     for ([x, y], alpha) in motion.trail.sample(tick, cursor.map(|v| v as i32)) {
         sprite(
             &mut sprites,
@@ -430,6 +469,9 @@ fn draw(
             [128, 128, 128, alpha],
         );
     }
+    let bob = (a.motion.cursor_bob * half_sine(tick.wrapping_mul(8))).trunc();
+    cursor[0] += bob;
+    cursor[1] -= bob;
     sprite(
         &mut sprites,
         [cursor[0] + 4., cursor[1] + 4., 32., 32.],
@@ -489,6 +531,20 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn battle_cursor_keeps_its_movement_trail_after_ten_updates() {
+        let mut trail = CursorTrail::default();
+        assert_eq!(trail.sample(10, [132, 172]).count(), 0);
+        assert_eq!(trail.sample(20, [188, 172]).count(), 8);
+        let settled = trail.sample(30, [188, 172]).collect::<Vec<_>>();
+        assert_eq!(settled.first(), Some(&([188, 172], 144)));
+        assert_eq!(settled.last(), Some(&([139, 172], 32)));
+        assert_eq!(trail.sample(30, [188, 172]).collect::<Vec<_>>(), settled);
+        assert_eq!(trail.sample(48, [188, 172]).count(), 0);
+        assert_eq!(trail.sample(60, [244, 172]).count(), 8);
+    }
+
     #[test]
     #[ignore = "requires current cooked battle artwork; CPU command drawing only"]
     fn command_emblems_selection_and_disabled_overlay_use_prepared_art() -> Result<()> {

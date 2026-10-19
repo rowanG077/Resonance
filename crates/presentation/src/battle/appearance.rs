@@ -1,48 +1,99 @@
 //! Colors derived from the completed battle view, with brief presentation-owned flashes.
 use resonance_battle::{
     Actor, BattleFrame, Control, Cue, ModelMaterial, Side,
-    conditions::{Condition, POISON},
+    conditions::{Condition, PHYSICAL_AILMENTS, POISON},
 };
-
-const FLASH_TICKS: u8 = 6; // One tenth of a second at 60 updates/second.
-
-#[derive(Clone, Copy)]
-struct Flash {
-    color: [u8; 3],
-    remaining: u8,
-}
 
 #[derive(Default)]
 pub(super) struct Appearance {
-    flashes: Vec<Option<Flash>>,
+    colors: Vec<ActorColors>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ActorColors {
+    flash: Option<[u8; 3]>,
+    pending_flash: Option<[u8; 3]>,
+    pulse: Option<([u8; 3], u8)>,
 }
 
 impl Appearance {
-    pub fn advance(&mut self, frame: &mut BattleFrame, paused: bool) {
+    pub fn advance(&mut self, frame: &mut BattleFrame, paused: bool, actor_ticks: &[u16]) {
         let combat = frame.recognized_result.is_none() && frame.outcome.is_none();
-        if !combat {
-            self.flashes.clear();
-        }
-        self.flashes.resize(frame.actors.len(), None);
+        self.colors
+            .resize(frame.actors.len(), ActorColors::default());
         if !paused {
-            for flash in &mut self.flashes {
-                if let Some(active) = flash {
-                    active.remaining -= 1;
-                    if active.remaining == 0 {
+            for model in &frame.models {
+                if frame.paused_actors.contains(&model.actor) {
+                    continue;
+                }
+                let index = model.actor.index();
+                let actor = &frame.actors[index];
+                let base = body_tint(actor, model.tint, actor_ticks.get(index).copied());
+                let colors = &mut self.colors[index];
+                if let Some((_, remaining)) = &mut colors.pulse {
+                    *remaining -= 1;
+                    if *remaining == 0 {
+                        colors.pulse = None;
+                    }
+                }
+                let flash = &mut colors.flash;
+                if actor.conditions.effective().intersects(PHYSICAL_AILMENTS) {
+                    *flash = None;
+                    continue;
+                }
+                if let Some(color) = flash {
+                    fade_color(color, base);
+                    if color[..] == base[..3] {
                         *flash = None;
                     }
                 }
             }
         }
+        for (colors, actor) in self.colors.iter_mut().zip(&frame.actors) {
+            if let Some(color) = colors.pending_flash.take()
+                && combat
+                && !actor.conditions.effective().intersects(PHYSICAL_AILMENTS)
+            {
+                colors.flash = Some(color);
+            }
+        }
         if combat {
             for cue in &frame.cues {
-                if let Cue::ActorFlash { actor, color } = *cue
-                    && let Some(flash) = self.flashes.get_mut(actor.index())
-                {
-                    *flash = Some(Flash {
-                        color,
-                        remaining: FLASH_TICKS,
-                    });
+                match *cue {
+                    Cue::ActorFlash { actor, color }
+                        if !frame.actors[actor.index()]
+                            .conditions
+                            .effective()
+                            .intersects(PHYSICAL_AILMENTS) =>
+                    {
+                        self.colors[actor.index()].flash = Some(color);
+                        self.colors[actor.index()].pending_flash = None;
+                    }
+                    Cue::DeferredFlash {
+                        actor,
+                        mut color,
+                        fade_first,
+                    } => {
+                        if fade_first
+                            && let Some(model) =
+                                frame.models.iter().find(|model| model.actor == actor)
+                        {
+                            fade_color(
+                                &mut color,
+                                body_tint(
+                                    &frame.actors[actor.index()],
+                                    model.tint,
+                                    actor_ticks.get(actor.index()).copied(),
+                                ),
+                            );
+                        }
+                        self.colors[actor.index()].pending_flash = Some(color);
+                    }
+                    Cue::ActorPulse { actor, color } => {
+                        const PULSE_TICKS: u8 = 2;
+                        self.colors[actor.index()].pulse = Some((color, PULSE_TICKS));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -61,36 +112,32 @@ impl Appearance {
         for model in &mut frame.models {
             let index = model.actor.index();
             let actor = &frame.actors[index];
-            let mut tint = model.tint;
+            let mut tint = body_tint(actor, model.tint, actor_ticks.get(index).copied());
             let material = if actor.time_stop != 0
                 || actor.conditions.effective().contains(Condition::Petrified)
             {
                 tint[..3].fill(64);
                 ModelMaterial::RedChannel
             } else {
-                if actor.available() && actor.conditions.effective().intersects(POISON) {
-                    tint[..3].copy_from_slice(&[32, 64, 32]);
-                }
-                if let Some(flash) = self.flashes[index] {
-                    for (base, color) in tint[..3].iter_mut().zip(flash.color) {
-                        *base = ((u16::from(color) * u16::from(flash.remaining)
-                            + u16::from(*base) * u16::from(FLASH_TICKS - flash.remaining))
-                            / u16::from(FLASH_TICKS)) as u8;
-                    }
+                if let Some(color) = self.colors[index].flash {
+                    tint[..3].copy_from_slice(&color);
                 }
                 ModelMaterial::Normal
             };
             if actor.available() && selected.is_some_and(|target| target.index() != index) {
-                let scale = if selector.is_some() {
-                    0.5
-                } else if actor.side == Side::Enemy {
-                    0.8
-                } else {
-                    1.
-                };
                 for channel in &mut tint[..3] {
-                    *channel = (f32::from(*channel) * scale) as u8;
+                    if selector.is_some() {
+                        *channel /= 2;
+                    } else if actor.side == Side::Enemy {
+                        *channel -= *channel / 6;
+                    }
                 }
+            }
+            if material == ModelMaterial::Normal
+                && selector.is_none()
+                && let Some((color, _)) = self.colors[index].pulse
+            {
+                tint[..3].copy_from_slice(&color);
             }
             (model.tint, model.material) = (tint, material);
         }
@@ -104,6 +151,27 @@ impl Appearance {
             }
         }
     }
+}
+
+fn fade_color(color: &mut [u8; 3], base: [u8; 4]) {
+    for (channel, target) in color.iter_mut().zip(base) {
+        *channel = match (*channel).cmp(&target) {
+            std::cmp::Ordering::Less => *channel + 1,
+            std::cmp::Ordering::Greater => *channel - 1,
+            std::cmp::Ordering::Equal => *channel,
+        };
+    }
+}
+
+fn body_tint(actor: &Actor, mut tint: [u8; 4], next_tick: Option<u16>) -> [u8; 4] {
+    if actor.available() && actor.conditions.effective().intersects(POISON) {
+        const POISON_PERIOD: u16 = 120;
+        let phase = next_tick.map_or(0, |tick| (tick + POISON_PERIOD - 1) % POISON_PERIOD);
+        let angle = f32::from(phase) * std::f32::consts::TAU / f32::from(POISON_PERIOD);
+        let green = (56. + 8. * angle.sin()) as u8;
+        tint[..3].copy_from_slice(&[32, green, 32]);
+    }
+    tint
 }
 
 /// Low health and a nearly full or active Over Limit flash the body's outline.
@@ -159,6 +227,7 @@ mod tests {
                 blend_weight: 0.,
                 root_translation: [0.; 3],
                 world: [[0.; 4]; 4],
+                particle_world: [[0.; 4]; 4],
                 bones: Default::default(),
             })
             .collect();
@@ -194,11 +263,15 @@ mod tests {
                     [64, 64, 64, 173]
                 };
             }
-            appearance.advance(frame, paused);
+            appearance.advance(frame, paused, &[31; 3]);
         };
         frame.cues.push(Cue::ActorFlash {
             actor: ids[0],
             color: [192, 128, 128],
+        });
+        frame.cues.push(Cue::ActorFlash {
+            actor: ids[1],
+            color: [112, 40, 40],
         });
         render(&mut frame, false);
         assert_eq!(frame.models[0].tint, [192, 128, 128, 173]);
@@ -214,6 +287,14 @@ mod tests {
         for _ in 0..20 {
             render(&mut frame, false);
         }
+        assert_eq!(frame.models[0].tint, [172, 108, 108, 173]);
+        frame.paused_actors.push(ids[0]);
+        render(&mut frame, false);
+        assert_eq!(frame.models[0].tint, [172, 108, 108, 173]);
+        frame.paused_actors.clear();
+        for _ in 0..132 {
+            render(&mut frame, false);
+        }
         assert_eq!(frame.models[0].tint, [40, 50, 60, 173]);
         assert_eq!(frame.weapons[0].tint, frame.models[0].tint);
         frame.target_selector = Some(ids[0]);
@@ -227,9 +308,16 @@ mod tests {
             actor: ids[0],
             color: [128, 192, 128],
         });
+        frame.actors[2].time_stop = 0;
         render(&mut frame, false);
+        assert_eq!(frame.models[1].tint, [27, 54, 27, 173]);
+        assert_eq!(frame.models[2].tint, [64, 64, 64, 173]);
         frame.recognized_result = Some(BattleResult::Victory);
         render(&mut frame, true);
+        assert_eq!(frame.models[0].tint, [128, 192, 128, 173]);
+        for _ in 0..142 {
+            render(&mut frame, false);
+        }
         assert_eq!(frame.models[0].tint, [40, 50, 60, 173]);
         assert_eq!(frame.weapons[0].tint, frame.models[0].tint);
         frame.actors[0].overlimit = resonance_battle::OverLimit::active(100).unwrap();

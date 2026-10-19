@@ -124,7 +124,7 @@ impl Fixture {
             .unwrap();
         let field_tick = session.field().events.tick();
         let party = serde_json::to_value(&session.field().events.world.party)?;
-        let entry = Entry::capture(&session, request.setup)?;
+        let entry = Entry::capture(&session, &request)?;
         let mut package = finish(loading::BattlePending::battle(
             root.clone(),
             entry,
