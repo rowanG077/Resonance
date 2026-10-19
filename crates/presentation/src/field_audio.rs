@@ -679,6 +679,7 @@ pub(super) struct FieldSource {
 
 struct ScorePlayer {
     stream: Stream,
+    cue: Option<i16>,
     controls: LiveControls,
     slot: Option<u16>,
     volume: f32,
@@ -690,6 +691,7 @@ impl ScorePlayer {
         let looping = looping && !package.score().loop_events.is_empty();
         Ok(Self {
             stream: Stream::in_synthesizer(package, looping, synth)?,
+            cue: None,
             controls: LiveControls::default(),
             slot: None,
             volume: 1.,
@@ -1256,7 +1258,9 @@ impl Decodable for FieldSource {
 }
 
 pub(super) fn update(world: &mut World) {
-    if world.contains_resource::<battle::Playback>() {
+    if world.contains_resource::<battle::Playback>()
+        || world.contains_resource::<super::new_game::TransitionFailure>()
+    {
         return;
     }
     if !world.contains_resource::<super::new_game::Session>() {
@@ -2291,9 +2295,16 @@ mod tests {
             let resident = super::super::loading::Resident::default();
             resident.active.store(true, Ordering::Release);
             let mut app = App::new();
+            app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+                .init_asset::<Image>();
+            let art = crate::field_view::prepared_test_art(
+                session.field_assets(),
+                app.world().resource::<AssetServer>(),
+            );
             app.init_resource::<bevy::asset::Assets<FieldSource>>()
                 .add_message::<AppExit>()
                 .insert_resource(super::super::diagnostics::Diagnostics(diagnostics))
+                .insert_resource(art)
                 .insert_resource(resident)
                 .insert_resource(session)
                 .insert_resource(control)
@@ -2435,6 +2446,7 @@ mod tests {
                 resident.active.store(true, Ordering::Release);
                 let mut app = App::new();
                 app.init_resource::<bevy::asset::Assets<FieldSource>>()
+                    .init_resource::<ButtonInput<KeyCode>>()
                     .add_message::<AppExit>()
                     .insert_resource(super::super::diagnostics::Diagnostics(diagnostics.clone()))
                     .insert_resource(resident)
@@ -2449,14 +2461,13 @@ mod tests {
                     .add(source);
                 let entity = app.world_mut().spawn(AudioPlayer(handle)).id();
                 app.update();
-                assert_eq!(
-                    !app.world().resource::<Messages<AppExit>>().is_empty(),
-                    paranoid
-                );
+                assert!(app.world().resource::<Messages<AppExit>>().is_empty());
                 if paranoid {
                     assert_eq!(app.world().resource::<new_game::Session>().map_id(), 5);
-                    assert!(!operation.is_pending());
-                    continue;
+                    assert!(
+                        operation.is_pending(),
+                        "failed handoff must remain retryable"
+                    );
                 }
                 if !stopped {
                     let session = app.world().resource::<new_game::Session>();
@@ -2465,7 +2476,14 @@ mod tests {
                     assert!(operation.is_pending());
                     assert!(waiting.iter().all(|token| !token.load(Ordering::Acquire)));
                     decoder.as_mut().unwrap().frame()?;
-                    app.update();
+                }
+                if paranoid {
+                    app.world_mut()
+                        .resource_mut::<ButtonInput<KeyCode>>()
+                        .press(KeyCode::Enter);
+                }
+                app.update();
+                if !stopped {
                     let frames = decoder.as_mut().unwrap();
                     frames.frame()?;
                     app.world()
@@ -3264,6 +3282,43 @@ mod tests {
         assert!(fade.value() > 0.);
         fade.advance(1);
         assert_eq!(block_gains(master, Some(fade)), [0.; CONTROLS_PER_BLOCK]);
+    }
+
+    #[test]
+    fn field_entry_clears_scripted_music_fades_before_destination_commands() -> Result<()> {
+        let mut assets = synthetic_assets();
+        assets.music.insert(0, test_music());
+        let assets = Arc::new(assets);
+        let (source, mut control) = assets.clone().session();
+        let mut frames = source.decoder();
+        control.send(AudioCommand::Music(MusicCommand::Play(0)))?;
+        control.levels([0, 127, 127])?;
+        frames.frame()?;
+        for (volume, duration_ticks) in [(0, 0), (50, 0), (0, 120)] {
+            control.send(AudioCommand::MusicVolume {
+                volume,
+                duration_ticks,
+            })?;
+            frames.frame()?;
+            let previous = frames.music.as_ref().unwrap().fade.value();
+            control.leave_field()?;
+            frames.frame()?;
+            assert!(frames.music.as_ref().unwrap().fade.value() <= previous);
+
+            control.enter_field(assets.clone())?;
+            control.send(AudioCommand::Music(MusicCommand::Play(0)))?;
+            frames.frame()?;
+            assert_eq!(frames.music.as_ref().unwrap().fade.value(), 1.);
+            assert_eq!(frames.levels[0], 0, "keep the user's music setting");
+        }
+        control.enter_field(assets)?;
+        control.send(AudioCommand::MusicVolume {
+            volume: 50,
+            duration_ticks: 0,
+        })?;
+        frames.frame()?;
+        assert_eq!(frames.music.as_ref().unwrap().fade.value(), 50. / 127.);
+        Ok(())
     }
 
     #[test]

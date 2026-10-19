@@ -333,7 +333,13 @@ fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
         )?;
         queue.apply(&mut world);
         assert!(
-            artwork.layers[&(2, DrawRole::Cursor, FONT)].visible,
+            artwork.layers.iter().any(|((_, role, _), layer)| {
+                *role == DrawRole::Cursor
+                    && layer.visible
+                    && world
+                        .get::<Visibility>(layer.entity)
+                        .is_some_and(|v| *v != Visibility::Hidden)
+            }),
             "{focus:?}"
         );
     }

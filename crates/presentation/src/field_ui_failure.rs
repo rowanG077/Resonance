@@ -47,7 +47,7 @@ pub(crate) fn update(world: &mut World) {
             coverage: Coverage::default(),
             opaque: false,
             additive: false,
-            red_channel: false,
+            texture_effect: Default::default(),
         });
         let entity = world
             .spawn((

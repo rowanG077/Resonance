@@ -61,7 +61,7 @@ impl Fixture {
             color_mask: Handle::default(),
             coverage: Coverage::default(),
             additive: false,
-            red_channel: false,
+            texture_effect: Default::default(),
             opaque: false,
         });
         let artwork = MenuArtwork::load(

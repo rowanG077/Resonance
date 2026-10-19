@@ -41,6 +41,8 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
+#[cfg(test)]
+mod retirement_tests;
 #[path = "field_sequence.rs"]
 mod sequence;
 #[derive(Resource)]
@@ -204,12 +206,19 @@ impl Plugin for FieldRendering {
                 // skeletons before the first rendered pose, including actors
                 // replaced by a script in the same simulation tick.
                 (
-                    super::field_pose::restore,
-                    super::secondary_motion::restore,
-                    super::field_animation::restore,
-                    super::field_animation::sample.run_if(resource_exists::<Art>),
+                    pose,
+                    super::field_animation::bind,
+                    super::secondary_motion::bind,
                 )
                     .chain()
+                    .before(super::field_pose::restore)
+                    .run_if(resource_exists::<Art>)
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
+            )
+            .add_systems(
+                PostUpdate,
+                sample_poses()
                     .before(super::field_animation::blend)
                     .run_if(has_session)
                     .run_if(super::battle::field_presenting),
@@ -1396,10 +1405,16 @@ fn prepare_part(
     asset_ready(server, part.scene.id().untyped())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Field preparation resolves meshes, materials and animation assets together."
+)]
 fn prepare(
     mut art: ResMut<Art>,
     server: Res<AssetServer>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
+    gltf_meshes: Res<Assets<bevy::gltf::GltfMesh>>,
+    meshes: Res<Assets<Mesh>>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
     images: Res<Assets<Image>>,
     mut failures: Failures,
@@ -1414,8 +1429,33 @@ fn prepare(
     // other model resources available and preventing an impossible ready gate.
     art.models.retain(|resource, parts| {
         let result = parts.iter_mut().try_fold(true, |ready, part| {
+            let resolved = part.resolved;
             let loaded = prepare_part(part, &server, &gltfs, &clips, &images)
                 .with_context(|| format!("model {resource}, {}", part.spec.mesh))?;
+            if !resolved
+                && part.resolved
+                && *resource == SCENERY_RESOURCE_BASE + u32::from(part.spec.resource)
+                && DrawStage::scenery(part.spec.resource) == Some(DrawStage::Foreground)
+            {
+                let gltf = gltfs.get(&part.gltf).expect("resolved field model");
+                for (handle, material) in gltf.meshes.iter().zip(&mut part.spec.materials) {
+                    let mesh = gltf_meshes.get(handle).expect("resolved field mesh");
+                    // Translucent light panels must not occlude later scenery.
+                    // Cutout foliage keeps depth writes between overlapping leaves.
+                    if material.blend && material.vertex_color {
+                        material.depth_write &= !mesh.primitives.iter().any(|primitive| {
+                            let mesh = meshes
+                                .get(&primitive.mesh)
+                                .expect("resolved field primitive");
+                            matches!(
+                                mesh.attribute(Mesh::ATTRIBUTE_COLOR),
+                                Some(bevy::mesh::VertexAttributeValues::Float32x4(colors))
+                                    if colors.iter().any(|color| color[3] < 1.)
+                            )
+                        });
+                    }
+                }
+            }
             ensure!(
                 loaded || !timed_out,
                 "model {resource} did not load within 30 seconds"
@@ -1970,74 +2010,24 @@ fn pose(
                     instance.geometry.push((index, entity));
                     commands.entity(entity).insert((
                         MeshMaterial3d(instance.materials[index].clone()),
-                        // Translucent circle passes follow scenery and actors;
-                        // drawing them among opaque model parts clips the glow.
-                        DrawOrder(
-                            if save_point.is_some() {
-                                Layer::FieldOverlay(
-                                    part.spec.materials[index].draw_order
-                                        + u32::from(instance.pass) * MODEL_DRAW_SPAN,
-                                )
-                            } else {
-                                Layer::Scene(
-                                    part.spec.materials[index].draw_order
-                                        + u32::from(instance.pass) * MODEL_DRAW_SPAN
-                                        + if (SCENERY_RESOURCE_BASE
-                                            ..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
-                                            .contains(&actor.resource)
-                                        {
-                                            0
-                                        } else {
-                                            DrawStage::Actors.offset()
-                                        },
-                                )
-                            },
+                        DrawOrder::field_model(
+                            draw_stage,
                             actor_order,
-                            0,
+                            part.spec.materials[index].draw_order
+                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
                         ),
                     ));
                 }
             }
             instance.prepared = descendants > 0;
         }
-        let draw_stage = if save_point.is_some() {
-            Layer::FieldOverlay(0)
-        } else if (SCENERY_RESOURCE_BASE..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
-            .contains(&actor.resource)
-        {
-            Layer::Scene(0)
-        } else {
-            match actor.draw_layer {
-                -1 => Layer::Scene(DrawStage::LateActors.offset()),
-                -4 => Layer::Scene(DrawStage::TranslucentScenery.offset() + 2 * MODEL_DRAW_SPAN),
-                -3 => Layer::ModelEffects(MODEL_DRAW_SPAN),
-                -2 => Layer::ModelEffects(2 * MODEL_DRAW_SPAN),
-                _ => Layer::Scene(DrawStage::Actors.offset()),
-            }
-        };
         for &(material, entity) in &instance.geometry {
             if let Ok(mut order) = draw_orders.get_mut(entity) {
-                let next = DrawOrder(
-                    match draw_stage {
-                        Layer::Scene(stage) => Layer::Scene(
-                            stage
-                                + part.spec.materials[material].draw_order
-                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
-                        ),
-                        Layer::FieldOverlay(stage) => Layer::FieldOverlay(
-                            stage
-                                + part.spec.materials[material].draw_order
-                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
-                        ),
-                        Layer::ModelEffects(stage) => Layer::ModelEffects(
-                            stage
-                                + part.spec.materials[material].draw_order
-                                + u32::from(instance.pass) * MODEL_DRAW_SPAN,
-                        ),
-                        _ => unreachable!(),
-                    },
+                let next = DrawOrder::field_model(
+                    draw_stage,
                     actor_order,
-                    0,
+                    part.spec.materials[material].draw_order
+                        + u32::from(instance.pass) * MODEL_DRAW_SPAN,
                 );
                 if *order != next {
                     *order = next;
@@ -2537,6 +2527,7 @@ fn setup(
             ..default()
         },
         RenderTarget::Image(source.clone().into()),
+        super::FieldOverlayCamera,
         super::camera::overlay_alignment(),
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::Fixed {

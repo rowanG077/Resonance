@@ -33,7 +33,11 @@ pub(super) struct Material {
     #[uniform(2)]
     enabled: u32,
 }
-
+impl Material {
+    pub(super) fn visible(image: Handle<Image>) -> Self {
+        Self { image, enabled: 1 }
+    }
+}
 impl Material2d for Material {
     fn fragment_shader() -> ShaderRef {
         "embedded://resonance_presentation/menu_backdrop.wgsl".into()
@@ -61,6 +65,24 @@ pub(super) struct Capture {
     generation: u64,
     completed: Arc<AtomicBool>,
 }
+
+/// Retain the current scene before dialogue and field fades are composited.
+#[derive(Component, Clone, ExtractComponent)]
+pub(super) struct SceneCapture(pub Capture);
+
+impl SceneCapture {
+    pub(super) fn copy(
+        &self,
+        source: &Texture,
+        images: &RenderAssets<GpuImage>,
+        context: &mut RenderContext,
+    ) {
+        if !self.0.ready() {
+            copy(&self.0, source, images, &mut None, context);
+        }
+    }
+}
+
 impl Capture {
     pub(super) fn once(source: Handle<Image>, target: Handle<Image>) -> Self {
         Self {
@@ -214,6 +236,7 @@ pub(super) fn install(app: &mut App) {
     );
     app.sub_app_mut(RenderApp)
         .add_systems(Core3d, capture.before(Core3dSystems::Prepass))
+        .add_systems(Core3d, capture_scene.after(upscaling))
         // Battle requests attach to the warmed HUD camera. Its upscaling pass
         // has just composed this visit's HUD into the retained source image.
         .add_systems(Core2d, capture.after(upscaling));
@@ -302,6 +325,29 @@ fn capture(
     mut context: RenderContext,
 ) {
     let request = view.into_inner();
+    if let Some(source) = images.get(&request.source) {
+        copy(request, &source.texture, &images, &mut copied, &mut context);
+    }
+}
+
+fn capture_scene(
+    view: ViewQuery<(&SceneCapture, &ViewTarget)>,
+    images: Res<RenderAssets<GpuImage>>,
+    mut context: RenderContext,
+) {
+    let (request, target) = view.into_inner();
+    // The field camera skips output: the UI camera publishes their shared
+    // texture afterward. Copy the scene before that composition adds fades.
+    request.copy(target.main_texture(), &images, &mut context);
+}
+
+fn copy(
+    request: &Capture,
+    source: &Texture,
+    images: &RenderAssets<GpuImage>,
+    copied: &mut Option<(AssetId<Image>, u64)>,
+    context: &mut RenderContext,
+) {
     let identity = (request.target.id(), request.generation);
     if *copied == Some(identity) {
         return;

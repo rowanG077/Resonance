@@ -369,8 +369,15 @@ impl BattlePending {
                 &mut cache.audio,
             )?;
             let catalogue = assets.catalogue.clone();
+            // View retains its diagnostic and skip policy for an invalid stage.
+            let scenery_models = if assets.stage.validate().is_ok() {
+                resonance_game::battle::stage::Model::load(&assets.files, &assets.stage)?
+            } else {
+                Default::default()
+            };
             Ok(super::battle::Package {
                 assets: Arc::new(assets),
+                scenery_models,
                 prepared,
                 audio,
                 party,

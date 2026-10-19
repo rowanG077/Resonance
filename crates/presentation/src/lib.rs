@@ -170,6 +170,7 @@ struct Framebuffer(RenderTarget);
 struct FieldCamera;
 #[derive(Component)]
 struct FieldOverlayCamera;
+type FieldCameraFilter = Or<(With<FieldCamera>, With<FieldOverlayCamera>)>;
 #[derive(Resource, Default)]
 struct PendingInput {
     held: MenuInput,

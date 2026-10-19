@@ -163,7 +163,7 @@ impl Session {
         let initial = Arc::new(FieldPackage::load(files.clone(), map, cache)?);
         let data = &initial.data;
         let available_fields = available_fields(root)?;
-        let field = if let Start::Saved(checkpoint) = &start {
+        let (field, restored_checkpoint) = if let Start::Saved(checkpoint) = &start {
             initial.restore(checkpoint, available_fields.clone())?
         } else {
             let entry = if let Start::Dungeon(destination) = &start {
@@ -190,9 +190,6 @@ impl Session {
             initial.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
             (field, None)
         };
-        let restored_checkpoint = matches!(start, Start::Saved(_))
-            .then(|| field.checkpoint())
-            .transpose()?;
         let story_movie = if new_game {
             files.diagnostics().attempt(
                 "New Game movie",

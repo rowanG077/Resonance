@@ -64,7 +64,7 @@ impl Artwork {
                 coverage: default(),
                 opaque: false,
                 additive: false,
-                red_channel: false,
+                texture_effect: Default::default(),
             }));
             images.push(image);
         }

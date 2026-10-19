@@ -556,6 +556,10 @@ pub enum Key {
     Start,
     Quicksave,
     Quickload,
+    Order1,
+    Order2,
+    Order3,
+    CancelOrders,
 }
 impl Key {
     fn event(self, state: bevy::input::ButtonState) -> bevy::input::keyboard::KeyboardInput {
@@ -580,6 +584,10 @@ impl Key {
             Self::Start => (KeyCode::Home, Logical::Home),
             Self::Quicksave => (KeyCode::F5, Logical::F5),
             Self::Quickload => (KeyCode::F9, Logical::F9),
+            Self::Order1 => (KeyCode::Digit1, Logical::Character("1".into())),
+            Self::Order2 => (KeyCode::Digit2, Logical::Character("2".into())),
+            Self::Order3 => (KeyCode::Digit3, Logical::Character("3".into())),
+            Self::CancelOrders => (KeyCode::Digit0, Logical::Character("0".into())),
         };
         bevy::input::keyboard::KeyboardInput {
             key_code,
@@ -608,6 +616,10 @@ impl Key {
             Self::NextPage => RightTrigger,
             Self::Skit => Z,
             Self::Start => Start,
+            Self::Order1 => DPadLeft,
+            Self::Order2 => DPadUp,
+            Self::Order3 => DPadRight,
+            Self::CancelOrders => DPadDown,
             _ => return None,
         })
     }
@@ -733,6 +745,64 @@ fn install_cursor(app: &mut App, steps: Vec<Step>, pad: Option<Entity>) {
             .in_set(InputSystems),
     )
     .add_systems(FixedPostUpdate, scenario_consumed);
+}
+
+/// Run the ordinary input cursor on the wall clock; capture steps only mark the stream.
+pub(crate) fn install_benchmark_replay(
+    app: &mut App,
+    spec: &CheckpointReplay,
+    output: &Path,
+    completed: std::sync::Arc<AtomicBool>,
+) -> Result<()> {
+    use std::io::{BufWriter, Write};
+    spec.validate()?;
+    let mut markers = BufWriter::new(fs::File::create(output.join("markers.jsonl"))?);
+    fs::write(output.join("replay.json"), serde_json::to_vec_pretty(spec)?)?;
+    install_cursor(app, spec.steps.clone(), None);
+    let output = output.to_owned();
+    let began = Instant::now();
+    app.add_systems(Last, move |world: &mut World| {
+        let result = (|| -> Result<()> {
+            let _ = settle_cursor(world);
+            ensure!(!world.resource::<ScenarioInput>().failed, "benchmark replay input failed");
+            while let Some(name) = world.resource::<ScenarioInput>().capture().map(str::to_owned) {
+                let battle = world.get_resource::<crate::battle::Owner>();
+                serde_json::to_writer(&mut markers, &serde_json::json!({
+                    "name":name, "elapsed_seconds":began.elapsed().as_secs_f64(),
+                    "updates":world.resource::<ScenarioInput>().updates,
+                    "scene":recording_scene(world)?,
+                    "battle":battle.and_then(|owner| owner.replay_phase())
+                        .map(|(encounter, phase, tick)| serde_json::json!({
+                            "encounter":encounter, "phase":format!("{phase:?}"), "combat_tick":tick,
+                        })),
+                    "model_particles":battle.and_then(|owner| owner.model_particle_stats()),
+                }))?;
+                markers.write_all(b"\n")?;
+                world.resource_mut::<ScenarioInput>().index += 1;
+                let _ = settle_cursor(world);
+            }
+            if world.resource::<ScenarioInput>().complete() {
+                markers.flush()?;
+                let unprepared = world.resource::<loading::Resident>().unprepared_reads.load(Ordering::Relaxed);
+                let diagnostics = world.resource::<crate::diagnostics::Diagnostics>().0.entries();
+                fs::write(output.join("recording.json"), serde_json::to_vec_pretty(&serde_json::json!({
+                    "complete":true, "valid":unprepared == 0 && diagnostics.is_empty(),
+                    "source":"wall_clock_benchmark", "captures":"markers_only",
+                    "updates":world.resource::<ScenarioInput>().updates,
+                    "unprepared_reads":unprepared, "diagnostics":diagnostics,
+                }))?)?;
+                ensure!(unprepared == 0 && diagnostics.is_empty(), "benchmark replay reported diagnostics or unprepared reads");
+                completed.store(true, Ordering::Release);
+                world.write_message(AppExit::Success);
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            error!("Benchmark replay: {error:#}");
+            world.write_message(AppExit::error());
+        }
+    });
+    Ok(())
 }
 
 fn settle_cursor(world: &mut World) -> Option<Vec<Key>> {
@@ -862,7 +932,7 @@ pub fn record_battle(
             && session.is_field()
             && session.field().player_has_control()
         {
-            let result = session.events_mut().world.request_battle(setup);
+            let result = session.events_mut().world.request_battle(setup.clone());
             requested = true;
             if let Err(error) = result {
                 error!("Battle fixture failed: {error}");
@@ -1447,10 +1517,6 @@ pub(super) fn wait_ready(app: &mut App, timed_out: &mut bool) -> Result<()> {
             .world()
             .get_resource::<crate::battle::Owner>()
             .and_then(|battle| battle.capture_clock());
-        let entry_clock = app
-            .world()
-            .get_resource::<crate::battle::Owner>()
-            .and_then(|battle| battle.entry_clock());
         let presentation_tick = app.world().resource::<Clock>().0.tick();
         let field_tick = (phase == scene::Phase::Field)
             .then(|| app.world().get_resource::<new_game::Session>())
@@ -1501,17 +1567,6 @@ pub(super) fn wait_ready(app: &mut App, timed_out: &mut bool) -> Result<()> {
             diagnostics.report(
                 "checkpoint preparation",
                 anyhow::anyhow!("battle advanced during checkpoint preparation"),
-            )?;
-        }
-        if let Some(clock) = entry_clock
-            && world
-                .get_resource::<crate::battle::Owner>()
-                .and_then(|battle| battle.entry_clock())
-                != Some(clock)
-        {
-            diagnostics.report(
-                "checkpoint preparation",
-                anyhow::anyhow!("entry transition advanced during checkpoint preparation"),
             )?;
         }
         thread::sleep(std::time::Duration::from_millis(1));

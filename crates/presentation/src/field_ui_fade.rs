@@ -29,7 +29,7 @@ pub(super) fn surface(
         coverage: Coverage::default(),
         opaque: false,
         additive: false,
-        red_channel: false,
+        texture_effect: Default::default(),
     });
     (image, material)
 }
