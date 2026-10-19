@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import time
 import wave
+from battle_state import presentation_locations
 
 
 def sha256(path):
@@ -151,6 +152,8 @@ def main():
     # Observe that Gecko actually installed the two return instructions. This
     # remains read-only; the enabled game profile performs the requested patch.
     actor_locations = {"80023c10": "focus_patch_word", "8003efa4": "secondary_blur_patch_word"}
+    if args.watch_locations:
+        actor_locations.update(presentation_locations())
     for source in args.watch_locations:
         locations = json.loads(source.read_text())
         if not isinstance(locations, dict) or not all(
@@ -351,7 +354,7 @@ def main():
                                               (0x44, "accuracy_evasion"), (0x48, "intelligence")]:
                             actor_locations[f"{pointer} {base + offset:x}"] = f"ex_character_{character}_{label}_word"
             for actor in observation.get("actors", []):
-                if actor["draw_callback"] == "8000e720":
+                if actor.get("draw_callback") == "8000e720":
                     label = f'save_point_{actor["slot"]}'
                     actor_locations[f'{actor["address"] + 0x60:08x}'] = f'{label}_glow_bits'
                     for index, track in enumerate(actor["animation_tracks"]):

@@ -4392,6 +4392,7 @@ name = "resonance-content"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "glam",
  "serde",
  "serde_json",
  "sha2",
@@ -4523,6 +4524,7 @@ name = "resonance-persistence"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "resonance-content",
  "serde",
  "serde_json",
  "tempfile",

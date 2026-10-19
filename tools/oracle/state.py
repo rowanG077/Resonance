@@ -86,9 +86,11 @@ class State:
         Path(path).write_bytes(self.data[:self.header+16] + struct.pack('<I', size) + buf.raw[:size])
 
 
-def inspect(path, library=None):
+def inspect(path, library=None, *, battle=False):
     state = path if isinstance(path, State) else State(path, library)
     raw, ram = state.raw, state.ram
+    if battle:
+        return observations(ram, battle=True)
     # State.cpp serializes platform/memory sizes, then MovieManager::DoState.
     if (raw[0] != 0 or struct.unpack_from("<I", raw, 1)[0] != 0x1800000
             or struct.unpack_from("<I", raw, 50)[0] != 0x42):
@@ -792,10 +794,23 @@ def inspect(path, library=None):
     return result
 
 
+def observations(ram, *, battle=False):
+    """Read the active mode and, when requested, its battle storage."""
+    if len(ram) != 0x1800000:
+        raise ValueError("expected GameCube main RAM")
+    mode = struct.unpack_from(">H", ram, 0x35a762)[0] & 0x7f
+    result = {"mode": mode}
+    if battle and mode in (9, 12):
+        from battle_state import inspect_battle
+        result["battle"] = inspect_battle(ram)
+    return result
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("state", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--lz4", help="Explicit LZ4 library path, if outside nix develop")
+    parser.add_argument("--battle", action="store_true", help="Read active battle observations")
     args = parser.parse_args()
-    args.output.write_text(json.dumps(inspect(args.state, args.lz4), indent=2, allow_nan=False) + "\n")
+    args.output.write_text(json.dumps(inspect(args.state, args.lz4, battle=args.battle), indent=2, allow_nan=False) + "\n")

@@ -628,7 +628,7 @@ pub(super) fn run(
     if !learn_ex_compound.is_empty() || !new_ex_compound.is_empty() {
         let ex: resonance_content::menu_data::ExSkillData =
             serde_json::from_value(menu["ex_skills"].clone())?;
-        ex.validate(items.len())?;
+        ex.validate_rules(items.len())?;
         for (tag, recent) in learn_ex_compound
             .iter()
             .map(|s| (s, false))
