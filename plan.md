@@ -1,5 +1,177 @@
 # Battle fidelity plan
 
+## Proposed effect storage and preparation redesign — 2026-10-14
+
+Status: implemented and accepted for this storage/preparation scope. One shared
+live render pool replaces per-effect hidden copies; emitter, visitation,
+publication and procedural geometry buffers retain capacity. All 47 focused
+checks pass. Resource preparation fell from 3.016 s to 0.540 s; first-use pool
+growth stayed below 2.18 ms per nearby frame, and repeat use allocated no new
+render slots. The overlapping-effect replay preserves effect rendering, pause,
+cleanup and field return, with no diagnostics or unprepared reads.
+
+Peak memory did not decrease (3.65 to 3.74 GiB). Entry still has a measured
+61 ms warmup interval. A small enemy-number rendering instability exists in
+both baseline and candidate and remains a separate follow-up. Full evidence,
+limits and receipts: [effect storage report](local/effect-pool-20261014/REPORT.md).
+The design below records the implemented scope.
+
+### Evidence and objective
+
+`crates/game/src/battle/encounter/render.rs::effect_model` assigns the global
+`MAX_PARTICLES` limit (256) to **each** model. `battle_view.rs::load_with_diagnostics`
+then builds that many instances, and `View::prepare` clones and binds their
+scenes before entry can finish. Meshes and textures are shared, but scene
+objects and binding work multiply by the number of model resources. The sprite
+renderer already uses one global particle draw pool; it has a different problem.
+
+The accepted entry measurement is 3.10 seconds, with a 19.5 ms worst frame during
+the first 2.2 seconds and a late 57.8 ms frame. Data loading and initial adoption
+finish about 0.25 seconds after entry begins. The existing profile identifies
+scene cloning; it does not measure allocator contention or prove that malloc
+dominates. See [entry evidence](local/findings-20261013-followup/entry-stall/REPORT.md).
+
+Reduce actual scene construction and retained objects, not just the batch size.
+Target preparation finishing within the existing two-second shatter, without
+moving the stall to the first spell. This is an acceptance target, not a promised
+timing result. Keep all required cooked assets available before combat.
+
+### One immutable template per model
+
+Read each loaded `WorldAsset.world` once, following the existing direct asset
+inspection in `field_warm.rs`. Compile a battle-local `EffectModelTemplate`:
+
+- Shared mesh, texture and inverse-bind-pose handles.
+- Draw recipes: material, pass order, sampled bone and static transform suffix.
+- Skin joint bindings expressed as template indices, not live scene entities.
+- Validated material recipes and reachable blend/depth/lighting variants.
+
+Keep only transforms required by draws and skinning. Battle model poses already
+supply the animation; preserve the exact affine transform calculation, including
+nonuniform scale and singular transforms. No per-particle scene hierarchy,
+reflection cloning, bone-name parsing, animation controller or metadata copy.
+Honor `RenderModel.suppressed_nodes` for draws while retaining any joints and
+descendants needed by visible geometry; flattening must not restore attachments
+that are intentionally hidden.
+
+Warm representative draws for distinct mesh layouts and material/pipeline keys.
+Validate/readiness-check unique template assets, rather than walking hidden
+copies. Preserve the submitted-draw/GPU readiness fence and fail visibly on
+invalid templates. Warming one copy prepares resources; it does not reserve
+hundreds of live instances. Actors and scenery retain their existing preparation.
+Pipeline-key coverage and resource residency are separate: two meshes can share
+a pipeline key while only one is uploaded. Ensure every unique required mesh,
+image and material binding is ready, even when pipeline warmup is deduplicated.
+
+### One reusable pool for all model particles
+
+Reserve capacity for at most `MAX_PARTICLES` small logical records, shared across
+all effect models. Each active record associates a monotonic `ParticleId` with
+its template and claimed draw/joint slots. Use ordinary owned `Vec` storage and
+free lists, without an allocator dependency or a general pool framework.
+
+Maintain separate global free lists for minimal draw objects and skin-joint
+objects. A draw slot owns one reusable entity and mutable material handle; a
+joint slot owns the transform entity required by the existing skinning path.
+Reuse these objects across resources, not just across casts of the same model.
+Only create additional slots when simultaneous demand exceeds the retained pool.
+Return expired particles' slots before claiming new ones in the same update.
+An active particle changing model must also release/rebind its slots.
+
+On binding, reset the complete mesh, skin, material, tint, UV, lighting, order
+and visibility state. Mutable appearance belongs to the live slot, never the
+shared template. Remap skin joints and retain outline/multipart draws. Remove
+stale skin bindings when a slot becomes unskinned. Transparent submission order
+continues to follow particle birth order, independently of free-list order.
+
+With P live model particles, draws D(i) and required joint transforms J(i),
+the required active render objects scale with sum(D(i) + J(i)), plus templates.
+Retained draw and joint pools each track their own peak concurrent demand.
+`MAX_PARTICLES * max(template draw/joint count)` is an accounting upper bound,
+**not** an upfront allocation. Do not replace the current problem with 256
+fully populated slots sized for the largest model. Dormant slots stay hidden and
+outside active update loops. Release their prior resource bindings when returned
+so they do not pin unrelated assets.
+
+This pool is battle-owned initially. Despawn entities and drop handles on exit,
+cancel or failure; no unbounded cache across encounters. Reuse within a battle
+is sufficient for the first implementation and keeps ownership simple.
+
+New high-water marks still allocate a few component bundles/material assets and
+may require renderer binding work. This design does not claim allocation-free
+first use. It removes scene cloning, asset I/O and missing pipeline preparation
+from that path. Measure first-use bursts before adding any predictive reservation.
+Do not introduce arbitrary per-effect caps or silently drop additional particles.
+
+Publish new slots with their already computed global poses and include those
+poses in `held_pose`. Flush their commands before visibility/extraction in the
+existing `PublishBattle` ordering. Do not query newly queued entities as though
+they already exist, and do not add a frame of effect latency. Pause/menu capture
+must retain the new slots just as it retains existing model poses.
+
+### Allocation reuse and the arena decision
+
+Use reusable storage where the code demonstrably discards capacity:
+
+- `effect.rs::advance`: retain current/spare emitter vectors instead of consuming
+  and discarding the allocation via `mem::take` every update. Size an emitter's
+  nested buffers from its definition, not the global particle maximum.
+- `particle.rs::advance_particles_filtered`: retain its particle visit queue.
+  Preserve parent/child visitation, including births appended during an update.
+- `particle.rs::frames` and `battle.rs`: fill the existing publication vector
+  instead of replacing it with a newly allocated vector every tick.
+- `battle_view/effects_geometry.rs`: fill/reuse mesh attribute vectors instead
+  of constructing replacement meshes that discard their previous CPU buffers.
+  Required GPU uploads still happen.
+
+Start with these changes alongside the render pool. Retain the simulation's
+particle map initially to avoid mixing a storage rewrite with rendering changes.
+If a small allocation profile still identifies map churn as significant, replace
+it with a birth-ordered `Vec<Particle>` reserved to `MAX_PARTICLES`, monotonic IDs,
+binary-search lookup and stable removal. Do not use `swap_remove` or turn a reused
+storage index into a public particle ID. This is simpler than adding generations
+and a second ordering structure at the current bounded particle count.
+
+A bump arena is unsuitable as the first change: particles can outlive emitters,
+they die independently, and their `Arc`, `Vec` and asset handles need normal
+destruction. Published poses may remain in use after a simulation update. Resetting
+an arena at either boundary would require a broader ownership redesign. It also
+cannot eliminate allocations owned internally by Bevy or GPU resource creation.
+The reusable vectors and free lists provide the relevant storage reuse safely.
+
+Leave the global allocator, field renderer and general battle snapshots alone.
+Model sampling currently creates new pose arrays (`model/effect.rs::sample`);
+consider retained/double-buffered pose storage only after measuring its remaining
+cost and preserving snapshot ownership. No repository-wide allocator migration
+is justified by the current evidence.
+
+### Implementation and focused acceptance
+
+1. Add template compilation and the shared model-particle pool in a small
+   `battle_view/model_particles.rs` module. Route particle
+   models through it; remove their per-resource capacity, duplicate scene binding,
+   shared/copy-on-write material bookkeeping and dormant-pool scans. Keep actor
+   instance counts and existing material/shader/draw-order contracts.
+2. Reuse emitter, visit, publication and sprite geometry buffers. Keep simulation
+   behavior and snapshot ownership intact. Child attachments, budget-rejected
+   births, RNG consumption and authored birth indices must be unchanged.
+3. Extend the relevant existing checks for simultaneous same-model particles
+   with independent poses/tints, slot reuse across different skins/materials,
+   first-frame publication and cleanup. Include child attachments and budget
+   rejection using existing effect checks; do not build a parallel test framework.
+4. Run the same isolated entry benchmark, then one short overlapping-effect replay
+   covering first use, repeat use, pause/resume and return to the field. Record
+   template count, active/retained draw and joint counts, new-slot allocations,
+   preparation time, frame tails and memory. Confirm slot counts plateau on repeat
+   use and resources are retired on exit. Compare representative captures.
+
+Accept only if entry improves without hiding missing effects, reducing the
+particle budget, delaying births or moving the pause to first use. Report the
+measured memory change separately from timing. Use the existing single 56 GiB
+aggregate guard for later heavy jobs; no concurrent profiling during timing runs.
+No recook, full suite, catalogue sweep or new Dolphin run is required for this
+storage change. Build and runtime checks remain limited to the paths above.
+
 ## Latest battle playtest findings — 2026-10-13
 
 Scope is the 11 new battle reports in ignored `findings.md`; older field,
