@@ -12,13 +12,22 @@ pub enum FieldAction {
     Shop = 4,
     Examine = 5,
     Open = 6,
+    Push = 7,
+    Pull = 8,
+    Operate = 9,
+    Switch = 10,
     Climb = 11,
     Descend = 12,
     Jump = 13,
+    Hit = 14,
+    Read = 15,
     Rest = 16,
+    Eat = 17,
     Leave = 18,
     Move = 19,
     Grab = 20,
+    Question = 21,
+    Exclamation = 22,
     Save = 23,
     Warp = 24,
 }
@@ -31,13 +40,22 @@ impl FieldAction {
             4 => Some(Self::Shop),
             5 => Some(Self::Examine),
             6 => Some(Self::Open),
+            7 => Some(Self::Push),
+            8 => Some(Self::Pull),
+            9 => Some(Self::Operate),
+            10 => Some(Self::Switch),
             11 => Some(Self::Climb),
             12 => Some(Self::Descend),
             13 => Some(Self::Jump),
+            14 => Some(Self::Hit),
+            15 => Some(Self::Read),
             16 => Some(Self::Rest),
+            17 => Some(Self::Eat),
             3 | 18 => Some(Self::Leave),
             19 => Some(Self::Move),
             20 => Some(Self::Grab),
+            21 => Some(Self::Question),
+            22 => Some(Self::Exclamation),
             23 => Some(Self::Save),
             24 => Some(Self::Warp),
             _ => anyhow::bail!("unsupported field action hint {id}"),
@@ -137,6 +155,9 @@ mod tests {
         assert_eq!(hints.prompt.unwrap().opacity, 8);
         assert!(FieldAction::from_id(0).unwrap().is_none());
         assert_eq!(FieldAction::from_id(6).unwrap(), Some(FieldAction::Open));
+        for id in 1..=24 {
+            assert!(FieldAction::from_id(id).unwrap().is_some(), "hint {id}");
+        }
         assert!(FieldAction::from_id(99).is_err());
     }
 }

@@ -68,7 +68,7 @@ impl Store {
         read_bounded(&self.path(kind, slot))
     }
     pub fn write(&self, kind: Kind, slot: &SlotId, bytes: &[u8]) -> Result<()> {
-        inspect(bytes)?;
+        decode::<serde::de::IgnoredAny>(bytes)?;
         let path = self.path(kind, slot);
         let parent = path.parent().unwrap();
         fs::create_dir_all(parent).context("create save directory")?;

@@ -26,11 +26,14 @@ pub(crate) fn state(mount: Mount) -> State {
     }
 }
 pub(crate) fn terrain(surface: u32) -> collision::Terrain {
+    terrain_at_height(surface, 0.)
+}
+fn terrain_at_height(surface: u32, height: f32) -> collision::Terrain {
     let mut groups = Vec::new();
     for x in 0..16 {
         for z in 0..16 {
             let min = [x as f32 * 400. - 3200., z as f32 * 400. - 3200.];
-            groups.push(rectangle(surface, min, min.map(|v| v + 400.), 0.));
+            groups.push(rectangle(surface, min, min.map(|v| v + 400.), height));
         }
     }
     let center = TileCoordinate::new(0, 0).unwrap();
@@ -356,6 +359,7 @@ fn ship_transfers_at_boarding_completion_and_disembarks_only_at_paired_docks() -
     for pair in &mut data.travel_points {
         pair[0].map_x = 3200;
         pair[0].map_z = 3200;
+        pair[0].height = 120.;
         pair[1].map_x = 3800;
         pair[1].map_z = 3200;
     }
@@ -366,12 +370,41 @@ fn ship_transfers_at_boarding_completion_and_disembarks_only_at_paired_docks() -
         rheairds_owned: false,
         landing_clear: true,
     };
-    let ground = terrain(15);
+    let ground = terrain_at_height(15, 120.);
     let board = Input {
         vehicle: true,
         ..Default::default()
     };
+    travel.step(Input::default(), &context, &ground, &rules)?;
+    assert_eq!(
+        travel.ship_action(&context, &rules).unwrap().0,
+        ShipAction::Embark
+    );
+    assert!(
+        travel
+            .ship_action(
+                &Context {
+                    event_flags: &BTreeSet::new(),
+                    ..context
+                },
+                &rules
+            )
+            .is_none()
+    );
+    assert!(
+        travel
+            .ship_action(
+                &Context {
+                    event_flags: &[22, 23].into(),
+                    rheairds_owned: true,
+                    ..context
+                },
+                &rules
+            )
+            .is_none()
+    );
     travel.step(board, &context, &ground, &rules)?;
+    assert!(travel.ship_action(&context, &rules).is_none());
     for _ in 1..29 {
         assert_eq!(travel.ship_pose().unwrap().0.map()[0], 3800.);
         travel.step(Input::default(), &context, &ground, &rules)?;
@@ -382,15 +415,26 @@ fn ship_transfers_at_boarding_completion_and_disembarks_only_at_paired_docks() -
     let water = terrain(11);
     finish(&mut travel, &context, &water, &rules);
     assert_eq!(travel.state.mount, Mount::Ship);
+    assert_eq!(
+        travel.ship_action(&context, &rules).unwrap().0,
+        ShipAction::Disembark
+    );
     travel.step(board, &context, &water, &rules)?;
     assert_eq!(travel.state.position.map()[0], 3200.);
     assert_eq!(travel.displayed_mount(), Mount::Ship);
     assert_eq!(travel.ship_pose().unwrap().0.map()[0], 3800.);
+    for _ in 1..30 {
+        assert_eq!(travel.state.position.map()[2], 120.);
+        assert_eq!(travel.state.altitude, 120.);
+        travel.step(Input::default(), &context, &ground, &rules)?;
+    }
     finish(&mut travel, &context, &ground, &rules);
     assert_eq!(travel.displayed_mount(), Mount::Foot);
+    assert_eq!(travel.state.altitude, 120.);
     let mut away = state(Mount::Ship);
     away.position = Position::from_map([4000., 3200., 0.])?;
     let mut travel = Travel::new(away, parameters())?;
+    assert!(travel.ship_action(&context, &rules).is_none());
     assert_eq!(travel.step(board, &context, &water, &rules)?, [Cue::Denied]);
     Ok(())
 }

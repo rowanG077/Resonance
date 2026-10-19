@@ -1,7 +1,7 @@
 //! Page, text-reveal, and input behavior shared by live UI and silent records.
 use anyhow::{Result, ensure};
 use resonance_events::{
-    Operation,
+    AudioCommand, Operation,
     dialogue::{Dialogue, DialogueStatus, ResolvedMessage, TextToken, flags},
 };
 use std::{
@@ -15,12 +15,6 @@ use std::{
 const OPENING_STEPS: u8 = 5;
 const CLOSE_DELAY: u8 = 3;
 const GLYPH_ALPHA_STEP: u8 = 32;
-
-/// Playback creates a distinct completion token for each requested line.
-/// Logic-only tests can retain duration-based progression without a device.
-pub trait VoiceFeedback: Send + Sync {
-    fn begin(&self, resource: u32) -> Arc<AtomicBool>;
-}
 
 #[derive(Debug, Clone)]
 pub struct Glyph {
@@ -89,7 +83,7 @@ pub struct DialoguePlayer {
     delay: u16,
     voice_cursor: usize,
     voice_remaining: u32,
-    voice_feedback: Option<Arc<dyn VoiceFeedback>>,
+    voice_feedback: bool,
     voice_completion: Option<Arc<AtomicBool>>,
     voice_durations: Arc<BTreeMap<u32, u32>>,
     glyph_alpha: Vec<u8>,
@@ -134,7 +128,7 @@ impl DialoguePlayer {
             delay: 0,
             voice_cursor: 0,
             voice_remaining: 0,
-            voice_feedback: None,
+            voice_feedback: false,
             voice_completion: None,
             voice_durations: Default::default(),
             glyph_alpha: Vec::new(),
@@ -148,7 +142,7 @@ impl DialoguePlayer {
         self.voice_durations = durations;
         self
     }
-    pub fn with_voice_feedback(mut self, feedback: Option<Arc<dyn VoiceFeedback>>) -> Self {
+    pub fn with_voice_feedback(mut self, feedback: bool) -> Self {
         self.voice_feedback = feedback;
         self
     }
@@ -203,7 +197,7 @@ impl DialoguePlayer {
             && (self.visible < self.current().glyphs.len() || !self.voice_finished())
     }
     /// Testing advances pages without waiting for spoken audio.
-    pub fn skip_step(&mut self) -> Result<Vec<VoiceAction>> {
+    pub fn skip_step(&mut self) -> Result<Vec<AudioCommand>> {
         self.voice_remaining = 0;
         if let Some(token) = &self.voice_completion {
             token.store(true, Ordering::Release);
@@ -212,7 +206,7 @@ impl DialoguePlayer {
     }
 
     /// A press advances a revealed page; holding accept accelerates its text.
-    pub fn step(&mut self, advance: bool, accelerate: bool) -> Result<Vec<VoiceAction>> {
+    pub fn step(&mut self, advance: bool, accelerate: bool) -> Result<Vec<AudioCommand>> {
         if self.closed {
             return Ok(Vec::new());
         }
@@ -220,7 +214,7 @@ impl DialoguePlayer {
         if self.operation.progress().outcome.is_some() {
             self.closed = true;
             self.phase = WindowPhase::Closed;
-            return Ok(vec![VoiceAction::Stop]);
+            return Ok(vec![AudioCommand::StopVoice]);
         }
         match self.phase {
             WindowPhase::Opening(step) if step < OPENING_STEPS => {
@@ -251,7 +245,7 @@ impl DialoguePlayer {
         if (advance || next_page) && self.fully_revealed() {
             if self.page + 1 == self.pages.len() {
                 self.close();
-                return Ok(vec![VoiceAction::Stop]);
+                return Ok(vec![AudioCommand::StopVoice]);
             }
             self.page += 1;
             self.visible = 0;
@@ -290,14 +284,19 @@ impl DialoguePlayer {
             if position > self.visible {
                 break;
             }
-            voices.push(action);
             self.voice_completion = match action {
-                VoiceAction::Play(id) => self
-                    .voice_feedback
-                    .as_ref()
-                    .map(|feedback| feedback.begin(id)),
-                VoiceAction::Stop => None,
+                VoiceAction::Play(_) if self.voice_feedback => {
+                    Some(Arc::new(AtomicBool::new(false)))
+                }
+                _ => None,
             };
+            voices.push(match action {
+                VoiceAction::Play(resource) => AudioCommand::Voice {
+                    resource,
+                    completion: self.voice_completion.clone(),
+                },
+                VoiceAction::Stop => AudioCommand::StopVoice,
+            });
             self.voice_remaining = match action {
                 VoiceAction::Play(id) => self.voice_durations.get(&id).copied().unwrap_or(0),
                 VoiceAction::Stop => 0,
@@ -350,15 +349,10 @@ pub fn step_requests(
         .find(|(_, p)| !p.closed && !p.persistent && p.operation.is_pending())
         .map(|(&slot, _)| slot);
     for (&slot, player) in players.iter_mut() {
-        for voice in player.step(
+        world.audio_commands.extend(player.step(
             confirm && focus == Some(slot),
             accelerate && focus == Some(slot),
-        )? {
-            world.audio_commands.push(match voice {
-                VoiceAction::Play(id) => resonance_events::AudioCommand::Voice(id),
-                VoiceAction::Stop => resonance_events::AudioCommand::StopVoice,
-            });
-        }
+        )?);
         world.dialogue.get_mut(&slot).unwrap().status = player.status();
     }
     Ok(())
@@ -506,14 +500,20 @@ mod tests {
             assert!(!player.is_talking());
             assert!(!player.accepts_input());
         }
-        assert_eq!(player.step(false, false).unwrap(), [VoiceAction::Play(7)]);
+        assert!(matches!(
+            player.step(false, false).unwrap().as_slice(),
+            [AudioCommand::Voice { resource: 7, .. }]
+        ));
         assert_eq!(player.visible, 1);
         assert!(player.is_talking());
         player.step(false, false).unwrap();
         for _ in 0..8 {
             player.step(false, false).unwrap();
         }
-        assert_eq!(player.step(true, false).unwrap(), [VoiceAction::Stop]);
+        assert!(matches!(
+            player.step(true, false).unwrap().as_slice(),
+            [AudioCommand::StopVoice]
+        ));
         assert!(
             player.window_visible(),
             "dismissal update still draws the page"
@@ -544,7 +544,10 @@ mod tests {
             assert!(player.window_visible());
             assert!(!player.accepts_input());
         }
-        assert_eq!(player.step(true, false).unwrap(), [VoiceAction::Stop]);
+        assert!(matches!(
+            player.step(true, false).unwrap().as_slice(),
+            [AudioCommand::StopVoice]
+        ));
         assert_eq!(player.glyph_alpha(0), 224);
         assert!(player.window_visible());
         assert!(!player.is_talking());
@@ -626,7 +629,10 @@ mod tests {
             !player.operation.progress().ready,
             "voice still owns readiness"
         );
-        assert_eq!(player.step(true, false).unwrap(), [VoiceAction::Stop]);
+        assert!(matches!(
+            player.step(true, false).unwrap().as_slice(),
+            [AudioCommand::StopVoice]
+        ));
         assert!(!player.is_talking());
         for _ in 0..4 {
             player.step(false, false).unwrap();
@@ -762,25 +768,21 @@ mod tests {
     }
     #[test]
     fn playback_acknowledgement_outlives_nominal_voice_duration() {
-        struct Feedback(Arc<AtomicBool>);
-        impl VoiceFeedback for Feedback {
-            fn begin(&self, resource: u32) -> Arc<AtomicBool> {
-                assert_eq!(resource, 7);
-                self.0.clone()
-            }
-        }
-        let completed = Arc::new(AtomicBool::new(false));
         let (player, _scope) = player("AB", flags::INSTANT);
         let mut player = player
             .with_voice_durations(Arc::new([(7, 2)].into()))
-            .with_voice_feedback(Some(Arc::new(Feedback(completed.clone()))));
+            .with_voice_feedback(true);
         for _ in 0..100 {
             player.step(false, false).unwrap();
         }
         assert!(!player.voice_finished());
         assert!(!player.operation.progress().ready);
         assert!(player.is_talking());
-        completed.store(true, Ordering::Release);
+        player
+            .voice_completion
+            .as_ref()
+            .unwrap()
+            .store(true, Ordering::Release);
         player.step(false, false).unwrap();
         assert!(player.voice_finished());
         assert!(player.operation.progress().ready);

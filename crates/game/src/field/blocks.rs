@@ -446,6 +446,38 @@ mod tests {
     }
 
     #[test]
+    fn blocks_slide_past_neighbors_without_using_padded_walking_bounds() {
+        for (floors, movable) in [(true, true), (false, true), (true, false)] {
+            let (mut events, mesh, mut blocks) = room();
+            let block = events.world.actors.get_mut(&2).unwrap();
+            block.model_bounds = Some([[-75., -75., 0.], [75., 75., CELL]]);
+            let collision = Arc::make_mut(block.model_collision.as_mut().unwrap());
+            collision.solids = vec![resonance_content::test_support::cuboid(
+                [-115., -115., 0.],
+                [115., 115., CELL],
+            )];
+            if !floors {
+                collision.floors.clear();
+            }
+            let mut neighbor = block.clone();
+            neighbor.pushable = movable;
+            neighbor.position[0] = CELL;
+            events.world.insert_actor(3, neighbor);
+            grab(&mut events, &mesh, &mut blocks);
+            hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
+            assert_eq!(events.world.actors[&2].position, [0., -CELL, 0.]);
+            hold_cell(&mut events, &mesh, &mut blocks, [0., 1.]);
+            assert_eq!(events.world.actors[&2].position, [0.; 3]);
+            let world = &events.world;
+            assert!(!mesh.with_actors(world.actors.values()).can_move_block(
+                &world.actors[&2],
+                &world.actors[&1],
+                [CELL, 0.],
+            ));
+        }
+    }
+
+    #[test]
     fn blocks_cannot_be_pushed_into_each_other() {
         let (mut events, mesh, mut blocks) = room();
         let mut obstacle = events.world.actors[&2].clone();
