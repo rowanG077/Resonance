@@ -11,6 +11,7 @@ pub struct FieldCheckpoint {
     pub map_id: u32,
     pub position: [f32; 3],
     pub heading: f32,
+    /// Follow-camera settings, or None when field setup reconstructs a scripted view.
     pub camera: Option<resonance_events::camera::CameraSettings>,
     pub progress: SavedProgress,
     pub played_ticks: u64,

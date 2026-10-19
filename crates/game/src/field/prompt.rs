@@ -50,6 +50,7 @@ impl FieldAction {
             14 => Some(Self::Hit),
             15 => Some(Self::Read),
             16 => Some(Self::Rest),
+            17 => Some(Self::Eat),
             3 | 18 => Some(Self::Leave),
             19 => Some(Self::Move),
             20 => Some(Self::Grab),

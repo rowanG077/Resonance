@@ -27,6 +27,7 @@ pub mod ex_effect {
     pub const STEAL_SUCCESS: u8 = 96;
     pub const TAUNT: u8 = 3;
     pub const DASH: u8 = 6;
+    pub const FIELD_MOBILITY: u8 = 8;
     pub const ADDITIONAL_COMBO: u8 = 11;
     pub const GUARD_REDUCTION: u8 = 12;
     pub const AILMENT_RESISTANCE: u8 = 13;

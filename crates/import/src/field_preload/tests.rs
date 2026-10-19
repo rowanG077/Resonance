@@ -239,14 +239,12 @@ fn current_shared_descriptors_close_against_published_inventory() -> Result<()> 
     let root = asset_root();
     let published: Shared = serde_json::from_slice(&fs::read(root.join(SHARED_PATH))?)?;
     published.validate()?;
-    let mut inventory = Inventory::new(&root);
-    inventory.paths(
-        ["game/skits.json", resonance_content::battle_formation::PATH]
-            .into_iter()
-            .filter(|path| published.files.contains_key(*path)),
-    )?;
-    close_shared(&mut inventory)?;
-    for (path, file) in inventory.files {
+    let roots = ["game/skits.json", resonance_content::battle_formation::PATH]
+        .into_iter()
+        .filter(|path| published.files.contains_key(*path))
+        .map(str::to_owned)
+        .collect();
+    for (path, file) in shared_fixture(&root, &roots)?.files {
         let known = published
             .files
             .get(&path)

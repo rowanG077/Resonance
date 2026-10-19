@@ -431,6 +431,10 @@ impl Tech {
             character,
             ..Self::default()
         };
+        // Cursor memory can come from a larger field or previous battle roster.
+        if state.character >= state.page(party, session, data, context).party_count() {
+            state.character = 0;
+        }
         state.validate(party, context)?;
         state.reset_focus(party, session, data, context);
         Ok(state)

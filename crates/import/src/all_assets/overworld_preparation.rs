@@ -482,101 +482,67 @@ fn prepare_cinematic_fixture() -> Result<(std::path::PathBuf, Package)> {
 #[ignore = "requires original disc 1; prepares three terrain shapes in private temporary output"]
 fn original_world_terrain_shapes_bind_source_geometry() -> Result<()> {
     let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
-    let output = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
-    );
-    let _publication = crate::publication::Session::start_if_needed(&output)?;
-    let mut sources = BTreeMap::new();
-    for entry in fs::read_dir(extracted.join("files/FIELD"))? {
-        let path = entry?.path();
-        let name = format!("FIELD/{}", path.file_name().unwrap().to_str().unwrap());
-        let hash = crate::media::hash_file(&path)?;
-        sources.insert(format!("disc1/{name}"), hash.clone());
-    }
-    // Refresh shared menu data through the production importer: older local
-    // libraries can have a valid JSON document with an obsolete schema version.
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    crate::font::prepare(&extracted, &output)?;
-    let battle_sources = crate::source_assets::Sources::read_with(&extracted, &executable)?;
-    let usual = fs::read(extracted.join("files").join(&battle_sources.usual))?;
-    crate::menu::cook(
-        &extracted,
-        &output,
-        &executable,
-        &super::embedded::Catalogues::read(&executable)?,
-        &battle_sources,
-        &usual,
-    )?;
-    let plan = discover(
-        &extracted,
-        &sources,
-        &fs::read(extracted.join("sys/main.dol"))?,
-    )?;
-    assert_eq!(plan.terrain_sources().len(), 228);
-    let mut terrain = BTreeMap::new();
-    for (hash, asset) in plan.terrain_sources() {
-        let name = &asset.source;
+    let temporary = tempfile::tempdir()?;
+    let output = temporary.path();
+    let _publication = crate::publication::Session::start_if_needed(output)?;
+    // Shoreline base, story alternate, and opaque-only land. The complete world
+    // inventory and travel behaviors are covered by the world consumer checks.
+    for (name, shoreline) in [
+        ("FIELD/00.dat", true),
+        ("FIELD/06a.dat", true),
+        ("FIELD/18.dat", false),
+    ] {
         let bytes = std::sync::Arc::new(fs::read(extracted.join("files").join(name))?);
-        let mut decoded = decoded::Package::cook(
-            &bytes,
-            &format!("assets/{hash}"),
-            &output,
-            super::geometry::Input::File,
-        )?;
-        decoded.remember_source(name, bytes);
-        terrain.insert(hash, tile(&output, &asset, &decoded)?);
-    }
-    let visual_audio = visual_test_audio(&extracted, &output)?;
-    let mut decoded = decoded::Package::default();
-    for (hash, name) in &plan.visuals.dependencies {
-        let bytes = std::sync::Arc::new(fs::read(extracted.join("files").join(name))?);
-        decoded.extend(&decoded::Package::cook_with_audio(
-            &bytes,
-            &format!("assets/{hash}"),
-            &output,
-            super::geometry::Input::File,
-            Some(&visual_audio),
-        )?);
-        decoded.remember_source(name, bytes);
-    }
-    let visuals = plan.visuals.prepare(&output, &decoded)?;
-    drop(visual_audio);
-    let mut audio = crate::media::FieldAudioCooker::new(
-        crate::media::Workspace::open(&extracted, &output)?,
-        Some(extracted.parent().unwrap().join("disc2")),
-    )?;
-    audio.world(&fs::read(extracted.join("files").join(&plan.script))?)?;
-    let package = prepare(&plan, &extracted, &output, &terrain, visuals)?;
-    assert_eq!(package.worlds.each_ref().map(Vec::len), [108, 108]);
-    assert_eq!(
-        package
-            .worlds
-            .iter()
-            .flatten()
-            .filter(|tile| tile.alternate.is_some())
-            .count(),
-        12
-    );
-    let restored: Package = serde_json::from_slice(&fs::read(output.join(PACKAGE_PATH))?)?;
-    restored.validate()?;
-    let files = resonance_content::prepared::Files::from_inventory(
-        &output,
-        restored.files.clone(),
-        &mut Default::default(),
-        || false,
-    )?;
-    assert_eq!(files.len(), restored.files.len());
-    for parts in package
-        .visuals
-        .actors
-        .values()
-        .chain(package.visuals.markers.iter().flat_map(|m| m.values()))
-        .chain(&package.visuals.skies)
-    {
-        for part in parts {
-            for clip in &part.clips {
-                resonance_content::animation::Motion::decode(&files.read(&clip.motion)?)?
-                    .validate_bones(part.bone_names.len())?;
+        let asset = TileAsset {
+            source: name.into(),
+            package: format!("assets/{}", crate::digest(&bytes)),
+        };
+        let mut decoded =
+            decoded::Package::cook(&bytes, &asset.package, output, super::geometry::Input::File)?;
+        decoded.remember_source(name, std::sync::Arc::clone(&bytes));
+        let prepared = tile(output, &asset, &decoded)?;
+        let sections = crate::field::sections(&bytes)?;
+        let collision = sections[4]
+            .as_ref()
+            .context("missing source terrain collision")?;
+        assert_eq!(prepared.source_sha256, crate::digest(&bytes));
+        assert!(!prepared.ground.is_empty(), "{name} has no collision");
+        assert_eq!(
+            serde_json::to_value(&prepared.ground)?,
+            serde_json::to_value(crate::field::collision(&bytes[collision.clone()])?)?,
+            "{name} collision"
+        );
+        let expected_layers: &[u16] = if shoreline { &[0, 2] } else { &[0] };
+        assert_eq!(
+            prepared
+                .parts
+                .iter()
+                .map(|part| part.resource)
+                .collect::<Vec<_>>(),
+            expected_layers,
+            "{name} layers"
+        );
+        for part in &prepared.parts {
+            let index = usize::from(part.resource);
+            let section = sections[index]
+                .as_ref()
+                .context("missing source terrain layer")?;
+            let glb = crate::scene::glb::Glb::read(&output.join(&part.mesh))?;
+            crate::geometry::compare_field_layer(&bytes[section.clone()], part, &glb.json, 0)
+                .with_context(|| format!("{name}/{index}"))?;
+            assert!(
+                sections[index + 1].is_none(),
+                "fixture has skeletal animation"
+            );
+            assert!(!part.autoplay && part.clips.is_empty(), "{name}/{index}");
+            assert_eq!(
+                !part.texture_animations.is_empty(),
+                shoreline && index == 2,
+                "{name}/{index} shoreline animation"
+            );
+            for animation in &part.texture_animations {
+                animation.validate()?;
+                assert!(animation.texture < part.textures.len());
             }
             for texture in &part.textures {
                 assert!(!fs::read(output.join(texture))?.is_empty(), "{texture}");

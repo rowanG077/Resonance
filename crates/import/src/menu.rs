@@ -425,6 +425,7 @@ fn cook_sprites(
                 (Sprite::Technique, technique),
                 (Sprite::Numbers, vec![numbers]),
                 (Sprite::Leader, vec![leader]),
+                (Sprite::WorldHud, world_hud),
             ]
             .into(),
             number_colors: library.recipe.number_colors.to_vec(),

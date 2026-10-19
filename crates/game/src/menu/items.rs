@@ -232,6 +232,12 @@ impl Menu {
         state.description_fade = DESCRIPTION_FADE_START;
     }
 
+    pub(super) fn return_to_items(&mut self) {
+        self.page = Page::Items;
+        self.open_items();
+        self.fade_item_description();
+    }
+
     pub(super) fn close_items(&mut self, destination: Page) -> bool {
         if !self.admit_page(destination) {
             return false;

@@ -50,7 +50,7 @@ impl Menu {
         }
         let map = &mut self.world_map;
         if map.page_fade == 255 {
-            self.open_items();
+            self.return_to_items();
             return true;
         }
         map.page_fade = if map.page_closing {

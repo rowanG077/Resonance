@@ -20,7 +20,7 @@ impl Menu {
     pub(super) fn advance_manual(&mut self) -> bool {
         let state = &mut self.manual;
         if state.page_fade == 255 {
-            self.open_items();
+            self.return_to_items();
             return true;
         }
         state.page_fade = if state.page_closing {

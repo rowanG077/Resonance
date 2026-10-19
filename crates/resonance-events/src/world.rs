@@ -1120,7 +1120,16 @@ impl GameWorld {
     pub fn insert_actor(&mut self, id: i32, mut actor: Actor) {
         self.next_actor_instance += 1;
         actor.instance = self.next_actor_instance;
-        actor.visible_from = self.tick + 1;
+        actor.first_update_tick = self.tick + 1;
+        actor.visible_from = self
+            .actors
+            .get(&id)
+            .filter(|previous| {
+                previous.visible
+                    && !previous.appearance.model_hidden
+                    && previous.model_resource() == actor.model_resource()
+            })
+            .map_or(actor.first_update_tick, |previous| previous.visible_from);
         actor.update_order = self.actors.get(&id).map_or_else(
             || {
                 (0..=self.actors.len())
