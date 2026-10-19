@@ -115,16 +115,17 @@ mod tests {
     fn full_band_preserves_integer_samples_and_half_phase_timing() {
         let tables = Coefficients::from_be_bytes(&coefficients()).unwrap().0;
         assert_eq!(tables[2][0], [0, 32767, 0, 0]);
-        let mut integer = Resampler::new(Mode::Polyphase(&tables[2]), 65536).unwrap();
-        let mut count = 0;
-        let actual: Vec<_> = (0..6)
-            .map(|_| {
-                integer.next_sample(|| {
-                    count += 1000;
-                    count
-                })
-            })
-            .collect();
+        let mut integer = Resampler::new(Mode::Polyphase(&tables[2]), 65536);
+        let sample = resonance_audio::sample::Sample {
+            key: 60,
+            rate: 32000,
+            loop_start: 0,
+            loop_length: 0,
+            pcm: (1..=16).map(|n| n * 1000).collect(),
+            loop_pcm: Vec::new(),
+        };
+        let mut cursor = resonance_audio::resample::SampleCursor::new(&sample).unwrap();
+        let actual: Vec<_> = (0..6).map(|_| integer.next_sample(&mut cursor)).collect();
         assert_eq!(actual, [0, 0, 999, 1999, 2999, 3999]);
         let half = tables[2][64];
         assert_eq!(half, [half[3], half[2], half[1], half[0]]);
@@ -137,12 +138,21 @@ mod tests {
         for table in &tables[..3] {
             for ratio in [8192, 32768, 98304, 0x3fff0] {
                 for level in [12000, -12000] {
-                    let mut resampler = Resampler::new(Mode::Polyphase(table), ratio).unwrap();
+                    let sample = resonance_audio::sample::Sample {
+                        key: 60,
+                        rate: 32000,
+                        loop_start: 0,
+                        loop_length: 1,
+                        pcm: vec![level],
+                        loop_pcm: vec![level],
+                    };
+                    let mut cursor = resonance_audio::resample::SampleCursor::new(&sample).unwrap();
+                    let mut resampler = Resampler::new(Mode::Polyphase(table), ratio);
                     for _ in 0..64 {
-                        resampler.next_sample(|| level);
+                        resampler.next_sample(&mut cursor);
                     }
                     for _ in 0..256 {
-                        let value = resampler.next_sample(|| level);
+                        let value = resampler.next_sample(&mut cursor);
                         assert!((i32::from(value) - i32::from(level)).abs() <= 4);
                     }
                 }

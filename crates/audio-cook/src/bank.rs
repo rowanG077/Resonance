@@ -511,6 +511,7 @@ impl<'a> Bank<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parameters::test_sustains as sustains;
 
     fn fixture() -> Vec<u8> {
         let mut bytes = vec![0; 140];
@@ -589,7 +590,7 @@ mod tests {
         assert_eq!(bank.object(ObjectKind::Table, 88).unwrap().len(), 8);
         let data = bank.pitch_envelope(88).unwrap();
         assert_eq!(data, &bytes[108..128]);
-        let envelope = crate::parameters::dls(data).unwrap();
+        let envelope = crate::parameters::timing(data).unwrap();
         assert_eq!(envelope.release_ms, 3072);
         assert_eq!(envelope.attack_velocity_scale, 89 << 8);
         assert!(bank.pitch_envelope(89).is_err());
@@ -630,7 +631,7 @@ mod tests {
         ] {
             let macro_bytes = [0, 0, 0x1e, opcode, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
             let bank = macro_bank(&macro_bytes);
-            let resources = crate::compile::programs(&bank, [436]).unwrap();
+            let resources = crate::compile::programs(&bank, [436], &sustains()).unwrap();
             let Command::SelectControl {
                 target,
                 source: Operand::Constant(0),
@@ -667,7 +668,7 @@ mod tests {
                 .into_iter()
                 .flat_map(u32::to_be_bytes)
                 .collect();
-            crate::compile::programs(&macro_bank(&bytes), [436])
+            crate::compile::programs(&macro_bank(&bytes), [436], &sustains())
                 .map(|resources| resources.programs[&436][0])
         };
         assert!(matches!(
@@ -796,19 +797,22 @@ mod tests {
         )
         .unwrap();
         let roots = || layers.iter().map(|layer| layer.macro_id);
-        let error = crate::compile::programs(&event, roots()).err().unwrap();
+        let error = crate::compile::programs(&event, roots(), &sustains())
+            .err()
+            .unwrap();
         assert!(format!("{error:#}").contains("sample 135 is missing"));
 
         event.inherit_samples(&common);
-        let resources = crate::compile::programs(&event, roots()).unwrap();
+        let resources = crate::compile::programs(&event, roots(), &sustains()).unwrap();
         let actual = &resources.samples[&135];
         let expected = common.sample(135).unwrap();
         assert_eq!(event.sample_format(135).unwrap(), 0);
         for mode in [0, 1, 2, 255] {
             let operation =
-                crate::decode::command(&event, mode << 24 | 135 << 8 | 0x10, u32::MAX).unwrap();
+                crate::decode::command(&event, mode << 24 | 135 << 8 | 0x10, u32::MAX, &sustains())
+                    .unwrap();
             assert!(matches!(
-                operation.mixer().unwrap(),
+                operation,
                 resonance_audio::data::Command::StartSample { sample: 135 }
             ));
         }
@@ -873,6 +877,9 @@ mod tests {
         let mut layers = vec![0, 0, 0, 2];
         layers.extend([0, 1, 0, 127, 192, 64, 0, 10, 127, 0, 0, 0]);
         layers.extend([0, 2, 0, 127, 127, 127, 255, 236, 0, 0, 0, 0]);
+        let first_keymap = [0x40, 1, 2, 64, 0, 5, 0, 0].repeat(128);
+        let second_keymap = [0, 1, 253, 64, 255, 246, 0, 0].repeat(128);
+        let cyclic_keymap = [0x40, 0, 0, 64, 0, 0, 0, 0].repeat(128);
         let mut bank = Bank {
             table_spans: Default::default(),
             sections: [&[], &[], &[], &[]],
@@ -911,6 +918,20 @@ mod tests {
             ),
             (2, 127, 100, 0, 90)
         );
+        bank.objects[2].insert(0x4000, &first_keymap);
+        bank.objects[2].insert(0x4001, &second_keymap);
+        let keymap_page = Page {
+            object: 0x4000,
+            ..page
+        };
+        let voices = crate::instrument::resolve(&bank, keymap_page, 60, 100, 64).unwrap();
+        assert_eq!(voices.len(), 1);
+        assert_eq!(
+            (voices[0].macro_id, voices[0].key, voices[0].priority),
+            (1, 59, 95)
+        );
+        bank.objects[2].insert(0x4001, &cyclic_keymap);
+        assert!(crate::instrument::resolve(&bank, keymap_page, 60, 100, 64).is_err());
         let cycle = [0, 0, 0, 1, 128, 1, 0, 127, 0, 127, 0, 0, 64, 0, 0, 0];
         bank.objects[3].insert(0x8001, &cycle);
         assert!(
@@ -926,5 +947,81 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn layered_instruments_saturate_priority_monotonically() {
+        for (delta, expected) in [
+            (i16::MIN, 0),
+            (-201, 0),
+            (-200, 0),
+            (-1, 199),
+            (0, 200),
+            (1, 201),
+            (55, 255),
+            (56, 255),
+            (i16::MAX, 255),
+        ] {
+            let mut keymap = [0, 1, 0, 64, 0, 0, 0, 0].repeat(128);
+            keymap[60 * 8 + 4..60 * 8 + 6].copy_from_slice(&delta.to_be_bytes());
+            let mut layer = [0, 0, 0, 1, 0, 1, 0, 127, 0, 127, 0, 0, 64, 0, 0, 0];
+            layer[10..12].copy_from_slice(&delta.to_be_bytes());
+            let mut bank = Bank {
+                table_spans: Default::default(),
+                sections: [&[], &[], &[], &[]],
+                sample_banks: Vec::new(),
+                objects: Default::default(),
+                sounds: Default::default(),
+                music_groups: Default::default(),
+            };
+            bank.objects[0].insert(1, &[0; 8]);
+            bank.objects[2].insert(0x4000, &keymap);
+            bank.objects[3].insert(0x8000, &layer);
+            for object in [0x4000, 0x8000] {
+                let page = Page {
+                    object,
+                    priority: 200,
+                    max_voices: 8,
+                };
+                let voices = crate::instrument::resolve(&bank, page, 60, 100, 64).unwrap();
+                assert_eq!(
+                    voices[0].priority, expected,
+                    "object {object:#x}, delta {delta}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn layered_instruments_saturate_velocity_without_wrapping() {
+        let layer = [0, 0, 0, 1, 0, 1, 0, 127, 0, 255, 0, 0, 64, 0, 0, 0];
+        let nested = [0, 0, 0, 1, 128, 0, 0, 127, 0, 255, 0, 0, 64, 0, 0, 0];
+        let mut bank = Bank {
+            table_spans: Default::default(),
+            sections: [&[], &[], &[], &[]],
+            sample_banks: Vec::new(),
+            objects: Default::default(),
+            sounds: Default::default(),
+            music_groups: Default::default(),
+        };
+        bank.objects[0].insert(1, &[0; 8]);
+        bank.objects[3].insert(0x8000, &layer);
+        bank.objects[3].insert(0x8001, &nested);
+        for (object, expected) in [
+            (0x8000, [0, 2, 64, 127, 127, 127]),
+            (0x8001, [0, 4, 127, 127, 127, 127]),
+        ] {
+            let page = Page {
+                object,
+                priority: 100,
+                max_voices: 8,
+            };
+            let velocities = [0, 1, 32, 64, 100, 127].map(|velocity| {
+                let voices = crate::instrument::resolve(&bank, page, 60, velocity, 64).unwrap();
+                assert_eq!(voices.len(), 1);
+                voices[0].velocity
+            });
+            assert_eq!(velocities, expected);
+        }
     }
 }
