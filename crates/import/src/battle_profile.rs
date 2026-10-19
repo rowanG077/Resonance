@@ -26,6 +26,10 @@ pub(crate) fn read(
     ensure!(channels <= 4, "too many actor texture channels");
     let weapons = usize::from(b[0x1e4]);
     ensure!(weapons <= 8, "too many actor weapon slots");
+    ensure!(
+        b[0xeb] == 0 || b[0xea] != 0,
+        "invalid movement effect interval"
+    );
     let texture_channels: Vec<_> = (0..channels)
         .map(|index| resonance_content::battle_profile::TextureChannel {
             texture: b[0xd3 + index],
@@ -41,6 +45,17 @@ pub(crate) fn read(
     if let Some(blink) = &blink {
         blink.validate(&texture_channels)?;
     }
+    let target_offset = <[f32; 3]>::read(b, 0x78)?;
+    ensure!(
+        target_offset.iter().all(|value| value.is_finite()),
+        "invalid target anchor offset"
+    );
+    let head_offset = <[f32; 3]>::read(b, 0x6c)?;
+    ensure!(
+        head_offset.iter().all(|value| value.is_finite()),
+        "invalid head anchor offset"
+    );
+    let body = u16::read(b, 0xb4)?;
     Ok(Profile {
         walk_speed: f32::read(b, 0x20)?,
         run_speed: f32::read(b, 0x24)?,
@@ -78,13 +93,47 @@ pub(crate) fn read(
         guard_reduction: b[0x2f],
         stagger_ticks: b[0x55],
         guard_pressure_limit: i16::read(b, 0x58)?.max(0) as u32,
-        traits: profile_traits(u32::read(b, 0x5c)?, u16::read(b, 0xb4)?),
+        traits: profile_traits(u32::read(b, 0x5c)?, body),
+        hosted_body: (body & 0x20 != 0).then_some(resonance_content::battle_profile::HostedBody {
+            release_on_hurt: body & 0x40 != 0,
+            release_below_half_health: body & 0x2000 != 0,
+            release_on_defeat: body & 0x1000 != 0,
+            launch_on_release: body & 0x80 != 0,
+        }),
         armor: b[0x11b],
         center_offset: <[f32; 3]>::read(b, 0x60)?,
+        target_anchor: resonance_content::battle_profile::TargetAnchor {
+            bone: b[0x51],
+            offset: target_offset,
+        },
+        head_anchor: resonance_content::battle_profile::HeadAnchor {
+            bone: b[0x9f],
+            offset: head_offset,
+        },
         model_scale: f32::read(b, 0x84)?,
         shadow_scale: f32::read(b, 0x88)?,
         shadow_color: <[u8; 4]>::read(b, 0x108)?,
         effect_scale: f32::read(b, 0x8c)?,
+        passive_effects: std::iter::once((u16::read(b, 0xbe)?, b[0xc0]))
+            .chain((0..6).map(|slot| (u16::from(b[0xc2 + slot]), b[0xc8 + slot])))
+            .filter(|&(interval, _)| interval != 0)
+            .map(
+                |(interval, program)| resonance_content::battle_profile::RecurringEffect {
+                    program: u16::from(program),
+                    interval,
+                },
+            )
+            .collect(),
+        idle_effect: (b[0xe8] != 0).then_some(resonance_content::battle_profile::RecurringEffect {
+            program: u16::from(b[0xe9]),
+            interval: u16::from(b[0xe8]),
+        }),
+        movement_effect: (b[0xeb] != 0).then_some(
+            resonance_content::battle_profile::RecurringEffect {
+                program: u16::from(b[0xeb]),
+                interval: u16::from(b[0xea]),
+            },
+        ),
         camera_category: b[0xe7],
         voices: voices.actor_voices(u32::read(b, 0x104)?, roles)?,
         death_motion: b[0x9c],
@@ -94,6 +143,10 @@ pub(crate) fn read(
         initial_overlimit: i16::read(b, 0xae)?,
         ground_offset: f32::read(b, 0x90)?,
         cast_ticks: i16::read(b, 0x56)?,
+        chant_once: b[0x30] & 4 != 0,
+        chant_loop_start: f32::from(b[0x9d]) * f32::read(b, 0xa0)?.abs(),
+        cast_poses: cast_poses(b)?,
+        cast_recovery_motion: (b[0xa6] != 0).then_some(b[0xa6]),
     })
 }
 
@@ -133,6 +186,8 @@ pub(crate) fn conditions([high, low]: [u32; 2], immunity: bool) -> Result<Condit
         (1 << 30, Flare),
         (1 << 31, Guard),
         (1 << 32, Quartz),
+        (1 << 33, PhysicalBarrier),
+        (1 << 34, MagicalBarrier),
         (1 << 35, HolySong),
         (1 << 36, RecoveryDown),
         (1 << 37, Enchanted),
@@ -161,6 +216,7 @@ pub(crate) fn conditions([high, low]: [u32; 2], immunity: bool) -> Result<Condit
 
 fn profile_traits(flags: u32, body: u16) -> ProfileTraits {
     ProfileTraits {
+        hosts_participants: body & 1 != 0,
         flying: flags & 0x1 != 0,
         hover_bobbing: flags & 0x2 != 0,
         hide_enemy_shadow: flags & 0x8 != 0,
@@ -171,6 +227,7 @@ fn profile_traits(flags: u32, body: u16) -> ProfileTraits {
         show_body_attachments: flags & 0x1000 != 0,
         auto_guard_disabled: flags & 0x4000 != 0,
         retain_defeated_body: flags & 0x40000 != 0,
+        wait_for_defeat_animation: flags & 0x200000 != 0,
         hit_shake_disabled: flags & 0x80000 != 0,
         recover_in_air: flags & 0x100000 != 0,
         launch_immune: flags & 0x2000000 != 0,
@@ -205,8 +262,24 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
         .at((5, 0x3d30))?
         .get(..11 * BYTES)
         .context("truncated party profile table")?;
+    let item_use_offsets = <[[f32; 3]; 9]>::read(module.at((5, 0xc3c))?, 0)?;
+    ensure!(
+        item_use_offsets
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite()),
+        "invalid item-use effect offset"
+    );
+    for profile in bytes.chunks_exact(BYTES) {
+        let rate = f32::read(profile, 0xa0)?;
+        ensure!(
+            rate.is_finite() && rate > 0. && profile[0xa8] == 0,
+            "unsupported party casting playback"
+        );
+    }
     let table = Table {
         source_sha256: crate::digest(&module.bytes),
+        item_use_offsets,
         normal_attacks: crate::battle_normal::read(&module)?,
         martial_attacks: crate::battle_martial::read(usual, &module)?,
         contact_sounds: resonance_content::battle_profile::ContactSounds {
@@ -273,6 +346,30 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
     let path = format!("{prefix}/party-profiles.json");
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&table)?)?;
     Ok(path)
+}
+
+fn cast_poses(bytes: &[u8]) -> Result<resonance_content::battle_profile::CastPoses> {
+    use resonance_content::{battle_action::ActionPose, battle_profile::CastPoses};
+    let rate = f32::read(bytes, 0xa0)?;
+    Ok(CastPoses {
+        release_loop_start: f32::from(bytes[0xa8]) * rate,
+        opening: ActionPose {
+            clip: 13,
+            start: 0.,
+            end: None,
+            rate: 0.5,
+            blend: 4,
+            repeat: bytes[0x30] & 1 != 0,
+        },
+        release: ActionPose {
+            clip: 12,
+            start: f32::from(bytes[0xa4]) * rate,
+            end: None,
+            rate,
+            blend: bytes[0xa5],
+            repeat: bytes[0x30] & 2 != 0,
+        },
+    })
 }
 
 fn chant_sequence(

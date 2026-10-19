@@ -87,7 +87,10 @@ fn recipe(row: Row<'_>, uv: &[UvRecord]) -> Result<Declaration> {
     let scene_sample = slot == 10;
     if scene_sample {
         ensure!(
-            kind == 4 && bytes[1] == 0 && bytes[142] == 0 && flags & (0x800000 | 0x10000000) == 0,
+            matches!(kind, 4 | 5)
+                && bytes[1] == 0
+                && bytes[142] == 0
+                && flags & (0x800000 | 0x10000000) == 0,
             "unsupported scene-sampling particle"
         );
     }
@@ -331,6 +334,7 @@ fn recipe(row: Row<'_>, uv: &[UvRecord]) -> Result<Declaration> {
                 slot: bytes[212],
                 animation: (flags & MODEL_ANIMATION != 0).then_some(u16::from(bytes[213])),
                 repeat: bytes[145] & 2 != 0,
+                reverse_at: (bytes[145] & 1 != 0).then_some(bytes[148]),
                 program_animation: flags & PROGRAM_ANIMATION != 0,
                 attachment: (flags & MODEL_JOINT != 0).then_some(ModelAttachment {
                     retained: bytes[141],
@@ -571,6 +575,7 @@ mod tests {
                 &[declaration],
                 &[false],
                 &Default::default(),
+                &[],
             );
             assert_eq!(
                 events,
@@ -762,6 +767,7 @@ mod tests {
             assert!(template.periodic_effect.is_none());
             assert_eq!(binding.animation, Some(0));
             assert!(!binding.repeat);
+            assert_eq!(binding.reverse_at, Some(PROJECTILE_MODEL_END));
         }
         for (offset, value) in [(16, 1), (22, 0), (145, 3), (148, 44), (212, 3)] {
             let mut unsupported = bytes;
@@ -923,14 +929,12 @@ mod tests {
             Orientation::Billboard
         );
         assert!(declaration.particle_visual()?.texture.dual());
-        for (field, value) in [(2, 10), (142, 1)] {
-            let mut unsupported = quad;
-            unsupported[field] = value;
-            assert!(matches!(
-                read(&unsupported, &[])?,
-                Declaration::Unsupported { .. }
-            ));
-        }
+        let mut unsupported = quad;
+        unsupported[142] = 1;
+        assert!(matches!(
+            read(&unsupported, &[])?,
+            Declaration::Unsupported { .. }
+        ));
         let mut sampled = bytes;
         sampled[2] = 10;
         sampled[20..24]
@@ -957,6 +961,18 @@ mod tests {
             assert_eq!(visual.ground_relative, ground_relative);
             assert!(visual.depth_test && !visual.depth_write);
         }
+        sampled[0] = 5;
+        sampled[20..24].copy_from_slice(&(BILLBOARD | DUAL_TEXTURE).to_be_bytes());
+        sampled[216..220].copy_from_slice(&6_i32.to_be_bytes());
+        sampled[220..224].copy_from_slice(&6_i32.to_be_bytes());
+        let declaration = read(&sampled, &[])?;
+        let visual = declaration.particle_visual()?;
+        assert!(matches!(visual.geometry, ParticleShape::Quad));
+        assert_eq!(visual.scene_sample, Some([6, 6]));
+        assert_eq!(visual.texture.slot(), Some(0));
+        assert!(visual.texture.dual());
+        assert_eq!(visual.orientation, Orientation::Billboard);
+        assert!(visual.depth_test && !visual.depth_write);
         let mixed_binding = u32::from_be_bytes(quad[20..24].try_into().unwrap()) | MODEL_JOINT;
         quad[20..24].copy_from_slice(&mixed_binding.to_be_bytes());
         assert!(matches!(read(&quad, &[])?, Declaration::Unsupported { .. }));

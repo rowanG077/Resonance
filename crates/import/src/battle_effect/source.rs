@@ -136,6 +136,7 @@ fn read_with_owner(
         "effect UV root outside row pool"
     );
     let palette_strides = actors.chunks_exact(352).map(|record| record[6]).collect();
+    let animation_bytes: Vec<_> = actors.chunks_exact(352).map(|record| record[213]).collect();
     let empty: Vec<_> = actors
         .chunks_exact(352)
         .map(super::declaration::empty)
@@ -172,13 +173,15 @@ fn read_with_owner(
                         );
                         records.retain(|record| !is_empty(record));
                     }
-                    let records = expand_origin_groups(records, body, &retained)?;
+                    let (records, inherited) = expand_origin_groups(records, body, &retained)?;
                     compile_program(
                         &records,
+                        &inherited,
                         &actors,
                         &retained,
                         offsets[2],
                         data_pool(offsets[2]),
+                        &animation_bytes,
                     )
                 })
                 .unwrap_or_else(|error| {
@@ -207,11 +210,11 @@ fn expand_origin_groups(
     records: Vec<super::Record>,
     body: Option<&resonance_content::animation::Skeleton>,
     retained: &[bool],
-) -> Result<Vec<super::Record>> {
+) -> Result<(Vec<super::Record>, std::collections::BTreeSet<usize>)> {
     let grouped =
         |record: &super::Record| record.command < 252 && (250..=253).contains(&record.argument);
     if !records.iter().any(grouped) {
-        return Ok(records);
+        return Ok((records, Default::default()));
     }
     let body = body.context("effect origin group has no prepared owner body")?;
     ensure!(
@@ -221,6 +224,7 @@ fn expand_origin_groups(
         "effect origin groups with retained edits or repeats are unsupported"
     );
     let mut expanded = Vec::new();
+    let mut inherited = std::collections::BTreeSet::new();
     for record in records {
         if !grouped(&record) {
             expanded.push(record);
@@ -241,6 +245,9 @@ fn expand_origin_groups(
                     (1..128).contains(&index),
                     "effect origin group {prefix} has an unsupported bone index {index}"
                 );
+                if expanded.len() > start {
+                    inherited.insert(expanded.len());
+                }
                 expanded.push(super::Record {
                     argument: index as u8,
                     ..record
@@ -252,15 +259,17 @@ fn expand_origin_groups(
             "effect origin group {prefix} is missing"
         );
     }
-    Ok(expanded)
+    Ok((expanded, inherited))
 }
 
 fn compile_program(
     records: &[super::Record],
+    inherited: &std::collections::BTreeSet<usize>,
     actors: &[Declaration],
     retained: &[bool],
     modifier_start: usize,
     modifier_bytes: &[u8],
+    animation_bytes: &[u8],
 ) -> Result<Vec<ScheduledEvent>> {
     let mut modifiers = BTreeMap::new();
     for record in records {
@@ -296,8 +305,13 @@ fn compile_program(
             modifiers.insert(record.operand, words);
         }
     }
-    Ok(super::timeline::decode(
-        records, actors, retained, &modifiers,
+    Ok(super::timeline::decode_grouped(
+        records,
+        inherited,
+        actors,
+        retained,
+        &modifiers,
+        animation_bytes,
     ))
 }
 
@@ -374,6 +388,116 @@ mod tests {
             [ScheduledEvent { operation: EffectOperation::Unsupported { reason: actual }, .. }]
                 if actual.contains(reason)
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_births_accumulate_shared_samples_and_restart_each_group() -> Result<()> {
+        use resonance_content::battle_effect::{BirthField, ParticleBirth, ValueRange};
+        let mut bytes = bank(&[
+            11,
+            0x7ff8,
+            80,
+            0,
+            13,
+            0xb0,
+            0,
+            0,
+            0x7ff8,
+            0,
+            13,
+            0xb4,
+            0,
+            0,
+            0x7ff8,
+            0,
+            2,
+            0x7ffc,
+            4,
+            0,
+            5,
+            0x7ffc,
+            32,
+            0,
+            3,
+            8,
+            0x7ffc,
+            0,
+            u16::MAX,
+        ]);
+        bytes[20] = 5;
+        bytes[28..30].copy_from_slice(&1_i16.to_be_bytes());
+        for offset in [176, 180] {
+            bytes[20 + offset..24 + offset].copy_from_slice(&16_f32.to_be_bytes());
+        }
+        let events = u16::from_be_bytes(bytes[10..12].try_into()?) as usize;
+        let modifier = u16::from_be_bytes(bytes[12..14].try_into()?);
+        bytes[events + 3] = 250;
+        bytes[events + 4..events + 6].copy_from_slice(&modifier.to_be_bytes());
+        bytes[events + 3 * 6 + 3] = 250;
+        let body = resonance_content::animation::Skeleton {
+            bones: ["root", "ef00_a", "ef00_b", "ef00_c", "ef00_d"]
+                .into_iter()
+                .map(|name| resonance_content::animation::Bone {
+                    name: name.into(),
+                    parent: None,
+                    bind_channels: Default::default(),
+                    bind: Default::default(),
+                })
+                .collect(),
+        };
+        let (bank, _) = read_enemy_with_palettes(&bytes, &body)?;
+        let samples = [0.5, 0.5, 0.25, 0.5, 0.75, 0.5, 0.5, 0.];
+        let evaluate = |birth: &ParticleBirth, field, direct: Option<ValueRange>| {
+            let sample =
+                |range: ValueRange| range.sample(range.draw.map_or(0., |i| samples[i as usize]));
+            if let Some(sum) = birth.sums.iter().find(|sum| sum.field == field) {
+                let mut terms = sum.terms.iter();
+                let first = sample(*terms.next().unwrap());
+                terms.fold(first, |value, range| value + sample(*range))
+            } else {
+                sample(direct.unwrap())
+            }
+        };
+        for program in [0, 1] {
+            let births: Vec<_> = bank
+                .program(program)?
+                .iter()
+                .filter_map(|event| {
+                    if let EffectOperation::Spawn { birth, .. } = &event.operation {
+                        Some(birth)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(births.len(), 4);
+            for (index, birth) in births.iter().enumerate() {
+                assert_eq!(birth.random_draws, 2);
+                assert_eq!(birth.origin_bone, Some(index as u8 + 1));
+                birth.validate()?;
+                assert_eq!(
+                    evaluate(birth, BirthField::Uv(0), birth.uv[0]),
+                    [65., 129., 193., 193.][index]
+                );
+                assert!(
+                    (evaluate(birth, BirthField::Size(0), birth.size[0])
+                        - [16., 20., 16., 16.][index])
+                        .abs()
+                        < 0.001
+                );
+                assert_eq!(
+                    evaluate(birth, BirthField::Size(0), birth.size[0]),
+                    evaluate(birth, BirthField::Size(1), birth.size[1])
+                );
+                assert!(
+                    birth
+                        .draw_references()
+                        .all(|draw| draw < 2 * (index as u32 + 1))
+                );
+            }
+            assert!(births[0].sums.is_empty());
+        }
         Ok(())
     }
 
@@ -639,6 +763,33 @@ mod tests {
                 unsupported[index] = value;
                 assert!(read(&make(&unsupported))?.program(1).is_err());
             }
+        }
+        for (animation, flags, accepted) in [
+            (0, 3_u32, true),
+            (253, 3, true),
+            (254, 3, false),
+            (0, 7, false),
+        ] {
+            let mut bytes = bank(&[2, 0x7ffc, 3, 0, 3, 0xd4, 0x7ffc, 0, u16::MAX]);
+            bytes[20] = 3;
+            bytes[22] = 6;
+            bytes[40..44].copy_from_slice(&flags.to_be_bytes());
+            bytes[232] = 4;
+            bytes[233] = animation;
+            let source = read(&bytes)?;
+            if !accepted {
+                assert!(source.program(1).is_err());
+                continue;
+            }
+            let EffectOperation::Spawn { birth, .. } = &source.program(1)?[1].operation else {
+                panic!("model birth")
+            };
+            let Declaration::ModelParticle { binding, .. } = &source.actors[0] else {
+                panic!("model declaration")
+            };
+            assert_eq!(binding.slot, 4);
+            assert!(binding.animation.is_none() && birth.model.is_none());
+            assert_eq!(birth.random_draws, 1);
         }
         Ok(())
     }

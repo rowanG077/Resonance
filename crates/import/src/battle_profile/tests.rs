@@ -15,9 +15,26 @@ fn read(bytes: &[u8]) -> Result<Profile> {
 #[test]
 fn profiles_decode_movement_expressions_and_all_attachment_slots() -> Result<()> {
     let mut bytes = [0; BYTES];
+    bytes[0x30] = 4;
     bytes[0x20..0x24].copy_from_slice(&5_f32.to_be_bytes());
     bytes[0x24..0x28].copy_from_slice(&10_f32.to_be_bytes());
+    bytes[0x51] = 1;
+    for (axis, value) in [4_f32, 120., -6.].into_iter().enumerate() {
+        bytes[0x78 + axis * 4..0x7c + axis * 4].copy_from_slice(&value.to_be_bytes());
+    }
     bytes[0x9b] = 200;
+    bytes[0x9d] = 12;
+    bytes[0xa6] = 34;
+    bytes[0xa8] = 12;
+    bytes[0xa0..0xa4].copy_from_slice(&0.5_f32.to_be_bytes());
+    bytes[0xa4] = 2;
+    bytes[0xa5] = 4;
+    bytes[0xbe..0xc0].copy_from_slice(&300_u16.to_be_bytes());
+    bytes[0xc0] = 7;
+    bytes[0xc3] = 13;
+    bytes[0xc9] = 2;
+    bytes[0xe8] = 60;
+    bytes[0xe9] = 1;
     bytes[0xd7..0xdb].copy_from_slice(&[1, 2, 3, 4]);
     bytes[0xdf..0xe3].copy_from_slice(&[4, 3, 2, 1]);
     let flags = [0, 1, 2, 0x10, 0x80, 0x11, 0x82, 0x92];
@@ -46,6 +63,31 @@ fn profiles_decode_movement_expressions_and_all_attachment_slots() -> Result<()>
         assert_eq!(profile.walk_speed, 5.);
         assert_eq!(profile.run_speed, 10.);
         assert_eq!(profile.body_alpha, 200);
+        assert_eq!(profile.cast_recovery_motion, Some(34));
+        assert!(profile.chant_once);
+        assert_eq!(profile.chant_loop_start, 6.);
+        assert_eq!(profile.cast_poses.release_loop_start, 6.);
+        assert_eq!(profile.cast_poses.opening.clip, 13);
+        assert_eq!(profile.cast_poses.release.start, 1.);
+        assert_eq!(profile.cast_poses.release.rate, 0.5);
+        assert_eq!(profile.cast_poses.release.blend, 4);
+        assert!(!profile.cast_poses.release.repeat);
+        assert_eq!(
+            profile
+                .passive_effects
+                .iter()
+                .map(|effect| (effect.program, effect.interval))
+                .collect::<Vec<_>>(),
+            [(7, 300), (2, 13)]
+        );
+        assert_eq!(
+            profile
+                .idle_effect
+                .map(|effect| (effect.program, effect.interval)),
+            Some((1, 60))
+        );
+        assert_eq!(profile.target_anchor.bone, 1);
+        assert_eq!(profile.target_anchor.offset, [4., 120., -6.]);
         assert_eq!(
             &profile.idle_expression[..count],
             &bytes[0xd7..0xd7 + count]
@@ -58,6 +100,26 @@ fn profiles_decode_movement_expressions_and_all_attachment_slots() -> Result<()>
         assert!(profile.rescue_expression[count..].iter().all(|&v| v == 0));
         assert_eq!(profile.weapon_styles, styles);
     }
+    bytes[0xa6] = 0;
+    bytes[0x30] = 3;
+    assert_eq!(read(&bytes)?.cast_recovery_motion, None);
+    assert!(!read(&bytes)?.chant_once);
+    bytes[0xb4..0xb6].copy_from_slice(&0x0801_u16.to_be_bytes());
+    let host = read(&bytes)?;
+    assert!(host.traits.hosts_participants);
+    assert!(host.hosted_body.is_none());
+    bytes[0xb4..0xb6].copy_from_slice(&0x03e4_u16.to_be_bytes());
+    let child = read(&bytes)?;
+    assert!(!child.traits.hosts_participants);
+    assert_eq!(
+        child.hosted_body,
+        Some(resonance_content::battle_profile::HostedBody {
+            release_on_hurt: true,
+            release_below_half_health: false,
+            release_on_defeat: false,
+            launch_on_release: true,
+        })
+    );
     // Equipment may enable attachments beyond the initial count.
     for initial_count in [0, 1, 4, 8] {
         bytes[0x1e4] = initial_count;
@@ -99,7 +161,7 @@ fn profiles_publish_named_capabilities_without_flag_words() -> Result<()> {
     let mut bytes = [0; BYTES];
     let ordinary = read(&bytes)?;
     assert_eq!(ordinary.traits, ProfileTraits::default());
-    let mut encoded = serde_json::to_value(&ordinary.traits)?;
+    let mut encoded = serde_json::to_value(ordinary.traits)?;
     assert_eq!(encoded["hit_shake_disabled"], false);
     encoded
         .as_object_mut()
@@ -136,19 +198,33 @@ fn profiles_publish_named_capabilities_without_flag_words() -> Result<()> {
 fn profiles_decode_named_conditions_and_immunities() -> Result<()> {
     use Condition::*;
     let mut bytes = [0; BYTES];
-    bytes[0x14..0x18].copy_from_slice(&0x0400_0809_u32.to_be_bytes());
+    bytes[0x10..0x14].copy_from_slice(&2_u32.to_be_bytes());
+    bytes[0x14..0x18].copy_from_slice(&0x0480_0809_u32.to_be_bytes());
     bytes[0x18..0x1c].copy_from_slice(&0x100_u32.to_be_bytes());
     bytes[0x1c..0x20].copy_from_slice(&4_u32.to_be_bytes());
-    bytes[0x38..0x3c].copy_from_slice(&0x8200_u32.to_be_bytes());
+    bytes[0x38..0x3c].copy_from_slice(&0x8204_u32.to_be_bytes());
+    bytes[0x3c..0x40].copy_from_slice(&0x0100_0000_u32.to_be_bytes());
     let profile = read(&bytes)?;
     assert_eq!(
         profile.initial_conditions,
-        ConditionSet::of(&[PoisonMild, Paralysis, PhysicalAffliction, DefenseHalved])
+        ConditionSet::of(&[
+            PoisonMild,
+            Paralysis,
+            PhysicalAffliction,
+            DefenseHalved,
+            PhysicalProtection,
+            PhysicalBarrier,
+        ])
     );
     assert_eq!(profile.immunities, ConditionSet::of(&[Stun, ShortStun]));
     assert_eq!(
         profile.intrinsic_conditions,
-        ConditionSet::of(&[AilmentResistance, CastingSpeed])
+        ConditionSet::of(&[
+            AilmentResistance,
+            CastingSpeed,
+            MagicalProtection,
+            MagicalBarrier,
+        ])
     );
     let json = serde_json::to_value(profile)?;
     assert!(json.get("condition_flags").is_none());

@@ -1,7 +1,7 @@
 //! Shared opening strike and its late contact variant.
 use crate::{read::Field, rel::Rel};
 use anyhow::{Context, Result, bail, ensure};
-use resonance_content::{battle_action::ActionPose, battle_normal::Event, battle_unison::Opener};
+use resonance_content::{battle_normal::Event, battle_unison::Opener};
 
 const CONFIG: usize = 0x960;
 const HIT: usize = 0x978;
@@ -18,14 +18,7 @@ pub(super) fn read(module: &Rel) -> Result<Vec<Opener>> {
         u16::read(row, 0)? == 0 && row[6] == 8 && row[7] == 255,
         "unsupported Unison opening pose"
     );
-    let pose = ActionPose {
-        clip: u16::from(row[2]),
-        blend: row[3],
-        start: f32::from(row[4]) * 0.5,
-        end: (row[5] != 0).then_some(f32::from(row[5]) * 0.5),
-        rate: f32::read(row, 8)?,
-        repeat: false,
-    };
+    let pose = crate::battle_action::action_pose(row)?;
     // The opening update consumes the first blend visit. Later authored ages
     // therefore start after the remaining blend visits.
     let elapsed = |tick: u16| -> Result<u16> {

@@ -183,6 +183,7 @@ pub struct ProjectileShadow {
 pub struct Contact {
     pub repeat_limit: u8,
     pub shape: HitShape,
+    pub recoil_direction: RecoilDirection,
     pub radius: f32,
     pub height: f32,
     pub growth: [f32; 2],

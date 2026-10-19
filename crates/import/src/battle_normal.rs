@@ -1,10 +1,7 @@
 //! Decode the party's seven directional attack tables into elapsed events.
 use crate::{read::Field, rel::Rel};
 use anyhow::{Context, Result, ensure};
-use resonance_content::{
-    battle_action::ActionPose,
-    battle_normal::{Attack, Continuation, Event, WeaponFlight},
-};
+use resonance_content::battle_normal::{Attack, Continuation, Event, WeaponFlight};
 
 pub(crate) fn read(module: &Rel) -> Result<Vec<[Attack; 7]>> {
     const ROOT: usize = 0x3a48;
@@ -99,17 +96,7 @@ fn decode(
             row[7] == 255 && row[6] & !0x40 == 8,
             "unsupported normal attack pose"
         );
-        events.push((
-            at,
-            Event::Pose(ActionPose {
-                clip: u16::from(row[2]),
-                start: f32::from(row[4]) * 0.5,
-                end: (row[5] != 0).then_some(f32::from(row[5]) * 0.5),
-                rate: f32::read(row, 8)?,
-                blend: row[3],
-                repeat: row[6] & 0x40 != 0,
-            }),
-        ));
+        events.push((at, Event::Pose(crate::battle_action::action_pose(row)?)));
         Ok(())
     })?;
     stream(contacts, 32, -1, |at, row| {
@@ -224,16 +211,6 @@ fn decode(
         duration,
         chain_at: (chain != 0).then(|| elapsed(chain)).transpose()?,
         recovery,
-        recovery_pose: ActionPose {
-            clip: u16::from(config[9]),
-            start: 0.,
-            end: None,
-            rate: f32::read(config, 12)?,
-            blend: recovery
-                .try_into()
-                .context("normal recovery blend exceeds limit")?,
-            repeat: true,
-        },
         reach: [u16::read(config, 20)?, u16::read(config, 22)?],
         events,
     })

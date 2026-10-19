@@ -95,6 +95,7 @@ fn main() -> Result<()> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let (menu, metadata) = resonance_import::menu::publish_metadata(&extracted, &output, stage)?;
     publications.extend(metadata);
+    publications.extend(battle_effect::publish(&common, stage, "battle")?);
     publications.extend(resonance_import::battle_model::publish_enemies(
         &extracted,
         &menu.monsters()?.records,
@@ -116,7 +117,6 @@ fn main() -> Result<()> {
     publications.insert(battle_projectile::publish(&common, &rel, stage, "battle")?);
     battle_formation::publish(&common, &stage.join("battle/formations.json"))?;
     publications.insert("battle/formations.json".into());
-    publications.extend(battle_effect::publish(&common, stage, "battle")?);
     publications.insert(battle_effect::publish_tints(&rel, stage, "battle")?);
     publications.insert(resonance_import::battle_scene::publish(
         &extracted, 237, stage,

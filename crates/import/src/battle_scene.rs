@@ -634,7 +634,7 @@ fn projectiles(
                     };
                     let selected = if matches!(spell, Some(213 | 215)) {
                         index
-                    } else if matches!(spell, Some(232 | 253 | 283)) {
+                    } else if matches!(spell, Some(232 | 253 | 283 | 286)) {
                         index.saturating_sub(1)
                     } else if matches!(spell, Some(206 | 207 | 219 | 230 | 231)) && index == 2 {
                         1

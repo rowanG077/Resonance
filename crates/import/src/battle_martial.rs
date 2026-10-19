@@ -2,8 +2,9 @@
 use crate::read::Field;
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
-    battle_action::ActionPose,
-    battle_martial::{Attack, Binding, Catalogue, Flight, Member, PoseStart, PoseStep},
+    battle_martial::{
+        Attack, Binding, Catalogue, Flight, Member, PoseStart, PoseStep, gameplay_tick,
+    },
     battle_normal::Event,
     battle_scene::SceneAction,
 };
@@ -55,7 +56,7 @@ pub(crate) fn read(usual: &[u8], module: &crate::rel::Rel) -> Result<Catalogue> 
                         .try_into()
                         .context("common action variant exceeds limit")?,
                     match prepared {
-                        Ok(attack) => SceneAction::Prepared(attack),
+                        Ok(attack) => SceneAction::Prepared(Box::new(attack)),
                         Err(error) => SceneAction::Unsupported {
                             reason: format!("{error:#}"),
                         },
@@ -258,6 +259,7 @@ fn prepare(
         80 => &[(0, 13), (1, 7)],
         85 => &[(1, 1)],
         87 => &[(1, 8)],
+        93 => &[(0, 10)],
         140 => &[(0, 10), (1, 12), (2, 7), (3, 17)],
         _ => &[],
     };
@@ -305,7 +307,7 @@ pub(crate) fn combined(
             continue;
         }
         let action = match attack(0, variant, bytes, false, true) {
-            Ok(attack) => resonance_content::battle_scene::SceneAction::Prepared(attack),
+            Ok(attack) => resonance_content::battle_scene::SceneAction::Prepared(Box::new(attack)),
             Err(error) => resonance_content::battle_scene::SceneAction::Unsupported {
                 reason: format!("{error:#}"),
             },
@@ -394,14 +396,7 @@ fn attack(
             "unsupported martial pose binding"
         );
         let blend = pose[3];
-        let pose = ActionPose {
-            clip: u16::from(pose[2]),
-            start: f32::from(pose[4]) * 0.5,
-            end: (pose[5] != 0).then_some(f32::from(pose[5]) * 0.5),
-            blend,
-            rate: f32::read(pose, 8)?,
-            repeat: pose[6] & 0x40 != 0,
-        };
+        let pose = crate::battle_action::action_pose(pose)?;
         if let Some(sequence) = &mut pose_sequence {
             sequence.push(PoseStep {
                 start: if at == -3 {
@@ -463,117 +458,120 @@ fn attack(
     }
     let mut gravity = None;
     let mut cursor = u32::read(row, 24)? as usize * 2;
-    while !steal_success {
-        let at = i16::read(commands, cursor)?;
-        if at == -1 {
-            break;
-        }
-        let at = u16::try_from(at).context("martial command control is not prepared")?;
-        let operand = |offset| u16::read(commands, cursor + offset);
-        if operand(2)? == 3 {
-            let value = f32::from(operand(4)? as i16) / 10.;
-            if !combined {
-                gravity.get_or_insert((at, value));
+    if !steal_success {
+        let mut command_at = 0;
+        loop {
+            let at = i16::read(commands, cursor)?;
+            if at == -1 {
+                break;
             }
-            events.push((at, Event::Gravity(value)));
-            cursor += 6;
-            continue;
-        }
-        let (event, width) = match operand(2)? {
-            0 => (Event::Forward(f32::from(operand(4)? as i16) / 10.), 6),
-            1 => (Event::Vertical(f32::from(operand(4)? as i16) / 10.), 6),
-            5 => {
-                ensure!(
-                    operand(4)? <= 1 && operand(6)? == 0,
-                    "unsupported martial collision mode"
-                );
-                (Event::PassThrough(operand(4)? != 0), 8)
+            let at = u16::try_from(at).context("martial command control is not prepared")?;
+            // An overdue command still waits for earlier commands in its stream.
+            command_at = command_at.max(at);
+            let at = command_at;
+            let operand = |offset| u16::read(commands, cursor + offset);
+            if operand(2)? == 3 {
+                let value = f32::from(operand(4)? as i16) / 10.;
+                if !combined {
+                    gravity.get_or_insert((at, value));
+                }
+                events.push((at, Event::Gravity(value)));
+                cursor += 6;
+                continue;
             }
-            7 => {
-                let [slot, visible] = operand(4)?.to_be_bytes();
-                ensure!(visible <= 1, "invalid martial weapon visibility");
-                (
-                    Event::WeaponVisibility {
-                        slot,
-                        visible: visible != 0,
-                    },
-                    6,
-                )
-            }
-            9 => {
-                let braking = f32::from(operand(4)? as i16) / 10.;
-                ensure!(braking >= 0., "negative martial braking");
-                (Event::Braking(braking), 6)
-            }
-            13 => (
-                Event::Trail {
-                    slot: operand(4)?
-                        .try_into()
-                        .context("martial trail slot exceeds limit")?,
-                    duration: operand(6)?,
-                },
-                8,
-            ),
-            23 => {
-                let enabled = operand(4)?;
-                ensure!(enabled <= 1, "invalid martial secondary wind mode");
-                (
-                    Event::SecondaryWind {
-                        enabled: enabled != 0,
+            let (event, width) = match operand(2)? {
+                0 => (Event::Forward(f32::from(operand(4)? as i16) / 10.), 6),
+                1 => (Event::Vertical(f32::from(operand(4)? as i16) / 10.), 6),
+                5 => {
+                    ensure!(
+                        operand(4)? <= 1 && operand(6)? == 0,
+                        "unsupported martial collision mode"
+                    );
+                    (Event::PassThrough(operand(4)? != 0), 8)
+                }
+                7 => {
+                    let [slot, visible] = operand(4)?.to_be_bytes();
+                    ensure!(visible <= 1, "invalid martial weapon visibility");
+                    (
+                        Event::WeaponVisibility {
+                            slot,
+                            visible: visible != 0,
+                        },
+                        6,
+                    )
+                }
+                9 => {
+                    let braking = f32::from(operand(4)? as i16) / 10.;
+                    ensure!(braking >= 0., "negative martial braking");
+                    (Event::Braking(braking), 6)
+                }
+                13 => (
+                    Event::Trail {
+                        slot: operand(4)?
+                            .try_into()
+                            .context("martial trail slot exceeds limit")?,
                         duration: operand(6)?,
                     },
                     8,
-                )
-            }
-            27 => {
-                ensure!(operand(6)? == 2, "unsupported martial voice priority");
-                (Event::Voice(crate::battle_voice::sound(operand(4)?)), 8)
-            }
-            28 => {
-                ensure!(operand(6)? == 0, "unsupported martial sound mode");
-                (Event::Sound(operand(4)?), 8)
-            }
-            37 => {
-                let duration = operand(4)?;
-                let distance = operand(6)?;
-                ensure!(
-                    distance == operand(8)?,
-                    "martial camera distance range is not prepared"
-                );
-                ensure!(
-                    duration != 0 && distance != 0,
-                    "martial camera distance and duration must be positive"
-                );
-                (
-                    Event::CameraDistance {
-                        distance: f32::from(distance),
-                        duration,
-                    },
-                    10,
-                )
-            }
-            40 if id == 137 => (Event::Turn(f32::from(operand(4)? as i16) / 10.), 6),
-            opcode => anyhow::bail!("martial command {opcode} is not prepared"),
-        };
-        events.push((at, event));
-        cursor += width;
+                ),
+                23 => {
+                    let enabled = operand(4)?;
+                    ensure!(enabled <= 1, "invalid martial secondary wind mode");
+                    (
+                        Event::SecondaryWind {
+                            enabled: enabled != 0,
+                            duration: operand(6)?,
+                        },
+                        8,
+                    )
+                }
+                27 => {
+                    ensure!(operand(6)? == 2, "unsupported martial voice priority");
+                    (Event::Voice(crate::battle_voice::sound(operand(4)?)), 8)
+                }
+                28 => {
+                    ensure!(operand(6)? == 0, "unsupported martial sound mode");
+                    (Event::Sound(operand(4)?), 8)
+                }
+                37 => {
+                    let duration = operand(4)?;
+                    let distance = operand(6)?;
+                    ensure!(
+                        distance == operand(8)?,
+                        "martial camera distance range is not prepared"
+                    );
+                    ensure!(
+                        duration != 0 && distance != 0,
+                        "martial camera distance and duration must be positive"
+                    );
+                    (
+                        Event::CameraDistance {
+                            distance: f32::from(distance),
+                            duration,
+                        },
+                        10,
+                    )
+                }
+                40 if id == 137 => (Event::Turn(f32::from(operand(4)? as i16) / 10.), 6),
+                opcode => anyhow::bail!("martial command {opcode} is not prepared"),
+            };
+            events.push((at, event));
+            cursor += width;
+        }
     }
-    // Poses consume full blends; commands overlap later admissions by one tick.
+    // Pose clocks consume full blends. Gameplay runs before a new pose is selected.
     let model_timing = pose_sequence.is_some();
     let elapsed = |at: u16, pose_clock: bool| -> Result<u16> {
         if model_timing {
             return Ok(at);
         }
+        if !pose_clock && at != 0 {
+            return gameplay_tick(at, 0, &holds);
+        }
         let hold: u32 = holds
             .iter()
             .filter(|(start, _)| *start < at)
-            .map(|(start, blend)| {
-                u32::from(if *start == 0 || pose_clock {
-                    *blend
-                } else {
-                    blend.saturating_sub(1)
-                })
-            })
+            .map(|(_, blend)| u32::from(*blend))
             .sum();
         (u32::from(at) + hold)
             .try_into()
@@ -582,7 +580,7 @@ fn attack(
     let mut preceding_contacts = 0;
     for (at, event) in &mut events {
         if !model_timing && matches!(event, Event::Contact(_) | Event::Projectile { .. }) {
-            *at = resonance_content::battle_martial::contact_tick(*at, preceding_contacts, &holds)?;
+            *at = gameplay_tick(*at, preceding_contacts, &holds)?;
             if matches!(event, Event::Contact(_)) {
                 preceding_contacts = preceding_contacts
                     .checked_add(1)
@@ -590,7 +588,11 @@ fn attack(
             }
             continue;
         }
-        *at = if *at == 0 && matches!(event, Event::Forward(_) | Event::Vertical(_)) {
+        *at = if *at == 0
+            && matches!(
+                event,
+                Event::Forward(_) | Event::Vertical(_) | Event::Gravity(_)
+            ) {
             holds.first().map_or(0, |(_, ticks)| u16::from(*ticks))
         } else {
             elapsed(
@@ -679,7 +681,7 @@ fn attack(
     })
 }
 
-fn projectile_hit(
+pub(crate) fn projectile_hit(
     rules: &[u8],
     contact: &[u8],
 ) -> Result<(
@@ -692,6 +694,7 @@ fn projectile_hit(
         .context("missing martial projectile hit")?;
     const EFFECT_ON_GUARD: u16 = 0x0800;
     let flags = u16::read(source, 0)?;
+    // Party-default and explicit techniques selectors use the same bank.
     ensure!(
         source[22] == 0 || source[24] <= 1,
         "martial projectile contact effect bank is not prepared"
@@ -704,7 +707,6 @@ fn projectile_hit(
     );
     let feedback =
         (source[22] != 0).then_some(resonance_content::battle_martial::ProjectileFeedback {
-            bank: source[24],
             effect: u16::from(source[22]),
             sound,
             on_guard,
@@ -843,6 +845,70 @@ fn hammer(
     })
 }
 
+fn following_stream(
+    bytes: &[u8],
+    mut cursor: usize,
+    stride: usize,
+    sentinel: i16,
+) -> Result<usize> {
+    while i16::read(bytes, cursor)? != sentinel {
+        cursor += stride;
+    }
+    Ok(cursor + stride)
+}
+
+fn steal(
+    id: u16,
+    usual: &[u8],
+    module: &crate::rel::Rel,
+    bytes: &[u8],
+    primary: &Attack,
+) -> Result<resonance_content::battle_martial::Steal> {
+    let success = attack(id, 0, bytes, true, false)?;
+    let opening_blend = primary
+        .events
+        .iter()
+        .find_map(|(at, event)| match event {
+            Event::Pose(pose) if *at == 0 => Some(u16::from(pose.blend)),
+            _ => None,
+        })
+        .context("missing Item Thief opening pose")?;
+    let rules = bytes
+        .get(u32::read(bytes, 0)? as usize..u32::read(bytes, 4)? as usize)
+        .context("missing Item Thief hit rules")?;
+    ensure!(rules.len() == 3 * 28, "invalid Item Thief hit count");
+    let projectiles = crate::source_assets::section(usual, 7)?;
+    const HAMMER_PROJECTILE: usize = 7;
+    const PROJECTILE_BYTES: usize = 400;
+    let projectile = projectiles
+        .get(HAMMER_PROJECTILE * PROJECTILE_BYTES..(HAMMER_PROJECTILE + 1) * PROJECTILE_BYTES)
+        .context("missing Item Thief bonus projectile")?;
+    let mut contact = [0; 32];
+    contact[18] = 2;
+    contact[20] = projectile[0x13];
+    let parameters = module.at((4, 0x3540))?;
+    let [zero, height, speed, jitter]: [f32; 4] = [0, 4, 8, 12]
+        .map(|offset| f32::read(parameters, offset))
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?
+        .try_into()
+        .unwrap();
+    ensure!(
+        [zero, height, speed, jitter].iter().all(|v| v.is_finite()) && jitter >= 0.,
+        "invalid Item Thief bonus motion"
+    );
+    Ok(resonance_content::battle_martial::Steal {
+        attempt_at: 60 + opening_blend,
+        bonus_at: 40 + opening_blend,
+        success_duration: success.duration,
+        success_events: success.events,
+        bonus_hit: crate::battle_action::hit(rules, &contact)?,
+        bonus_offset: [zero, zero, height],
+        bonus_forward_speed: speed,
+        bonus_velocity_jitter: [jitter; 3],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -955,13 +1021,8 @@ mod tests {
                             feedback: Some(feedback),
                         } => {
                             assert_eq!(
-                                (
-                                    feedback.bank,
-                                    feedback.effect,
-                                    feedback.sound,
-                                    feedback.on_guard
-                                ),
-                                (1, 8, 0, true)
+                                (feedback.effect, feedback.sound, feedback.on_guard),
+                                (8, 0, true)
                             );
                             assert_eq!(
                                 hit.power,
@@ -1017,6 +1078,14 @@ mod tests {
             Event::Pose(pose) if pose.clip == 50 && pose.rate == 1.)));
         assert!(sonic_knight.events.iter().any(|(at, event)| *at == 18
             && matches!(event, Event::Contact(contact) if contact.duration == 5)));
+        assert!(
+            actions
+                .attack(12, 1)?
+                .events
+                .iter()
+                .any(|(_, event)| matches!(event,
+            Event::Pose(pose) if pose.clip == 50 && pose.rate == 1. && pose.start == 8.))
+        );
         let beast = actions.attack(20, 1)?;
         assert_eq!((beast.duration, beast.recovery), (81, 10));
         assert_eq!(
@@ -1063,6 +1132,20 @@ mod tests {
                     duration: 90
                 }
             )));
+        let omega_tempest = actions.attack(19, 1)?;
+        assert!(
+            omega_tempest
+                .events
+                .iter()
+                .any(|(at, event)| *at == 4
+                    && matches!(event, Event::Gravity(value) if *value == 0.1))
+        );
+        assert!(
+            !omega_tempest
+                .events
+                .iter()
+                .any(|(at, event)| *at == 0 && matches!(event, Event::Gravity(_)))
+        );
         let tiger = actions.attack(6, 1)?;
         assert_eq!(
             (tiger.duration, tiger.recovery, tiger.effect),
@@ -1093,6 +1176,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(6, 7, 7), (26, 11, 1)]
         );
+        let tiger_rage = actions.attack(7, 1)?;
+        assert!(tiger_rage.events.iter().any(
+            |(at, event)| *at == 33 && matches!(event, Event::Gravity(value) if *value == -1.5)
+        ));
         let sonic = actions.attack(10, 1)?;
         assert_eq!(
             (sonic.duration, sonic.recovery, sonic.effect),
@@ -1147,70 +1234,18 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(4, 4.), (9, 4.), (15, 4.), (48, 6.)]
         );
+        let attack = actions.attack(161, 7)?;
+        assert_eq!(
+            attack
+                .events
+                .iter()
+                .filter_map(|(at, event)| match event {
+                    Event::Forward(speed) => Some((*at, *speed)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            [(30, 7.), (44, 7.), (58, 7.), (66, 7.)]
+        );
         Ok(())
     }
-}
-
-fn following_stream(
-    bytes: &[u8],
-    mut cursor: usize,
-    stride: usize,
-    sentinel: i16,
-) -> Result<usize> {
-    while i16::read(bytes, cursor)? != sentinel {
-        cursor += stride;
-    }
-    Ok(cursor + stride)
-}
-
-fn steal(
-    id: u16,
-    usual: &[u8],
-    module: &crate::rel::Rel,
-    bytes: &[u8],
-    primary: &Attack,
-) -> Result<resonance_content::battle_martial::Steal> {
-    let success = attack(id, 0, bytes, true, false)?;
-    let opening_blend = primary
-        .events
-        .iter()
-        .find_map(|(at, event)| match event {
-            Event::Pose(pose) if *at == 0 => Some(u16::from(pose.blend)),
-            _ => None,
-        })
-        .context("missing Item Thief opening pose")?;
-    let rules = bytes
-        .get(u32::read(bytes, 0)? as usize..u32::read(bytes, 4)? as usize)
-        .context("missing Item Thief hit rules")?;
-    ensure!(rules.len() == 3 * 28, "invalid Item Thief hit count");
-    let projectiles = crate::source_assets::section(usual, 7)?;
-    const HAMMER_PROJECTILE: usize = 7;
-    const PROJECTILE_BYTES: usize = 400;
-    let projectile = projectiles
-        .get(HAMMER_PROJECTILE * PROJECTILE_BYTES..(HAMMER_PROJECTILE + 1) * PROJECTILE_BYTES)
-        .context("missing Item Thief bonus projectile")?;
-    let mut contact = [0; 32];
-    contact[18] = 2;
-    contact[20] = projectile[0x13];
-    let parameters = module.at((4, 0x3540))?;
-    let [zero, height, speed, jitter]: [f32; 4] = [0, 4, 8, 12]
-        .map(|offset| f32::read(parameters, offset))
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .unwrap();
-    ensure!(
-        [zero, height, speed, jitter].iter().all(|v| v.is_finite()) && jitter >= 0.,
-        "invalid Item Thief bonus motion"
-    );
-    Ok(resonance_content::battle_martial::Steal {
-        attempt_at: 60 + opening_blend,
-        bonus_at: 40 + opening_blend,
-        success_duration: success.duration,
-        success_events: success.events,
-        bonus_hit: crate::battle_action::hit(rules, &contact)?,
-        bonus_offset: [zero, zero, height],
-        bonus_forward_speed: speed,
-        bonus_velocity_jitter: [jitter; 3],
-    })
 }

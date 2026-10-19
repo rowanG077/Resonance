@@ -1,4 +1,4 @@
-//! Resolve stored-scene palette strides against the resident texture artwork.
+//! Resolve effect palette strides against the resident texture artwork.
 use anyhow::{Context, Result, ensure};
 use resonance_content::battle_effect::{
     SourceBank, declaration::Declaration, visual::ParticleTexture,
@@ -20,7 +20,8 @@ impl SharedPalettes {
         let identity = crate::digest(usual);
         let primary = output.join("battle/effects/common.json");
         let common: SourceBank = serde_json::from_slice(
-            &fs::read(&primary).context("prepare resident effect artwork before stored scenes")?,
+            &fs::read(&primary)
+                .context("prepare resident effect artwork before dependent effects")?,
         )?;
         let prefix = if common
             .art
@@ -155,7 +156,13 @@ impl SharedPalettes {
                 && let ParticleTexture::Atlas {
                     slot, palette_set, ..
                 } = &mut visual.texture
-                && *slot != 6
+                && self.banks[0]
+                    .1
+                    .art
+                    .as_ref()
+                    .unwrap()
+                    .textures
+                    .contains_key(slot)
             {
                 *palette_set = self.set(*slot, stride)?;
             }

@@ -58,7 +58,12 @@ impl Source {
             weaker_enemies: line(21),
             stronger_enemies: line(22),
             repeated_encounter: line(23),
-            victory: (28..32).filter_map(line).collect(),
+            victory: lines
+                .get(28..38)
+                .unwrap_or_default()
+                .chunks_exact(2)
+                .map(|pair| [pair[0], pair[1]])
+                .collect(),
             interrupted_cast: line(49),
             escape_request: line(51),
             escape_success: line(52),
@@ -124,9 +129,18 @@ mod tests {
         );
         assert_eq!(
             voices.victory,
-            (29..33).map(Sound::Stream).collect::<Vec<_>>()
+            (0..5)
+                .map(|pose| [Sound::Stream(29 + pose * 2), Sound::Stream(30 + pose * 2)])
+                .collect::<Vec<_>>()
         );
         assert!(roles.actor_voices(0, PARTY_ROLES)?.is_none());
+        assert!(
+            roles
+                .actor_voices(1, ENEMY_ROLES)?
+                .unwrap()
+                .victory
+                .is_empty()
+        );
         assert_eq!(sound(0), None);
         assert_eq!(sound(0x8002), Some(Sound::Stream(2)));
         assert_eq!(sound(2), Some(Sound::Cue(503)));

@@ -363,6 +363,13 @@ fn record_with_scale(row: &[u8], reset_scale: Option<f32>) -> Result<Projectile>
         },
         contact: Contact {
             shape,
+            recoil_direction: match row[0x16] {
+                0 => RecoilDirection::Travel,
+                1 => RecoilDirection::AwayFromOwner,
+                2 => RecoilDirection::AwayFromContact,
+                3 => RecoilDirection::TowardContact,
+                _ => RecoilDirection::None,
+            },
             repeat_limit: row[0x17],
             radius,
             height,
@@ -819,7 +826,7 @@ mod tests {
             ballistic[at] = value;
             assert!(record(&ballistic)?.unsupported_reason.is_none());
         }
-        for (at, value) in [(0x9a, 1), (0x9b, 1), (0x15, 5), (0x5f, 1), (0xb2, 1)] {
+        for (at, value) in [(0x15, 5), (0x5f, 1), (0xb2, 1)] {
             let mut unsupported = sphere;
             unsupported[at] = value;
             assert!(record(&unsupported)?.unsupported_reason.is_some());
@@ -829,11 +836,9 @@ mod tests {
         assert!(table.records[0].unsupported_reason.is_some());
         assert!(table.records[1].unsupported_reason.is_none());
         bytes[0xb2] = 0;
-        for offset in [0x9a, 0x9b, 0x9c] {
-            bytes[offset] = 3;
-            assert!(read(&bytes)?.records[0].unsupported_reason.is_some());
-            bytes[offset] = 0;
-        }
+        bytes[0x9c] = 3;
+        assert!(read(&bytes)?.records[0].unsupported_reason.is_some());
+        bytes[0x9c] = 0;
         bytes[0x24..0x28].copy_from_slice(&f32::NAN.to_be_bytes());
         let table = read(&bytes)?;
         assert!(table.records[0].unsupported_reason.is_some());
@@ -845,17 +850,14 @@ mod tests {
     }
 
     #[test]
-    fn disabled_float_fields_are_discarded() -> Result<()> {
+    fn disabled_template_fields_are_discarded() -> Result<()> {
         let mut bytes = [0; 400];
+        let expected = record(&bytes)?;
         for offset in [0x3c, 0x40, 0x4c, 0x94] {
             bytes[offset..offset + 4].copy_from_slice(&f32::NAN.to_be_bytes());
         }
-        let projectile = record(&bytes)?;
-        assert!(projectile.unsupported_reason.is_none());
-        assert!(projectile.motion.speed.is_none());
-        assert!(projectile.motion.response.is_none());
-        assert!(matches!(projectile.contact.shape, HitShape::Box));
-        assert!(projectile.motion.steering.is_none());
+        bytes[0x9a..0x9c].copy_from_slice(&[1, 2]);
+        assert_eq!(record(&bytes)?, expected);
         Ok(())
     }
 

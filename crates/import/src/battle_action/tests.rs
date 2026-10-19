@@ -1,5 +1,12 @@
 use super::*;
 
+fn read(
+    bytes: &[u8],
+    projectiles: &[crate::battle_projectile::EnemyProjectile],
+) -> Result<EnemyActions> {
+    super::read(bytes, projectiles, &[])
+}
+
 #[test]
 fn completed_enemy_pose_keeps_its_final_sample_and_then_blends_to_the_next_pose() -> Result<()> {
     let mut bytes = package();
@@ -19,6 +26,24 @@ fn completed_enemy_pose_keeps_its_final_sample_and_then_blends_to_the_next_pose(
         event, EnemyEvent::Contact(_) if *at == 28
     )));
     assert_eq!(attack.duration, 77);
+
+    // A chain follows each clip's completion, including its own blend, rather
+    // than shifting a completion trigger as though it were an absolute age.
+    bytes[705] = 4;
+    bytes[712..714].copy_from_slice(&(-3_i16).to_be_bytes());
+    let parsed = read(&bytes, &[])?;
+    let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
+        panic!("missing continued pose chain")
+    };
+    let poses: Vec<_> = attack
+        .events
+        .iter()
+        .filter_map(|(at, event)| match event {
+            EnemyEvent::Pose(pose) => Some((*at, pose.clip)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(poses, [(0, 30), (9, 31), (16, 32)]);
     Ok(())
 }
 
@@ -46,6 +71,15 @@ fn direct_releases_keep_attack_timing_while_physical_artes_do_not_chant() -> Res
         }));
     }
 
+    bytes[0x20 + 30 * 4..0x24 + 30 * 4].fill(0);
+    let absent = read(&bytes, &[])?;
+    assert!(matches!(&absent.rows[0].execution,
+        Some(EnemyExecution::Attack(attack)) if attack.duration == 74
+            && attack.events.iter().any(|(at, event)| matches!(event,
+                EnemyEvent::Pose(pose) if *at == 0 && pose.clip == 30 && pose.blend == 0))
+            && attack.events.iter().any(|(at, event)| matches!(event,
+                EnemyEvent::Contact(_) if *at == 25))));
+
     bytes[580..582].copy_from_slice(&81_u16.to_be_bytes());
     let member = bytes.len() as u32;
     bytes.push(0);
@@ -53,26 +87,74 @@ fn direct_releases_keep_attack_timing_while_physical_artes_do_not_chant() -> Res
         let pointer = 0x20 + clip * 4;
         bytes[pointer..pointer + 4].copy_from_slice(&member.to_be_bytes());
     }
-    let actions = read(&bytes, &[])?;
+    let header = 4 + 82 * 4;
+    let mut common = vec![0; header + 44 + 28];
+    common[..4].copy_from_slice(&82_u32.to_be_bytes());
+    common[4 + 81 * 4..4 + 82 * 4].copy_from_slice(&(header as u32).to_be_bytes());
+    common[header..header + 4].copy_from_slice(&44_u32.to_be_bytes());
+    common[header + 4..header + 8].copy_from_slice(&72_u32.to_be_bytes());
+    common[header + 18..header + 20].copy_from_slice(&12_u16.to_be_bytes());
+    common[header + 44..].copy_from_slice(&bytes[488..516]);
+    common[header + 44] |= 8;
+    common[header + 44 + 13] = 1;
+    common[header + 44 + 14..header + 44 + 16].copy_from_slice(&80_u16.to_be_bytes());
+    common[header + 44 + 22] = 96;
+    let bank = bytes.len();
+    bytes[0x1cc..0x1d0].copy_from_slice(&(bank as u32).to_be_bytes());
+    bytes.resize(bank + 226, 0);
+    bytes[bank + 4] = 2;
+    bytes[bank + 10..bank + 12].copy_from_slice(&20_u16.to_be_bytes());
+    bytes[bank + 16..bank + 18].copy_from_slice(&32_u16.to_be_bytes());
+    bytes[bank + 20..bank + 26].copy_from_slice(&[0, 0, 254, 0, 0, 0]);
+    let actions = super::read(&bytes, &[], &common)?;
     assert_eq!(actions.rows[0].cast_ticks, None);
     let Some(EnemyExecution::Physical { technique, attack }) = &actions.rows[0].execution else {
         panic!("physical arte lost its local timeline")
     };
     assert_eq!(*technique, 81);
-    assert_eq!(attack.duration, 77);
-    assert_eq!(attack.recovery_ticks, 10);
+    assert_eq!(attack.duration, 76);
+    assert_eq!(attack.recovery_ticks, 12);
     assert_eq!(attack.recovery_pose.clip, 0);
     assert_eq!(attack.recovery_pose.rate, 0.5);
+    assert_eq!(attack.recovery_pose.blend, 12);
+    assert!(attack.events.iter().any(|(_, event)| matches!(event,
+        EnemyEvent::Contact(contact) if contact.hit.power == Power::Percent(80)
+            && contact.hit.effect == Some(0) && contact.hit.effect_on_guard
+            && contact.hit.sound == Some(81))));
     assert!(attack.events.iter().any(|(_, event)| matches!(event,
         EnemyEvent::Pose(pose) if pose.clip == 30)));
-    // A null authored opening motion retains the live pose without a blend hold.
+    bytes[bank + 225] = 1;
+    assert!(
+        super::read(&bytes, &[], &common)?.rows[0]
+            .unsupported_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("not an empty alias"))
+    );
+    bytes[bank + 225] = 0;
+    // A null opening motion retains the live pose for the admission update,
+    // then starts the remaining authored streams without a blend hold.
     let pointer = 0x20 + 30 * 4;
     bytes[pointer..pointer + 4].fill(0);
-    let absent = read(&bytes, &[])?;
+    let absent = super::read(&bytes, &[], &common)?;
     assert!(matches!(&absent.rows[0].execution,
         Some(EnemyExecution::Physical { attack, .. }) if attack.duration == 73
             && !attack.events.iter().any(|(_, event)| matches!(event,
-                EnemyEvent::Pose(pose) if pose.clip == 30))));
+                EnemyEvent::Pose(pose) if pose.clip == 30))
+            && attack.events.iter().any(|(at, event)| matches!(event,
+                EnemyEvent::Pose(pose) if *at == 20 && pose.clip == 31))));
+    common.splice(header + 44..header + 44, [0; 28]);
+    common[header..header + 4].copy_from_slice(&72_u32.to_be_bytes());
+    common[header + 4..header + 8].copy_from_slice(&100_u32.to_be_bytes());
+    common[header + 46..header + 48].copy_from_slice(&17_u16.to_be_bytes());
+    for technique in [1_u16, 2, 4] {
+        bytes[580..582].copy_from_slice(&technique.to_be_bytes());
+        let entry = 4 + usize::from(technique) * 4;
+        common[entry..entry + 4].copy_from_slice(&(header as u32).to_be_bytes());
+        let actions = super::read(&bytes, &[], &common)?;
+        assert!(matches!(&actions.rows[0].execution,
+            Some(EnemyExecution::Physical { attack, .. })
+                if attack.recovery_ticks == 17 && attack.recovery_pose.blend == 17));
+    }
     bytes[580..582].copy_from_slice(&204_u16.to_be_bytes());
     let actions = read(&bytes, &[])?;
     assert_eq!(actions.rows[0].cast_ticks, Some(71));
@@ -189,7 +271,8 @@ fn position_commands_preserve_signed_units_and_reject_unresolved_operands() -> R
 fn effective_hit_waits_keep_the_contact_clock_without_requiring_capture() -> Result<()> {
     let mut bytes = package();
     bytes[488..490].copy_from_slice(&0x10_u16.to_be_bytes());
-    let commands: [i16; 13] = [24, -5, 25, 20, 50, 25, 21, 150, 25, 18, 0, 30, -1];
+    // The earlier timestamp on the vertical command cannot bypass the preceding wait.
+    let commands: [i16; 13] = [24, -5, 25, 20, 50, 20, 21, 150, 25, 18, 0, 30, -1];
     bytes.splice(612..624, commands.into_iter().flat_map(i16::to_be_bytes));
     bytes[16..18].copy_from_slice(&638_u16.to_be_bytes());
     bytes[18..20].copy_from_slice(&702_u16.to_be_bytes());
@@ -363,6 +446,10 @@ fn package() -> Vec<u8> {
         row[8..].copy_from_slice(&0.5_f32.to_be_bytes());
     }
     bytes[724..726].copy_from_slice(&(-2_i16).to_be_bytes());
+    for clip in [30, 31, 32] {
+        let pointer = 0x20 + clip * 4;
+        bytes[pointer..pointer + 4].copy_from_slice(&488_u32.to_be_bytes());
+    }
     bytes
 }
 
@@ -423,9 +510,12 @@ fn deadline_extensions_preserve_earlier_hit_waits_and_event_timing() -> Result<(
 #[test]
 fn overlapping_melee_rows_keep_expiry_in_the_contact_clock() -> Result<()> {
     for (first, second, emission, blends, expected) in [
-        (4_u16, 10_u16, 20, vec![(0_u16, 0)], [(4, 21), (25, 7)]),
+        // An unblended opening still consumes the admission update.
+        (4_u16, 10_u16, 20, vec![(0_u16, 0)], [(5, 21), (26, 7)]),
+        // An opening contact begins after the blend and keeps its authored window.
+        (0, 10, 20, vec![(0, 4)], [(4, 21), (25, 11)]),
         // Recovery truncates the second contact on the action deadline update.
-        (74, 80, 30, vec![(40, 4)], [(77, 31), (108, 6)]),
+        (74, 80, 30, vec![(0, 0), (40, 4)], [(78, 31), (109, 6)]),
         // The contact crosses two later blends after the opening hold.
         (
             11,
@@ -434,7 +524,7 @@ fn overlapping_melee_rows_keep_expiry_in_the_contact_clock() -> Result<()> {
             vec![(0, 4), (21, 4), (25, 4)],
             [(15, 22), (37, 10)],
         ),
-        (4, 10, 20, vec![(27, 4)], [(4, 21), (25, 10)]),
+        (4, 10, 20, vec![(0, 0), (27, 4)], [(5, 21), (26, 10)]),
     ] {
         let mut bytes = package();
         bytes.splice(688..688, [0; 32]);
@@ -463,11 +553,21 @@ fn overlapping_melee_rows_keep_expiry_in_the_contact_clock() -> Result<()> {
             .events
             .iter()
             .filter_map(|(at, event)| match event {
-                EnemyEvent::Contact(contact) => Some((*at, contact.duration)),
+                EnemyEvent::Contact(contact) | EnemyEvent::ContinueContact(contact) => {
+                    Some((*at, contact.duration))
+                }
                 _ => None,
             })
             .collect();
         assert_eq!(contacts, expected);
+        assert_eq!(
+            attack
+                .events
+                .iter()
+                .filter(|(_, event)| matches!(event, EnemyEvent::ContinueContact(_)))
+                .count(),
+            1
+        );
 
         bytes[658] = 1;
         assert!(
@@ -482,12 +582,16 @@ fn overlapping_melee_rows_keep_expiry_in_the_contact_clock() -> Result<()> {
 
 #[test]
 fn root_and_partial_blends_advance_different_clocks() -> Result<()> {
-    for (flags, binding, duration, expected_sound) in [(8, 0, 75, 27), (0x42, 5, 71, 23)] {
+    for (flags, binding, trigger, blend, rate, duration, expected_sound) in [
+        (8, 0, 10_i16, 4, 2_f32, 75, 27),
+        (0x42, 5, 10, 4, 2., 72, 24),
+        (0, 0, -2, 0, 0., 72, 24),
+    ] {
         let mut bytes = package();
         bytes.truncate(688);
-        bytes.extend(0_u16.to_be_bytes());
-        bytes.extend([1, 4, 0, 0, flags, binding]);
-        bytes.extend(2_f32.to_be_bytes());
+        bytes.extend(trigger.to_be_bytes());
+        bytes.extend([30, blend, 0, 0, flags, binding]);
+        bytes.extend(rate.to_be_bytes());
         bytes.extend((-2_i16).to_be_bytes());
         let parsed = read(&bytes, &[])?;
         let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
@@ -502,9 +606,12 @@ fn root_and_partial_blends_advance_different_clocks() -> Result<()> {
         assert!(attack.events.iter().any(|(at, event)| {
             *at == 0
                 && match event {
-                    EnemyEvent::Pose(pose) => binding == 0 && pose.blend == 4,
+                    EnemyEvent::Pose(pose) => flags == 8 && pose.blend == blend,
                     EnemyEvent::PartialPose { first_bone, pose } => {
-                        *first_bone == u16::from(binding) && pose.blend == 4 && pose.repeat
+                        *first_bone == u16::from(binding)
+                            && pose.blend == blend
+                            && pose.rate == rate
+                            && pose.repeat == (flags & 0x40 != 0)
                     }
                     _ => false,
                 }
@@ -542,7 +649,7 @@ fn partial_pose_groups_keep_their_own_timing_and_only_hold_gameplay_for_body_ble
             parsed.rows[0].unsupported_reason
         )
     };
-    assert_eq!(attack.duration, 113);
+    assert_eq!(attack.duration, 114);
     let poses: Vec<_> = attack
         .events
         .iter()
@@ -569,13 +676,13 @@ fn partial_pose_groups_keep_their_own_timing_and_only_hold_gameplay_for_body_ble
         attack
             .events
             .iter()
-            .any(|event| matches!(event, (40, EnemyEvent::Sound(_))))
+            .any(|event| matches!(event, (41, EnemyEvent::Sound(_))))
     );
     assert!(
         attack
             .events
             .iter()
-            .any(|event| matches!(event, (49, EnemyEvent::Contact(_))))
+            .any(|event| matches!(event, (50, EnemyEvent::Contact(_))))
     );
     bytes[695] = 6;
     assert!(read(&bytes, &[])?.rows[0].unsupported_reason.is_some());
@@ -610,6 +717,10 @@ fn projectile_rows_bake_independent_modifiers_and_keep_emission_order() -> Resul
     template[0x24..0x28].copy_from_slice(&4_f32.to_be_bytes());
     template[0x5d] = 2;
     template[0x13] = 6;
+    template[0x11] = 2;
+    let template_start = bytes.len();
+    bytes[0x1c8..0x1cc].copy_from_slice(&(template_start as u32).to_be_bytes());
+    bytes.extend(template);
     let members = crate::model_preview::PointerMembers::new(&bytes, 24..488)?;
     let projectiles = crate::battle_projectile::read_enemy_member(&template, 0, &members)?;
     let parsed = read(&bytes, &projectiles)?;
@@ -623,7 +734,9 @@ fn projectile_rows_bake_independent_modifiers_and_keep_emission_order() -> Resul
         .events
         .iter()
         .filter_map(|(at, event)| match event {
-            EnemyEvent::Projectile { definition, hit } => Some((*at, definition, hit.recoil)),
+            EnemyEvent::Projectile {
+                definition, hit, ..
+            } => Some((*at, definition, hit.recoil, hit.kind)),
             _ => None,
         })
         .collect();
@@ -631,13 +744,32 @@ fn projectile_rows_bake_independent_modifiers_and_keep_emission_order() -> Resul
         shots.iter().map(|(at, ..)| *at).collect::<Vec<_>>(),
         [28, 29]
     );
-    assert_eq!(*shots[0].1, projectiles[0].definition);
+    assert_eq!(**shots[0].1, projectiles[0].definition);
     assert_eq!(shots[1].1.velocity, [-8., 0., 0.]);
     assert_eq!(shots[1].1.motion.velocity_jitter, [2.; 3]);
     assert_eq!(shots[1].1.birth_effect.member, 1);
     assert_eq!(projectiles[0].definition.velocity, [4., 0., 0.]);
     assert_eq!(shots.iter().map(|shot| shot.2).collect::<Vec<_>>(), [6, 1]);
+    assert!(
+        shots
+            .iter()
+            .all(|shot| shot.3 == resonance_content::battle_projectile::DamageKind::Magic)
+    );
     assert_eq!(projectiles[0].recoil, 6);
+
+    for offset in [624, 656] {
+        bytes[offset..offset + 2].copy_from_slice(&0_u16.to_be_bytes());
+    }
+    let parsed = read(&bytes, &projectiles)?;
+    let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
+        panic!("missing opening projectile attack")
+    };
+    let shots: Vec<_> = attack
+        .events
+        .iter()
+        .filter_map(|(at, event)| matches!(event, EnemyEvent::Projectile { .. }).then_some(*at))
+        .collect();
+    assert_eq!(shots, [4, 5]);
 
     bytes[modifiers + 4..modifiers + 6].copy_from_slice(&9_u16.to_be_bytes());
     assert!(
@@ -761,7 +893,7 @@ fn enemy_resources_keep_signed_values_and_action_choices() -> Result<()> {
         panic!("missing attack")
     };
     assert_eq!((attack.duration, attack.recovery_ticks), (77, 10));
-    assert_eq!(attack.chain_at, Some(46));
+    assert_eq!(attack.chain_at, Some(45));
     let poses: Vec<_> = attack
         .events
         .iter()
@@ -770,7 +902,7 @@ fn enemy_resources_keep_signed_values_and_action_choices() -> Result<()> {
             _ => None,
         })
         .collect();
-    assert_eq!(poses, [(0, 30, 4, 0.5), (23, 31, 2, 0.5), (44, 32, 2, 0.5)]);
+    assert_eq!(poses, [(0, 30, 4, 0.5), (23, 31, 2, 0.5), (45, 32, 2, 0.5)]);
     assert!(matches!(attack.events[0], (0, EnemyEvent::Effect(3))));
     assert!(matches!(&attack.events[1], (0, EnemyEvent::Pose(pose))
         if pose.repeat && pose.start == 3. && pose.end == Some(6.)));
@@ -798,6 +930,42 @@ fn enemy_resources_keep_signed_values_and_action_choices() -> Result<()> {
     assert!(hit.arte && hit.suppress_reaction && hit.force_reaction && hit.finisher_grade);
     let json = serde_json::to_vec(&parsed)?;
     serde_json::from_slice::<EnemyActions>(&json)?;
+    for rate in [0.5_f32, 1., -1.] {
+        bytes[696..700].copy_from_slice(&rate.to_be_bytes());
+        let parsed = read(&bytes, &[])?;
+        let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
+            panic!("missing scaled pose")
+        };
+        let EnemyEvent::Pose(pose) = attack.events[1].1 else {
+            panic!("missing opening pose")
+        };
+        assert_eq!(
+            (pose.start, pose.end, pose.rate),
+            (6. * rate.abs(), Some(12. * rate.abs()), rate)
+        );
+    }
+    // A closing gesture plays immediately once; only idle blends over recovery.
+    for (clip, rate, blend, repeat) in [(35, 1.25, 0, false), (0, 0.5, 10, true)] {
+        bytes[519] = clip;
+        bytes[520..524].copy_from_slice(&1.25_f32.to_be_bytes());
+        let parsed = read(&bytes, &[])?;
+        let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
+            panic!("missing recovery pose")
+        };
+        assert_eq!(attack.recovery_ticks, 10);
+        let pose = attack.recovery_pose;
+        assert_eq!(
+            (
+                pose.clip,
+                pose.start,
+                pose.end,
+                pose.rate,
+                pose.blend,
+                pose.repeat
+            ),
+            (u16::from(clip), 0., None, rate, blend, repeat)
+        );
+    }
     Ok(())
 }
 
@@ -877,7 +1045,13 @@ fn carried_poses_keep_the_action_clock_and_repeat_choice() -> Result<()> {
     bytes.splice(612..624, command);
     bytes[16..18].copy_from_slice(&630_u16.to_be_bytes());
     bytes[18..20].copy_from_slice(&694_u16.to_be_bytes());
-    for repeat in [false, true] {
+    for (at, expected, repeat) in [
+        (0_u16, 4, false),
+        (0, 4, true),
+        (23, 28, false),
+        (23, 28, true),
+    ] {
+        bytes[612..614].copy_from_slice(&at.to_be_bytes());
         bytes[624..628].copy_from_slice(&u32::from(repeat).to_be_bytes());
         let parsed = read(&bytes, &[])?;
         let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
@@ -885,11 +1059,41 @@ fn carried_poses_keep_the_action_clock_and_repeat_choice() -> Result<()> {
         };
         assert_eq!(attack.duration, 77);
         assert!(attack.events.iter().any(|event| matches!(event,
-            (28, EnemyEvent::CarriedPose { slot: 0, clip: 33, rate, repeat: actual })
-                if *rate == 0.75 && *actual == repeat)));
+            (at, EnemyEvent::CarriedPose { slot: 0, clip: 33, rate, repeat: actual })
+                if *at == expected && *rate == 0.75 && *actual == repeat)));
     }
     bytes[624..628].copy_from_slice(&2_u32.to_be_bytes());
     assert!(read(&bytes, &[])?.rows[0].execution.is_none());
+    for (declared, present) in [(false, false), (true, false), (false, true)] {
+        let mut bytes = package();
+        bytes[614..616].copy_from_slice(&7_u16.to_be_bytes());
+        bytes[616..618].copy_from_slice(&1_u16.to_be_bytes());
+        bytes[618..620].copy_from_slice(&(-1_i16).to_be_bytes());
+        let profile = bytes.len();
+        bytes[4..6].copy_from_slice(&(profile as u16).to_be_bytes());
+        bytes.resize(profile + 0x1e5, 0);
+        bytes[profile + 0x1e4] = u8::from(declared);
+        if present {
+            let pointer = bytes.len() as u32;
+            bytes.push(0);
+            bytes[0x160..0x164].copy_from_slice(&pointer.to_be_bytes());
+        }
+        let parsed = read(&bytes, &[])?;
+        let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
+            panic!("missing weapon visibility action")
+        };
+        assert_eq!(attack.duration, 77);
+        assert_eq!(
+            attack.events.iter().any(|(_, event)| matches!(
+                event,
+                EnemyEvent::WeaponVisibility {
+                    slot: 0,
+                    visible: true
+                }
+            )),
+            declared || present
+        );
+    }
     Ok(())
 }
 
@@ -967,18 +1171,47 @@ fn body_bone_contacts_keep_the_operand_after_the_marker() -> Result<()> {
 
 #[test]
 fn opening_movement_waits_for_the_pose_blend() -> Result<()> {
-    // The recorded opening holds position for four updates before moving.
-    for command in 0..=3 {
-        let mut bytes = package();
-        bytes[550] = 3;
-        bytes[612..620].copy_from_slice(&[0, 0, 0, command, 0, 40, 255, 255]);
-        let parsed = read(&bytes, &[])?;
-        let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
-            panic!("missing attack")
-        };
-        assert!(matches!(attack.events[0], (0, EnemyEvent::Effect(3))));
-        assert!(matches!(attack.events[1], (0, EnemyEvent::Pose(_))));
-        assert_eq!(attack.events[2].0, 4);
+    for blend in [0_u8, 4] {
+        for command in 0..=3 {
+            let mut bytes = package();
+            bytes[550] = 3;
+            bytes[691] = blend;
+            bytes[612..620].copy_from_slice(&[0, 0, 0, command, 0, 40, 255, 255]);
+            let parsed = read(&bytes, &[])?;
+            let Some(EnemyExecution::Attack(attack)) = &parsed.rows[0].execution else {
+                panic!("missing attack")
+            };
+            assert!(
+                attack
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, (0, EnemyEvent::Effect(3))))
+            );
+            assert!(
+                attack
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, (0, EnemyEvent::Pose(_))))
+            );
+            assert!(
+                attack
+                    .events
+                    .iter()
+                    .any(|(at, event)| *at == u16::from(blend)
+                        && matches!(
+                            event,
+                            EnemyEvent::Forward(_)
+                                | EnemyEvent::Vertical(_)
+                                | EnemyEvent::Acceleration(_)
+                                | EnemyEvent::Gravity(_)
+                        ))
+            );
+            let delay = u16::from(blend.max(1));
+            assert!(attack.events.iter().any(|(at, event)| matches!(
+                event, EnemyEvent::Pose(pose) if pose.clip == 31 && *at == 19 + delay
+            )));
+            assert_eq!(attack.duration, 73 + delay);
+        }
     }
     Ok(())
 }
@@ -1031,6 +1264,47 @@ fn enemy_blends_compile_recorded_golem_action_durations() -> Result<()> {
         assert!(matches!(parsed.policy.behavior,
             Some(EnemyBehavior::ThreeStations { change_at: actual, .. }) if actual == change_at));
     }
+    Ok(())
+}
+
+#[test]
+fn broken_weapon_controller_uses_the_actions_blend_clock() -> Result<()> {
+    let mut bytes = package();
+    bytes[530..532].copy_from_slice(&160_u16.to_be_bytes());
+    bytes[700..702].copy_from_slice(&90_u16.to_be_bytes());
+    bytes[703] = 10;
+    bytes[712..714].copy_from_slice(&100_u16.to_be_bytes());
+    bytes[715] = 0;
+    let row = bytes[516..584].to_vec();
+    bytes.splice(584..584, row.iter().chain(&row).copied());
+    for field in [12, 14, 16, 18] {
+        let offset = u16::read(&bytes, field)? + 136;
+        bytes[field..field + 2].copy_from_slice(&offset.to_be_bytes());
+    }
+    let policy = usize::from(u16::read(&bytes, 12)?);
+    bytes[policy + 8] = 9;
+    bytes[policy + 23] = 3;
+    let parsed = read(&bytes, &[])?;
+    assert!(
+        parsed
+            .rows
+            .iter()
+            .all(|row| row.unsupported_reason.is_none())
+    );
+    assert!(parsed.policy.event_hp_hold);
+    assert!(matches!(
+        parsed.policy.behavior,
+        Some(EnemyBehavior::ReplaceWeapon {
+            action: 2,
+            hide_at: 57,
+            replace_at: 158,
+            source: 1,
+            destination: 0,
+            disabled_action: 0,
+        })
+    ));
+    assert!(matches!(&parsed.rows[2].execution,
+        Some(EnemyExecution::Attack(attack)) if attack.duration == 173));
     Ok(())
 }
 
@@ -1184,6 +1458,21 @@ fn enemy_decisions_decode_eligibility_targets_and_weighted_rows() -> Result<()> 
     assert_eq!(row.required_flag, Some(73));
     assert!(row.target_allies);
     assert!(!row.return_to_formation);
+    assert!(!row.run_return);
+    // A custom approach does not replace the return's walk/run selection.
+    for (flags, run_return) in [(0, false), (0x40, true), (0x60, false)] {
+        let mut returning = package();
+        returning[524..528].copy_from_slice(&u32::to_be_bytes(flags));
+        returning[556..560].copy_from_slice(&8_f32.to_be_bytes());
+        returning[560..564].copy_from_slice(&0.5_f32.to_be_bytes());
+        returning[564] = 1;
+        let parsed = read(&returning, &[])?;
+        assert!(matches!(
+            parsed.rows[0].approach,
+            EnemyApproach::Custom { .. }
+        ));
+        assert_eq!(parsed.rows[0].run_return, run_return);
+    }
     assert!(row.requirements.priority);
     assert!(row.requirements.once_per_battle);
     assert_eq!(row.requirements.max_enemies, Some(2));

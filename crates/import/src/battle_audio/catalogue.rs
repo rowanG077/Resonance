@@ -173,7 +173,6 @@ fn publish_all_from(
             publish(package).with_context(|| format!("publish song {id} from {path}"))?,
         );
     }
-    drop(publish);
 
     let directory = crate::voice_directory::Directory::read(&executable)?;
     for entry in directory.active() {

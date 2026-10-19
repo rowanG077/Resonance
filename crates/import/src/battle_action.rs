@@ -3,6 +3,19 @@ use crate::read::Field;
 use anyhow::{Context, Result, ensure};
 use resonance_content::battle_action::*;
 
+/// Pose offsets count updates at the selected speed, not fixed clip frames.
+pub(crate) fn action_pose(row: &[u8]) -> Result<ActionPose> {
+    let rate = f32::read(row, 8)?;
+    Ok(ActionPose {
+        clip: u16::from(row[2]),
+        start: f32::from(row[4]) * rate.abs(),
+        end: (row[5] != 0).then_some(f32::from(row[5]) * rate.abs()),
+        rate,
+        blend: row[3],
+        repeat: row[6] & 0x40 != 0,
+    })
+}
+
 fn section(bytes: &[u8], field: usize) -> Result<(usize, &[u8])> {
     let start = usize::from(u16::read(bytes, field)?);
     ensure!(start >= 488, "invalid enemy action section");
@@ -158,7 +171,7 @@ fn requirements(flags: u32, count_limit: u8, target_state: u16) -> Result<EnemyR
 fn action(
     row: &[u8],
     package: &ActionPackage<'_>,
-    policy_tick: Option<&mut u16>,
+    policy_ticks: &mut [u16],
 ) -> Result<EnemyAction> {
     let mut unsupported_reason = None;
     let required_flag = u16::read(row, 58)?;
@@ -192,7 +205,7 @@ fn action(
     let execution = if flags & LEAVE_ARENA != 0 {
         Some(EnemyExecution::LeaveArena)
     } else {
-        match package.execution(row, policy_tick) {
+        match package.execution(row, policy_ticks) {
             Ok(execution) => Some(execution),
             Err(error) => {
                 unsupported_reason.get_or_insert_with(|| error.to_string());
@@ -217,6 +230,7 @@ fn action(
         target_allies: flags & TARGET_ALLIES != 0 && row[1] != 0,
         requirements,
         return_to_formation: flags & STAY_AFTER_ACTION == 0,
+        run_return: flags & (STAY_AFTER_ACTION | RUN_APPROACH) == RUN_APPROACH,
         approach,
         range: <[i16; 2]>::read(row, 16)?,
         approach_range: i16::read(row, 20)?,
@@ -251,9 +265,10 @@ fn approach(row: &[u8], flags: u32) -> Result<EnemyApproach> {
 pub(crate) fn read(
     bytes: &[u8],
     projectiles: &[crate::battle_projectile::EnemyProjectile],
+    common_actions: &[u8],
 ) -> Result<EnemyActions> {
     ensure!(bytes.starts_with(b"em8\0"), "invalid enemy action package");
-    let package = ActionPackage::new(bytes, projectiles)?;
+    let package = ActionPackage::new(bytes, projectiles, common_actions)?;
     let (_, policy_source) = section(bytes, 12)?;
     ensure!(
         policy_source.len() >= 26 && policy_source[24] <= 4,
@@ -262,15 +277,47 @@ pub(crate) fn read(
     // The station controller changes position at authored action age sixty.
     // Compile it with the selected action's other times, including blend holds.
     let mut station_change_at = 60;
+    let mut weapon_change_at = [53, 145];
     let (_, source) = section(bytes, 10)?;
     ensure!(source.len().is_multiple_of(68), "misaligned enemy actions");
     let mut rows = source
         .chunks_exact(68)
         .enumerate()
         .map(|(index, row)| {
-            let policy_tick =
-                (policy_source[8] == 11 && index == 2).then_some(&mut station_change_at);
-            action(row, &package, policy_tick)
+            let mut carried_effect_ticks = if policy_source[8] == 18 && (2..=5).contains(&index) {
+                (20..=88).step_by(4).collect::<Vec<u16>>()
+            } else {
+                Vec::new()
+            };
+            let policy_ticks = match (policy_source[8], index) {
+                (9, 2) => &mut weapon_change_at[..],
+                (11, 2) => std::slice::from_mut(&mut station_change_at),
+                (18, 2..=5) => &mut carried_effect_ticks,
+                _ => &mut [],
+            };
+            let mut row = action(row, &package, policy_ticks)?;
+            if !carried_effect_ticks.is_empty() {
+                let Some(EnemyExecution::Attack(attack) | EnemyExecution::Physical { attack, .. }) =
+                    &mut row.execution
+                else {
+                    anyhow::bail!("carried effect requires an attack timeline");
+                };
+                attack
+                    .events
+                    .extend(carried_effect_ticks.into_iter().map(|at| {
+                        (
+                            // Policy effects run after this update advances the action clock.
+                            at - 1,
+                            EnemyEvent::CarriedEffect {
+                                slot: 0,
+                                bone: 0,
+                                member: if index < 4 { 8 } else { 7 },
+                            },
+                        )
+                    }));
+                attack.events.sort_by_key(|(at, _)| *at);
+            }
+            Ok(row)
         })
         .collect::<Result<Vec<_>>>()?;
     let source = policy_source;
@@ -290,7 +337,8 @@ pub(crate) fn read(
                 "tentacle release exceeds attack duration"
             );
             let event = package.ground_projectiles(1, [3, 4], TENTACLE_RETREAT)?;
-            attack.events.push((TENTACLE_RELEASE_TICK, event));
+            // Policy callbacks run after this update advances the action clock.
+            attack.events.push((TENTACLE_RELEASE_TICK - 1, event));
             attack.events.sort_by_key(|(at, _)| *at);
             Ok(())
         })();
@@ -309,11 +357,20 @@ pub(crate) fn read(
         walk_override: (source[8] == 3).then_some(EnemyWalkOverride {
             hp_percent: 25,
             speed: 2.83,
+            motion_alias: (1, 45),
         }),
         behavior: match source[8] {
             5 => Some(EnemyBehavior::CarriedAnimationRate {
                 slot: 0,
                 rate: 0.15,
+            }),
+            9 => Some(EnemyBehavior::ReplaceWeapon {
+                action: 2,
+                hide_at: weapon_change_at[0],
+                replace_at: weapon_change_at[1],
+                source: 1,
+                destination: 0,
+                disabled_action: 0,
             }),
             7 => Some(EnemyBehavior::Transformation {
                 reveal_hp_percent: 75,
@@ -330,6 +387,8 @@ pub(crate) fn read(
                 .map(str::to_owned)
                 .to_vec(),
                 airborne_hp_percent: 50,
+                airborne_walk_speed: 6.5,
+                airborne_motions: (0..30).map(|clip| (clip, clip + 30)).collect(),
                 hover_height: 25.,
                 initial_actions: 0..5,
                 final_actions: 5..9,
@@ -354,12 +413,63 @@ pub(crate) fn read(
             16 => Some(EnemyBehavior::IndependentModel { model: 0 }),
             17 => Some(EnemyBehavior::HealthStage {
                 hp_percent: 50,
+                initial_station: EnemyStation {
+                    position: [850., 0., 0.],
+                    heading: -90.,
+                },
                 initial_actions: 0..5,
                 final_actions: 5..9,
             }),
             19 => Some(EnemyBehavior::Retreat {
                 hp_percent: 50,
                 after_ticks: 60 * 60,
+            }),
+            18 => Some(EnemyBehavior::ActionWeapons {
+                groups: vec![
+                    vec![(0, 0), (1, 1)],
+                    vec![(3, 0), (1, 1)],
+                    vec![(2, 0), (1, 1)],
+                ],
+                actions: (0..rows.len())
+                    .map(|row| {
+                        Some(match row {
+                            2 | 3 => 1,
+                            4 | 5 => 2,
+                            _ => 0,
+                        })
+                    })
+                    .collect(),
+                idle_group: Some(0),
+                effect: 6,
+                anchors: vec![0],
+                drop_on_hurt: Some(WeaponDrop {
+                    slot: 1,
+                    hp_percent: 50,
+                    upward_speed: 10.,
+                    gravity: -0.9,
+                    pitch: -90.,
+                }),
+            }),
+            24 => Some(EnemyBehavior::ActionWeapons {
+                groups: vec![
+                    vec![(0, 0), (1, 1)],
+                    vec![(2, 0)],
+                    vec![(3, 0), (3, 1)],
+                    vec![(4, 0)],
+                ],
+                actions: (0..rows.len())
+                    .map(|row| match row {
+                        2 | 3 | 5 => Some(0),
+                        6 => Some(1),
+                        9 => Some(2),
+                        7 | 8 => Some(3),
+                        _ => None,
+                    })
+                    .collect(),
+                idle_group: None,
+                effect: 2,
+                anchors: vec![0, 1],
+                drop_on_hurt: None,
             }),
             _ => None,
         },

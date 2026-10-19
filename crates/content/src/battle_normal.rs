@@ -11,7 +11,6 @@ pub struct Attack {
     pub duration: u16,
     pub chain_at: Option<u16>,
     pub recovery: u16,
-    pub recovery_pose: ActionPose,
     pub reach: [u16; 2],
     pub events: Vec<(u16, Event)>,
 }
