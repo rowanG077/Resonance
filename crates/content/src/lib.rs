@@ -24,7 +24,6 @@ pub mod battle_unison;
 pub mod battle_victory;
 pub mod battle_voice;
 pub mod credits;
-pub mod diagnostics;
 pub mod effect;
 pub mod field;
 pub mod field_audio;

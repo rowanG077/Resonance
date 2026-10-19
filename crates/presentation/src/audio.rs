@@ -78,22 +78,6 @@ impl TitleMusic {
             )?),
         })
     }
-    pub fn load(root: &Path) -> Result<Self> {
-        let path = root.join("title-audio.json");
-        let info: TitleAudio = serde_json::from_slice(
-            &fs::read(&path).with_context(|| format!("reading {}", path.display()))?,
-        )?;
-        info.validate()?;
-        Ok(Self {
-            master_lead_ms: 1185,
-            music: Arc::new(Package::load_verified(
-                root,
-                &info.path,
-                &info.sha256,
-                &mut Default::default(),
-            )?),
-        })
-    }
 }
 
 pub(super) struct MusicFrames {
