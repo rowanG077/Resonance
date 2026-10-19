@@ -11,6 +11,14 @@ use std::{
     path::Path,
 };
 
+/// Import provenance stays in library metadata, outside playable descriptors.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct LibraryVoice {
+    pub voice: Voice,
+    pub source_name: String,
+    pub source_sha256: String,
+}
+
 pub(crate) struct Archive<'a> {
     root: &'a Path,
     pub source: Asset,
@@ -69,7 +77,7 @@ impl<'a> Archive<'a> {
         })
     }
 
-    pub fn voice(&mut self, id: usize) -> Result<Voice> {
+    pub fn voice(&mut self, id: usize) -> Result<LibraryVoice> {
         let member = self
             .index
             .members
@@ -98,14 +106,15 @@ impl<'a> Archive<'a> {
         self.file.seek(SeekFrom::Start(entry.offset))?;
         let source_hash = super::hash_reader((&mut self.file).take(entry.size as u64))?;
         let metadata = &member.metadata;
-        let voice: Voice = serde_json::from_slice(
+        let metadata: LibraryVoice = serde_json::from_slice(
             &fs::read(self.root.join(metadata))
                 .with_context(|| format!("missing cooked voice {metadata}; rerun cook-all"))?,
         )?;
+        let voice = &metadata.voice;
         voice.validate()?;
         ensure!(
-            voice.source_name == member.name
-                && voice.source_sha256 == source_hash
+            metadata.source_name == member.name
+                && metadata.source_sha256 == source_hash
                 && voice.sample_rate == sample_rate
                 && voice.source_sample_rate == sample_rate
                 && voice.frames == frames
@@ -113,7 +122,7 @@ impl<'a> Archive<'a> {
             "voice {id} final descriptor differs from its original stream"
         );
         ensure!(
-            voice.asset.path == format!("audio/streams/{}.wav", voice.source_sha256),
+            voice.asset.path == format!("audio/streams/{source_hash}.wav"),
             "voice {id} is not from the shared PCM library"
         );
         let path = self.root.join(&voice.asset.path);
@@ -131,7 +140,7 @@ impl<'a> Archive<'a> {
                 && spec.sample_format == hound::SampleFormat::Int,
             "cooked voice {id} PCM format differs from metadata"
         );
-        Ok(voice)
+        Ok(metadata)
     }
 }
 
@@ -244,12 +253,15 @@ pub(crate) fn fixture(
         sample_rate: rate,
         source_sample_rate: rate,
         channels: 1,
+    };
+    let metadata = LibraryVoice {
+        voice: voice.clone(),
         source_name: name.into(),
         source_sha256,
     };
     crate::write_atomic(
         &root.join(format!("audio/archives/{}/0.json", crate::digest(&afs))),
-        &serde_json::to_vec(&voice)?,
+        &serde_json::to_vec(&metadata)?,
     )?;
     Ok(voice)
 }
@@ -269,7 +281,7 @@ mod tests {
         fixture(root, &additional, 2, source, "test.ahx", 32000, &[0; 8])?;
         let mut archive = Archive::source(root, &primary, Some(&additional), source)?;
         let mut secondary = Archive::source(root, &additional, None, source)?;
-        assert_eq!(secondary.voice(0)?.frames, 8);
+        assert_eq!(secondary.voice(0)?.voice.frames, 8);
         let reverse = "EV/first-disc-only.afs";
         fixture(root, &primary, 1, reverse, "first.ahx", 32000, &[0; 4])?;
         assert_eq!(
@@ -289,7 +301,7 @@ mod tests {
             serde_json::to_value(&archive.index)?
         );
         assert!(!root.join("sources.json").exists());
-        let bound = archive.voice(0)?;
+        let bound = archive.voice(0)?.voice;
         assert_eq!(
             serde_json::to_value(&bound)?,
             serde_json::to_value(&expected)?
@@ -306,8 +318,12 @@ mod tests {
                 .voice(0)
                 .is_err()
         );
-        let mut changed: Voice = serde_json::from_slice(&saved)?;
-        changed.frames += 1;
+        let mut changed: LibraryVoice = serde_json::from_slice(&saved)?;
+        changed.voice.frames += 1;
+        fs::write(&metadata, serde_json::to_vec(&changed)?)?;
+        assert!(archive.voice(0).is_err());
+        changed = serde_json::from_slice(&saved)?;
+        changed.source_sha256 = "0".repeat(64);
         fs::write(&metadata, serde_json::to_vec(&changed)?)?;
         assert!(archive.voice(0).is_err());
         fs::write(&metadata, &saved)?;
@@ -389,9 +405,10 @@ mod tests {
                         assert_eq!(value["frames"], 0);
                         assert_eq!(value["silence"], true);
                     } else {
-                        let voice: Voice = serde_json::from_slice(&metadata)?;
+                        let metadata: LibraryVoice = serde_json::from_slice(&metadata)?;
+                        let voice = metadata.voice;
                         voice.validate()?;
-                        assert_eq!(voice.source_name, member.name);
+                        assert_eq!(metadata.source_name, member.name);
                         assert_eq!(voice.frames, crate::read::u32(&header, 12)?);
                         assert_eq!(voice.source_sample_rate, crate::read::u32(&header, 8)?);
                         assert_eq!(voice.channels, u16::from(header[7]));

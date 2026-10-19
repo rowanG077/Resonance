@@ -313,9 +313,11 @@ pub(crate) fn compare_field_layer(
     order: u32,
 ) -> anyhow::Result<()> {
     use anyhow::{Context, ensure};
-    let source = section_source(section)?;
+    // Color-only layers omit the TPL; binding supplies an empty palette view.
+    let normalized = crate::character::texture_palette(section, section)?;
+    let source = section_source(&normalized)?;
     let objects = parse_geometry(source.gpl)?;
-    let draws = object_draw_recipes(&objects, source.model.as_ref(), DecodeMode::Runtime)?;
+    let draws = object_draw_recipes(&objects, source.model.as_ref(), DecodeMode::Physical)?;
     let bones = source
         .model
         .as_ref()
@@ -432,7 +434,17 @@ pub(crate) fn compare_field_layer(
         let [node] = mesh_nodes.as_slice() else {
             anyhow::bail!("field mesh instance count differs");
         };
-        if let Some(parent) = draw.model_node.filter(|_| object.mesh.joints.is_none()) {
+        if !draw.instanced {
+            ensure!(
+                !roots.contains(&json!(node))
+                    && !nodes.iter().any(|parent| {
+                        parent["children"]
+                            .as_array()
+                            .is_some_and(|children| children.contains(&json!(node)))
+                    }),
+                "unused field mesh acquired an instance"
+            );
+        } else if let Some(parent) = draw.model_node.filter(|_| object.mesh.joints.is_none()) {
             ensure!(
                 nodes[parent]["children"]
                     .as_array()

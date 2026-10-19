@@ -1,4 +1,5 @@
 //! Cook named hair, scarf, and clothing chains into joint dynamics.
+mod tuning;
 use anyhow::{Context, Result, ensure};
 use resonance_content::secondary_motion::{Chain, Definition, Joint};
 use serde_json::Value;
@@ -15,25 +16,6 @@ fn parameter(name: &str, tag: &str) -> Result<Option<f32>> {
     let value: f32 = value.parse().context("invalid embedded chain parameter")?;
     ensure!(value.is_finite(), "nonfinite embedded chain parameter");
     Ok((value != 0.).then_some(value))
-}
-
-#[cfg(test)]
-pub(crate) fn cook(source: &[u8], gltf: &Value, names: &[String]) -> Result<Definition> {
-    let mut definition = bind("", gltf, names)?;
-    if !definition.chains.is_empty() {
-        let model = source
-            .get(crate::read::u32(source, 4)? as usize..)
-            .context("chain model")?;
-        let name = model
-            .get(crate::read::u32(model, 16)? as usize..)
-            .context("chain model name")?;
-        let end = name
-            .iter()
-            .position(|&b| b == 0)
-            .context("unterminated model name")?;
-        definition.model = std::str::from_utf8(&name[..end])?.to_owned();
-    }
-    Ok(definition)
 }
 
 pub(crate) fn bind(model: &str, gltf: &Value, names: &[String]) -> Result<Definition> {
@@ -78,16 +60,10 @@ pub(crate) fn bind(model: &str, gltf: &Value, names: &[String]) -> Result<Defini
             node = child.as_u64().context("invalid chain child")?.try_into()?;
         }
         chain.attraction = if follows_pose { attraction } else { 0. };
-        chain.validate(names.len())?;
+        tuning::apply(model, &mut chain, names)?;
         chains.push(chain);
     }
-    if chains.is_empty() {
-        return Ok(Definition::default());
-    }
-    Ok(Definition {
-        model: model.to_owned(),
-        chains,
-    })
+    Ok(Definition { chains })
 }
 
 #[cfg(test)]
@@ -95,32 +71,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn model_identity_does_not_change_authored_chain_decoding() -> Result<()> {
+    fn generic_chains_decode_authored_dynamics_and_reject_invalid_skeletons() -> Result<()> {
         let names = vec![
             "AB_ROOT_NR_FP_01_kami".into(),
             "AB_Dt-0e5_Bb0e4_Pow0e1".into(),
         ];
         let gltf = serde_json::json!({"nodes": [{"children": [1]}, {}]});
-        let mut reference = None;
-        for model in ["llo00", "col00", "ref00", "new_model"] {
-            let mut source = vec![0; 44];
-            source[4..8].copy_from_slice(&12_u32.to_be_bytes());
-            source[28..32].copy_from_slice(&32_u32.to_be_bytes());
-            source.extend_from_slice(model.as_bytes());
-            source.push(0);
-            let definition = cook(&source, &gltf, &names)?;
-            assert_eq!(definition.model, model);
-            let chain = &definition.chains[0];
-            assert_eq!(chain.attraction, 0.1);
-            assert_eq!(chain.joints[0].gravity, 1.2);
-            assert_eq!(chain.joints[1].gravity, -0.5);
-            assert!(chain.preserve_rotation && chain.collision_plane.is_none());
-            let encoded = serde_json::to_vec(&definition.chains)?;
-            assert_eq!(reference.get_or_insert_with(|| encoded.clone()), &encoded);
-            source.pop();
-            assert!(cook(&source, &gltf, &names).is_err());
-        }
-        assert!(cook(&[], &serde_json::json!({"nodes": []}), &names).is_err());
+        let definition = bind("new_model", &gltf, &names)?;
+        let chain = &definition.chains[0];
+        assert_eq!(chain.attraction, 0.1);
+        assert_eq!(chain.joints[0].gravity, 1.2);
+        assert_eq!(chain.joints[1].gravity, -0.5);
+        assert!(chain.preserve_rotation && chain.collision_plane.is_none());
+        assert!(bind("new_model", &serde_json::json!({"nodes": []}), &names).is_err());
+        let cycle = serde_json::json!({"nodes": [{"children": [1]}, {"children": [0]}]});
+        assert!(bind("new_model", &cycle, &names).is_err());
         Ok(())
     }
 

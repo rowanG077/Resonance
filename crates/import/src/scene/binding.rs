@@ -161,12 +161,17 @@ pub(crate) fn secondary_motion(
     struct Model {
         name: Option<String>,
     }
-    let mut definition = crate::secondary_motion::bind("", &glb.json, &part.bone_names)?;
-    if !definition.chains.is_empty() {
+    let model = if part
+        .bone_names
+        .iter()
+        .any(|name| name.starts_with("AB_ROOT"))
+    {
         let model: Model = read(root, &format!("{directory}/model.json"))?;
-        definition.model = model.name.context("missing secondary-motion model name")?;
-    }
-    Ok(definition)
+        model.name.context("missing secondary-motion model name")?
+    } else {
+        String::new()
+    };
+    crate::secondary_motion::bind(&model, &glb.json, &part.bone_names)
 }
 
 #[cfg(test)]
@@ -654,15 +659,46 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(unix)]
     #[test]
-    #[ignore = "requires original MAP archives and cook-all on both discs; writes derived meshes without codecs"]
-    fn original_map_layers_match_native_motion_binding_on_both_discs() -> Result<()> {
+    #[ignore = "requires original MAP archives on both discs and read-only RESONANCE_COOKED assets"]
+    fn original_prepared_map_layers_match_source_motion_on_both_discs() -> Result<()> {
+        use resonance_content::field::FieldAssets;
+        use std::collections::BTreeSet;
+
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let stage = fixture()?;
-        let cooked = stage.path();
-        let sources: BTreeMap<String, Vec<String>> = read(cooked, "sources.json")?;
-        let mut counts = [0; 5];
+        let cooked = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_COOKED").context("set RESONANCE_COOKED")?,
+        );
+        let sources: BTreeMap<String, Vec<String>> = read(&cooked, "sources.json")?;
+        // Keep only identities in memory; load one complete field at a time.
+        #[derive(serde::Deserialize)]
+        struct Identity {
+            source_sha256: String,
+        }
+        let mut prepared = BTreeMap::new();
+        for entry in fs::read_dir(cooked.join("fields"))? {
+            let path = entry?.path();
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name
+                .strip_prefix("map-")
+                .and_then(|name| name.strip_suffix(".json"))
+                .and_then(|id| id.parse::<u32>().ok())
+                .is_none()
+            {
+                continue;
+            }
+            let identity: Identity = serde_json::from_slice(&fs::read(&path)?)?;
+            ensure!(
+                prepared.insert(identity.source_sha256, path).is_none(),
+                "duplicate prepared MAP source"
+            );
+        }
+        let mut compared = BTreeSet::new();
+        let mut archives = [0; 2];
+        let mut layers = 0;
+        let mut motions = 0;
         for disc in [1, 2] {
             let prefix = format!("disc{disc}/");
             for source in sources
@@ -670,142 +706,99 @@ mod tests {
                 .filter_map(|source| source.strip_prefix(&prefix))
                 .filter(|source| source.starts_with("MAP/"))
             {
-                let original = local
-                    .join(format!("extracted/disc{disc}/files"))
-                    .join(source);
-                let bytes = fs::read(&original)?;
-                let map = crate::field::MapArchive::decode(&bytes)?;
-                let bound = Map::open(cooked, &original)?;
-                assert_eq!(
-                    bound.sections.directory.count,
-                    map.sections.len(),
-                    "{source}"
-                );
-                for (index, kind) in bound.sections() {
-                    let expected = match crate::read::u32(map.section(index)?, 0).ok() {
-                        Some(31) => MemberKind::Actor,
-                        Some(0x0020af30) => MemberKind::Texture,
-                        _ if crate::all_assets::geometry::is_model(map.section(index)?) => {
-                            MemberKind::Model
-                        }
-                        _ => MemberKind::Other,
-                    };
-                    assert_eq!(kind, expected, "{source}/{index}");
+                let bytes = fs::read(
+                    local
+                        .join(format!("extracted/disc{disc}/files"))
+                        .join(source),
+                )?;
+                let hash = crate::digest(&bytes);
+                let path = prepared
+                    .get(&hash)
+                    .with_context(|| format!("no prepared field for {source}"))?;
+                archives[disc - 1] += 1;
+                // Both discs retain their own source identity check. Identical
+                // archives share one runtime layer/motion comparison.
+                if !compared.insert(hash) {
+                    continue;
                 }
-                let cabinet = cab::Cabinet::new(std::io::Cursor::new(&bytes))?;
-                let members = cabinet
-                    .folder_entries()
-                    .flat_map(|folder| folder.file_entries())
-                    .map(|entry| entry.name().replace('\\', "/"))
-                    .collect::<Vec<_>>();
+                let map = crate::field::MapArchive::decode(&bytes)?;
+                let field: FieldAssets = serde_json::from_slice(&fs::read(path)?)?;
                 assert_eq!(
-                    bound.directory,
-                    format!("assets/{}/{}", map.source_sha256, members[0])
+                    field
+                        .parts
+                        .iter()
+                        .map(|part| usize::from(part.resource))
+                        .collect::<Vec<_>>(),
+                    FIELD_LAYERS
+                        .into_iter()
+                        .filter(|&index| map.optional_section(index).is_some())
+                        .collect::<Vec<_>>(),
+                    "{source} scenery layers"
                 );
-                counts[0] += 1;
-                for index in FIELD_LAYERS {
-                    let Some(resource) = map.optional_section(index) else {
-                        continue;
-                    };
-                    if !matches!(
-                        crate::read::u32(resource, 0x20).ok(),
-                        Some(0x005bbc61 | 0x00b749e0)
-                    ) {
-                        continue;
-                    }
-                    let mut expected_motion = None;
-                    if crate::read::u32(resource, 8)? != 0 {
-                        let range = crate::geometry::skeleton_range(resource)?;
-                        let model = &resource[range];
-                        let directory = bound
-                            .section(index)
-                            .context("missing cooked model section")?;
-                        let bindings: ModelBindings =
-                            read(cooked, &format!("{directory}/motion-bindings.json"))?;
+                for part in &field.parts {
+                    let index = usize::from(part.resource);
+                    let resource = map.section(index)?;
+                    let glb = Glb::read(&cooked.join(&part.mesh))?;
+                    crate::geometry::compare_field_layer(
+                        resource,
+                        part,
+                        &glb.json,
+                        DrawStage::scenery(part.resource).context("unknown scenery layer")? as u32,
+                    )
+                    .with_context(|| format!("{source}/{index}"))?;
+                    let expected = map
+                        .optional_section(index + 1)
+                        .map(|animation| {
+                            crate::animation::motion(
+                                animation,
+                                &resource[crate::geometry::skeleton_range(resource)?],
+                            )
+                        })
+                        .transpose()
+                        .with_context(|| format!("{source}/{index} autoplay"))?;
+                    let clips = part
+                        .clips
+                        .iter()
+                        .filter(|clip| clip.animation_resource.is_none())
+                        .collect::<Vec<_>>();
+                    assert_eq!(part.autoplay, expected.is_some(), "{source}/{index}");
+                    assert_eq!(
+                        clips.len(),
+                        usize::from(expected.is_some()),
+                        "{source}/{index}"
+                    );
+                    if let Some(motion) = expected {
+                        let clip = clips[0];
                         assert_eq!(
-                            serde_json::to_value(&bindings)?,
-                            serde_json::to_value(ModelBindings::read(model)?)?,
+                            clip.duration_seconds,
+                            motion.duration_frames / resonance_content::animation::FRAME_HZ,
+                            "{source}/{index} duration"
+                        );
+                        let stored = resonance_content::animation::Motion::decode(&fs::read(
+                            cooked.join(&clip.motion),
+                        )?)?;
+                        stored.validate_bones(part.bone_names.len())?;
+                        assert_eq!(
+                            serde_json::to_value(stored)?,
+                            serde_json::to_value(motion)?,
                             "{source}/{index}"
                         );
-                        counts[1] += 1;
-                        if let Some(animation) = map.optional_section(index + 1) {
-                            let animation_directory = bound
-                                .section(index + 1)
-                                .context("missing cooked animation section")?;
-                            let authored: AuthoredAnimation =
-                                read(cooked, &format!("{animation_directory}/animation.json"))?;
-                            let expected = crate::animation::motion(animation, model);
-                            let actual = authored.motion(&bindings);
-                            match (expected, actual) {
-                                (Ok(expected), Ok(actual)) => {
-                                    assert_eq!(
-                                        serde_json::to_value(actual)?,
-                                        serde_json::to_value(&expected)?,
-                                        "{source}/{index}"
-                                    );
-                                    counts[2] += 1;
-                                    expected_motion = Some(expected);
-                                }
-                                (Err(expected), Err(actual)) => {
-                                    eprintln!(
-                                        "unsupported motion {source}/{index}: source={expected:#}, cooked={actual:#}"
-                                    );
-                                    counts[3] += 1;
-                                    continue;
-                                }
-                                (expected, actual) => anyhow::bail!(
-                                    "native/cooked motion admission differs for {source}/{index}: native={expected:?}, cooked={actual:?}"
-                                ),
-                            }
-                        }
-                    } else if map.optional_section(index + 1).is_some() {
-                        // Source preparation requires a model before autoplay.
-                        assert!(bound.part(index, &[]).is_err());
-                        counts[3] += 1;
-                        continue;
+                        motions += 1;
                     }
-                    if crate::geometry::preflight_section(resource).is_ok() {
-                        let (part, glb) = bound
-                            .part(index, &[])
-                            .with_context(|| format!("{source}/{index}"))?;
-                        crate::geometry::compare_field_layer(
-                            resource,
-                            &part,
-                            &glb.json,
-                            DrawStage::scenery(index.try_into()?)
-                                .context("unknown scenery layer")?
-                                as u32,
-                        )
-                        .with_context(|| format!("{source}/{index}"))?;
-                        assert_eq!(part.autoplay, expected_motion.is_some());
-                        if let Some(motion) = expected_motion {
-                            assert_eq!(
-                                part.clips[0].duration_seconds,
-                                motion.duration_frames / resonance_content::animation::FRAME_HZ
-                            );
-                            let stored = resonance_content::animation::Motion::decode(&fs::read(
-                                cooked.join(&part.clips[0].motion),
-                            )?)?;
-                            assert_eq!(
-                                serde_json::to_value(stored)?,
-                                serde_json::to_value(motion)?
-                            );
-                            assert!(glb.json.get("animations").is_none());
-                        }
-                        counts[4] += 1;
-                    }
+                    assert!(glb.json.get("animations").is_none(), "{source}/{index}");
+                    layers += 1;
                 }
             }
         }
-        assert_eq!(counts[0], 1002);
-        assert_eq!(counts[3], 0, "original MAP motions must all bind");
+        assert!(archives.iter().all(|&count| count > 0));
+        assert_eq!(compared, prepared.into_keys().collect::<BTreeSet<_>>());
         assert!(
-            counts[1] > 0 && counts[2] > 0 && counts[4] > 0,
-            "incomplete MAP comparison: {counts:?}"
+            layers > 0 && motions > 0,
+            "MAP comparison omitted geometry or autoplay"
         );
         eprintln!(
-            "MAP source/curve comparison: {} archives, {} model bindings, {} matching motions, {} shared unsupported motions, {} bound layers",
-            counts[0], counts[1], counts[2], counts[3], counts[4]
+            "MAP source/runtime comparison: {archives:?} archives by disc, {} unique sources, {layers} layers, {motions} autoplay motions",
+            compared.len()
         );
         Ok(())
     }

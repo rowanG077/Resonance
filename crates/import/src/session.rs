@@ -59,11 +59,10 @@ pub(crate) fn cook_text(
         items: names,
         titles,
         techniques: menu
-            .arte
-            .definitions
+            .arte_menu
             .iter()
             .enumerate()
-            .filter_map(|(id, arte)| arte.name.as_ref().map(|name| (id as u16, name.clone())))
+            .map(|(id, arte)| (id as u16, arte.text.name.clone()))
             .collect(),
     };
     let path = "game/text.json";
@@ -71,19 +70,17 @@ pub(crate) fn cook_text(
     Ok(path.into())
 }
 
-/// Expand the shared swordsman bit into distinct Zelos and Kratos ownership.
+/// Expand the shared swordsman bit and apply character-exclusive equipment rules.
 fn equipment_owners(items: &[crate::item::Definition]) -> Vec<u16> {
-    const FLAMBERGE: usize = 236;
-    const BRUNNHILDE: usize = 284;
-    const SIGURD: usize = 327;
-    const ARREDOVAL: usize = 363;
+    // Flamberge, Brunnhilde, Sigurd and Arredoval belong only to Kratos.
+    const KRATOS_EXCLUSIVE_ITEMS: [usize; 4] = [236, 284, 327, 363];
     items
         .iter()
         .enumerate()
         .map(|(item, row)| {
             expand_equipment_owners(
                 row.equipment_owner_mask,
-                matches!(item, FLAMBERGE | BRUNNHILDE | SIGURD | ARREDOVAL),
+                KRATOS_EXCLUSIVE_ITEMS.contains(&item),
             )
         })
         .collect()
@@ -120,6 +117,10 @@ pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path)
     let mut characters = Vec::new();
     for (index, row) in defaults.definitions.iter().take(9).enumerate() {
         let list = arte_catalogue.learned_by(index as u8 + 1)?;
+        ensure!(
+            list.len() <= u64::BITS as usize,
+            "character technique list exceeds the imported mask"
+        );
         let mut techniques = Vec::new();
         let mut level_techniques = BTreeMap::<u8, Vec<u16>>::new();
         for (slot, &id) in list.iter().enumerate() {
@@ -131,9 +132,9 @@ pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path)
             let required = tech.required_level;
             if required != 0
                 && required <= 250
-                && tech.learning_route == 0
-                && tech.learning_parent == 0
-                && tech.required_learned[0] == 0
+                && menu.arte_menu[usize::from(id)].route == 0
+                && tech.learning.parent.is_none()
+                && tech.learning.prerequisites.is_empty()
             {
                 level_techniques
                     .entry(required as u8)
@@ -187,7 +188,7 @@ pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path)
         });
     }
     let data = SessionData {
-        ex_skills: None,
+        rules: None,
         version: 1,
         executable_sha256: digest(executable),
         items,

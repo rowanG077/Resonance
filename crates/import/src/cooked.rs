@@ -1,7 +1,7 @@
 //! Resolve original source identities to their shared cooked publications.
 use anyhow::{Context, Result, ensure};
 use resonance_content::validate_asset_path;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, fs, io::ErrorKind, path::Path};
 
 pub(crate) struct Source<'a> {
     root: &'a Path,
@@ -149,7 +149,11 @@ impl<'a> Source<'a> {
             let path = self.root.join(directory).join(relative);
             let bytes = match fs::read(&path) {
                 Ok(bytes) => bytes,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error)
+                    if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
+                {
+                    continue;
+                }
                 Err(error) => return Err(error).with_context(|| path.display().to_string()),
             };
             if let Some((previous, data)) = &found {

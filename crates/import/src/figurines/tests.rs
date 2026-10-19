@@ -25,8 +25,9 @@ fn shared_previews_bind_every_figurine_and_original_idle() -> Result<()> {
     let baseline = std::env::var_os("RESONANCE_FIELD_BASELINE")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| local.join("all-assets"));
-    let expected: resonance_content::menu_data::MenuData =
-        serde_json::from_slice(&fs::read(baseline.join("game/menu-data.json"))?)?;
+    let expected: resonance_content::figurine::FigurineBook = serde_json::from_slice(&fs::read(
+        baseline.join(resonance_content::menu_data::FIGURINES_PATH),
+    )?)?;
     for disc in [1, 2] {
         let output = tempfile::tempdir()?;
         let extracted = local.join(format!("extracted/disc{disc}"));
@@ -44,7 +45,7 @@ fn shared_previews_bind_every_figurine_and_original_idle() -> Result<()> {
             );
         }
         ensure!(
-            serde_json::to_value(&actual)? == serde_json::to_value(&expected.figurines)?,
+            serde_json::to_value(&actual)? == serde_json::to_value(&expected)?,
             "disc {disc} figurine metadata differs from immutable baseline"
         );
         for record in &actual.records {
