@@ -131,8 +131,14 @@ fn read(usual: &[u8], module: &Rel, atlas: &Texture, portraits: [UiTexture; 9]) 
         notices: NoticeArt {
             frame: atlas.image(80)?,
             fill: atlas.image(81)?,
-            icons: [atlas.image(82)?, atlas.image(83)?, atlas.image(84)?],
-            icon_origins: <[[u16; 2]; 3]>::read(at(0x4280)?, 0)?,
+            icons: [
+                atlas.image(82)?,
+                atlas.image(83)?,
+                atlas.image(84)?,
+                atlas.image(85)?,
+            ],
+            icon_origins: <[[u16; 2]; 4]>::read(at(0x4280)?, 0)?,
+            defeated: module.text((4, 0x2c3c))?,
             faces: (32..41)
                 .map(|page| atlas.image(page))
                 .collect::<Result<Vec<_>>>()?
@@ -148,6 +154,10 @@ fn read(usual: &[u8], module: &Rel, atlas: &Texture, portraits: [UiTexture; 9]) 
             atlas.image(87)?,
             atlas.image(89)?,
             atlas.image(90)?,
+            atlas.image(42)?,
+            atlas.image(43)?,
+            atlas.image(88)?,
+            atlas.image(92)?,
         ],
         unison_buttons: [atlas.image(25)?, atlas.image(24)?],
         combo: ComboArt {

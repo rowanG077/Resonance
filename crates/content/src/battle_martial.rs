@@ -24,6 +24,15 @@ pub struct Binding {
     pub variant: u8,
 }
 
+impl Binding {
+    pub fn enemy(member: u16) -> Self {
+        Self {
+            member,
+            variant: u8::from(matches!(member, 1 | 2 | 4)),
+        }
+    }
+}
+
 impl Catalogue {
     pub fn attack(&self, catalogue: u16, character: u8) -> Result<&Attack> {
         let binding = self
@@ -57,9 +66,9 @@ impl Catalogue {
     }
 }
 
-/// Resolve a contact after earlier melee completions and animation blends.
+/// Resolve a gameplay event after earlier melee completions and animation blends.
 /// Pose blend ages are authored times, before any holds have been applied.
-pub fn contact_tick(
+pub fn gameplay_tick(
     raw_at: u16,
     preceding_contacts: u16,
     pose_blends: &[(u16, u8)],
@@ -75,7 +84,7 @@ pub fn contact_tick(
         pose_delay += u32::from(blend);
     }
     at.try_into()
-        .context("martial contact timeline exceeds limit")
+        .context("martial gameplay timeline exceeds limit")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,7 +147,6 @@ pub enum PoseStart {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectileFeedback {
-    pub bank: u8,
     pub effect: u16,
     pub sound: u16,
     pub on_guard: bool,
@@ -206,14 +214,18 @@ pub struct Steal {
 
 #[cfg(test)]
 mod tests {
-    use super::contact_tick;
+    use super::gameplay_tick;
 
     #[test]
-    fn contacts_wait_for_crossed_blends_but_not_simultaneous_admissions() {
+    fn gameplay_waits_for_crossed_blends_but_not_simultaneous_admissions() {
         let poses = [(0, 4), (14, 4), (28, 2), (48, 4), (60, 3)];
-        assert_eq!(contact_tick(0, 0, &poses).unwrap(), 4);
-        assert_eq!(contact_tick(48, 3, &poses).unwrap(), 62);
-        assert_eq!(contact_tick(25, 0, &[(0, 4), (25, 4)]).unwrap(), 29);
-        assert_eq!(contact_tick(29, 3, &[(0, 4)]).unwrap(), 36);
+        assert_eq!(gameplay_tick(0, 0, &poses).unwrap(), 4);
+        assert_eq!(gameplay_tick(48, 3, &poses).unwrap(), 62);
+        assert_eq!(gameplay_tick(25, 0, &[(0, 4), (25, 4)]).unwrap(), 29);
+        assert_eq!(gameplay_tick(29, 3, &[(0, 4)]).unwrap(), 36);
+        // Commands run before a newly selected pose starts its blend.
+        let poses = [(0, 2), (11, 4), (27, 4), (42, 2)];
+        assert_eq!(gameplay_tick(28, 0, &poses).unwrap(), 33);
+        assert_eq!(gameplay_tick(29, 0, &poses).unwrap(), 37);
     }
 }

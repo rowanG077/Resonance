@@ -27,10 +27,19 @@ pub struct Table {
     pub contact_sounds: ContactSounds,
     /// Over Limit sounds for characters 1..=9.
     pub overlimit_voices: [Option<Sound>; 9],
+    /// Item-release sparkle offsets from each character's body center.
+    pub item_use_offsets: [[f32; 3]; 9],
     /// Character IDs 1..=11.
     pub records: Vec<Profile>,
     /// Rescue names: Angel Tear, Revive, Resurrect, Ring, Doll.
     pub lethal_rescue_names: [String; 5],
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct CastPoses {
+    pub opening: crate::battle_action::ActionPose,
+    pub release: crate::battle_action::ActionPose,
+    pub release_loop_start: f32,
 }
 
 impl Table {
@@ -113,6 +122,8 @@ impl Blink {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileTraits {
+    #[serde(default)]
+    pub hosts_participants: bool,
     pub flying: bool,
     pub hover_bobbing: bool,
     pub hide_enemy_shadow: bool,
@@ -123,6 +134,8 @@ pub struct ProfileTraits {
     pub show_body_attachments: bool,
     pub auto_guard_disabled: bool,
     pub retain_defeated_body: bool,
+    #[serde(default)]
+    pub wait_for_defeat_animation: bool,
     #[serde(default)]
     pub hit_shake_disabled: bool,
     pub recover_in_air: bool,
@@ -146,6 +159,32 @@ pub struct WeaponStyle {
     pub before_body: bool,
     pub toon: bool,
     pub additive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TargetAnchor {
+    /// Zero selects the authored center offset; other values index the posed skeleton.
+    pub bone: u8,
+    pub offset: [f32; 3],
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeadAnchor {
+    pub bone: u8,
+    /// Actor-local offset, scaled and turned independently of the head pose.
+    pub offset: [f32; 3],
+}
+
+/// A participant carried on its formation leader until that leader releases it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostedBody {
+    pub release_on_hurt: bool,
+    pub release_below_half_health: bool,
+    pub release_on_defeat: bool,
+    pub launch_on_release: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,12 +220,24 @@ pub struct Profile {
     pub guard_reduction: u8,
     pub guard_pressure_limit: u32,
     pub traits: ProfileTraits,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosted_body: Option<HostedBody>,
     pub armor: u8,
     pub center_offset: [f32; 3],
+    pub target_anchor: TargetAnchor,
+    pub head_anchor: HeadAnchor,
     pub model_scale: f32,
     pub shadow_scale: f32,
     pub shadow_color: [u8; 4],
     pub effect_scale: f32,
+    /// Independent recurring effects attached to the actor's root.
+    pub passive_effects: Vec<RecurringEffect>,
+    /// Recurring effect while the actor rests between actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_effect: Option<RecurringEffect>,
+    /// Recurring effect while approaching a target or returning to formation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub movement_effect: Option<RecurringEffect>,
     pub camera_category: u8,
     /// Named speech; absence denotes an unvoiced actor.
     pub voices: Option<crate::battle_voice::Voices>,
@@ -198,4 +249,19 @@ pub struct Profile {
     pub initial_overlimit: i16,
     pub ground_offset: f32,
     pub cast_ticks: i16,
+    /// Hold the final chanting pose instead of repeating it.
+    #[serde(default)]
+    pub chant_once: bool,
+    /// Frame where the chanting animation repeats after its opening segment.
+    pub chant_loop_start: f32,
+    /// Opening and release gestures shared by resident and stored spells.
+    pub cast_poses: CastPoses,
+    /// Optional closing gesture played before casting recovery ends.
+    pub cast_recovery_motion: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct RecurringEffect {
+    pub program: u16,
+    pub interval: u16,
 }

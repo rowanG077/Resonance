@@ -137,6 +137,8 @@ pub struct ModelBinding {
     pub slot: u8,
     pub animation: Option<u16>,
     pub repeat: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reverse_at: Option<u8>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub program_animation: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

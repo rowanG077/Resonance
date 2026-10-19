@@ -29,8 +29,9 @@ pub struct Art {
     pub stat_colors: [[u8; 4]; 2],
     /// Two opposed blue/gold feedback strips; TL, TR, BL, BR corners.
     pub stat_backdrops: [[[u8; 4]; 4]; 2],
-    /// Attack, defense, increase arrow, magic attack, physical protection, magical protection.
-    pub stat_icons: [UiTexture; 6],
+    /// Attack, defense, up arrow, magic attack, physical/magical barriers,
+    /// accuracy/curse, reduced item effect, Holy Song, down arrow.
+    pub stat_icons: [UiTexture; 10],
     /// Physical Unison buttons: A/B palette, then X/Y palette.
     pub unison_buttons: [UiTexture; 2],
     pub commands: CommandArt,
@@ -153,9 +154,10 @@ impl CommandArt {
 pub struct NoticeArt {
     pub frame: UiTexture,
     pub fill: UiTexture,
-    /// Martial arte, spell, and item emblems.
-    pub icons: [UiTexture; 3],
-    pub icon_origins: [[u16; 2]; 3],
+    /// Martial arte, spell, item, and outcome emblems.
+    pub icons: [UiTexture; 4],
+    pub icon_origins: [[u16; 2]; 4],
+    pub defeated: String,
     pub faces: [UiTexture; 9],
 }
 
@@ -194,7 +196,7 @@ fn validate_portrait(image: &UiTexture) -> Result<()> {
 }
 
 impl Art {
-    pub const VERSION: u32 = 43;
+    pub const VERSION: u32 = 44;
 
     /// Decode required controls and independently admit optional feedback.
     pub fn load(files: &crate::prepared::Files) -> Result<Self> {
@@ -251,7 +253,8 @@ impl Art {
     pub fn validate_required_dialogue(&self, font: &BitmapFont) -> Result<()> {
         font.validate_text(
             "0123456789 HP TP / CASTING Unknown PARTY ENEMY HITS DAMAGE STUN DEFEATED ESCAPED:",
-        )
+        )?;
+        font.validate_text(&self.notices.defeated)
     }
 
     pub fn files(&self) -> impl Iterator<Item = &str> {

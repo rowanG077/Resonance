@@ -4,7 +4,9 @@ use resonance_content::battle_projectile::{DamageKind, HitShape, ProjectileOrigi
 use std::borrow::Cow;
 
 pub(super) struct ActionPackage<'a> {
+    bytes: &'a [u8],
     rules: Cow<'a, [u8]>,
+    common_actions: &'a [u8],
     animations: &'a [u8],
     contacts: &'a [u8],
     commands: &'a [u8],
@@ -12,10 +14,15 @@ pub(super) struct ActionPackage<'a> {
     projectile_modifiers: &'a [u8],
     members: crate::model_preview::PointerMembers<'a>,
     expressions: [u8; 4],
+    body_motion_disabled: bool,
 }
 
 impl<'a> ActionPackage<'a> {
-    pub fn new(bytes: &'a [u8], projectiles: &'a [EnemyProjectile]) -> Result<Self> {
+    pub fn new(
+        bytes: &'a [u8],
+        projectiles: &'a [EnemyProjectile],
+        common_actions: &'a [u8],
+    ) -> Result<Self> {
         let members = crate::model_preview::PointerMembers::new(bytes, 24..488)?;
         let projectile_modifiers = members.model(0x1dc)?.unwrap_or_default();
         let profile = usize::from(u16::read(bytes, 4)?);
@@ -33,7 +40,9 @@ impl<'a> ActionPackage<'a> {
             }
         }
         Ok(Self {
+            bytes,
             rules,
+            common_actions,
             animations: section(bytes, 18)?.1,
             contacts: section(bytes, 16)?.1,
             commands: section(bytes, 14)?.1,
@@ -41,7 +50,16 @@ impl<'a> ActionPackage<'a> {
             projectile_modifiers,
             members,
             expressions: <[u8; 4]>::read(bytes, profile + 0xd7)?,
+            body_motion_disabled: u32::read(bytes, profile + 0x5c)? & 0x0800_0000 != 0,
         })
+    }
+
+    fn projectile_row(&self, index: u8) -> Result<&[u8]> {
+        let start = usize::from(index) * 400;
+        self.members
+            .model(0x1c8)?
+            .and_then(|table| table.get(start..start + 400))
+            .context("missing enemy projectile template")
     }
 
     pub fn ground_projectiles(
@@ -54,18 +72,8 @@ impl<'a> ActionPackage<'a> {
             .projectiles
             .get(usize::from(index))
             .context("missing ground projectile")?;
-        let start = usize::from(index) * 400;
-        let row = self
-            .members
-            .model(0x1c8)?
-            .and_then(|table| table.get(start..start + 400))
-            .context("missing ground projectile template")?;
-        let kind = match row[0x11] {
-            0 => DamageKind::Slash,
-            1 => DamageKind::Thrust,
-            2 => DamageKind::Magic,
-            kind => anyhow::bail!("unknown projectile damage kind {kind}"),
-        };
+        let row = self.projectile_row(index)?;
+        let kind = damage_kind(row[0x11])?;
         let prepare = |member| {
             crate::battle_projectile::with_model_effect(
                 row,
@@ -75,22 +83,33 @@ impl<'a> ActionPackage<'a> {
             )
         };
         Ok(EnemyEvent::GroundProjectiles {
-            definitions: [prepare(effects[0])?, prepare(effects[1])?],
-            hit: hit_rule(&self.rules, row[0x12], kind, projectile.recoil)?,
+            definitions: Box::new([prepare(effects[0])?, prepare(effects[1])?]),
+            // These policy contacts use the base attack rule.
+            hit: hit_rule(&self.rules, 0, kind, projectile.recoil)?,
             retreat,
         })
     }
 
-    pub fn execution(&self, row: &[u8], policy_tick: Option<&mut u16>) -> Result<EnemyExecution> {
+    pub fn execution(&self, row: &[u8], policy_ticks: &mut [u16]) -> Result<EnemyExecution> {
         let technique = u16::read(row, 64)?;
         const FIRST_SPELL: u16 = 200;
         if technique >= FIRST_SPELL {
             ensure!(
-                policy_tick.is_none(),
+                policy_ticks.is_empty(),
                 "enemy policy requires an attack clock"
             );
             return Ok(EnemyExecution::Spell(technique));
         }
+        let common = (technique != 0)
+            .then(|| crate::source_assets::section(self.common_actions, usize::from(technique)))
+            .transpose()?;
+        let rules = if let Some(common) = common {
+            common
+                .get(u32::read(common, 0)? as usize..u32::read(common, 4)? as usize)
+                .context("missing physical arte hit rules")?
+        } else {
+            &self.rules
+        };
         let contact_recovery = self.contact_recovery(row)?;
         let mut events = Vec::new();
         if row[34] != 0 {
@@ -99,13 +118,10 @@ impl<'a> ActionPackage<'a> {
         let animations = self.pose_rows(u16::read(row, 24)?)?;
         let mut partial_events = Vec::new();
         let mut partial_holds = None;
-        if animations
-            .iter()
-            .any(|(_, row)| row[2] != 254 && !matches!(row[7], 0 | 255))
-        {
-            let (prepared, holds) = partial_animations(&animations)?;
-            partial_events = prepared;
-            partial_holds = Some(holds);
+        if animations.iter().any(|(_, row)| is_partial_pose(row)) {
+            let prepared = partial_animations(&animations)?;
+            partial_events = prepared.events;
+            partial_holds = Some(prepared.holds);
         } else {
             for (at, row) in &animations {
                 if row[2] == 254 {
@@ -126,19 +142,17 @@ impl<'a> ActionPackage<'a> {
                     "enemy animation flags {:#x} are not prepared",
                     row[6]
                 );
-                if technique != 0 {
-                    let member = 0x20 + usize::from(row[2]) * 4;
-                    ensure!(
-                        member < 0x1dc,
-                        "physical enemy pose exceeds animation table"
-                    );
-                    // Explicitly absent authored motions retain the current pose
-                    // without starting a blend or holding the action clock.
-                    if self.members.model(member)?.is_none() {
+                let member = 0x20 + usize::from(row[2]) * 4;
+                ensure!(member < 0x1dc, "enemy pose exceeds animation table");
+                let mut pose = action_pose(row)?;
+                if self.members.model(member)?.is_none() {
+                    // Empty visual slots retain the current pose without a blend hold.
+                    if technique != 0 {
                         continue;
                     }
+                    pose.blend = 0;
                 }
-                events.push((*at, EnemyEvent::Pose(action_pose(row)?)));
+                events.push((*at, EnemyEvent::Pose(pose)));
             }
         }
         let mut next_contact_at = 0_u16;
@@ -159,9 +173,16 @@ impl<'a> ActionPackage<'a> {
                     (1..=4).contains(&count),
                     "invalid enemy contact count {count}"
                 );
-                let hit = hit(&self.rules, row)?;
                 match row[2] as i8 {
                     -2 => {
+                        let rule = rules
+                            .get(usize::from(row[18]) * 28..)
+                            .context("missing projectile hit rule")?;
+                        let (hit, feedback) = if common.is_some() && u8::read(rule, 24)? == 1 {
+                            crate::battle_martial::projectile_hit(rules, row)?
+                        } else {
+                            (hit(rules, row)?, None)
+                        };
                         ensure!(!hit.capture, "capture requires a melee body contact");
                         // A projectile row consumes an update even when the next
                         // row has the same authored time.
@@ -188,20 +209,22 @@ impl<'a> ActionPackage<'a> {
                                 };
                             }
                             let hit = ActionHit {
+                                kind: damage_kind(self.projectile_row(projectile)?[0x11])?,
                                 recoil: shot.recoil,
                                 ..hit
                             };
                             events.push((
                                 at,
                                 EnemyEvent::Projectile {
-                                    definition: shot.definition,
+                                    definition: Box::new(shot.definition),
                                     hit,
+                                    feedback,
                                 },
                             ));
                         }
                     }
                     duration if duration > 0 => {
-                        let mut contact = contact(&self.rules, row)?;
+                        let mut contact = contact(rules, row)?;
                         // Contact rows share a clock that pauses for one update
                         // at each inclusive endpoint. Keep authored expiry in
                         // that clock, then translate to elapsed action time.
@@ -216,7 +239,12 @@ impl<'a> ActionPackage<'a> {
                         contact_delay = contact_delay
                             .checked_add(1)
                             .context("enemy contact retirement delay exceeds tick range")?;
-                        events.push((at, EnemyEvent::Contact(contact)));
+                        let event = if contact_at > authored_at {
+                            EnemyEvent::ContinueContact(contact)
+                        } else {
+                            EnemyEvent::Contact(contact)
+                        };
+                        events.push((at, event));
                     }
                     emission => anyhow::bail!("enemy contact emission {emission} is not prepared"),
                 }
@@ -228,6 +256,18 @@ impl<'a> ActionPackage<'a> {
         // Commands run before contact and animation rows at the same authored age.
         commands.extend(events);
         let mut events = commands;
+        if common.is_some() {
+            for (_, event) in &mut events {
+                let hit = match event {
+                    EnemyEvent::Contact(contact) | EnemyEvent::ContinueContact(contact) => {
+                        &mut contact.hit
+                    }
+                    EnemyEvent::Projectile { hit, .. } => hit,
+                    _ => continue,
+                };
+                self.physical_feedback(hit)?;
+            }
+        }
         events.sort_by_key(|(at, _)| *at);
         // Resolve blend holds here so native attacks need only one elapsed clock.
         // The opening blend holds the initial action tick too; later blends
@@ -252,23 +292,37 @@ impl<'a> ActionPackage<'a> {
             holds.windows(2).all(|pair| pair[0].0 != pair[1].0),
             "simultaneous enemy pose changes are not prepared"
         );
+        // Later commands wait for admission unless an opening blend already holds them.
+        // The opening pose and unblended time-zero movement remain immediate.
+        let opening_pose = holds.first().is_some_and(|(at, _)| *at == 0);
+        let admission_delay = u16::from(
+            holds
+                .first()
+                .is_none_or(|(at, blend)| *at != 0 || *blend == 0),
+        );
         let elapsed = |at: u16| -> Result<u16> {
             let delay: u32 = holds
                 .iter()
                 .filter(|(start, _)| *start < at)
                 .map(|(_, blend)| u32::from(*blend))
                 .sum();
-            (u32::from(at) + delay)
+            let admission = admission_delay * u16::from(at > 0 || !opening_pose);
+            (u32::from(at) + delay + u32::from(admission))
                 .try_into()
                 .context("enemy action with blends exceeds timeline limit")
         };
-        let opening_hold = holds
-            .first()
-            .filter(|(at, _)| *at == 0)
-            .map_or(0, |(_, blend)| u16::from(*blend));
-        let action_end = elapsed(duration)?;
+        let opening_hold = holds.first().filter(|(at, _)| *at == 0).map_or(
+            admission_delay
+                * u16::from(
+                    technique != 0 || animations.first().is_some_and(|(_, pose)| pose[3] != 0),
+                ),
+            |(_, blend)| u16::from(*blend),
+        );
+        let action_end = elapsed(duration)?
+            .checked_sub(u16::from(technique != 0))
+            .context("empty physical arte duration")?;
         for (at, event) in &mut events {
-            if let EnemyEvent::Contact(contact) = event {
+            if let EnemyEvent::Contact(contact) | EnemyEvent::ContinueContact(contact) = event {
                 // Serialization already retained the row's authored expiry.
                 // Translate that endpoint too, including blends crossed by the window.
                 let end = at
@@ -278,7 +332,11 @@ impl<'a> ActionPackage<'a> {
                 // for a contact stream that outlasts its action.
                 contact.duration = elapsed(end)?
                     .min(action_end.saturating_add(1))
-                    .checked_sub(elapsed(*at)?)
+                    .checked_sub(if *at == 0 {
+                        opening_hold
+                    } else {
+                        elapsed(*at)?
+                    })
                     .filter(|duration| *duration > 0)
                     .context("empty translated enemy contact window")?;
             }
@@ -301,6 +359,10 @@ impl<'a> ActionPackage<'a> {
                         | EnemyEvent::Tint(_)
                         | EnemyEvent::PassThrough { .. }
                         | EnemyEvent::ReactionArmor(_)
+                        | EnemyEvent::CarriedPose { .. }
+                        | EnemyEvent::Contact(_)
+                        | EnemyEvent::ContinueContact(_)
+                        | EnemyEvent::Projectile { .. }
                 ) {
                 opening_hold
             } else {
@@ -316,19 +378,39 @@ impl<'a> ActionPackage<'a> {
         events.extend(partial_events);
         events.sort_by_key(|(at, _)| *at);
         let chain_at = u16::read(row, 30)?;
+        let recovery_ticks = if let Some(common) = common {
+            let binding = resonance_content::battle_martial::Binding::enemy(technique);
+            u16::read(common, 18 + usize::from(binding.variant) * 28)?
+                .try_into()
+                .context("physical arte recovery exceeds limit")?
+        } else {
+            row[2]
+        };
+        let recovery_pose = if common.is_some() {
+            ActionPose {
+                clip: 0,
+                start: 0.,
+                end: None,
+                rate: 0.5,
+                blend: recovery_ticks,
+                repeat: true,
+            }
+        } else {
+            recovery_pose(row)?
+        };
         let attack = EnemyAttack {
             duration: action_end,
             chain_at: (row[50] as i8 > 0 && chain_at <= duration)
                 .then(|| elapsed(chain_at))
                 .transpose()?,
-            recovery_ticks: row[2],
-            recovery_pose: recovery_pose(row)?,
+            recovery_ticks,
+            recovery_pose,
             armor: row[49],
             vulnerable: [elapsed(u16::read(row, 36)?)?, elapsed(u16::read(row, 38)?)?],
             contact_recovery,
             events,
         };
-        if let Some(at) = policy_tick {
+        for at in policy_ticks {
             ensure!(*at < duration, "enemy policy time exceeds action duration");
             *at = elapsed(*at)?;
         }
@@ -337,6 +419,36 @@ impl<'a> ActionPackage<'a> {
         } else {
             EnemyExecution::Physical { technique, attack }
         })
+    }
+
+    fn physical_feedback(&self, hit: &mut ActionHit) -> Result<()> {
+        let Some(effect) = hit.effect else {
+            return Ok(());
+        };
+        let start = u32::read(self.bytes, 0x1cc)? as usize;
+        ensure!(start != 0, "physical contact has no enemy effect bank");
+        let bank = self
+            .bytes
+            .get(start..)
+            .context("physical contact effect bank exceeds package")?;
+        if effect < u16::from(u8::read(bank, 4)?) {
+            return Ok(());
+        }
+        // Shared contact rules can address an empty alias beyond this enemy's
+        // declared catalogue. Keep its observable program without inventing art.
+        let table = usize::from(u16::read(bank, 16)?);
+        let offset = i16::read(bank, table + usize::from(effect) * 2)?;
+        ensure!(
+            offset == i16::read(bank, table)?,
+            "physical contact effect {effect} is not an empty alias"
+        );
+        let program = usize::try_from(i32::from(u16::read(bank, 10)?) + i32::from(offset))?;
+        ensure!(
+            <[u8; 6]>::read(bank, program)? == [0, 0, 254, 0, 0, 0],
+            "physical contact effect {effect} aliases a nonempty program"
+        );
+        hit.effect = Some(0);
+        Ok(())
     }
 
     fn contact_recovery(&self, row: &[u8]) -> Result<Option<EnemyContactRecovery>> {
@@ -411,22 +523,43 @@ impl<'a> ActionPackage<'a> {
     }
 
     fn pose_rows(&self, start: u16) -> Result<Vec<(u16, [u8; 12])>> {
-        let mut rows: Vec<(u16, [u8; 12])> = Vec::new();
         if start == u16::MAX {
-            return Ok(rows);
+            return Ok(Vec::new());
         }
+        let mut authored = Vec::<[u8; 12]>::new();
         let mut cursor = usize::from(start) * 12;
         loop {
-            let trigger = i16::read(self.animations, cursor)?;
-            if trigger == -2 {
-                return Ok(rows);
+            let terminal = i16::read(self.animations, cursor)? == -2;
+            if terminal && !authored.is_empty() {
+                break;
             }
-            let row: [u8; 12] = self
-                .animations
-                .get(cursor..cursor + 12)
-                .context("truncated enemy pose")?
-                .try_into()?;
-            let at = if trigger == -3 {
+            // The initial record supplies a pose even when it ends the sequence.
+            authored.push(
+                self.animations
+                    .get(cursor..cursor + 12)
+                    .context("truncated enemy pose")?
+                    .try_into()?,
+            );
+            if terminal {
+                break;
+            }
+            cursor += 12;
+        }
+        let partial = authored.iter().any(is_partial_pose);
+        let mut rows: Vec<(u16, [u8; 12])> = Vec::new();
+        let mut animation_delay = 0_u16;
+        for mut row in authored {
+            const FIRST_ACTION_MOTION: u8 = 30;
+            if self.body_motion_disabled && row[2] < FIRST_ACTION_MOTION {
+                // Suppressed body poses retain the live controller without a blend hold.
+                row[3] = 0;
+            }
+            let trigger = i16::read(&row, 0)?;
+            // The first record establishes the action's pose immediately;
+            // only subsequent records wait for their animation-clock trigger.
+            let at = if rows.is_empty() {
+                0
+            } else if trigger == -3 {
                 let &(previous_at, previous) = rows
                     .last()
                     .context("enemy pose continuation has no preceding pose")?;
@@ -454,14 +587,17 @@ impl<'a> ActionPackage<'a> {
                     "invalid continued enemy motion length"
                 );
                 // Show the preceding clip's final sample before the successor.
+                // A later blended pose consumes its selection update too.
+                let selection_hold = u16::from(!partial && rows.len() > 1 && pose.blend > 0);
                 previous_at
                     .checked_add(duration.floor() as u16)
-                    .and_then(|at| at.checked_add(1))
+                    .and_then(|at| at.checked_add(1 + selection_hold))
                     .context("enemy pose continuation exceeds timeline limit")?
             } else {
-                trigger
-                    .try_into()
+                u16::try_from(trigger)
                     .context("enemy pose control is not prepared")?
+                    .checked_add(animation_delay)
+                    .context("enemy pose timeline exceeds tick range")?
             };
             ensure!(
                 rows.last()
@@ -469,8 +605,16 @@ impl<'a> ActionPackage<'a> {
                 "enemy pose sequence moves backwards"
             );
             rows.push((at, row));
-            cursor += 12;
+            // Later blended selections pause the animation clock on the selection
+            // update; commands and contacts still advance. Partial poses account
+            // for their independent clocks when their groups are prepared.
+            if !partial && rows.len() > 1 && row[2] < 254 && row[3] > 0 {
+                animation_delay = animation_delay
+                    .checked_add(1)
+                    .context("enemy pose timeline exceeds tick range")?;
+            }
         }
+        Ok(rows)
     }
 
     fn commands(
@@ -483,12 +627,17 @@ impl<'a> ActionPackage<'a> {
             return Ok(duration);
         }
         let mut cursor = usize::from(start) * 2;
+        let mut reached = 0;
         loop {
             let time = i16::read(self.commands, cursor)?;
             if time == -1 {
                 return Ok(duration);
             }
-            let time = u16::try_from(time).context("enemy command loop is not prepared")?;
+            // Records execute in stream order, even when a later timestamp is earlier.
+            let time = u16::try_from(time)
+                .context("enemy command loop is not prepared")?
+                .max(reached);
+            reached = time;
             let opcode = i16::read(self.commands, cursor + 2)?;
             let operand = |offset| u16::read(self.commands, cursor + offset);
             if opcode == 17 {
@@ -540,6 +689,15 @@ impl<'a> ActionPackage<'a> {
                 7 => {
                     let [slot, visible] = operand(4)?.to_be_bytes();
                     ensure!(visible <= 1, "invalid enemy weapon visibility");
+                    ensure!(slot < 8, "enemy weapon visibility exceeds attachment slots");
+                    let profile = usize::from(u16::read(self.bytes, 4)?);
+                    if slot >= u8::read(self.bytes, profile + 0x1e4)?
+                        && self.members.model(0x160 + usize::from(slot) * 4)?.is_none()
+                    {
+                        // Shared action streams can toggle an intentionally empty slot.
+                        cursor += 6;
+                        continue;
+                    }
                     (
                         EnemyEvent::WeaponVisibility {
                             slot,
@@ -748,47 +906,43 @@ impl<'a> ActionPackage<'a> {
 }
 
 fn recovery_pose(row: &[u8]) -> Result<ActionPose> {
+    let idle = row[3] == 0;
     Ok(ActionPose {
         clip: u16::from(row[3]),
         start: 0.,
         end: None,
-        rate: f32::read(row, 4)?,
-        blend: row[2],
-        repeat: true,
+        rate: if idle { 0.5 } else { f32::read(row, 4)? },
+        blend: if idle { row[2] } else { 0 },
+        repeat: idle,
     })
 }
 
-fn action_pose(row: &[u8]) -> Result<ActionPose> {
-    Ok(ActionPose {
-        clip: u16::from(row[2]),
-        // Position bytes use 60 Hz ticks; decoded clips use 30 Hz frames.
-        start: f32::from(row[4]) * 0.5,
-        end: (row[5] != 0).then_some(f32::from(row[5]) * 0.5),
-        rate: f32::read(row, 8)?,
-        blend: row[3],
-        repeat: row[6] & 0x40 != 0,
-    })
+fn is_partial_pose(row: &[u8; 12]) -> bool {
+    row[2] < 254 && row[7] != u8::MAX && row[6] & !0x40 != 8
+}
+
+struct PartialAnimations {
+    events: Vec<(u16, EnemyEvent)>,
+    holds: Vec<(u16, u8)>,
 }
 
 /// Partial blends run independently; only body blends hold the gameplay clock.
-fn partial_animations(
-    rows: &[(u16, [u8; 12])],
-) -> Result<(Vec<(u16, EnemyEvent)>, Vec<(u16, u8)>)> {
+fn partial_animations(rows: &[(u16, [u8; 12])]) -> Result<PartialAnimations> {
     if let [(at, row)] = rows
         && row[2] < 254
-        && row[6] & !0x40 == 2
-        && !matches!(row[7], 0 | 255)
+        && matches!(row[6] & !0x40, 0 | 2)
+        && row[7] != u8::MAX
     {
-        return Ok((
-            vec![(
+        return Ok(PartialAnimations {
+            events: vec![(
                 *at,
                 EnemyEvent::PartialPose {
                     first_bone: u16::from(row[7]),
                     pose: action_pose(row)?,
                 },
             )],
-            Vec::new(),
-        ));
+            holds: Vec::new(),
+        });
     }
     ensure!(
         rows.len().is_multiple_of(3),
@@ -848,7 +1002,7 @@ fn partial_animations(
             .checked_add(3 + u16::from(hold))
             .context("partial-pose timeline exceeds tick range")?;
     }
-    Ok((events, holds))
+    Ok(PartialAnimations { events, holds })
 }
 
 /// Positive contact windows include their authored final tick.
@@ -897,14 +1051,17 @@ pub(crate) fn contact(rules: &[u8], row: &[u8]) -> Result<MeleeContact> {
     })
 }
 
-pub(crate) fn hit(rules: &[u8], contact: &[u8]) -> Result<ActionHit> {
-    let kind = match contact[17] {
+fn damage_kind(value: u8) -> Result<DamageKind> {
+    Ok(match value {
         0 => DamageKind::Slash,
         1 => DamageKind::Thrust,
         2 => DamageKind::Magic,
-        kind => anyhow::bail!("unknown enemy damage kind {kind}"),
-    };
-    hit_rule(rules, contact[18], kind, contact[20])
+        kind => anyhow::bail!("unknown damage kind {kind}"),
+    })
+}
+
+pub(crate) fn hit(rules: &[u8], contact: &[u8]) -> Result<ActionHit> {
+    hit_rule(rules, contact[18], damage_kind(contact[17])?, contact[20])
 }
 
 pub(crate) fn hit_rule(rules: &[u8], index: u8, kind: DamageKind, recoil: u8) -> Result<ActionHit> {

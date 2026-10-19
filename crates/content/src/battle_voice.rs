@@ -32,7 +32,8 @@ pub struct Voices {
     pub weaker_enemies: Option<Sound>,
     pub stronger_enemies: Option<Sound>,
     pub repeated_encounter: Option<Sound>,
-    pub victory: Vec<Sound>,
+    /// Two variations for each ordinary celebration pose, in pose order.
+    pub victory: Vec<[Sound; 2]>,
     pub interrupted_cast: Option<Sound>,
     pub escape_request: Option<Sound>,
     pub escape_success: Option<Sound>,

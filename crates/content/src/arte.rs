@@ -126,6 +126,8 @@ pub enum AdmissionFlash {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Casting {
+    /// Preserve the authored cast duration despite equipment or Over Limit.
+    pub fixed_timing: bool,
     pub support_target: bool,
     pub effects: CastingEffects,
 }
@@ -135,15 +137,23 @@ pub struct Casting {
 pub enum CastingEffects {
     #[default]
     Standard,
+    Angel,
     Offensive,
     Healing,
 }
 
 impl CastingEffects {
+    pub fn opening_member(self) -> u16 {
+        match self {
+            Self::Angel => 51,
+            _ => 37,
+        }
+    }
+
     /// Pulse and release members in the common effect bank.
     pub fn members(self) -> [u16; 2] {
         match self {
-            Self::Standard => [5, 7],
+            Self::Standard | Self::Angel => [5, 7],
             Self::Offensive => [3, 7],
             Self::Healing => [4, 8],
         }

@@ -32,7 +32,7 @@ pub struct Weapon {
     pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
-/// Per-part texture channels; sequence and scroll storage are interpreted by mode.
+/// Per-part texture channels and periodic effects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttachmentAnimation {
     pub channels: [AttachmentUvChannel; 2],
@@ -109,6 +109,9 @@ pub struct Party {
     /// Explicit empty entries in the authored body animation table.
     #[serde(default)]
     pub null_motions: BTreeSet<u16>,
+    /// Complete costume-selected banks sharing the ordinary body's geometry.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub motion_variants: BTreeMap<u8, PartyMotions>,
     pub body: Rig,
     pub parts: Vec<crate::ScenePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,15 +119,28 @@ pub struct Party {
     pub files: BTreeMap<String, crate::field_preload::File>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartyMotions {
+    pub source_sha256: String,
+    pub null_motions: BTreeSet<u16>,
+    /// One clip table per body layer, in the same order as `Party::parts`.
+    pub clips: Vec<Vec<crate::SceneClip>>,
+}
+
 /// Optional body and carried artwork. Enemy gameplay has its own definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Enemy {
     pub source_sha256: String,
+    /// A separately animated body component, sharing the actor's action clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary_body: Option<SecondaryBody>,
     /// Formation-selected vertical atlas rows on the primary body.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_variant: Option<crate::battle_profile::TextureChannel>,
     /// Native carried model slots, independently visible and sampled.
     pub attachments: BTreeMap<u8, ModelPart>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub uv_animation: BTreeMap<u8, AttachmentAnimation>,
     /// Additional source packages selected by the encounter for weapon slot zero.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub weapon_variants: BTreeMap<u8, WeaponVariant>,
@@ -135,9 +151,18 @@ pub struct Enemy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecondaryBody {
+    pub model_slot: u8,
+    pub motion_offset: u16,
+    pub model: ModelPart,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeaponVariant {
     pub model: ModelPart,
     pub trail: TrailMaterial,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation: Option<AttachmentAnimation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -95,6 +95,11 @@ pub fn publish(catalogue: &Catalogue, output: &Path) -> Result<String> {
     Ok(path.into())
 }
 
+/// Refresh technique metadata without rebuilding menu artwork.
+pub fn publish_source(executable: &[u8], output: &Path) -> Result<String> {
+    publish(&read(executable)?.catalogue, output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

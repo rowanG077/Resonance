@@ -209,7 +209,7 @@ pub(crate) fn read_package(
                     outline,
                     animation: animation.as_deref(),
                     attached_to: None,
-                    additive: false,
+                    additive: independent,
                 },
                 &mut layers,
                 &format!("battle/weapons/{source_sha256}/{slot}"),
@@ -284,7 +284,7 @@ fn ordinary_attachment(metadata: &[u8], has_reserved_member: bool) -> Result<()>
     Ok(())
 }
 
-fn attachment_animation(bytes: &[u8]) -> Result<AttachmentAnimation> {
+pub(super) fn attachment_animation(bytes: &[u8]) -> Result<AttachmentAnimation> {
     ensure!(bytes.len() == 64, "invalid attachment settings size");
     let channels = std::array::from_fn(|channel| AttachmentUvChannel {
         count: bytes[channel],
@@ -362,6 +362,7 @@ mod tests {
     fn attachment_animation_preserves_signed_scroll_and_bounds_sequences() -> Result<()> {
         let mut bytes = [0; 64];
         bytes[..8].copy_from_slice(&[1, 1, 0, 1, 2, 2, 80, (-12_i8) as u8]);
+        bytes[10] = 8;
         bytes[28..30].copy_from_slice(&(-128_i16).to_be_bytes());
         let animation = attachment_animation(&bytes)?;
         assert!(
@@ -375,6 +376,7 @@ mod tests {
             [80, -12]
         );
         assert_eq!(animation.channels[0].initial_scroll, -128);
+        assert_eq!(animation.effect_interval, 8);
         assert!(animation.frame_order.is_empty());
         bytes[4] = 4;
         for length in [0, 37, 255] {
@@ -494,6 +496,15 @@ mod tests {
                 };
                 for part in weapon.parts.values() {
                     for layer in &part.layers {
+                        let independent = part.layer_skeletons.contains_key(&layer.scene.resource);
+                        assert_eq!(layer.additive, independent);
+                        if independent {
+                            assert!(layer.scene.materials.iter().all(|material| {
+                                material.blend
+                                    && !material.depth_write
+                                    && material.cull == resonance_content::CullFace::None
+                            }));
+                        }
                         let skeleton = part
                             .layer_skeletons
                             .get(&layer.scene.resource)

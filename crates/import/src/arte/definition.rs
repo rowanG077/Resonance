@@ -103,8 +103,11 @@ fn decode(executable: &[u8], row: &[u8], table: &[u8]) -> Result<Row> {
         },
         learn_on_level_up: flags & 0x80000000 != 0,
         casting: resonance_content::arte::Casting {
+            fixed_timing: flags & 0x60000020 != 0,
             support_target: row[0x16] != 0,
-            effects: if flags & 0x00400000 != 0 {
+            effects: if flags & 0x01000000 != 0 {
+                resonance_content::arte::CastingEffects::Angel
+            } else if flags & 0x00400000 != 0 {
                 resonance_content::arte::CastingEffects::Offensive
             } else if flags & 0x00800000 != 0 {
                 resonance_content::arte::CastingEffects::Healing
@@ -269,6 +272,7 @@ mod tests {
         }
         for (flags, effects) in [
             (0_u32, [5, 7]),
+            (0x1000000, [5, 7]),
             (0x400000, [3, 7]),
             (0x800000, [4, 8]),
             (0xc00000, [3, 7]),
@@ -277,6 +281,10 @@ mod tests {
             row[0x34..0x38].copy_from_slice(&(flags | 0x101).to_be_bytes());
             let casting = decode(&[], &row, &[])?.gameplay.casting;
             assert_eq!(casting.effects.members(), effects);
+            assert_eq!(
+                casting.effects == resonance_content::arte::CastingEffects::Angel,
+                flags & 0x1000000 != 0
+            );
         }
         for (flags, healing, revives) in [
             (0x880286_u32, true, false), // First Aid

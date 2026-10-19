@@ -8,17 +8,18 @@ pub(super) fn timeline(input: InputTimeline, actors: &[Declaration]) -> Vec<Sche
             for emission in 0..repeat.count {
                 let at = event.at + u32::from(emission) * repeat.interval;
                 if at < input.end {
-                    expanded.push((at, index, event.operation.clone()));
+                    expanded.push((at, true, index, event.operation.clone()));
                 }
             }
         } else {
-            expanded.push((event.at, index, event.operation));
+            expanded.push((event.at, false, index, event.operation));
         }
     }
-    expanded.sort_by_key(|(at, index, _)| (*at, *index));
+    // Due commands update shared settings before repeated emissions use them.
+    expanded.sort_by_key(|(at, repeated, index, _)| (*at, *repeated, *index));
     let mut compiler = Compiler::default();
     let mut events = Vec::new();
-    for (at, _, operation) in expanded {
+    for (at, _, _, operation) in expanded {
         match compiler.operation(operation, actors) {
             Ok(operation) => events.push(ScheduledEvent { at, operation }),
             Err(error) => {
@@ -59,6 +60,7 @@ struct Compiler {
     draws: u32,
     spawns: usize,
     retained_spawns: Vec<usize>,
+    previous_birth: Option<ParticleBirth>,
 }
 impl Default for Compiler {
     fn default() -> Self {
@@ -68,6 +70,7 @@ impl Default for Compiler {
             draws: 0,
             spawns: 0,
             retained_spawns: Vec::new(),
+            previous_birth: None,
         }
     }
 }
@@ -88,14 +91,35 @@ impl Compiler {
             InputOperation::Spawn {
                 particle,
                 origin_bone,
+                inherit_previous,
                 retained,
                 blend,
                 palette,
                 edits,
             } => {
                 let declaration = actors.get(usize::from(particle));
-                let mut birth = self.birth(edits, declaration)?;
+                let previous = if inherit_previous {
+                    ensure!(
+                        matches!(declaration, Some(Declaration::Particle { .. })),
+                        "inherited grouped birth requires a sprite declaration"
+                    );
+                    Some(
+                        self.previous_birth
+                            .take()
+                            .context("grouped birth has no predecessor")?,
+                    )
+                } else {
+                    None
+                };
+                let mut birth = self.birth_from(edits, declaration, previous)?;
                 birth.origin_bone = origin_bone;
+                if let Some(Declaration::ModelParticle { visual, .. }) = declaration
+                    && matches!(blend.unwrap_or(visual.blend), 1 | 2)
+                    && let Some(animation) = &mut birth.animation
+                {
+                    // Blended models take their first animation sample on the birth update.
+                    animation.frame += animation.rate;
+                }
                 if let Some(Declaration::ModelParticle { binding, .. }) = declaration
                     && let Some(attachment) = binding.attachment
                 {
@@ -111,6 +135,7 @@ impl Compiler {
                     self.retained_spawns.push(self.spawns);
                 }
                 self.spawns += 1;
+                self.previous_birth = Some(birth.clone());
                 EffectOperation::Spawn {
                     particle,
                     blend,
@@ -118,35 +143,12 @@ impl Compiler {
                     birth: Box::new(birth),
                 }
             }
-            InputOperation::SetMotion {
-                retained,
-                offset,
-                size,
-                animation,
-                velocity,
-                velocity_add,
-                acceleration,
-                angular_velocity,
-                forward_motion,
-                velocity_scale,
-                size_velocity,
-                size_acceleration,
-            } => EffectOperation::SetMotion {
+            InputOperation::SetMotion { retained, motion } => EffectOperation::SetMotion {
                 spawn: *self
                     .retained_spawns
                     .get(usize::from(retained))
                     .context("delayed particle edit has no retained birth")?,
-                offset,
-                size,
-                animation,
-                velocity,
-                velocity_add,
-                acceleration,
-                angular_velocity,
-                forward_motion,
-                velocity_scale,
-                size_velocity,
-                size_acceleration,
+                motion,
             },
             InputOperation::Sound { id, priority } => EffectOperation::Sound { id, priority },
             InputOperation::Notice { text } => EffectOperation::Notice { text },
@@ -162,14 +164,34 @@ impl Compiler {
             },
         })
     }
+    #[cfg(test)]
     fn birth(
         &mut self,
         edits: Vec<InputEdit>,
         declaration: Option<&Declaration>,
     ) -> Result<ParticleBirth> {
-        let mut birth = ParticleBirth::default();
+        self.birth_from(edits, declaration, None)
+    }
+
+    fn birth_from(
+        &mut self,
+        edits: Vec<InputEdit>,
+        declaration: Option<&Declaration>,
+        previous: Option<ParticleBirth>,
+    ) -> Result<ParticleBirth> {
+        let inherited = previous.is_some();
+        let mut birth = previous.unwrap_or_default();
+        // Stored births include the final lifetime visit. Restore the authored
+        // duration before inherited edits; it is normalized again below.
+        if let Some(lifetime) = &mut birth.lifetime
+            && lifetime.min > 0.
+        {
+            lifetime.min -= 1.;
+            lifetime.max -= 1.;
+        }
         let first_draw = self.draws;
         let mut animated_model = None;
+        let mut animation_byte = None;
         for edit in edits {
             match edit {
                 InputEdit::Forward { .. } => {
@@ -214,7 +236,7 @@ impl Compiler {
                         InputScalarValue::Scratch { index } => self.scalars[usize::from(index)]
                             .context("particle reads scalar scratch after a halfword write")?,
                         InputScalarValue::Random { range, scale } => {
-                            let extent = (f32::from(range) * scale).abs();
+                            let extent = (f32::from(range).abs() - 1.) * scale.abs();
                             let (min, max, step) = match range {
                                 0 => (
                                     f32::from(i16::MIN) * scale,
@@ -222,7 +244,7 @@ impl Compiler {
                                     scale,
                                 ),
                                 1 | -1 => (0., 0., 0.),
-                                _ => (-extent, extent, 0.),
+                                _ => (-extent, extent, scale.abs()),
                             };
                             Value {
                                 range: ValueRange {
@@ -257,6 +279,15 @@ impl Compiler {
                             InputScalarTarget::Vector { vector: VectorTarget::Offset, .. } if birth.offset_spread.is_some())
                             || matches!(target,
                             InputScalarTarget::Vector { vector: VectorTarget::Velocity, .. } if birth.velocity_spread.is_some());
+                        if inherited && let Some(field) = sum_field(target, declaration) {
+                            let initial = initial_scalar(
+                                declaration.context("missing particle declaration")?,
+                                target,
+                            )?;
+                            if add_sum(&mut birth, field, initial, value, &operation)? {
+                                continue;
+                            }
+                        }
                         let slot = scalar_slot(&mut birth, target, declaration);
                         let before = match *slot {
                             Some(range) => Value { range, heading },
@@ -339,6 +370,26 @@ impl Compiler {
                         birth.angles[2] = Some(ValueRange::fixed(angle));
                         continue;
                     }
+                    if let InputIntegerTarget::ModelAndAnimation { animation } = target {
+                        ensure!(
+                            matches!(declaration, Some(Declaration::ModelParticle { binding, .. })
+                                if binding.animation.is_none() && !binding.program_animation),
+                            "packed model edit requires an unused animation byte"
+                        );
+                        let result = arithmetic(
+                            animation_byte.unwrap_or(Value::constant(f32::from(animation))),
+                            value,
+                            operation,
+                        )?;
+                        ensure!(
+                            result.range.min >= 0. && result.range.max <= f32::from(u8::MAX),
+                            "packed model edit crosses a model boundary"
+                        );
+                        // The low byte is inactive. Preserve its arithmetic and draw
+                        // order so subsequent additions still detect carry correctly.
+                        animation_byte = Some(result);
+                        continue;
+                    }
                     if target == InputIntegerTarget::PalettePair {
                         let state = &declaration
                             .context("palette edit has no particle")?
@@ -391,6 +442,21 @@ impl Compiler {
                         let slot = &mut self.integers[usize::from(index)];
                         *slot = arithmetic(*slot, value, operation)?;
                     } else {
+                        if inherited && let InputIntegerTarget::Uv { component } = target {
+                            let initial = Value::constant(initial_integer(
+                                declaration.context("missing particle declaration")?,
+                                target,
+                            )?);
+                            if add_sum(
+                                &mut birth,
+                                BirthField::Uv(component),
+                                initial,
+                                value,
+                                &operation,
+                            )? {
+                                continue;
+                            }
+                        }
                         let slot = integer_slot(&mut birth, target);
                         let before = match *slot {
                             Some(range) => Value { range, heading: 0. },
@@ -443,10 +509,16 @@ impl Compiler {
                         VectorTarget::Offset => {
                             birth.offset_spread = spread;
                             birth.offset = [None; 3];
+                            birth
+                                .sums
+                                .retain(|sum| !matches!(sum.field, BirthField::Offset(_)));
                         }
                         VectorTarget::Velocity => {
                             birth.velocity_spread = spread;
                             birth.velocity = [None; 3];
+                            birth
+                                .sums
+                                .retain(|sum| !matches!(sum.field, BirthField::Velocity(_)));
                         }
                         _ => bail!("invalid polar destination"),
                     }
@@ -482,6 +554,87 @@ impl Compiler {
         birth.validate()?;
         Ok(birth)
     }
+}
+
+fn sum_field(target: InputScalarTarget, declaration: Option<&Declaration>) -> Option<BirthField> {
+    match target {
+        InputScalarTarget::Vector {
+            vector: VectorTarget::Offset,
+            axis,
+        } => Some(BirthField::Offset(axis)),
+        InputScalarTarget::Vector {
+            vector: VectorTarget::Velocity,
+            axis,
+        } => Some(BirthField::Velocity(axis)),
+        InputScalarTarget::Vector {
+            vector: VectorTarget::Size,
+            axis,
+        } if declaration
+            .and_then(|value| value.template().ok())
+            .is_some_and(|template| {
+                matches!(
+                    template.state.geometry,
+                    ParticleGeometry::Size { .. } | ParticleGeometry::Spiral { .. }
+                )
+            }) =>
+        {
+            Some(BirthField::Size(axis))
+        }
+        _ => None,
+    }
+}
+
+fn sum_slot(birth: &mut ParticleBirth, field: BirthField) -> &mut Option<ValueRange> {
+    match field {
+        BirthField::Offset(axis) => &mut birth.offset[usize::from(axis)],
+        BirthField::Velocity(axis) => &mut birth.velocity[usize::from(axis)],
+        BirthField::Size(axis) => &mut birth.size[usize::from(axis)],
+        BirthField::Uv(axis) => &mut birth.uv[usize::from(axis)],
+    }
+}
+
+fn add_sum(
+    birth: &mut ParticleBirth,
+    field: BirthField,
+    initial: Value,
+    value: Value,
+    operation: &Arithmetic,
+) -> Result<bool> {
+    let index = birth.sums.iter().position(|sum| sum.field == field);
+    if *operation == Arithmetic::Set {
+        if let Some(index) = index {
+            birth.sums.remove(index);
+        }
+        return Ok(false);
+    }
+    let before = sum_slot(birth, field).unwrap_or(initial.range);
+    let independent = before.min != before.max
+        && value.range.min != value.range.max
+        && before.draw != value.range.draw;
+    if index.is_none() && !independent {
+        return Ok(false);
+    }
+    ensure!(
+        matches!(operation, Arithmetic::Add | Arithmetic::Subtract)
+            && initial.heading == 0.
+            && value.heading == 0.,
+        "particle sum requires additive scalar settings"
+    );
+    let term = if *operation == Arithmetic::Subtract {
+        arithmetic(Value::constant(0.), value, Arithmetic::Subtract)?.range
+    } else {
+        value.range
+    };
+    let index = index.unwrap_or_else(|| {
+        birth.sums.push(BirthSum {
+            field,
+            terms: vec![before],
+        });
+        birth.sums.len() - 1
+    });
+    birth.sums[index].terms.push(term);
+    *sum_slot(birth, field) = None;
+    Ok(true)
 }
 
 fn scalar_slot<'a>(
@@ -777,8 +930,10 @@ mod tests {
             0,
             u16::MAX,
         ];
-        let birth = Compiler::default()
-            .birth(edits_for(&words, Some(&declaration))?, Some(&declaration))?;
+        let birth = Compiler::default().birth(
+            edits_for(&words, Some(&declaration), None)?,
+            Some(&declaration),
+        )?;
         assert_eq!(birth.vertices[0][1], Some(ValueRange::fixed(200.)));
         assert_eq!(birth.vertices[1][1], Some(ValueRange::fixed(140.)));
         assert_eq!(birth.fade[0], Some(ValueRange::fixed(2.)));
@@ -796,8 +951,10 @@ mod tests {
         row[176..180].copy_from_slice(&500_f32.to_be_bytes());
         let declaration = crate::battle_effect::declaration::read(&row, &[])?;
         let words = [13, 0xb0, 0x42c8, 0, 0, 0, 21, 0x14, 0, 0x20, u16::MAX];
-        let birth = Compiler::default()
-            .birth(edits_for(&words, Some(&declaration))?, Some(&declaration))?;
+        let birth = Compiler::default().birth(
+            edits_for(&words, Some(&declaration), None)?,
+            Some(&declaration),
+        )?;
         assert!(birth.ribbon_depth);
         assert_eq!(birth.size[0], Some(ValueRange::fixed(400.)));
         Ok(())
@@ -818,6 +975,17 @@ mod tests {
         let unit = birth(1, 0)?;
         assert_eq!(unit.random_draws, 1);
         assert_eq!(unit.angles[1].unwrap().sample(0.75), 0.);
+        for range in [1800, (-1800_i16) as u16] {
+            let pitch = birth(range, 0)?.angles[1].unwrap();
+            assert_eq!(pitch.step, 0.1);
+            assert!((pitch.min + 179.9).abs() < 0.0001);
+            assert!((pitch.max - 179.9).abs() < 0.0001);
+            for unit in [0., 0.123, 0.5, 0.99999] {
+                let angle = pitch.sample(unit);
+                assert!((pitch.min..=pitch.max).contains(&angle));
+                assert!((angle * 10. - (angle * 10.).round()).abs() < 0.001);
+            }
+        }
         Ok(())
     }
 
@@ -966,7 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn repeats_are_bounded_and_keep_authored_order() {
+    fn repeats_follow_due_commands_and_stay_bounded() {
         let sound = |id| InputOperation::Sound { id, priority: 0 };
         let result = timeline(
             InputTimeline {
@@ -1001,7 +1169,7 @@ mod tests {
                 _ => panic!("sound expected"),
             })
             .collect();
-        assert_eq!(sounds, [(0, 1), (0, 2), (1, 1), (1, 3)]);
+        assert_eq!(sounds, [(0, 2), (0, 1), (1, 3), (1, 1)]);
     }
 
     #[test]

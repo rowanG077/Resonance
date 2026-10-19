@@ -10,6 +10,28 @@ pub use source::{publish, read};
 pub(crate) use source::{read_enemy_with_palettes, read_with_palettes};
 use timeline::Record;
 
+/// Recompile schedules without converting or replacing cached artwork or actors.
+pub fn refresh_programs(
+    bytes: &[u8],
+    bank: &mut resonance_content::battle_effect::SourceBank,
+    owner: Option<&resonance_content::animation::Skeleton>,
+) -> Result<()> {
+    ensure!(
+        crate::digest(bytes) == bank.source_sha256,
+        "cached effect programs differ from source"
+    );
+    let (fresh, _) = match owner {
+        Some(owner) => read_enemy_with_palettes(bytes, owner)?,
+        None => read_with_palettes(bytes)?,
+    };
+    ensure!(
+        fresh.actors.len() == bank.actors.len() && fresh.programs.len() == bank.programs.len(),
+        "cached effect catalogue differs from source"
+    );
+    bank.programs = fresh.programs;
+    Ok(())
+}
+
 /// Recompile metadata while retaining the unchanged package's prepared artwork.
 pub(crate) fn refresh_cached(
     bytes: &[u8],

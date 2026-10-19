@@ -133,6 +133,7 @@ pub(super) fn publish(
     bytes: &[u8],
     id: u8,
     body: &resonance_content::animation::Skeleton,
+    shared: &mut crate::battle_effect::SharedPalettes,
     output: &Path,
 ) -> Result<BTreeMap<String, File>> {
     let members = crate::model_preview::PointerMembers::new(bytes, 0x18..0x1e8)
@@ -178,6 +179,7 @@ pub(super) fn publish(
         }
     }
     crate::battle_effect::art::bind_palettes(&mut source, &palette_strides, &mut textures)?;
+    shared.bind(&mut source, &palette_strides)?;
     let textures: BTreeMap<_, _> = textures
         .into_iter()
         .map(|(slot, textures)| {
@@ -410,8 +412,32 @@ pub(super) fn weapon_variants(
                     layers,
                 },
                 trail: super::weapon::trail_material(metadata)?,
+                animation: Some(super::weapon::attachment_animation(metadata)?),
             },
         );
     }
     Ok(result)
+}
+
+pub(super) fn attachment_animation(
+    bytes: &[u8],
+    source: &mut resonance_content::battle_model::Enemy,
+) -> Result<()> {
+    let members = crate::model_preview::PointerMembers::new(bytes, 0x18..0x1e8)?;
+    let read = |slot: u8| {
+        ensure!(slot < 8, "enemy attachment slot exceeds pointer table");
+        let package = members
+            .model(0x160 + usize::from(slot) * 4)?
+            .context("missing enemy attachment settings")?;
+        super::weapon::attachment_animation(crate::source_assets::section(package, 0)?)
+    };
+    source.uv_animation = source
+        .attachments
+        .keys()
+        .map(|&slot| Ok((slot, read(slot)?)))
+        .collect::<Result<_>>()?;
+    for (&slot, variant) in &mut source.weapon_variants {
+        variant.animation = Some(read(slot)?);
+    }
+    Ok(())
 }

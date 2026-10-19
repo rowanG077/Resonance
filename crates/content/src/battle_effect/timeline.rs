@@ -21,26 +21,8 @@ pub enum EffectOperation {
     /// the ordinal among spawn operations.
     SetMotion {
         spawn: usize,
-        #[serde(default)]
-        offset: [Option<f32>; 3],
-        #[serde(default)]
-        size: [Option<f32>; 3],
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        animation: Option<ModelAnimation>,
-        velocity: [Option<f32>; 3],
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        velocity_add: Option<[f32; 3]>,
-        #[serde(default)]
-        acceleration: [Option<f32>; 3],
-        #[serde(default)]
-        angular_velocity: [Option<f32>; 3],
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        forward_motion: Option<ForwardMotion>,
-        /// Multiply the current velocity after any explicit assignment.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        velocity_scale: Option<[f32; 3]>,
-        size_velocity: [Option<f32>; 3],
-        size_acceleration: [Option<f32>; 3],
+        #[serde(flatten)]
+        motion: Box<MotionChange>,
     },
     Sound {
         id: u16,
@@ -60,6 +42,32 @@ pub enum EffectOperation {
     Unsupported {
         reason: String,
     },
+}
+
+/// Motion changes applied to one retained particle.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MotionChange {
+    #[serde(default)]
+    pub offset: [Option<f32>; 3],
+    #[serde(default)]
+    pub size: [Option<f32>; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation: Option<ModelAnimation>,
+    pub velocity: [Option<f32>; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity_add: Option<[f32; 3]>,
+    #[serde(default)]
+    pub acceleration: [Option<f32>; 3],
+    #[serde(default)]
+    pub angular_velocity: [Option<f32>; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forward_motion: Option<ForwardMotion>,
+    /// Multiply the current velocity after any explicit assignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity_scale: Option<[f32; 3]>,
+    pub size_velocity: [Option<f32>; 3],
+    pub size_acceleration: [Option<f32>; 3],
 }
 
 /// Assign world motion along the particle's retained emitter heading.
@@ -114,7 +122,7 @@ impl ValueRange {
     /// `unit` is a cosmetic sample in [0, 1).
     pub fn sample(self, unit: f32) -> f32 {
         let delta = if self.step > 0. {
-            (unit * (((self.max - self.min) / self.step).floor() + 1.)).floor() * self.step
+            (unit * self.choice_count()).floor() * self.step
         } else {
             unit * (self.max - self.min)
         };
@@ -123,6 +131,21 @@ impl ValueRange {
         } else {
             self.min + delta
         }
+    }
+
+    /// Inclusive choices, allowing the rounding of a representable endpoint.
+    pub fn choice_count(self) -> f32 {
+        debug_assert!(self.step > 0.);
+        let intervals = (self.max - self.min) / self.step;
+        let nearest = intervals.round();
+        let endpoint = self.min + nearest * self.step;
+        let rounding = self.min.abs().max(self.max.abs()) * f32::EPSILON;
+        let intervals = if (endpoint - self.max).abs() <= rounding {
+            nearest
+        } else {
+            intervals.floor()
+        };
+        intervals + 1.
     }
 }
 
@@ -185,11 +208,28 @@ impl ModelAnimation {
             "invalid effect model playback rate"
         );
         ensure!(
-            self.frame.is_finite() && self.frame >= 0. && (self.frame == 0. || self.rate == 0.),
-            "effect model initial frame requires held playback"
+            self.frame.is_finite() && self.frame >= 0.,
+            "invalid effect model initial frame"
         );
         Ok(())
     }
+}
+
+/// A particle setting whose birth value contains independent shared samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "axis", rename_all = "snake_case")]
+pub enum BirthField {
+    Offset(u8),
+    Velocity(u8),
+    Size(u8),
+    Uv(u8),
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BirthSum {
+    pub field: BirthField,
+    /// Ordered additions; negative ranges represent subtraction.
+    pub terms: Vec<ValueRange>,
 }
 
 /// Final birth settings. Absent fields retain the prepared particle template.
@@ -197,6 +237,8 @@ impl ModelAnimation {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ParticleBirth {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sums: Vec<BirthSum>,
     /// Sample this owner body bone's world position once when the particle is born.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin_bone: Option<u8>,
@@ -284,7 +326,7 @@ fn is_zero_count(value: &u32) -> bool {
     *value == 0
 }
 impl ParticleBirth {
-    fn ranges(&self) -> impl Iterator<Item = &ValueRange> {
+    pub fn ranges(&self) -> impl Iterator<Item = &ValueRange> {
         self.offset
             .iter()
             .chain(&self.velocity)
@@ -313,6 +355,7 @@ impl ParticleBirth {
             .chain([&self.alpha_palette])
             .chain([&self.model])
             .flatten()
+            .chain(self.sums.iter().flat_map(|sum| &sum.terms))
     }
     pub fn draw_references(&self) -> impl Iterator<Item = u32> + '_ {
         self.ranges().filter_map(|range| range.draw).chain(
@@ -325,6 +368,42 @@ impl ParticleBirth {
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(self.yaw_heading.is_finite(), "nonfinite particle heading");
+        let mut fields = std::collections::BTreeSet::new();
+        for sum in &self.sums {
+            let (axis, values) = match sum.field {
+                BirthField::Offset(axis) => (axis, &self.offset[..]),
+                BirthField::Velocity(axis) => (axis, &self.velocity[..]),
+                BirthField::Size(axis) => (axis, &self.size[..]),
+                BirthField::Uv(axis) => (axis, &self.uv[..]),
+            };
+            ensure!(
+                fields.insert(sum.field)
+                    && sum.terms.len() >= 2
+                    && values.get(usize::from(axis)).is_some_and(Option::is_none)
+                    && sum
+                        .terms
+                        .iter()
+                        .all(|term| term.draw.is_some() || term.min == term.max),
+                "invalid or overlapping particle sum"
+            );
+            let (low, high) = sum.terms.iter().fold((0., 0.), |(low, high), term| {
+                (low + term.min, high + term.max)
+            });
+            ensure!(
+                low.is_finite() && high.is_finite(),
+                "unbounded particle sum"
+            );
+            if matches!(sum.field, BirthField::Uv(_)) {
+                ensure!(
+                    low >= f32::from(i16::MIN)
+                        && high <= f32::from(i16::MAX)
+                        && sum.terms.iter().all(|term| term.min.fract() == 0.
+                            && term.max.fract() == 0.
+                            && term.step.fract() == 0.),
+                    "particle UV sum requires bounded integer choices"
+                );
+            }
+        }
         ensure!(
             self.effect_group.is_none_or(|group| group < 16)
                 && (self.effect_group.is_none() || self.attachment_bone.is_none()),

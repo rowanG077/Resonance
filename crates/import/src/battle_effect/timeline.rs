@@ -37,6 +37,7 @@ enum InputOperation {
     Spawn {
         particle: u8,
         origin_bone: Option<u8>,
+        inherit_previous: bool,
         retained: bool,
         blend: Option<u8>,
         palette: Option<u8>,
@@ -44,17 +45,7 @@ enum InputOperation {
     },
     SetMotion {
         retained: u8,
-        offset: [Option<f32>; 3],
-        size: [Option<f32>; 3],
-        animation: Option<ModelAnimation>,
-        velocity: [Option<f32>; 3],
-        velocity_add: Option<[f32; 3]>,
-        acceleration: [Option<f32>; 3],
-        angular_velocity: [Option<f32>; 3],
-        forward_motion: Option<ForwardMotion>,
-        velocity_scale: Option<[f32; 3]>,
-        size_velocity: [Option<f32>; 3],
-        size_acceleration: [Option<f32>; 3],
+        motion: Box<MotionChange>,
     },
     Sound {
         id: u16,
@@ -117,6 +108,7 @@ enum InputIntegerTarget {
     Palette,
     PalettePair,
     Model,
+    ModelAndAnimation { animation: u8 },
 }
 #[derive(Debug, Clone, PartialEq)]
 enum InputEdit {
@@ -168,11 +160,31 @@ impl Record {
     }
 }
 
+#[cfg(test)]
 pub(super) fn decode(
     records: &[Record],
     actors: &[Declaration],
     retained: &[bool],
     modifiers: &BTreeMap<u16, Vec<u16>>,
+    animation_bytes: &[u8],
+) -> Vec<ScheduledEvent> {
+    decode_grouped(
+        records,
+        &Default::default(),
+        actors,
+        retained,
+        modifiers,
+        animation_bytes,
+    )
+}
+
+pub(super) fn decode_grouped(
+    records: &[Record],
+    inherited: &std::collections::BTreeSet<usize>,
+    actors: &[Declaration],
+    retained: &[bool],
+    modifiers: &BTreeMap<u16, Vec<u16>>,
+    animation_bytes: &[u8],
 ) -> Vec<ScheduledEvent> {
     let mut timeline = InputTimeline::default();
     let mut index = 0;
@@ -193,13 +205,21 @@ pub(super) fn decode(
         } else {
             record
         };
-        let operation = match operation(record, actors, modifiers).map(|mut operation| {
+        let operation = match operation(
+            record,
+            actors,
+            modifiers,
+            animation_bytes.get(usize::from(record.command)).copied(),
+        )
+        .map(|mut operation| {
             if let InputOperation::Spawn {
                 particle,
                 retained: keep,
+                inherit_previous,
                 ..
             } = &mut operation
             {
+                *inherit_previous = inherited.contains(&index);
                 *keep = retained
                     .get(usize::from(*particle))
                     .copied()
@@ -230,6 +250,7 @@ fn operation(
     record: &Record,
     actors: &[Declaration],
     modifiers: &BTreeMap<u16, Vec<u16>>,
+    animation_byte: Option<u8>,
 ) -> Result<InputOperation> {
     if record.command == 252 {
         return Ok(InputOperation::Sound {
@@ -354,17 +375,19 @@ fn operation(
         }
         return Ok(InputOperation::SetMotion {
             retained: record.argument,
-            offset,
-            size,
-            animation,
-            velocity,
-            velocity_add,
-            acceleration,
-            angular_velocity,
-            forward_motion,
-            velocity_scale,
-            size_velocity,
-            size_acceleration,
+            motion: Box::new(MotionChange {
+                offset,
+                size,
+                animation,
+                velocity,
+                velocity_add,
+                acceleration,
+                angular_velocity,
+                forward_motion,
+                velocity_scale,
+                size_velocity,
+                size_acceleration,
+            }),
         });
     }
     ensure!(record.argument < 128, "unsupported effect origin selector");
@@ -418,10 +441,15 @@ fn operation(
     Ok(InputOperation::Spawn {
         particle: record.command,
         origin_bone,
+        inherit_previous: false,
         retained: false,
         blend,
         palette,
-        edits: edits_for(words, actors.get(usize::from(record.command)))?,
+        edits: edits_for(
+            words,
+            actors.get(usize::from(record.command)),
+            animation_byte,
+        )?,
     })
 }
 fn integer(value: u16) -> Result<InputIntegerValue> {
@@ -470,10 +498,14 @@ fn scalar_target(target: u16) -> Result<InputScalarTarget> {
     }
 }
 fn edits(words: &[u16]) -> Result<Vec<InputEdit>> {
-    edits_for(words, None)
+    edits_for(words, None, None)
 }
 
-fn edits_for(words: &[u16], declaration: Option<&Declaration>) -> Result<Vec<InputEdit>> {
+fn edits_for(
+    words: &[u16],
+    declaration: Option<&Declaration>,
+    animation_byte: Option<u8>,
+) -> Result<Vec<InputEdit>> {
     let mut out = Vec::new();
     let mut at = 0;
     loop {
@@ -726,7 +758,11 @@ fn edits_for(words: &[u16], declaration: Option<&Declaration>) -> Result<Vec<Inp
             (10 | 12, 3) => InputIntegerTarget::Palette,
             (3, 3) => InputIntegerTarget::PalettePair,
             (3, 0x60) if row[3] == 0 => InputIntegerTarget::RollHigh,
-            (3 | 10 | 12, 0xd4) => InputIntegerTarget::Model,
+            (10 | 12, 0xd4) => InputIntegerTarget::Model,
+            (3, 0xd4) => InputIntegerTarget::ModelAndAnimation {
+                animation: animation_byte
+                    .context("packed model edit lacks its initial animation byte")?,
+            },
             (10, 0x8c) => InputIntegerTarget::AttachmentIndex,
             _ => bail!("unsupported particle integer destination"),
         };
@@ -781,7 +817,7 @@ mod tests {
                 operand: 0,
             },
         ];
-        let events = decode(&records, &actors, &[false], &BTreeMap::new());
+        let events = decode(&records, &actors, &[false], &BTreeMap::new(), &[]);
         let births: Vec<_> = events
             .iter()
             .map(|event| match &event.operation {
@@ -790,26 +826,26 @@ mod tests {
             })
             .collect();
         assert_eq!(births, [(0, None), (18, Some(49)), (48, Some(49))]);
-        assert!(operation(&record(18, 250), &actors, &BTreeMap::new()).is_err());
+        assert!(operation(&record(18, 250), &actors, &BTreeMap::new(), None).is_err());
         actors[0].template_mut()?.follow_origin = true;
-        assert!(operation(&record(18, 49), &actors, &BTreeMap::new()).is_err());
+        assert!(operation(&record(18, 49), &actors, &BTreeMap::new(), None).is_err());
         bytes[0] = 3;
         actors[0] = crate::battle_effect::declaration::read(&bytes, &[])?;
         assert!(matches!(
-            operation(&record(18, 49), &actors, &BTreeMap::new())?,
+            operation(&record(18, 49), &actors, &BTreeMap::new(), None)?,
             InputOperation::Spawn {
                 origin_bone: Some(49),
                 ..
             }
         ));
         actors[0].template_mut()?.follow_bone = Some(49);
-        assert!(operation(&record(18, 49), &actors, &BTreeMap::new()).is_ok());
-        assert!(operation(&record(18, 48), &actors, &BTreeMap::new()).is_err());
+        assert!(operation(&record(18, 49), &actors, &BTreeMap::new(), None).is_ok());
+        assert!(operation(&record(18, 48), &actors, &BTreeMap::new(), None).is_err());
         let Declaration::ModelParticle { binding, .. } = &mut actors[0] else {
             panic!("model particle expected");
         };
         binding.animation = Some(0);
-        assert!(operation(&record(18, 49), &actors, &BTreeMap::new()).is_err());
+        assert!(operation(&record(18, 49), &actors, &BTreeMap::new(), None).is_err());
         for (flags, original, selected, drawing) in [
             (0x4000_0000_u32, 37, 54, true),
             (0x2400_0000_u32, 14, 8, false),
@@ -828,6 +864,7 @@ mod tests {
                 &actors,
                 &[false],
                 &BTreeMap::from([(1, vec![10, 0x8c, selected, 0, u16::MAX])]),
+                &[],
             );
             let bindings: Vec<_> = events
                 .iter()
@@ -919,32 +956,28 @@ mod tests {
                 ],
             ),
         ]);
-        let InputOperation::SetMotion { velocity_add, .. } = operation(&row(1), &[], &modifiers)?
+        let InputOperation::SetMotion { motion, .. } = operation(&row(1), &[], &modifiers, None)?
         else {
             panic!("motion")
         };
-        assert_eq!(velocity_add, Some([0., 15., 0.]));
-        let InputOperation::SetMotion { forward_motion, .. } = operation(&row(2), &[], &modifiers)?
+        assert_eq!(motion.velocity_add, Some([0., 15., 0.]));
+        let InputOperation::SetMotion { motion, .. } = operation(&row(2), &[], &modifiers, None)?
         else {
             panic!("forward motion")
         };
         assert_eq!(
-            forward_motion,
+            motion.forward_motion,
             Some(ForwardMotion {
                 velocity: Some(11.),
                 acceleration: Some(-0.25)
             })
         );
-        let InputOperation::SetMotion {
-            velocity,
-            acceleration,
-            ..
-        } = operation(&row(3), &[], &modifiers)?
+        let InputOperation::SetMotion { motion, .. } = operation(&row(3), &[], &modifiers, None)?
         else {
             panic!("stop motion")
         };
-        assert_eq!(velocity, [Some(0.); 3]);
-        assert_eq!(acceleration, [Some(0.); 3]);
+        assert_eq!(motion.velocity, [Some(0.); 3]);
+        assert_eq!(motion.acceleration, [Some(0.); 3]);
         Ok(())
     }
 
@@ -1004,7 +1037,7 @@ mod tests {
                 ],
             ),
         ]);
-        let events = decode(&records, &[declaration], &[true], &modifiers);
+        let events = decode(&records, &[declaration.clone()], &[true], &modifiers, &[]);
         let EffectOperation::Spawn { birth, .. } = &events[0].operation else {
             panic!("model birth expected")
         };
@@ -1020,25 +1053,29 @@ mod tests {
                 repeat: false
             }
         );
-        let EffectOperation::SetMotion {
-            spawn,
-            offset,
-            velocity,
-            animation,
-            ..
-        } = events[1].operation
-        else {
+        let EffectOperation::SetMotion { spawn, motion } = &events[1].operation else {
             panic!("retained model edit expected")
         };
-        assert_eq!(spawn, 0);
-        assert_eq!(offset, [None, Some(0.), None]);
-        assert_eq!(velocity, [None, Some(15.), None]);
-        let animation = animation.unwrap();
+        assert_eq!(*spawn, 0);
+        assert_eq!(motion.offset, [None, Some(0.), None]);
+        assert_eq!(motion.velocity, [None, Some(15.), None]);
+        let animation = motion.animation.unwrap();
         assert_eq!(
             (animation.clip, animation.blend_ticks, animation.repeat),
             (2, 2, false)
         );
         assert!((animation.rate - 0.4).abs() < 0.00001);
+
+        let mut blended = declaration;
+        let Declaration::ModelParticle { visual, .. } = &mut blended else {
+            panic!("model declaration")
+        };
+        visual.blend = 1;
+        let blended_events = decode(&records, &[blended], &[true], &modifiers, &[]);
+        let EffectOperation::Spawn { birth, .. } = &blended_events[0].operation else {
+            panic!("model birth expected")
+        };
+        assert_eq!(birth.animation.unwrap().frame, 0.5);
 
         let mut held = crate::battle_effect::declaration::read(&row, &[])?;
         let Declaration::ModelParticle {
@@ -1097,6 +1134,7 @@ mod tests {
             std::slice::from_ref(&held),
             &[false],
             &BTreeMap::from([(1, words.clone())]),
+            &[],
         );
         let mut poses = Vec::new();
         for event in events {
@@ -1115,9 +1153,9 @@ mod tests {
         for (index, value) in [(1, 0x41), (4, 0x7ffc), (8, 0x3f80)] {
             let mut unsupported = words.clone();
             unsupported[index] = value;
-            assert!(edits_for(&unsupported, Some(&held)).is_err());
+            assert!(edits_for(&unsupported, Some(&held), None).is_err());
         }
-        assert!(edits_for(&words[6..], Some(&held)).is_err());
+        assert!(edits_for(&words[6..], Some(&held), None).is_err());
         Ok(())
     }
 
@@ -1182,36 +1220,32 @@ mod tests {
         ] {
             let mut records = records;
             records[4].argument = selector;
-            let events = decode(&records, &[], &retained, &modifiers);
+            let events = decode(&records, &[], &retained, &modifiers, &[]);
             assert_eq!(
                 events.last(),
                 Some(&ScheduledEvent {
                     at: 58,
                     operation: EffectOperation::SetMotion {
                         spawn: expected,
-                        offset: [None; 3],
-                        size: [Some(32.), Some(32.), None],
-                        animation: None,
-                        velocity: [None, Some(-0.5), None],
-                        velocity_add: None,
-                        acceleration: [None; 3],
-                        angular_velocity: [None; 3],
-                        forward_motion: None,
-                        velocity_scale: None,
-                        size_velocity: [None, None, Some(5.)],
-                        size_acceleration: [None, None, Some(1.)],
+                        motion: Box::new(MotionChange {
+                            size: [Some(32.), Some(32.), None],
+                            velocity: [None, Some(-0.5), None],
+                            size_velocity: [None, None, Some(5.)],
+                            size_acceleration: [None, None, Some(1.)],
+                            ..Default::default()
+                        }),
                     },
                 })
             );
         }
-        let events = decode(&records, &[], &[false, false], &modifiers);
+        let events = decode(&records, &[], &[false, false], &modifiers, &[]);
         assert!(matches!(
             events[0].operation,
             EffectOperation::Unsupported { .. }
         ));
         let mut records = records;
         records[4].argument = 1;
-        let events = decode(&records, &[], &[false, true], &modifiers);
+        let events = decode(&records, &[], &[false, true], &modifiers, &[]);
         assert!(matches!(
             events[0].operation,
             EffectOperation::Unsupported { .. }
@@ -1241,18 +1275,19 @@ mod tests {
                     operand: 0,
                 },
             ],
-            &[declaration.clone()],
+            std::slice::from_ref(&declaration),
             &[false],
             &[(1, vec![10, 0x8d, 1, 0, u16::MAX])].into(),
+            &[],
         );
         let EffectOperation::Spawn { birth, .. } = &events[0].operation else {
             panic!("checked model row birth");
         };
         assert_eq!(birth.uv[1], Some(ValueRange::fixed(1.)));
-        assert!(edits_for(&[10, 0x8d, 2, 0, u16::MAX], Some(&declaration)).is_err());
+        assert!(edits_for(&[10, 0x8d, 2, 0, u16::MAX], Some(&declaration), None).is_err());
         row[140] = 0;
         let plain = crate::battle_effect::declaration::read(&row, &[])?;
-        assert!(edits_for(&[10, 0x8d, 0, 0, u16::MAX], Some(&plain)).is_err());
+        assert!(edits_for(&[10, 0x8d, 0, 0, u16::MAX], Some(&plain), None).is_err());
         row[140] = 2;
         row[141] = 2;
         assert!(
@@ -1327,7 +1362,7 @@ mod tests {
             for value in [0, 1, 2, 255, 256, 257, u16::MAX] {
                 let modifiers = BTreeMap::from([(1, vec![10, target, value, 0, u16::MAX])]);
                 assert_eq!(
-                    operation(&record, &[], &modifiers).is_ok(),
+                    operation(&record, &[], &modifiers, None).is_ok(),
                     value <= maximum,
                     "target {target}, value {value}"
                 );

@@ -196,8 +196,8 @@ fn timeline(bytes: &[u8], duration: f32) -> Result<Vec<(u16, Event)>> {
                 rate.is_finite() && (0.01..=4.).contains(&rate),
                 "invalid victory motion rate"
             );
-            let start = f32::from(row[4]) * 0.5;
-            let end = (row[5] != 0).then_some(f32::from(row[5]) * 0.5);
+            let start = f32::from(row[4]) * rate;
+            let end = (row[5] != 0).then_some(f32::from(row[5]) * rate);
             ensure!(
                 end.is_none_or(|end| end > start),
                 "invalid victory motion interval"
@@ -320,6 +320,26 @@ mod tests {
                 }
             )
         );
+        // Timeline offsets are update counts, scaled by the selected playback rate.
+        for rate in [0.5_f32, 1.] {
+            rows[24..26].copy_from_slice(&231_u16.to_be_bytes());
+            rows[28] = 216;
+            rows[29] = 240;
+            rows[32..36].copy_from_slice(&rate.to_be_bytes());
+            assert_eq!(
+                timeline(&rows, 336.)?[2],
+                (
+                    231,
+                    Event::Pose {
+                        start: 216. * rate,
+                        end: Some(240. * rate),
+                        rate,
+                        blend: 0,
+                        repeat: true,
+                    }
+                )
+            );
+        }
         rows[24..26].copy_from_slice(&(-4_i16).to_be_bytes());
         assert!(
             timeline(&rows, 88.)

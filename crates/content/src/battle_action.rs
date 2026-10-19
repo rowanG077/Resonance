@@ -37,12 +37,35 @@ pub enum EnemyBehavior {
     /// Switch choices permanently and release turning, pushing and Unison restrictions.
     HealthStage {
         hp_percent: u8,
+        initial_station: EnemyStation,
         initial_actions: std::ops::Range<u8>,
         final_actions: std::ops::Range<u8>,
     },
     CarriedAnimationRate {
         slot: u8,
         rate: f32,
+    },
+    /// Break the equipped weapon, then move the carried spare into its slot.
+    ReplaceWeapon {
+        action: u8,
+        hide_at: u16,
+        replace_at: u16,
+        source: u8,
+        destination: u8,
+        disabled_action: u8,
+    },
+    ActionWeapons {
+        /// Model identity and destination attachment slot for each equipped group.
+        groups: Vec<Vec<(u8, u8)>>,
+        actions: Vec<Option<u8>>,
+        /// Restore this group outside attacks; absent means the weapons stay hidden.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idle_group: Option<u8>,
+        effect: u16,
+        /// Body attachment slots at which equipment changes emit their effect.
+        anchors: Vec<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        drop_on_hurt: Option<WeaponDrop>,
     },
     ThreeStations {
         stations: [EnemyStation; 3],
@@ -51,16 +74,27 @@ pub enum EnemyBehavior {
     },
     ModelParts {
         bone_scales: Vec<(String, f32)>,
-        hidden_weapons: Vec<u8>,
     },
     Transformation {
         reveal_hp_percent: u8,
         revealed_bones: Vec<String>,
         airborne_hp_percent: u8,
+        airborne_walk_speed: f32,
+        airborne_motions: Vec<(u16, u16)>,
         hover_height: f32,
         initial_actions: std::ops::Range<u8>,
         final_actions: std::ops::Range<u8>,
     },
+}
+
+/// Equipment knocked loose by a hit at low health, then left on the ground.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct WeaponDrop {
+    pub slot: u8,
+    pub hp_percent: u8,
+    pub upward_speed: f32,
+    pub gravity: f32,
+    pub pitch: f32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -69,11 +103,13 @@ pub struct EnemyStation {
     pub heading: f32,
 }
 
-/// A walking speed adopted at low health and retained after healing.
+/// A walking speed and motion adopted at low health and retained after healing.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct EnemyWalkOverride {
     pub hp_percent: u8,
     pub speed: f32,
+    /// Logical walking clip and the replacement clip.
+    pub motion_alias: (u16, u16),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -251,6 +287,12 @@ pub struct MeleeContact {
 #[serde(rename_all = "snake_case")]
 pub enum EnemyEvent {
     Effect(u16),
+    /// A burst at a carried model's current bone position.
+    CarriedEffect {
+        slot: u8,
+        bone: u16,
+        member: u16,
+    },
     /// Shared effect attached to the actor's body center.
     CommonEffect(u16),
     /// Temporary RGB tint, returning to the stage color one unit per update.
@@ -288,13 +330,17 @@ pub enum EnemyEvent {
     },
     AnimationRate(f32),
     Contact(MeleeContact),
+    /// Update an overlapping row without resetting the current window's victims.
+    ContinueContact(MeleeContact),
     Projectile {
-        definition: crate::battle_projectile::Projectile,
+        definition: Box<crate::battle_projectile::Projectile>,
         hit: ActionHit,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        feedback: Option<crate::battle_martial::ProjectileFeedback>,
     },
     /// Emit at up to two distinct living opponents, retreating from their ground positions.
     GroundProjectiles {
-        definitions: [crate::battle_projectile::Projectile; 2],
+        definitions: Box<[crate::battle_projectile::Projectile; 2]>,
         hit: ActionHit,
         retreat: f32,
     },
@@ -430,6 +476,9 @@ pub struct EnemyAction {
     pub target_allies: bool,
     pub requirements: EnemyRequirements,
     pub return_to_formation: bool,
+    /// Use running motion and speed while returning to formation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub run_return: bool,
     #[serde(default)]
     pub approach: EnemyApproach,
     pub range: [i16; 2],

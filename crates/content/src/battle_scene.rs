@@ -1,6 +1,6 @@
 //! Artwork and contact metadata for stored battle scenes.
 use crate::battle_model::{ModelPart, Weapon};
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -51,7 +51,7 @@ pub struct Scene {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum SceneAction {
-    Prepared(crate::battle_martial::Attack),
+    Prepared(Box<crate::battle_martial::Attack>),
     Unsupported { reason: String },
 }
 

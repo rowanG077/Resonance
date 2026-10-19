@@ -1,7 +1,7 @@
 //! Decode enemy decisions, including model contacts required by their projectiles.
 use crate::read::u16 as half;
 use anyhow::{Context, Result, ensure};
-use resonance_content::battle_enemy::{Definition, Presentation};
+use resonance_content::battle_enemy::{Definition, Presentation, WeaponVisibility};
 use resonance_content::battle_voice::TimedVoice;
 use std::{fs, path::Path};
 
@@ -23,10 +23,13 @@ fn publish(extracted: &Path, output: &Path, cached: bool) -> Result<Vec<String>>
     let voices = crate::battle_voice::read(&usual)?;
     let module = crate::rel::Rel::read(&extracted.join("files").join(&sources.module))?;
     let guard_bonus = crate::battle_recoil::guard_defaults(&module)?[0];
+    let mut shared = cached
+        .then(|| crate::battle_effect::SharedPalettes::read(&usual, output))
+        .transpose()?;
     let mut paths = Vec::new();
     for id in 0..resonance_content::monster::MONSTER_COUNT {
         let bytes = crate::source_assets::enemy_package(&archive, &usual, id as u16)?;
-        let definition = read(&bytes, id as u8, &voices, guard_bonus)?;
+        let definition = read(&bytes, &usual, id as u8, &voices, guard_bonus)?;
         let model_path = resonance_content::battle_model::enemy_path(id as u8);
         if cached || output.join(&model_path).is_file() {
             let mut model: resonance_content::battle_model::Enemy = serde_json::from_slice(
@@ -37,10 +40,17 @@ fn publish(extracted: &Path, output: &Path, cached: bool) -> Result<Vec<String>>
                 model.source_sha256 == definition.source_sha256,
                 "cached enemy {id} body differs from source"
             );
+            crate::battle_model::refresh_enemy_attachment_animation(&bytes, &mut model)?;
             if cached {
                 paths.push(
-                    refresh_effects(&bytes, id as u8, &mut model, output)
-                        .with_context(|| format!("refresh cached enemy {id} effect bank"))?,
+                    refresh_effects(
+                        &bytes,
+                        id as u8,
+                        &mut model,
+                        shared.as_mut().unwrap(),
+                        output,
+                    )
+                    .with_context(|| format!("refresh cached enemy {id} effect bank"))?,
                 );
             }
             let motions = crate::battle_model::publish_enemy_carried_motions(
@@ -49,15 +59,16 @@ fn publish(extracted: &Path, output: &Path, cached: bool) -> Result<Vec<String>>
                 &mut model,
                 output,
             )?;
-            if cached || !motions.is_empty() {
-                crate::write_atomic(&output.join(&model_path), &serde_json::to_vec(&model)?)?;
-                paths.push(model_path);
-                paths.extend(motions);
-            }
+            crate::write_atomic(&output.join(&model_path), &serde_json::to_vec(&model)?)?;
+            paths.push(model_path);
+            paths.extend(motions);
         }
         let path = resonance_content::battle_enemy::path(id as u8);
         crate::write_atomic(&output.join(&path), &serde_json::to_vec(&definition)?)?;
         paths.push(path);
+    }
+    if let Some(shared) = shared {
+        shared.publish()?;
     }
     Ok(paths)
 }
@@ -66,6 +77,7 @@ fn refresh_effects(
     bytes: &[u8],
     enemy: u8,
     model: &mut resonance_content::battle_model::Enemy,
+    shared: &mut crate::battle_effect::SharedPalettes,
     output: &Path,
 ) -> Result<String> {
     let path = resonance_content::battle_model::enemy_effects_path(enemy);
@@ -109,6 +121,7 @@ fn refresh_effects(
             }
         }
         crate::battle_effect::art::bind_palettes(&mut fresh, &strides, &mut textures)?;
+        shared.bind(&mut fresh, &strides)?;
         for (slot, textures) in textures {
             let textures: Vec<_> = textures.into_iter().map(|texture| texture.effect).collect();
             for image in textures.iter().flat_map(|texture| &texture.images) {
@@ -149,6 +162,7 @@ fn refresh_effects(
 
 pub(crate) fn read(
     bytes: &[u8],
+    usual: &[u8],
     enemy: u8,
     voices: &crate::battle_voice::Source,
     default_guard_bonus: u8,
@@ -167,7 +181,11 @@ pub(crate) fn read(
         .transpose()?
         .unwrap_or_default();
     let strategy = enemy_strategy(bytes)?;
-    let mut actions = crate::battle_action::read(bytes, &projectiles)?;
+    let mut actions = crate::battle_action::read(
+        bytes,
+        &projectiles,
+        crate::source_assets::section(usual, 8)?,
+    )?;
     if enemy == 165 {
         use resonance_content::battle_action::{EnemyEvent, EnemyExecution};
         for row in &mut actions.rows {
@@ -228,6 +246,13 @@ pub(crate) fn read(
         source_sha256: crate::digest(bytes),
         null_motions,
         profile,
+        weapon_visibility: match enemy {
+            105 => [(1, WeaponVisibility::Alternating)].into(),
+            208 | 209 => (0..4).map(|slot| (slot, WeaponVisibility::Hidden)).collect(),
+            // Yggdrasill's shared model carries the Eternal Sword, but fights unarmed.
+            236..=238 => [(0, WeaponVisibility::Hidden)].into(),
+            _ => Default::default(),
+        },
         projectiles,
         actions,
         target_strategy,
@@ -252,11 +277,6 @@ fn guardian_parts(enemy: u8) -> Result<resonance_content::battle_action::EnemyBe
             bone_scales: std::iter::once(("kk06_Hane".to_owned(), WING_SCALE))
                 .chain(hidden.into_iter().map(|name| (name.to_owned(), 0.)))
                 .collect(),
-            hidden_weapons: if enemy == 210 {
-                vec![]
-            } else {
-                (0..4).collect()
-            },
         },
     )
 }
@@ -291,10 +311,185 @@ fn presentation(
         profile.voices.get_or_insert_with(Default::default).defeat = Some(sound);
     }
     let defeat = timed(profile.voices.as_ref().and_then(|voices| voices.defeat))?;
-    let opening = (selector == 20)
-        .then(|| timed(crate::battle_voice::sound(half(metadata, 0xf6)?)))
-        .transpose()?;
+    let opening = match selector {
+        10 => Some(resonance_content::battle_enemy::Opening::Entrance(
+            descending_entrance(),
+        )),
+        12 => Some(resonance_content::battle_enemy::Opening::Entrance(
+            falling_entrance(bytes, metadata)?,
+        )),
+        20 => Some(resonance_content::battle_enemy::Opening::Voice(timed(
+            crate::battle_voice::sound(half(metadata, 0xf6)?),
+        )?)),
+        _ => None,
+    };
     Ok(Some(Presentation { opening, defeat }))
+}
+
+fn falling_entrance(
+    bytes: &[u8],
+    metadata: &[u8],
+) -> Result<resonance_content::battle_enemy::Entrance> {
+    use resonance_content::battle_enemy::{Entrance, EntranceCamera, EntranceCue as Cue};
+    use resonance_content::battle_voice::Sound;
+    let mut launches = Vec::new();
+    let mut cursor = usize::from(half(bytes, 14)?) + 2 * usize::from(half(metadata, 0xf2)?);
+    loop {
+        let age = half(bytes, cursor)?;
+        if age == u16::MAX {
+            break;
+        }
+        ensure!(
+            half(bytes, cursor + 2)? == 1,
+            "unsupported entrance motion command"
+        );
+        launches.push((age, f32::from(half(bytes, cursor + 4)? as i16) / 10.));
+        cursor += 6;
+    }
+    Ok(Entrance {
+        ticks: 300,
+        gravity: -1.,
+        flash: None,
+        launches,
+        cues: vec![
+            (1, Cue::Height(1000.)),
+            (
+                1,
+                Cue::Pose {
+                    clip: 36,
+                    rate: 0.5,
+                    repeat: false,
+                    blend: 4,
+                },
+            ),
+            (1, Cue::Expression(4)),
+            (10, Cue::Effect(1)),
+            (
+                86,
+                Cue::Pose {
+                    clip: 37,
+                    rate: 0.4,
+                    repeat: false,
+                    blend: 4,
+                },
+            ),
+            (
+                86,
+                Cue::Shake {
+                    duration: 45,
+                    amplitude: 16,
+                },
+            ),
+            (86, Cue::Sound(Sound::Cue(93))),
+            (86, Cue::Expression(1)),
+            (86, Cue::Vertical(14.)),
+            (104, Cue::Voice(Sound::Stream(2075))),
+            (
+                134,
+                Cue::Pose {
+                    clip: 27,
+                    rate: 0.4,
+                    repeat: false,
+                    blend: 4,
+                },
+            ),
+            (134, Cue::Expression(0)),
+            (
+                196,
+                Cue::Pose {
+                    clip: 0,
+                    rate: 0.5,
+                    repeat: true,
+                    blend: 4,
+                },
+            ),
+        ],
+        camera: EntranceCamera {
+            radius: 1750.,
+            height_radius: 1200.,
+            focus_height: 120.,
+            yaw: 180.,
+            yaw_step: 0.01,
+            elevation: 20.,
+            elevation_step: -0.01,
+            minimum_elevation: 16.5,
+        },
+    })
+}
+
+fn descending_entrance() -> resonance_content::battle_enemy::Entrance {
+    use resonance_content::battle_enemy::{
+        Entrance, EntranceCamera, EntranceCue as Cue, EntranceFlash,
+    };
+    use resonance_content::battle_voice::Sound;
+    Entrance {
+        ticks: 570,
+        gravity: 0.,
+        launches: vec![],
+        flash: Some(EntranceFlash {
+            tick: 220,
+            color: [128; 3],
+            step: 16,
+            hold: 4,
+        }),
+        cues: vec![
+            (1, Cue::Height(100.)),
+            (
+                10,
+                Cue::StageTint {
+                    color: [28; 3],
+                    duration: 540,
+                    step: 2,
+                },
+            ),
+            (10, Cue::Effect(1)),
+            (
+                220,
+                Cue::Shake {
+                    duration: 30,
+                    amplitude: 24,
+                },
+            ),
+            (
+                220,
+                Cue::Feedback {
+                    duration: 160,
+                    limit: 6,
+                    alpha: 160,
+                },
+            ),
+            (
+                240,
+                Cue::Pose {
+                    clip: 44,
+                    rate: 0.5,
+                    repeat: false,
+                    blend: 0,
+                },
+            ),
+            (240, Cue::Vertical(-0.4)),
+            (280, Cue::Voice(Sound::Stream(2077))),
+            (
+                490,
+                Cue::Pose {
+                    clip: 45,
+                    rate: 0.3,
+                    repeat: false,
+                    blend: 8,
+                },
+            ),
+        ],
+        camera: EntranceCamera {
+            radius: 1750.,
+            height_radius: 1000.,
+            focus_height: 120.,
+            yaw: 180.,
+            yaw_step: 0.01,
+            elevation: 22.,
+            elevation_step: -0.01,
+            minimum_elevation: 18.5,
+        },
+    }
 }
 
 fn guard_policy(
