@@ -1,4 +1,4 @@
-"""Independent integer bounds for ordinary, unguarded damage observations.
+"""Independent integer bounds for ordinary damage observations.
 
 Callers bind the actual hit rule and verify live modifiers at contact. Unknown
 affinity, conditions or modifiers are unsupported, never an enlarged tolerance.
@@ -20,6 +20,10 @@ class Context:
     affinity: str
     modifiers: tuple[str, ...]
     modifiers_verified: bool
+    weapon_species_match: bool = False
+    guard: str | None = None
+    guard_reduction: int | None = None
+    protection_shift: int = 0
 
 
 def integer(value, name, maximum):
@@ -45,12 +49,14 @@ than assume that ready-state strength or modifiers remain unchanged.
 """
     if context.modifiers_verified is not True or context.modifiers:
         raise UnsupportedDamage("live damage modifiers are unverified or unsupported")
-    if context.affinity != "normal":
-        raise UnsupportedDamage("only verified normal affinity is supported")
+    if context.affinity not in ("normal", "weak", "resistant"):
+        raise UnsupportedDamage("only verified ordinary damage affinities are supported")
     if context.critical is not None and type(context.critical) is not bool:
         raise UnsupportedDamage("critical outcome must be observed or explicitly unknown")
     if type(context.target_accuracy_override) is not bool:
         raise UnsupportedDamage("target accuracy state is unverified")
+    if type(context.weapon_species_match) is not bool:
+        raise UnsupportedDamage("weapon species applicability is unverified")
     for actor in (attacker, defender):
         if actor.get("conditions") != []:
             raise UnsupportedDamage("active conditions are unverified or unsupported")
@@ -75,6 +81,23 @@ than assume that ready-state strength or modifiers remain unchanged.
     physical = kind in ("slash", "thrust")
     if not physical and kind != "magic":
         raise UnsupportedDamage("damage kind is unbound")
+    if context.guard is not None:
+        if not physical or context.guard not in ("normal", "special"):
+            raise UnsupportedDamage("only observed ordinary physical guarding is supported")
+        if context.guard == "normal":
+            guard_percent = 100 - integer(context.guard_reduction, "guard reduction", 100)
+        elif context.guard_reduction is not None:
+            raise UnsupportedDamage("special guard cannot use a profile reduction override")
+        else:
+            guard_percent = 20
+    elif context.guard_reduction is not None:
+        raise UnsupportedDamage("guard reduction requires an observed guard")
+    else:
+        guard_percent = 100
+    if type(context.protection_shift) is not int or context.protection_shift not in (0, 2, 3):
+        raise UnsupportedDamage("contact protection reduction is unverified")
+    if context.protection_shift and context.guard is not None:
+        raise UnsupportedDamage("combined protection and guard is unsupported")
     strength = integer(context.strength_percent, "strength", 65535 if physical else 255)
     owner, target = attacker["stats"], defender["stats"]
     amounts = []
@@ -91,7 +114,8 @@ than assume that ready-state strength or modifiers remain unchanged.
         for variance in (96, 104):
             amount = percent(percent(base, variance), accuracy_percent)
             for critical in criticals:
-                amounts.append(percent(amount + (amount >> 1 if critical else 0), power_percent))
+                powered = percent(amount + (amount >> 1 if critical else 0), power_percent)
+                amounts.append(powered + (powered >> 3 if context.weapon_species_match else 0))
     else:
         if context.critical is not False:
             raise UnsupportedDamage("ordinary magic requires verified absence of critical modifiers")
@@ -101,11 +125,17 @@ than assume that ready-state strength or modifiers remain unchanged.
             resistance = (target["intelligence"] >> 3) + extra_resistance
             base = percent(intelligence - resistance, strength)
             amounts.extend(percent(base, variance) for variance in (96, 104))
+    if context.affinity == "weak":
+        amounts = [amount + (amount >> 1) for amount in amounts]
+    elif context.affinity == "resistant":
+        amounts = [amount >> 1 for amount in amounts]
+    amounts = [percent(amount, guard_percent) >> context.protection_shift for amount in amounts]
     if max(amounts) > 32767:
         raise UnsupportedDamage("nominal damage exceeds the supported HP-application range")
     return {"minimum": max(1, min(amounts)), "maximum": max(1, max(amounts)),
-            "preconditions": ["bound ordinary hit", "initialized statistics", "normal affinity",
-                              "no active conditions", "verified unguarded damage modifiers"]}
+            "preconditions": ["bound ordinary hit", "initialized statistics", f"{context.affinity} affinity",
+                              "no active conditions", "verified damage modifiers",
+                              f"{context.guard or 'no'} guard"]}
 
 
 def hp_loss_bounds(bounds, hp, *, prevents_defeat):

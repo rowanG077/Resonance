@@ -9,6 +9,8 @@ PROFILE_PREFIX_BYTES = 160
 DISPLAY_NAME_BYTES = 24
 RAM_BASE = 0x80000000
 PROFILE_REWARDS_OFFSET = 0x40
+ACTION_TABLE_POINTER = 0x50
+ACTION_TABLE_HEADER_FIELD = 10
 
 
 class EnemyCatalogue:
@@ -59,9 +61,25 @@ class EnemyCatalogue:
         signature = hashlib.sha256(profile_bytes).hexdigest()
         name = bytes(state.ram[name_offset:name_offset + DISPLAY_NAME_BYTES])
         candidates = self.signatures.get(signature, [])
-        # Hidden names contain question marks; only profile data decides identity.
+        bindings = []
+        if len(candidates) > 1:
+            from battle_fixture import enemy_package
+            for enemy in candidates:
+                record = next(record for record in self.records
+                              if record['enemy'] == enemy and record['profile_sha256'] == signature)
+                raw = Path(record['package']).read_bytes()
+                try:
+                    address, proof = enemy_package(state, raw)
+                except ValueError:
+                    continue
+                table = address + struct.unpack_from('>H', raw, ACTION_TABLE_HEADER_FIELD)[0]
+                if state.read(actor['address'] + ACTION_TABLE_POINTER) == table:
+                    bindings.append(dict(enemy=enemy, action_table=table, package=proof))
+            candidates = [binding['enemy'] for binding in bindings]
+        # Hidden names contain question marks; initialized data decides identity.
         return dict(slot=actor['slot'], name=name.split(b'\0', 1)[0].decode('shift_jis', errors='replace'),
                     profile_address=profile, profile_sha256=signature,
                     profile_bytes=profile_bytes.hex(),
                     variant_candidates=self.variants.get(signature, []),
-                    candidates=candidates, enemy=candidates[0] if len(candidates) == 1 else None)
+                    candidates=candidates, package_bindings=bindings,
+                    enemy=candidates[0] if len(candidates) == 1 else None)

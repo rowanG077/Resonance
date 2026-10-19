@@ -107,6 +107,18 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
                        "arena_basis": "declared component arena; no available authored caller arena"}
         if not (assets / f"battle/stages/{fixture['arena']:03}.json").exists():
             raise ValueError(f"enemy {enemy} fixture arena is not cooked")
+        spell_candidates = []
+        for candidate in authored or candidates:
+            if not candidate["arena_cooked"]:
+                continue
+            formation = formations["records"][candidate["formation"]]
+            variants = [actor["variant"] for actor in formation["actors"]
+                        if formation["resources"][actor["resource"]]["enemy"] == enemy]
+            if all(monster["statistics"][variant]["tp"] > 0 for variant in variants):
+                spell_candidates.append(candidate)
+        # Some arena variants have no TP despite sharing a spell catalogue.
+        spell_fixture = min(spell_candidates,
+            key=lambda f: (f["actor_count"], f["target_count"], f["formation"])) if spell_candidates else fixture
         enemies.append({"enemy": enemy, "name": monster["name"],
                         "package": {"path": str(raw_path), "sha256": package_sha},
                         "definition": pinned(definition_path), "monster": pinned(monster_path),
@@ -120,6 +132,7 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
             identity = f"enemy{enemy:03}:row{index:02}"
             native = struct.unpack_from(">H", data, 64)[0] or None
             kind = "common_spell" if native and native >= COMMON_SPELL_START else "enemy_sequence"
+            selected_fixture = spell_fixture if kind == "common_spell" else fixture
             # The complete package pins commands, animations, contacts and body
             # context. Include the complete row, even selection-only fields, so
             # grouping cannot erase an authored execution difference.
@@ -133,7 +146,7 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
             execution = row.get("execution")
             cases.append({"id": identity, "enemy": enemy, "action_row": index,
                           "native": native, "kind": kind, "semantic_group": group,
-                          **{key: fixture[key] for key in ("formation", "arena", "arena_basis")},
+                          **{key: selected_fixture[key] for key in ("formation", "arena", "arena_basis")},
                           "row_offset": row_start + index * ACTION_BYTES,
                           "row_sha256": sha256(data).hexdigest(),
                           "animation_index": struct.unpack_from(">H", data, 24)[0],

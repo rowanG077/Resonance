@@ -60,8 +60,34 @@ def read_initialized_body(state, actor, descriptor):
     model = read(address + 0x2c0)
     skeleton = read(model)
     count = read(model + 4)
-    if count != len(bones) or count != read(skeleton + 4):
+    if not 0 < count <= len(bones) or count != read(skeleton + 4):
         raise ValueError("initialized bone count differs from authored descriptor")
+    expected = [bone["name"] for bone in bones]
+    if count < len(bones):
+        # Renderers can omit cosmetic subtrees. Keep every mechanical anchor,
+        # and bind the remaining matrices by exact authored names and order.
+        cursor = read(skeleton + 0x1c) - 0x80000000
+        bound = max(len(name.encode("ascii")) for name in expected) + 1
+        selected, start = [], 0
+        for _ in range(count):
+            if not 0 <= cursor < cursor + bound <= len(state.ram):
+                raise ValueError("initialized bone name is outside main RAM")
+            raw = bytes(state.ram[cursor:cursor + bound]).split(b"\0", 1)[0]
+            if len(raw) == bound or not raw.isascii():
+                raise ValueError("initialized bone name exceeds its authored bound")
+            try:
+                index = expected.index(escape_ascii(raw), start)
+            except ValueError as error:
+                raise ValueError("initialized bone names differ from authored order") from error
+            selected.append(index)
+            start = index + 1
+            cursor += len(raw) + 1
+        retained = set(selected)
+        if any(index not in retained and re.match(r"^(?:mo[0-9]+|kk[0-9]+)", bone["name"], re.IGNORECASE)
+               or index in retained and bone["parent"] is not None and bone["parent"] not in retained
+               for index, bone in enumerate(bones)):
+            raise ValueError("initialized skeleton omits an authored anchor or parent")
+        bones = [bones[index] for index in selected]
     names = read_names(state, read(skeleton + 0x1c), [bone["name"] for bone in bones])
     names["declared_bytes"] = read(skeleton + 0x18)
     names["declared_minus_consumed_bytes"] = names["declared_bytes"] - names["consumed_bytes"]

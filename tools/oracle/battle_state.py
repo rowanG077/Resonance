@@ -94,6 +94,8 @@ def inspect_battle(ram):
                       "action": values(actor + 0x1ac, "B", 8),
                       "flags": values(actor + 0x107c, "B", 4),
                       "position": values(actor + 0x18c0, "f", 3),
+                      "return_position": values(actor + 0x192c, "f", 3),
+                      "formation_offset": values(actor + 0x1938, "f", 3),
                       "heading": read(actor + 0x18d0, ">f"),
                       "center": values(actor + 0x195c, "f", 3),
                       "target": read(actor + 0x1990), "vitals_address": vitals}

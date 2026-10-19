@@ -102,7 +102,7 @@ class DolphinFixture:
             self.marker = marker_address
             self.watcher = Watcher(user_alias, self.output/'memory.jsonl', {
                 '80023c10': 'focus_patch_word', '8003efa4': 'secondary_blur_patch_word',
-                f'{self.marker:08x}': 'case_marker', **presentation_locations(), **(locations or {})})
+                f'{self.marker:08x}': 'case_marker', **presentation_locations(), **(locations or {})}, mem1=True)
             boot_movie = self.output/'input.dtm'
             shutil.copyfile(movie, boot_movie)
             shutil.copyfile(initial_state, str(boot_movie)+'.sav')

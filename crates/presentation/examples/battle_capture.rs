@@ -5,14 +5,18 @@ use std::{fs, path::PathBuf};
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let save = PathBuf::from(
-        args.next()
-            .context("SAVE REPLAY OUTPUT ASSETS FORMATION ARENA [RESOLUTION [ROUTE [MUSIC [DEFEAT]]]]")?,
-    );
+    let save = PathBuf::from(args.next().context(
+        "SAVE REPLAY OUTPUT ASSETS FORMATION ARENA [RESOLUTION [ROUTE [MUSIC [DEFEAT]]]]",
+    )?);
     let replay = args.next().context("REPLAY")?;
     let output = PathBuf::from(args.next().context("OUTPUT")?);
     let root = PathBuf::from(args.next().context("ASSETS")?);
-    let formation = args.next().context("FORMATION")?.parse()?;
+    let formations = args
+        .next()
+        .context("FORMATION")?
+        .split(',')
+        .map(str::parse)
+        .collect::<Result<Vec<u16>, _>>()?;
     let arena = args.next().context("ARENA")?.parse()?;
     let resolution = args
         .next()
@@ -48,7 +52,11 @@ fn main() -> Result<()> {
         &save,
         &output,
         Setup {
-            encounter: Encounter::Formation(formation),
+            encounter: if formations.len() == 1 {
+                Encounter::Formation(formations[0])
+            } else {
+                Encounter::Combined(formations)
+            },
             arena,
             defeat,
             music,
