@@ -53,6 +53,51 @@ fn composed_arithmetic_updates_the_actual_stack_slot() {
         0
     );
 }
+
+#[test]
+fn imported_division_and_remainder_keep_nontrapping_results_and_store_rules() {
+    for (dividend, divisor, quotient, remainder) in [
+        (7_i32, 0_i32, 0, 7),
+        (-7, 0, -1, -7),
+        (0, 0, 0, 0),
+        (i32::MIN, -1, -1, i32::MAX),
+        (7, 3, 2, 1),
+        (-7, 3, -2, -1),
+        (-7, -3, 2, -1),
+    ] {
+        for (op, expected) in [
+            (0x14, quotient),
+            (0x15, remainder),
+            (0x34, quotient),
+            (0x35, remainder),
+        ] {
+            let mut runner = vm(&[
+                0x1200,
+                0x100,
+                0x0200,
+                divisor as u16,
+                (divisor >> 16) as u16,
+                0x3000 | op,
+                0x3000,
+                0x20ff,
+            ]);
+            let mut memory = Memory::default();
+            memory.write(0x100, Width::S32, dividend).unwrap();
+            runner
+                .run(&mut TestHost::default(), &mut memory, 32)
+                .unwrap();
+            assert_eq!(
+                runner.expression(),
+                Some(expected),
+                "op={op:x}, {dividend}, {divisor}"
+            );
+            assert_eq!(
+                memory.read(0x100, Width::S32).unwrap(),
+                if op < 0x30 { expected } else { dividend }
+            );
+        }
+    }
+}
 #[test]
 fn unary_values_do_not_store_but_postfix_increments_do() {
     let mut memory = Memory::default();
@@ -190,7 +235,6 @@ fn malformed_execution_cannot_escape_stack_or_arithmetic_limits() {
         (vec![0x2002, 0, 0x20ff], Fault::CallOverflow),
         (vec![0x20cc, 0x20ff], Fault::ArgumentUnderflow(2)),
         (vec![0x3000, 0x20ff], Fault::ValueUnderflow),
-        (vec![1, 0, 0x3034, 0x20ff], Fault::DivisionByZero),
     ] {
         let mut runner = vm(&code);
         let error = runner

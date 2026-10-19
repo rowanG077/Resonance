@@ -286,9 +286,10 @@ fn sunlight_reports_each_continuous_exposure_once() {
         let mut events = field(Ability::Sunlight, Some((key, &callback)));
         events.world.input.held = [crate::input::Button::Ring].into_iter().collect();
         events.activate_ring(true).unwrap();
-        assert!(events.player_has_control());
+        assert!(!events.player_has_control());
         assert!(events.world.menu_blocked());
         steps(&mut events, 30);
+        assert!(!events.player_has_control());
         for id in [16, 17] {
             let mut target = Actor::new(1, [0., -200., 100.]);
             target.role = crate::ActorRole::Interaction;
@@ -330,6 +331,7 @@ fn sunlight_reports_each_continuous_exposure_once() {
         );
         events.world.input.held = Default::default();
         steps(&mut events, 60);
+        assert!(events.player_has_control());
         assert!(events.world.model_particles.is_empty());
         assert!(!events.world.menu_blocked());
     }

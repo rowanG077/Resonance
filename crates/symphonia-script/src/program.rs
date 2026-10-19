@@ -294,6 +294,29 @@ impl Program {
         }
         self.code.get(&pc).copied()
     }
+    /// Specialize a native call with a known result consumer, preserving all PCs.
+    pub fn specialize_native(&mut self, from: u8, to: u8, suffix: &[Op]) {
+        let sites: Vec<_> = self
+            .code
+            .iter()
+            .filter_map(|(&pc, &(op, mut next))| {
+                if op != Op::Native(from) {
+                    return None;
+                }
+                for expected in suffix {
+                    let (actual, after) = self.instruction(next)?;
+                    if actual != *expected {
+                        return None;
+                    }
+                    next = after;
+                }
+                Some(pc)
+            })
+            .collect();
+        for pc in sites {
+            self.code.get_mut(&pc).unwrap().0 = Op::Native(to);
+        }
+    }
     /// Strings use the resource's auxiliary offset table, not host pointers.
     pub fn string(&self, index: u16) -> Option<&[u8]> {
         let offset = usize::from(index) * 4;

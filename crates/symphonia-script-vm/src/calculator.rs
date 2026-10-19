@@ -1,5 +1,13 @@
 use crate::{Fault, Memory, Value, Vm};
 
+// Imported bytecode uses non-trapping signed division. An exceptional quotient
+// is zero for a nonnegative dividend and -1 for a negative dividend.
+fn divide(dividend: i32, divisor: i32) -> i32 {
+    dividend
+        .checked_div(divisor)
+        .unwrap_or(if dividend < 0 { -1 } else { 0 })
+}
+
 fn store(memory: &mut Memory, value: Value) -> Result<(), Fault> {
     if let Some((offset, width)) = value.reference {
         memory.write(offset, width, value.number)?;
@@ -50,10 +58,8 @@ impl Vm {
             0x11 | 0x31 => a.wrapping_add(right),
             0x12 | 0x32 => a.wrapping_sub(right),
             0x13 | 0x33 => a.wrapping_mul(right),
-            0x14 | 0x34 if right == 0 => return Err(Fault::DivisionByZero),
-            0x14 | 0x34 => a.wrapping_div(right),
-            0x15 | 0x35 if right == 0 => return Err(Fault::DivisionByZero),
-            0x15 | 0x35 => a.wrapping_rem(right),
+            0x14 | 0x34 => divide(a, right),
+            0x15 | 0x35 => a.wrapping_sub(divide(a, right).wrapping_mul(right)),
             0x16 | 0x36 => a & right,
             0x17 | 0x37 => a | right,
             0x18 | 0x38 => a ^ right,

@@ -440,6 +440,7 @@ fn memory_circle_unlock_requires_confirmation_and_cancellation_releases_both_win
         serde_json::from_value(serde_json::json!({
             "members": [], "formation": [], "items": {}, "found_items": [],
             "recent_items": [], "gald": 0, "spent_gald": 0,
+            "battles": resonance_events::party::BattleStatistics::default(),
             "settings": resonance_events::party::Settings::default()
         }))
         .unwrap(),

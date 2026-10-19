@@ -838,8 +838,8 @@ impl crate::GameWorld {
             if born && let Some(change) = change {
                 change(direction, &mut self.random_state);
                 let velocity = emission::normalized(*direction).map(|v| v * speed);
-                for i in 0..3 {
-                    effect.position[i] += velocity[i];
+                for (position, velocity) in effect.position.iter_mut().zip(velocity) {
+                    *position += velocity;
                 }
             }
             if !born || change.is_some() {
@@ -962,7 +962,7 @@ impl crate::GameWorld {
                     [crate::world::random(&mut self.random_state) as usize % 3];
                 trail.palette = Some(crate::emitter::palette(palette, &mut self.random_state));
                 trail.rgba[..3].fill(NEUTRAL_TINT);
-                let spin = if crate::world::random(&mut self.random_state) % 2 == 0 {
+                let spin = if crate::world::random(&mut self.random_state).is_multiple_of(2) {
                     -3.
                 } else {
                     3.
