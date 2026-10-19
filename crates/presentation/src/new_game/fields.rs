@@ -28,8 +28,12 @@ pub(crate) fn available_fields(root: &Path) -> Result<std::collections::BTreeSet
 #[derive(Clone)]
 pub(crate) struct FieldPackage {
     pub assets: FieldAssets,
+    pub data: Arc<resonance_content::session::SessionData>,
     pub script: Arc<[u8]>,
     messages: Arc<[u8]>,
+    text: Arc<resonance_content::session::GameText>,
+    skits: Arc<resonance_content::skit::SkitCatalog>,
+    effects: resonance_content::effect::FieldEffects,
     pub audio: Arc<super::super::field_audio::Assets>,
     pub files: Arc<Files>,
     authored: Option<resonance_game::authored::FieldEvent>,
@@ -38,7 +42,7 @@ pub(crate) struct FieldPackage {
     movies: BTreeSet<u32>,
 }
 impl FieldPackage {
-    pub fn load(root: &Path, files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
+    pub fn load(files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
         let manifest = files
             .manifests
             .get(&map)
@@ -50,8 +54,13 @@ impl FieldPackage {
         );
         let audio = cache
             .audio
-            .load(root, manifest.inputs.audio.first().unwrap(), &files)?;
+            .load(manifest.inputs.audio.first().unwrap(), &files)?;
         let (authored, services) = Self::prepare_scripts(map, &files, cache)?;
+        let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
+        let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
+        skits.validate()?;
+        let effects: resonance_content::effect::FieldEffects = files.json(&assets.effects)?;
+        effects.validate()?;
         let attachments =
             resonance_game::field::attachments::prepare(&assets, |path| files.read(path))?;
         let movies = manifest
@@ -69,7 +78,11 @@ impl FieldPackage {
             })
             .collect::<Result<_>>()?;
         Ok(Self {
-            script: files.read(&assets.script.path)?,
+            data,
+            text: Arc::new(files.json("game/text.json")?),
+            skits: Arc::new(skits),
+            effects,
+            script: files.read(&assets.script)?,
             messages: files.read(&assets.messages)?,
             assets,
             audio,
@@ -87,11 +100,33 @@ impl FieldPackage {
         cache: &mut Cache,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
+        Self::prepare_with_diagnostics(
+            root,
+            map,
+            cache,
+            cancelled,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )
+    }
+
+    pub fn prepare_with_diagnostics(
+        root: &Path,
+        map: u32,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool,
+        diagnostics: resonance_content::diagnostics::Diagnostics,
+    ) -> Result<Self> {
         let files = Arc::new(
-            Files::load(root, &[&manifest_path(map)], &mut cache.bytes, cancelled)
-                .with_context(|| format!("prepare field {map}"))?,
+            Files::load_with_diagnostics(
+                root,
+                &[&manifest_path(map)],
+                &mut cache.bytes,
+                cancelled,
+                diagnostics,
+            )
+            .with_context(|| format!("prepare field {map}"))?,
         );
-        Self::load(root, files, map, cache)
+        Self::load(files, map, cache)
     }
 
     /// Revisit shared cooked bytes while refreshing only editable source inputs.
@@ -138,21 +173,23 @@ impl FieldPackage {
     pub fn restore(
         &self,
         checkpoint: &FieldCheckpoint,
-        data: Arc<resonance_content::session::SessionData>,
-        skits: Arc<resonance_content::skit::SkitCatalog>,
         available_fields: BTreeSet<u32>,
-    ) -> Result<FieldSession> {
-        let mut entry = checkpoint
+    ) -> Result<(FieldSession, Option<FieldCheckpoint>)> {
+        let entry = checkpoint
             .clone()
-            .entry(&self.assets, data, available_fields)?;
-        entry.skits = Some(skits);
+            .entry(&self.assets, self.data.clone(), available_fields)?;
         let kind = entry.kind;
         let mut field = self.enter(entry)?;
-        if kind == resonance_game::field::EntryKind::Restore {
-            initialize_checkpoint(&mut field, checkpoint)?;
-        }
+        let restored = if kind == resonance_game::field::EntryKind::Restore {
+            initialize_checkpoint(&mut field, checkpoint, &self.data)?;
+            Some(field.checkpoint()?)
+        } else {
+            None
+        };
+        // Record the loaded state before an entry script takes control. New
+        // Game Plus starts a new story and has no restored exploration frame.
         self.queue_entry(&mut field, kind);
-        Ok(field)
+        Ok((field, restored))
     }
 
     pub fn transition(&self, previous: &FieldSession) -> Result<FieldSession> {
@@ -171,8 +208,6 @@ impl FieldPackage {
             allow_incomplete_scripts: previous.allow_incomplete_scripts,
             play_time: previous.play_time,
             persistent: previous.events.persistent_state()?,
-            data: resources.session_data.clone(),
-            skits: resources.skits.clone(),
             available_fields: resources.fields.clone(),
             position: request.position,
             heading: request.heading,
@@ -185,25 +220,23 @@ impl FieldPackage {
     }
 
     pub fn enter(&self, mut entry: FieldEntry) -> Result<FieldSession> {
-        let menu: resonance_content::menu_data::MenuData =
-            self.files.json("game/menu-data.json")?;
-        menu.validate()?;
-        let effects: resonance_content::effect::FieldEffects =
-            self.files.json(&self.assets.effects)?;
-        effects.validate()?;
-        entry.effect_palette = resonance_events::effect::Palette(effects.palette);
-        entry.rising_light_destination = Some(effects.rising_light_destination);
-        entry.menu_data = Some(Arc::new(menu));
-        entry.text = Arc::new(self.files.json("game/text.json")?);
+        entry.effect_palette = resonance_events::effect::Palette(self.effects.palette.clone());
+        entry.rising_light_destination = Some(self.effects.rising_light_destination);
+        entry.text = self.text.clone();
+        entry.skits = Some(self.skits.clone());
+        entry.data = Some(self.data.clone());
+        entry.menu_data = self.data.rules.clone();
         entry.services = Some(self.services.clone());
         entry.attachments = self.attachments.clone();
         entry.available_movies = self.movies.clone();
+        entry.menu_files = self.files.clone();
         let mut field = FieldSession::enter(
             &self.script,
             serde_json::from_slice(&self.messages)?,
             &self.assets,
             entry,
         )?;
+        field.set_diagnostics(self.files.diagnostics().clone());
         field.events.world.voice_durations = self.audio.voice_durations();
         field.prepare_skits(&self.files)?;
         Ok(field)

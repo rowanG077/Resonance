@@ -13,7 +13,9 @@ const ROW_TOP: u32 = 90;
 const ROW_HEIGHT: u32 = 25;
 const FOOTER_TOP: u32 = ROW_TOP + ROW_HEIGHT * PAGE_SIZE as u32 + 10;
 const BUTTON_TOP: u32 = FOOTER_TOP + 90;
-const HEIGHT: u32 = BUTTON_TOP + 34;
+const BUTTON_HEIGHT: u32 = 26;
+const BATTLE_TOP: u32 = BUTTON_TOP + BUTTON_HEIGHT + 8;
+const HEIGHT: u32 = BATTLE_TOP + BUTTON_HEIGHT + 8;
 const LAYER: usize = 28;
 
 #[derive(Component)]
@@ -25,7 +27,11 @@ pub(super) struct Artwork {
     image: Handle<Image>,
 }
 
-pub(super) fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+pub(super) fn setup(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    options: Res<crate::RunOptions>,
+) {
     let mut image = Image::new(
         Extent3d {
             width: WIDTH,
@@ -36,6 +42,7 @@ pub(super) fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         pixels(
             &Menu::default(),
             &super::super::testing::Controls::default(),
+            options.skip_battles,
         ),
         TextureFormat::Rgba8UnormSrgb,
         default(),
@@ -81,13 +88,24 @@ pub(super) fn row_at(cursor: Vec2, size: Vec2) -> Option<usize> {
 pub(super) fn testing_button_at(cursor: Vec2, size: Vec2) -> Option<usize> {
     let point = (cursor - size / 2.) / scale(size) + Vec2::new(WIDTH as f32, HEIGHT as f32) / 2.;
     ((16. ..WIDTH as f32 - 16.).contains(&point.x)
-        && (BUTTON_TOP as f32..(HEIGHT - 8) as f32).contains(&point.y))
+        && (BUTTON_TOP as f32..(BUTTON_TOP + BUTTON_HEIGHT) as f32).contains(&point.y))
     .then(|| ((point.x - 16.) / ((WIDTH - 32) as f32 / 3.)) as usize)
 }
 
+pub(super) fn battle_button_at(cursor: Vec2, size: Vec2) -> bool {
+    let point = (cursor - size / 2.) / scale(size) + Vec2::new(WIDTH as f32, HEIGHT as f32) / 2.;
+    (16. ..WIDTH as f32 - 16.).contains(&point.x)
+        && (BATTLE_TOP as f32..(BATTLE_TOP + BUTTON_HEIGHT) as f32).contains(&point.y)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bevy injects each independently accessed resource and query as a system parameter."
+)]
 pub(super) fn update(
     menu: Res<Menu>,
     testing: Res<super::super::testing::Controls>,
+    options: Res<crate::RunOptions>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     mut camera: Single<&mut Camera, With<OverlayCamera>>,
     mut panel: Single<&mut Transform, With<Panel>>,
@@ -101,26 +119,20 @@ pub(super) fn update(
     if let Some(window) = window {
         panel.scale = Vec3::splat(scale(Vec2::new(window.width(), window.height())));
     }
-    if (menu.is_changed() || testing.is_changed())
+    if (menu.is_changed() || testing.is_changed() || options.is_changed())
         && let Some(mut image) = images.get_mut(&art.image)
     {
-        image.data = Some(pixels(&menu, &testing));
+        image.data = Some(pixels(&menu, &testing, options.skip_battles));
     }
 }
 
-fn pixels(menu: &Menu, testing: &super::super::testing::Controls) -> Vec<u8> {
+fn pixels(menu: &Menu, testing: &super::super::testing::Controls, skip_battles: bool) -> Vec<u8> {
     let mut rgba = [13, 20, 32, 250].repeat((WIDTH * HEIGHT) as usize);
     let white = [226, 235, 246, 255];
     let muted = [154, 174, 194, 255];
     let accent = [104, 223, 200, 255];
     text(&mut rgba, 24, 20, "SYLVARANT LOCATIONS", accent);
-    text(
-        &mut rgba,
-        24,
-        45,
-        "TOWNS / STARTS / ENDS - BATTLES SKIPPED",
-        white,
-    );
+    text(&mut rgba, 24, 45, "TOWNS / STARTS / ENDS", white);
     text(
         &mut rgba,
         24,
@@ -236,13 +248,29 @@ fn pixels(menu: &Menu, testing: &super::super::testing::Controls) -> Vec<u8> {
     .enumerate()
     {
         let left = 16 + index as u32 * ((WIDTH - 32) / 3);
-        for y in BUTTON_TOP..HEIGHT - 8 {
+        for y in BUTTON_TOP..BUTTON_TOP + BUTTON_HEIGHT {
             for x in left..left + (WIDTH - 32) / 3 - 4 {
                 put(&mut rgba, x, y, [32, 69, 80, 255]);
             }
         }
         text(&mut rgba, left + 8, BUTTON_TOP + 5, label, accent);
     }
+    for y in BATTLE_TOP..BATTLE_TOP + BUTTON_HEIGHT {
+        for x in 16..WIDTH - 16 {
+            put(&mut rgba, x, y, [32, 69, 80, 255]);
+        }
+    }
+    text(
+        &mut rgba,
+        24,
+        BATTLE_TOP + 5,
+        if skip_battles {
+            "B SKIP BATTLES: ON"
+        } else {
+            "B SKIP BATTLES: OFF"
+        },
+        accent,
+    );
     rgba
 }
 

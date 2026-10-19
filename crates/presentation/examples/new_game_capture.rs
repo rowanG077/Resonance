@@ -1,36 +1,35 @@
-//! Exercise the normal New Game handoff without a window or audio device.
-fn main() -> anyhow::Result<()> {
-    let output = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "local/native/new-game-development".into());
-    let assets = std::env::args()
-        .nth(2)
-        .unwrap_or_else(|| "local/cooked".into());
-    let mode = std::env::args().nth(3).unwrap_or_else(|| "keyboard".into());
-    if mode == "exploration" {
-        let replay = std::env::args()
-            .nth(4)
-            .ok_or_else(|| anyhow::anyhow!("REPLAY.json required"))?;
-        return resonance_presentation::record_new_game_exploration(
-            std::path::Path::new(&assets),
-            std::path::Path::new(&output),
-            &serde_json::from_slice(&std::fs::read(replay)?)?,
-        );
+//! Run a semantic scenario from the normal New Game entry without output devices.
+use anyhow::{Context, Result, ensure};
+use resonance_presentation::{CheckpointRecordingOptions, record_new_game};
+use std::path::PathBuf;
+
+fn main() -> Result<()> {
+    let mut positional = Vec::new();
+    let mut options = CheckpointRecordingOptions::default();
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--gamepad" => options.gamepad = true,
+            "--paranoid" => options.paranoid = true,
+            _ => {
+                ensure!(!arg.starts_with("--"), "unknown option {arg}");
+                positional.push(arg);
+            }
+        }
     }
-    anyhow::ensure!(
-        matches!(mode.as_str(), "keyboard" | "gamepad"),
-        "expected keyboard or gamepad"
-    );
-    let stop_at = std::env::args().nth(4);
-    let replay: Option<resonance_game::field::replay::InputReplay> = std::env::args()
-        .nth(5)
-        .map(|path| -> anyhow::Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
-        .transpose()?;
-    resonance_presentation::record_new_game_until(
-        std::path::Path::new(&assets),
-        std::path::Path::new(&output),
-        mode == "gamepad",
-        stop_at.as_deref(),
-        replay.as_ref(),
+    let mut args = positional.into_iter();
+    let spec = args
+        .next()
+        .context("REPLAY.json OUTPUT [COOKED_ROOT] [WIDTHxHEIGHT] [--gamepad] [--paranoid]")?;
+    let output = PathBuf::from(args.next().context("OUTPUT")?);
+    let assets = PathBuf::from(args.next().unwrap_or_else(|| "local/all-assets".into()));
+    if let Some(resolution) = args.next() {
+        options.resolution = resolution.parse().map_err(anyhow::Error::msg)?;
+    }
+    ensure!(args.next().is_none(), "unexpected scenario argument");
+    record_new_game(
+        &assets,
+        &output,
+        &serde_json::from_slice(&std::fs::read(spec)?)?,
+        options,
     )
 }

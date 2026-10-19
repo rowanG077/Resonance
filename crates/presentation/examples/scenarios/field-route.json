@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "steps": [
+    {"do":"wait", "until":{"kind":"field", "map_id":332, "free_control":true, "story":2500}, "max_updates":1},
+    {"do":"wait", "until":{"kind":"save_point"}, "max_updates":1},
+    {"do":"capture", "name":"school-start"},
+    {"do":"wait", "until":{"kind":"field", "map_id":332, "free_control":true, "max_x":1800}, "keys":["left"], "max_updates":600},
+    {"do":"wait", "until":{"kind":"field", "map_id":330, "free_control":true}, "keys":["down"], "max_updates":1200},
+    {"do":"capture", "name":"village"},
+    {"do":"wait", "until":{"kind":"field", "map_id":332, "free_control":true}, "keys":["up"], "max_updates":1200},
+    {"do":"capture", "name":"school-returned"}
+  ]
+}

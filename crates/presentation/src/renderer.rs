@@ -1,10 +1,21 @@
 //! Scheduling and draw configuration for Resonance's authored shaders.
 use bevy::{
+    camera::CameraOutputMode,
     core_pipeline::schedule::{Core2d, Core3d},
     ecs::schedule::{ScheduleLabel, SingleThreadedExecutor},
     light::cluster::{ClusterConfig, GlobalClusterSettings},
     prelude::*,
-    render::{Render, RenderApp, renderer::RenderGraph, view::NoIndirectDrawing},
+    render::{
+        Render, RenderApp, render_resource::BlendState, renderer::RenderGraph,
+        view::NoIndirectDrawing,
+    },
+};
+
+// Later cameras default to alpha blending. A completed scene must be copied
+// without applying its retained transparency a second time.
+pub(super) const COMPOSITED_OUTPUT: CameraOutputMode = CameraOutputMode::Write {
+    blend_state: Some(BlendState::REPLACE),
+    clear_color: ClearColorConfig::Default,
 };
 
 pub(super) fn configure(app: &mut App) {
@@ -46,15 +57,21 @@ pub(super) fn configure(app: &mut App) {
             .set_executor(SingleThreadedExecutor::new());
     }
     app.add_systems(Startup, unlit_settings)
-        .add_systems(PostStartup, skip_scene_output)
+        .add_systems(PostStartup, scene_output)
         .add_systems(Update, unlit_views);
 }
 
-fn skip_scene_output(mut cameras: Query<&mut Camera, With<crate::FieldCamera>>) {
+fn scene_output(
+    mut cameras: Query<(&mut Camera, Has<crate::FieldCamera>), crate::FieldCameraFilter>,
+) {
     // The UI camera shares the scene's main textures and publishes the complete
-    // composition afterward. Avoid publishing the intermediate scene too.
-    for mut camera in &mut cameras {
-        camera.output_mode = bevy::camera::CameraOutputMode::Skip;
+    // composition afterward. Copy it without blending its retained alpha again.
+    for (mut camera, is_scene) in &mut cameras {
+        camera.output_mode = if is_scene {
+            CameraOutputMode::Skip
+        } else {
+            COMPOSITED_OUTPUT
+        };
     }
 }
 

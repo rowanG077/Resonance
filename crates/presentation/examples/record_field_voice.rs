@@ -18,7 +18,7 @@ fn main() -> Result<()> {
         340,
         Path::new(&output),
         frames,
-        &[(0, AudioCommand::Voice(voice))],
+        &[(0, AudioCommand::voice(voice))],
         true,
         [127, 127, volume],
     )?;

@@ -54,24 +54,13 @@ impl Preferences {
             *settings = self.settings.clone();
             settings.battle_rank = rank;
         };
-        let apply_menu = |menu: &mut resonance_game::menu::Menu| {
-            if let Some(checkpoint) = &mut menu.checkpoint {
-                apply(&mut checkpoint.progress.party.settings.preferences);
-            }
-        };
-        if let Some(party) = &mut session.field.events.world.party {
+        if let Some(party) = &mut session.events_mut().world.party {
             apply(&mut party.settings.preferences);
         }
-        if let Some(menu) = &mut session.field.menu {
-            apply_menu(menu);
-        }
-        if let Some(scene) = &mut session.overworld {
-            if let Some(party) = &mut scene.session.events.world.party {
-                apply(&mut party.settings.preferences);
-            }
-            if let Some(menu) = &mut scene.session.menu {
-                apply_menu(menu);
-            }
+        if let Some(menu) = session.menu_mut()
+            && let Some(checkpoint) = &mut menu.checkpoint
+        {
+            apply(&mut checkpoint.progress_mut().party.settings.preferences);
         }
     }
 }
