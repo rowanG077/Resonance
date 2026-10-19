@@ -125,26 +125,10 @@ fn policies() -> BTreeMap<u16, Policy> {
         (15, Effect::Buff(Buff::Flare), false),
         (16, Effect::Buff(Buff::Guard), false),
         (17, Effect::Buff(Buff::Acuity), false),
-        (
-            18,
-            Effect::Buff(Buff::PhysicalAilmentGuard { persistent: true }),
-            false,
-        ),
-        (
-            19,
-            Effect::Buff(Buff::PhysicalAilmentGuard { persistent: false }),
-            false,
-        ),
-        (
-            20,
-            Effect::Buff(Buff::MagicalAilmentGuard { persistent: true }),
-            false,
-        ),
-        (
-            21,
-            Effect::Buff(Buff::MagicalAilmentGuard { persistent: false }),
-            false,
-        ),
+        (18, Effect::Buff(Buff::PhysicalAilmentGuard), false),
+        (19, Effect::Buff(Buff::PhysicalAilmentGuard), false),
+        (20, Effect::Buff(Buff::MagicalAilmentGuard), false),
+        (21, Effect::Buff(Buff::MagicalAilmentGuard), false),
         (37, Scan, false),
         (38, AllDivide, false),
         (39, Hourglass, false),
@@ -583,7 +567,9 @@ fn preflight_faults_cancel_once_without_effect_or_inventory_mutation() {
         let mut storage = Storage::new(1, 1);
         before_release(&mut battle, &mut storage, request(1, 0));
         storage.inventory.clear();
-        battle.begin_hurt(ActorId(2), 1, &mut vec![]);
+        battle.actors[2].movement.forward = 1.;
+        battle.actors[2].movement.direction = [1., 0., 0.];
+        let later_actor_position = battle.actors[2].position;
         let hp_tp: Vec<_> = battle
             .actors
             .iter()
@@ -614,7 +600,7 @@ fn preflight_faults_cancel_once_without_effect_or_inventory_mutation() {
         if paranoid {
             assert!(battle.update(BattleInput::default(), &mut storage).is_err());
         } else {
-            assert_eq!(battle.activity(ActorId(2)), Activity::Idle);
+            assert_ne!(battle.actors[2].position, later_actor_position);
             for _ in 0..3 {
                 step(&mut battle, &mut storage);
             }
@@ -956,7 +942,11 @@ fn bottles_and_quartz_apply_named_effects_and_record_the_recipient() {
 #[test]
 fn duration_extension_belongs_to_the_buff_recipient() {
     // The actual recipient carries the shared prepared EX118 trait.
-    for item in [14, 19, 48] {
+    for (item, condition) in [
+        (14, Condition::Flare),
+        (19, Condition::PhysicalProtection),
+        (48, Condition::Quartz),
+    ] {
         for (user_compound, target_compound) in
             [(false, false), (true, false), (false, true), (true, true)]
         {
@@ -975,15 +965,16 @@ fn duration_extension_belongs_to_the_buff_recipient() {
             let mut storage = Storage::new(item, 1);
             before_release(&mut battle, &mut storage, request(item, 1));
             step(&mut battle, &mut storage);
-            let condition = match item {
-                14 => Condition::Flare,
-                19 => Condition::PhysicalProtection,
-                _ => Condition::Quartz,
+            assert!(battle.actors[1].conditions.effective().contains(condition));
+            let duration = match condition {
+                Condition::PhysicalProtection => None,
+                _ => Some(1200),
             };
-            let duration = if item == 19 { 900 } else { 1200 };
             assert_eq!(
                 battle.actors[1].conditions.remaining(condition),
-                Some(duration + if target_compound { duration / 4 } else { 0 } - 1)
+                duration.map(|duration| {
+                    duration + if target_compound { duration / 4 } else { 0 } - 1
+                })
             );
         }
     }

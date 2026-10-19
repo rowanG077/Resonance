@@ -21,6 +21,7 @@ pub fn apply(
     actor.movement.flying = profile.traits.flying;
     actor.movement.fixed_height = profile.traits.fixed_height;
     actor.movement.turning_disabled = profile.traits.turning_disabled;
+    actor.movement.steering.positioning_radius = profile.camera_category;
     actor.movement.steering.passes_allied_obstacles = profile.traits.passes_allied_obstacles;
     actor.movement.steering.passable_for_allies = profile.traits.passable_for_allies;
     actor.movement.steering.unrestricted_arena = profile.traits.unrestricted_arena;

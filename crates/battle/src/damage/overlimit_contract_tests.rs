@@ -139,13 +139,12 @@ fn active_contact_suppresses_automatic_guard_stagger_reaction_and_stun() {
         )
         .is_none()
     );
-    assert!(!crate::stun::roll(
-        &owner,
-        &target,
-        rule.reaction.stun_chance,
-        hit,
-        &mut random
-    ));
+    assert!(
+        !crate::stun::roll(&owner, &target, rule.reaction.stun_chance, hit, |_| Ok(
+            random.next_u16()
+        ))
+        .unwrap()
+    );
 
     assert!(target.time_stop == 0);
 }
@@ -195,11 +194,11 @@ fn large_absorption_heals_to_capacity_without_reaction_or_stun() {
     assert_eq!(hit.affinity, Affinity::Absorb);
     assert!(target.overlimit.is_active());
     assert!(hit.suppresses_reaction());
-    let before = target.reaction;
+    let before = target.reaction.clone();
     assert!(
         crate::reaction::respond(&owner, &mut target, rule.reaction, hit, [0.; 3], false).is_none()
     );
     assert_eq!(target.reaction, before);
 
-    assert!(!crate::stun::roll(&owner, &target, 255, hit, &mut random));
+    assert!(!crate::stun::roll(&owner, &target, 255, hit, |_| Ok(random.next_u16())).unwrap());
 }

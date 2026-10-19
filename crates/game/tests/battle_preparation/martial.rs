@@ -1,7 +1,11 @@
 use super::*;
 use resonance_battle::{Battle, Cue};
 
-fn encounter(character: u8, learned: &[u16]) -> Result<(Battle, resonance_battle::ActorId)> {
+fn encounter(
+    character: u8,
+    learned: &[u16],
+    overlimit: bool,
+) -> Result<(Battle, resonance_battle::ActorId)> {
     let mut fixture = crate::all_party_encounter::ColdEncounter::load()?;
     let mut party = resonance_events::party::Party::new(&fixture.session, Default::default())?;
     party.formation = vec![character];
@@ -20,17 +24,13 @@ fn encounter(character: u8, learned: &[u16]) -> Result<(Battle, resonance_battle
     member.shortcuts[0] = learned.first().copied().unwrap_or(0);
     member.base_stats[0] = 4096;
     member.hp = 4096;
+    member.overlimit = if overlimit { 100 } else { 0 };
     let (_, prepared) = fixture.prepare(&party)?;
     let owner = prepared.results.actors[0].0;
     let mut battle = prepared.core;
     battle.set_diagnostics(resonance_content::diagnostics::Diagnostics::new(true));
-    for _ in 0..240 {
-        if battle.phase() != resonance_battle::BattlePhase::Entry {
-            return Ok((battle, owner));
-        }
-        battle.step(BattleInput::default())?;
-    }
-    bail!("entry did not complete")
+    enter_battle(&mut battle)?;
+    Ok((battle, owner))
 }
 
 #[path = "martial/attached.rs"]

@@ -33,12 +33,15 @@ pub(crate) fn load(
 pub(crate) fn falcon<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>(
     resources: &mut super::encounter::resources::Resources<'_, S>,
     attack: &mut resonance_battle::PreparedAttack,
+    model: &resonance_battle::ModelDefinition,
 ) -> Result<()> {
     use resonance_battle::{AttackEvent, AttackOrigin, EffectAppearance, SpellCamera, StageTint};
     const CATALOGUE: u16 = 228;
     const LLOYD: u8 = 1;
-    const SWORD_APPEARS: u16 = 27;
-    const SWORD_RESTORES: u16 = 306;
+    const SWORD_APPEARS: u16 = 25;
+    const SWORD_RESTORES: u16 = 304;
+    const EFFECT_HOLD_START: u16 = 141;
+    const EFFECT_HOLD_DURATION: u16 = 32;
     const PORTRAIT_START: u16 = 142;
     const PORTRAIT_DURATION: u16 = 64;
 
@@ -78,12 +81,16 @@ pub(crate) fn falcon<S: FnMut(super::voice::Sound) -> Result<Option<resonance_ba
         ),
         (
             0,
-            AttackEvent::ActionEffect {
+            AttackEvent::InitializedActionEffect {
                 appearance: effect(1),
                 origin: AttackOrigin::ActorRoot,
             },
         ),
         (SWORD_APPEARS, AttackEvent::TemporaryWeapons(weapons)),
+        (
+            EFFECT_HOLD_START,
+            AttackEvent::HoldEffects(EFFECT_HOLD_DURATION),
+        ),
         (
             SWORD_APPEARS,
             AttackEvent::WeaponVisibility(vec![(1, false)]),
@@ -97,12 +104,25 @@ pub(crate) fn falcon<S: FnMut(super::voice::Sound) -> Result<Option<resonance_ba
         ),
         (SWORD_RESTORES, AttackEvent::RestoreWeapons),
     ]);
-    for at in [SWORD_APPEARS, SWORD_RESTORES] {
+    for (at, name) in [
+        (SWORD_APPEARS, "kk00"),
+        (SWORD_RESTORES, "kk00"),
+        (SWORD_RESTORES, "kk01"),
+    ] {
+        let bone = model
+            .skeleton
+            .bones
+            .iter()
+            .position(|bone| bone.name == name)
+            .with_context(|| format!("Falcon's Crest is missing sword attachment {name}"))?;
         attack.events.push((
             at,
             AttackEvent::EffectAt {
                 appearance: effect(2),
-                origin: AttackOrigin::ActorAim,
+                origin: AttackOrigin::Bone(resonance_battle::MeleeAnchor {
+                    resource: model.resource,
+                    bone: u16::try_from(bone)?,
+                }),
                 heading: None,
                 scale: Some(1.),
                 follow: false,

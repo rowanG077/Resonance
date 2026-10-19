@@ -20,11 +20,71 @@ fn camera(actors: &[Actor], auto_zoom: bool) -> Camera {
             leader: ActorId(0),
             stage_pitch: 0.,
             auto_zoom,
+            yaw_limits: None,
         },
         actors,
         ActorId(u8::from(actors.len() > 1)),
     )
     .unwrap()
+}
+
+#[test]
+fn arena_yaw_limits_keep_entry_tracking_and_selection_in_front_of_wall() -> Result<()> {
+    let mut actors = actors();
+    actors.truncate(2);
+    actors[0].position = [-300., 0., 0.];
+    actors[1].position = [850., 0., 0.];
+    let mut camera = Camera::new(
+        CameraDefinition {
+            leader: ActorId(0),
+            stage_pitch: 0.,
+            auto_zoom: true,
+            yaw_limits: Some([102., 256.]),
+        },
+        &actors,
+        ActorId(1),
+    )?;
+    assert_eq!(camera.pose.yaw, 102.);
+    for entry in 0..=crate::prepare::ENTRY_PAN_UPDATES {
+        camera.frame_entry(entry);
+        assert!(camera.frame().eye[0] < camera.frame().focus[0]);
+    }
+    for control in [Control::Manual, Control::Auto] {
+        actors[0].control = control;
+        for step in 0..720 {
+            let angle = (step as f32).to_radians();
+            actors[0].position = [500. * angle.cos(), 0., 500. * angle.sin()];
+            let update = if step % 60 < 10 {
+                Update::Selecting(ActorId(1))
+            } else {
+                Update::Tracking
+            };
+            camera.step(&actors, ActorId(1), false, update)?;
+            assert!((102. ..=256.).contains(&camera.pose.yaw));
+            assert!(camera.frame().eye[0] < actors[1].position[0]);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn controlled_camera_initializes_before_first_tracking_update() -> Result<()> {
+    let mut actors = actors();
+    actors.truncate(2);
+    actors[0].position = [-300., 0., 0.];
+    actors[1].position = [350., 0., 0.];
+    let mut camera = camera(&actors, true);
+    let observed_heights = [
+        575.79181, 611.79181, 640.5918, 663.6318, 682.0638, 695.79181,
+    ];
+    for (update, expected) in observed_heights.into_iter().enumerate() {
+        if update != 0 {
+            camera.step(&actors, ActorId(1), false, Update::Tracking)?;
+        }
+        assert!((camera.frame().eye[1] - expected).abs() < 0.003);
+        assert_eq!(camera.frame().focus, [25., 120., 0.]);
+    }
+    Ok(())
 }
 
 #[test]
@@ -58,17 +118,19 @@ fn controlled_camera_matches_recorded_combat_updates() -> Result<()> {
                 leader: ActorId(0),
                 stage_pitch: recording.stage_pitch,
                 auto_zoom: recording.auto_zoom,
+                yaw_limits: None,
             },
             &actors,
             ActorId(1),
         )?;
         camera.pose.radius = recording.radius;
         camera.pose.yaw = recording.yaw;
+        camera.pose.eye = controlled_eye(camera.pose);
         for (tick, sample) in recording.samples.iter().enumerate() {
             for (actor, &position) in actors.iter_mut().zip(&sample.positions) {
                 actor.position = position;
             }
-            camera.step(&actors, ActorId(1), Update::Tracking)?;
+            camera.step(&actors, ActorId(1), false, Update::Tracking)?;
             for (actual, expected) in camera
                 .pose
                 .eye
@@ -92,11 +154,11 @@ fn selection_uses_explicit_target_while_gameplay_is_held() -> Result<()> {
     let actors = actors();
     let mut camera = camera(&actors, false);
     let before = camera.pose;
-    camera.step(&actors, ActorId(1), Update::Held)?;
+    camera.step(&actors, ActorId(1), false, Update::Held)?;
     assert_eq!(camera.pose, before);
-    camera.step(&actors, ActorId(1), Update::Selecting(ActorId(2)))?;
+    camera.step(&actors, ActorId(1), false, Update::Selecting(ActorId(2)))?;
     assert!(camera.pose.focus[0] < before.focus[0]);
-    camera.step(&actors, ActorId(1), Update::Tracking)?;
+    camera.step(&actors, ActorId(1), false, Update::Tracking)?;
     Ok(())
 }
 
@@ -106,18 +168,18 @@ fn controlled_camera_keeps_its_viewing_side_and_catches_up_to_the_combat_line() 
     let mut camera = camera(&actors, true);
     let initial_yaw = camera.pose.yaw;
     actors[1].position = [-400., 0., 0.];
-    camera.step(&actors, ActorId(1), Update::Tracking)?;
+    camera.step(&actors, ActorId(1), false, Update::Tracking)?;
     assert_eq!(
         camera.pose.yaw, initial_yaw,
         "crossing must not orbit the camera"
     );
 
     actors[1].position = [400., 0., 400.];
-    camera.step(&actors, ActorId(1), Update::Tracking)?;
+    camera.step(&actors, ActorId(1), false, Update::Tracking)?;
     assert!((camera.pose.yaw - initial_yaw) > 1.);
     assert!((camera.pose.yaw - initial_yaw) < 5.);
     for _ in 0..90 {
-        camera.step(&actors, ActorId(1), Update::Tracking)?;
+        camera.step(&actors, ActorId(1), false, Update::Tracking)?;
     }
     assert!((camera.pose.yaw - (VIEW_ANGLE + 45.)).abs() < 15.);
     Ok(())
@@ -128,8 +190,10 @@ fn retargeting_pans_without_a_selection_or_tracking_jump() -> Result<()> {
     let actors = actors();
     for auto_zoom in [false, true] {
         let mut camera = camera(&actors, auto_zoom);
+        // Retarget an already settled view; entry easing is checked separately.
+        camera.pose.eye = controlled_eye(camera.pose);
         let before = camera.pose;
-        camera.step(&actors, ActorId(2), Update::Tracking)?;
+        camera.step(&actors, ActorId(2), true, Update::Tracking)?;
         assert!(distance::length(sub(camera.pose.focus, before.focus)) <= MAXIMUM_FOCUS_SPEED);
         assert!(distance::length(sub(camera.pose.eye, before.eye)) <= MAXIMUM_FOCUS_SPEED);
 
@@ -137,9 +201,73 @@ fn retargeting_pans_without_a_selection_or_tracking_jump() -> Result<()> {
         // ordinary tracking; changing mode must not introduce a vertical cut.
         for update in [Update::Selecting(ActorId(1)), Update::Tracking] {
             let before = camera.pose;
-            camera.step(&actors, ActorId(1), update)?;
+            camera.step(&actors, ActorId(1), false, update)?;
             assert!(distance::length(sub(camera.pose.focus, before.focus)) <= MAXIMUM_FOCUS_SPEED);
             assert!((camera.pose.eye[1] - before.eye[1]).abs() < 40.);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn leader_death_and_revival_ease_between_controlled_and_group_views() -> Result<()> {
+    for auto_zoom in [false, true] {
+        let mut subjects = actors();
+        let mut companion = subjects[0].clone();
+        companion.control = Control::Auto;
+        companion.position = [-2000., 0., 0.];
+        subjects.push(companion);
+        let mut battle = crate::PreparedBattle::new(
+            subjects
+                .into_iter()
+                .map(|actor| (actor, Default::default()))
+                .collect(),
+            Default::default(),
+            1,
+        )?
+        .with_camera(CameraDefinition {
+            leader: ActorId(0),
+            stage_pitch: 0.,
+            auto_zoom,
+            yaw_limits: None,
+        })?
+        .finish()?;
+        battle.set_decision_target(ActorId(0), ActorId(1))?;
+        for _ in 0..120 {
+            battle.step(Default::default())?;
+        }
+        let controlled = battle.frame(vec![], None).camera.unwrap();
+        battle.actors[0].hp = 0;
+        battle.enter_death(ActorId(0), &mut vec![]);
+        let group = camera(battle.actors(), auto_zoom).frame();
+        let maximum_eye_step = distance::length(sub(group.eye, controlled.eye)) * 0.1;
+        for reviving in [false, true] {
+            if reviving {
+                crate::tests::revive(&mut battle, ActorId(0), 100, &mut vec![])?;
+            }
+            let mut previous = battle.frame(vec![], None).camera.unwrap();
+            let held = battle.step(crate::BattleInput {
+                paused: true,
+                ..Default::default()
+            })?;
+            assert_eq!(held.camera, Some(previous));
+            for update in 0..120 {
+                let frame = battle.step(Default::default())?;
+                let current = frame.camera.unwrap();
+                let eye_step = distance::length(sub(current.eye, previous.eye));
+                assert!(
+                    eye_step < maximum_eye_step,
+                    "auto_zoom={auto_zoom}, reviving={reviving}, update={update}: eye jumped {eye_step}"
+                );
+                assert!(
+                    distance::length(sub(current.focus, previous.focus))
+                        <= MAXIMUM_FOCUS_SPEED + 0.001
+                );
+                previous = current;
+            }
+            let destination = if reviving { controlled } else { group };
+            assert!(distance::length(sub(previous.eye, destination.eye)) < 1.);
+            assert_eq!(battle.phase(), crate::BattlePhase::Combat);
         }
     }
     Ok(())
@@ -277,6 +405,7 @@ fn active_scene_camera_starts_at_initialization_holds_then_restores_tracking() -
         leader: ActorId(0),
         stage_pitch: 0.,
         auto_zoom: true,
+        yaw_limits: None,
     })?
     .finish()?;
     let framing = SpellCamera {
@@ -312,18 +441,18 @@ fn active_scene_camera_starts_at_initialization_holds_then_restores_tracking() -
     let camera = battle.camera.as_mut().unwrap();
     assert_eq!(camera.scene, Some(framing));
     let held = camera.frame();
-    camera.step(&actors, ActorId(1), Update::Held)?;
+    camera.step(&actors, ActorId(1), false, Update::Held)?;
     assert_eq!(camera.frame(), held);
     for _ in 0..60 {
-        camera.step(&actors, ActorId(1), Update::Spell(ActorId(1)))?;
+        camera.step(&actors, ActorId(1), false, Update::Spell(ActorId(1)))?;
     }
     assert_eq!(camera.scene, Some(framing));
     for _ in 0..60 {
-        camera.step(&actors, ActorId(1), Update::Tracking)?;
+        camera.step(&actors, ActorId(1), false, Update::Tracking)?;
     }
     assert_eq!((camera.pose.radius, camera.pose.pitch), (2450., 12.));
     assert_eq!(camera.scene.unwrap().duration, 110);
-    camera.step(&actors, ActorId(1), Update::Selecting(ActorId(1)))?;
+    camera.step(&actors, ActorId(1), false, Update::Selecting(ActorId(1)))?;
     assert_eq!(camera.scene.unwrap().duration, 110);
     camera.request_scene(SpellCamera {
         bounds: CameraBounds {
@@ -333,16 +462,56 @@ fn active_scene_camera_starts_at_initialization_holds_then_restores_tracking() -
         duration: 20,
     });
     for _ in 0..110 {
-        camera.step(&actors, ActorId(1), Update::Tracking)?;
+        camera.step(&actors, ActorId(1), false, Update::Tracking)?;
     }
     assert_eq!((camera.pose.radius, camera.pose.pitch), (2600., 13.));
     assert_eq!(camera.scene.unwrap().duration, 0);
     for _ in 0..120 {
-        camera.step(&actors, ActorId(1), Update::Tracking)?;
+        camera.step(&actors, ActorId(1), false, Update::Tracking)?;
     }
     assert!(camera.scene.is_none());
     assert_eq!((camera.pose.radius, camera.pose.pitch), (2050., 8.));
     camera.request_scene(framing);
     assert_eq!(camera.scene, Some(framing));
+    Ok(())
+}
+
+#[test]
+fn target_settling_waits_for_actor_updates_and_then_resumes_normal_tracking() -> Result<()> {
+    let mut subjects = actors();
+    subjects[1].position = [100., 0., 0.];
+    subjects[2].position = [200., 0., 0.];
+    let mut battle = crate::PreparedBattle::new(
+        subjects
+            .into_iter()
+            .map(|actor| (actor, Default::default()))
+            .collect(),
+        Default::default(),
+        1,
+    )?
+    .with_camera(CameraDefinition {
+        leader: ActorId(0),
+        stage_pitch: 0.,
+        auto_zoom: true,
+        yaw_limits: None,
+    })?
+    .finish()?;
+    battle.set_decision_target(ActorId(0), ActorId(2))?;
+    battle.camera.as_mut().unwrap().pose.focus = [75., FOCUS_HEIGHT, 0.];
+    for _ in 0..150 {
+        battle.step(crate::BattleInput {
+            paused: true,
+            ..Default::default()
+        })?;
+    }
+    assert_eq!(battle.camera.as_ref().unwrap().pose.focus[0], 75.);
+    battle.step(Default::default())?;
+    assert_eq!(battle.camera.as_ref().unwrap().pose.focus[0], 81.25);
+    for _ in 1..crate::state::TARGET_SETTLE_UPDATES {
+        battle.step(Default::default())?;
+    }
+    battle.camera.as_mut().unwrap().pose.focus = [75., FOCUS_HEIGHT, 0.];
+    battle.step(Default::default())?;
+    assert_eq!(battle.camera.as_ref().unwrap().pose.focus[0], 85.375);
     Ok(())
 }

@@ -1,8 +1,11 @@
 //! Resolve the Defense System's component identities and body attachments once.
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
-    ActorId, DefenseArm, DefenseSystemDefinition, MeleeAnchor, ModelDefinition,
+    ActorId, DefenseArm, DefenseSystemDefinition, MeleeAnchor, ModelDefinition, Pose,
 };
+
+/// Keep the door behind the combatants instead of letting the view pass through it.
+pub const CAMERA_YAW_LIMITS: [f32; 2] = [102., 256.];
 
 const CORE: u8 = 211;
 const ORBIT: u8 = 212;
@@ -11,6 +14,8 @@ const REPAIR: u8 = 214;
 const ARM_BONES: [&str; 4] = ["PA00_Arm_R", "PA01_Arm_R", "PA02_Arm_L", "PA03_Arm_L"];
 const DEPLOYMENT_CLIP: u16 = 32;
 const DEPLOYMENT_TICKS: u16 = 120;
+const DEPLOYMENT_RATE: f32 = 0.175;
+const DEPLOYMENT_BLEND: u8 = 4;
 
 pub fn initial_position(enemy: u8) -> Option<[f32; 3]> {
     match enemy {
@@ -56,6 +61,10 @@ pub fn definition(
     }
     Ok(DefenseSystemDefinition {
         core: cores[0],
+        repair: (
+            instances(REPAIR).next().unwrap(),
+            initial_position(REPAIR).unwrap(),
+        ),
         components: members
             .iter()
             .filter_map(|&(actor, enemy)| matches!(enemy, ORBIT | ARM | REPAIR).then_some(actor))
@@ -66,5 +75,10 @@ pub fn definition(
         deployment: super::model::motion(Some(core_model), DEPLOYMENT_CLIP)
             .context("Defense System deployment motion is not prepared")?,
         deployment_ticks: DEPLOYMENT_TICKS,
+        deployment_pose: Pose {
+            rate: DEPLOYMENT_RATE,
+            blend: DEPLOYMENT_BLEND,
+            ..Default::default()
+        },
     })
 }

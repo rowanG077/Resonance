@@ -215,6 +215,7 @@ fn results_query_and_reward_grade_read_effective_poison_but_export_reads_base() 
             character,
             pose: Some(0),
             group: None,
+            voice: None,
         });
         f.candidate.construct_rewards(battle)?;
         assert_eq!(f.candidate.results.as_ref().unwrap().grade, grade);

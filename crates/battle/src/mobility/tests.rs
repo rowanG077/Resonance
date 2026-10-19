@@ -96,6 +96,8 @@ fn jump_and_landing_recover_without_artwork() {
             battle.step(input([0, 80], false, 0)).unwrap();
         }
         assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
+        assert_eq!(battle.actors[0].position[1], 0.);
+        battle.step(BattleInput::default()).unwrap();
         assert_eq!(battle.actors[0].position[1], JUMP_SPEED);
         let airborne = battle.actors[0].position;
         battle
@@ -202,6 +204,7 @@ fn changing_control_mode_preserves_active_jump_movement() -> Result<()> {
         let mut prepared = prepared();
         let actors = &mut prepared.resources.actor_setup;
         actors[0].companion = Some(crate::CompanionDefinition {
+            normal_attack_opening: false,
             initial_policy: [0; 3],
             defaults: [1, 5, 2],
             limits: [crate::PolicyLimits::default(); 9],

@@ -19,6 +19,8 @@ pub struct CameraDefinition {
     pub stage_pitch: f32,
     /// Adjust distance to the leader and target; otherwise use fixed zoom.
     pub auto_zoom: bool,
+    /// Restrict ordinary tracking to an unobstructed side of the arena.
+    pub yaw_limits: Option<[f32; 2]>,
 }
 
 /// Camera updates are independent of the actor clock during entry and selection.
@@ -42,6 +44,8 @@ const FOCUS_HEIGHT: f32 = 120.;
 const BASE_PITCH: f32 = 8.;
 const SCENE_PITCH_SPEED: f32 = 0.375;
 const EYE_HEIGHT: f32 = 240.;
+const EYE_SPEED: f32 = 12.;
+const EYE_RESPONSE: f32 = 0.2;
 const VIEW_ANGLE: f32 = 85.;
 const MINIMUM_TURN_SPEED: f32 = 0.1;
 const FINE_TURN_ANGLE: f32 = 15.;
@@ -50,6 +54,7 @@ const TURN_RESPONSE: f32 = 1. / 80.;
 const WIDE_TURN_RESPONSE: f32 = 1. / 30.;
 const FOCUS_SPEED: f32 = 6.;
 const FOCUS_RESPONSE: f32 = 0.175;
+const TARGET_SETTLE_RESPONSE: f32 = 0.01;
 const MAXIMUM_FOCUS_SPEED: f32 = 25.;
 const SELECTION_RADIUS: f32 = 1900.;
 const SELECTION_PITCH: f32 = 7.5;
@@ -90,6 +95,53 @@ struct SummonFocus {
     remaining: u16,
 }
 
+#[cfg(feature = "test-support")]
+impl crate::Battle {
+    /// Restore an ordinary camera at the recorded idle input boundary.
+    pub fn restore_fixture_camera(
+        &mut self,
+        pose: CameraPose,
+        pending_radius: f32,
+        target_settle_remaining: u16,
+    ) -> Result<CameraPose> {
+        ensure!(
+            self.phase() == crate::BattlePhase::Combat,
+            "fixture camera requires a combat input boundary"
+        );
+        ensure!(
+            pose.eye
+                .into_iter()
+                .chain(pose.focus)
+                .chain([pose.pitch, pose.yaw, pose.radius, pending_radius])
+                .all(f32::is_finite)
+                && pose.radius > 0.
+                && pending_radius > 0.,
+            "invalid recorded camera"
+        );
+        let camera = self
+            .camera
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("fixture has no ordinary camera"))?;
+        ensure!(
+            camera.spell.is_none()
+                && camera.scene.is_none()
+                && camera.distance_override.is_none()
+                && camera.summon_focus.is_none()
+                && camera.result_tick == 0,
+            "fixture camera overlaps an active shot"
+        );
+        ensure!(
+            target_settle_remaining <= crate::state::TARGET_SETTLE_UPDATES,
+            "invalid recorded target settling interval"
+        );
+        self.runtime[camera.definition.leader.index()].target_settle_remaining =
+            target_settle_remaining;
+        camera.pose = pose;
+        camera.pending_radius = pending_radius;
+        Ok(camera.frame())
+    }
+}
+
 impl CameraPose {
     /// Rebuild all Cartesian coordinates from one current spherical pose.
     fn place_eye(&mut self) {
@@ -107,6 +159,14 @@ impl CameraPose {
 }
 
 impl Camera {
+    fn constrain_yaw(&mut self) {
+        if let Some([minimum, maximum]) = self.definition.yaw_limits {
+            let center = (minimum + maximum) * 0.5;
+            let yaw = center + (self.pose.yaw - center + 180.).rem_euclid(360.) - 180.;
+            self.pose.yaw = yaw.clamp(minimum, maximum);
+        }
+    }
+
     pub(crate) fn frame(&self) -> CameraPose {
         self.spell.as_ref().map_or(self.pose, spell::Shot::frame)
     }
@@ -119,6 +179,7 @@ impl Camera {
         self.pose.focus = [ENTRY_FOCUS_X * (1. - progress), FOCUS_HEIGHT, 0.];
         self.pose.pitch = BASE_PITCH + self.definition.stage_pitch;
         self.pose.yaw = VIEW_ANGLE;
+        self.constrain_yaw();
         self.pose.radius = ENTRY_RADIUS;
         self.pending_radius = ENTRY_RADIUS;
         let (sin, cos) = self.pose.yaw.to_radians().sin_cos();
@@ -146,6 +207,15 @@ impl Camera {
         ensure!(
             definition.stage_pitch.is_finite(),
             "invalid battle camera pitch"
+        );
+        ensure!(
+            definition.yaw_limits.is_none_or(|[minimum, maximum]| {
+                minimum.is_finite()
+                    && maximum.is_finite()
+                    && minimum <= maximum
+                    && maximum - minimum < 360.
+            }),
+            "invalid battle camera yaw limits"
         );
         let direction = sub(
             actors[target.index()].position,
@@ -186,17 +256,28 @@ impl Camera {
         let leader = &actors[camera.definition.leader.index()];
         camera.pose.focus =
             controlled_focus(leader, &actors[target.index()], camera.definition.auto_zoom);
-        if leader.control == Control::Auto || !leader.available() {
+        let automatic = leader.control == Control::Auto || !leader.available();
+        if automatic {
+            let subjects: Vec<_> = actors
+                .iter()
+                .filter(|actor| actor.available())
+                .map(Bounds::actor)
+                .collect();
             camera.pose.yaw = direction[2].atan2(direction[0]).to_degrees() + 90.;
-            camera.pose.focus = bounds_center(
-                &actors
-                    .iter()
-                    .filter(|actor| actor.available())
-                    .map(Bounds::actor)
-                    .collect::<Vec<_>>(),
-            );
+            camera.pose.focus = bounds_center(&subjects);
+            camera.pose.radius = camera
+                .fitted_radius(&subjects, camera.pose.focus)
+                .max(MINIMUM_RADIUS);
+            camera.constrain_yaw();
+            camera.pose.place_eye();
+        } else {
+            camera.constrain_yaw();
+            // Start at focus height; tracking begins on the next visit.
+            camera.pose.eye = controlled_eye(camera.pose);
+            camera.pose.eye[1] -= EYE_HEIGHT - FOCUS_HEIGHT;
         }
-        camera.step(actors, target, Update::Tracking)?;
+        camera.pending_radius = camera.pose.radius;
+        camera.validate_frame()?;
         Ok(camera)
     }
 
@@ -241,7 +322,13 @@ impl Camera {
         self.summon_focus = None;
     }
 
-    pub(crate) fn step(&mut self, actors: &[Actor], target: ActorId, update: Update) -> Result<()> {
+    pub(crate) fn step(
+        &mut self,
+        actors: &[Actor],
+        target: ActorId,
+        target_settling: bool,
+        update: Update,
+    ) -> Result<()> {
         if matches!(update, Update::Held) {
             return Ok(());
         }
@@ -279,7 +366,7 @@ impl Camera {
             base_pitch.max(bounds.minimum_elevation)
         });
         let leader = &actors[self.definition.leader.index()];
-        if matches!(update, Update::Tracking | Update::Selecting(_))
+        let eye = if matches!(update, Update::Tracking | Update::Selecting(_))
             && leader.control != Control::Auto
             && leader.available()
         {
@@ -317,8 +404,14 @@ impl Camera {
                 controlled_focus(leader, &actors[target.index()], self.definition.auto_zoom)
             };
             let focus_distance = distance::length(sub(focus, self.pose.focus));
-            let focus_speed =
-                (FOCUS_SPEED + FOCUS_RESPONSE * focus_distance).min(MAXIMUM_FOCUS_SPEED);
+            // A newly selected opponent gets a gentler pan while its actor-owned
+            // settling interval remains active. Selection holds that interval.
+            let response = if target_settling && selected.is_none() {
+                TARGET_SETTLE_RESPONSE
+            } else {
+                FOCUS_RESPONSE
+            };
+            let focus_speed = (FOCUS_SPEED + response * focus_distance).min(MAXIMUM_FOCUS_SPEED);
             approach_position(&mut self.pose.focus, focus, focus_speed);
             let desired_radius = distance_override
                 .unwrap_or_else(|| {
@@ -342,12 +435,8 @@ impl Camera {
             self.pose.radius += delta.clamp(-speed, speed);
             // Combat distance framing follows the preceding position sample.
             self.pending_radius = desired_radius;
-            let (sin, cos) = self.pose.yaw.to_radians().sin_cos();
-            self.pose.eye = [
-                self.pose.focus[0] + self.pose.radius * cos,
-                EYE_HEIGHT + self.pose.radius * self.pose.pitch.to_radians().sin(),
-                self.pose.focus[2] + self.pose.radius * sin,
-            ];
+            self.constrain_yaw();
+            controlled_eye(self.pose)
         } else {
             if matches!(update, Update::Tracking) {
                 let direction = sub(actors[target.index()].position, leader.position);
@@ -373,7 +462,8 @@ impl Camera {
                 return Ok(());
             }
             let focus = summon_focus.map_or_else(|| bounds_center(&subjects), |focus| focus.target);
-            let focus_step = (distance::length(sub(focus, self.pose.focus)) * RESPONSE).max(1.);
+            let focus_step = (distance::length(sub(focus, self.pose.focus)) * RESPONSE)
+                .clamp(1., MAXIMUM_FOCUS_SPEED);
             approach_position(&mut self.pose.focus, focus, focus_step);
             let pitch = (base_pitch
                 + if matches!(update, Update::Selecting(_)) {
@@ -392,16 +482,20 @@ impl Camera {
             let radius = summon_focus.map_or_else(
                 || {
                     distance_override
-                        .unwrap_or_else(|| self.fitted_radius(&subjects).max(MINIMUM_RADIUS))
+                        .unwrap_or_else(|| self.fitted_radius(&subjects, focus).max(MINIMUM_RADIUS))
                         .max(minimum_distance)
                 },
                 |focus| focus.distance,
             );
-            self.pose.radius =
-                radius.max(self.pose.radius + (radius - self.pose.radius) * RESPONSE);
-            self.pose.place_eye();
+            self.pose.radius += (radius - self.pose.radius) * RESPONSE;
             self.pending_radius = self.pose.radius;
-        }
+            self.constrain_yaw();
+            let mut desired = self.pose;
+            desired.place_eye();
+            desired.eye
+        };
+        let eye_speed = EYE_SPEED + EYE_RESPONSE * distance::length(sub(eye, self.pose.eye));
+        approach_position(&mut self.pose.eye, eye, eye_speed);
         if let Some(shot) = &mut self.spell
             && shot.return_to(self.pose)
         {
@@ -450,7 +544,7 @@ impl Camera {
         Ok(())
     }
 
-    fn fitted_radius(&self, subjects: &[Bounds]) -> f32 {
+    fn fitted_radius(&self, subjects: &[Bounds], focus: [f32; 3]) -> f32 {
         let (sin, cos) = self.pose.yaw.to_radians().sin_cos();
         let (pitch_sin, pitch_cos) = self.pose.pitch.to_radians().sin_cos();
         let right = [sin, 0., -cos];
@@ -468,7 +562,7 @@ impl Camera {
                         bounds.maximum[axis]
                     }
                 });
-                let offset = sub(point, self.pose.focus);
+                let offset = sub(point, focus);
                 let width = distance::dot(offset, right).abs();
                 let height = distance::dot(offset, up).abs();
                 let depth = distance::dot(offset, forward);
@@ -532,6 +626,15 @@ fn bounds_center(subjects: &[Bounds]) -> [f32; 3] {
         }
     }
     scale(add(minimum, maximum), 0.5)
+}
+
+fn controlled_eye(pose: CameraPose) -> [f32; 3] {
+    let (sin, cos) = pose.yaw.to_radians().sin_cos();
+    [
+        pose.focus[0] + pose.radius * cos,
+        EYE_HEIGHT + pose.radius * pose.pitch.to_radians().sin(),
+        pose.focus[2] + pose.radius * sin,
+    ]
 }
 
 fn controlled_focus(leader: &Actor, target: &Actor, auto_zoom: bool) -> [f32; 3] {

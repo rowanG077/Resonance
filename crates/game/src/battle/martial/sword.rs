@@ -1,6 +1,6 @@
 //! Martial projectiles retain the motion and impact feedback of each authored hit.
 use super::{ActionDefinition, Sound, Technique};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use resonance_battle::{
     ActionExecution, AttackEvent, AttackPose, EffectAppearance, HitShape, ModelDefinition,
     ProjectileContact, ProjectileContactFeedback, ProjectileDefinition,
@@ -26,48 +26,12 @@ impl Technique {
             .callback_hits
             .get(&1)
             .context("missing Lightning Blade follow-up hit")?;
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
-        const LIGHTNING_EFFECT: u16 = 75;
-        const RELEASE_AT: u16 = 34;
-        resources.effect(true, &[LIGHTNING_EFFECT])?;
-        let projectile = Arc::new(ProjectileDefinition {
-            lifetime: Some(20),
-            velocity: [0.; 3],
-            acceleration: [0.; 3],
-            offset: [0.; 3],
-            clamp_ground: true,
-            active: None,
-            birth: None,
-            motion: Default::default(),
-            effects: Default::default(),
-            contact: Some(ProjectileContact {
-                hit: crate::battle::hit::authored(hit, &recoil)?,
-                cooldown: hit.cooldown,
-                repeat_limit: 0,
-                radius: 40.,
-                height: 400.,
-                shape: HitShape::Cylinder,
-                offset: [0.; 3],
-                radius_growth: 0.,
-                height_growth: 0.,
-                survives_contact: true,
-                clashes: false,
-            }),
-        });
+        let follow_up = resources.lightning_blade_follow_up(hit, self.catalogue == 151)?;
         let mut action = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
         let ActionExecution::Attack(attack) = &mut action.execution else {
             unreachable!("martial preparation produces an attack")
         };
-        attack.events.push((
-            RELEASE_AT,
-            AttackEvent::ContactBurst {
-                definition: projectile,
-                appearance: EffectAppearance {
-                    resource: resources.techniques.resource,
-                    member: LIGHTNING_EFFECT,
-                },
-            },
-        ));
+        attack.events.push(follow_up);
         attack.events.sort_by_key(|(at, _)| *at);
         Ok(action)
     }
@@ -124,8 +88,18 @@ impl Technique {
                 .max()
                 .context("missing Rising Falcon dive contact")?;
             let landing_at = dive_at.max(contact_at) + 1;
-            // Landing terminates the dive, including its contact and collision bypass.
-            attack.events.retain(|(at, _)| *at < landing_at);
+            // Landing ends contact, while collision bypass keeps its authored lifetime.
+            attack.events.retain(|(at, event)| {
+                *at < landing_at || matches!(event, AttackEvent::PassThrough { enabled: false, .. })
+            });
+            for (at, event) in &mut attack.events {
+                if matches!(event, AttackEvent::PassThrough { enabled: false, .. }) {
+                    // The closing command's tick is the last bypassed update.
+                    *at = at
+                        .checked_add(1)
+                        .context("Rising Falcon bypass exceeds timeline")?;
+                }
+            }
             attack.events.push((
                 landing_at,
                 AttackEvent::Land {
@@ -135,7 +109,7 @@ impl Technique {
                         start: 0.,
                         end: None,
                         rate: 0.5,
-                        blend: 4,
+                        blend: 2,
                         repeat: false,
                     }),
                     effect: None,
@@ -143,6 +117,7 @@ impl Technique {
                     recovery_pose: Some(recovery_pose),
                 },
             ));
+            attack.events.sort_by_key(|(at, _)| *at);
             Ok(Arc::new(action))
         };
         let variants = [prepare(0)?, prepare(1)?];
@@ -180,7 +155,7 @@ impl Technique {
                 Event::Contact(_) => 232,
                 Event::AnimationRate(_) => match *at {
                     92 => 127,
-                    155 => 209,
+                    155 => 210,
                     _ => bail!("unexpected Falcon's Crest rate change"),
                 },
                 _ => match *at {
@@ -264,9 +239,65 @@ impl Technique {
                 .events
                 .push((at, AttackEvent::Projectile(projectile)));
         }
-        crate::battle::skill_scene::falcon(resources, attack)?;
+        crate::battle::skill_scene::falcon(resources, attack, &model)?;
         attack.events.sort_by_key(|(at, _)| *at);
         Ok(action)
+    }
+}
+
+impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
+    crate::battle::encounter::resources::Resources<'_, S>
+{
+    pub(crate) fn lightning_blade_follow_up(
+        &mut self,
+        hit: &ActionHit,
+        with_impact: bool,
+    ) -> Result<(u16, AttackEvent)> {
+        let recoil = crate::battle::recoil::Parameters::load(self.files)?;
+        const LIGHTNING_EFFECT: u16 = 75;
+        const IMPACT_EFFECT: u16 = 107;
+        const RELEASE_AT: u16 = 34;
+        self.effect(true, &[LIGHTNING_EFFECT])?;
+        if with_impact {
+            self.effect(true, &[IMPACT_EFFECT])?;
+        }
+        let projectile = Arc::new(ProjectileDefinition {
+            lifetime: Some(20),
+            velocity: [0.; 3],
+            acceleration: [0.; 3],
+            offset: [0.; 3],
+            clamp_ground: true,
+            active: None,
+            birth: Some(EffectAppearance {
+                resource: self.techniques.resource,
+                member: LIGHTNING_EFFECT,
+            }),
+            motion: Default::default(),
+            effects: Default::default(),
+            contact: Some(ProjectileContact {
+                hit: crate::battle::hit::authored(hit, &recoil)?,
+                cooldown: hit.cooldown,
+                repeat_limit: 0,
+                radius: 40.,
+                height: 400.,
+                shape: HitShape::Cylinder,
+                offset: [0.; 3],
+                radius_growth: 0.,
+                height_growth: 0.,
+                survives_contact: true,
+                clashes: false,
+            }),
+        });
+        Ok((
+            RELEASE_AT,
+            AttackEvent::ContactBurst {
+                definition: projectile,
+                appearance: with_impact.then_some(EffectAppearance {
+                    resource: self.techniques.resource,
+                    member: IMPACT_EFFECT,
+                }),
+            },
+        ))
     }
 }
 
@@ -298,16 +329,10 @@ pub(super) fn projectile<S: FnMut(Sound) -> Result<Option<resonance_battle::Soun
         .context("martial projectile has no contact")?
         .cooldown = hit.cooldown;
     if let Some(feedback) = feedback {
-        ensure!(feedback.bank <= 1, "unsupported martial impact bank");
-        let technique = feedback.bank == 1;
-        resources.effect(technique, &[feedback.effect])?;
+        resources.effect(true, &[feedback.effect])?;
         projectile_mut.effects.contact = Some(ProjectileContactFeedback {
             appearance: EffectAppearance {
-                resource: if technique {
-                    resources.techniques.resource
-                } else {
-                    resources.common.resource
-                },
+                resource: resources.techniques.resource,
                 member: feedback.effect,
             },
             on_guard: feedback.on_guard,

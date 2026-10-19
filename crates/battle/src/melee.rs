@@ -20,26 +20,13 @@ pub enum MeleeVolume {
         shape: crate::HitShape,
         radius: f32,
         half_height: f32,
-        cooldown: u8,
     },
     Attached {
         anchors: Vec<MeleeAnchor>,
         shape: crate::HitShape,
         radius: f32,
         half_height: f32,
-        cooldown: u8,
     },
-}
-
-impl MeleeVolume {
-    pub(crate) fn cooldown(&self) -> u16 {
-        match self {
-            Self::Fixed { .. } => u16::MAX,
-            Self::Attached { cooldown, .. } | Self::BodyCenter { cooldown, .. } => {
-                u16::from(*cooldown).max(1)
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -99,5 +86,6 @@ pub(crate) struct Window {
     pub definition: Arc<MeleeDefinition>,
     pub remaining: u16,
     pub positions: Vec<[f32; 3]>,
-    pub struck: Vec<(ActorId, u16)>,
+    /// Each victim can be contacted once until the attack opens a new window.
+    pub struck: Vec<ActorId>,
 }

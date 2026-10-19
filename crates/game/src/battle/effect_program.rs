@@ -49,9 +49,16 @@ pub(super) fn validate_owner(
                 .flatten()
                 {
                     let model = model.context("effect attachment owner has no prepared body")?;
+                    let bones = model
+                        .weapons
+                        .iter()
+                        .find(|weapon| {
+                            u16::from(weapon.slot) == member && weapon.effect_interval.is_some()
+                        })
+                        .map_or(model.skeleton.bones.len(), |weapon| weapon.bone_count());
                     ensure!(
-                        usize::from(bone) < model.skeleton.bones.len(),
-                        "effect {}:{member} bone {bone} is outside owner body",
+                        usize::from(bone) < bones,
+                        "effect {}:{member} bone {bone} is outside owner model",
                         resource.resource
                     );
                 }

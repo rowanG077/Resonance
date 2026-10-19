@@ -58,6 +58,7 @@ impl Battle {
         if let Some(value) = recovery.braking {
             movement.braking = value;
         }
+        self.runtime[actor.index()].body_bypass = recovery.pass_through_ticks != 0;
         self.runtime[actor.index()].body_bypass_ticks = recovery.pass_through_ticks;
         if let Some(pose) = recovery.pose {
             self.request_pose(
@@ -69,6 +70,7 @@ impl Battle {
                     repeat: pose.repeat,
                     rate: pose.rate,
                     blend: pose.blend,
+                    restart: false,
                     ..Default::default()
                 },
             );

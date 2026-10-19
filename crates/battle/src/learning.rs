@@ -330,6 +330,14 @@ impl crate::Battle {
                 catalogue,
                 action,
             });
+        self.pending_cues.push(crate::Cue::TechniqueAcquired {
+            actor,
+            action,
+            spell: matches!(
+                &self.prepared.actions[action].execution,
+                crate::ActionExecution::Casting(_)
+            ),
+        });
         Ok(action)
     }
 

@@ -186,6 +186,62 @@ fn open_character(f: &mut PreparedFixture, connected: [bool; 4]) -> Result<()> {
 }
 
 #[test]
+#[ignore = "requires locally cooked battle assets; CPU only"]
+fn tech_opening_recovers_cursor_memory_outside_the_active_party() -> Result<()> {
+    let mut f = prepared_fixture_with_party(&[1, 3, 2, 4, 5], 40, &[], |_, _, _| Ok(()))?;
+    enter_battle(&mut f.candidate, &mut f.battle)?;
+    command(
+        &mut f,
+        command::Input {
+            open: edge(),
+            ..Default::default()
+        },
+    )?;
+    let field_context = crate::menu::techniques::Context::Field {
+        at_save_point: false,
+        connected: &NO_PADS,
+    };
+    assert_eq!(
+        Tech::opening(
+            4,
+            field_context,
+            &f.candidate.party,
+            &f.candidate.session,
+            &f.candidate.menus
+        )?
+        .character,
+        4
+    );
+    for (remembered, expected) in [(0, 0), (3, 3), (4, 0), (6, 0), (usize::MAX, 0)] {
+        f.lifecycle.restore_menu_memory(command::Memory {
+            tech_character: remembered,
+            ..Default::default()
+        });
+        let frame = command(
+            &mut f,
+            command::Input {
+                confirm_a: edge(),
+                ..Default::default()
+            },
+        )?;
+        let command::View::Tech(state) = frame.view else {
+            anyhow::bail!("Tech page did not open");
+        };
+        assert_eq!(state.character, expected);
+        let frame = command(
+            &mut f,
+            command::Input {
+                shared_menu: Some(MenuAction::Cancel),
+                ..Default::default()
+            },
+        )?;
+        assert!(matches!(frame.view, command::View::Strip));
+        assert!(!f.battle.is_diagnostic());
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires prepared battle assets; CPU only"]
 fn connections_refresh_an_open_page_and_cancel_returns_to_the_command_strip() -> Result<()> {
     let mut f = fixture()?;

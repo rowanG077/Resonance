@@ -3,6 +3,7 @@ use crate::{DamageTraits, HitResult, PreparedBattle};
 
 fn contact(kind: DamageKind, attacking: DamageTraits, defending: DamageTraits) -> HitResult {
     let mut owner = crate::tests::actor(Side::Party);
+    owner.casting_state.power_percent = 100;
     owner.equipment.stats.slash = 400;
     owner.equipment.stats.intelligence = 200;
     owner.equipment.damage = attacking;

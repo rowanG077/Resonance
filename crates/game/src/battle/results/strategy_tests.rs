@@ -17,6 +17,79 @@ fn edge() -> ButtonInput {
         released: false,
     }
 }
+
+#[test]
+#[ignore = "requires cooked Strategy and encounter assets; CPU only"]
+fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strategy() -> Result<()>
+{
+    let mut f =
+        super::item_tests::prepared_fixture_with_party(&[1, 3], 2, &[], |party, _, menus| {
+            let mut presets = menus.strategy_presets()?;
+            presets[0].name = "Custom".into();
+            presets[0].members = [[2, 1, 6]; 9];
+            party.strategy_presets = Some(presets);
+            Ok(())
+        })?;
+    enter_battle(&mut f.candidate, &mut f.battle)?;
+    f.lifecycle.step(
+        &mut f.battle,
+        lifecycle::Input {
+            order: Some(1),
+            ..Default::default()
+        },
+        &mut f.candidate,
+        &mut Display,
+    )?;
+    assert_eq!(f.lifecycle.order_selection(), 1);
+    assert_eq!(f.lifecycle.order_revision(), 1);
+    assert_eq!(f.candidate.order_name(1)?, "Custom");
+    for _ in 0..59 {
+        visit(&mut f, Default::default())?;
+    }
+    assert_eq!(f.candidate.active_order(), 0);
+    visit(&mut f, Default::default())?;
+    assert_eq!(f.candidate.active_order(), 1);
+    f.candidate.finish_strategy(&mut f.battle)?;
+    for &(actor, _) in &f.candidate.setup.actors {
+        assert_eq!(f.battle.companion_policy(actor).unwrap().choices, [2, 1, 6]);
+    }
+    f.lifecycle.step(
+        &mut f.battle,
+        lifecycle::Input {
+            order: Some(0),
+            command: command::Input {
+                open: edge(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &mut f.candidate,
+        &mut Display,
+    )?;
+    for _ in 0..60 {
+        visit(&mut f, Default::default())?;
+    }
+    assert_eq!(f.lifecycle.order_selection(), 0);
+    assert_eq!(f.candidate.active_order(), 1);
+    visit(
+        &mut f,
+        command::Input {
+            cancel_b: edge(),
+            ..Default::default()
+        },
+    )?;
+    assert_eq!(f.candidate.active_order(), 0);
+    for &(actor, character) in &f.candidate.setup.actors {
+        let personal = f.field.members[usize::from(character - 1)].strategy;
+        assert_eq!(f.battle.companion_policy(actor).unwrap().choices, personal);
+        assert_eq!(
+            f.candidate.party.members[usize::from(character - 1)].strategy,
+            personal
+        );
+    }
+    assert_eq!(f.candidate.party.strategy_presets, f.field.strategy_presets);
+    Ok(())
+}
 fn visit(
     f: &mut PreparedFixture,
     command: command::Input,

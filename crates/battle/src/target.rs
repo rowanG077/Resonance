@@ -139,6 +139,10 @@ pub(crate) fn select_target_pool(
 }
 
 impl crate::Battle {
+    pub(crate) fn target_excluded(&self, actor: crate::ActorId) -> bool {
+        self.prepared.actor_setup[actor.index()].target_excluded
+    }
+
     pub(crate) fn retarget_after_defeat(&mut self, victim: crate::ActorId) -> Result<()> {
         let side = self.actors[victim.index()].side;
         if !self
@@ -163,7 +167,7 @@ impl crate::Battle {
                     crate::Activity::Casting { .. }
                 ),
                 available: actor.available(),
-                hidden: false,
+                hidden: self.target_excluded(crate::ActorId(index as u8)),
                 dying: false,
                 target: None,
             })
@@ -431,7 +435,7 @@ mod tests {
         actors[1].position[0] = f32::NAN;
         assert!(select_target(&actors, 0, TargetPolicy::Nearest, &mut || 0).is_err());
         assert!(TargetPolicy::try_from(0).is_err());
-        assert!(TargetPolicy::try_from(11).is_err());
+        assert!(TargetPolicy::try_from(u8::MAX).is_err());
     }
 
     fn battle() -> crate::Battle {

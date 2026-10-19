@@ -59,6 +59,7 @@ pub enum SpellLaunch {
         center_height_scale: f32,
         height_offset: f32,
     },
+    /// Retain the allocation visit's aim for initialization on the following visit.
     ForwardCone {
         minimum_dot: f32,
         vertical_limit: f32,
@@ -69,10 +70,24 @@ pub enum SpellLaunch {
 pub enum SpellPolicy {
     #[default]
     Static,
+    /// A scene starts a caster gesture on its independent release clock.
+    CasterPose {
+        at: u16,
+        pose: Option<crate::AttackPose>,
+        lift: Option<SpellLift>,
+    },
+    /// Carry a benefit upward from the caster, then down onto the moving recipient.
+    TransferRecovery {
+        appearance: EffectAppearance,
+        apex: f32,
+        speed: f32,
+        benefit: SpellBenefit,
+    },
     /// Move the retained anchor and its contacts toward the target during this interval.
     TrackGround { start: u16, end: u16, speed: f32 },
     /// Select once by roster order; later contacts keep that same recipient.
     CaptureRecipient { at: u16, radius: f32 },
+    /// Party portrait, optional technique reveal, and their presentation hold.
     Cutin {
         at: u16,
         catalogue: u16,
@@ -81,6 +96,13 @@ pub enum SpellPolicy {
         /// Replace a concealed technique caption on the spell's existing clock.
         reveal: Option<(u16, &'static str)>,
     },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SpellLift {
+    pub height: f32,
+    pub rise_until: u16,
+    pub fall_at: u16,
 }
 
 fn cone_direction(
@@ -114,6 +136,8 @@ pub struct SpellEffect {
     pub at: u16,
     pub appearance: EffectAppearance,
     pub placement: SpellEffectPlacement,
+    /// Start the program now and initialize its particles on the next update.
+    pub deferred: bool,
     /// Scene placement: None uses world heading zero; Some adds to the retained heading.
     pub captured_heading_offset: Option<f32>,
 }
@@ -144,6 +168,8 @@ pub struct SpellCamera {
 #[derive(Debug, Clone, Copy)]
 pub enum SpellStartup {
     Effect(EffectAppearance),
+    /// Create particles after this update's particle visit.
+    DeferredEffect(EffectAppearance),
     CasterGroundEffect(EffectAppearance),
     AllyRing {
         effects: [EffectAppearance; 4],
@@ -161,12 +187,31 @@ pub enum RecoveryTargets {
     Area { radius: f32, inclusive: bool },
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum RecoveryEffectPlacement {
+    /// Recipient-owned center effect, scaled to the recipient. Group pulses use its heading.
+    #[default]
+    RecipientCenter,
+    /// Recipient-owned root effect, with the recipient's heading and unit scale.
+    RecipientRoot,
+    /// Caster-owned recipient-center effect, with the caster's heading and unit scale.
+    CasterFacingCenter,
+    /// Caster-owned recipient-center effect, with the recipient's heading and scale.
+    RecipientFacingCenter,
+    /// Caster-owned recipient-center effect, with the recipient's heading and unit scale.
+    RecipientFacingCenterUnscaled,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct SpellRecovery {
     pub at: u16,
+    /// Number of consecutive updates during which recipients are reconsidered.
+    pub duration: u16,
     pub benefit: SpellBenefit,
     pub targets: RecoveryTargets,
     pub effect: Option<(EffectAppearance, crate::effect::EffectTint)>,
+    pub effect_placement: RecoveryEffectPlacement,
+    pub flash: Option<[u8; 3]>,
 }
 
 /// A timed benefit uses the same recipient and release clock as healing spells.
@@ -184,7 +229,7 @@ pub enum SpellBenefit {
     Cure(crate::conditions::Cure),
     Buff(crate::conditions::Buff),
     Resurrect(u8),
-    Sacrifice,
+    Sacrifice(EffectAppearance),
     Stat {
         condition: crate::conditions::Condition,
         percent: u8,
@@ -210,7 +255,7 @@ impl SpellBenefit {
                 maximum_penalty,
             } => percent > 0 && distance_step > 0 && penalty_per_step > 0 && maximum_penalty > 0,
             Self::Tp(amount) => amount > 0,
-            Self::Cure(_) | Self::Buff(_) | Self::Sacrifice | Self::DefenseDown { .. } => true,
+            Self::Cure(_) | Self::Buff(_) | Self::Sacrifice(_) | Self::DefenseDown { .. } => true,
             Self::Resurrect(percent) => percent <= 100,
             Self::Stat {
                 condition,
@@ -266,6 +311,7 @@ impl SpellBenefit {
                 let previous = actor.tp;
                 actor.recover_flat_tp(i32::from(amount));
                 cues.push(Cue::Recovered {
+                    floating: true,
                     actor: target,
                     kind: crate::RecoveryKind::Tp,
                     nominal: i32::from(amount),
@@ -277,26 +323,27 @@ impl SpellBenefit {
             Self::Resurrect(percent) => {
                 battle.enter_revival(target, cues);
                 if percent != 0 {
-                    battle.recover_vitals(target, i16::from(percent), true, cues)?;
+                    battle.recover_vitals(target, i16::from(percent), true, true, cues)?;
                 }
             }
-            Self::Sacrifice => sacrifice(battle, caster, cues)?,
+            Self::Sacrifice(effect) => sacrifice(battle, caster, effect, cues)?,
             Self::Stat {
                 condition,
                 percent,
                 duration,
             } => {
                 let actor = &mut battle.actors[target.index()];
-                if actor.conditions.apply_stat_condition(
-                    condition,
-                    i16::from(percent),
-                    u32::from(duration),
-                    false,
-                ) {
+                if !actor.conditions.rejects(condition) {
+                    actor.conditions.apply_stat_condition(
+                        condition,
+                        i16::from(percent),
+                        u32::from(duration),
+                        false,
+                    );
                     cues.push(Cue::ConditionLabel {
                         actor: target,
                         kind: crate::conditions::ConditionLabel::StatUp(condition),
-                        position: actor.effect_origin(),
+                        position: actor.condition_label_origin(),
                     });
                 }
             }
@@ -323,12 +370,12 @@ impl SpellBenefit {
                     cues.push(Cue::ConditionLabel {
                         actor: target,
                         kind: ConditionLabel::StatusDown,
-                        position: actor.effect_origin(),
+                        position: actor.condition_label_origin(),
                     });
                 } else if cancels_buff {
                     cues.push(Cue::CustomLabel {
                         actor: target,
-                        position: actor.effect_origin(),
+                        position: actor.condition_label_origin(),
                         left: "STATUS".into(),
                         right: "CANCEL".into(),
                         duration: 45,
@@ -344,7 +391,12 @@ impl SpellBenefit {
     }
 }
 
-fn sacrifice(battle: &mut Battle, caster: ActorId, cues: &mut Vec<Cue>) -> Result<()> {
+fn sacrifice(
+    battle: &mut Battle,
+    caster: ActorId,
+    appearance: EffectAppearance,
+    cues: &mut Vec<Cue>,
+) -> Result<()> {
     let actor = &mut battle.actors[caster.index()];
     let (origin, side, amount) = (actor.position, actor.side, actor.hp);
     actor.hp = 0;
@@ -367,7 +419,18 @@ fn sacrifice(battle: &mut Battle, caster: ActorId, cues: &mut Vec<Cue>) -> Resul
         if actor.availability == crate::ActorAvailability::Dead {
             battle.enter_revival(target, cues);
         }
-        battle.recover_vitals(target, percent, true, cues)?;
+        battle.recover_vitals(target, percent, true, true, cues)?;
+        let actor = &battle.actors[index];
+        cues.push(Cue::DeferredEffect(crate::EffectRequest {
+            owner: caster,
+            target,
+            appearance,
+            origin: actor.effect_origin(),
+            heading: actor.heading,
+            follow: Some(crate::EffectFollow::Center(target)),
+            scale: 1.,
+            tint: Default::default(),
+        }));
     }
     Ok(())
 }
@@ -391,7 +454,7 @@ fn apply_buff(
     cues: &mut Vec<Cue>,
 ) {
     let actor = &mut battle.actors[target.index()];
-    let position = actor.effect_origin();
+    let position = actor.condition_label_origin();
     if let Some(kind) = actor.conditions.prepare_buff(buff, false).commit(actor) {
         cues.push(Cue::ConditionLabel {
             actor: target,
@@ -416,6 +479,8 @@ pub enum SpellOrigin {
     SceneTarget {
         minimum_height: f32,
     },
+    /// Target root X/Z, with twice its world-space center height added to root Y.
+    SceneAboveTarget,
     SceneCasterAhead {
         distance: f32,
         height: f32,
@@ -450,6 +515,7 @@ impl SpellOrigin {
             self,
             Self::SceneGround { .. }
                 | Self::SceneTarget { .. }
+                | Self::SceneAboveTarget
                 | Self::SceneCasterAhead { .. }
                 | Self::SceneCasterRing { .. }
                 | Self::SceneFixed { .. }
@@ -460,10 +526,35 @@ impl SpellOrigin {
 }
 
 impl PreparedSpell {
+    pub(crate) fn uses_support_target(&self) -> bool {
+        !self.recovery.is_empty() || matches!(self.policy, SpellPolicy::TransferRecovery { .. })
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
             match self.policy {
                 SpellPolicy::Static => true,
+                SpellPolicy::CasterPose { at, lift, .. } =>
+                    at > self.transition_ticks
+                        && at < self.duration
+                        && lift.is_none_or(|lift| lift.height.is_finite()
+                            && lift.height > 0.
+                            && lift.rise_until > at
+                            && lift.fall_at >= lift.rise_until
+                            && u32::from(lift.fall_at) + u32::from(lift.rise_until - at)
+                                < u32::from(self.duration)),
+                SpellPolicy::TransferRecovery {
+                    apex,
+                    speed,
+                    benefit,
+                    ..
+                } =>
+                    apex.is_finite()
+                        && speed.is_finite()
+                        && speed > 0.
+                        && benefit.valid()
+                        && self.origin == SpellOrigin::Caster
+                        && self.transition_ticks == 0,
                 SpellPolicy::TrackGround { start, end, speed } =>
                     start > self.transition_ticks
                         && start < end
@@ -508,7 +599,8 @@ impl PreparedSpell {
                 || !self.recovery.is_empty()
                 || !self.effects.is_empty()
                 || self.startup.is_some()
-                || self.summon.is_some())
+                || self.summon.is_some()
+                || matches!(self.policy, SpellPolicy::TransferRecovery { .. }))
                 && self
                     .projectiles
                     .windows(2)
@@ -527,9 +619,11 @@ impl PreparedSpell {
                     .windows(2)
                     .all(|pulses| pulses[0].at <= pulses[1].at)
                 && self.recovery.iter().all(|recovery| {
-                    recovery.at <= self.duration
+                    recovery.duration > 0
+                        && u32::from(recovery.at) + u32::from(recovery.duration) - 1
+                            <= u32::from(self.duration)
                         && recovery.benefit.valid()
-                        && (!matches!(recovery.benefit, SpellBenefit::Sacrifice)
+                        && (!matches!(recovery.benefit, SpellBenefit::Sacrifice(_))
                             || recovery.targets == RecoveryTargets::Caster)
                         && match recovery.targets {
                             RecoveryTargets::Area { radius, .. } => {
@@ -580,11 +674,9 @@ impl PreparedSpell {
         }
         if self.origin.waits_for_scene() {
             ensure!(
-                self.transition_ticks > 0
-                    && self
-                        .projectiles
-                        .first()
-                        .is_none_or(|projectile| projectile.at > self.transition_ticks)
+                self.projectiles
+                    .first()
+                    .is_none_or(|projectile| projectile.at > self.transition_ticks)
                     && self
                         .effects
                         .first()
@@ -664,7 +756,9 @@ impl PreparedSpell {
 pub(crate) struct CastPoseTransition {
     pub parent: ActionId,
     pub action: crate::ActionKey,
-    pub opening: crate::MotionBinding,
+    pub opening: Option<crate::MotionBinding>,
+    pub release: Option<crate::AttackPose>,
+    pub release_loop_start: f32,
     pub at: u16,
 }
 
@@ -676,10 +770,20 @@ impl CastPoseTransition {
                     && sequence.action == self.action
                     && matches!(
                         &sequence.execution,
-                        crate::action::Execution::Recovering { .. }
+                        crate::action::Execution::Attack(_)
+                            | crate::action::Execution::Casting(_)
+                            | crate::action::Execution::Recovering { .. }
                     )
             })
     }
+}
+
+#[derive(Default)]
+pub(crate) enum TransferPhase {
+    #[default]
+    Rising,
+    Falling,
+    Complete,
 }
 
 /// A released spell owns its targeting and clock independently of the caster.
@@ -692,17 +796,21 @@ pub(crate) struct Volley {
     pub slot: SpellSlot,
     pub age: u32,
     pub origin: Option<[f32; 3]>,
+    pub effect_origin: Option<[f32; 3]>,
     pub heading: f32,
     pub emitted: usize,
     pub summon: Option<crate::summon::ActiveSummon>,
     pub recipient: Option<ActorId>,
     pub cast_pose: Option<CastPoseTransition>,
+    /// Release feedback waits until the stored scene's opening ends.
+    pub scene_action: Option<crate::ActionKey>,
+    pub transfer_phase: TransferPhase,
 }
 
 impl Volley {
     pub(crate) fn advancing_cast_pose(&self, battle: &Battle) -> Option<ActorId> {
         let pose = self.cast_pose.as_ref()?;
-        (self.age > u32::from(pose.at) && pose.owns(battle, self.actor)).then_some(self.actor)
+        (self.age > 0 && pose.owns(battle, self.actor)).then_some(self.actor)
     }
 
     pub(crate) fn transitioning(&self) -> bool {
@@ -724,22 +832,31 @@ impl Volley {
             let owned = pose.owns(battle, self.actor)
                 && battle.models.as_ref().is_none_or(|models| {
                     models.definition(self.actor).is_some_and(|model| {
-                        let clip = if self.age > u32::from(pose.at) {
-                            model.reactions.cast
+                        let expected = if self.age > u32::from(pose.at) || pose.at == 0 {
+                            pose.release.map(|release| release.motion)
                         } else {
-                            Some(pose.opening.clip)
+                            pose.opening
                         };
-                        model.resource == pose.opening.model
-                            && models
-                                .main_motion_observation(self.actor)
-                                .is_some_and(|motion| Some(motion.clip) == clip)
+                        expected.is_none_or(|expected| {
+                            model.resource == expected.model
+                                && models
+                                    .main_motion_observation(self.actor)
+                                    .is_some_and(|motion| motion.clip == expected.clip)
+                        })
                     })
                 });
-            if owned && self.age == u32::from(pose.at) {
-                battle.model_requests.push(crate::ModelRequest::Common {
-                    actor: self.actor,
-                    pose: crate::CommonPose::SustainedCast,
-                });
+            if owned
+                && self.age == u32::from(pose.at)
+                && let Some(release) = pose.release
+            {
+                battle.request_pose(
+                    self.actor,
+                    Some(release.motion),
+                    crate::Pose {
+                        loop_start: pose.release_loop_start,
+                        ..release.playback()
+                    },
+                );
             }
             if !owned || self.age > u32::from(self.definition.transition_ticks) {
                 self.cast_pose = None;
@@ -793,6 +910,15 @@ impl Volley {
             self.age += 1;
             return Ok(false);
         }
+        if self.age == u32::from(self.definition.transition_ticks) + 1
+            && let Some(action) = self.scene_action.take()
+        {
+            cues.push(Cue::Casting {
+                actor: self.actor,
+                action,
+                phase: crate::CastPhase::Released,
+            });
+        }
         if self.definition.origin.waits_for_scene()
             && self.age <= u32::from(self.definition.transition_ticks)
         {
@@ -827,7 +953,7 @@ impl Volley {
             }
             let actor = &battle.actors[self.actor.index()];
             let target = &battle.actors[self.target.index()];
-            let origin = match self.definition.origin {
+            match self.definition.origin {
                 SpellOrigin::Caster => actor.effect_origin(),
                 SpellOrigin::CasterRoot => actor.position,
                 SpellOrigin::GroundAtRelease { toward_caster }
@@ -849,6 +975,11 @@ impl Volley {
                 SpellOrigin::SceneTarget { minimum_height } => {
                     let mut point = target.effect_origin();
                     point[1] = point[1].max(minimum_height);
+                    point
+                }
+                SpellOrigin::SceneAboveTarget => {
+                    let mut point = target.position;
+                    point[1] += 2. * target.effect_origin()[1];
                     point
                 }
                 SpellOrigin::SceneCasterAhead { distance, height } => {
@@ -894,8 +1025,7 @@ impl Volley {
                 }
                 SpellOrigin::Target | SpellOrigin::FollowingTarget => target.effect_origin(),
                 SpellOrigin::TargetGround => [target.position[0], 0., target.position[2]],
-            };
-            origin
+            }
         };
         if self.origin.is_none() {
             self.heading = battle.actors[self.actor.index()].heading;
@@ -905,6 +1035,7 @@ impl Volley {
             ..
         } = self.definition.policy
             && self.age == u32::from(at)
+            && battle.actors[self.actor.index()].side == crate::Side::Party
         {
             cues.push(Cue::EffectNotice {
                 actor: self.actor,
@@ -912,14 +1043,87 @@ impl Volley {
                 duration: REVEALED_NOTICE_TICKS,
             });
         }
+        // Visual emitters visit the captured anchor before scene movement.
+        self.effect_origin = Some(origin);
         match self.definition.policy {
+            SpellPolicy::CasterPose { at, pose, lift } => {
+                if self.age == u32::from(at)
+                    && let Some(pose) = pose
+                {
+                    battle.request_pose(self.actor, Some(pose.motion), pose.playback());
+                }
+                if let Some(lift) = lift {
+                    let rise_ticks = lift.rise_until - at;
+                    let landing = u32::from(lift.fall_at) + u32::from(rise_ticks);
+                    if (u32::from(at)..=landing).contains(&self.age) {
+                        let movement = &mut battle.actors[self.actor.index()].movement;
+                        let speed = lift.height / f32::from(rise_ticks);
+                        movement.gravity = if self.age == landing && !movement.flying {
+                            crate::movement::GRAVITY
+                        } else {
+                            0.
+                        };
+                        movement.vertical = if self.age < u32::from(lift.rise_until) {
+                            speed
+                        } else if self.age >= u32::from(lift.fall_at) && self.age < landing {
+                            -speed
+                        } else {
+                            0.
+                        };
+                        if self.age < landing
+                            && let Some(models) = &mut battle.models
+                        {
+                            // The next actor visit precedes the scene's next update.
+                            models.preserve_pose_through(self.actor, battle.update + 2);
+                        }
+                    }
+                }
+            }
+            SpellPolicy::TransferRecovery {
+                appearance,
+                apex,
+                speed,
+                benefit,
+            } if self.age > 0 && !matches!(self.transfer_phase, TransferPhase::Complete) => {
+                let target = &battle.actors[self.target.index()];
+                let arrived = match self.transfer_phase {
+                    TransferPhase::Rising => {
+                        origin[1] += speed;
+                        if origin[1] >= apex {
+                            self.transfer_phase = TransferPhase::Falling;
+                        }
+                        false
+                    }
+                    TransferPhase::Falling => {
+                        origin = [target.position[0], origin[1] - speed, target.position[2]];
+                        (origin[1] - target.position[1]).abs() <= speed
+                    }
+                    TransferPhase::Complete => unreachable!(),
+                };
+                cues.push(Cue::DeferredEffect(crate::EffectRequest {
+                    owner: self.actor,
+                    target: self.target,
+                    appearance,
+                    origin,
+                    heading: battle.actors[self.actor.index()].heading,
+                    follow: None,
+                    scale: 1.,
+                    tint: Default::default(),
+                }));
+                if arrived && benefit.accepts(target) {
+                    self.transfer_phase = TransferPhase::Complete;
+                    benefit.apply(battle, self.actor, self.target, cues)?;
+                }
+            }
             SpellPolicy::Cutin {
                 at,
                 catalogue,
                 duration,
                 hold_ticks,
                 ..
-            } if self.age == u32::from(at) => {
+            } if self.age == u32::from(at)
+                && battle.actors[self.actor.index()].side == crate::Side::Party =>
+            {
                 battle.request_timed_hold(hold_ticks, None);
                 cues.push(Cue::Cutin {
                     action: id,
@@ -935,12 +1139,12 @@ impl Volley {
                 let distance = delta[0].hypot(delta[1]);
                 if distance >= 0.5 {
                     let delta = [delta[0] / distance * speed, 0., delta[1] / distance * speed];
-                    for axis in 0..3 {
-                        origin[axis] += delta[axis];
+                    for (coordinate, delta) in origin.iter_mut().zip(delta) {
+                        *coordinate += delta;
                     }
                     for projectile in battle.projectiles.values_mut().filter(|p| p.action == id) {
-                        for axis in 0..3 {
-                            projectile.frame.position[axis] += delta[axis];
+                        for (coordinate, delta) in projectile.frame.position.iter_mut().zip(delta) {
+                            *coordinate += delta;
                         }
                     }
                 }
@@ -981,9 +1185,9 @@ impl Volley {
                 owner: self.actor,
                 target: self.target,
                 appearance: match startup {
-                    SpellStartup::Effect(effect) | SpellStartup::CasterGroundEffect(effect) => {
-                        effect
-                    }
+                    SpellStartup::Effect(effect)
+                    | SpellStartup::DeferredEffect(effect)
+                    | SpellStartup::CasterGroundEffect(effect) => effect,
                     SpellStartup::AllyRing { effects, .. } => effects[0],
                 },
                 origin,
@@ -1002,6 +1206,7 @@ impl Volley {
             };
             match startup {
                 SpellStartup::Effect(_) => cues.push(Cue::Effect(request)),
+                SpellStartup::DeferredEffect(_) => cues.push(Cue::DeferredEffect(request)),
                 SpellStartup::CasterGroundEffect(_) => {
                     cues.push(Cue::Effect(crate::EffectRequest {
                         origin: [actor.position[0], 0., actor.position[2]],
@@ -1027,7 +1232,7 @@ impl Volley {
                         "spell ring exceeds its model roster"
                     );
                     for (slot, appearance) in effects.into_iter().take(count).enumerate() {
-                        cues.push(Cue::Effect(crate::EffectRequest {
+                        cues.push(Cue::DeferredEffect(crate::EffectRequest {
                             appearance,
                             origin: [0.; 3],
                             heading: actor.heading + first_heading + slot as f32 * heading_step,
@@ -1045,7 +1250,7 @@ impl Volley {
         for effect in &self.definition.effects {
             if self.age == u32::from(effect.at) && has_recipient {
                 let mut emit = |target, position, heading, follow| {
-                    cues.push(Cue::Effect(crate::EffectRequest {
+                    let request = crate::EffectRequest {
                         owner: self.actor,
                         target,
                         appearance: effect.appearance,
@@ -1054,7 +1259,12 @@ impl Volley {
                         follow,
                         scale: 1.,
                         tint: Default::default(),
-                    }))
+                    };
+                    cues.push(if effect.deferred {
+                        Cue::DeferredEffect(request)
+                    } else {
+                        Cue::Effect(request)
+                    })
                 };
                 match effect.placement {
                     SpellEffectPlacement::Scene(offset) => {
@@ -1146,11 +1356,26 @@ impl Volley {
                 vertical_limit,
             } = projectile.launch
             {
-                let target = battle.actors[self.target.index()].effect_origin();
                 let projectile = battle.projectiles.get_mut(&emitted).unwrap();
-                projectile.velocity =
-                    cone_direction(position, target, live_heading, minimum_dot, vertical_limit);
+                projectile.velocity = cone_direction(
+                    position,
+                    self.projectile_target,
+                    live_heading,
+                    minimum_dot,
+                    vertical_limit,
+                );
                 projectile.frame.velocity = projectile.velocity;
+                for cue in &mut battle.pending_cues {
+                    if let Cue::ProjectileStarted {
+                        projectile: id,
+                        velocity,
+                        ..
+                    } = cue
+                        && *id == emitted
+                    {
+                        *velocity = projectile.velocity;
+                    }
+                }
             }
             if let Some(sound) = self.definition.sound {
                 cues.push(Cue::Sound {
@@ -1161,12 +1386,10 @@ impl Volley {
                 });
             }
         }
-        for recovery in self
-            .definition
-            .recovery
-            .iter()
-            .filter(|pulse| self.age == u32::from(pulse.at))
-        {
+        for recovery in self.definition.recovery.iter().filter(|pulse| {
+            (u32::from(pulse.at)..u32::from(pulse.at) + u32::from(pulse.duration))
+                .contains(&self.age)
+        }) {
             let side = battle.actors[self.actor.index()].side;
             let eligible =
                 |actor: &crate::Actor| actor.side == side && recovery.benefit.accepts(actor);
@@ -1213,6 +1436,12 @@ impl Volley {
                         let distance =
                             (actor.position[0] - origin[0]).hypot(actor.position[2] - origin[2]);
                         (eligible(actor)
+                            && match recovery.benefit {
+                                SpellBenefit::Cure(cure) => {
+                                    cure.eligible_base(actor.conditions.effective())
+                                }
+                                _ => true,
+                            }
                             && if inclusive {
                                 distance <= radius
                             } else {
@@ -1223,25 +1452,80 @@ impl Volley {
                     .collect(),
             };
             for target in targets {
+                let flash = recovery.flash.filter(|_| match recovery.benefit {
+                    SpellBenefit::Stat { condition, .. } => {
+                        !battle.actors[target.index()].conditions.rejects(condition)
+                    }
+                    _ => true,
+                });
                 recovery.benefit.apply(battle, self.actor, target, cues)?;
+                if let Some(color) = flash {
+                    cues.push(Cue::DeferredFlash {
+                        actor: target,
+                        color,
+                        fade_first: false,
+                    });
+                }
                 let Some((appearance, tint)) = recovery.effect else {
                     continue;
                 };
                 let actor = &battle.actors[target.index()];
-                cues.push(Cue::Effect(crate::EffectRequest {
-                    owner: target,
+                let (owner, follow, origin, heading, scale) = match recovery.effect_placement {
+                    RecoveryEffectPlacement::RecipientCenter => (
+                        target,
+                        crate::EffectFollow::Center(target),
+                        actor.effect_origin(),
+                        if recovery.targets == RecoveryTargets::LivingAllies {
+                            actor.heading
+                        } else {
+                            0.
+                        },
+                        actor.effect_scale,
+                    ),
+                    RecoveryEffectPlacement::RecipientRoot => (
+                        target,
+                        crate::EffectFollow::Actor(target),
+                        actor.position,
+                        actor.heading,
+                        1.,
+                    ),
+                    RecoveryEffectPlacement::CasterFacingCenter => (
+                        self.actor,
+                        crate::EffectFollow::Center(target),
+                        actor.effect_origin(),
+                        battle.actors[self.actor.index()].heading,
+                        1.,
+                    ),
+                    RecoveryEffectPlacement::RecipientFacingCenter => (
+                        self.actor,
+                        crate::EffectFollow::Center(target),
+                        actor.effect_origin(),
+                        actor.heading,
+                        actor.effect_scale,
+                    ),
+                    RecoveryEffectPlacement::RecipientFacingCenterUnscaled => (
+                        self.actor,
+                        crate::EffectFollow::Center(target),
+                        actor.effect_origin(),
+                        actor.heading,
+                        1.,
+                    ),
+                };
+                let request = crate::EffectRequest {
+                    owner,
                     target,
                     appearance,
-                    origin: actor.effect_origin(),
-                    heading: if recovery.targets == RecoveryTargets::LivingAllies {
-                        actor.heading
-                    } else {
-                        0.
-                    },
-                    follow: Some(crate::EffectFollow::Center(target)),
-                    scale: actor.effect_scale,
+                    origin,
+                    heading,
+                    follow: Some(follow),
+                    scale,
                     tint,
-                }));
+                };
+                cues.push(if matches!(recovery.benefit, SpellBenefit::Resurrect(_)) {
+                    Cue::AfterParticlesEffect(request)
+                } else {
+                    Cue::DeferredEffect(request)
+                });
             }
         }
         // Water blades finish contacts before their independent scene retires them.
@@ -1294,13 +1578,20 @@ impl Battle {
             slot,
             age: 0,
             origin: None,
+            effect_origin: None,
             heading: 0.,
             emitted: 0,
             summon: None,
             recipient: None,
             cast_pose: None,
+            scene_action: None,
+            transfer_phase: TransferPhase::default(),
         };
         let id = self.allocate_action_id()?;
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(inputs) = &mut self.random_inputs {
+            inputs.released(actor, parent, id);
+        }
         self.volleys.insert(id, volley);
         cues.push(Cue::Released {
             action: id,
@@ -1358,6 +1649,9 @@ mod advanced_tests {
             let definition = Arc::make_mut(&mut volley.definition);
             definition.projectiles.clear();
             definition.recovery = vec![SpellRecovery {
+                duration: 1,
+                effect_placement: Default::default(),
+                flash: None,
                 at: 3,
                 benefit: SpellBenefit::DefenseDown {
                     amount: 15,
@@ -1481,12 +1775,19 @@ mod advanced_tests {
                 member: 3,
             },
             placement,
+            deferred: false,
             captured_heading_offset: None,
         })
         .collect();
         definition.recovery = vec![SpellRecovery {
+            duration: 1,
+            effect_placement: Default::default(),
+            flash: None,
             at: 3,
-            benefit: SpellBenefit::Sacrifice,
+            benefit: SpellBenefit::Sacrifice(EffectAppearance {
+                resource: 2,
+                member: 2,
+            }),
             targets: RecoveryTargets::Caster,
             effect: None,
         }];
@@ -1527,6 +1828,87 @@ mod advanced_tests {
                 ..
             }
         )));
+
+        // Losing HP during a lift must not replace the scene's pose before landing.
+        let mut battle = crate::tests::prepared(
+            vec![
+                crate::tests::actor(crate::Side::Party),
+                crate::tests::actor(crate::Side::Party),
+                crate::tests::actor(crate::Side::Enemy),
+            ],
+            100,
+        )
+        .finish()
+        .unwrap();
+        let mut model = crate::tests::model_definition(7, [(0, 1.), (3, 10.), (7, 10.), (80, 60.)]);
+        model.idle_motions = [Some(0); 2];
+        model.reactions.hurt = [Some(3); 2];
+        model.reactions.defeated = Some(7);
+        battle.set_models(
+            crate::Models::new(
+                battle.actors(),
+                vec![Some(Arc::new(model)), None, None],
+                Default::default(),
+                resonance_content::diagnostics::Diagnostics::new(true),
+            )
+            .unwrap(),
+        );
+        let (_, mut volley) = fixture(SpellPolicy::CasterPose {
+            at: 2,
+            pose: Some(crate::AttackPose {
+                motion: crate::MotionBinding { model: 7, clip: 80 },
+                start: 0.,
+                end: None,
+                rate: 0.5,
+                blend: 0,
+                repeat: true,
+            }),
+            lift: Some(SpellLift {
+                height: 2.,
+                rise_until: 4,
+                fall_at: 5,
+            }),
+        });
+        let definition = Arc::make_mut(&mut volley.definition);
+        definition.projectiles.clear();
+        definition.recovery = vec![SpellRecovery {
+            duration: 1,
+            effect_placement: Default::default(),
+            flash: None,
+            at: 4,
+            benefit: SpellBenefit::Sacrifice(EffectAppearance {
+                resource: 2,
+                member: 2,
+            }),
+            targets: RecoveryTargets::Caster,
+            effect: None,
+        }];
+        battle
+            .release_volley(
+                volley.definition,
+                ActorId(0),
+                ActorId(0),
+                SpellSlot::Primary,
+                None,
+                &mut vec![],
+            )
+            .unwrap();
+        for (age, height) in [0., 0., 0., 1., 2., 2., 1., 0., 0.].into_iter().enumerate() {
+            let mut frame = battle.step(crate::BattleInput::default()).unwrap();
+            let clock = frame.clock;
+            battle.advance_models(&mut frame, clock, true).unwrap();
+            assert_eq!(frame.actors[0].position[1], height, "lift age {age}");
+            if age >= 4 {
+                assert_eq!(frame.actors[0].availability, crate::ActorAvailability::Dead);
+            }
+            if age >= 2 {
+                assert_eq!(
+                    frame.models[0].clip,
+                    if age < 8 { 80 } else { 7 },
+                    "pose age {age}"
+                );
+            }
+        }
     }
 
     fn fixture(policy: SpellPolicy) -> (Battle, Volley) {
@@ -1564,11 +1946,14 @@ mod advanced_tests {
                 slot: SpellSlot::Primary,
                 age: 0,
                 origin: None,
+                effect_origin: None,
                 heading: 0.,
                 emitted: 0,
                 summon: None,
                 recipient: None,
                 cast_pose: None,
+                scene_action: None,
+                transfer_phase: TransferPhase::default(),
             },
         )
     }
@@ -1582,8 +1967,16 @@ mod advanced_tests {
         });
         battle.actors[2].position = [100., 900., 0.];
         let action = ActionId(400);
-        for _ in 0..7 {
+        for age in 0..7 {
             volley.step(&mut battle, action, &mut Vec::new()).unwrap();
+            if age == 4 {
+                assert_eq!(volley.effect_origin, Some([0.; 3]));
+                assert_eq!(volley.origin, Some([1.25, 0., 0.]));
+            }
+            if age == 5 {
+                assert_eq!(volley.effect_origin, Some([1.25, 0., 0.]));
+                assert_eq!(volley.origin, Some([2.5, 0., 0.]));
+            }
         }
         assert_eq!(volley.origin, Some([2.5, 0., 0.]));
         assert_eq!(battle.projectiles.len(), 2);
@@ -1594,7 +1987,9 @@ mod advanced_tests {
                 .all(|p| p.frame.position == [2.5, 0., 0.])
         );
         let mut frame = battle.frame(Vec::new(), None);
-        frame.spell_origins.push((action, volley.origin.unwrap()));
+        frame
+            .spell_origins
+            .push((action, volley.effect_origin.unwrap()));
         assert_eq!(
             crate::EffectFollow::Spell(action).position(&frame),
             volley.origin
@@ -1627,13 +2022,29 @@ mod advanced_tests {
                 .all(|p| p.frame.target == ActorId(1))
         );
         assert_eq!(
-            cone_direction([0.; 3], [0., 1000., 100.], 0., 0.5, 0.35),
-            [0., 0.35, 1.]
-        );
-        assert_eq!(
             cone_direction([0.; 3], [100., 10., 0.], 0., 0.5, 0.35),
             [0., 0., 1.]
         );
+
+        let (mut battle, mut volley) = fixture(SpellPolicy::Static);
+        battle.actors[0].heading = 0.;
+        volley.projectile_target = [0., 1000., 100.];
+        Arc::make_mut(&mut volley.definition).projectiles[0].launch = SpellLaunch::ForwardCone {
+            minimum_dot: 0.5,
+            vertical_limit: 0.35,
+        };
+        for _ in 0..4 {
+            volley
+                .step(&mut battle, ActionId(403), &mut Vec::new())
+                .unwrap();
+        }
+        assert!(battle.pending_cues.iter().any(|cue| matches!(
+            cue,
+            Cue::ProjectileStarted { velocity, .. } if *velocity == [0., 0.35, 1.]
+        )));
+        let projectile = battle.projectiles.values_mut().next().unwrap();
+        projectile.step().unwrap();
+        assert_eq!(projectile.frame.position, [0., 0.35, 1.]);
 
         let (mut battle, mut volley) =
             fixture(SpellPolicy::CaptureRecipient { at: 3, radius: 10. });
@@ -1655,6 +2066,9 @@ mod advanced_tests {
         definition.recovery = [3, 5]
             .into_iter()
             .map(|at| SpellRecovery {
+                duration: 1,
+                effect_placement: Default::default(),
+                flash: None,
                 at,
                 benefit: SpellBenefit::Hp(15),
                 targets: RecoveryTargets::Area {
@@ -1681,6 +2095,71 @@ mod advanced_tests {
         }
         assert_eq!([battle.actors[0].hp, battle.actors[1].hp], [25, 25]);
         assert_eq!(battle.actors[2].hp, 50);
+    }
+
+    #[test]
+    fn cure_area_ignores_healthy_allies_and_cures_later_arrivals_until_it_ends() {
+        use crate::conditions::{Condition, Conditions, Cure, Layers};
+        let (mut battle, mut volley) = fixture(SpellPolicy::Static);
+        let definition = Arc::make_mut(&mut volley.definition);
+        definition.projectiles.clear();
+        definition.recovery = vec![SpellRecovery {
+            at: 3,
+            duration: 3,
+            benefit: SpellBenefit::Cure(Cure::Physical),
+            targets: RecoveryTargets::Area {
+                radius: 10.,
+                inclusive: true,
+            },
+            effect: Some((
+                EffectAppearance {
+                    resource: 0,
+                    member: 1,
+                },
+                Default::default(),
+            )),
+            effect_placement: Default::default(),
+            flash: None,
+        }];
+        definition.validate().unwrap();
+        let cursed = || {
+            Conditions::new(Layers {
+                base: crate::conditions::ConditionSet::of(&[Condition::Curse]),
+                ..Default::default()
+            })
+        };
+        battle.actors[1].side = crate::Side::Party;
+        battle.actors[1].conditions = cursed();
+        battle.actors[1].position = [20., 0., 0.];
+        let mut cues = Vec::new();
+        for _ in 0..5 {
+            volley.step(&mut battle, ActionId(403), &mut cues).unwrap();
+        }
+        assert!(!cues.iter().any(|cue| matches!(cue, Cue::DeferredEffect(_))));
+        battle.actors[1].position = [10., 0., 0.];
+        volley.step(&mut battle, ActionId(403), &mut cues).unwrap();
+        assert!(
+            !battle.actors[1]
+                .conditions
+                .effective()
+                .contains(Condition::Curse)
+        );
+        assert_eq!(
+            cues.iter()
+                .filter(
+                    |cue| matches!(cue, Cue::DeferredEffect(effect) if effect.target == ActorId(1))
+                )
+                .count(),
+            1
+        );
+        battle.actors[1].conditions = cursed();
+        volley.step(&mut battle, ActionId(403), &mut cues).unwrap();
+        assert!(
+            battle.actors[1]
+                .conditions
+                .effective()
+                .contains(Condition::Curse)
+        );
     }
 
     #[test]

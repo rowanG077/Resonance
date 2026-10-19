@@ -36,6 +36,7 @@ impl ActionResources {
         };
         let contact = &row.contact;
         hit.overlimit_pause = false;
+        hit.reaction.direction = contact.recoil_direction;
         let mut effect = |source: battle_projectile::Effect| -> Result<Option<EffectAppearance>> {
             let Some(binding) = select(source.bank, source.member)? else {
                 return Ok(None);
@@ -70,10 +71,11 @@ impl ActionResources {
                 contact: None,
                 seal: None,
                 rebound_projectile: None,
+                departure_animation: None,
                 spin_on_rebound: row
                     .motion
                     .response
-                    .is_some_and(|response| response.ricochet_on_deflect),
+                    .is_some_and(|response| response.ricochet || response.ricochet_on_deflect),
                 ground: effect(row.ground_effect)?,
                 shadow: row.shadow,
                 clash: if contact.clashes {

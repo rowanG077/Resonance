@@ -1,7 +1,7 @@
 //! Tiger Blade's two strikes share one launch and finish after returning to the floor.
 use super::{ActionDefinition, Sound, Technique};
 use anyhow::{Context, Result};
-use resonance_battle::{AttackEvent, AttackPose, ModelDefinition};
+use resonance_battle::{AttackEvent, ModelDefinition};
 
 impl Technique {
     pub(super) fn prepare_tiger_blade<
@@ -12,28 +12,18 @@ impl Technique {
         model: Option<&ModelDefinition>,
         tp_cost: u16,
     ) -> Result<ActionDefinition> {
-        let flight = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .flight
-            .as_ref()
-            .context("missing Tiger Blade flight")?
-            .clone();
         let mut action = self.prepare_authored(resources, model, tp_cost)?;
         let crate::battle::ActionExecution::Attack(attack) = &mut action.execution else {
             unreachable!("martial preparation produces an attack")
         };
-        let finish = flight.finish_pose;
-        let finish = AttackPose {
-            motion: crate::battle::model::motion(model, finish.clip)
-                .context("missing Tiger Blade finish pose")?,
-            start: finish.start,
-            end: finish.end,
-            rate: finish.rate,
-            blend: finish.blend,
-            repeat: finish.repeat,
-        };
+        let finish = attack
+            .events
+            .iter()
+            .find_map(|(at, event)| match event {
+                AttackEvent::Pose(pose) if *at == attack.end_at => Some(*pose),
+                _ => None,
+            })
+            .context("missing Tiger Blade recovery pose")?;
         // The final idle pose waits for the floor; the strikes and launch keep
         // their authored times, independently of animation blending.
         attack

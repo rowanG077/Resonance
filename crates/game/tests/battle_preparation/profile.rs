@@ -4,6 +4,7 @@ use resonance_content::battle_profile;
 
 pub(super) fn profile() -> battle_profile::Profile {
     battle_profile::Profile {
+        hosted_body: None,
         walk_speed: 5.,
         run_speed: 10.,
         turn_ticks: 8,
@@ -36,10 +37,21 @@ pub(super) fn profile() -> battle_profile::Profile {
         },
         armor: 3,
         center_offset: [10., 80., -5.],
+        target_anchor: battle_profile::TargetAnchor {
+            bone: 0,
+            offset: [0.; 3],
+        },
+        head_anchor: battle_profile::HeadAnchor {
+            bone: 0,
+            offset: [0.; 3],
+        },
         model_scale: 1.5,
         shadow_scale: 1.,
         shadow_color: [0; 4],
         effect_scale: 0.9,
+        passive_effects: vec![],
+        idle_effect: None,
+        movement_effect: None,
         camera_category: 3,
         voices: None,
         death_motion: 0,
@@ -49,6 +61,28 @@ pub(super) fn profile() -> battle_profile::Profile {
         initial_overlimit: 0,
         ground_offset: 50.,
         cast_ticks: 90,
+        chant_once: false,
+        chant_loop_start: 0.,
+        cast_poses: resonance_content::battle_profile::CastPoses {
+            release_loop_start: 0.,
+            opening: resonance_content::battle_action::ActionPose {
+                clip: 13,
+                start: 0.,
+                end: None,
+                rate: 0.5,
+                blend: 4,
+                repeat: false,
+            },
+            release: resonance_content::battle_action::ActionPose {
+                clip: 12,
+                start: 0.,
+                end: None,
+                rate: 0.5,
+                blend: 4,
+                repeat: false,
+            },
+        },
+        cast_recovery_motion: None,
     }
 }
 

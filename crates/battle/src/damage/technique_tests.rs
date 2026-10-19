@@ -26,6 +26,7 @@ fn rule(kind: DamageKind) -> HitRule {
 
 fn pair() -> (Actor, Actor) {
     let mut owner = actor(Side::Party);
+    owner.casting_state.power_percent = 100;
     owner.equipment.stats.slash = 203;
     owner.equipment.stats.thrust = 151;
     owner.equipment.stats.accuracy = 99;

@@ -39,6 +39,21 @@ impl PreparedBattle {
                 setup.techniques.is_empty() || self.actors[index].side == crate::Side::Party,
                 "techniques require a party actor"
             );
+            if let Some(rule) = setup.cast_replacement {
+                ensure!(
+                    rule.input != rule.output
+                        && rule.one_in > 0
+                        && !rule.required_uses.is_empty()
+                        && [rule.input, rule.output].iter().all(|&action| {
+                            self.resources.casting(action).is_some()
+                                && setup.techniques.iter().any(|row| row.action == action)
+                        })
+                        && rule.required_uses.iter().all(|&(arte, minimum)| {
+                            minimum > 0 && setup.techniques.iter().any(|row| row.catalogue == arte)
+                        }),
+                    "invalid prepared cast replacement"
+                );
+            }
             let mut actions = std::collections::BTreeSet::new();
             let mut catalogues = std::collections::BTreeSet::new();
             for row in &setup.techniques {
@@ -110,7 +125,9 @@ impl Battle {
         };
         let side_matches = match row.capabilities.target {
             TechniqueTarget::Unavailable => false,
-            TechniqueTarget::Enemy => recipient.side != owner.side,
+            TechniqueTarget::Enemy => {
+                recipient.side != owner.side && !self.target_excluded(target)
+            }
             TechniqueTarget::Ally => recipient.side == owner.side,
             TechniqueTarget::SelfTarget => target == actor,
         };

@@ -60,10 +60,10 @@ impl Technique {
                         clashes: false,
                     }),
                 }),
-                appearance: EffectAppearance {
+                appearance: Some(EffectAppearance {
                     resource: resources.techniques.resource,
                     member: BURST_EFFECT,
-                },
+                }),
             },
         ));
         attack.events.sort_by_key(|(at, _)| *at);

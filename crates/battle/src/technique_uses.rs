@@ -105,15 +105,14 @@ impl Battle {
             .transpose()
     }
 
-    /// Learning updates future commands; the selected attack retains its identity and cost.
+    /// A successful acquisition replaces this admitted attack's first use.
     pub(crate) fn commit_martial_use(
         &mut self,
         actor: ActorId,
         action: crate::ActionKey,
-    ) -> Result<()> {
+    ) -> Result<Option<crate::ActionKey>> {
         let current = self.record_technique_use(actor, action, false);
         self.learn_after_use(actor, current, crate::learning::LearningMode::Martial)
-            .map(|_| ())
     }
 
     /// Return only the acquisition selected by this completed chant.

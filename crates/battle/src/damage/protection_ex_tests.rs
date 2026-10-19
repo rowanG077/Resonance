@@ -1,7 +1,9 @@
 //! Defensive skill interactions.
 use super::*;
 use crate::conditions::Condition;
-use crate::{Activity, ChargeLevel, Control, HitProtection, ProtectionMode, Side, tests::actor};
+use crate::{
+    Activity, ChargeLevel, Control, GuardKind, HitProtection, ProtectionMode, Side, tests::actor,
+};
 
 fn fixed(kind: DamageKind, element: HitElement) -> HitRule {
     HitRule {
@@ -53,22 +55,35 @@ fn hit(
 
 #[test]
 fn stability_checks_contact_kind_element_guard_and_probability() {
-    for (kind, element, guarded, roll, stable) in [
-        (DamageKind::Slash, HitElement::Neutral, false, 9, true),
-        (DamageKind::Slash, HitElement::Neutral, false, 10, false),
-        (DamageKind::Magic, HitElement::Neutral, false, 0, false),
+    for (kind, element, guard, roll, stable) in [
+        (DamageKind::Slash, HitElement::Neutral, None, 9, true),
+        (DamageKind::Slash, HitElement::Neutral, None, 10, false),
+        (DamageKind::Magic, HitElement::Neutral, None, 0, false),
         (
             DamageKind::Magic,
             HitElement::Element(Element::Fire),
-            false,
+            None,
             9,
             true,
         ),
-        (DamageKind::Slash, HitElement::Neutral, true, 0, false),
+        (
+            DamageKind::Slash,
+            HitElement::Neutral,
+            Some(GuardKind::Normal),
+            0,
+            false,
+        ),
         (
             DamageKind::Magic,
             HitElement::Element(Element::Fire),
+            Some(GuardKind::Normal),
+            9,
             true,
+        ),
+        (
+            DamageKind::Magic,
+            HitElement::Element(Element::Fire),
+            Some(GuardKind::Special),
             9,
             false,
         ),
@@ -76,7 +91,8 @@ fn stability_checks_contact_kind_element_guard_and_probability() {
         let mut target = defender();
         target.equipment.damage.physical_stability = true;
         target.equipment.damage.elemental_stability = true;
-        target.guard.active = guarded;
+        target.guard.active = guard.is_some();
+        target.guard.kind = guard.unwrap_or_default();
         let (result, label) = hit(&mut target, fixed(kind, element), |draw| match draw {
             Draw::Stability => roll,
             _ => neutral_roll(draw),

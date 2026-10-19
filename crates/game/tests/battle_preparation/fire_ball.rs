@@ -1,5 +1,5 @@
 use super::*;
-use resonance_battle::{Activity, BattlePhase, ContactSource, Cue};
+use resonance_battle::{ContactSource, Cue};
 use resonance_events::party::Party;
 
 #[test]
@@ -12,12 +12,7 @@ fn prepared_genis_cast_pays_once_and_releases_a_damaging_volley() -> Result<()> 
     let (_, prepared) = fixture.prepare(&party)?;
     let owner = prepared.results.actors[1].0;
     let mut battle = prepared.core;
-    for _ in 0..240 {
-        if battle.phase() == BattlePhase::Combat && battle.activity(owner) == Activity::Idle {
-            break;
-        }
-        battle.step(Default::default())?;
-    }
+    enter_battle(&mut battle)?;
     const FIRE_BALL: u16 = 66;
     let action = battle.record_technique_acquisition(owner, FIRE_BALL)?;
     let target = battle.target(owner).context("Fire Ball has no target")?;
@@ -51,7 +46,9 @@ fn prepared_genis_cast_pays_once_and_releases_a_damaging_volley() -> Result<()> 
                 } if actor == owner => {
                     assert!(released.replace(action).is_none(), "cast released twice");
                 }
-                Cue::ProjectileStarted { projectile, action } if Some(action) == released => {
+                Cue::ProjectileStarted {
+                    projectile, action, ..
+                } if Some(action) == released => {
                     projectiles.insert(projectile);
                 }
                 Cue::Hit {

@@ -87,6 +87,7 @@ pub struct Setup {
     pub actors: Vec<(ActorId, u8)>,
     /// Prepared capacity is shared by menus and live control; saved membership gates use.
     pub formation: u16,
+    pub formation_count: usize,
     pub style: ResultStyle,
     pub story: u32,
     /// Colette's character state, independent of main story progression.
@@ -97,7 +98,7 @@ pub struct Setup {
     pub performances: Vec<Performance>,
     pub postures: Vec<super::victory::PostureBinding>,
     /// Ordinary character voice cues resolved before activation.
-    pub victory_voices: BTreeMap<u8, Vec<Sound>>,
+    pub victory_voices: BTreeMap<u8, Vec<[Option<Sound>; 2]>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,6 +186,8 @@ pub struct Selection {
     pub character: u8,
     pub pose: Option<u8>,
     pub group: Option<u8>,
+    /// Solo speech retains the selected celebration even if its motion is unavailable.
+    pub voice: Option<Sound>,
 }
 
 /// Presentation owns result pages; the game owns rewards and confirmation.
@@ -202,6 +205,7 @@ pub trait Presentation {
 pub struct Candidate {
     setup: Setup,
     party: Party,
+    active_order: u8,
     party_members: BTreeMap<ActorId, usize>,
     /// Shared menu pages see only actors currently present in battle.
     menu_party: Option<Party>,
@@ -257,11 +261,12 @@ impl Completed {
             outcome != Outcome::Defeat || request.setup.defeat == DefeatPolicy::ResumeEvent,
             "fatal defeat cannot resume the field"
         );
-        // Begin the return fade only if no field fade is active; loading does not advance it.
-        let return_fade = if world
-            .fade
-            .as_ref()
-            .is_some_and(|fade| fade.alpha(world.tick) as i32 <= 0)
+        // Scripted returns keep their requested cover until the caller reveals the field.
+        let return_fade = if request.transition_white.is_none()
+            && world
+                .fade
+                .as_ref()
+                .is_some_and(|fade| fade.alpha(world.tick) as i32 <= 0)
         {
             Some(resonance_events::Fade {
                 start_tick: world.tick.checked_add(1).context("field clock overflow")?,
@@ -276,7 +281,7 @@ impl Completed {
         let previous_party = world.party.replace(self.party);
         let previous_gameplay_random =
             std::mem::replace(&mut world.gameplay_random, self.gameplay_random);
-        if let Err(error) = request.complete(outcome) {
+        if let Err(error) = world.complete_battle(request, outcome) {
             world.party = previous_party;
             world.gameplay_random = previous_gameplay_random;
             anyhow::bail!(error);
@@ -559,8 +564,8 @@ impl Candidate {
     ) -> Result<Self> {
         ensure!(
             (1..=resonance_battle::PARTY_CAPACITY).contains(&setup.actors.len())
+                && setup.formation_count > 0
                 && !setup.enemies.is_empty()
-                && setup.enemies.len() <= resonance_battle::ENEMY_CAPACITY
                 && (-8..=8).contains(&setup.level_difference)
                 && setup.enemies.iter().all(|enemy| enemy.level != 0),
             "invalid result roster"
@@ -653,6 +658,7 @@ impl Candidate {
         Ok(Self {
             setup,
             party,
+            active_order: 0,
             party_members,
             menu_party: None,
             menu_actors,
@@ -791,7 +797,9 @@ impl Candidate {
             &self.menus.titles,
             super::rewards::RewardInput {
                 enemies: &enemies,
+                formation_count: self.setup.formation_count,
                 maximum_combo,
+                technical_smash_bonus: battle.ledger().technical_smash_bonus,
                 level_difference: self.setup.level_difference,
                 modifiers: self.reward_modifiers(battle)?,
             },
@@ -831,6 +839,9 @@ impl Candidate {
         let conditions = self.conditions(battle);
         let grades: Vec<_> = self.setup.enemies.iter().map(|enemy| enemy.grade).collect();
         let grade = battle.finalize_grade(&conditions, &grades, self.setup.level_difference)?;
+        let multiplier = super::rewards::combined_multiplier_halves(self.setup.formation_count)?;
+        let grade = i32::try_from(i64::from(grade) * i64::from(multiplier) / 2)
+            .context("combined Grade reward overflow")?;
         battle.normalize_result_overlimit()?;
         for &(id, character) in &self.setup.actors {
             party.members[usize::from(character - 1)].overlimit =
@@ -880,7 +891,7 @@ impl Candidate {
         party.battles.add_grade(grade);
         party.grade_hundredths = party
             .grade_hundredths
-            .saturating_add_signed(i32::from(grade))
+            .saturating_add_signed(grade)
             .min(resonance_content::grade::MAX_GRADE);
         party.battles.maximum_combo = party.battles.maximum_combo.max(maximum_combo);
         if party.settings.preferences.battle_rank >= 1 {
@@ -889,7 +900,7 @@ impl Candidate {
         }
         let results = Results {
             rewards,
-            grade: i32::from(grade),
+            grade,
             maximum_combo,
             combat_ticks: battle.ledger().combat_ticks,
             character_names: std::array::from_fn(|index| {
@@ -1002,16 +1013,7 @@ impl Candidate {
                     )?);
                 }
             }
-            let can_speak = selection.character != Character::Colette as u8
-                || victory_selection::ColetteState::from(self.setup.colette_state).can_speak();
-            self.setup
-                .victory_voices
-                .get(&selection.character)
-                .filter(|choices| can_speak && !choices.is_empty())
-                .map(|choices| {
-                    let index = usize::from(self.cosmetic_random.next_u16()) % choices.len();
-                    choices[index]
-                })
+            selection.voice
         };
         if let Some(voice) = voice {
             battle.request_result_voice(selection.actor, voice)?;
@@ -1293,6 +1295,21 @@ impl Candidate {
                 .find(|&&(_, character)| character == selected.leader)
                 .context("absent group leader")?
         };
+        let can_speak = character != Character::Colette as u8
+            || victory_selection::ColetteState::from(self.setup.colette_state).can_speak();
+        let voice = self
+            .setup
+            .victory_voices
+            .get(&character)
+            .filter(|_| group == 0 && can_speak)
+            .and_then(|choices| {
+                victory_selection::ordinary_voice(
+                    character,
+                    pose,
+                    self.cosmetic_random.next_u16(),
+                    choices,
+                )
+            });
         let pose = if group == 0 {
             self.setup
                 .performances
@@ -1313,6 +1330,7 @@ impl Candidate {
             character,
             pose,
             group: (group != 0).then_some(group),
+            voice,
         });
         Ok(())
     }
@@ -1335,6 +1353,40 @@ impl Candidate {
             self.perform(battle)?;
         }
         Ok(cues)
+    }
+
+    pub(super) fn result_advancement(&self, age: u16) -> Option<Cue> {
+        const LEVEL_FEEDBACK_AGE: u16 = 100;
+        const COMPOUND_EX_FEEDBACK_AGE: u16 = 180;
+        if !matches!(age, LEVEL_FEEDBACK_AGE | COMPOUND_EX_FEEDBACK_AGE) {
+            return None;
+        }
+        let results = self.results.as_ref()?;
+        let actors: Vec<_> = self
+            .setup
+            .actors
+            .iter()
+            .filter_map(|&(actor, character)| {
+                results
+                    .notices
+                    .iter()
+                    .any(|notice| match *notice {
+                        ResultNotice::Level {
+                            character: recipient,
+                            ..
+                        } => age == LEVEL_FEEDBACK_AGE && recipient == character,
+                        ResultNotice::CompoundEx {
+                            character: recipient,
+                        } => age == COMPOUND_EX_FEEDBACK_AGE && recipient == character,
+                        _ => false,
+                    })
+                    .then_some(actor)
+            })
+            .collect();
+        (!actors.is_empty()).then_some(Cue::ResultAdvancement {
+            actors,
+            level_up: age == LEVEL_FEEDBACK_AGE,
+        })
     }
 
     pub(super) fn update_cooking(&mut self, battle: &mut Battle) -> Result<bool> {
@@ -1386,14 +1438,18 @@ mod return_tests {
     fn successful_return_fades_on_field_visits_and_preserves_requested_fades() {
         use resonance_events::{EventRuntime, Fade, GameWorld, ResourceLibrary};
         use symphonia_script::{NativeCall, Program};
-        for retained in [
+        for (retained, transition_white) in [
             None,
             Some((0., false)),
             Some((0.5, false)),
             Some((1.5, false)),
             Some((128., true)),
-        ] {
-            let initialize = retained.is_some_and(|(alpha, _)| alpha < 1.);
+        ]
+        .into_iter()
+        .flat_map(|fade| [None, Some(false), Some(true)].map(|clear| (fade, clear)))
+        {
+            let initialize =
+                transition_white.is_none() && retained.is_some_and(|(alpha, _)| alpha < 1.);
             let party: Party = serde_json::from_value(serde_json::json!({
                 "members": [], "battles": resonance_events::party::BattleStatistics::default(),
                 "formation": [], "items": {}, "found_items": [],
@@ -1405,6 +1461,7 @@ mod return_tests {
             world.party = Some(party.clone());
             world.tick = 12;
             world.random_state = 123;
+            world.next_transition_white = transition_white;
             world.fade = retained.map(|(from, white)| Fade {
                 start_tick: 12,
                 duration: 20,
@@ -1460,7 +1517,12 @@ mod return_tests {
             assert_eq!(events.world.party.as_ref().unwrap().gald, 510);
             assert_eq!(events.world.gameplay_random, meal_random);
             assert_eq!(events.world.random_state, 123);
-            if !initialize {
+            if let Some(white) = transition_white {
+                let fade = events.world.fade.as_ref().unwrap();
+                assert_eq!(fade.alpha(12), 255.);
+                assert_eq!(fade.white, white);
+                assert_eq!(fade.duration, 0);
+            } else if !initialize {
                 assert_eq!(format!("{:?}", events.world.fade), old_fade);
             } else {
                 let fade = events.world.fade.as_ref().unwrap();
@@ -1477,7 +1539,11 @@ mod return_tests {
             for (visit, expected) in [(1, 242.2), (2, 229.4), (3, 216.6)] {
                 events.step().unwrap();
                 assert_eq!(events.tick(), 12 + visit);
-                if initialize {
+                if let Some(white) = transition_white {
+                    let fade = events.world.fade.as_ref().unwrap();
+                    assert_eq!(fade.alpha(events.tick()), 255.);
+                    assert_eq!(fade.white, white);
+                } else if initialize {
                     let fade = events.world.fade.as_ref().unwrap();
                     assert!((fade.alpha(events.tick()) - expected).abs() < 0.0001);
                 } else {

@@ -27,6 +27,8 @@ pub(super) fn prepare(
     bank: &EffectResource,
     resources: &mut ActionResources,
 ) -> Result<PreparedSpell> {
+    const SACRIFICE_BURST_AGE: u16 = 135;
+    const SACRIFICE_LAST_CONTACT_AGE: u16 = 195;
     let active_ticks = match catalogue {
         HOLY_SONG => 160,
         JUDGMENT => 200,
@@ -40,7 +42,7 @@ pub(super) fn prepare(
     };
     let mut artwork = bank.clone();
     artwork.members = match catalogue {
-        SACRIFICE => vec![1, 3, 4, 5],
+        SACRIFICE => vec![1, 2, 3, 4, 5],
         HOLY_JUDGMENT => vec![1, 2, 3, 4],
         _ => vec![1, 2],
     };
@@ -60,13 +62,32 @@ pub(super) fn prepare(
             + stored_spells::SCENE_BOUNDARY_TICKS,
         startup: Some((
             stored_spells::TRANSITION_TICKS + 1,
-            SpellStartup::Effect(appearance(1)),
+            if catalogue == HOLY_SONG {
+                SpellStartup::DeferredEffect(appearance(1))
+            } else {
+                SpellStartup::Effect(appearance(1))
+            },
         )),
         sound: None,
     };
+    if matches!(catalogue, HOLY_SONG | SACRIFICE) {
+        const PRAYER_AGE: u16 = 15;
+        spell.policy = SpellPolicy::CasterPose {
+            at: at(PRAYER_AGE),
+            pose: None,
+            lift: (catalogue == SACRIFICE).then_some(resonance_battle::SpellLift {
+                height: 120.,
+                rise_until: at(SACRIFICE_BURST_AGE),
+                fall_at: at(SACRIFICE_LAST_CONTACT_AGE),
+            }),
+        };
+    }
     if matches!(catalogue, HOLY_SONG | HOLY_JUDGMENT) {
         let benefit_age = if catalogue == HOLY_JUDGMENT { 210 } else { 90 };
         spell.recovery.push(SpellRecovery {
+            duration: 1,
+            effect_placement: resonance_battle::RecoveryEffectPlacement::RecipientFacingCenter,
+            flash: None,
             at: at(benefit_age),
             benefit: SpellBenefit::Buff(Buff::HolySong),
             targets: RecoveryTargets::LivingAllies,
@@ -86,7 +107,7 @@ pub(super) fn prepare(
             scene.strike_points.len() == STRIKE_COUNT,
             "Judgment scene has an incomplete strike pattern"
         );
-        let projectile = contact(files, scene, bank, resources, 1)?;
+        let projectile = contact(files, scene, bank, resources, 1, 0)?;
         spell.origin = SpellOrigin::SceneFixed { position: [0.; 3] };
         if catalogue == HOLY_JUDGMENT {
             const PORTRAIT_HOLD: u16 = 71;
@@ -105,6 +126,7 @@ pub(super) fn prepare(
                     at: at(age),
                     appearance: appearance(member),
                     placement: SpellEffectPlacement::CasterGround,
+                    deferred: true,
                     captured_heading_offset: None,
                 });
             }
@@ -113,20 +135,20 @@ pub(super) fn prepare(
         for (index, &[x, y, z]) in scene.strike_points.iter().enumerate() {
             let at = at(first_strike + STRIKE_INTERVAL * index as u16);
             let offset = [cos * x + sin * z, y, -sin * x + cos * z];
-            let mut contact = SpellProjectile::new(at, Arc::clone(&projectile));
+            // The beam begins before its contact becomes active.
+            let mut contact = SpellProjectile::new(at + 1, Arc::clone(&projectile));
             contact.origin_offset = offset;
             spell.projectiles.push(contact);
             spell.effects.push(SpellEffect {
                 at,
                 appearance: appearance(strike_effect),
                 placement: SpellEffectPlacement::Scene(offset),
+                deferred: true,
                 captured_heading_offset: Some(PATTERN_HEADING),
             });
         }
     } else if catalogue == SACRIFICE {
-        const BURST_AGE: u16 = 135;
         const BENEFIT_AGE: u16 = 150;
-        const LAST_CONTACT_AGE: u16 = 195;
         spell.origin = SpellOrigin::SceneFixed { position: [0.; 3] };
         spell.startup = Some((
             stored_spells::TRANSITION_TICKS + 1,
@@ -138,25 +160,37 @@ pub(super) fn prepare(
                 3,
                 SpellEffectPlacement::CasterCenter,
             ),
-            (at(BURST_AGE), 4, SpellEffectPlacement::CasterCenter),
-            (at(BURST_AGE), 5, SpellEffectPlacement::EnemyCenters),
+            (
+                at(SACRIFICE_BURST_AGE),
+                5,
+                SpellEffectPlacement::EnemyCenters,
+            ),
+            (
+                at(SACRIFICE_BURST_AGE),
+                4,
+                SpellEffectPlacement::CasterCenter,
+            ),
         ] {
             spell.effects.push(SpellEffect {
                 at: tick,
                 appearance: appearance(member),
                 placement,
+                deferred: true,
                 captured_heading_offset: None,
             });
         }
-        for (age, member) in [(BENEFIT_AGE, 1), (LAST_CONTACT_AGE, 2)] {
+        for (age, member, variant) in [(BENEFIT_AGE, 1, 0), (SACRIFICE_LAST_CONTACT_AGE, 2, 1)] {
             spell.projectiles.push(SpellProjectile::new(
-                at(age),
-                contact(files, scene, bank, resources, member)?,
+                at(age) + 1,
+                contact(files, scene, bank, resources, member, variant)?,
             ));
         }
         spell.recovery.push(SpellRecovery {
+            duration: 1,
+            effect_placement: Default::default(),
+            flash: None,
             at: at(BENEFIT_AGE),
-            benefit: SpellBenefit::Sacrifice,
+            benefit: SpellBenefit::Sacrifice(appearance(2)),
             targets: RecoveryTargets::Caster,
             effect: None,
         });
@@ -174,6 +208,7 @@ fn contact(
     bank: &EffectResource,
     resources: &mut ActionResources,
     member: usize,
+    variant: usize,
 ) -> Result<Arc<resonance_battle::ProjectileDefinition>> {
     let appearance = |member| EffectAppearance {
         resource: bank.resource,
@@ -183,7 +218,7 @@ fn contact(
         .projectiles
         .get(member)
         .context("angel scene has no requested contact")?;
-    let rule = source.hit()?;
+    let rule = source.hit_variant(variant)?;
     let recoil = recoil::Parameters::load(files)?;
     let mut hit = super::hit::authored(rule, &recoil)?;
     if let Some(member) = rule.effect {

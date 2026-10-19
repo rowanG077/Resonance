@@ -48,25 +48,32 @@ fn stronger_refresh_preserves_magnitude_and_restarts_lifetime() {
     }
     assert_eq!(owner.conditions.remaining(AttackUp), Some(1));
     owner.advance_conditions(true);
+    assert_eq!(owner.conditions.remaining(AttackUp), Some(0));
+    assert_eq!(owner.conditions.attack_with_conditions(100), 120);
+    owner.advance_conditions(true);
     assert!(owner.conditions.effective().is_empty());
     assert_eq!(owner.conditions.magnitude(AttackUp), 0);
     assert_eq!(owner.conditions.attack_with_conditions(100), 100);
 }
 
 #[test]
-fn opposite_stat_effects_cancel_except_accuracy_shares_one_signed_amount() {
-    for (up, down) in [
-        (AttackUp, AttackDown),
-        (DefenseUp, DefenseDown),
-        (MagicAttackUp, MagicAttackDown),
-        (MagicDefenseUp, MagicDefenseDown),
-    ] {
+fn stat_pairs_cancel_or_coexist() {
+    for (up, down) in [(AttackUp, AttackDown), (DefenseUp, DefenseDown)] {
         let mut conditions = Conditions::default();
         assert!(conditions.apply_stat_condition(up, 10, 20, false));
         assert!(!conditions.apply_stat_condition(down, 10, 20, false));
         assert!(conditions.active_effects().is_empty());
         assert!(conditions.apply_stat_condition(down, 10, 20, false));
         assert_eq!(conditions.magnitude(down), -10);
+    }
+    for (up, down) in [
+        (MagicAttackUp, MagicAttackDown),
+        (MagicDefenseUp, MagicDefenseDown),
+    ] {
+        let mut conditions = Conditions::default();
+        assert!(conditions.apply_stat_condition(up, 10, 20, false));
+        assert!(conditions.apply_stat_condition(down, 10, 20, false));
+        assert_eq!(conditions.base(), ConditionSet::of(&[up, down]));
     }
 
     let mut owner = actor(Side::Party);
@@ -86,6 +93,7 @@ fn opposite_stat_effects_cancel_except_accuracy_shares_one_signed_amount() {
     assert!(conditions.apply_stat_condition(AccuracyUp, 11, 3, true));
     assert_eq!(conditions.magnitude(AccuracyDown), 12);
     assert_eq!(conditions.accuracy_with_conditions(100), 112);
+    owner.advance_conditions(true);
     owner.advance_conditions(true);
     owner.advance_conditions(true);
     assert!(!owner.conditions.base().contains(AccuracyDown));
@@ -109,12 +117,13 @@ fn stat_effects_expire_independently() {
         .conditions
         .apply_stat_condition(MagicDefenseUp, 10, 2, false);
     owner.advance_conditions(true);
+    owner.advance_conditions(true);
     assert_eq!(owner.conditions.attack_with_conditions(100), 100);
     assert_eq!(owner.conditions.defense_with_conditions(100), 110);
     owner.advance_conditions(true);
     assert_eq!(owner.conditions.defense_with_conditions(100), 100);
     assert_eq!(owner.conditions.remaining(MagicDefenseUp), None);
-    assert_eq!(owner.conditions.remaining(MagicAttackUp), Some(1));
+    assert_eq!(owner.conditions.remaining(MagicAttackUp), Some(0));
 }
 
 #[test]
@@ -147,25 +156,25 @@ fn holy_song_compounds_with_stat_buffs_and_survives_dispel_until_expiry() {
     }
     assert_eq!(owner.conditions.remaining(HolySong), Some(1));
     owner.advance_conditions(true);
+    owner.advance_conditions(true);
     assert_eq!(owner.conditions.attack_with_conditions(1000), 1000);
     assert_eq!(owner.conditions.defense_with_conditions(300), 300);
 }
 
 #[test]
-fn equipment_grants_survive_cures_and_end_when_unequipped() {
+fn cures_preserve_passive_effects_and_equipment_layers() {
     let mut conditions = Conditions::new(Layers {
-        base: ConditionSet::of(&[Weak, Paralysis]),
+        base: ConditionSet::of(&[Weak, Paralysis, MovementBoost]),
         intrinsic: ConditionSet::of(&[CastingSpeed, RegenerateHp]),
         equipment_overlay: ConditionSet::of(&[Curse, Heavy]),
         ..Default::default()
     });
     let periodic = conditions.periodic_effects().to_vec();
     conditions.cure(Cure::All);
-    assert!(conditions.active_effects().is_empty());
-    assert!(conditions.base().is_empty());
+    assert_eq!(conditions.base(), MovementBoost.into());
     assert_eq!(
         conditions.effective(),
-        ConditionSet::of(&[CastingSpeed, RegenerateHp, Curse, Heavy])
+        ConditionSet::of(&[CastingSpeed, RegenerateHp, Curse, Heavy, MovementBoost])
     );
     assert_eq!(conditions.periodic_effects(), periodic);
     assert!(!conditions.arte_queue_allowed());
@@ -255,7 +264,7 @@ fn recipient_traits_control_immunity_duration_and_strength() {
     assert_eq!(conditions.remaining(DefenseDown), Some(125));
     assert!(conditions.apply_stat_condition(DefenseDown, -10, 70_000, true));
     assert_eq!(conditions.remaining(DefenseDown), Some(87_500));
-    for _ in 0..87_499 {
+    for _ in 0..87_500 {
         conditions.advance(&mut None);
     }
     assert_eq!(conditions.defense_with_conditions(100), 88);
@@ -320,26 +329,69 @@ fn persistent_ailments_have_no_dummy_clocks() {
 
 #[test]
 fn protection_has_an_explicit_persistent_or_timed_lifetime() {
-    for persistent in [false, true] {
+    for (buff, condition, ailment, persistent, cure) in [
+        (
+            Buff::PhysicalAilmentGuard,
+            PhysicalProtection,
+            HitAilment::Paralysis,
+            true,
+            Cure::AntiMagic,
+        ),
+        (
+            Buff::MagicalAilmentGuard,
+            MagicalProtection,
+            HitAilment::Weak,
+            true,
+            Cure::AntiMagic,
+        ),
+        (
+            Buff::PhysicalBarrier { persistent: false },
+            PhysicalBarrier,
+            HitAilment::Paralysis,
+            false,
+            Cure::All,
+        ),
+        (
+            Buff::MagicalBarrier { persistent: false },
+            MagicalBarrier,
+            HitAilment::Weak,
+            false,
+            Cure::All,
+        ),
+        (
+            Buff::PhysicalBarrier { persistent: true },
+            PhysicalBarrier,
+            HitAilment::Paralysis,
+            true,
+            Cure::All,
+        ),
+        (
+            Buff::MagicalBarrier { persistent: true },
+            MagicalBarrier,
+            HitAilment::Weak,
+            true,
+            Cure::All,
+        ),
+    ] {
         let mut owner = actor(Side::Party);
         owner
             .conditions
-            .prepare_buff(Buff::PhysicalAilmentGuard { persistent }, false)
+            .prepare_buff(buff, false)
             .commit(&mut owner);
-        for _ in 0..900 {
-            owner.advance_conditions(true);
-        }
-        assert_eq!(
-            owner.conditions.effective().contains(PhysicalProtection),
-            persistent
-        );
+        assert_eq!(owner.conditions.base(), condition.into());
         let hit = crate::HitCondition {
-            condition: HitAilment::Paralysis,
+            condition: ailment,
             chance: 100,
             value: 0,
         };
+        assert!(owner.conditions.apply_hit(hit).is_none());
+        for _ in 0..=900 {
+            owner.advance_conditions(true);
+        }
+        assert_eq!(owner.conditions.effective().contains(condition), persistent);
         assert_eq!(owner.conditions.apply_hit(hit).is_none(), persistent);
-        owner.conditions.cure(Cure::All);
+        owner.conditions.cure(cure);
+        assert!(!owner.conditions.effective().contains(condition));
         assert!(owner.conditions.apply_hit(hit).is_some());
     }
 }
@@ -354,7 +406,7 @@ fn quartz_replacement_and_expiry_clear_the_enchantment_together() {
             .commit(&mut owner);
         assert_eq!(owner.elements.enchantment, Some(element));
     }
-    for _ in 0..1199 {
+    for _ in 0..1200 {
         owner.advance_conditions(true);
     }
     assert_eq!(owner.elements.enchantment, Some(Element::Ice));

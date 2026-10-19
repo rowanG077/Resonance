@@ -101,7 +101,9 @@ pub struct MaximumVitalAward {
 
 pub struct RewardInput<'a> {
     pub enemies: &'a [EnemyReward],
+    pub formation_count: usize,
     pub maximum_combo: u16,
+    pub technical_smash_bonus: u8,
     pub level_difference: i8,
     pub modifiers: RewardModifiers,
 }
@@ -177,15 +179,19 @@ pub struct Advancement {
     pub notices: Vec<u16>,
 }
 
-/// Each hit beyond the first adds 1% to base drop odds, up to double the base odds.
-pub fn combo_drop_bonus(maximum_combo: u16) -> u8 {
-    maximum_combo.saturating_sub(1).min(100) as u8
+/// Each extra formation adds 50%; two halves represent an ordinary battle.
+pub(super) fn combined_multiplier_halves(formation_count: usize) -> Result<u32> {
+    ensure!(formation_count > 0, "empty reward encounter");
+    u32::try_from(formation_count)?
+        .checked_add(1)
+        .context("combined reward multiplier overflow")
 }
 
-/// Scale the base drop chance before comparison.
-fn drop_chance(base: u8, bonus: u8) -> u32 {
+/// Apply ordinary drop bonuses before the combined-battle multiplier.
+fn drop_chance(base: u8, bonus: u8, item_bonus: u8, multiplier_halves: u32) -> u32 {
     let base = u32::from(base);
-    base + base * u32::from(bonus) / 100
+    let chance = base + base * u32::from(bonus) / 100 + u32::from(item_bonus);
+    (u64::from(chance) * u64::from(multiplier_halves) / 2).min(100) as u32
 }
 
 fn succeeds(chance: u32, total: u32, roll: impl FnOnce() -> u32) -> bool {
@@ -211,13 +217,16 @@ impl Rewards {
     fn calculate(input: &RewardInput<'_>, random: &mut GameplayRandom) -> Result<Self> {
         let RewardInput {
             enemies,
+            formation_count,
             maximum_combo,
+            technical_smash_bonus,
             level_difference,
             modifiers,
         } = *input;
+        let multiplier_halves = combined_multiplier_halves(formation_count)?;
         ensure!(
-            enemies.len() <= resonance_battle::ENEMY_CAPACITY
-                && (-8..=8).contains(&level_difference)
+            (-8..=8).contains(&level_difference)
+                && technical_smash_bonus <= 100
                 && enemies.iter().all(|enemy| enemy
                     .drops
                     .iter()
@@ -231,13 +240,16 @@ impl Rewards {
             gald: 0,
             items: Vec::new(),
         };
-        let drop_bonus = combo_drop_bonus(maximum_combo);
+        let drop_bonus = technical_smash_bonus;
         for enemy in enemies {
             let bonus_can_help = (0..2).any(|slot| {
                 enemy.drops[slot].is_some()
-                    && drop_chance(enemy.drop_chances[slot], drop_bonus)
-                        + u32::from(modifiers.item_drop_bonus)
-                        < 100
+                    && drop_chance(
+                        enemy.drop_chances[slot],
+                        drop_bonus,
+                        modifiers.item_drop_bonus,
+                        multiplier_halves,
+                    ) < 100
             });
             let mut item_bonus = modifiers.item_drop_bonus;
             if bonus_can_help
@@ -249,7 +261,12 @@ impl Rewards {
             for slot in 0..2 {
                 if let Some(item) = enemy.drops[slot]
                     && succeeds(
-                        drop_chance(enemy.drop_chances[slot], drop_bonus) + u32::from(item_bonus),
+                        drop_chance(
+                            enemy.drop_chances[slot],
+                            drop_bonus,
+                            item_bonus,
+                            multiplier_halves,
+                        ),
                         100,
                         || random.next_u32(),
                     )
@@ -281,6 +298,12 @@ impl Rewards {
         if level_difference > 2 {
             let percent = (100 - 10 * (i32::from(level_difference) - 2)).max(50) as u64;
             reward.experience = (u64::from(reward.experience) * percent / 100) as u32;
+        }
+        // Round down once, before combo, equipment and skill bonuses.
+        for value in [&mut reward.experience, &mut reward.gald] {
+            *value = (u64::from(*value) * u64::from(multiplier_halves) / 2)
+                .try_into()
+                .context("combined reward overflow")?;
         }
         reward.combo_experience = (u64::from(reward.experience) * u64::from(maximum_combo) / 100)
             .try_into()
@@ -597,7 +620,9 @@ pub(super) mod tests {
     fn input(enemies: &[EnemyReward]) -> RewardInput<'_> {
         RewardInput {
             enemies,
+            formation_count: 1,
             maximum_combo: 0,
+            technical_smash_bonus: 0,
             level_difference: 0,
             modifiers: Default::default(),
         }
@@ -646,12 +671,53 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn combined_rosters_scale_experience_gald_and_drop_chances() {
+        let mut enemies = vec![
+            EnemyReward {
+                drops: [Some(1), None],
+                drop_chances: [50, 0],
+                ..enemy(5, 7)
+            };
+            18
+        ];
+        enemies[0].experience += 1;
+        enemies[0].gald += 1;
+        for (formation_count, experience, gald, chance) in [
+            (1, 91, 127, 50),
+            (2, 136, 190, 75),
+            (3, 182, 254, 100),
+            (4, 227, 317, 100),
+        ] {
+            let mut request = input(&enemies);
+            request.formation_count = formation_count;
+            request.maximum_combo = 20;
+            request.modifiers.gald_double = true;
+            let mut random = GameplayRandom::new(1);
+            let reward = Rewards::calculate(&request, &mut random).unwrap();
+            assert_eq!((reward.experience, reward.gald), (experience, gald * 2));
+            assert_eq!(reward.combo_experience, experience / 5);
+            let mut expected_random = GameplayRandom::new(1);
+            let drops = (0..enemies.len())
+                .filter(|_| chance == 100 || expected_random.next_u32() % 100 < chance)
+                .count();
+            assert_eq!(usize::from(reward.items[0].count), drops);
+            assert_eq!(reward.items[0].discoveries.len(), drops);
+            assert_eq!(random, expected_random);
+        }
+    }
+
+    #[test]
     fn probability_boundaries_and_luck_have_the_expected_rates() {
         assert_eq!(happiness_chance(0), 5);
         assert_eq!(happiness_chance(100), 10);
         assert_eq!(happiness_chance(u16::MAX), 100);
-        assert_eq!(drop_chance(49, 4), 50);
-        assert_eq!(drop_chance(100, 100), 200);
+        assert_eq!(drop_chance(49, 4, 0, 2), 50);
+        assert_eq!(drop_chance(100, 100, 0, 2), 100);
+        assert_eq!(drop_chance(50, 0, 0, 3), 75);
+        assert_eq!(drop_chance(50, 0, 0, 4), 100);
+        assert_eq!(drop_chance(0, 0, 0, 4), 0);
+        assert_eq!(drop_chance(40, 50, 10, 3), 100);
+        assert_eq!(drop_chance(40, 0, 10, 3), 75);
         assert!(!succeeds(0, 100, || 0));
         assert!(succeeds(100, 100, || 99));
         assert!(succeeds(200, 100, || 99));
@@ -660,10 +726,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn combo_finder_and_happiness_raise_drop_chances() {
-        for (hits, bonus) in [(0, 0), (1, 0), (6, 5), (101, 100), (u16::MAX, 100)] {
-            assert_eq!(combo_drop_bonus(hits), bonus);
-        }
+    fn technical_smash_finder_and_happiness_raise_drop_chances() {
         let (session, techniques, titles, party) = reward_fixture();
         for bonus in 0..3 {
             let enemies = [EnemyReward {
@@ -673,7 +736,7 @@ pub(super) mod tests {
             }];
             let mut request = input(&enemies);
             match bonus {
-                0 => request.maximum_combo = 101,
+                0 => request.technical_smash_bonus = 100,
                 1 => request.modifiers.item_drop_bonus = 10,
                 _ => request.modifiers.happiness_luck = Some(u16::MAX),
             }

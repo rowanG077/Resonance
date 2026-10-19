@@ -39,30 +39,47 @@ fn party_formation_positions_match_recorded_entries() {
 }
 
 #[test]
-fn automatic_enemy_rows_stagger_members_in_formation_order() -> Result<()> {
-    let choices = [Back, Front, Back, Middle];
-    let enemies = enemy_positions(&spawns(4), &choices, || panic!("fixed row"))?;
-    assert!(enemies[0][0] > enemies[3][0] && enemies[3][0] > enemies[1][0]);
-    assert!(enemies[0][0] < enemies[2][0]);
-    assert!(enemies[0][1] < 0. && enemies[2][1] == -enemies[0][1]);
-    assert_eq!(enemies[1][1], 0.);
-    assert_eq!(enemies[3][1], 0.);
-    let crowded = enemy_positions(&spawns(8), &[Back; 8], || panic!("fixed row"))?;
-    const ARENA_RADIUS: f32 = 850.;
-    const PUMPKIN_TREE_DIAMETER: f32 = 130.;
-    assert!(crowded.iter().all(|[x, z]| x.hypot(*z) < ARENA_RADIUS));
-    assert!(
-        crowded
-            .windows(2)
-            .all(|pair| pair[1][1] - pair[0][1] > PUMPKIN_TREE_DIAMETER)
-    );
-    // Random row selection changes depth, while every isolated member stays centered.
+fn automatic_enemy_rows_match_recorded_entries() -> Result<()> {
+    for (choices, expected) in [
+        (vec![Middle], vec![[350., 0.]]),
+        (vec![Middle, Middle], vec![[350., 0.], [400., -250.]]),
+        (
+            vec![Middle, Middle, Middle],
+            vec![[350., 0.], [400., -250.], [450., 250.]],
+        ),
+        (
+            vec![Middle, Middle, Middle, Middle],
+            vec![[350., 0.], [400., -250.], [450., 250.], [500., -450.]],
+        ),
+        (
+            vec![Middle, Middle, Middle, Front],
+            vec![[350., 200.], [400., -50.], [450., -300.], [100., 0.]],
+        ),
+        (vec![Front, Back], vec![[100., 0.], [600., 150.]]),
+        (
+            vec![Middle, Front, Front, Front, Front],
+            vec![
+                [350., -150.],
+                [100., 0.],
+                [150., -250.],
+                [200., 250.],
+                [250., -450.],
+            ],
+        ),
+    ] {
+        assert_eq!(
+            enemy_positions(&spawns(choices.len()), &choices, || panic!("fixed row"))?,
+            expected
+        );
+    }
     let mut rolls = [2, 0].into_iter();
-    let random = enemy_positions(&spawns(3), &[RandomRow, Middle, RandomRow], || {
-        rolls.next().unwrap()
-    })?;
-    assert!(random[0][0] > random[1][0] && random[1][0] > random[2][0]);
-    assert!(random.iter().all(|position| position[1] == 0.));
+    assert_eq!(
+        enemy_positions(&spawns(3), &[RandomRow, Middle, RandomRow], || {
+            rolls.next().unwrap()
+        })?,
+        [[600., 150.], [350., -150.], [100., 0.]]
+    );
+    assert!(rolls.next().is_none());
     Ok(())
 }
 
@@ -80,7 +97,7 @@ fn explicit_enemy_coordinates_are_preserved() -> Result<()> {
 
 #[test]
 fn malformed_enemy_placement_fails_before_random_draws() {
-    for (count, choices) in [(0, 0), (2, 1), (9, 9)] {
+    for (count, choices) in [(0, 0), (2, 1)] {
         assert!(
             enemy_positions(&spawns(count), &vec![RandomRow; choices], || panic!(
                 "invalid roster"
@@ -91,4 +108,18 @@ fn malformed_enemy_placement_fails_before_random_draws() {
     let mut mixed = spawns(2);
     mixed[1].position = Some([0, 0]);
     assert!(enemy_positions(&mixed, &[RandomRow; 2], || panic!("mixed placement")).is_err());
+}
+
+#[test]
+fn combined_rosters_spread_without_overlapping_or_leaving_the_arena() -> Result<()> {
+    for count in [9, 18, 32, 64] {
+        let positions =
+            enemy_positions(&spawns(count), &vec![Front; count], || panic!("fixed row"))?;
+        assert_eq!(positions.len(), count);
+        for (i, p) in positions.iter().enumerate() {
+            assert!(p[0] > 0. && p[0].hypot(p[1]) < 850.);
+            assert!(!positions[..i].contains(p));
+        }
+    }
+    Ok(())
 }

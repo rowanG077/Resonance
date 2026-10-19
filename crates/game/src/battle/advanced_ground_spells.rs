@@ -28,7 +28,7 @@ pub(super) fn prepare(
     bank: &EffectResource,
     resources: &mut ActionResources,
 ) -> Result<PreparedSpell> {
-    // Pulse age, projectile member, and height relative to the retained point.
+    // Pulse callback age, projectile member, and height relative to the retained point.
     let (lifetime, origin, pulses): (_, _, &[(u16, usize, f32)]) = match catalogue {
         TIDAL_WAVE => (
             210,
@@ -63,6 +63,8 @@ pub(super) fn prepare(
     let recoil = recoil::Parameters::load(files)?;
     let mut effects = bank.clone();
     effects.members = vec![1];
+    // Contacts initialize on the update after allocation.
+    const INITIALIZATION_TICKS: u16 = 1;
     let mut projectiles = Vec::with_capacity(pulses.len());
     for &(at, member, height) in pulses {
         let source = scene
@@ -88,11 +90,15 @@ pub(super) fn prepare(
             .context("ground scene projectile has no contact")?
             .cooldown = rule.cooldown;
         projectiles.push(SpellProjectile::new(
-            TRANSITION_TICKS + ACTIVE_START_TICKS + at,
+            TRANSITION_TICKS + ACTIVE_START_TICKS + at + INITIALIZATION_TICKS,
             projectile,
         ));
     }
     resources.effect(effects)?;
+    let startup = EffectAppearance {
+        resource: bank.resource,
+        member: 1,
+    };
     Ok(PreparedSpell {
         policy: Default::default(),
         summon: None,
@@ -106,10 +112,11 @@ pub(super) fn prepare(
         duration: TRANSITION_TICKS + lifetime + SCENE_BOUNDARY_TICKS,
         startup: Some((
             TRANSITION_TICKS + 1,
-            SpellStartup::Effect(EffectAppearance {
-                resource: bank.resource,
-                member: 1,
-            }),
+            if matches!(catalogue, ATLAS | TIDAL_WAVE | DREADED_WAVE) {
+                SpellStartup::DeferredEffect(startup)
+            } else {
+                SpellStartup::Effect(startup)
+            },
         )),
         sound: None,
     })

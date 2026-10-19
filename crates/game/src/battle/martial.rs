@@ -8,6 +8,7 @@ mod colette;
 mod fierce;
 mod hammer;
 mod physical;
+pub(super) use physical::prepare_eagle_landing;
 mod seals;
 mod steal;
 mod sword;
@@ -60,7 +61,6 @@ enum Sequence {
     RisingFalcon,
     FalconsCrest,
     Spell(u16),
-    DemonFang,
     FierceDemonFang,
     RayThrust,
     HurricaneThrust,
@@ -89,7 +89,7 @@ pub fn technique(character: u8, catalogue: u16) -> Option<Technique> {
     let character = Character::try_from(character).ok()?;
     let sequence = match (character, catalogue) {
         _ if is_special_guard(character as u8, catalogue) => SpecialGuard,
-        (Lloyd, 1 | 2) | (Zelos | Kratos, 207 | 208) => DemonFang,
+        (Lloyd, 1 | 2) | (Zelos | Kratos, 207 | 208) => Authored,
         (Lloyd, 4) | (Zelos | Kratos, 209) => FierceDemonFang,
         (Lloyd, 3 | 5 | 8 | 9 | 10 | 12 | 13 | 14 | 15 | 16 | 20 | 21 | 22 | 24 | 26 | 27 | 28)
         | (Colette, 38 | 45 | 46 | 48)

@@ -61,6 +61,7 @@ fn shared_prepared(mode: Control) -> PreparedBattle {
         row.capabilities.target = crate::TechniqueTarget::Enemy;
     }
     prepared.resources.actor_setup[0].companion = Some(crate::CompanionDefinition {
+        normal_attack_opening: false,
         initial_policy: [0; 3],
         defaults: [3, 6, 2],
         limits: [crate::PolicyLimits {
@@ -203,7 +204,9 @@ fn buffered_shortcut_keeps_its_action_when_mapping_changes_and_pays_once() -> Re
 #[test]
 fn normal_combo_accepts_immediate_technique_input_and_chains_families() -> Result<()> {
     let mut battle = shared_fixture(Control::Manual);
-    battle.step(player_buttons(true, false, false, [0; 2]))?;
+    let selected = battle.step(player_buttons(true, false, false, [0; 2]))?;
+    assert!(selected.actions.is_empty());
+    battle.step(BattleInput::default())?;
     until_age(&mut battle, 1)?;
     battle.step(player_buttons(true, false, false, [80, 0]))?;
     until_age(&mut battle, 15)?;

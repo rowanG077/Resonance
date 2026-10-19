@@ -37,7 +37,7 @@ fn item_armor_blocks_reaction_and_stun_while_preserving_damage() {
         target.reaction.stagger.received = 9;
         target.reaction.stagger.threshold = 10;
         target.reaction.protection.item();
-        let before = target.reaction;
+        let before = target.reaction.clone();
         let movement = target.movement;
         let mut random = Random::new(1);
         let rule = rule(DamageKind::Slash);
@@ -65,13 +65,9 @@ fn item_armor_blocks_reaction_and_stun_while_preserving_damage() {
             )
             .is_none()
         );
-        assert!(!crate::stun::roll(
-            &owner,
-            &target,
-            255,
-            result,
-            &mut random
-        ));
+        assert!(
+            !crate::stun::roll(&owner, &target, 255, result, |_| Ok(random.next_u16())).unwrap()
+        );
 
         assert_eq!(target.reaction, before);
         assert_eq!(target.movement, movement);

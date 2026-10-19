@@ -95,7 +95,7 @@ fn counter_guarantees_physical_criticals_against_attacking_opponents() {
 }
 
 #[test]
-fn physical_bonuses_add_without_affecting_fixed_power_or_consuming_charge() {
+fn late_physical_bonuses_compound_without_consuming_charge() {
     let mut owner = actor(Side::Party);
     owner.equipment.stats.slash = 200;
     owner.equipment.stats.accuracy = 25;
@@ -107,19 +107,23 @@ fn physical_bonuses_add_without_affecting_fixed_power_or_consuming_charge() {
     recipient.species = 6;
     let mut hit_rule = rule(DamageKind::Slash, Power::Normal);
     hit_rule.element = HitElement::Element(Element::Fire);
-    let hit = resolve(
-        &owner,
-        &mut recipient.clone(),
-        hit_rule,
-        100,
-        [0.; 3],
-        &mut neutral_roll,
-        false,
-    );
-    // Base 100, plus 5% progression, 40% charge, 10% element, and 15% species.
-    assert_eq!(hit.amount, 170);
-    assert!(hit.boosted && !hit.critical);
-    assert_eq!(owner.control_ex_state.charge, crate::ChargeLevel::Strong);
+    // Each stage truncates: 100 -> 105 -> 147 -> 161 -> 181.
+    for (reduced, expected) in [(false, 181), (true, 163)] {
+        recipient.equipment.damage.damage_reduction = reduced;
+        let hit = resolve(
+            &owner,
+            &mut recipient.clone(),
+            hit_rule,
+            100,
+            [0.; 3],
+            &mut neutral_roll,
+            false,
+        );
+        assert_eq!(hit.amount, expected);
+        assert!(hit.boosted && !hit.critical);
+        assert_eq!(owner.control_ex_state.charge, crate::ChargeLevel::Strong);
+    }
+    recipient.equipment.damage.damage_reduction = false;
     owner.side = Side::Enemy;
     assert_eq!(
         resolve(
@@ -132,11 +136,24 @@ fn physical_bonuses_add_without_affecting_fixed_power_or_consuming_charge() {
             false
         )
         .amount,
-        165
+        173
     );
-    hit_rule.power = Power::Fixed(40);
-    for kind in [DamageKind::Slash, DamageKind::Magic] {
+    // Fixed physical hits skip early defenses, while the shared reduction still applies.
+    recipient.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
+        base: Condition::Guard.into(),
+        ..Default::default()
+    });
+    recipient.equipment.damage.physical_damage_reduction = true;
+    for (kind, power, reduced, expected, boosted) in [
+        (DamageKind::Slash, 40, false, 68, true),
+        (DamageKind::Slash, 40, true, 62, true),
+        (DamageKind::Magic, 40, false, 40, false),
+        (DamageKind::Magic, 40, true, 36, false),
+        (DamageKind::Magic, 9, true, 9, false),
+    ] {
         hit_rule.kind = kind;
+        hit_rule.power = Power::Fixed(power);
+        recipient.equipment.damage.damage_reduction = reduced;
         let hit = resolve(
             &owner,
             &mut recipient.clone(),
@@ -146,8 +163,10 @@ fn physical_bonuses_add_without_affecting_fixed_power_or_consuming_charge() {
             &mut neutral_roll,
             false,
         );
-        assert_eq!(hit.amount, 40);
-        assert!(!hit.boosted && !hit.critical);
+        assert_eq!(hit.amount, expected);
+        assert_eq!(hit.boosted, boosted);
+        assert!(!hit.critical);
+        assert_eq!(owner.control_ex_state.charge, crate::ChargeLevel::Strong);
     }
 }
 

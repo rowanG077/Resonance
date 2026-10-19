@@ -5,11 +5,12 @@ use super::{
 };
 use anyhow::Result;
 use resonance_battle::{
-    EffectAppearance, PreparedSpell, RecoveryTargets, SpellOrigin, SpellRecovery, SpellStartup,
+    EffectAppearance, PreparedSpell, RecoveryTargets, SpellEffect, SpellEffectPlacement,
+    SpellOrigin, SpellRecovery, SpellStartup,
 };
 
 pub const CATALOGUE: u16 = 99;
-const MODEL_START_SCENE_TICK: u16 = 2;
+const MODEL_START_SCENE_TICK: u16 = 1;
 const RECOVERY_SCENE_TICK: u16 = 122;
 const ACTIVE_SCENE_TICKS: u16 = 250;
 const CLEANUP_SCENE_TICK: u16 = ACTIVE_SCENE_TICKS + SCENE_BOUNDARY_TICKS;
@@ -24,14 +25,23 @@ pub fn prepare(
         member,
     };
     let mut artwork = bank.clone();
-    artwork.members = (2..=6).collect();
+    artwork.members = (1..=6).collect();
     resources.effect(artwork)?;
     Ok(PreparedSpell {
         policy: Default::default(),
         summon: None,
-        effects: vec![],
+        effects: vec![SpellEffect {
+            at: TRANSITION_TICKS + 1,
+            appearance: effect(1),
+            placement: SpellEffectPlacement::CasterCenter,
+            deferred: false,
+            captured_heading_offset: None,
+        }],
         projectiles: Vec::new(),
         recovery: vec![SpellRecovery {
+            duration: 1,
+            effect_placement: Default::default(),
+            flash: None,
             at: TRANSITION_TICKS + RECOVERY_SCENE_TICK,
             benefit: resonance_battle::SpellBenefit::Hp(40),
             targets: RecoveryTargets::LivingAllies,

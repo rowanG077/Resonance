@@ -202,7 +202,7 @@ fn cures_remove_matching_effects_without_promoting_gear_or_intrinsic_conditions(
         before_release(&mut battle, &mut storage, request(item, 1));
         for buff in [
             Buff::Flare,
-            Buff::PhysicalAilmentGuard { persistent: true },
+            Buff::PhysicalAilmentGuard,
             Buff::Quartz(Element::Ice),
         ] {
             battle.actors[1]
@@ -318,7 +318,9 @@ fn cure_faults_preserve_conditions_and_inventory_without_blocking_later_actors()
 
             before_release(&mut battle, &mut storage, request(item, 1));
             storage.inventory.clear();
-            battle.begin_hurt(ActorId(2), 1, &mut vec![]);
+            battle.actors[2].movement.forward = 1.;
+            battle.actors[2].movement.direction = [1., 0., 0.];
+            let later_actor_position = battle.actors[2].position;
             let target = battle.actors[1].clone();
             let inventory = storage.inventory.clone();
             let result = battle.update(BattleInput::default(), &mut storage);
@@ -341,7 +343,7 @@ fn cure_faults_preserve_conditions_and_inventory_without_blocking_later_actors()
             assert_eq!(battle.item_cooldown(), 0);
             if let Ok(cues) = result {
                 assert!(battle.is_diagnostic());
-                assert_eq!(battle.activity(ActorId(2)), Activity::Idle);
+                assert_ne!(battle.actors[2].position, later_actor_position);
                 assert_eq!(diagnostics.entries().len(), 1);
                 assert!(
                     cues.iter().all(|cue| !matches!(

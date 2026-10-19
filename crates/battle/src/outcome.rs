@@ -174,6 +174,23 @@ impl Battle {
         self.terminal.departure
     }
 
+    /// Some enemies retain a complete defeat performance before the victory wash.
+    pub fn victory_animation_finished(&self) -> bool {
+        self.prepared
+            .actor_setup
+            .iter()
+            .enumerate()
+            .filter(|(index, setup)| {
+                setup.wait_for_defeat_animation && self.actors[*index].side == Side::Enemy
+            })
+            .all(|(index, _)| {
+                self.models
+                    .as_ref()
+                    .and_then(|models| models.main_motion_observation(ActorId(index as u8)))
+                    .is_none_or(|motion| motion.finished)
+            })
+    }
+
     /// Retire combat effects and released spells while retaining actor commands, models, voices,
     /// and random state.
     pub fn retire_combat(&mut self) -> Result<Vec<Cue>> {
@@ -413,12 +430,14 @@ impl Battle {
             .context("no battle transition")?;
         match transition.kind {
             TransitionKind::FadeIn => {
+                let complete = transition.frame.alpha == 0;
                 transition.frame.alpha = transition.frame.alpha.saturating_sub(transition.speed);
-                Ok(transition.frame.alpha == 0)
+                Ok(complete)
             }
             TransitionKind::FadeOut => {
+                let complete = transition.frame.alpha == 255;
                 transition.frame.alpha = transition.frame.alpha.saturating_add(transition.speed);
-                Ok(transition.frame.alpha == 255)
+                Ok(complete)
             }
         }
     }
@@ -477,6 +496,59 @@ impl Battle {
 mod tests {
     use super::*;
     use crate::tests::{actor, prepared};
+
+    #[test]
+    fn victory_waits_only_for_an_authored_defeat_performance() -> Result<()> {
+        use crate::{
+            ActorAvailability, ActorSetup, BattleClock, BattleInput, Models, PreparedBattle,
+        };
+        let mut enemy = actor(Side::Enemy);
+        enemy.hp = 0;
+        enemy.availability = ActorAvailability::Dead;
+        let mut battle = PreparedBattle::new(
+            vec![
+                (actor(Side::Party), ActorSetup::default()),
+                (
+                    enemy.clone(),
+                    ActorSetup {
+                        wait_for_defeat_animation: true,
+                        ..Default::default()
+                    },
+                ),
+                (enemy, ActorSetup::default()),
+            ],
+            Default::default(),
+            1,
+        )?
+        .finish()?;
+        let model = |resource, duration| {
+            let mut definition =
+                crate::tests::model_definition(resource, [(0, 100.), (1, duration)]);
+            definition.reactions.defeated = Some(1);
+            Some(Arc::new(definition))
+        };
+        battle.set_models(Models::new(
+            battle.actors(),
+            vec![None, model(1, 3.), model(2, 100.)],
+            Default::default(),
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )?);
+        assert_eq!(battle.recognize_result(), Some(BattleResult::Victory));
+        assert!(!battle.victory_animation_finished());
+        for _ in 0..40 {
+            let mut frame = battle.step(BattleInput::default())?;
+            battle.advance_models(&mut frame, BattleClock::Running, true)?;
+            if battle.victory_animation_finished() {
+                let models = battle.models().unwrap();
+                let defeated = models.main_motion_observation(ActorId(1)).unwrap();
+                assert_eq!(defeated.clip, 1);
+                assert!(defeated.finished);
+                assert!(!models.main_motion_observation(ActorId(2)).unwrap().finished);
+                return Ok(());
+            }
+        }
+        anyhow::bail!("authored defeat performance did not finish")
+    }
 
     #[test]
     fn enemy_retreat_uses_health_or_elapsed_time_and_waits_while_paused() -> Result<()> {

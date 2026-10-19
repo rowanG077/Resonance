@@ -2,10 +2,12 @@
 use super::{ActionDefinition, Sound, Technique};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
-    ActionExecution, AttackEvent, HammerProjectile, HammerRing, ProjectileScatter, ProjectileShot,
+    ActionExecution, AttackEvent, EffectAppearance, HammerProjectile, HammerRing,
+    ProjectileScatter, ProjectileShot,
 };
-use resonance_content::battle_martial::{HammerPattern, ProjectileFeedback};
-use resonance_content::{battle_martial::PoseStart, battle_normal::Event};
+use resonance_content::battle_martial::{
+    HammerPattern, PoseStart, ProjectileFeedback, gameplay_tick,
+};
 use std::sync::Arc;
 
 impl Technique {
@@ -17,7 +19,7 @@ impl Technique {
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
     ) -> Result<ActionDefinition> {
-        let mut source = resources
+        let source = resources
             .voices
             .party_table()
             .martial_attack(self.catalogue, self.character as u8)?
@@ -59,41 +61,68 @@ impl Technique {
                 }
             }
             43 | 44 => {
-                let child = projectile(4, 1)?;
+                let mut child = projectile(4, 1)?;
                 let mut ball = projectile(10, 0)?;
-                Arc::make_mut(&mut ball).effects.rebound_projectile = Some(child);
+                const REBOUND_EFFECT: u16 = 74;
+                resources.effect(true, &[REBOUND_EFFECT])?;
+                let rebound = Arc::make_mut(&mut child);
+                rebound.birth = Some(EffectAppearance {
+                    resource: resources.techniques.resource,
+                    member: REBOUND_EFFECT,
+                });
+                rebound
+                    .contact
+                    .as_mut()
+                    .context("missing Para Ball rebound contact")?
+                    .hit
+                    .kind = resonance_content::battle_projectile::DamageKind::Slash;
+                let effects = &mut Arc::make_mut(&mut ball).effects;
+                effects.rebound_projectile = Some(child);
+                effects.spin_on_rebound = true;
+                let holds = source
+                    .pose_sequence
+                    .as_ref()
+                    .context("missing Para Ball pose track")?
+                    .iter()
+                    .map(|step| {
+                        let PoseStart::At(at) = step.start else {
+                            anyhow::bail!("unexpected Para Ball continuation pose");
+                        };
+                        Ok((at, step.pose.blend))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                const FIRST_RELEASE: u16 = 14;
+                const RELEASE_INTERVAL: u16 = 20;
                 let count = if self.catalogue == 43 { 2 } else { 4 };
                 for index in 0..count {
                     let side = if index % 2 == 0 { 35. } else { -35. };
                     events.push((
-                        15 + index * 20,
+                        gameplay_tick(FIRST_RELEASE + index * RELEASE_INTERVAL, 0, &holds)?,
                         shot(Arc::clone(&ball), [side, 110., 40.], 0., None),
                     ));
                 }
-                // These captures establish the attack clock with absent default
-                // motions. Display the real alternate-bank clips without adding
-                // unmeasured blend delays to the contacts or recovery.
-                for step in source
-                    .pose_sequence
-                    .take()
-                    .context("missing Para Ball pose track")?
-                {
-                    let PoseStart::At(at) = step.start else {
-                        anyhow::bail!("unexpected Para Ball continuation pose");
-                    };
-                    let mut pose = step.pose;
-                    pose.blend = 0;
-                    source.events.push((at, Event::Pose(pose)));
-                }
-                source.events.sort_by_key(|(at, _)| *at);
             }
             50 => {
                 let ray = projectile(25, 0)?;
+                let mut burst = projectile(4, 1)?;
+                const CROSS_BURST_EFFECT: u16 = 75;
+                resources.effect(true, &[CROSS_BURST_EFFECT])?;
+                let definition = Arc::make_mut(&mut burst);
+                definition.birth = Some(EffectAppearance {
+                    resource: resources.techniques.resource,
+                    member: CROSS_BURST_EFFECT,
+                });
+                definition
+                    .contact
+                    .as_mut()
+                    .context("missing cross burst contact")?
+                    .hit
+                    .kind = resonance_content::battle_projectile::DamageKind::Slash;
                 const CROSSING_ORIGIN: [f32; 3] = [0., 0., 200.];
                 for angle in [45., -45.] {
                     events.push((28, shot(Arc::clone(&ray), CROSSING_ORIGIN, angle, None)));
                 }
-                events.push((40, shot(projectile(4, 1)?, CROSSING_ORIGIN, 0., None)));
+                events.push((40, shot(burst, CROSSING_ORIGIN, 0., None)));
             }
             52 => {
                 let mut opening = projectile(13, 0)?;
@@ -207,13 +236,17 @@ impl Technique {
             HammerPattern::Single { .. } => anyhow::bail!("expected a repeated hammer pattern"),
         };
         let feedback = Some(ProjectileFeedback {
-            bank: 1,
             effect: hammer.impact_effect,
             sound: hammer.impact_sound,
             on_guard: true,
         });
         let mut choices = Vec::with_capacity(3);
-        for (hit, birth) in hammer.hits.iter().zip([15, 16, 17]) {
+        let births = if ring.is_some() {
+            [64, 65, 66]
+        } else {
+            [15, 16, 17]
+        };
+        for (hit, birth) in hammer.hits.iter().zip(births) {
             row.birth_effect.member = birth;
             let mut projectile = super::sword::projectile(resources, &row, hit, feedback, &recoil)?;
             Arc::make_mut(&mut projectile).effects.spin_on_rebound = true;

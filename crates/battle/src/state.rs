@@ -3,7 +3,7 @@ use crate::{
     Activity, PreparedBattle, ProjectileDefinition, ProjectileFrame, ProjectileId,
     action::{Execution, Sequence, step_sequence},
     contact::Contacts,
-    projectile::Projectile,
+    projectile::{Projectile, Rebound},
 };
 use anyhow::{Context, Result, ensure};
 use std::{
@@ -26,6 +26,20 @@ impl ActorId {
 
     pub fn index(self) -> usize {
         usize::from(self.0)
+    }
+}
+
+/// Membership for the full actor-handle range, independent of formation size.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActorSet([u64; (u8::MAX as usize + 1) / u64::BITS as usize]);
+
+impl ActorSet {
+    pub fn contains(&self, actor: ActorId) -> bool {
+        self.0[actor.index() / 64] & (1 << (actor.index() % 64)) != 0
+    }
+
+    pub fn insert(&mut self, actor: ActorId) {
+        self.0[actor.index() / 64] |= 1 << (actor.index() % 64);
     }
 }
 
@@ -128,7 +142,7 @@ impl Actor {
         }
     }
 
-    pub(crate) fn airborne(&self) -> bool {
+    pub fn airborne(&self) -> bool {
         self.position[1] > crate::movement::GROUND_TOLERANCE
     }
 
@@ -228,8 +242,6 @@ pub struct BattleInput {
     pub interrupt: Vec<ActionId>,
     /// Menus and command pages freeze gameplay and feedback together.
     pub paused: bool,
-    /// Actors whose struggle buttons were pressed on this update.
-    pub stun_struggle: Vec<ActorId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,6 +256,10 @@ pub enum Rejection {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cue {
+    TechnicalSmash {
+        bonuses: crate::TechnicalSmash,
+        total_percent: u8,
+    },
     /// Retire existing effect emitters and particles before a cinematic's first effect.
     ClearEffects,
     /// Retire one actor's spell scene without disturbing other effect resources.
@@ -252,12 +268,42 @@ pub enum Cue {
         resource: u32,
     },
     Effect(crate::EffectRequest),
-    /// Casting artwork includes its initial emission and first update on admission.
-    CastingEffect(crate::EffectRequest),
+    /// Initialize at creation, before the ordinary emitter update.
+    InitializedEffect(crate::EffectRequest),
+    /// Resolve a detached emission after the current model pose is ready.
+    InitializedBoneEffect {
+        request: crate::EffectRequest,
+        anchor: crate::MeleeAnchor,
+    },
+    InitializedActionEffect {
+        action: ActionId,
+        request: crate::EffectRequest,
+    },
+    /// Hold ordinary scene effects without stopping the combat schedule.
+    HoldEffects(u16),
+    /// Start after particle updates; initial particles become visible on the next update.
+    DeferredEffect(crate::EffectRequest),
+    /// Run every emitter visit after particles, publishing each birth next update.
+    AfterParticlesEffect(crate::EffectRequest),
+    /// Result growth feedback shares one fanfare across the awarded party members.
+    ResultAdvancement {
+        actors: Vec<ActorId>,
+        level_up: bool,
+    },
+    TechniqueAcquired {
+        actor: ActorId,
+        action: crate::ActionKey,
+        spell: bool,
+    },
     /// A cinematic emitter runs while ordinary effects are held; particles keep their own clock.
     EffectDuringPause(crate::EffectRequest),
     /// Scene-owned scenery tint; its timer is independent of the released spell.
     StageTint(crate::StageTint),
+    /// Apply an entrance tint before this update’s scenery color step.
+    InitializedStageTint {
+        tint: crate::StageTint,
+        step: u8,
+    },
     Cutin {
         action: ActionId,
         catalogue: u16,
@@ -268,6 +314,10 @@ pub enum Cue {
         action: ActionId,
         request: crate::EffectRequest,
     },
+    /// Hold this update's action emissions while its commands wait.
+    PauseActionEffects(ActionId),
+    /// Finish this emission visit, then stop future births; existing particles remain independent.
+    RetireActionEffects(ActionId),
     /// A completed poison tick. Presentation owns its optional feedback.
     PoisonPulse {
         actor: ActorId,
@@ -322,6 +372,18 @@ pub enum Cue {
         actor: ActorId,
         color: [u8; 3],
     },
+    /// Color first appears on the next body publication.
+    DeferredFlash {
+        actor: ActorId,
+        color: [u8; 3],
+        /// Actor callbacks fade once before publication; late recovery callbacks do not.
+        fade_first: bool,
+    },
+    /// Brief color override lasting two active actor updates.
+    ActorPulse {
+        actor: ActorId,
+        color: [u8; 3],
+    },
     /// Presentation owns camera displacement and controller pulse lifetimes.
     Shake {
         duration: u32,
@@ -330,6 +392,9 @@ pub enum Cue {
     OverLimitEntered {
         actor: ActorId,
         position: [f32; 3],
+    },
+    OverLimitExpired {
+        actor: ActorId,
     },
     /// A successful release, emitted after inventory and knowledge are committed.
     ItemReleased {
@@ -380,11 +445,24 @@ pub enum Cue {
     ProjectileStarted {
         projectile: ProjectileId,
         action: ActionId,
+        /// Direction at emission, before the first movement updates steering.
+        velocity: [f32; 3],
     },
-    /// A model follows the projectile's contact rebound and later floor bounces.
+    /// A model follows the projectile's ricochet and later floor bounces.
     ProjectileRebound {
         projectile: ProjectileId,
         first: bool,
+        /// Ground ricochets begin at a new pitch. Contacts preserve the current pitch.
+        pitch: Option<f32>,
+    },
+    /// Change the departure clip now; follow its direction after this particle update.
+    ProjectileDeparture {
+        projectile: ProjectileId,
+        animation: resonance_content::battle_effect::ModelAnimation,
+    },
+    /// Attached effects retain their flight orientation when motion stops at the floor.
+    ProjectileStopped {
+        projectile: ProjectileId,
     },
     ProjectileExpired {
         projectile: ProjectileId,
@@ -406,6 +484,8 @@ pub enum Cue {
         was_casting: bool,
         overlimit: bool,
         stunned: bool,
+        /// Another contact reached this actor within the impact effect interval.
+        repeated: bool,
         result: crate::HitResult,
     },
     /// The host resolves text from the prepared action. Presentation retains
@@ -452,6 +532,8 @@ pub enum Cue {
         amount: i32,
     },
     Recovered {
+        /// Spell and item recovery may also show a number over the recipient.
+        floating: bool,
         kind: crate::RecoveryKind,
         actor: ActorId,
         nominal: i32,
@@ -476,6 +558,10 @@ pub enum Cue {
     GlobalSound {
         sound: crate::Sound,
         priority: u8,
+    },
+    TargetChanged {
+        actor: ActorId,
+        target: ActorId,
     },
 }
 
@@ -502,7 +588,15 @@ impl PartialEq for BattleOutcome {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorFrame {
     pub state: Actor,
+    /// Center sampled at the actor visit, before movement updates its root.
+    pub effect_center: [f32; 3],
     pub activity: crate::Activity,
+    /// The paid spell release pose or its recovery, distinct from chanting.
+    pub cast_releasing: bool,
+    /// Remaining controller updates, used by the attached stun birds.
+    pub stun_remaining: u32,
+    /// A fresh horizontal input is accelerating this stun update.
+    pub stun_struggling: bool,
 }
 
 impl std::ops::Deref for ActorFrame {
@@ -525,6 +619,8 @@ pub enum BattleClock {
     #[default]
     Running,
     Held,
+    /// The entry camera settles while actor animations continue.
+    EntrySettle,
     /// Gameplay waits while pause-enabled activation effects continue.
     TimedHold,
     Rescue(ActorId),
@@ -550,6 +646,7 @@ impl BattleClock {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BattleFrame {
     pub clock: BattleClock,
+    pub combat_active: bool,
     /// Actor clocks held during this update, before contacts could start a new hold.
     pub paused_actors: Vec<ActorId>,
     pub unison_gauge: i16,
@@ -560,7 +657,7 @@ pub struct BattleFrame {
     pub escape: Option<crate::EscapeFrame>,
     pub item_cooldown: u16,
     pub hourglass_remaining: u16,
-    pub scanned_enemies: u16,
+    pub scanned_enemies: ActorSet,
     pub update: u64,
     pub targets: Vec<Option<ActorId>>,
     pub target_selector: Option<ActorId>,
@@ -596,6 +693,7 @@ pub use resonance_content::random::Random;
 pub(crate) enum ActorTask {
     #[default]
     None,
+    EnteringGuard,
     Approach(crate::approach::Approach),
     Returning(crate::steering::ReturnState),
     Escaping,
@@ -605,12 +703,16 @@ pub(crate) enum ActorTask {
     Recovering {
         remaining: u32,
         after_hit: bool,
+        idle_pose: Option<(crate::MotionBinding, crate::Pose)>,
     },
+    /// A carried participant recovers from its host's release before choosing work.
+    Released,
     Paralysis {
         remaining: u8,
     },
     Stunned {
         remaining: u32,
+        struggle_ticks: u8,
     },
     Knockdown(crate::knockdown::Recovery),
     Item(crate::item::Use),
@@ -638,9 +740,10 @@ impl ActorTask {
                 }
             }
             Self::Approach(_) | Self::Returning(_) => Activity::Approaching,
+            Self::EnteringGuard => Activity::Guarding,
             Self::Escaping => Activity::Escaping,
             Self::Hurt { .. } | Self::Paralysis { .. } => Activity::Hurt,
-            Self::Recovering { .. } => Activity::Recovering,
+            Self::Recovering { .. } | Self::Released => Activity::Recovering,
             Self::Stunned { .. } => Activity::Stunned,
             Self::Knockdown(crate::knockdown::Recovery::Down { .. }) => Activity::KnockedDown,
             Self::Knockdown(crate::knockdown::Recovery::Rising { .. }) => Activity::GettingUp,
@@ -684,15 +787,19 @@ impl ActorTask {
     }
 }
 
+pub(crate) const TARGET_SETTLE_UPDATES: u16 = 120;
+
 /// State owned by one actor throughout the battle. Public actor values and model
 /// poses stay separate so gameplay and animation can borrow them independently.
 pub(crate) struct ActorRuntime {
     pub(crate) combo: crate::action_selection::Combo,
     pub(crate) control: Option<crate::control::Controller>,
     pub(crate) target: ActorId,
+    pub(crate) target_settle_remaining: u16,
     pub(crate) enemy_choice: Option<usize>,
     pub(crate) last_executed_enemy_row: Option<usize>,
     pub(crate) enemy_effective_hit: bool,
+    pub(crate) body_bypass: bool,
     pub(crate) body_bypass_ticks: u8,
     pub(crate) used_enemy_choices: Vec<usize>,
     pub(crate) enemy_walk_override: Option<f32>,
@@ -708,6 +815,13 @@ pub(crate) struct ActorRuntime {
 }
 
 impl ActorRuntime {
+    pub(crate) fn set_target(&mut self, target: ActorId) {
+        if self.target != target {
+            self.target = target;
+            self.target_settle_remaining = TARGET_SETTLE_UPDATES;
+        }
+    }
+
     pub(crate) fn action_mut(&mut self) -> Option<(&ActionId, &mut Sequence)> {
         match &mut self.task {
             ActorTask::Action { id, sequence } => Some((id, sequence)),
@@ -722,6 +836,13 @@ impl ActorRuntime {
 
 pub struct Battle {
     pub(crate) runtime: Vec<ActorRuntime>,
+    #[cfg(feature = "test-support")]
+    pub(crate) automatic_decisions_suppressed: bool,
+    #[cfg(feature = "test-support")]
+    pub(crate) fixture_enemy_chains:
+        Option<std::collections::VecDeque<crate::FixtureEnemyChainInput>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) random_inputs: Option<crate::random_inputs::Inputs>,
     pub(crate) unison_gauge: i16,
     pub(crate) unison: crate::unison::State,
     pub(crate) summon_entry: crate::summon_entry::State,
@@ -866,9 +987,11 @@ impl Battle {
                             target,
                         ),
                         target,
+                        target_settle_remaining: TARGET_SETTLE_UPDATES,
                         enemy_choice: None,
                         last_executed_enemy_row: None,
                         enemy_effective_hit: false,
+                        body_bypass: false,
                         body_bypass_ticks: 0,
                         used_enemy_choices: Vec::new(),
                         enemy_walk_override: None,
@@ -905,6 +1028,12 @@ impl Battle {
             models: None,
             camera: prepared.camera,
             entry_remaining,
+            #[cfg(feature = "test-support")]
+            automatic_decisions_suppressed: false,
+            #[cfg(feature = "test-support")]
+            fixture_enemy_chains: None,
+            #[cfg(any(test, feature = "test-support"))]
+            random_inputs: None,
             learning_members,
             volleys: BTreeMap::new(),
             projectiles: BTreeMap::new(),
@@ -1104,6 +1233,8 @@ impl Battle {
     pub(crate) fn interrupt_actor(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
         self.interrupt_capture(actor);
         let runtime = &mut self.runtime[actor.index()];
+        runtime.body_bypass = false;
+        runtime.body_bypass_ticks = 0;
         runtime.combo = Default::default();
         self.actors[actor.index()].input = Default::default();
         self.actors[actor.index()].secondary_wind.set(false, 0);
@@ -1135,6 +1266,27 @@ impl Battle {
     pub fn step(&mut self, input: BattleInput) -> Result<BattleFrame> {
         let cues = self.update(input, &mut crate::item::Unavailable)?;
         Ok(self.publish(cues))
+    }
+
+    /// A timed battle scene disposes released combat work before taking the view.
+    /// Actor commands stay held until the scene returns them to their formation.
+    pub fn clear_event_effects(&mut self) -> Result<Vec<Cue>> {
+        ensure!(
+            !self.ended
+                && self.phase() == crate::BattlePhase::Combat
+                && self.clock == BattleClock::Held,
+            "battle event effect cleanup requires held combat"
+        );
+        let mut cues = Vec::new();
+        for (action, _) in std::mem::take(&mut self.volleys) {
+            cues.push(Cue::Interrupted { action });
+        }
+        for projectile in self.projectiles.keys().copied().collect::<Vec<_>>() {
+            self.expire_projectile(projectile, &mut cues);
+        }
+        self.retire_weapon_flights();
+        cues.push(Cue::ClearEffects);
+        Ok(cues)
     }
 
     /// A timed battle scene returns actors to their formation and ends their interrupted work.
@@ -1234,9 +1386,6 @@ impl Battle {
                 "stale battle action handle"
             );
         }
-        for &actor in &input.stun_struggle {
-            self.actor(actor)?;
-        }
         self.sample_cast_inputs(&input.controllers);
         self.sample_target_holds(&input.controllers);
         self.clock = BattleClock::Held;
@@ -1251,7 +1400,7 @@ impl Battle {
             }
             if self.target_selector.is_some() {
                 self.control_target_selector(&input.controllers)
-                    .map(|()| Vec::new())
+                    .map(|cue| cue.into_iter().collect())
             } else if self.command_target.is_some() {
                 self.render_command_target().map(|()| Vec::new())
             } else {
@@ -1259,7 +1408,7 @@ impl Battle {
                     if let Some(actor) = hold.actor {
                         BattleClock::Rescue(actor)
                     } else {
-                        self.cast_learning_actor()
+                        self.learning_actor()
                             .map_or(BattleClock::TimedHold, BattleClock::Learning)
                     }
                 });
@@ -1286,6 +1435,7 @@ impl Battle {
         items: &mut dyn crate::item::Provider,
     ) -> Result<Vec<Cue>> {
         let mut cues = Vec::new();
+        let opening = self.enemy_presentation.opening();
         if self.advance_enemy_presentation(&mut cues)? {
             self.paused_actors.clear();
             self.ledger.advance(false);
@@ -1315,7 +1465,7 @@ impl Battle {
         let entry_hold = entry_tick.is_some()
             && (1..=crate::prepare::ENTRY_SETTLE_UPDATES).contains(&self.entry_remaining);
         if entry_hold {
-            self.clock = BattleClock::Held;
+            self.clock = BattleClock::EntrySettle;
         }
         if !self.clock.paused() && !self.unison.active() {
             self.retarget_selected_opponent()?;
@@ -1323,37 +1473,37 @@ impl Battle {
         self.recognize_update();
         self.ledger
             .advance(self.phase() == crate::BattlePhase::Combat);
-        if !self.unison.active()
+        if !opening
+            && !self.unison.active()
             && self.phase() != crate::BattlePhase::Results
             && !self.terminal.ordinary_camera_finished
+            && let Some(camera) = &mut self.camera
         {
-            if let Some(camera) = &mut self.camera {
-                if let Some(tick) =
-                    entry_tick.filter(|tick| *tick <= crate::prepare::ENTRY_PAN_UPDATES)
-                {
-                    camera.frame_entry(tick);
-                } else {
-                    camera.step(
-                        &self.actors,
-                        self.runtime[camera.definition.leader.index()].target,
-                        if self.clock.feedback_paused() && !entry_hold
-                            || self.entry_remaining == crate::prepare::ENTRY_SETTLE_UPDATES
-                        {
-                            crate::camera::Update::Held
-                        } else if let BattleClock::Learning(actor) = self.clock {
-                            crate::camera::Update::Spell(actor)
-                        } else if let Some(volley) =
-                            self.volleys.values().find(|volley| volley.transitioning())
-                        {
-                            crate::camera::Update::Spell(volley.actor)
-                        } else {
-                            crate::camera::Update::Tracking
-                        },
-                    )?;
-                }
+            if let Some(tick) = entry_tick.filter(|tick| *tick <= crate::prepare::ENTRY_PAN_UPDATES)
+            {
+                camera.frame_entry(tick);
+            } else {
+                camera.step(
+                    &self.actors,
+                    self.runtime[camera.definition.leader.index()].target,
+                    self.runtime[camera.definition.leader.index()].target_settle_remaining != 0,
+                    if self.clock.feedback_paused() && !entry_hold
+                        || self.entry_remaining == crate::prepare::ENTRY_SETTLE_UPDATES
+                    {
+                        crate::camera::Update::Held
+                    } else if let BattleClock::Learning(actor) = self.clock {
+                        crate::camera::Update::Spell(actor)
+                    } else if let Some(volley) =
+                        self.volleys.values().find(|volley| volley.transitioning())
+                    {
+                        crate::camera::Update::Spell(volley.actor)
+                    } else {
+                        crate::camera::Update::Tracking
+                    },
+                )?;
             }
         }
-        // The combat ledger runs while actors, scenery, and effects wait for framing.
+        // Combat waits for framing while the scene keeps animating.
         if !entry_hold {
             if self.unison.holds_world() && !self.clock.paused() {
                 self.paused_actors.clear();
@@ -1365,10 +1515,10 @@ impl Battle {
                 self.advance_gameplay(input, &mut cues, items)?;
             }
         }
-        if self.phase() == crate::BattlePhase::Results {
-            if let Some(camera) = &mut self.camera {
-                camera.frame_results();
-            }
+        if self.phase() == crate::BattlePhase::Results
+            && let Some(camera) = &mut self.camera
+        {
+            camera.frame_results();
         }
         self.terminal.ordinary_camera_finished |= self.terminal.result.is_some();
         self.update += 1;
@@ -1409,9 +1559,11 @@ impl Battle {
         let mut transitions = BTreeMap::new();
         let body_positions: Vec<_> = self.actors.iter().map(|actor| actor.position).collect();
         let mut body_steps = vec![0.; self.actors.len()];
+        if let Some(models) = &mut self.models {
+            models.prepare_approach_geometry(&self.actors)?;
+        }
         self.defer_projectile_anchors = true;
         let actor_result = self.advance_actors(
-            &input.stun_struggle,
             &input.controllers,
             &mut body_steps,
             &mut contacts,
@@ -1420,7 +1572,10 @@ impl Battle {
             items,
         );
         self.defer_projectile_anchors = false;
-        actor_result?;
+        if let Some(models) = &mut self.models {
+            models.finish_approach_queries();
+        }
+        let knockdown_visits = actor_result?;
         // Entry interrupts the old world on its releasing actor's visit. In particular,
         // contacts already collected by earlier actors must not escape into the scene.
         if self.summon_entry.active() {
@@ -1434,12 +1589,66 @@ impl Battle {
             .map(crate::Models::body_placements)
             .unwrap_or_default();
         let defense_arm_positions = self.defense_arm_positions()?;
+        let knockdown_pose_finished = self.actors.iter().enumerate().fold(
+            ActorSet::default(),
+            |mut finished, (index, actor)| {
+                if knockdown_visits.contains(ActorId(index as u8))
+                    && self.models.as_ref().is_none_or(|models| {
+                        models
+                            .motion_finished_this_update(ActorId(index as u8), actor.hit_stop == 0)
+                    })
+                {
+                    finished.insert(ActorId(index as u8));
+                }
+                finished
+            },
+        );
         self.prepare_contact_models(resolve_contacts, crate::model::UpdatePhase::PoseOnly)?;
+        for cue in cues.iter_mut() {
+            if let Cue::InitializedBoneEffect { request, anchor } = cue {
+                request.origin = self
+                    .models
+                    .as_ref()
+                    .context("carried effect has no model")?
+                    .anchor_at(
+                        request.owner,
+                        *anchor,
+                        body_placements
+                            .get(request.owner.index())
+                            .copied()
+                            .flatten(),
+                    )?;
+                *cue = Cue::InitializedEffect(request.clone());
+            }
+        }
+        // Carried creatures consume the current pose before the host's placement
+        // is published, just like this update's contact geometry.
+        let hosted_positions = self.hosted_positions(&body_placements)?;
+        // Knockdown recovery consumes completed pose readiness before movement.
+        for (index, body_step) in body_steps.iter_mut().enumerate() {
+            if knockdown_visits.contains(ActorId(index as u8)) {
+                let actor = ActorId(index as u8);
+                if let ActorTask::Knockdown(recovery) = self.runtime[index].task
+                    && self.actors[index].available()
+                    && self.actors[index].time_stop == 0
+                    && !self.is_captured(actor)
+                {
+                    self.advance_knockdown(
+                        actor,
+                        recovery,
+                        knockdown_pose_finished.contains(actor),
+                        cues,
+                    )?;
+                }
+                *body_step = self.finish_actor_update(index, body_positions[index], false, cues)?;
+            }
+        }
         // The introduction preserves the prepared formation.
         if resolve_contacts && !self.unison.staged() {
             self.push_bodies(&body_positions, &body_steps, &body_placements);
         }
         self.attach_defense_arms(defense_arm_positions);
+        self.follow_hosted_participants(hosted_positions);
         for index in 0..self.actors.len() {
             self.advance_weapon_flights(ActorId(index as u8), &mut contacts, cues)?;
         }
@@ -1456,15 +1665,16 @@ impl Battle {
         })();
         self.defer_projectile_anchors = false;
         projectile_result?;
-        // Refresh placement and late requests; this update's pose clock already advanced.
-        self.prepare_contact_models(resolve_contacts, crate::model::UpdatePhase::FinishPose)?;
+        // Captured actors follow the current pose before the captor's placement is published.
         if resolve_contacts && !self.unison.staged() {
             for index in 0..self.actors.len() {
                 if self.actors[index].time_stop == 0 {
-                    self.follow_capture(ActorId(index as u8))?;
+                    self.follow_capture(ActorId(index as u8), &body_placements)?;
                 }
             }
         }
+        // Refresh placement and late requests; this update's pose clock already advanced.
+        self.prepare_contact_models(resolve_contacts, crate::model::UpdatePhase::FinishPose)?;
         let launches: Vec<_> = self
             .projectiles
             .iter()
@@ -1508,9 +1718,11 @@ impl Battle {
                 }
             }
         }
+        self.advance_action_weapons(cues)?;
         if resolve_contacts {
             self.advance_volleys(cues, false)?;
         }
+        self.release_hosted_participants(cues)?;
         Ok(())
     }
 
@@ -1536,7 +1748,7 @@ impl Battle {
                 let projectile = self.projectiles.get_mut(&id).unwrap();
                 projectile.frame.position = position;
                 if let Some(birth) = projectile.finish_launch(&mut self.pending_cues, direction) {
-                    self.pending_cues.push(Cue::Effect(birth));
+                    self.pending_cues.push(Cue::InitializedEffect(birth));
                 }
             }
             if !advance {
@@ -1544,33 +1756,63 @@ impl Battle {
             }
             self.advance_projectile_seal(id, cues)?;
             let projectile = self.projectiles.get_mut(&id).unwrap();
-            if projectile.definition.motion.aqua_edge {
+            // A deferred rebound keeps the target origin from the ricochet visit.
+            let rebound_origin = projectile.target_point;
+            let rebound = projectile.take_rebound_projectile();
+            if let Some(target) = projectile.pending_rebound_target() {
+                projectile.target_point = self.actors[target.index()].position;
+            } else if projectile.definition.motion.aqua_edge {
                 projectile.target_point = self.actors[projectile.frame.target.index()].position;
             } else if projectile.definition.motion.departure.is_some() {
                 projectile.target_point = self.actors[projectile.frame.owner.index()].position;
             }
+            let departed = projectile.departed;
+            let moving = projectile.velocity != [0.; 3];
             projectile.step()?;
-            if let Some(first) = projectile.take_rebound() {
-                if first {
-                    self.random.next_u16();
-                }
+            if moving
+                && projectile.definition.motion.stop_on_ground
+                && projectile.velocity == [0.; 3]
+                && projectile.frame.position[1] == 0.
+            {
+                cues.push(Cue::ProjectileStopped { projectile: id });
+            }
+            if !departed
+                && projectile.departed
+                && let Some(animation) = projectile.definition.effects.departure_animation
+            {
+                cues.push(Cue::ProjectileDeparture {
+                    projectile: id,
+                    animation,
+                });
+            }
+            if let Some(rebound) = projectile.take_rebound() {
+                let pitch = match rebound {
+                    Rebound::Ground => Some(f32::from(self.random.next_u16() % 360)),
+                    Rebound::Contact => {
+                        self.random.next_u16();
+                        None
+                    }
+                    Rebound::Bounce => None,
+                };
                 cues.push(Cue::ProjectileRebound {
                     projectile: id,
-                    first,
+                    first: rebound != Rebound::Bounce,
+                    pitch,
                 });
             }
             contacts.submit(projectile)?;
             for effect in projectile.effects() {
-                cues.push(Cue::Effect(effect));
+                cues.push(Cue::InitializedEffect(effect));
             }
-            if let Some((target, definition)) = projectile.take_rebound_projectile() {
+            if let Some((target, definition)) = rebound {
                 let (action, owner, heading) = (
                     projectile.action,
                     projectile.frame.owner,
                     projectile.frame.heading,
                 );
-                let position = self.actor(target)?.position;
-                self.emit_at(definition, action, owner, target, position, heading)?;
+                let child =
+                    self.emit_at(definition, action, owner, target, rebound_origin, heading)?;
+                self.visit_projectile(child, true, contacts, cues)?;
             }
             Ok(())
         })();
@@ -1590,17 +1832,23 @@ impl Battle {
         settle: bool,
         phase: crate::model::UpdatePhase,
     ) -> Result<()> {
-        if self.models.is_some() {
-            let mut frame = self.frame(Vec::new(), None);
-            // All geometry visits share one pose clock for this update.
-            frame.update += 1;
-            frame.model_requests = std::mem::take(&mut self.model_requests);
-            self.models
-                .as_mut()
-                .unwrap()
-                .advance_for_contacts(&mut frame, self.clock, settle, phase)?;
-            self.model_requests.append(&mut frame.model_requests);
+        if self.models.is_none() {
+            return Ok(());
         }
+        let mut frame = self.frame(Vec::new(), None);
+        // All geometry visits share one pose clock for this update.
+        frame.update += 1;
+        frame.model_requests = std::mem::take(&mut self.model_requests);
+        if let Some(models) = &mut self.models {
+            models.advance_for_contacts(
+                &mut frame,
+                self.clock,
+                settle,
+                phase,
+                &self.prepared.hosted_participants,
+            )?;
+        }
+        self.model_requests.append(&mut frame.model_requests);
         Ok(())
     }
 
@@ -1650,16 +1898,26 @@ impl Battle {
 
     fn advance_actors(
         &mut self,
-        struggle: &[ActorId],
         input: &[crate::ControlInput],
         body_steps: &mut [f32],
         contacts: &mut Contacts,
         transitions: &mut BTreeMap<ActionId, ActionTransition>,
         cues: &mut Vec<Cue>,
         items: &mut dyn crate::item::Provider,
-    ) -> Result<()> {
+    ) -> Result<ActorSet> {
+        let mut knockdown_visits = ActorSet::default();
+        let dead_at_start =
+            self.actors
+                .iter()
+                .enumerate()
+                .fold(ActorSet::default(), |mut dead, (index, actor)| {
+                    if actor.availability == crate::ActorAvailability::Dead {
+                        dead.insert(ActorId(index as u8));
+                    }
+                    dead
+                });
         self.paused_actors.clear();
-        for index in 0..self.actors.len() {
+        for (index, body_step) in body_steps.iter_mut().enumerate() {
             if self.summon_entry.active() {
                 break;
             }
@@ -1670,6 +1928,13 @@ impl Battle {
             }
             if self.actors[index].availability == crate::ActorAvailability::Absent {
                 continue;
+            }
+            if let Some(target) = self.target(actor) {
+                self.actors[index].movement.target_direction = crate::distance::planar_direction(
+                    self.actor_start_centers[target.index()],
+                    self.actor_start_centers[index],
+                    self.actors[index].movement.target_direction,
+                );
             }
             self.actor_start_centers[index] = self.actors[index].effect_origin();
             for volley in self
@@ -1690,9 +1955,8 @@ impl Battle {
                             .integrate_along(&mut owner.position, owner.reaction.direction);
                         owner.movement.brake(owner.position[1], Activity::Hurt);
                     }
-                    let position = self.actors[index].position;
-                    body_steps[index] = (position[0] - before[0]).hypot(position[2] - before[2]);
-                    self.constrain_actor(index);
+                    *body_step = self.actors[index].movement.forward_step;
+                    self.constrain_actor(index, Some(before));
                     continue;
                 }
                 if self.unison.holds_actor(actor) {
@@ -1712,21 +1976,28 @@ impl Battle {
                 self.actors[index].hit_stop = hit_stop;
                 continue;
             }
+            let mut action_advanced = false;
             if !self.advance_escape_actor(actor, cues)? {
                 match self.actors[index].availability {
                     crate::ActorAvailability::Absent => unreachable!(),
                     crate::ActorAvailability::Dead => self.advance_dead(index),
                     crate::ActorAvailability::Petrified => self.advance_petrified(index),
+                    // A new revival starts its recovery task on the next actor visit.
+                    crate::ActorAvailability::Active if dead_at_start.contains(actor) => {}
                     crate::ActorAvailability::Active => {
-                        if let Some((id, transition)) = self.advance_active_actor(
-                            actor,
-                            input,
-                            struggle.contains(&actor),
-                            contacts,
-                            cues,
-                            items,
-                        )? {
+                        let was_knocked_down =
+                            matches!(self.runtime[index].task, ActorTask::Knockdown(_));
+                        if let Some((id, transition)) =
+                            self.advance_active_actor(actor, input, contacts, cues, items)?
+                        {
+                            action_advanced = matches!(transition, ActionTransition::Advance);
                             transitions.insert(id, transition);
+                        }
+                        if was_knocked_down
+                            && matches!(self.runtime[index].task, ActorTask::Knockdown(_))
+                        {
+                            knockdown_visits.insert(actor);
+                            continue;
                         }
                     }
                 }
@@ -1734,20 +2005,30 @@ impl Battle {
             if self.summon_entry.active() {
                 break;
             }
-            // Arena correction is not movement and must not start body separation.
-            let position = self.actors[index].position;
-            body_steps[index] = (position[0] - before[0]).hypot(position[2] - before[2]);
-            self.constrain_actor(index);
-            self.publish_landing(index, cues);
-            let owner = &mut self.actors[index];
-            ensure!(
-                owner.position.iter().all(|v| v.is_finite()),
-                "battle movement overflow"
-            );
-            owner.movement.validate()?;
-            self.advance_actor_common(index, cues)?;
+            *body_step = self.finish_actor_update(index, before, action_advanced, cues)?;
         }
-        Ok(())
+        Ok(knockdown_visits)
+    }
+
+    fn finish_actor_update(
+        &mut self,
+        index: usize,
+        before: [f32; 3],
+        action_advanced: bool,
+        cues: &mut Vec<Cue>,
+    ) -> Result<f32> {
+        // Position commands and arena correction do not add movement to separation.
+        let step = self.actors[index].movement.forward_step;
+        self.constrain_actor(index, Some(before));
+        self.publish_landing(index, cues);
+        let owner = &mut self.actors[index];
+        ensure!(
+            owner.position.iter().all(|v| v.is_finite()),
+            "battle movement overflow"
+        );
+        owner.movement.validate()?;
+        self.advance_actor_common_after_action(index, action_advanced, cues)?;
+        Ok(step)
     }
 
     /// Commands and tasks run only for available, unfrozen actors.
@@ -1756,12 +2037,12 @@ impl Battle {
         &mut self,
         actor: ActorId,
         input: &[crate::ControlInput],
-        struggling: bool,
         contacts: &mut Contacts,
         cues: &mut Vec<Cue>,
         items: &mut dyn crate::item::Provider,
     ) -> Result<Option<(ActionId, ActionTransition)>> {
         let index = actor.index();
+        let already_stopping = self.actors[index].movement.locomotion == crate::Locomotion::Stop;
         if self.phase() == crate::BattlePhase::Combat && self.actors[index].hit_stop == 0 {
             self.advance_enemy_transformation(index)?;
         }
@@ -1771,19 +2052,26 @@ impl Battle {
             .find(|input| input.actor == actor)
             .copied()
             .unwrap_or_else(|| crate::ControlInput::neutral(actor));
-        if let Some(target) = self.target(actor) {
-            self.actors[index].movement.target_direction = crate::distance::planar_direction(
-                self.actors[target.index()].position,
-                self.actors[index].position,
-                self.actors[index].movement.target_direction,
-            );
-        }
         let unison = self.runtime[index]
             .task
             .action()
             .is_some_and(|(_, sequence)| sequence.unison)
             || self.unison.owns_commands(actor);
         if !unison {
+            if matches!(self.runtime[index].task, ActorTask::EnteringGuard)
+                && self.actors[index].hit_stop == 0
+            {
+                self.set_task(index, ActorTask::None);
+                self.actors[index].guard.active = true;
+            }
+            // Physical selection becomes an action on the next available visit.
+            if matches!(
+                self.actors[index].control,
+                crate::Control::Manual | crate::Control::SemiAuto
+            ) && self.actors[index].hit_stop == 0
+            {
+                self.consume_pending_special_guard(actor, cues)?;
+            }
             self.sample_ground_stick(index, controls.stick[0]);
             self.start_pending_item(actor, cues)?;
             let activity = self.activity(actor);
@@ -1799,7 +2087,7 @@ impl Battle {
                 && matches!(self.activity(actor), Activity::Idle | Activity::Guarding)
                 && self.actors[index].hit_stop == 0
             {
-                self.consume_auto_special_guard(actor, cues)?;
+                self.consume_pending_special_guard(actor, cues)?;
             }
             self.advance_ai(actor, cues)?;
         }
@@ -1808,30 +2096,73 @@ impl Battle {
         }
         let task_movement = match self.runtime[index].task {
             ActorTask::Approach(_) => self.update_approach(actor, cues)?,
-            ActorTask::Returning(state) => self.update_recovery_return(actor, state)?,
+            ActorTask::Returning(state) => self.update_recovery_return(actor, state, cues)?,
             ActorTask::Hurt { remaining } => self.advance_hurt(actor, remaining, input, cues)?,
             ActorTask::Recovering {
                 remaining,
                 after_hit,
+                idle_pose,
             } => {
                 if remaining == 0 {
-                    self.enter_idle(actor);
+                    if let Some((motion, pose)) = idle_pose {
+                        self.request_pose(actor, Some(motion), pose);
+                        self.set_task(
+                            index,
+                            ActorTask::Recovering {
+                                remaining: 0,
+                                after_hit,
+                                idle_pose: None,
+                            },
+                        );
+                    } else {
+                        self.enter_idle(actor);
+                    }
                 } else {
                     self.set_task(
                         index,
                         ActorTask::Recovering {
                             remaining: remaining - 1,
                             after_hit,
+                            idle_pose,
                         },
                     );
                 }
                 false
             }
-            ActorTask::Paralysis { remaining } => self.advance_paralysis(actor, remaining)?,
-            ActorTask::Stunned { remaining } => {
-                self.advance_stun(actor, remaining, struggling, cues)
+            ActorTask::Released => {
+                if !self.actors[index].needs_landing() {
+                    let owner = &mut self.actors[index];
+                    owner.movement.direction = owner.facing_direction;
+                    owner.movement.forward = 0.;
+                    owner.movement.vertical = 0.;
+                    owner.movement.acceleration = 0.;
+                    self.set_task(
+                        index,
+                        ActorTask::Recovering {
+                            remaining: 0,
+                            after_hit: false,
+                            idle_pose: None,
+                        },
+                    );
+                    self.model_requests.push(crate::ModelRequest::Common {
+                        actor,
+                        pose: crate::CommonPose::Idle,
+                    });
+                }
+                false
             }
-            ActorTask::Knockdown(recovery) => self.advance_knockdown(actor, recovery, cues)?,
+            ActorTask::Paralysis { remaining } => self.advance_paralysis(actor, remaining)?,
+            ActorTask::Stunned {
+                remaining,
+                struggle_ticks,
+            } => self.advance_stun(
+                actor,
+                remaining,
+                struggle_ticks,
+                controls.horizontal_pressed != 0,
+                cues,
+            ),
+            ActorTask::Knockdown(_) => true,
             ActorTask::Mobility(_) => self.update_mobility(actor, cues)?,
             ActorTask::Taunt { remaining } => {
                 self.advance_taunt(actor, remaining, controls, cues)?
@@ -1840,15 +2171,50 @@ impl Battle {
                 self.advance_item(actor, item, items, cues)?;
                 false
             }
-            ActorTask::Action { .. } | ActorTask::None | ActorTask::Escaping => false,
+            ActorTask::Action { .. }
+            | ActorTask::None
+            | ActorTask::EnteringGuard
+            | ActorTask::Escaping => false,
         };
-        let movement_handled =
-            task_movement || self.update_control_stop(index)? || self.update_guard(index, cues)?;
+        let entering_attack = self.runtime[index]
+            .task
+            .action()
+            .is_some_and(|(_, sequence)| {
+                sequence.started_at == self.update
+                    && !self.enemy_physical_arte(actor, sequence.action)
+                    && !(self.actors[index].side == Side::Party && self.actors[index].airborne())
+                    && matches!(
+                        sequence.definition.execution,
+                        crate::ActionExecution::Attack(_)
+                    )
+            });
+        // Ordinary admission binds before movement; airborne party input keeps its flight visit.
+        if entering_attack {
+            self.actors[index].movement.forward_step = 0.;
+        }
+        let mut movement_handled = task_movement
+            || self.update_control_stop(index, already_stopping)?
+            || self.update_guard(index, cues)?
+            || entering_attack;
         let facing_ready = self.face_active_action(actor);
         if facing_ready
             && let Some((&id, _)) = self.runtime[index].task.action()
             && let Some(transition) = self.advance_sequence(id, contacts, items, cues)?
         {
+            // Recovery changes acceleration now; contact ownership commits later.
+            if matches!(transition, ActionTransition::Recover { .. }) {
+                let movement = &mut self.actors[index].movement;
+                movement.gravity = if movement.flying {
+                    0.
+                } else {
+                    crate::movement::GRAVITY
+                };
+            }
+            // Completed recovery owns no movement or body-separation step.
+            if matches!(transition, ActionTransition::FinishRecovery) {
+                self.actors[index].movement.forward_step = 0.;
+                movement_handled = true;
+            }
             next = Some((id, transition));
         }
         if self.summon_entry.active() {
@@ -1863,7 +2229,15 @@ impl Battle {
             ) && (actor.hit_stop == 0
                 || !matches!(activity, Activity::Action | Activity::Casting { .. }))
             {
-                actor.movement.integrate(&mut actor.position);
+                let direction =
+                    if actor.guard.active && actor.guard.kind == crate::GuardKind::Special {
+                        actor.reaction.direction
+                    } else {
+                        actor.movement.direction
+                    };
+                actor
+                    .movement
+                    .integrate_along(&mut actor.position, direction);
                 if matches!(
                     activity,
                     crate::Activity::Action
@@ -2029,7 +2403,19 @@ impl Battle {
         if actor_action && self.actors[index].hit_stop != 0 {
             return Ok(SequenceStep::Continue);
         }
+        if sequence.learning {
+            if self.timed_hold.is_some() {
+                return Ok(SequenceStep::Continue);
+            }
+            sequence.learning = false;
+        }
         if let Execution::Recovering { remaining } = &mut sequence.execution {
+            if matches!(
+                &sequence.definition.execution,
+                crate::ActionExecution::Casting(_)
+            ) {
+                self.advance_cast_recovery_pose(sequence.actor, *remaining);
+            }
             let actor = &self.actors[index];
             let finished = *remaining == 0 && !actor.needs_landing();
             *remaining = remaining.saturating_sub(1);
@@ -2090,6 +2476,7 @@ impl Battle {
     pub(crate) fn frame(&self, cues: Vec<Cue>, outcome: Option<BattleOutcome>) -> BattleFrame {
         BattleFrame {
             clock: self.clock,
+            combat_active: self.phase() == crate::BattlePhase::Combat,
             paused_actors: self.paused_actors.clone(),
             unison_gauge: self.unison_gauge,
             unison_available: self.prepared.unison_available,
@@ -2117,9 +2504,34 @@ impl Battle {
                 .actors
                 .iter()
                 .zip(&self.runtime)
-                .map(|(actor, runtime)| ActorFrame {
+                .zip(&self.actor_start_centers)
+                .map(|((actor, runtime), &effect_center)| ActorFrame {
                     state: actor.clone(),
+                    effect_center,
                     activity: runtime.task.activity(actor),
+                    cast_releasing: runtime.task.action().is_some_and(|(_, sequence)| {
+                        match &sequence.execution {
+                            Execution::Casting(crate::casting::CastingRun::Running(cast)) => {
+                                cast.releasing()
+                            }
+                            Execution::Recovering { .. } => matches!(
+                                sequence.definition.execution,
+                                crate::ActionExecution::Casting(_)
+                            ),
+                            _ => false,
+                        }
+                    }),
+                    stun_struggling: matches!(
+                        runtime.task,
+                        ActorTask::Stunned {
+                            struggle_ticks: 1..,
+                            ..
+                        }
+                    ),
+                    stun_remaining: match runtime.task {
+                        ActorTask::Stunned { remaining, .. } => remaining,
+                        _ => 0,
+                    },
                 })
                 .collect(),
             models: Vec::new(),
@@ -2160,7 +2572,7 @@ impl Battle {
             spell_origins: self
                 .volleys
                 .iter()
-                .filter_map(|(&id, volley)| volley.origin.map(|point| (id, point)))
+                .filter_map(|(&id, volley)| volley.effect_origin.map(|point| (id, point)))
                 .collect(),
             cues,
             recognized_result: self.terminal.result,
@@ -2199,7 +2611,7 @@ impl Battle {
             || self.runtime[request.actor.index()].task.item().is_some()
             || matches!(
                 self.runtime[request.actor.index()].task,
-                ActorTask::Recovering { .. }
+                ActorTask::Recovering { .. } | ActorTask::Released
             )
             || self.runtime[request.actor.index()].task.action().is_some();
         let reason = if self.terminal.result.is_some() {
@@ -2298,7 +2710,7 @@ impl Battle {
             self.snapshot_technique_proficiency(request.actor, request.action);
         }
         let index = request.actor.index();
-        self.runtime[index].target = request.target;
+        self.runtime[index].set_target(request.target);
         self.actors[index].guard.active = false;
         self.actors[index].attack_power = 100;
         self.actors[index].movement.locomotion = crate::Locomotion::Action;
@@ -2317,13 +2729,19 @@ impl Battle {
         request: ActionRequest,
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
-        let action = request.action;
+        let mut action = request.action;
+        let mut learning = false;
         let debit = if matches!(
             &self.prepared.actions[action].execution,
             crate::ActionExecution::Attack(_)
         ) {
-            self.commit_martial_use(request.actor, action)?;
-            self.action_quote(request.actor, action)
+            if let Some(learned) = self.commit_martial_use(request.actor, action)? {
+                action = learned;
+                learning = true;
+                0
+            } else {
+                self.action_quote(request.actor, action)
+            }
         } else {
             0
         };
@@ -2333,6 +2751,10 @@ impl Battle {
             "admitted action exceeds available TP"
         );
         let (id, mut sequence) = self.allocate_sequence(action, request.actor, request.target)?;
+        sequence.learning = learning;
+        if learning {
+            self.request_timed_hold(crate::casting::LEARNING_HOLD_TICKS, None);
+        }
         let index = request.actor.index();
         self.actors[index].tp -= debit as u16;
         {
@@ -2358,9 +2780,7 @@ impl Battle {
             combo.record(action, technique);
         }
         match &sequence.definition.execution {
-            crate::ActionExecution::LeaveArena => {
-                self.begin_enemy_departure(request.actor, request.target)?;
-            }
+            crate::ActionExecution::LeaveArena => {}
             crate::ActionExecution::Attack(attack) => {
                 if sequence.definition.normal.is_some() {
                     self.apply_normal_guard(request.actor, attack.end_at);
@@ -2370,7 +2790,7 @@ impl Battle {
             }
             crate::ActionExecution::Casting(cast) => {
                 self.snapshot_technique_proficiency(request.actor, action);
-                if !cast.release.recovery.is_empty()
+                if cast.release.uses_support_target()
                     && self.actors[request.target.index()].side == self.actors[index].side
                 {
                     self.runtime[index].support_target = request.target;
@@ -2523,7 +2943,7 @@ impl Battle {
         }
     }
 
-    pub(crate) fn consume_auto_special_guard(
+    pub(crate) fn consume_pending_special_guard(
         &mut self,
         actor: ActorId,
         cues: &mut Vec<Cue>,
@@ -2537,10 +2957,7 @@ impl Battle {
         let Some(technique) = self.prepared.technique(actor, binding).copied() else {
             return Ok(false);
         };
-        if self.actors[actor.index()].control != crate::Control::Auto
-            || !self.special_guard_learned(actor, binding)
-            || technique.catalogue != catalogue
-        {
+        if !self.special_guard_learned(actor, binding) || technique.catalogue != catalogue {
             return Ok(false);
         }
         self.start_special_guard(actor, binding, cues)
@@ -2653,6 +3070,10 @@ impl Battle {
         self.emit_aimed(definition, action, owner, target, position, heading, None)
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Projectile identity, placement, and optional aim stay explicit at emission"
+    )]
     pub(crate) fn emit_aimed(
         &mut self,
         definition: Arc<ProjectileDefinition>,
@@ -2701,7 +3122,7 @@ impl Battle {
             disarmed: false,
             shadow: None,
         };
-        let mut projectile = Projectile::new(definition, action, frame);
+        let mut projectile = Projectile::new(definition, action, frame, self.actors.len());
         projectile.attack_power = self.actor(owner)?.attack_power;
         projectile.target_point = match aim {
             Some(point) => point,
@@ -2710,13 +3131,30 @@ impl Battle {
                 .get(target.index())
                 .context("missing projectile target")?,
         };
+        #[cfg(any(test, feature = "test-support"))]
+        let input_key = crate::random_inputs::Key {
+            clock: self.ledger.elapsed_ticks,
+            owner: owner.index(),
+            target: target.index(),
+            action: action.0,
+            contact: crate::random_inputs::Contact::Projectile(id.0),
+        };
+        let draw = |axis, amplitude| {
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(inputs) = &mut self.random_inputs {
+                return inputs.velocity(input_key, axis, amplitude);
+            }
+            #[cfg(not(any(test, feature = "test-support")))]
+            let _ = (axis, amplitude);
+            Ok(self.random.next_u16())
+        };
         if deferred {
-            projectile.prepare_velocity(&mut self.random);
+            projectile.prepare_velocity(draw)?;
             projectile.pending_launch = true;
         } else if let Some(birth) =
-            projectile.initialize(&mut self.pending_cues, &mut self.random, direction)
+            projectile.initialize(&mut self.pending_cues, draw, direction)?
         {
-            self.pending_cues.push(Cue::Effect(birth));
+            self.pending_cues.push(Cue::InitializedEffect(birth));
         }
         self.projectiles.insert(id, projectile);
         Ok(id)
@@ -2770,7 +3208,7 @@ impl Battle {
         if actor.hp <= 0 && !actor.available() {
             return Ok(());
         }
-        self.recover_vitals(id, percent, true, cues)
+        self.recover_vitals(id, percent, true, true, cues)
     }
 
     pub(crate) fn recover_vitals(
@@ -2778,6 +3216,7 @@ impl Battle {
         id: ActorId,
         percent: i16,
         lucky: bool,
+        floating: bool,
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
         let actor = self.actor(id)?;
@@ -2794,6 +3233,7 @@ impl Battle {
         let (hp, nominal) = actor.recovered_hp(value);
         actor.hp = hp;
         cues.push(Cue::Recovered {
+            floating,
             kind: crate::RecoveryKind::Hp,
             actor: id,
             nominal,

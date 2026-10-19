@@ -61,6 +61,7 @@ fn prepare_body(
 
 fn profile() -> battle_profile::Profile {
     battle_profile::Profile {
+        hosted_body: None,
         walk_speed: 5.,
         run_speed: 10.,
         turn_ticks: 8,
@@ -96,10 +97,21 @@ fn profile() -> battle_profile::Profile {
         },
         armor: 3,
         center_offset: [10., 80., -5.],
+        target_anchor: battle_profile::TargetAnchor {
+            bone: 0,
+            offset: [0.; 3],
+        },
+        head_anchor: battle_profile::HeadAnchor {
+            bone: 0,
+            offset: [0.; 3],
+        },
         model_scale: 1.5,
         shadow_scale: 1.,
         shadow_color: [0; 4],
         effect_scale: 0.9,
+        passive_effects: vec![],
+        idle_effect: None,
+        movement_effect: None,
         camera_category: 3,
         voices: None,
         death_motion: 0,
@@ -109,6 +121,28 @@ fn profile() -> battle_profile::Profile {
         initial_overlimit: 0,
         ground_offset: 50.,
         cast_ticks: 90,
+        chant_once: false,
+        chant_loop_start: 0.,
+        cast_poses: resonance_content::battle_profile::CastPoses {
+            release_loop_start: 0.,
+            opening: resonance_content::battle_action::ActionPose {
+                clip: 13,
+                start: 0.,
+                end: None,
+                rate: 0.5,
+                blend: 4,
+                repeat: false,
+            },
+            release: resonance_content::battle_action::ActionPose {
+                clip: 12,
+                start: 0.,
+                end: None,
+                rate: 0.5,
+                blend: 4,
+                repeat: false,
+            },
+        },
+        cast_recovery_motion: None,
     }
 }
 
@@ -200,6 +234,7 @@ fn snapshot() -> Result<(Files, Monster, Enemy)> {
             null_motions: Default::default(),
             source_sha256: "a".repeat(64),
             profile,
+            weapon_visibility: Default::default(),
             projectiles: Vec::new(),
             actions: Default::default(),
             target_strategy: Some(resonance_battle::TargetPolicy::Nearest),
@@ -210,8 +245,10 @@ fn snapshot() -> Result<(Files, Monster, Enemy)> {
         .into(),
     );
     let source = Enemy {
+        secondary_body: None,
         body_variant: None,
         attachments: Default::default(),
+        uv_animation: Default::default(),
         trails: Default::default(),
         weapon_variants: Default::default(),
         source_sha256: "a".repeat(64),
@@ -367,8 +404,7 @@ fn low_health_enemy_entry_never_selects_the_party_weak_pose() -> Result<()> {
             &profile(),
             side,
             motions,
-            1,
-            100,
+            (1, 100),
             false,
         )
     };
@@ -525,10 +561,10 @@ fn differently_named_effect_outline_uses_the_verified_indexed_pose() -> Result<(
         files.insert(path.clone(), std::fs::read(root.join(path))?.into());
     }
     for part in art.models.values() {
-        effect(&files, part, 0)?;
+        effect(&files, part, 0, false)?;
         let mut invalid = part.clone();
         invalid.rig.skeleton.bones[0].bind.translation[0] += 1.;
-        assert!(effect(&files, &invalid, 0).is_err());
+        assert!(effect(&files, &invalid, 0, false).is_err());
     }
     Ok(())
 }

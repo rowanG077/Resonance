@@ -170,7 +170,7 @@ pub(crate) struct State {
     pub cooldown: u16,
     /// All-Divide remains active until the battle ends.
     pub all_divide: bool,
-    pub revealed: u16,
+    pub revealed: crate::ActorSet,
 }
 
 impl PreparedBattle {
@@ -227,7 +227,7 @@ impl Battle {
             self.actor(actor)?.side == Side::Enemy,
             "scan reveal needs an enemy"
         );
-        Ok(self.items.revealed & (1 << actor.index()) != 0)
+        Ok(self.items.revealed.contains(actor))
     }
     pub fn can_queue_item(&self, user: ActorId) -> Result<bool> {
         let actor = self.actor(user)?;

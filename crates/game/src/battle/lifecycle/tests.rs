@@ -67,6 +67,7 @@ fn enemy_retreat_returns_after_departure_without_rewards_or_escape_history() -> 
                 difficulty: 0,
                 choices: vec![EnemyChoice {
                     action: ActionKey(0),
+                    physical_arte: false,
                     weight: 0,
                     chain_group: 0,
                     followup_chance: 0,
@@ -74,6 +75,8 @@ fn enemy_retreat_returns_after_departure_without_rewards_or_escape_history() -> 
                     target_policy: None,
                     target_allies: false,
                     return_to_formation: false,
+                    returning: None,
+                    return_speed: None,
                     guard_chance: 0,
                     range: [0, 1],
                     tp: 0,
@@ -89,6 +92,7 @@ fn enemy_retreat_returns_after_departure_without_rewards_or_escape_history() -> 
                     after_ticks: 3600,
                 }),
                 walk_motion: None,
+                run_motion: None,
                 turn_ticks: 1,
             };
             PreparedBattle::new(
@@ -239,7 +243,7 @@ fn defeat_plays_music_once_and_finishes_without_constructing_rewards() -> Result
     let mut fixture = fixture(Some(Side::Party))?;
     let mut display = Display::default();
     let mut outcome = None;
-    for _ in 0..300 {
+    for visit in 0..=110 {
         let frame = fixture.lifecycle.step(
             &mut fixture.battle,
             Input {
@@ -249,6 +253,18 @@ fn defeat_plays_music_once_and_finishes_without_constructing_rewards() -> Result
             &mut fixture.candidate,
             &mut display,
         )?;
+        assert_eq!(
+            display.requests.iter().any(|request| matches!(
+                request,
+                Request::PlayMusic {
+                    track: DEFEAT_MUSIC,
+                    ..
+                }
+            )),
+            visit >= 91,
+        );
+        assert_eq!(fixture.battle.transition().is_some(), visit >= 92);
+        assert_eq!(frame.outcome.is_some(), visit == 110);
         if frame.outcome.is_some() {
             outcome = frame.outcome;
             break;
@@ -278,14 +294,14 @@ fn defeat_plays_music_once_and_finishes_without_constructing_rewards() -> Result
 }
 
 #[test]
-fn victory_pages_confirm_and_commit_once_without_notice_or_performance_delays() -> Result<()> {
+fn victory_fades_and_confirmation_keep_the_result_opening_readable() -> Result<()> {
     let mut fixture = fixture(Some(Side::Enemy))?;
     let mut display = Display {
         pages_remaining: 2,
         ..Default::default()
     };
-    // Repeated confirmation advances each page, then finishes within three short fades.
-    for _ in 0..80 {
+    // Holding confirm must not skip the combat wash or the opening result performance.
+    for visit in 0..=185 {
         let frame = fixture.lifecycle.step(
             &mut fixture.battle,
             Input {
@@ -295,6 +311,23 @@ fn victory_pages_confirm_and_commit_once_without_notice_or_performance_delays() 
             &mut fixture.candidate,
             &mut display,
         )?;
+        assert_eq!(frame.outcome.is_some(), visit == 185);
+        assert_eq!(fixture.candidate.pending_results().is_some(), visit >= 45);
+        if let Some(alpha) = match visit {
+            0 => Some(0),
+            1 => Some(6),
+            42 => Some(252),
+            43..=56 => Some(255),
+            57 => Some(250),
+            107..=166 => Some(0),
+            _ => None,
+        } {
+            assert_eq!(
+                fixture.battle.transition().unwrap().alpha,
+                alpha,
+                "visit {visit}"
+            );
+        }
         if let Some(pending) = fixture.candidate.pending_results() {
             assert_eq!(pending.party.gald, 50);
             assert_eq!(pending.party.members[0].tp, 19);
@@ -305,9 +338,7 @@ fn victory_pages_confirm_and_commit_once_without_notice_or_performance_delays() 
                     amount: 10
                 }
             ));
-            if display.pages_remaining != 0 {
-                assert!(!pending.accepted);
-            }
+            assert_eq!(pending.accepted, visit >= 167);
         }
         if let Some(outcome) = frame.outcome {
             assert!(fixture.candidate.pending_results().unwrap().accepted);
@@ -344,6 +375,45 @@ fn victory_pages_confirm_and_commit_once_without_notice_or_performance_delays() 
         }
     }
     anyhow::bail!("result pages or confirmation stalled")
+}
+
+#[test]
+fn escape_notices_and_fades_finish_at_their_own_pace() -> Result<()> {
+    for (forced, fade_visit, step, finish_visit) in [(false, 91, 8, 125), (true, 16, 4, 82)] {
+        let mut fixture = fixture(None)?;
+        fixture.battle.recognize_escape(forced)?;
+        let mut display = Display::default();
+        for visit in 0..=finish_visit {
+            let frame = fixture.lifecycle.step(
+                &mut fixture.battle,
+                Input {
+                    confirm: true,
+                    ..Default::default()
+                },
+                &mut fixture.candidate,
+                &mut display,
+            )?;
+            assert_eq!(frame.outcome.is_some(), visit == finish_visit);
+            assert!(fixture.candidate.pending_results().is_none());
+            if visit < fade_visit {
+                assert!(fixture.battle.transition().is_none());
+            } else if visit < finish_visit {
+                assert_eq!(
+                    fixture.battle.transition().unwrap().alpha,
+                    ((visit - fade_visit) * step).min(255) as u8
+                );
+            }
+        }
+        assert_eq!(
+            display.requests,
+            if forced {
+                vec![]
+            } else {
+                vec![Request::EscapeNotice]
+            }
+        );
+    }
+    Ok(())
 }
 
 #[test]
@@ -402,12 +472,13 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
         (600, 600)
     );
     f.battle.set_actor_vitals(boss, 20, 101, 0, 0)?;
-    f.lifecycle.step(
+    let frame = f.lifecycle.step(
         &mut f.battle,
         Input::default(),
         &mut f.candidate,
         &mut display,
     )?;
+    assert!(!frame.cues.contains(&resonance_battle::Cue::ClearEffects));
     assert_eq!(
         (
             f.battle.ledger().combat_ticks,
@@ -417,12 +488,21 @@ fn battle_events_pause_combat_and_release_the_boss_hold_at_rescue_entry() -> Res
     );
     assert_eq!(f.battle.actors()[boss.index()].hp, 20);
     for tick in 0..4 {
-        f.lifecycle.step(
+        let frame = f.lifecycle.step(
             &mut f.battle,
             Input::default(),
             &mut f.candidate,
             &mut display,
         )?;
+        assert_eq!(
+            frame
+                .cues
+                .iter()
+                .filter(|cue| matches!(cue, resonance_battle::Cue::ClearEffects))
+                .count(),
+            usize::from(tick == 1),
+            "only rescue entry disposes pre-event effects"
+        );
         assert_eq!(f.lifecycle.event().is_some(), matches!(tick, 1 | 2));
         assert_eq!(
             (

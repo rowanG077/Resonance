@@ -41,6 +41,7 @@ fn snapshot(paranoid: bool) -> (Files, battle_profile::Table) {
             },
             lethal_rescue_names: Default::default(),
             overlimit_voices: [None; 9],
+            item_use_offsets: [[0.; 3]; 9],
             default_strategy: [[0; 3]; 10],
             companion_policy: Default::default(),
             entry: Default::default(),

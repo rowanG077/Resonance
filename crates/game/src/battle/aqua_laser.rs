@@ -18,6 +18,8 @@ pub(super) fn prepare(
 ) -> Result<PreparedSpell> {
     const LIFETIME: u16 = 160;
     const RELEASE_TICK: u16 = 30;
+    // Contacts initialize on the update after allocation.
+    const INITIALIZATION_TICKS: u16 = 1;
     let source = scene
         .projectiles
         .get(1)
@@ -44,7 +46,7 @@ pub(super) fn prepare(
         summon: None,
         effects: vec![],
         projectiles: vec![SpellProjectile::new(
-            TRANSITION_TICKS + ACTIVE_START_TICKS + RELEASE_TICK,
+            TRANSITION_TICKS + ACTIVE_START_TICKS + RELEASE_TICK + INITIALIZATION_TICKS,
             projectile,
         )],
         recovery: vec![],

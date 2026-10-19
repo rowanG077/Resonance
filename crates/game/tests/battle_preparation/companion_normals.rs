@@ -1,6 +1,6 @@
 use super::*;
 use crate::prepare_party_fixture;
-use resonance_battle::{Activity, Cue, Playback};
+use resonance_battle::{Activity, ControlInput, Cue, NormalAttack, Playback};
 use resonance_content::session::SessionData;
 
 #[test]
@@ -20,6 +20,7 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
     let session: SessionData = files.json("game/session-data.json")?;
     let mut party = resonance_events::party::Party::new(&session, Default::default())
         .map_err(anyhow::Error::msg)?;
+    let mut missed_contacts = Vec::new();
     for character in 1..=9 {
         let index = usize::from(character - 1);
         let name = format!("{:?}", battle::party::Character::try_from(character)?);
@@ -56,6 +57,8 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
         let (mut owner, model) = (prepared_owner.actor, prepared_owner.model.unwrap());
         owner.hp = owner.equipment.max_hp;
         owner.movement.direction = [0., 0., 1.];
+        owner.movement.target_direction = owner.movement.direction;
+        owner.facing_direction = owner.movement.direction;
         owner.movement.gravity = -1.;
         if character == 5 {
             owner.equipment.base_element = Some(resonance_battle::Element::Fire);
@@ -68,12 +71,36 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
         target.hp = 10000;
         target.equipment.max_hp = 10000;
         let control = super::normal_attack::control(&files, character, &model)?;
-        let prepare = |aerial| -> Result<_> {
-            let mut owner = owner.clone();
-            if aerial {
-                // Start during ascent so slower aerial windups can reach contact before landing.
-                owner.position[1] = 80.;
-                owner.movement.vertical = 8.;
+        let mut playable = std::collections::BTreeSet::new();
+        for airborne in [false, true] {
+            for x in [-127, 0, 127] {
+                for y in [-127, 0, 127] {
+                    playable.insert(NormalAttack::from_input([x, y], airborne) as usize);
+                }
+            }
+        }
+        loop {
+            let previous = playable.clone();
+            for &selection in &previous {
+                let continuation = control.normals[selection].continuation;
+                playable.extend(continuation.fallback.map(usize::from));
+                playable.extend(
+                    (0..bindings.len()).filter(|&i| continuation.directions & (1 << i) != 0),
+                );
+            }
+            if previous == playable {
+                break;
+            }
+        }
+        let prepare = |selection: usize| -> Result<_> {
+            let owner = owner.clone();
+            let mut target = target.clone();
+            if NormalAttack::ALL[selection].airborne() || character == 3 && selection == 1 {
+                // Upward and aerial strikes have an airborne recipient.
+                target.position[1] = owner.body_top();
+                target.movement.flying = true;
+                target.movement.hover_height = target.position[1];
+                target.movement.gravity = 0.;
             }
             resonance_battle::PreparedBattle::new(
                 vec![
@@ -84,24 +111,41 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
                             ..Default::default()
                         },
                     ),
-                    (target.clone(), Default::default()),
+                    (target, Default::default()),
                 ],
                 bindings.to_vec().into(),
                 0,
             )
             .with_context(|| format!("prepare {name} normal timing actions"))
         };
-        for selection in 0..bindings.len() {
-            let prepared = prepare(selection >= 5)?;
+        for selection in playable {
+            let prepared = prepare(selection)?;
             let ids: Vec<_> = prepared.actor_ids().collect();
             let mut active = prepared.finish()?;
-            let mut models = resonance_battle::Models::new(
+            let models = resonance_battle::Models::new(
                 active.actors(),
-                vec![Some(model.clone()), None],
+                vec![Some(model.clone()), enemy.model.clone()],
                 Default::default(),
                 resonance_content::diagnostics::Diagnostics::new(true),
             )?;
+            active.set_models(models);
             active.set_diagnostics(resonance_content::diagnostics::Diagnostics::new(true));
+            active.step(BattleInput::default())?;
+            if NormalAttack::ALL[selection].airborne() {
+                for _ in 0..120 {
+                    active.step(BattleInput {
+                        controllers: vec![ControlInput {
+                            stick: [0, 127],
+                            ..ControlInput::neutral(ids[0])
+                        }],
+                        ..Default::default()
+                    })?;
+                    if active.actors()[0].position[1] > 0. {
+                        break;
+                    }
+                }
+                assert!(active.actors()[0].position[1] > 0., "{name} did not jump");
+            }
             let (mut voiced, mut sounded, mut recovered, mut completed) =
                 (false, false, false, false);
             let (mut effect, mut hidden_cards, mut hit) = (false, false, false);
@@ -118,7 +162,8 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
                     },
                     ..Default::default()
                 })?;
-                models.advance(&mut frame, resonance_battle::BattleClock::Running, true)?;
+                let clock = frame.clock;
+                active.advance_models(&mut frame, clock, true)?;
                 for cue in &frame.cues {
                     match cue {
                         Cue::Voice { .. } => voiced = true,
@@ -144,10 +189,9 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
                 completed && recovered && voiced && sounded,
                 "{name} selector {selection} did not complete with attack feedback"
             );
-            assert!(
-                hit,
-                "{name} selector {selection} did not hit the nearby target"
-            );
+            if !hit {
+                missed_contacts.push(format!("{name} selector {selection}"));
+            }
             if character == battle::party::Character::Sheena as u8 {
                 assert!(
                     hidden_cards,
@@ -161,5 +205,10 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
             }
         }
     }
+    assert!(
+        missed_contacts.is_empty(),
+        "normal attacks did not hit the nearby target: {}",
+        missed_contacts.join(", ")
+    );
     Ok(())
 }

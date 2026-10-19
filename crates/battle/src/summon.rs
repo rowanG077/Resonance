@@ -154,7 +154,7 @@ impl PreparedSummon {
 pub(crate) struct ActiveSummon {
     arrival: [f32; 3],
     heading: f32,
-    blessed: u16,
+    blessed: crate::ActorSet,
 }
 
 impl ActiveSummon {
@@ -214,7 +214,7 @@ impl ActiveSummon {
         Self {
             arrival,
             heading,
-            blessed: 0,
+            blessed: Default::default(),
         }
     }
 
@@ -239,6 +239,10 @@ impl ActiveSummon {
         }
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Summon scheduling uses the current action and actor identities without a separate context"
+    )]
     pub(crate) fn step(
         &mut self,
         definition: &PreparedSummon,
@@ -251,7 +255,7 @@ impl ActiveSummon {
     ) -> Result<()> {
         let caster_heading = battle.actors[owner.index()].heading;
         for effect in definition.effects.iter().filter(|e| u32::from(e.at) == age) {
-            cues.push(Cue::Effect(EffectRequest {
+            cues.push(Cue::DeferredEffect(EffectRequest {
                 owner,
                 target,
                 appearance: effect.appearance,
@@ -320,19 +324,18 @@ impl ActiveSummon {
         let side = battle.actors[owner.index()].side;
         for index in 0..battle.actors.len() {
             let actor = &battle.actors[index];
-            let bit = 1u16 << index;
+            let target = ActorId(index as u8);
             if actor.side != side
                 || !actor.available()
                 || actor.hp <= 0
-                || self.blessed & bit != 0
+                || self.blessed.contains(target)
                 || actor.position[0].hypot(actor.position[2]) > definition.blessing_radius
             {
                 continue;
             }
-            self.blessed |= bit;
-            let target = ActorId(index as u8);
+            self.blessed.insert(target);
             if let SummonBlessing::Heal { percent, effect } = definition.blessing {
-                cues.push(Cue::Effect(EffectRequest {
+                cues.push(Cue::DeferredEffect(EffectRequest {
                     owner: target,
                     target,
                     appearance: effect,
@@ -377,9 +380,9 @@ impl ActiveSummon {
                 SummonBlessing::PhysicalProtection | SummonBlessing::MagicalProtection => {
                     let buff = if matches!(definition.blessing, SummonBlessing::PhysicalProtection)
                     {
-                        Buff::PhysicalAilmentGuard { persistent: true }
+                        Buff::PhysicalBarrier { persistent: true }
                     } else {
-                        Buff::MagicalAilmentGuard { persistent: true }
+                        Buff::MagicalBarrier { persistent: true }
                     };
                     actor.conditions.prepare_buff(buff, false).commit(actor);
                     "STATUS"
@@ -392,7 +395,7 @@ impl ActiveSummon {
             });
             cues.push(Cue::CustomLabel {
                 actor: target,
-                position: actor.effect_origin(),
+                position: actor.condition_label_origin(),
                 left: label.into(),
                 right: if matches!(
                     definition.blessing,

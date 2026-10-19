@@ -18,14 +18,15 @@ fn ailment() -> HitRule {
 
 #[test]
 fn ailment_chance_combines_luck_and_one_resistance_source() {
-    for (luck, equipment, skill, roll, applied, label) in [
-        (0, false, false, 99, true, Some(ConditionLabel::Applied)),
-        (0, false, true, 49, true, Some(ConditionLabel::Applied)),
+    for (luck, equipment, skill, incoming, saving, applied, label) in [
+        (0, false, false, 99, 0, true, Some(ConditionLabel::Applied)),
+        (0, false, true, 99, 20, true, Some(ConditionLabel::Applied)),
         (
             0,
             false,
             true,
-            50,
+            99,
+            19,
             false,
             Some(ConditionLabel::ExSkillEffect),
         ),
@@ -33,7 +34,8 @@ fn ailment_chance_combines_luck_and_one_resistance_source() {
             0,
             true,
             false,
-            50,
+            99,
+            19,
             false,
             Some(ConditionLabel::EquipmentEffect),
         ),
@@ -41,20 +43,30 @@ fn ailment_chance_combines_luck_and_one_resistance_source() {
             0,
             true,
             true,
-            50,
+            99,
+            19,
             false,
             Some(ConditionLabel::ExSkillEffect),
         ),
-        (200, false, true, 44, true, Some(ConditionLabel::Applied)),
         (
             200,
             false,
             true,
-            45,
+            89,
+            40,
+            true,
+            Some(ConditionLabel::Applied),
+        ),
+        (
+            200,
+            false,
+            true,
+            89,
+            39,
             false,
             Some(ConditionLabel::ExSkillEffect),
         ),
-        (200, false, true, 90, false, None),
+        (200, false, true, 90, 0, false, None),
     ] {
         let mut target = actor(Side::Enemy);
         target.equipment.luck = luck;
@@ -65,6 +77,8 @@ fn ailment_chance_combines_luck_and_one_resistance_source() {
                 ..Default::default()
             });
         }
+        let mut ailment_rolls = [incoming, saving].into_iter();
+        let mut resistance_draws = Vec::new();
         let (hit, actual) = resolve_with_condition(
             &actor(Side::Party),
             &mut target,
@@ -73,11 +87,22 @@ fn ailment_chance_combines_luck_and_one_resistance_source() {
             100,
             [0.; 3],
             &mut |draw| match draw {
-                Draw::Ailment => roll,
+                Draw::Ailment | Draw::AilmentResistance => {
+                    resistance_draws.push(matches!(draw, Draw::AilmentResistance));
+                    ailment_rolls.next().unwrap()
+                }
                 _ => neutral_roll(draw),
             },
             false,
             [2; 2],
+        );
+        assert_eq!(
+            resistance_draws,
+            if (equipment || skill) && incoming % 100 < 100 - luck / 20 {
+                vec![false, true]
+            } else {
+                vec![false]
+            }
         );
         assert_eq!(actual, label);
         assert_eq!(
@@ -110,7 +135,7 @@ fn impossible_ailments_do_not_apply_or_report_resistance() {
             100,
             [0.; 3],
             &mut |draw| match draw {
-                Draw::Ailment => 0,
+                Draw::Ailment | Draw::AilmentResistance => 0,
                 _ => neutral_roll(draw),
             },
             false,

@@ -165,6 +165,80 @@ fn guard_input(actors: &[ActorId], update: u32) -> BattleInput {
 }
 
 #[test]
+#[ignore = "requires current Specter and Phantasm action metadata; CPU only"]
+fn ghost_attack_intervals_can_outlast_their_motion_curves() -> Result<()> {
+    for (formation, monster) in [(204, 45), (351, 46)] {
+        let fixture = prepare(formation, false)?;
+        let owner = fixture
+            .prepared
+            .results
+            .enemies
+            .iter()
+            .find(|enemy| enemy.reward.monster == monster)
+            .context("missing ghost")?
+            .actor;
+        let mut battle = fixture.prepared.core;
+        let action = battle
+            .enemy_choices(owner)
+            .context("missing ghost choices")?[1]
+            .action;
+        let mut started = false;
+        let mut passed_clip_end = false;
+        let mut maximum_frame = 0_f32;
+        let mut rejected = None;
+        for update in 0..ENCOUNTER_COMPLETION_BUDGET {
+            let mut input = guard_input(&fixture.party, update);
+            if !started
+                && battle.phase() != resonance_battle::BattlePhase::Entry
+                && battle.actors()[owner.index()].movement.hover_ready()
+            {
+                input.actions.push(ActionRequest {
+                    actor: owner,
+                    target: fixture.party[0],
+                    action,
+                });
+            }
+            let mut frame = battle.step(input)?;
+            started |= frame.cues.iter().any(|cue| {
+                matches!(cue,
+                Cue::Started { actor, definition: Some(definition), .. }
+                    if *actor == owner && *definition == action)
+            });
+            let clock = frame.clock;
+            battle.advance_models(&mut frame, clock, true)?;
+            if let Some(model) = frame
+                .models
+                .iter()
+                .find(|model| model.actor == owner && model.clip == 30)
+            {
+                maximum_frame = maximum_frame.max(model.frame);
+                passed_clip_end |= started && model.frame > 23.;
+            }
+            for cue in &frame.cues {
+                if let Cue::Rejected { actor, reason } = cue
+                    && *actor == owner
+                {
+                    rejected = Some(*reason);
+                }
+            }
+            if passed_clip_end {
+                break;
+            }
+        }
+        assert!(
+            started && passed_clip_end,
+            "ghost {monster}: started={started}, maximum_frame={maximum_frame}, rejected={rejected:?}, activity={:?}, motion={:?}",
+            battle.activity(owner),
+            battle
+                .models()
+                .and_then(|models| models.main_motion_observation(owner)),
+        );
+        assert!(!battle.is_diagnostic());
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires current enemy encounter assets; CPU only"]
 fn enemy_formations_select_attacks_and_damage_a_guarding_party() -> Result<()> {
     for formation in [0, 2, 251, 266] {
@@ -247,7 +321,9 @@ fn phantom_cast_releases_damaging_projectiles_and_cleans_up() -> Result<()> {
             }
         }
         for cue in &frame.cues {
-            if let Cue::ProjectileStarted { projectile, action } = *cue
+            if let Cue::ProjectileStarted {
+                projectile, action, ..
+            } = *cue
                 && Some(action) == release
             {
                 assert!(projectiles.insert(projectile));

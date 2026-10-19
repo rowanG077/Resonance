@@ -3,7 +3,7 @@ use crate::state::ActorTask;
 use crate::{Activity, Actor, ActorId, Battle, Side};
 use anyhow::Result;
 
-/// Brief get-up delay before control resumes, independent of pose length.
+/// Minimum get-up delay; control also waits for the pose to finish.
 pub(crate) const GET_UP_DURATION: u32 = 10;
 
 #[derive(Debug, Clone, Copy)]
@@ -188,38 +188,79 @@ impl Battle {
         &mut self,
         id: ActorId,
         recovery: Recovery,
+        outgoing_finished: bool,
         cues: &mut Vec<crate::Cue>,
     ) -> Result<bool> {
         let index = id.index();
         match recovery {
             Recovery::Rising { remaining } => {
-                if remaining <= 1 {
+                if remaining <= 1
+                    && self
+                        .models
+                        .as_ref()
+                        .and_then(|models| {
+                            let reactions = models.definition(id)?.reactions;
+                            if self.actors[index].reaction.recoil.kind.contact() {
+                                reactions.get_up?
+                            } else {
+                                reactions.stagger_get_up?
+                            };
+                            models.main_motion_observation(id)
+                        })
+                        .is_none_or(|motion| motion.finished)
+                {
                     self.actors[index].reaction.protection.recover();
                     self.enter_idle(id);
+                    // Control recovers now; the next visit selects the idle pose.
+                    if let Some(models) = &mut self.models {
+                        models.preserve_pose_through(id, self.update + 1);
+                    }
                 } else {
                     self.set_task(
                         index,
                         ActorTask::Knockdown(Recovery::Rising {
-                            remaining: remaining - 1,
+                            remaining: remaining.saturating_sub(1),
                         }),
                     );
                 }
             }
             Recovery::Down { remaining } if !self.actors[index].airborne() => {
+                if !self.actors[index].reaction.recoil.kind.contact()
+                    && let Some(model) = self
+                        .models
+                        .as_ref()
+                        .and_then(|models| models.definition(id))
+                {
+                    let motion = model
+                        .reactions
+                        .stagger_down
+                        .map(|clip| crate::MotionBinding {
+                            model: model.resource,
+                            clip,
+                        });
+                    self.request_pose(
+                        id,
+                        motion,
+                        crate::Pose {
+                            blend: 12,
+                            restart: false,
+                            ..Default::default()
+                        },
+                    );
+                }
                 self.initialize_knockdown_window(index, cues);
                 self.apply_knockdown_impact(id, cues);
-                if !self.begin_contact_recovery(id, false, cues)? {
-                    if remaining <= 1 {
-                        self.enter_get_up(id);
-                    } else {
-                        self.set_task(
-                            index,
-                            ActorTask::Knockdown(Recovery::Down {
-                                remaining: remaining - 1,
-                            }),
-                        );
-                    }
+                if remaining == 0 {
+                    self.enter_get_up(id);
+                } else if outgoing_finished {
+                    self.set_task(
+                        index,
+                        ActorTask::Knockdown(Recovery::Down {
+                            remaining: remaining - 1,
+                        }),
+                    );
                 }
+                self.begin_contact_recovery(id, false, cues)?;
             }
             Recovery::Down { .. } => {}
         }
@@ -291,9 +332,13 @@ impl Battle {
     pub(crate) fn apply_knockdown_impact(&mut self, id: ActorId, cues: &mut Vec<crate::Cue>) {
         let index = id.index();
         let actor = &self.actors[index];
-        // Down and launched hits retain distinct contact states; only launch triggers an
-        // immediate impact.
-        if actor.airborne() || !actor.reaction.recoil.kind.launching() {
+        if actor.airborne()
+            || !actor.reaction.recoil.kind.launching()
+            || self
+                .models
+                .as_ref()
+                .is_some_and(|models| !models.down_pose_ready(id))
+        {
             return;
         }
         self.actors[index].reaction.recoil.kind.finish_impact();

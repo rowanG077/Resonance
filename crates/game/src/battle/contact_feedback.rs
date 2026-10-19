@@ -13,8 +13,9 @@ pub struct ContactElementFeedback {
 #[derive(Debug, Clone)]
 pub struct ContactArt {
     pub ordinary: EffectAppearance,
-    pub elemental_impact: EffectAppearance,
+    pub compact_impact: EffectAppearance,
     pub guard: EffectAppearance,
+    pub repeated_guard: EffectAppearance,
     pub critical: EffectAppearance,
     pub guard_break: EffectAppearance,
     pub overlimit: EffectAppearance,
@@ -41,7 +42,7 @@ pub fn prepare(source: &Tints, common_resource: u32) -> (ContactArt, Vec<u16>) {
         resource: common_resource,
         member,
     };
-    let mut members = BTreeSet::from([0, 1, 11, 12, 16, 47]);
+    let mut members = BTreeSet::from([0, 1, 2, 11, 12, 16, 47]);
     // Prepare all elements because equipment can change them during battle.
     let elements = std::array::from_fn(|index| {
         let member = u16::from(source.contact_effects[index]);
@@ -56,8 +57,9 @@ pub fn prepare(source: &Tints, common_resource: u32) -> (ContactArt, Vec<u16>) {
     (
         ContactArt {
             ordinary: appearance(11),
-            elemental_impact: appearance(12),
+            compact_impact: appearance(12),
             guard: appearance(1),
+            repeated_guard: appearance(2),
             critical: appearance(16),
             guard_break: appearance(0),
             overlimit: appearance(47),

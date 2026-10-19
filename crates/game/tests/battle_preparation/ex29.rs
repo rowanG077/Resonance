@@ -18,7 +18,7 @@ use std::sync::Arc;
 #[test]
 #[ignore = "requires current cooked Genis EX29/common50/Fire Ball publications; CPU preparation and store execution"]
 fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> Result<()> {
-    use resonance_battle::{BattleInput, BattlePhase, ControlInput, Element};
+    use resonance_battle::{BattleInput, ControlInput, Element};
 
     let root = super::common::asset_root();
     let mut cache = Cache::default();
@@ -127,16 +127,7 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
             .iter()
             .all(|actor| actor.equipment.base_element != Some(Element::Fire))
     );
-    for _ in 0..600 {
-        if active.phase() == BattlePhase::Combat {
-            break;
-        }
-        active.step(BattleInput::default())?;
-    }
-    ensure!(
-        active.phase() == BattlePhase::Combat,
-        "encounter entry did not complete before dormant acquisition"
-    );
+    super::enter_battle(&mut active)?;
     assert_eq!(active.technique_is_current(actor, 66), Some(false));
     assert!(
         active

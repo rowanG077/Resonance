@@ -5,14 +5,13 @@ use super::{
 };
 use anyhow::{Context, Result};
 use resonance_battle::{EffectAppearance, PreparedSpell, SpellOrigin, SpellProjectile};
-use resonance_content::{battle_scene::Scene, prepared::Files};
+use resonance_content::{battle_effect::ModelAnimation, battle_scene::Scene, prepared::Files};
 use std::sync::Arc;
 
 pub const CORRINE: u16 = 139;
 pub const HEART: u16 = 245;
 pub const SCENE: u16 = 282;
 const APPEAR_TICK: u16 = 11;
-const ARRIVAL_HEIGHT: f32 = 100.;
 const DEPARTURE_TAIL: u16 = 25;
 
 pub(super) fn prepare(
@@ -44,13 +43,25 @@ pub(super) fn prepare(
         hit,
         &[(0, common), (1, techniques), (2, bank), (6, bank)],
     )?;
-    Arc::make_mut(&mut projectile)
+    let definition = Arc::make_mut(&mut projectile);
+    definition
         .contact
         .as_mut()
         .context("Corrine projectile has no contact")?
         .cooldown = rule.cooldown;
+    definition.effects.departure_animation = Some(ModelAnimation {
+        model: 0,
+        clip: 0,
+        frame: 0.,
+        rate: 0.5,
+        repeat: true,
+        blend_ticks: 4,
+    });
     let projectile_lifetime = u16::try_from(
-        source.projectile.lifetime.context("Corrine requires a bounded departure lifetime")?,
+        source
+            .projectile
+            .lifetime
+            .context("Corrine requires a bounded departure lifetime")?,
     )?;
     let lifetime = projectile_lifetime
         .checked_add(APPEAR_TICK + DEPARTURE_TAIL)
@@ -64,11 +75,7 @@ pub(super) fn prepare(
         )],
         effects: vec![],
         recovery: vec![],
-        origin: SpellOrigin::SceneTargetPlane {
-            height: ARRIVAL_HEIGHT,
-            toward_caster: 0.,
-            body_center: false,
-        },
+        origin: SpellOrigin::SceneAboveTarget,
         transition_ticks: TRANSITION_TICKS,
         stage_tint: stored_spells::stage_tint(scene.stage_color, lifetime)?,
         camera: stored_spells::scene_camera(scene.camera, lifetime)?,

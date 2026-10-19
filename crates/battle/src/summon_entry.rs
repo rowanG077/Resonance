@@ -12,6 +12,7 @@ const HANDOFF_AGE: u16 = 151;
 const CASTER_RECOVERY: u32 = 210;
 const ENEMY_RECOVERY: u32 = 120;
 const RESUME_CLIP: u16 = 12;
+const RECOVERY_IDLE_BLEND: u8 = 16;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SummonEntryDefinition {
@@ -338,7 +339,11 @@ impl Battle {
             actor.movement.forward = 0.;
             actor.movement.vertical = 0.;
             actor.movement.acceleration = 0.;
-            actor.movement.gravity = crate::movement::GRAVITY;
+            actor.movement.gravity = if actor.movement.flying {
+                0.
+            } else {
+                crate::movement::GRAVITY
+            };
             actor.movement.airborne_action = false;
             actor.input = Default::default();
             actor.reaction.protection = Default::default();
@@ -346,48 +351,49 @@ impl Battle {
                 continue;
             }
             if id == caster || actor.side == Side::Enemy {
+                let idle_pose = self
+                    .models
+                    .as_ref()
+                    .and_then(|models| models.definition(id))
+                    .and_then(|model| {
+                        model.idle_motions[0].map(|clip| {
+                            (
+                                MotionBinding {
+                                    model: model.resource,
+                                    clip,
+                                },
+                                crate::Pose {
+                                    repeat: true,
+                                    blend: RECOVERY_IDLE_BLEND,
+                                    ..Default::default()
+                                },
+                            )
+                        })
+                    });
                 if id != caster {
                     self.request_pose(id, saved.resume, crate::Pose::default());
                 }
                 self.set_task(
                     index,
                     crate::state::ActorTask::Recovering {
-                        remaining: if id == caster {
+                        // Restoration includes the first recovery visit.
+                        remaining: (if id == caster {
                             CASTER_RECOVERY
                         } else {
                             ENEMY_RECOVERY
-                        },
+                        }) - 1,
                         after_hit: false,
+                        idle_pose,
                     },
                 );
             } else {
-                // Restoration is not a new idle decision: retain its random state and
-                // restart the prepared idle pose without rolling a controller delay.
+                // Keep an existing idle pose continuous across restoration.
                 actor.movement.locomotion = crate::Locomotion::Idle;
-                let injured = i64::from(actor.hp) * 4 < i64::from(actor.equipment.max_hp);
-                let motion = self
-                    .models
-                    .as_ref()
-                    .and_then(|models| models.definition(id))
-                    .and_then(|model| {
-                        model.idle_motions[usize::from(injured)]
-                            .or(model.idle_motions[0])
-                            .map(|clip| MotionBinding {
-                                model: model.resource,
-                                clip,
-                            })
-                    });
-                self.request_pose(
-                    id,
-                    motion,
-                    crate::Pose {
-                        repeat: true,
-                        ..Default::default()
-                    },
-                );
                 self.runtime[index].idle_timer = 0;
                 self.set_task(index, crate::state::ActorTask::None);
             }
+            let actor = &mut self.actors[index];
+            actor.movement.integrate(&mut actor.position);
         }
     }
 }
@@ -457,6 +463,7 @@ mod tests {
             reactions: Default::default(),
             idle_motions: [Some(0); 2],
             idle_expression: [0; 4],
+            forced_eye_frame: None,
             blink: None,
             weapons: vec![],
             shadow: None,
@@ -550,16 +557,18 @@ mod tests {
         assert!(matches!(
             battle.runtime[0].task(),
             crate::state::ActorTask::Recovering {
-                remaining: CASTER_RECOVERY,
+                remaining,
                 after_hit: false,
-            }
+                ..
+            } if *remaining == CASTER_RECOVERY - 1
         ));
         assert!(matches!(
             battle.runtime[1].task(),
             crate::state::ActorTask::Recovering {
-                remaining: ENEMY_RECOVERY,
+                remaining,
                 after_hit: false,
-            }
+                ..
+            } if *remaining == ENEMY_RECOVERY - 1
         ));
         assert_eq!(battle.activity(ActorId(2)), crate::Activity::Idle);
         let handed_off = battle.snapshot().summon.unwrap();

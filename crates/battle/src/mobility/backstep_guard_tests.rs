@@ -235,7 +235,7 @@ fn backstep_guard_lethal_contact_normalizes_result_and_clears_the_live_timer() {
 fn backstep_guard_equipment_and_mode_refresh_preserve_existing_entry_and_timer() {
     let mut battle = guarding(true, Control::Manual);
     begin(&mut battle);
-    let before = battle.actors[0].reaction;
+    let before = battle.actors[0].reaction.clone();
     let mut replacement = battle.actors[0].clone();
     replacement.equipment.backstep_guard = false;
     crate::tests::equip(&mut battle, ActorId(0), replacement).unwrap();

@@ -1,6 +1,6 @@
 //! Victory celebrations chosen from the party's condition and prepared resources.
 use crate::battle::results::PreparedGroup;
-use resonance_battle::Control;
+use resonance_battle::{Control, Sound};
 use resonance_content::battle_victory::Condition;
 
 use crate::battle::party::Character;
@@ -259,7 +259,11 @@ fn ordinary_pose(context: &Context<'_>, sample: u16) -> u8 {
     if context.leader == Presea && !context.presea_recovered {
         return 2;
     }
-    if !context.available(context.leader) || context.injured(context.leader) {
+    if !context.available(context.leader)
+        || context.member_is(context.leader, |member| {
+            member.hp_percent < INJURED_HP_PERCENT
+        })
+    {
         return 1;
     }
     if context
@@ -273,4 +277,19 @@ fn ordinary_pose(context: &Context<'_>, sample: u16) -> u8 {
         return 4;
     }
     varied_pose(sample)
+}
+
+/// Solo lines belong to the chosen celebration; only its paired variation is random.
+pub fn ordinary_voice(
+    character: u8,
+    pose: u8,
+    sample: u16,
+    choices: &[[Option<Sound>; 2]],
+) -> Option<Sound> {
+    let (pose, variation) = match (character, pose) {
+        (character, 2) if character == Character::Colette as u8 => (3, 0),
+        (character, 3) if character == Character::Colette as u8 => (3, 1),
+        (_, pose) => (usize::from(pose), usize::from(sample & 1)),
+    };
+    choices.get(pose)?[variation]
 }

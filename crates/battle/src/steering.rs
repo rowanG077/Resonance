@@ -10,6 +10,8 @@ pub(crate) use recovery_return::ReturnState;
 
 const ARRIVAL_DISTANCE: f32 = 8.;
 const ARENA_RADIUS: f32 = 850.;
+const ENEMY_ARENA_MARGIN: f32 = 35.;
+const ARENA_TARGET_LINE_LIMIT: f32 = 552.5;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ArenaContact {
@@ -17,6 +19,8 @@ pub enum ArenaContact {
     None,
     /// Moved radially back to the boundary.
     Slid,
+    /// Rejected the planar step and kept the previous position.
+    Blocked,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -29,6 +33,8 @@ pub(crate) enum DetourSide {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Steering {
+    /// Radius of this body in the automatic positioning grid.
+    pub positioning_radius: u8,
     /// Ignore allied obstacles which also allow this passage.
     pub passes_allied_obstacles: bool,
     pub passable_for_allies: bool,
@@ -153,13 +159,77 @@ impl Battle {
         }))
     }
 
-    /// Keep the body on the floor. Escaping actors may leave the arena.
-    pub(crate) fn constrain_actor(&mut self, index: usize) {
+    /// Keep the body on the floor and inside the arena. A placement without a
+    /// previous position slides to the edge instead of rejecting the step.
+    pub(crate) fn constrain_actor(&mut self, index: usize, previous: Option<[f32; 3]>) {
         crate::movement::floor(&mut self.actors[index]);
         self.actors[index].movement.steering.contact = ArenaContact::None;
-        if self.prepared.arena_boundary && self.terminal.result != Some(BattleResult::Escaped) {
-            constrain(&mut self.actors[index]);
+        let actor = &self.actors[index];
+        if !self.prepared.arena_boundary
+            || self.terminal.result == Some(BattleResult::Escaped)
+            || actor.movement.steering.unrestricted_arena
+            || actor.movement.steering.leaving_arena
+        {
+            return;
         }
+        let radius = ARENA_RADIUS
+            + if actor.side == Side::Enemy {
+                ENEMY_ARENA_MARGIN
+            } else {
+                0.
+            };
+        let length = planar_length(actor.position);
+        if length <= radius {
+            return;
+        }
+        let previous = previous.filter(|_| self.blocks_arena_slide(index));
+        let actor = &mut self.actors[index];
+        if let Some(previous) = previous {
+            actor.position[0] = previous[0];
+            actor.position[2] = previous[2];
+            actor.movement.steering.contact = ArenaContact::Blocked;
+        } else {
+            let scale = radius / length;
+            actor.position[0] *= scale;
+            actor.position[2] *= scale;
+            actor.movement.steering.contact = ArenaContact::Slid;
+        }
+    }
+
+    fn blocks_arena_slide(&self, index: usize) -> bool {
+        let actor = &self.actors[index];
+        if actor.airborne() {
+            return true;
+        }
+        let Some(leader) = self
+            .actors
+            .iter()
+            .position(|actor| actor.side == Side::Party && actor.control != Control::Auto)
+            .or_else(|| {
+                self.actors
+                    .iter()
+                    .position(|actor| actor.side == Side::Party)
+            })
+        else {
+            return false;
+        };
+        let Some(target) = self.target(ActorId(leader as u8)) else {
+            return false;
+        };
+        if target.index() == index {
+            return true;
+        }
+        if leader != index {
+            return false;
+        }
+        let target = self.actors[target.index()].position;
+        let direction = distance::normalize([
+            target[0] - actor.position[0],
+            0.,
+            target[2] - actor.position[2],
+        ]);
+        let line_distance = actor.position[0] * direction[2] - actor.position[2] * direction[0];
+        line_distance.abs() < ARENA_TARGET_LINE_LIMIT
     }
 }
 
@@ -184,20 +254,6 @@ fn approach_side(actor: &Actor, target: [f32; 3]) -> DetourSide {
 
 fn planar_length(position: [f32; 3]) -> f32 {
     distance::length([position[0], 0., position[2]])
-}
-
-fn constrain(actor: &mut Actor) {
-    if actor.movement.steering.unrestricted_arena || actor.movement.steering.leaving_arena {
-        return;
-    }
-    let radius = ARENA_RADIUS + if actor.side == Side::Enemy { 35. } else { 0. };
-    let length = planar_length(actor.position);
-    if length > radius {
-        let scale = radius / length;
-        actor.position[0] *= scale;
-        actor.position[2] *= scale;
-        actor.movement.steering.contact = ArenaContact::Slid;
-    }
 }
 
 #[cfg(test)]

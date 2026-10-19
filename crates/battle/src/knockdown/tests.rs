@@ -138,10 +138,10 @@ fn protection_preserves_side_window_and_hits_down_rules() {
         );
         assert_eq!(
             target.reaction.armor.received,
-            if protection == HitProtection::Armored {
-                target.reaction.armor.threshold
-            } else {
+            if protection == HitProtection::Avoided {
                 0
+            } else {
+                target.reaction.armor.threshold
             }
         );
         assert_eq!(target.reaction.stagger.received, 0);
@@ -219,7 +219,7 @@ fn buildup_saturates_and_only_guard_break_allows_guarded_buildup() {
 }
 
 #[test]
-fn knockdown_timer_recovers_with_missing_or_unfinished_poses() {
+fn knockdown_without_models_recovers_and_preserves_pause() {
     {
         let mut target = actor(Side::Enemy);
         target.reaction.stagger.duration = 2;
@@ -238,6 +238,10 @@ fn knockdown_timer_recovers_with_missing_or_unfinished_poses() {
             })
             .unwrap();
         assert_eq!(battle.actors[0], before);
+        for _ in 0..2 {
+            battle.step(BattleInput::default()).unwrap();
+            assert_eq!(battle.activity(ActorId(0)), Activity::KnockedDown);
+        }
         let mut getting_up = false;
         for _ in 0..20 {
             battle.step(BattleInput::default()).unwrap();
@@ -279,6 +283,25 @@ fn reaching_threshold_precedes_stun_even_for_knockdown_immune_profiles() {
         .unwrap()
         .finish()
         .unwrap();
+        let mut model = crate::tests::model_definition(
+            7,
+            [(0, 20.), (3, 3.), (7, 2.), (8, 2.), (9, 2.), (10, 2.)],
+        );
+        model.reactions.hurt = [Some(3); 2];
+        model.reactions.stagger_down = Some(7);
+        model.reactions.stagger_get_up = Some(9);
+        model.reactions.down = Some(8);
+        model.reactions.get_up = Some(10);
+        model.idle_motions[0] = Some(0);
+        battle.set_models(
+            crate::Models::new(
+                battle.actors(),
+                vec![None, Some(std::sync::Arc::new(model))],
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
         let mut rule = hit();
         rule.reaction.stun_chance = 100;
         let melee = MeleeDefinition {
@@ -307,6 +330,31 @@ fn reaching_threshold_precedes_stun_even_for_knockdown_immune_profiles() {
             }
         );
         assert_eq!(target.reaction.stagger.received, if immune { 5 } else { 0 });
+        let mut frame = battle.publish(cues);
+        battle
+            .advance_models(&mut frame, crate::BattleClock::Running, true)
+            .unwrap();
+        assert_eq!(frame.models[0].clip, 3, "contact keeps the hurt pose");
+        if !immune {
+            let mut got_up = false;
+            for _ in 0..80 {
+                let mut frame = battle.step(BattleInput::default()).unwrap();
+                battle
+                    .advance_models(&mut frame, crate::BattleClock::Running, true)
+                    .unwrap();
+                match frame.actors[1].activity {
+                    Activity::KnockedDown => assert_eq!(frame.models[0].clip, 7),
+                    Activity::GettingUp => {
+                        assert_eq!(frame.models[0].clip, 9);
+                        got_up = true;
+                    }
+                    Activity::Idle => break,
+                    activity => panic!("unexpected stagger recovery activity: {activity:?}"),
+                }
+            }
+            assert!(got_up, "stagger uses its own get-up pose before recovery");
+            assert_eq!(battle.activity(ActorId(1)), Activity::Idle);
+        }
     }
 }
 
@@ -510,7 +558,7 @@ fn contact_down_waits_then_gets_up_and_recovers() {
     assert_eq!(battle.actors[1].movement.forward, 16.);
     assert_eq!(battle.actors[1].reaction.stagger.received, 1);
     battle.step(BattleInput::default()).unwrap();
-    // Landing starts the full authored down duration; Hurt no longer advances it.
+    // The landing visit consumes the first tick of the down duration.
     assert_eq!(battle.activity(ActorId(1)), Activity::KnockedDown);
 
     assert_eq!(battle.actors[1].reaction.stagger.received, 1);
@@ -524,6 +572,11 @@ fn contact_down_waits_then_gets_up_and_recovers() {
         })
         .unwrap();
     assert_eq!(battle.actors[1], actor_before);
+
+    battle.step(BattleInput::default()).unwrap();
+    assert_eq!(battle.activity(ActorId(1)), Activity::KnockedDown);
+    battle.step(BattleInput::default()).unwrap();
+    assert_eq!(battle.activity(ActorId(1)), Activity::GettingUp);
 
     let mut got_up = false;
     for _ in 0..90 {
@@ -542,6 +595,158 @@ fn contact_down_waits_then_gets_up_and_recovers() {
     assert_eq!(
         battle.actors[1].reaction.recoil.kind,
         crate::RecoilKind::Down
+    );
+
+    let target = ActorId(1);
+    let mut definition = crate::tests::model_definition(7, [(0, 20.), (4, 2.), (8, 2.), (10, 2.)]);
+    definition.initial = crate::Playback {
+        clip: 4,
+        frame: 1.,
+        rate: 0.5,
+        repeat: false,
+    };
+    definition.idle_motions = [Some(0), None];
+    definition.reactions.down = Some(8);
+    definition.reactions.get_up = Some(10);
+    battle.set_models(
+        crate::Models::new(
+            &battle.actors,
+            vec![None, Some(std::sync::Arc::new(definition))],
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap(),
+    );
+    battle.set_task(
+        target.index(),
+        ActorTask::Knockdown(Recovery::Down { remaining: 3 }),
+    );
+
+    battle.step(BattleInput::default()).unwrap();
+    assert!(matches!(
+        battle.runtime[1].task(),
+        ActorTask::Knockdown(Recovery::Down { remaining: 3 })
+    ));
+    let motion = battle
+        .models()
+        .unwrap()
+        .main_motion_observation(target)
+        .unwrap();
+    assert_eq!((motion.clip, motion.frame, motion.finished), (4, 2., false));
+    battle
+        .step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        battle.models().unwrap().main_motion_observation(target),
+        Some(motion)
+    );
+
+    battle.step(BattleInput::default()).unwrap();
+    assert_eq!(
+        battle
+            .models()
+            .unwrap()
+            .main_motion_observation(target)
+            .unwrap()
+            .clip,
+        8
+    );
+    // Replacing the completed hurt pose consumes its final ready tick.
+    assert!(matches!(
+        battle.runtime[1].task(),
+        ActorTask::Knockdown(Recovery::Down { remaining: 2 })
+    ));
+    let mut finished = false;
+    for _ in 0..32 {
+        battle.step(BattleInput::default()).unwrap();
+        finished = battle
+            .models()
+            .unwrap()
+            .main_motion_observation(target)
+            .unwrap()
+            .finished;
+        if finished {
+            break;
+        }
+        assert!(matches!(
+            battle.runtime[1].task(),
+            ActorTask::Knockdown(Recovery::Down { remaining: 2 })
+        ));
+    }
+    assert!(finished);
+    assert!(matches!(
+        battle.runtime[1].task(),
+        ActorTask::Knockdown(Recovery::Down { remaining: 1 })
+    ));
+    battle.step(BattleInput::default()).unwrap();
+    assert!(matches!(
+        battle.runtime[1].task(),
+        ActorTask::Knockdown(Recovery::Down { remaining: 0 })
+    ));
+    battle.step(BattleInput::default()).unwrap();
+    assert_eq!(battle.activity(target), Activity::GettingUp);
+    assert_eq!(
+        battle
+            .models()
+            .unwrap()
+            .main_motion_observation(target)
+            .unwrap()
+            .clip,
+        10
+    );
+    for _ in 0..32 {
+        battle.step(BattleInput::default()).unwrap();
+        if battle.activity(target) == Activity::Idle {
+            break;
+        }
+    }
+    assert_eq!(battle.activity(target), Activity::Idle);
+    assert!(battle.actor_command_ready(target));
+    let completed = battle
+        .models()
+        .unwrap()
+        .main_motion_observation(target)
+        .unwrap();
+    assert_eq!(
+        (completed.clip, completed.frame, completed.finished),
+        (10, 2., true)
+    );
+    battle
+        .step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        battle.models().unwrap().main_motion_observation(target),
+        Some(completed)
+    );
+    battle.step(BattleInput::default()).unwrap();
+    let idle = battle
+        .models()
+        .unwrap()
+        .main_motion_observation(target)
+        .unwrap();
+    assert_eq!((idle.clip, idle.frame, idle.repeat), (0, 0., true));
+    for _ in 0..8 {
+        battle.step(BattleInput::default()).unwrap();
+        assert_eq!(
+            battle.models().unwrap().main_motion_observation(target),
+            Some(idle)
+        );
+    }
+    battle.step(BattleInput::default()).unwrap();
+    assert_eq!(
+        battle
+            .models()
+            .unwrap()
+            .main_motion_observation(target)
+            .unwrap()
+            .frame,
+        0.5
     );
 }
 

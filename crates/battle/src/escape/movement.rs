@@ -67,15 +67,17 @@ impl Battle {
         Ok(true)
     }
 
-    pub(crate) fn begin_enemy_departure(&mut self, actor: ActorId, target: ActorId) -> Result<()> {
+    fn begin_enemy_departure(&mut self, actor: ActorId, target: ActorId) -> Result<()> {
         let index = actor.index();
-        let motion = self.enemy_decision(actor)?.walk_motion;
+        let definition = self.enemy_decision(actor)?;
+        let (motion, turn_ticks) = (definition.run_motion, definition.turn_ticks);
         let direction = away_from(&self.actors[index], self.actors[target.index()].position);
         let owner = &mut self.actors[index];
         owner.guard.active = false;
         owner.guard.recovery = 0;
-        owner.movement.locomotion = Locomotion::Walk;
+        owner.movement.locomotion = Locomotion::Run;
         owner.movement.direction = direction;
+        crate::control::face(owner, direction, 180. / f32::from(turn_ticks));
         owner.movement.forward = 0.;
         owner.movement.steering.leaving_arena = true;
         let rate = owner.motion_rate(0.5, owner.conditions.effective());
@@ -85,7 +87,7 @@ impl Battle {
             crate::Pose {
                 rate,
                 repeat: true,
-                blend: 0,
+                blend: crate::control::RUN_BLEND_TICKS,
                 ..Default::default()
             },
         );
@@ -105,7 +107,13 @@ impl Battle {
         if !matches!(sequence.execution, crate::action::Execution::LeavingArena) {
             return Ok(false);
         }
-        if self.actors[index].hit_stop != 0 || sequence.started_at == self.update {
+        if self.actors[index].hit_stop != 0 {
+            return Ok(true);
+        }
+        if !self.actors[index].movement.steering.leaving_arena {
+            // Resolve the direction after earlier actors have completed this visit.
+            let target = sequence.target;
+            self.begin_enemy_departure(actor, target)?;
             return Ok(true);
         }
         let definition = self.prepared.actor_setup[index]
@@ -116,7 +124,7 @@ impl Battle {
             actor,
             definition.walk_speed,
             definition.turn_ticks,
-            definition.walk_motion,
+            definition.run_motion,
         )?;
         if let Some((_, sequence)) = self.runtime[index].action_mut() {
             sequence.age += 1;

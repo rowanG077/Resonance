@@ -9,14 +9,15 @@ use std::sync::Arc;
 
 pub(crate) const MOVEMENT_STICK_THRESHOLD: u8 = 30;
 pub(crate) const RUN_FLICK_THRESHOLD: i16 = 15;
-pub(crate) const RUN_STOP_AFTER_TICKS: u8 = 20;
+pub(crate) const RUN_STOP_AFTER_TICKS: u8 = 15;
 pub(crate) const WALK_FACING_MARGIN: f32 = 4.;
 pub(crate) const RUN_FACING_MARGIN: f32 = 8.;
 const MOVEMENT_PLAYBACK_RATE: f32 = 0.5;
 const WALK_BLEND_TICKS: u8 = 3;
-const RUN_BLEND_TICKS: u8 = 4;
+pub(crate) const RUN_BLEND_TICKS: u8 = 4;
 const STOP_BLEND_TICKS: u8 = 8;
 const AERIAL_COMBO_LIFT: f32 = 8.;
+const RUN_REVERSE_ANGLE: f32 = 135.;
 
 /// Mapped buttons for one simulation update, after the user's button mapping.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -211,11 +212,17 @@ pub(crate) struct Controller {
     pub(crate) run_ticks: u8,
     target_ticks: u16,
     pub(crate) running_left: bool,
+    pub(crate) selector_turn_pending: bool,
 }
 
 impl Controller {
     pub(crate) fn cancel_action(&mut self) {
         self.run_ticks = 0;
+    }
+
+    pub(crate) fn resume_ground_input(&mut self) {
+        self.cancel_action();
+        self.last_horizontal = 0;
     }
 
     pub fn from_setup(
@@ -237,6 +244,7 @@ impl Controller {
             run_ticks: 0,
             target_ticks: 0,
             running_left: false,
+            selector_turn_pending: false,
         })
     }
 }
@@ -864,10 +872,11 @@ impl Battle {
             return Ok(());
         }
         let definition = Arc::clone(self.prepared.actor_setup[index].control.as_ref().unwrap());
-        if !self.target_available(actor, self.runtime[index].target)
+        let target = self.runtime[index].target;
+        if (!self.actors[target.index()].available() || self.target_excluded(target))
             && let Some(target) = self.nearest_target(actor, None)
         {
-            self.runtime[index].target = target;
+            self.runtime[index].set_target(target);
         }
         let control = self.runtime[index].control.as_mut().unwrap();
         control.combo_input = input;
@@ -899,6 +908,7 @@ impl Battle {
             && let Some(target) = self.nearest_target(actor, Some(self.runtime[index].target))
         {
             if target != self.runtime[index].target {
+                cues.push(Cue::TargetChanged { actor, target });
                 match self.activity(actor) {
                     Activity::Taunting => {
                         self.refresh_selector_facing(actor, target);
@@ -909,7 +919,8 @@ impl Battle {
                     _ => {}
                 }
             }
-            self.runtime[index].target = target;
+            self.runtime[index].set_target(target);
+            self.runtime[index].target_settle_remaining = crate::state::TARGET_SETTLE_UPDATES;
         }
         let intent = self.actors[index].input;
         let replaces_movement = intent.action.is_some()
@@ -1314,11 +1325,18 @@ impl Battle {
     }
 
     pub(crate) fn target_available(&self, actor: ActorId, target: ActorId) -> bool {
+        if self.target_excluded(target) {
+            return false;
+        }
         let target = &self.actors[target.index()];
         target.side != self.actors[actor.index()].side && target.available()
     }
 
-    pub(crate) fn update_control_stop(&mut self, index: usize) -> Result<bool> {
+    pub(crate) fn update_control_stop(
+        &mut self,
+        index: usize,
+        already_stopping: bool,
+    ) -> Result<bool> {
         if self.activity(ActorId(index as u8)) != Activity::Idle
             || self.runtime[index].control.is_none()
             || self.actors[index].movement.locomotion != Locomotion::Stop
@@ -1330,7 +1348,8 @@ impl Battle {
         }
         let actor = &mut self.actors[index];
         actor.movement.integrate(&mut actor.position);
-        if actor.movement.brake(actor.position[1], Activity::Idle) {
+        // Entering the stop pose retains this visit's running momentum.
+        if already_stopping && actor.movement.brake(actor.position[1], Activity::Idle) {
             self.actors[index].movement.locomotion = Locomotion::Idle;
         }
         Ok(true)
@@ -1424,7 +1443,10 @@ impl Battle {
             .map_or(center[0], |camera| project_screen_x(camera.frame(), center))
     }
 
-    pub(crate) fn control_target_selector(&mut self, inputs: &[ControlInput]) -> Result<()> {
+    pub(crate) fn control_target_selector(
+        &mut self,
+        inputs: &[ControlInput],
+    ) -> Result<Option<Cue>> {
         let actor = self.target_selector.unwrap();
         let input = inputs
             .iter()
@@ -1434,15 +1456,20 @@ impl Battle {
         let previous = self.runtime[actor.index()].target;
         let Some(target) = self.select_target_step(actor, Some(previous), input.target_step) else {
             self.target_selector = None;
-            return Ok(());
+            return Ok(None);
         };
-        self.runtime[actor.index()].target = target;
+        self.runtime[actor.index()].set_target(target);
+        if input.target_step != 0 {
+            self.runtime[actor.index()].target_settle_remaining =
+                crate::state::TARGET_SETTLE_UPDATES;
+        }
         self.render_target_selector(target)?;
         if !input.target.held {
             self.target_selector = None;
             self.refresh_selector_facing(actor, target);
         }
-        Ok(())
+        Ok((target != previous && input.target_step != 0)
+            .then_some(Cue::TargetChanged { actor, target }))
     }
 
     pub(crate) fn render_command_target(&mut self) -> Result<()> {
@@ -1484,6 +1511,7 @@ impl Battle {
             camera.step(
                 &self.actors,
                 self.runtime[camera.definition.leader.index()].target,
+                self.runtime[camera.definition.leader.index()].target_settle_remaining != 0,
                 crate::camera::Update::Selecting(target),
             )?;
         }
@@ -1500,6 +1528,9 @@ impl Battle {
         let direction =
             crate::distance::planar_direction(target, owner.position, owner.facing_direction);
         owner.facing_direction = direction;
+        if let Some(control) = &mut self.runtime[actor.index()].control {
+            control.selector_turn_pending = true;
+        }
     }
 }
 
@@ -1541,24 +1572,23 @@ pub fn direction_from_heading(heading: f32) -> [f32; 3] {
     [sin, 0., cos]
 }
 
-/// Turn through the shortest planar arc, including opposite directions.
-pub(crate) fn turn_direction(current: [f32; 3], desired: [f32; 3], max_degrees: f32) -> [f32; 3] {
-    if desired[0].hypot(desired[2]) <= f32::EPSILON {
-        return current;
+fn turn_heading(heading: f32, wanted: f32, step: f32, running: bool) -> (f32, bool) {
+    // Wrapping an already-normalized angle discards small differences at a turn boundary.
+    let wrap = |angle: f32| {
+        if (-180. ..180.).contains(&angle) {
+            angle
+        } else {
+            (angle + 180.).rem_euclid(360.) - 180.
+        }
+    };
+    let mut delta = wrap(wanted - heading);
+    if running && delta > RUN_REVERSE_ANGLE {
+        delta -= 360.;
     }
-    if current[0].hypot(current[2]) <= f32::EPSILON {
-        return crate::distance::normalize(desired);
-    }
-    let heading = current[0].atan2(current[2]).to_degrees();
-    let wanted = desired[0].atan2(desired[2]).to_degrees();
-    direction_from_heading(turn_heading(heading, wanted, max_degrees).0)
-}
-
-fn turn_heading(heading: f32, wanted: f32, step: f32) -> (f32, bool) {
-    let delta = (wanted - heading + 180.).rem_euclid(360.) - 180.;
-    let ready = step == 0. || delta.abs() <= step;
+    // Angle wrapping can round the final step just beyond its boundary.
+    let ready = step == 0. || delta.abs() <= step + 180. * f32::EPSILON;
     let turn = if ready { delta } else { delta.signum() * step };
-    ((heading + turn + 180.).rem_euclid(360.) - 180., ready)
+    (wrap(heading + turn), ready)
 }
 
 pub(crate) fn snap_heading(actor: &mut crate::Actor, direction: [f32; 3]) {
@@ -1567,6 +1597,15 @@ pub(crate) fn snap_heading(actor: &mut crate::Actor, direction: [f32; 3]) {
 
 /// Advance rendered heading toward desired facing without changing movement direction.
 pub(crate) fn face(actor: &mut crate::Actor, direction: [f32; 3], step: f32) -> bool {
+    face_toward(actor, direction, step, false)
+}
+
+/// A running reversal turns consistently through the rearward arc.
+pub(crate) fn face_running(actor: &mut crate::Actor, direction: [f32; 3], step: f32) -> bool {
+    face_toward(actor, direction, step, true)
+}
+
+fn face_toward(actor: &mut crate::Actor, direction: [f32; 3], step: f32, running: bool) -> bool {
     if direction[0].hypot(direction[2]) <= f32::EPSILON {
         return true;
     }
@@ -1575,7 +1614,7 @@ pub(crate) fn face(actor: &mut crate::Actor, direction: [f32; 3], step: f32) -> 
         return false;
     }
     let wanted = direction[0].atan2(direction[2]).to_degrees();
-    let (heading, ready) = turn_heading(actor.heading, wanted, step);
+    let (heading, ready) = turn_heading(actor.heading, wanted, step, running);
     actor.heading = heading;
     ready
 }

@@ -13,6 +13,35 @@ const PINION_RELEASE_TICK: u16 = 44;
 const PINION_PROJECTILE: usize = 12;
 const STAT_REDUCTION_DURATION: u16 = 900;
 
+impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
+    crate::battle::encounter::resources::Resources<'_, S>
+{
+    pub(crate) fn seal(&mut self, catalogue: u16) -> Result<SealDefinition> {
+        let (condition, effect) = match catalogue {
+            126..=128 => (Condition::DefenseDown, 134),
+            129..=131 => (Condition::EvasionDown, 59),
+            132..=134 => (Condition::AccuracyDown, 135),
+            _ => bail!("unsupported stat-reduction seal"),
+        };
+        self.effect(true, &[effect])?;
+        let [red, green, blue, _] = self
+            .tints
+            .context("missing seal feedback colors")?
+            .actors
+            .debuff;
+        Ok(SealDefinition {
+            condition,
+            duration: STAT_REDUCTION_DURATION,
+            effect: EffectAppearance {
+                resource: self.techniques.resource,
+                member: effect,
+            },
+            tint: [red, green, blue],
+            guaranteed: matches!(catalogue, 128 | 131 | 134),
+        })
+    }
+}
+
 impl Technique {
     pub(super) fn prepare_seal<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
         self,
@@ -33,28 +62,7 @@ impl Technique {
         match self.catalogue {
             125 => {}
             126..=134 => {
-                let (condition, effect) = match self.catalogue {
-                    126..=128 => (Condition::DefenseDown, 134),
-                    129..=131 => (Condition::EvasionDown, 59),
-                    132..=134 => (Condition::AccuracyDown, 135),
-                    _ => unreachable!(),
-                };
-                resources.effect(true, &[effect])?;
-                let [red, green, blue, _] = resources
-                    .tints
-                    .context("missing seal feedback colors")?
-                    .actors
-                    .debuff;
-                let seal = SealDefinition {
-                    condition,
-                    duration: STAT_REDUCTION_DURATION,
-                    effect: EffectAppearance {
-                        resource: resources.techniques.resource,
-                        member: effect,
-                    },
-                    tint: [red, green, blue],
-                    guaranteed: matches!(self.catalogue, 128 | 131 | 134),
-                };
+                let seal = resources.seal(self.catalogue)?;
                 attack
                     .events
                     .push((FOLLOW_UP_TICK, AttackEvent::Seal(seal)));

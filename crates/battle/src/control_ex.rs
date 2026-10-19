@@ -164,6 +164,7 @@ impl Battle {
             let applied = next - owner.hp;
             owner.hp = next;
             cues.push(Cue::Recovered {
+                floating: false,
                 kind: crate::RecoveryKind::Hp,
                 actor,
                 nominal,
@@ -172,6 +173,7 @@ impl Battle {
             if tp {
                 let (next, nominal) = owner.recovered_tp(1);
                 cues.push(Cue::Recovered {
+                    floating: false,
                     actor,
                     kind: crate::RecoveryKind::Tp,
                     nominal,

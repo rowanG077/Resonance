@@ -269,6 +269,8 @@ impl Battle {
                     });
                     next = Mobility::Jump { launched: true };
                     self.set_task(index, ActorTask::Mobility(next));
+                    // The launch pose holds its starting position for this update.
+                    return Ok(true);
                 } else if self.consume_double_jump(actor) {
                     self.model_requests.push(ModelRequest::Common {
                         actor,

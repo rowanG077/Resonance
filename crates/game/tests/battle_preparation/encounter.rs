@@ -77,14 +77,18 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
     );
     for formation in [1, 2] {
         let options = || PrepareOptions {
-            event_flags: Default::default(),
+            event_flags: if formation == 2 {
+                [29].into()
+            } else {
+                Default::default()
+            },
             devils_arms_unlocked: false,
             victory_story_flags: [false; 2],
             random_seed: 0x2345,
             map: 332,
             world_music: 0,
             story: 2500,
-            colette_state: 0,
+            colette_state: if formation == 2 { 1000 } else { 0 },
             overlimit_boost: false,
         };
         let (mut assets, prepared) = Assets::load(
@@ -133,8 +137,40 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
             assert!(error.to_string().contains("missing equipped item"));
         }
         assert_eq!(prepared.characters, [1, 2, 3]);
+        assert_eq!(
+            prepared
+                .core
+                .models()
+                .unwrap()
+                .definition(resonance_battle::ActorId::from_index(1)?)
+                .context("missing Colette model")?
+                .forced_eye_frame,
+            (formation == 2).then_some(15),
+        );
         assert_eq!(prepared.results.formation, formation);
         assert_eq!(prepared.results.enemies.len(), usize::from(formation));
+        let lloyd = prepared
+            .core
+            .models()
+            .unwrap()
+            .definition(resonance_battle::ActorId::from_index(0)?)
+            .context("missing Lloyd model")?;
+        let body = prepared
+            .models
+            .iter()
+            .find(|body| body.resource == lloyd.resource)
+            .context("missing Lloyd render model")?;
+        let bandage = body
+            .skeleton
+            .bones
+            .iter()
+            .position(|bone| bone.name == "obj_nuno01")
+            .context("missing Lloyd bandage")?;
+        assert_eq!(
+            body.suppressed_nodes.contains(&bandage),
+            formation == 2,
+            "battle appearance must preserve the story's uncovered Exsphere"
+        );
         let mut first = prepared.core;
         let mut second = assets.prepare(&menus, options(), sound)?.core;
         assert_eq!(first.snapshot(), second.snapshot());

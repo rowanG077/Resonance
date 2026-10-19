@@ -50,6 +50,7 @@ fn regeneration_ticks_every_period_and_emits_recovery_feedback_once() {
         for (kind, amount) in [(crate::RecoveryKind::Hp, 30), (crate::RecoveryKind::Tp, 2)] {
             assert!(
                 cues.contains(&Cue::Recovered {
+                    floating: false,
                     actor: ActorId(0),
                     kind,
                     nominal: amount,
@@ -177,8 +178,8 @@ fn regeneration_holds_for_global_pauses_phase_and_unavailability_not_hit_stop() 
 fn poison_and_regeneration_share_the_update() -> Result<()> {
     let mut owner = battle().actors[0].clone();
     owner.conditions.reload_layers(Layers {
-        base: ConditionSet::of(&[PoisonMild, AttackUp]),
-        intrinsic: ConditionSet::of(&[RegenerateHp, RegenerateTp]),
+        base: AttackUp.into(),
+        intrinsic: ConditionSet::of(&[PoisonMild, RegenerateHp, RegenerateTp]),
         ..Default::default()
     });
     let mut battle = crate::tests::prepared(vec![owner], 17).finish()?;

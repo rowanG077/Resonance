@@ -91,7 +91,7 @@ fn alone_rechecks_availability_each_contact_including_zero_hp_active_and_revival
 }
 
 #[test]
-fn defender_alone_reduces_physical_damage_including_fixed_power() {
+fn defender_alone_reduces_ordinary_physical_damage_but_fixed_power_bypasses_it() {
     let mut battle = battle();
     let baseline = hit(&mut battle, DamageKind::Slash, Power::Normal).amount;
     battle.actors[1].equipment.damage.alone = true;
@@ -101,7 +101,7 @@ fn defender_alone_reduces_physical_damage_including_fixed_power() {
     assert!(hit(&mut battle, DamageKind::Slash, Power::Normal).amount > defended);
     assert_eq!(
         hit(&mut battle, DamageKind::Slash, Power::Fixed(100)).amount,
-        80
+        100
     );
 }
 

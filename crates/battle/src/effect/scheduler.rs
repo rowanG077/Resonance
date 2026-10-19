@@ -38,20 +38,20 @@ impl EffectDefinition {
                 EffectOperation::Notice { text } => {
                     ensure!(!text.is_empty(), "empty effect notice")
                 }
-                EffectOperation::SetMotion {
-                    spawn,
-                    offset,
-                    size,
-                    animation,
-                    velocity,
-                    velocity_add,
-                    acceleration,
-                    angular_velocity,
-                    forward_motion,
-                    velocity_scale,
-                    size_velocity,
-                    size_acceleration,
-                } => {
+                EffectOperation::SetMotion { spawn, motion } => {
+                    let MotionChange {
+                        offset,
+                        size,
+                        animation,
+                        velocity,
+                        velocity_add,
+                        acceleration,
+                        angular_velocity,
+                        forward_motion,
+                        velocity_scale,
+                        size_velocity,
+                        size_acceleration,
+                    } = motion.as_ref();
                     if let Some(animation) = animation {
                         animation.validate()?;
                         ensure!(
@@ -111,6 +111,17 @@ impl EffectDefinition {
                         .get(particle)
                         .context("unbound effect particle")?;
                     birth.validate()?;
+                    ensure!(
+                        birth
+                            .sums
+                            .iter()
+                            .all(|sum| !matches!(sum.field, BirthField::Size(_))
+                                || matches!(
+                                    definition.data.state.geometry,
+                                    ParticleGeometry::Size { .. } | ParticleGeometry::Spiral { .. }
+                                )),
+                        "summed particle size requires size geometry"
+                    );
                     ensure!(
                         birth.attachment_bone.is_none()
                             || (definition.model.is_none()
@@ -280,11 +291,14 @@ fn validate_model(
     binding: ModelBinding,
     slot: u8,
 ) -> Result<()> {
-    let model = models
+    models
         .get(&slot)
         .with_context(|| format!("unprepared effect model {slot}"))?;
     if let Some(clip) = binding.animation {
-        model.validate_clip(clip)?;
+        let source = models
+            .get(&binding.slot)
+            .context("unprepared declaration model")?;
+        source.validate_clip(clip)?;
     }
     Ok(())
 }
@@ -350,20 +364,20 @@ impl Active {
                     });
                 }
             }
-            EffectOperation::SetMotion {
-                spawn,
-                offset,
-                size,
-                animation,
-                velocity,
-                velocity_add,
-                acceleration,
-                angular_velocity,
-                forward_motion,
-                velocity_scale,
-                size_velocity,
-                size_acceleration,
-            } => {
+            EffectOperation::SetMotion { spawn, motion } => {
+                let MotionChange {
+                    offset,
+                    size,
+                    animation,
+                    velocity,
+                    velocity_add,
+                    acceleration,
+                    angular_velocity,
+                    forward_motion,
+                    velocity_scale,
+                    size_velocity,
+                    size_acceleration,
+                } = motion.as_ref();
                 if let Some(handle) = self.spawned[*spawn]
                     && let Some(particle) = effects.particles.get_mut(&handle)
                 {
@@ -463,30 +477,55 @@ impl Active {
                 birth,
             } => {
                 let definition = &effect.particles[particle];
-                let bone_follow =
-                    definition
-                        .data
-                        .follow_bone
-                        .map(|bone| super::EffectFollow::Bone {
-                            actor: self.actor,
-                            bone: birth.attachment_bone.unwrap_or(bone),
-                        });
-                let origin = if let Some(follow) = birth
-                    .origin_bone
-                    .map(|bone| super::EffectFollow::Bone {
+                let bone_anchor = |bone| match self.follow {
+                    Some(EffectFollow::Weapon {
+                        actor, resource, ..
+                    }) => EffectFollow::Weapon {
+                        actor,
+                        resource,
+                        bone: Some(bone),
+                    },
+                    _ => EffectFollow::Bone {
                         actor: self.actor,
                         bone,
-                    })
-                    .or(bone_follow)
-                {
-                    follow
-                        .position(frame)
-                        .context("particle attachment has no owner bone pose")?
-                } else {
-                    self.origin
+                    },
                 };
+                let bone_follow = definition
+                    .data
+                    .follow_bone
+                    .map(|bone| bone_anchor(birth.attachment_bone.unwrap_or(bone)));
+                let origin =
+                    if let Some(follow) = birth.origin_bone.map(bone_anchor).or(bone_follow) {
+                        (if bone_follow.is_some() {
+                            follow.particle_position(frame)
+                        } else {
+                            follow.position(frame)
+                        })
+                        .context("particle attachment has no owner bone pose")?
+                    } else {
+                        self.origin
+                    };
+                #[cfg(feature = "test-support")]
+                let recorded = effects.recorded_births.take(
+                    self.actor,
+                    EffectAppearance {
+                        resource: self.resource,
+                        member: self.program,
+                    },
+                    self.spawned.len(),
+                    *particle,
+                    self.samples.len(),
+                    birth,
+                    self.heading,
+                )?;
+                #[cfg(feature = "test-support")]
+                let first_draw = self.samples.len();
                 for _ in 0..birth.random_draws {
                     self.samples.push(unit(&mut effects.random));
+                }
+                #[cfg(feature = "test-support")]
+                if let Some(recorded) = &recorded {
+                    self.samples[first_draw..].copy_from_slice(&recorded.samples);
                 }
                 let handle = effects.spawn_particle(
                     definition.clone(),
@@ -496,6 +535,14 @@ impl Active {
                     self.heading,
                 )?;
                 self.spawned.push(handle);
+                #[cfg(feature = "test-support")]
+                if let Some(recorded) = recorded {
+                    let handle =
+                        handle.context("recorded effect birth exceeded particle capacity")?;
+                    if let Some(ordinal) = recorded.model_ordinal {
+                        effects.recorded_births.identities.insert(handle, ordinal);
+                    }
+                }
                 let Some(handle) = handle else {
                     return Ok(());
                 };
@@ -518,15 +565,23 @@ impl Active {
                         particle.follow = self.follow;
                     }
                     apply_birth(particle, birth, &mut effects.random, &self.samples);
+                    let model = particle.model.is_some() || birth.model.is_some();
                     if definition.data.follow_orientation
-                        && particle.model.is_none()
                         && let Some(direction) = self.direction
-                        && (direction[0] != 0. || direction[2] != 0.)
+                        && (model || direction[0] != 0. || direction[2] != 0.)
                         && crate::distance::length(direction) > 0.1
                     {
-                        let [x, y, z] = crate::distance::normalize(direction);
-                        particle.frame.state.angles[0] = -y.clamp(-1., 1.).asin().to_degrees();
-                        particle.frame.state.angles[1] = x.atan2(z).to_degrees();
+                        let [pitch, yaw] = if model {
+                            crate::particle::model_follow_angles(direction)
+                        } else {
+                            let [x, y, z] = crate::distance::normalize(direction);
+                            [
+                                -y.clamp(-1., 1.).asin().to_degrees(),
+                                x.atan2(z).to_degrees(),
+                            ]
+                        };
+                        particle.frame.state.angles[0] = pitch;
+                        particle.frame.state.angles[1] = yaw;
                     }
                     if let Some(choice) = birth.model {
                         let slot = BirthSamples {
@@ -751,6 +806,21 @@ fn apply_birth(
     }
     if let Some(group) = birth.effect_group {
         state.effect_group = Some(group);
+    }
+    for sum in &birth.sums {
+        let mut terms = sum.terms.iter();
+        let first = samples.sample(*terms.next().unwrap());
+        let value = terms.fold(first, |value, term| value + samples.sample(*term));
+        match sum.field {
+            BirthField::Offset(axis) => state.offset[usize::from(axis)] = value,
+            BirthField::Velocity(axis) => state.velocity[usize::from(axis)] = value,
+            BirthField::Uv(axis) => state.uv[usize::from(axis)] = value.round() as i16,
+            BirthField::Size(axis) => match &mut state.geometry {
+                ParticleGeometry::Size { value: size, .. }
+                | ParticleGeometry::Spiral { value: size, .. } => size[usize::from(axis)] = value,
+                _ => unreachable!("validated particle sum geometry"),
+            },
+        }
     }
     state.cull_back |= birth.cull_back;
     state.ribbon_depth |= birth.ribbon_depth;

@@ -75,6 +75,46 @@ fn enter_controlled_victory(fixture: &mut PreparedFixture) -> Result<()> {
 }
 
 #[test]
+fn combined_bonus_reaches_results_and_party_including_signed_grade() -> Result<()> {
+    for enemy_grade in [-500, 1000] {
+        let mut ordinary_grade = None;
+        for (formation_count, experience, gald) in
+            [(1, 19, 101), (2, 28, 151), (3, 38, 202), (128, 1225, 6514)]
+        {
+            let mut fixture = local_fixture(&[1], |_, _, _| Ok(()))?;
+            fixture.candidate.setup.formation_count = formation_count;
+            fixture.candidate.setup.enemies[0].grade = enemy_grade;
+            fixture.candidate.setup.enemies[0].reward.experience = 19;
+            fixture.candidate.setup.enemies[0].reward.gald = 101;
+            fixture.candidate.party.grade_hundredths = 100_000;
+            let before_experience = fixture.candidate.party.members[0].experience;
+            let before_gald = fixture.candidate.party.gald;
+            enter_controlled_victory(&mut fixture)?;
+            construct_result(&mut fixture)?;
+            let results = fixture.candidate.results.as_ref().unwrap();
+            assert_eq!(
+                (results.rewards.experience, results.rewards.gald),
+                (experience, gald)
+            );
+            assert_eq!(
+                fixture.candidate.party.members[0].experience,
+                before_experience + experience + results.rewards.combo_experience
+            );
+            assert_eq!(fixture.candidate.party.gald, before_gald + gald);
+            let grade =
+                *ordinary_grade.get_or_insert(results.grade) * (formation_count as i32 + 1) / 2;
+            assert_eq!(results.grade, grade);
+            assert_eq!(fixture.candidate.party.battles.grade, grade);
+            assert_eq!(
+                fixture.candidate.party.grade_hundredths,
+                (100_000 + grade) as u32
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn equipment_gald_flags_and_compound_reward_queries_are_separate() -> Result<()> {
     // Defeated owners retain gear multipliers, but cannot supply global skills.
     for (item, skills, fallen, expected) in [
@@ -270,8 +310,90 @@ fn construct_result(fixture: &mut PreparedFixture) -> Result<()> {
         character,
         pose: Some(0),
         group: None,
+        voice: None,
     });
     fixture.candidate.construct_rewards(&mut fixture.battle)
+}
+
+#[test]
+fn result_advancement_feedback_uses_the_result_clock_and_pauses_with_it() -> Result<()> {
+    use crate::battle::lifecycle::Input;
+    use resonance_battle::{ActorId, BattleInput, BattlePhase, Cue};
+    let mut fixture = local_fixture(&[1, 2], |_, _, _| Ok(()))?;
+    let mut display = super::item_tests::Display;
+    for _ in 0..50 {
+        fixture.lifecycle.step(
+            &mut fixture.battle,
+            Input::default(),
+            &mut fixture.candidate,
+            &mut display,
+        )?;
+        if fixture.battle.phase() == BattlePhase::Results {
+            break;
+        }
+    }
+    assert_eq!(fixture.battle.phase(), BattlePhase::Results);
+    fixture.candidate.results.as_mut().unwrap().notices = vec![
+        ResultNotice::Level {
+            character: 1,
+            level: 2,
+        },
+        ResultNotice::Level {
+            character: 2,
+            level: 2,
+        },
+        ResultNotice::Technique {
+            character: 1,
+            technique: 1,
+        },
+        ResultNotice::CompoundEx { character: 2 },
+    ];
+    for age in 0..=181 {
+        if age == 100 {
+            let paused = fixture.lifecycle.step(
+                &mut fixture.battle,
+                Input {
+                    battle: BattleInput {
+                        paused: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                &mut fixture.candidate,
+                &mut display,
+            )?;
+            assert!(
+                !paused
+                    .cues
+                    .iter()
+                    .any(|cue| matches!(cue, Cue::ResultAdvancement { .. }))
+            );
+        }
+        let frame = fixture.lifecycle.step(
+            &mut fixture.battle,
+            Input::default(),
+            &mut fixture.candidate,
+            &mut display,
+        )?;
+        let batches: Vec<_> = frame
+            .cues
+            .iter()
+            .filter_map(|cue| match cue {
+                Cue::ResultAdvancement { actors, .. } => Some(actors.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            batches,
+            match age {
+                100 => vec![vec![ActorId::from_index(0)?, ActorId::from_index(1)?]],
+                180 => vec![vec![ActorId::from_index(1)?]],
+                _ => vec![],
+            },
+            "result age {age}"
+        );
+    }
+    Ok(())
 }
 
 #[test]

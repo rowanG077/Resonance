@@ -121,6 +121,7 @@ fn extended_duration_expires_before_another_ally_can_enter_overlimit() {
     battle.advance_actor_common(0, &mut cues).unwrap();
     assert_eq!(battle.actors[0].overlimit, OverLimit::default());
     assert!(!battle.actors[0].overlimit.is_active());
+    assert!(cues.contains(&Cue::OverLimitExpired { actor: ActorId(0) }));
 
     battle.advance_actor_common(1, &mut cues).unwrap();
     assert!(battle.actors[1].overlimit.is_active());
@@ -200,6 +201,7 @@ fn admitted_actor_group_pushes_real_bodies_after_entry_but_held_visits_keep_prio
     ];
     actors[0].overlimit = OverLimit::new(1000).unwrap();
     actors[0].movement.forward = 2.;
+    actors[0].movement.direction = [1., 0., 0.];
     actors[1].position = [40., 0., 0.];
     for actor in &mut actors {
         actor.body.collider = Some(crate::Collider::sphere(30.));

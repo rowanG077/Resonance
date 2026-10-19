@@ -13,7 +13,7 @@ impl Battle {
         if damage <= 0 || self.actor(owner)?.hp <= 0 {
             return Ok(());
         }
-        let nominal = (i64::from(damage) * i64::from(percent) / 100) as i32;
+        let nominal = ((i64::from(damage) * i64::from(percent) / 100) as i32).max(1);
         let actor = &mut self.actors[owner.index()];
         let applied = match kind {
             RecoveryKind::Hp => {
@@ -28,6 +28,7 @@ impl Battle {
             }
         };
         cues.push(Cue::Recovered {
+            floating: true,
             actor: owner,
             kind,
             nominal,

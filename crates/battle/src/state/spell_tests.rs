@@ -81,6 +81,7 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
     }));
     definition.validate().unwrap();
     let mut volley = crate::release::Volley {
+        transfer_phase: Default::default(),
         definition: Arc::new(definition),
         actor: ActorId(0),
         target: ActorId(1),
@@ -88,11 +89,13 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
         slot: SpellSlot::Primary,
         age: 0,
         origin: None,
+        effect_origin: None,
         heading: 0.,
         emitted: 0,
         summon: None,
         recipient: None,
         cast_pose: None,
+        scene_action: None,
     };
     let mut cues = Vec::new();
     volley.step(&mut battle, ActionId(42), &mut cues).unwrap();
@@ -193,6 +196,7 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
     let mut casting = self::battle();
     let mut model = crate::tests::model_definition(7, [(0, 500.), (3, 500.), (12, 500.)]);
     model.reactions.chant = Some(0);
+    model.reactions.chant_rate = 0.5;
     model.reactions.cast = Some(12);
     let model = Arc::new(model);
     casting.set_models(
@@ -212,6 +216,9 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
             release_pose: Default::default(),
             hide_primary_weapons: false,
             duration: 8,
+            profile_ticks: 8,
+            spell_ticks: 0,
+            fixed_timing: false,
             recovery: 90,
             release: Arc::clone(&volley.definition),
             threat: None,
@@ -256,159 +263,168 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
 #[test]
 fn stored_origins_capture_position_and_heading_before_later_placements() {
     use crate::{EffectAppearance, SpellOrigin, SpellStartup};
-    for (origin, target_height, expected) in [
-        (
-            SpellOrigin::SceneTarget {
-                minimum_height: 176.,
-            },
-            20.,
-            [10., 176., 20.],
-        ),
-        (
-            SpellOrigin::SceneTarget {
-                minimum_height: 176.,
-            },
-            200.,
-            [10., 270., 20.],
-        ),
-        (
-            SpellOrigin::SceneGround { toward_caster: 1. },
-            20.,
-            [-0.6, 0., -0.8],
-        ),
-        (
-            SpellOrigin::SceneCasterAhead {
-                distance: 80.,
-                height: 100.,
-            },
-            20.,
-            [84., 100., -9.],
-        ),
-    ] {
-        let mut battle = battle();
-        let mut definition = crate::tests::volley();
-        definition.projectiles = vec![crate::SpellProjectile::new(
-            5,
-            Arc::clone(&definition.projectiles[0].definition),
-        )];
-        let projectile = &mut definition.projectiles[0];
-        projectile.origin_offset = [0., 30., 40.];
-        projectile.launch = crate::SpellLaunch::AtHeight(64.);
-        Arc::make_mut(&mut projectile.definition).offset = [0., 0., 10.];
-        definition.effects = vec![
-            crate::SpellEffect {
-                at: 5,
-                appearance: EffectAppearance {
-                    resource: 2,
-                    member: 2,
+    for transition_ticks in [0, 2] {
+        for (origin, target_height, expected) in [
+            (
+                SpellOrigin::SceneTarget {
+                    minimum_height: 176.,
                 },
-                placement: crate::SpellEffectPlacement::Scene([0., 30., 40.]),
-                captured_heading_offset: Some(20.),
-            },
-            crate::SpellEffect {
-                at: 5,
-                appearance: EffectAppearance {
-                    resource: 2,
-                    member: 3,
+                20.,
+                [10., 176., 20.],
+            ),
+            (
+                SpellOrigin::SceneTarget {
+                    minimum_height: 176.,
                 },
-                placement: crate::SpellEffectPlacement::Scene([0.; 3]),
-                captured_heading_offset: None,
-            },
-        ];
-        definition.origin = origin;
-        definition.transition_ticks = 2;
-        definition.duration = 6;
-        definition.startup = Some((
-            3,
-            SpellStartup::Effect(EffectAppearance {
-                resource: 2,
-                member: 1,
-            }),
-        ));
-        definition.validate().unwrap();
-        let mut volley = crate::release::Volley {
-            summon: None,
-            recipient: None,
-            cast_pose: None,
-            definition: Arc::new(definition),
-            actor: ActorId(0),
-            target: ActorId(1),
-            projectile_target: battle.actors[1].effect_origin(),
-            slot: SpellSlot::Primary,
-            age: 0,
-            origin: None,
-            heading: 0.,
-            emitted: 0,
-        };
-        let mut cues = Vec::new();
-        for _ in 0..3 {
-            assert!(!volley.step(&mut battle, ActionId(0), &mut cues).unwrap());
-            assert!(volley.origin.is_none() && cues.is_empty());
+                200.,
+                [10., 270., 20.],
+            ),
+            (SpellOrigin::SceneAboveTarget, 0., [0., 140., 0.]),
+            (SpellOrigin::SceneAboveTarget, 200., [0., 740., 0.]),
+            (
+                SpellOrigin::SceneGround { toward_caster: 1. },
+                20.,
+                [-0.6, 0., -0.8],
+            ),
+            (
+                SpellOrigin::SceneCasterAhead {
+                    distance: 80.,
+                    height: 100.,
+                },
+                20.,
+                [84., 100., -9.],
+            ),
+        ] {
+            let mut battle = battle();
+            let mut definition = crate::tests::volley();
+            definition.projectiles = vec![crate::SpellProjectile::new(
+                transition_ticks + 3,
+                Arc::clone(&definition.projectiles[0].definition),
+            )];
+            let projectile = &mut definition.projectiles[0];
+            projectile.origin_offset = [0., 30., 40.];
+            projectile.launch = crate::SpellLaunch::AtHeight(64.);
+            Arc::make_mut(&mut projectile.definition).offset = [0., 0., 10.];
+            definition.effects = vec![
+                crate::SpellEffect {
+                    at: transition_ticks + 3,
+                    deferred: false,
+                    appearance: EffectAppearance {
+                        resource: 2,
+                        member: 2,
+                    },
+                    placement: crate::SpellEffectPlacement::Scene([0., 30., 40.]),
+                    captured_heading_offset: Some(20.),
+                },
+                crate::SpellEffect {
+                    at: transition_ticks + 3,
+                    deferred: false,
+                    appearance: EffectAppearance {
+                        resource: 2,
+                        member: 3,
+                    },
+                    placement: crate::SpellEffectPlacement::Scene([0.; 3]),
+                    captured_heading_offset: None,
+                },
+            ];
+            definition.origin = origin;
+            definition.transition_ticks = transition_ticks;
+            definition.duration = transition_ticks + 4;
+            definition.startup = Some((
+                transition_ticks + 1,
+                SpellStartup::Effect(EffectAppearance {
+                    resource: 2,
+                    member: 1,
+                }),
+            ));
+            definition.validate().unwrap();
+            let mut volley = crate::release::Volley {
+                transfer_phase: Default::default(),
+                summon: None,
+                recipient: None,
+                cast_pose: None,
+                scene_action: None,
+                definition: Arc::new(definition),
+                actor: ActorId(0),
+                target: ActorId(1),
+                projectile_target: battle.actors[1].effect_origin(),
+                slot: SpellSlot::Primary,
+                age: 0,
+                origin: None,
+                effect_origin: None,
+                heading: 0.,
+                emitted: 0,
+            };
+            let mut cues = Vec::new();
+            for _ in 0..=transition_ticks {
+                assert!(!volley.step(&mut battle, ActionId(0), &mut cues).unwrap());
+                assert!(volley.origin.is_none() && cues.is_empty());
+            }
+            battle.actors[0].position = [-3., 25., -4.];
+            battle.actors[0].body.center_offset = [5., 30., 7.];
+            battle.actors[0].heading = if matches!(origin, SpellOrigin::SceneCasterAhead { .. }) {
+                90.
+            } else {
+                0.
+            };
+            battle.actors[1].position = [0., target_height, 0.];
+            battle.actors[1].body.center_offset = [10., 70., 20.];
+            battle.actors[1].heading = 0.;
+            volley.step(&mut battle, ActionId(0), &mut cues).unwrap();
+            let captured = volley.origin.unwrap();
+            assert!(
+                captured
+                    .into_iter()
+                    .zip(expected)
+                    .all(|(a, b)| (a - b).abs() < 0.0001),
+                "{origin:?}: {captured:?} != {expected:?}"
+            );
+            assert!(
+                cues.iter()
+                    .any(|cue| matches!(cue, Cue::Effect(request) if request.origin == captured))
+            );
+            let heading = battle.actors[0].heading;
+            battle.actors[0].position = [500., 500., 500.];
+            battle.actors[0].heading = 180.;
+            battle.actors[1].position = [900., 900., 900.];
+            cues.clear();
+            volley.step(&mut battle, ActionId(0), &mut cues).unwrap();
+            assert!(cues.is_empty() && battle.projectiles.is_empty());
+            volley.step(&mut battle, ActionId(0), &mut cues).unwrap();
+            assert_eq!(volley.origin, Some(captured));
+            assert_eq!(volley.heading, heading);
+            let offset = if heading == 90. {
+                [40., 30., 0.]
+            } else {
+                [0., 30., 40.]
+            };
+            let point: [f32; 3] = std::array::from_fn(|axis| captured[axis] + offset[axis]);
+            let [Cue::Effect(placed), Cue::Effect(world)] = cues.as_slice() else {
+                panic!("unexpected delayed spell effects: {cues:?}");
+            };
+            assert!(
+                placed
+                    .origin
+                    .into_iter()
+                    .zip(point)
+                    .all(|(a, b)| (a - b).abs() < 0.0001)
+            );
+            assert_eq!(placed.heading, heading + 20.);
+            assert_eq!(world.origin, captured);
+            assert_eq!(world.heading, 0.);
+            let projectile = battle.projectiles.values().next().unwrap();
+            let expected_birth = [point[0], point[1], point[2] - 10.];
+            assert!(
+                projectile
+                    .frame
+                    .position
+                    .into_iter()
+                    .zip(expected_birth)
+                    .all(|(a, b)| (a - b).abs() < 0.0001)
+            );
+            assert_eq!(projectile.frame.heading, 180.);
+            assert_eq!(projectile.target_point, [captured[0], 64., captured[2]]);
         }
-        battle.actors[0].position = [-3., 25., -4.];
-        battle.actors[0].body.center_offset = [5., 30., 7.];
-        battle.actors[0].heading = if matches!(origin, SpellOrigin::SceneCasterAhead { .. }) {
-            90.
-        } else {
-            0.
-        };
-        battle.actors[1].position = [0., target_height, 0.];
-        battle.actors[1].body.center_offset = [10., 70., 20.];
-        battle.actors[1].heading = 0.;
-        volley.step(&mut battle, ActionId(0), &mut cues).unwrap();
-        let captured = volley.origin.unwrap();
-        assert!(
-            captured
-                .into_iter()
-                .zip(expected)
-                .all(|(a, b)| (a - b).abs() < 0.0001),
-            "{origin:?}: {captured:?} != {expected:?}"
-        );
-        assert!(
-            cues.iter()
-                .any(|cue| matches!(cue, Cue::Effect(request) if request.origin == captured))
-        );
-        let heading = battle.actors[0].heading;
-        battle.actors[0].position = [500., 500., 500.];
-        battle.actors[0].heading = 180.;
-        battle.actors[1].position = [900., 900., 900.];
-        cues.clear();
-        volley.step(&mut battle, ActionId(0), &mut cues).unwrap();
-        assert!(cues.is_empty() && battle.projectiles.is_empty());
-        volley.step(&mut battle, ActionId(0), &mut cues).unwrap();
-        assert_eq!(volley.origin, Some(captured));
-        assert_eq!(volley.heading, heading);
-        let offset = if heading == 90. {
-            [40., 30., 0.]
-        } else {
-            [0., 30., 40.]
-        };
-        let point: [f32; 3] = std::array::from_fn(|axis| captured[axis] + offset[axis]);
-        let [Cue::Effect(placed), Cue::Effect(world)] = cues.as_slice() else {
-            panic!("unexpected delayed spell effects: {cues:?}");
-        };
-        assert!(
-            placed
-                .origin
-                .into_iter()
-                .zip(point)
-                .all(|(a, b)| (a - b).abs() < 0.0001)
-        );
-        assert_eq!(placed.heading, heading + 20.);
-        assert_eq!(world.origin, captured);
-        assert_eq!(world.heading, 0.);
-        let projectile = battle.projectiles.values().next().unwrap();
-        let expected_birth = [point[0], point[1], point[2] - 10.];
-        assert!(
-            projectile
-                .frame
-                .position
-                .into_iter()
-                .zip(expected_birth)
-                .all(|(a, b)| (a - b).abs() < 0.0001)
-        );
-        assert_eq!(projectile.frame.heading, 180.);
-        assert_eq!(projectile.target_point, [captured[0], 64., captured[2]]);
     }
 }
 
@@ -434,6 +450,9 @@ fn healing_cast_pays_once_and_recovers_a_living_ally_at_its_current_position() {
             effects: vec![],
             projectiles: vec![],
             recovery: vec![crate::SpellRecovery {
+                duration: 1,
+                effect_placement: Default::default(),
+                flash: None,
                 at: 10,
                 benefit: crate::SpellBenefit::Hp(30),
                 targets: crate::RecoveryTargets::Target,
@@ -456,6 +475,9 @@ fn healing_cast_pays_once_and_recovers_a_living_ally_at_its_current_position() {
                 release_pose: Default::default(),
                 hide_primary_weapons: false,
                 duration: 1,
+                profile_ticks: 1,
+                spell_ticks: 0,
+                fixed_timing: false,
                 recovery: 90,
                 release: Arc::new(release),
                 threat: None,
@@ -497,7 +519,9 @@ fn healing_cast_pays_once_and_recovers_a_living_ally_at_its_current_position() {
                     .cues
                     .iter()
                     .find_map(|cue| match cue {
-                        Cue::Effect(request) if request.appearance == effect => Some(request),
+                        Cue::DeferredEffect(request) if request.appearance == effect => {
+                            Some(request)
+                        }
                         _ => None,
                     })
                     .unwrap();
@@ -528,8 +552,14 @@ fn healing_cast_pays_once_and_recovers_a_living_ally_at_its_current_position() {
 
 #[test]
 fn delayed_volley_preserves_shot_spacing() {
-    for hold_ticks in [0, 71] {
+    for (side, hold_ticks) in [(Side::Party, 0), (Side::Party, 71), (Side::Enemy, 71)] {
         let mut battle = battle();
+        battle.actors[0].side = side;
+        battle.actors[1].side = if side == Side::Party {
+            Side::Enemy
+        } else {
+            Side::Party
+        };
         battle.actors[0].position = [500., 0., 500.];
         battle.actors[0].heading = 0.;
         battle.actors[0].body.center_offset = [0., 12., 0.];
@@ -573,13 +603,14 @@ fn delayed_volley_preserves_shot_spacing() {
         let mut portraits = Vec::new();
         let mut reveals = Vec::new();
         let mut paused = 0;
+        let hold_ticks = if side == Side::Party { hold_ticks } else { 0 };
         for elapsed in 0..=20 + hold_ticks {
             let frame = battle.step(BattleInput::default()).unwrap();
             paused += u16::from(frame.clock.paused());
             if let Some(projectile) = frame.cues.iter().find_map(|cue| match cue {
-                Cue::ProjectileStarted { projectile, action } if *action == resident => {
-                    Some(*projectile)
-                }
+                Cue::ProjectileStarted {
+                    projectile, action, ..
+                } if *action == resident => Some(*projectile),
                 _ => None,
             }) {
                 shots.push(elapsed);
@@ -590,7 +621,7 @@ fn delayed_volley_preserves_shot_spacing() {
                     "birth does not submit a contact"
                 );
                 assert!(frame.cues.iter().any(|cue| matches!(cue,
-                    Cue::Effect(effect) if effect.appearance == trail && effect.origin == first.frame.position)));
+                    Cue::InitializedEffect(effect) if effect.appearance == trail && effect.origin == first.frame.position)));
             }
             if frame.cues.iter().any(
                 |cue| matches!(cue, Cue::Cutin { action, catalogue: 251, .. } if *action == resident),
@@ -760,11 +791,24 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
     };
     definition.stage_tint = Some(tint);
     definition.duration = 8;
+    let gesture = crate::AttackPose {
+        motion: crate::MotionBinding { model: 7, clip: 80 },
+        start: 0.,
+        end: None,
+        repeat: true,
+        rate: 0.5,
+        blend: 12,
+    };
+    definition.policy = crate::SpellPolicy::CasterPose {
+        at: 5,
+        pose: Some(gesture),
+        lift: None,
+    };
     definition.projectiles.truncate(1);
     definition.projectiles[0].at = 4;
     definition.startup = Some((
         2,
-        crate::SpellStartup::Effect(crate::EffectAppearance {
+        crate::SpellStartup::DeferredEffect(crate::EffectAppearance {
             resource: 1,
             member: 1,
         }),
@@ -780,12 +824,19 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
         )
         .unwrap()
         .unwrap();
+    battle.volleys.get_mut(&resident).unwrap().scene_action = Some(crate::ActionKey(0));
+    let release = Cue::Casting {
+        actor: ActorId(0),
+        action: crate::ActionKey(0),
+        phase: crate::CastPhase::Released,
+    };
     let positions: Vec<_> = battle.actors().iter().map(|a| a.position).collect();
     // A cast normally visits release age zero at the end of its gameplay update.
     battle.advance_volleys(&mut vec![], false).unwrap();
     for age in 1..=3 {
         let frame = battle.step(BattleInput::default()).unwrap();
         assert_eq!(frame.clock, BattleClock::SpellTransition);
+        assert!(!frame.cues.contains(&release));
         assert!(
             !frame
                 .cues
@@ -802,16 +853,27 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
         );
         assert!(frame.projectiles.is_empty());
         assert_eq!(
-            frame.cues.iter().any(|cue| matches!(cue, Cue::Effect(_))),
+            frame
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::DeferredEffect(_))),
             age == 2
         );
     }
     let frame = battle.step(BattleInput::default()).unwrap();
     assert_eq!(frame.clock, BattleClock::Running);
+    assert!(frame.cues.contains(&release));
     assert_eq!(frame.projectiles.len(), 1);
     assert!(frame.cues.contains(&Cue::StageTint(tint)));
     assert!(battle.action_age(parent) > parent_age);
     let frame = battle.step(BattleInput::default()).unwrap();
+    assert!(!frame.cues.contains(&release));
+    let gesture = crate::ModelRequest::Play {
+        actor: ActorId(0),
+        motion: gesture.motion,
+        pose: gesture.playback(),
+    };
+    assert!(frame.model_requests.contains(&gesture));
     assert!(
         !frame
             .cues
@@ -820,6 +882,7 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
     );
     for age in 6..=8 {
         let frame = battle.step(BattleInput::default()).unwrap();
+        assert!(!frame.model_requests.contains(&gesture));
         assert_eq!(
             frame.cues.contains(&Cue::Completed { action: resident }),
             age == 8
@@ -986,6 +1049,9 @@ fn party_recovery_keeps_roster_models_separate_from_living_recipients() {
         effects: vec![],
         projectiles: vec![],
         recovery: vec![crate::SpellRecovery {
+            duration: 1,
+            effect_placement: Default::default(),
+            flash: None,
             at: 182,
             benefit: crate::SpellBenefit::Hp(40),
             targets: crate::RecoveryTargets::LivingAllies,
@@ -1030,12 +1096,20 @@ fn party_recovery_keeps_roster_models_separate_from_living_recipients() {
             .cues
             .iter()
             .filter_map(|cue| match cue {
-                Cue::Effect(request) => Some(request),
+                Cue::Effect(request) | Cue::DeferredEffect(request) => Some(request),
                 _ => None,
             })
             .collect();
         if elapsed == 61 {
             assert_eq!(effects.len(), 3);
+            assert_eq!(
+                frame
+                    .cues
+                    .iter()
+                    .filter(|cue| matches!(cue, Cue::DeferredEffect(_)))
+                    .count(),
+                3
+            );
             for (slot, request) in effects.into_iter().enumerate() {
                 assert_eq!(request.appearance, effect(2 + slot as u16));
                 assert_eq!(request.origin, [0.; 3]);
@@ -1081,21 +1155,75 @@ fn party_recovery_keeps_roster_models_separate_from_living_recipients() {
 
 #[test]
 fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
+    use crate::RecoveryEffectPlacement;
     use crate::conditions::{Condition, ConditionLabel, Conditions, Cure, Layers};
-    for benefit in [
-        crate::SpellBenefit::Tp(15),
-        crate::SpellBenefit::Stat {
-            condition: Condition::DefenseUp,
-            percent: 10,
-            duration: 1800,
-        },
-        crate::SpellBenefit::Cure(Cure::Physical),
+    let effect = crate::EffectAppearance {
+        resource: 0,
+        member: 1,
+    };
+    for (benefit, placement, owner, follow, height, heading, scale) in [
+        (
+            crate::SpellBenefit::Tp(15),
+            RecoveryEffectPlacement::RecipientCenter,
+            ActorId(2),
+            crate::EffectFollow::Center(ActorId(2)),
+            80.,
+            0.,
+            1.25,
+        ),
+        (
+            crate::SpellBenefit::Stat {
+                condition: Condition::DefenseUp,
+                percent: 10,
+                duration: 1800,
+            },
+            RecoveryEffectPlacement::RecipientFacingCenter,
+            ActorId(0),
+            crate::EffectFollow::Center(ActorId(2)),
+            80.,
+            180.,
+            1.25,
+        ),
+        (
+            crate::SpellBenefit::Tp(15),
+            RecoveryEffectPlacement::RecipientFacingCenterUnscaled,
+            ActorId(0),
+            crate::EffectFollow::Center(ActorId(2)),
+            80.,
+            180.,
+            1.,
+        ),
+        (
+            crate::SpellBenefit::Cure(Cure::Physical),
+            RecoveryEffectPlacement::RecipientRoot,
+            ActorId(2),
+            crate::EffectFollow::Actor(ActorId(2)),
+            0.,
+            180.,
+            1.,
+        ),
+        (
+            crate::SpellBenefit::Tp(15),
+            RecoveryEffectPlacement::CasterFacingCenter,
+            ActorId(0),
+            crate::EffectFollow::Center(ActorId(2)),
+            80.,
+            90.,
+            1.,
+        ),
     ] {
         let mut battle = battle();
         for actor in &mut battle.actors {
             actor.control = crate::Control::Manual;
         }
+        battle.actors[0].heading = 90.;
+        battle.actors[0].facing_direction = [1., 0., 0.];
         let target = &mut battle.actors[2];
+        target.position = [300., 0., 0.];
+        target.body.center_offset = [0., 80., 0.];
+        target.heading = 180.;
+        target.facing_direction = [0., 0., -1.];
+        target.effect_scale = 1.25;
         target.equipment.max_tp = 200;
         target.tp = 195;
         if matches!(benefit, crate::SpellBenefit::Cure(_)) {
@@ -1117,10 +1245,13 @@ fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
             effects: vec![],
             projectiles: vec![],
             recovery: vec![crate::SpellRecovery {
+                duration: 1,
+                effect_placement: placement,
+                flash: None,
                 at: 3,
                 benefit,
                 targets: crate::RecoveryTargets::Target,
-                effect: None,
+                effect: Some((effect, Default::default())),
             }],
             origin: crate::SpellOrigin::Caster,
             transition_ticks: 0,
@@ -1144,6 +1275,31 @@ fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
         let mut benefits = 0;
         for tick in 0..=6 {
             let frame = battle.step(BattleInput::default()).unwrap();
+            let effects: Vec<_> = frame
+                .cues
+                .iter()
+                .filter_map(|cue| match cue {
+                    Cue::DeferredEffect(request) => Some(request),
+                    _ => None,
+                })
+                .collect();
+            if tick == 3 {
+                assert_eq!(
+                    effects,
+                    [&crate::EffectRequest {
+                        owner,
+                        target: ActorId(2),
+                        appearance: effect,
+                        origin: [300., height, 0.],
+                        heading,
+                        follow: Some(follow),
+                        scale,
+                        tint: Default::default(),
+                    }]
+                );
+            } else {
+                assert!(effects.is_empty());
+            }
             let target = &battle.actors[2];
             match benefit {
                 crate::SpellBenefit::Tp(_) => {
@@ -1155,6 +1311,7 @@ fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
                             matches!(
                                 cue,
                                 Cue::Recovered {
+                                    floating: true,
                                     actor: ActorId(2),
                                     kind: crate::RecoveryKind::Tp,
                                     nominal: 15,
@@ -1206,4 +1363,83 @@ fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
         }
         assert!(!battle.spell_active(ActorId(0), SpellSlot::Primary));
     }
+    let mut battle = battle();
+    for actor in &mut battle.actors {
+        actor.control = crate::Control::Manual;
+    }
+    battle.actors[0].body.center_offset = [0., 40., 0.];
+    battle.actors[2].position = [300., 0., 0.];
+    battle.actors[2].equipment.max_tp = 200;
+    battle.actors[2].tp = 195;
+    let mut release = crate::tests::volley();
+    release.projectiles.clear();
+    release.policy = crate::SpellPolicy::TransferRecovery {
+        appearance: effect,
+        apex: 120.,
+        speed: 20.,
+        benefit: crate::SpellBenefit::Tp(15),
+    };
+    release.origin = crate::SpellOrigin::Caster;
+    release.duration = 14;
+    release.validate().unwrap();
+    battle
+        .release_volley(
+            Arc::new(release),
+            ActorId(0),
+            ActorId(2),
+            SpellSlot::Primary,
+            None,
+            &mut vec![],
+        )
+        .unwrap();
+    let mut benefits = 0;
+    for tick in 0..=14 {
+        battle.actors[2].position[0] += 10.;
+        let frame = battle.step(BattleInput::default()).unwrap();
+        let effects: Vec<_> = frame
+            .cues
+            .iter()
+            .filter_map(|cue| match cue {
+                Cue::DeferredEffect(request) => Some(request),
+                _ => None,
+            })
+            .collect();
+        if (1..=9).contains(&tick) {
+            assert_eq!(effects.len(), 1);
+            let expected = if tick <= 4 {
+                [0., 40. + tick as f32 * 20., 0.]
+            } else {
+                [
+                    battle.actors[2].position[0],
+                    120. - (tick - 4) as f32 * 20.,
+                    0.,
+                ]
+            };
+            assert_eq!(effects[0].origin, expected);
+            assert_eq!(effects[0].owner, ActorId(0));
+            assert_eq!(effects[0].target, ActorId(2));
+            assert_eq!(effects[0].follow, None);
+        } else {
+            assert!(effects.is_empty());
+        }
+        assert_eq!(battle.actors[2].tp, if tick < 9 { 195 } else { 200 });
+        benefits += frame
+            .cues
+            .iter()
+            .filter(|cue| {
+                matches!(
+                    cue,
+                    Cue::Recovered {
+                        actor: ActorId(2),
+                        kind: crate::RecoveryKind::Tp,
+                        nominal: 15,
+                        applied: 5,
+                        ..
+                    }
+                )
+            })
+            .count();
+    }
+    assert_eq!(benefits, 1);
+    assert!(!battle.spell_active(ActorId(0), SpellSlot::Primary));
 }

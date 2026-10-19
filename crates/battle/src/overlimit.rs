@@ -127,7 +127,12 @@ impl Battle {
     }
 
     pub(crate) fn advance_overlimit(&mut self, index: usize, cues: &mut Vec<Cue>) {
-        if self.phase() != crate::BattlePhase::Combat {
+        if self.phase() != crate::BattlePhase::Combat
+            || self
+                .volleys
+                .values()
+                .any(crate::release::Volley::transitioning)
+        {
             return;
         }
         let actor = &self.actors[index];
@@ -143,8 +148,7 @@ impl Battle {
             return;
         }
         let id = ActorId(index as u8);
-        let position =
-            std::array::from_fn(|axis| actor.position[axis] + 2. * actor.body.center_offset[axis]);
+        let position = actor.condition_label_origin();
         if entering {
             let actor = &mut self.actors[index];
             actor.overlimit = OverLimit {
@@ -163,6 +167,9 @@ impl Battle {
         } else {
             let actor = &mut self.actors[index];
             actor.overlimit.drain(2);
+            if !actor.overlimit.is_active() {
+                cues.push(Cue::OverLimitExpired { actor: id });
+            }
         }
     }
 

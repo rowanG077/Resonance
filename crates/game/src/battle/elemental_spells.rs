@@ -57,7 +57,7 @@ pub(super) fn prepare(
     if catalogue == DARK_SPHERE {
         return super::photon::prepare(files, scene, bank, resources);
     }
-    // Each tuple selects a birth age, a projectile, and its damage rule.
+    // Each tuple selects a callback age, a projectile, and its damage rule.
     let (lifetime, contacts): (_, &[(u16, usize, usize)]) = match catalogue {
         EXPLOSION => (190, &[(3, 1, 0), (65, 2, 1)]),
         FLAME_LANCE => (190, &[(15, 1, 0), (90, 2, 1)]),
@@ -138,6 +138,24 @@ pub(super) fn prepare(
     };
     resources.effect(required)?;
     let recoil = recoil::Parameters::load(files)?;
+    // These callbacks allocate contacts that initialize on the following update.
+    let initialization_ticks = u16::from(matches!(
+        catalogue,
+        FLAME_LANCE
+            | SPARK_WAVE
+            | INDIGNATION
+            | INDIGNATION_JUDGMENT
+            | THUNDER_BLADE
+            | KNIGHT_THUNDER_BLADE
+            | THUNDER_ARROW
+            | ICE_TORNADO
+            | FREEZE_LANCER
+            | ABSOLUTE
+            | EXPLOSION
+            | SPIRAL_FLARE
+            | METEOR_STORM
+            | RAY
+    ));
     let mut projectiles = Vec::with_capacity(contacts.len());
     for &(tick, row, rule_index) in contacts {
         let source = scene
@@ -163,7 +181,10 @@ pub(super) fn prepare(
             .as_mut()
             .context("elemental projectile has no contact")?
             .cooldown = rule.cooldown;
-        projectiles.push(SpellProjectile::new(at(tick), projectile));
+        projectiles.push(SpellProjectile::new(
+            at(tick) + initialization_ticks,
+            projectile,
+        ));
     }
     let mut spell = PreparedSpell {
         summon: None,
@@ -214,7 +235,18 @@ pub(super) fn prepare(
             lifetime,
         )?,
         duration: TRANSITION_TICKS + lifetime + SCENE_BOUNDARY_TICKS,
-        startup: Some((TRANSITION_TICKS + 1, SpellStartup::Effect(appearance(1)))),
+        startup: Some((
+            TRANSITION_TICKS + 1,
+            // Initial particles wait for their next visit; later emissions keep their age.
+            if matches!(
+                catalogue,
+                INDIGNATION | ABSOLUTE | EXPLOSION | FREEZE_LANCER | SPARK_WAVE | SACRED_LIGHT
+            ) {
+                SpellStartup::DeferredEffect(appearance(1))
+            } else {
+                SpellStartup::Effect(appearance(1))
+            },
+        )),
         sound: None,
     };
     if catalogue == INDIGNATION_JUDGMENT {
@@ -250,6 +282,7 @@ pub(super) fn prepare(
                 at: at(tick),
                 appearance: appearance(member),
                 placement: resonance_battle::SpellEffectPlacement::Scene([0.; 3]),
+                deferred: true,
                 captured_heading_offset: None,
             });
         }
@@ -263,6 +296,7 @@ pub(super) fn prepare(
             at: TRANSITION_TICKS + 1,
             appearance: appearance(1),
             placement: resonance_battle::SpellEffectPlacement::Scene([0.; 3]),
+            deferred: true,
             captured_heading_offset: Some(HEADING_OFFSET),
         });
         for satellite in 0..3 {
@@ -276,6 +310,7 @@ pub(super) fn prepare(
                     0.,
                     SATELLITE_RADIUS * cos,
                 ]),
+                deferred: true,
                 captured_heading_offset: None,
             });
         }
@@ -294,6 +329,7 @@ pub(super) fn prepare(
             at: TRANSITION_TICKS + 1,
             appearance: appearance(1),
             placement: resonance_battle::SpellEffectPlacement::Scene([0.; 3]),
+            deferred: catalogue == RAY,
             captured_heading_offset: Some(heading_offset),
         });
         let (sin, cos) = heading_offset.to_radians().sin_cos();
@@ -302,9 +338,10 @@ pub(super) fn prepare(
             projectile.origin_offset = offset;
             projectile.launch = SpellLaunch::Captured(heading_offset);
             spell.effects.push(SpellEffect {
-                at: projectile.at,
+                at: projectile.at - initialization_ticks,
                 appearance: appearance(effect_member),
                 placement: resonance_battle::SpellEffectPlacement::Scene(offset),
+                deferred: true,
                 captured_heading_offset: Some(heading_offset),
             });
         }

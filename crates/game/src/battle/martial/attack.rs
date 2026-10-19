@@ -1,7 +1,7 @@
 //! Each technique owns its complete native attack and optional feedback.
 use super::{ActionDefinition, Sequence, Sound, Technique};
 use anyhow::{Result, bail};
-use resonance_battle::{AttackEvent as Event, AttackPose, EffectAppearance, PreparedAttack};
+use resonance_battle::{AttackEvent as Event, AttackOrigin, EffectAppearance};
 
 impl Technique {
     pub(crate) fn prepare<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
@@ -11,16 +11,6 @@ impl Technique {
     ) -> Result<ActionDefinition> {
         use Sequence::*;
         let source = crate::battle::model::ModelSource::Party(self.character as u8);
-        let pose = |clip, blend| {
-            crate::battle::model::motion(model, clip).map(|motion| AttackPose {
-                end: None,
-                repeat: false,
-                motion,
-                start: 0.,
-                rate: 0.5,
-                blend,
-            })
-        };
         let tp_cost = u16::from(
             resources
                 .catalogue
@@ -28,7 +18,7 @@ impl Technique {
                 .tp_cost,
         );
         match self.sequence {
-            Authored | RayThrust | DemonFang => {
+            Authored | RayThrust => {
                 return self.prepare_authored(resources, model, tp_cost);
             }
             Destruction => return self.prepare_destruction(resources, model, tp_cost),
@@ -54,29 +44,46 @@ impl Technique {
         }
         let guard = super::special_guard(self.character as u8).unwrap();
         resources.effect(true, &[guard.effect])?;
-        const STANCE_TICKS: u16 = 60;
-        let mut events = vec![
+        let authored = resources
+            .voices
+            .party_table()
+            .martial_attacks
+            .variant(resonance_content::battle_martial::Binding {
+                member: 34,
+                variant: 0,
+            })?
+            .clone();
+        let mut definition = self.prepare_authored_attack(resources, model, tp_cost, authored)?;
+        let crate::battle::ActionExecution::Attack(attack) = &mut definition.execution else {
+            unreachable!("prepared guard uses an attack sequence");
+        };
+        if let Some(idle) = model
+            .and_then(|model| model.idle_motions[0])
+            .and_then(|clip| crate::battle::model::motion(model, clip))
+            && let Some((_, Event::Pose(pose))) = attack.events.last_mut()
+        {
+            pose.motion = idle;
+        }
+        attack.events.extend([
             (0, Event::SpecialGuard),
             (
                 0,
-                Event::Effect {
+                Event::InitializedEffect {
                     appearance: EffectAppearance {
                         resource: resources.techniques.resource,
                         member: guard.effect,
                     },
-                    tints: Default::default(),
-                    centered: true,
+                    origin: AttackOrigin::ActorAim,
                 },
             ),
-            (0, Event::Notice { duration: 90 }),
             (0, Event::Sound((resources.sound)(Sound::Cue(69))?)),
-        ];
+        ]);
         if let Some(line) =
             resources
                 .voices
                 .absolute(source, Some(guard.voice), &mut resources.sound)?
         {
-            events.push((
+            attack.events.push((
                 0,
                 Event::Voice {
                     sound: line,
@@ -84,18 +91,7 @@ impl Technique {
                 },
             ));
         }
-        events.extend(pose(0, 4).map(|pose| (STANCE_TICKS, Event::Pose(pose))));
-        Ok(ActionDefinition {
-            normal: None,
-            tp_cost,
-            execution: crate::battle::ActionExecution::Attack(PreparedAttack {
-                contact_recovery: None,
-                opening: pose(22, 4),
-                events,
-                chain_at: None,
-                end_at: STANCE_TICKS,
-                recovery: 12,
-            }),
-        })
+        attack.events.sort_by_key(|(at, _)| *at);
+        Ok(definition)
     }
 }

@@ -55,6 +55,7 @@ pub(crate) fn prepared() -> Result<PreparedBattle> {
                     normals,
                 })),
                 companion: Some(CompanionDefinition {
+                    normal_attack_opening: false,
                     initial_policy: [0; 3],
                     defaults: [1, 5, 2],
                     limits: std::array::from_fn(|i| PolicyLimits {
@@ -203,6 +204,99 @@ fn offensive_policy_filters_cost_enabled_immunity_and_prefers_weakness() -> Resu
 }
 
 #[test]
+fn offensive_tp_policies_distinguish_reserves_from_moderation() -> Result<()> {
+    let mut prepared = prepared()?;
+    let action = crate::ActionKey(7);
+    Arc::make_mut(&mut prepared.resources.actions.entries[7]).tp_cost = 7;
+    prepared.resources.actor_setup[2].techniques = vec![technique(
+        action,
+        66,
+        crate::TechniqueCapabilities {
+            spell: true,
+            offensive: true,
+            target: crate::TechniqueTarget::Enemy,
+            ..Default::default()
+        },
+    )];
+    let companion = prepared.resources.actor_setup[2]
+        .companion
+        .as_mut()
+        .unwrap();
+    for (limit, tp) in companion
+        .limits
+        .iter_mut()
+        .zip([0, 0, 25, 50, 75, 100, 30, 25, 50])
+    {
+        limit.tp = tp;
+    }
+    let mut battle = prepared.finish()?;
+    let owner = ActorId(2);
+    let target = ActorId(3);
+    battle.actors[2].equipment.max_tp = 100;
+
+    // After choosing the spell, these seeds give chance rolls 24 and 25.
+    for (skill, tp, outcomes) in [
+        (1, 7, [true, true]),
+        (2, 25, [false, false]),
+        (2, 26, [true, true]),
+        (3, 50, [false, false]),
+        (3, 51, [true, true]),
+        (4, 75, [false, false]),
+        (4, 76, [true, true]),
+        (5, 100, [false, false]),
+        (6, 30, [true, false]),
+        (6, 31, [true, true]),
+        (7, 25, [true, false]),
+        (7, 26, [true, true]),
+        (8, 50, [true, false]),
+        (8, 51, [true, true]),
+    ] {
+        battle.actors[2].tp = tp;
+        for (seed, accepted) in [23, 60].into_iter().zip(outcomes) {
+            battle.random = crate::Random::new(seed);
+            assert_eq!(
+                battle
+                    .offensive_choice(owner, target, [4, skill, 5])?
+                    .is_some(),
+                accepted,
+                "skill {skill}, TP {tp}, seed {seed}"
+            );
+        }
+    }
+
+    // Skills/Magic positioning still overrides reserves, but not Do Not Use.
+    battle.actors[2].tp = 18;
+    for skill in 1..=8 {
+        battle.random = crate::Random::new(60);
+        assert_eq!(
+            battle
+                .offensive_choice(owner, target, [4, skill, 6])?
+                .is_some(),
+            skill != 5
+        );
+    }
+
+    // A low-TP caster can spend remaining TP, while cost and enable masks still apply.
+    battle.actors[2].equipment.max_tp = 74;
+    battle.random = crate::Random::new(23);
+    assert_eq!(
+        battle
+            .offensive_choice(owner, target, [4, 6, 5])?
+            .unwrap()
+            .action,
+        action
+    );
+    battle.actors[2].tp = 6;
+    battle.random = crate::Random::new(23);
+    assert!(battle.offensive_choice(owner, target, [4, 6, 5])?.is_none());
+    battle.actors[2].tp = 18;
+    battle.set_technique_enabled(owner, action, false)?;
+    battle.random = crate::Random::new(23);
+    assert!(battle.offensive_choice(owner, target, [4, 6, 5])?.is_none());
+    Ok(())
+}
+
+#[test]
 fn support_prioritizes_revival_then_lowest_eligible_health() -> Result<()> {
     let mut prepared = prepared()?;
     let revive = prepared.resources.actions.insert(crate::tests::cast(30, 0));
@@ -254,12 +348,227 @@ fn support_prioritizes_revival_then_lowest_eligible_health() -> Result<()> {
 }
 
 #[test]
+fn healing_uses_group_spells_for_multiple_wounded_allies() -> Result<()> {
+    use crate::{RecoveryTargets, SpellBenefit, SpellRecovery};
+    for targets in [
+        RecoveryTargets::LivingAllies,
+        RecoveryTargets::Area {
+            radius: 500.,
+            inclusive: true,
+        },
+    ] {
+        let mut prepared = prepared()?;
+        let single = crate::ActionKey(7);
+        Arc::make_mut(&mut prepared.resources.actions.entries[single.0]).tp_cost = 8;
+        let mut group = crate::tests::cast(30, 28);
+        let crate::ActionExecution::Casting(cast) = &mut group.execution else {
+            unreachable!()
+        };
+        Arc::make_mut(&mut Arc::make_mut(cast).release)
+            .recovery
+            .push(SpellRecovery {
+                at: 0,
+                duration: 1,
+                benefit: SpellBenefit::Hp(40),
+                targets,
+                effect: None,
+                effect_placement: Default::default(),
+                flash: None,
+            });
+        let group = prepared.resources.actions.insert(group);
+        prepared.resources.actor_setup[2].techniques = [single, group]
+            .into_iter()
+            .enumerate()
+            .map(|(i, action)| {
+                technique(
+                    action,
+                    i as u16 + 1,
+                    crate::TechniqueCapabilities {
+                        spell: true,
+                        healing: true,
+                        target: crate::TechniqueTarget::Ally,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+        let mut battle = prepared.finish()?;
+        let owner = ActorId(2);
+        battle.actors[0].hp = 10;
+        // Injured enemies do not make a single ally's injury a group-healing case.
+        battle.actors[3].hp = 1;
+        for (ally_hp, caster_hp, tp, enabled, expected) in [
+            (100, 100, 40, true, single),
+            (80, 100, 28, true, group),
+            (81, 100, 28, true, single),
+            (100, 80, 28, true, group),
+            (50, 100, 27, true, single),
+            (50, 100, 40, false, single),
+        ] {
+            battle.actors[1].hp = ally_hp;
+            battle.actors[2].hp = caster_hp;
+            battle.actors[2].tp = tp;
+            battle.set_technique_enabled(owner, group, enabled)?;
+            let choice = battle.support_choice(owner, 80).unwrap();
+            assert_eq!((choice.action, choice.target), (expected, ActorId(0)));
+        }
+        battle.actors[2].tp = 0;
+        assert!(battle.support_choice(owner, 80).is_none());
+    }
+    Ok(())
+}
+
+#[test]
 fn idle_native_policy_starts_an_approach_without_a_policy_vm() -> Result<()> {
     let mut battle = prepared()?.finish().unwrap();
     battle.advance_ai(ActorId(2), &mut Vec::new())?;
     assert_eq!(battle.activity(ActorId(2)), crate::Activity::Approaching);
     assert!(battle.runtime[2].task().approach().is_some());
     assert!(battle.sequences().next().is_none());
+    Ok(())
+}
+
+#[test]
+fn ranged_companions_use_normals_when_their_artes_cannot_sustain_them() -> Result<()> {
+    for (skill, reserve, healing) in [(6, 30, false), (7, 25, true)] {
+        for (tp, cost, enabled) in [(0, 7, true), (6, 7, true), (80, 81, true), (100, 7, false)] {
+            let mut prepared = prepared()?;
+            let owner = ActorId(2);
+            let spell = crate::ActionKey(7);
+            Arc::make_mut(&mut prepared.resources.actions.entries[7]).tp_cost = cost;
+            prepared.actors[2].equipment.max_tp = 100;
+            prepared.actors[2].tp = tp;
+            let setup = &mut prepared.resources.actor_setup[2];
+            let policy = setup.companion.as_mut().unwrap();
+            policy.defaults = [1, skill, 5];
+            policy.limits[usize::from(skill)].tp = reserve;
+            setup.techniques = vec![technique(
+                spell,
+                66,
+                crate::TechniqueCapabilities {
+                    spell: true,
+                    offensive: !healing,
+                    healing,
+                    target: if healing {
+                        crate::TechniqueTarget::Ally
+                    } else {
+                        crate::TechniqueTarget::Enemy
+                    },
+                    ..Default::default()
+                },
+            )];
+            let mut battle = prepared.finish()?;
+            battle.set_technique_enabled(owner, spell, enabled)?;
+            battle.advance_ai(owner, &mut Vec::new())?;
+            assert!(
+                battle.approach_normal(owner).is_some(),
+                "skill {skill}, TP {tp}, cost {cost}, enabled {enabled}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn healer_holds_position_only_above_its_tp_reserve_and_still_prioritizes_healing() -> Result<()> {
+    for (tp, hurt_ally, expect_normal, expect_heal) in [
+        (25, false, true, false),
+        (26, false, false, false),
+        (25, true, false, true),
+        (26, true, false, true),
+    ] {
+        let mut prepared = prepared()?;
+        let owner = ActorId(2);
+        let spell = crate::ActionKey(7);
+        Arc::make_mut(&mut prepared.resources.actions.entries[7]).tp_cost = 7;
+        prepared.actors[2].equipment.max_tp = 100;
+        prepared.actors[2].tp = tp;
+        if hurt_ally {
+            prepared.actors[0].hp = 1;
+        }
+        let setup = &mut prepared.resources.actor_setup[2];
+        let policy = setup.companion.as_mut().unwrap();
+        policy.defaults = [1, 7, 5];
+        policy.limits[7].tp = 25;
+        setup.techniques = vec![technique(
+            spell,
+            66,
+            crate::TechniqueCapabilities {
+                spell: true,
+                healing: true,
+                target: crate::TechniqueTarget::Ally,
+                ..Default::default()
+            },
+        )];
+        let mut battle = prepared.finish()?;
+        battle.advance_ai(owner, &mut Vec::new())?;
+        assert_eq!(battle.approach_normal(owner).is_some(), expect_normal);
+        assert_eq!(
+            battle.runtime[2].task().approach().is_some(),
+            expect_normal || expect_heal
+        );
+        if expect_heal {
+            assert_eq!(battle.runtime[2].support_target, ActorId(0));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn normal_openings_preserve_healing_ranged_orders_and_combo_artes() -> Result<()> {
+    for (position, hp_percent, healing, expect_spell) in [
+        (1, 100, false, false),
+        (2, 100, false, false),
+        (3, 100, false, false),
+        (2, 30, false, false),
+        (2, 29, false, true),
+        (5, 100, false, true),
+        (6, 100, false, true),
+        (2, 100, true, true),
+    ] {
+        let mut prepared = prepared()?;
+        let owner = ActorId(2);
+        let setup = &mut prepared.resources.actor_setup[2];
+        let policy = setup.companion.as_mut().unwrap();
+        policy.normal_attack_opening = true;
+        policy.defaults = [1, 1, position];
+        let spell = crate::ActionKey(7);
+        setup.techniques = vec![technique(
+            spell,
+            66,
+            crate::TechniqueCapabilities {
+                spell: true,
+                offensive: !healing,
+                healing,
+                target: if healing {
+                    crate::TechniqueTarget::Ally
+                } else {
+                    crate::TechniqueTarget::Enemy
+                },
+                ..Default::default()
+            },
+        )];
+        prepared.actors[2].equipment.max_hp = 100;
+        prepared.actors[2].hp = hp_percent;
+        if healing {
+            prepared.actors[0].hp = 1;
+        }
+        let mut battle = prepared.finish()?;
+        battle.advance_ai(owner, &mut Vec::new())?;
+        assert!(battle.runtime[2].task().approach().is_some());
+        assert_eq!(battle.approach_normal(owner).is_none(), expect_spell);
+        if healing {
+            assert_eq!(battle.runtime[2].support_target, ActorId(0));
+        }
+        // Opening preference does not disable offensive artes for combo selection.
+        if !healing && position == 2 {
+            assert!(
+                battle
+                    .offensive_choice(owner, ActorId(3), [1, 1, 2])?
+                    .is_some()
+            );
+        }
+    }
     Ok(())
 }
 

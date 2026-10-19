@@ -89,9 +89,7 @@ impl Battle {
                 let actor = &self.actors[index];
                 cues.push(Cue::ExSkillLabel {
                     actor: id,
-                    position: std::array::from_fn(|axis| {
-                        actor.position[axis] + actor.body.center_offset[axis] * 2.
-                    }),
+                    position: actor.condition_label_origin(),
                 });
             }
         }
@@ -129,6 +127,7 @@ impl Battle {
             let (value, nominal) = actor.recovered_hp(1);
             actor.hp = value;
             cues.push(Cue::Recovered {
+                floating: false,
                 kind: crate::RecoveryKind::Hp,
                 actor: id,
                 nominal,
@@ -138,6 +137,7 @@ impl Battle {
         if tp {
             let (value, nominal) = actor.recovered_tp(1);
             cues.push(Cue::Recovered {
+                floating: false,
                 actor: id,
                 kind: RecoveryKind::Tp,
                 nominal,

@@ -8,7 +8,9 @@ mod render;
 pub(crate) mod resources;
 use anyhow::{Context, Result, ensure};
 pub use preparation::{PrepareOptions, PreparedEnemyMember, PreparedPartyMember};
-pub use render::{RenderEffect, RenderModel, RenderTrail, WingAccessory};
+pub use render::{
+    RenderEffect, RenderInstances, RenderModel, RenderTrail, TargetAnchor, WingAccessory,
+};
 use resonance_content::{
     battle_formation::{Formations, PATH, Settings},
     monster::{Monster, MonsterBook},
@@ -27,12 +29,11 @@ pub struct Prepared {
     pub effect_banks: Vec<resonance_battle::EffectBank>,
     pub feedback: super::feedback::Feedback,
     pub poison_effect: resonance_battle::EffectAppearance,
+    pub holy_song_effect: resonance_battle::EffectAppearance,
+    pub stun_particle: Option<Arc<resonance_battle::ParticleDefinition>>,
+    pub head_anchors: Vec<resonance_content::battle_profile::HeadAnchor>,
     pub ambient_effect: Option<(resonance_battle::EffectAppearance, u16)>,
-    pub passive_effects: Vec<(
-        resonance_battle::ActorId,
-        resonance_battle::EffectAppearance,
-        u16,
-    )>,
+    pub passive_effects: Vec<resonance_battle::PassiveEffect>,
     pub trails: Vec<RenderTrail>,
     pub characters: Vec<u8>,
     pub music: u16,
@@ -68,55 +69,68 @@ pub fn enemies(
     files: &Files,
     catalogue: &MonsterBook,
     item_count: usize,
-    formation: u16,
+    formations: &[u16],
 ) -> Result<Enemies> {
-    let formations: Formations = files.json(PATH)?;
-    let row = formations
-        .records
-        .get(usize::from(formation))
-        .with_context(|| format!("unknown battle formation {formation}"))?;
-    row.validate()?;
-    let resources =
-        row.resources
-            .iter()
-            .map(|resource| {
-                let id = resource.enemy;
+    ensure!(!formations.is_empty(), "empty encounter");
+    let table: Formations = files.json(PATH)?;
+    let mut resources: Vec<EnemyResource> = Vec::new();
+    let mut spawns = Vec::new();
+    let mut settings = None;
+    for &formation in formations {
+        let row = table
+            .records
+            .get(usize::from(formation))
+            .with_context(|| format!("unknown battle formation {formation}"))?;
+        row.validate()?;
+        let combined = settings.get_or_insert(row.settings);
+        combined.escape_restricted |= row.settings.escape_restricted;
+        let mut indices = Vec::new();
+        for resource in &row.resources {
+            let id = resource.enemy;
+            let index = if let Some(index) = resources.iter().position(|r| {
+                u16::from(r.monster.id) == id && r.hidden_name == resource.hidden_name
+            }) {
+                index
+            } else {
                 let monster = catalogue.records.get(usize::from(id)).with_context(|| {
                     format!("formation {formation} requires missing enemy {id}")
                 })?;
                 ensure!(u16::from(monster.id) == id, "unordered enemy catalogue");
                 monster.validate(item_count)?;
-                Ok(EnemyResource {
+                resources.push(EnemyResource {
                     monster: Arc::new(monster.clone()),
                     hidden_name: resource.hidden_name,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-    let spawns = row
-        .actors
-        .iter()
-        .map(|actor| {
-            let resource = usize::from(actor.resource);
+                });
+                resources.len() - 1
+            };
+            indices.push(index);
+        }
+        for actor in &row.actors {
+            let resource = indices[usize::from(actor.resource)];
             let variant = usize::from(actor.variant);
             ensure!(
                 variant < resources[resource].monster.statistics.len(),
                 "formation {formation} requires missing enemy {} variant {variant}",
                 resources[resource].monster.id
             );
-            Ok(Spawn {
+            spawns.push(Spawn {
                 resource,
                 variant,
                 texture_variant: actor.texture_variant,
                 weapon_variant: actor.weapon_variant,
-                position: actor.position,
+                position: if formations.len() == 1 {
+                    actor.position
+                } else {
+                    None
+                },
                 unsupported_reason: actor.unsupported_reason.clone(),
-            })
-        })
-        .collect::<Result<_>>()?;
+            });
+        }
+    }
     Ok(Enemies {
         resources,
         spawns,
-        settings: row.settings,
+        settings: settings.unwrap(),
     })
 }
 
@@ -239,7 +253,7 @@ mod tests {
     #[test]
     fn selects_variants_and_retains_resource_names_reserves_and_spawn_support() {
         let (files, catalogue) = inputs();
-        let selected = enemies(&files, &catalogue, 1, 0).unwrap();
+        let selected = enemies(&files, &catalogue, 1, &[0]).unwrap();
         assert_eq!(selected.resources.len(), 2);
         assert_eq!(selected.spawns.len(), 2);
         assert!(selected.settings.escape_restricted);
@@ -267,6 +281,24 @@ mod tests {
     }
 
     #[test]
+    fn combined_formations_retain_every_spawn_and_share_resources() {
+        let (files, catalogue) = inputs();
+        let combined = enemies(&files, &catalogue, 1, &[0; 6]).unwrap();
+        assert_eq!(combined.spawns.len(), 12);
+        assert_eq!(combined.resources.len(), 2);
+        assert!(combined.spawns.iter().all(|s| s.position.is_none()));
+        assert_eq!(
+            combined
+                .spawns
+                .iter()
+                .map(|s| s.variant)
+                .collect::<Vec<_>>(),
+            [1, 0].repeat(6)
+        );
+        assert!(combined.settings.escape_restricted);
+    }
+
+    #[test]
     fn automatic_placement_does_not_use_stored_coordinates() {
         let (mut files, catalogue) = inputs();
         edit(&mut files, |row| {
@@ -275,7 +307,7 @@ mod tests {
                 actor.position = None;
             }
         });
-        let selected = enemies(&files, &catalogue, 1, 0).unwrap();
+        let selected = enemies(&files, &catalogue, 1, &[0]).unwrap();
         assert!(!selected.settings.escape_restricted);
         assert!(selected.spawns.iter().all(|spawn| spawn.position.is_none()));
     }
@@ -289,16 +321,16 @@ mod tests {
         formations.records.push(broken);
         assert!(formations.validate().is_err());
         files.insert(PATH.into(), serde_json::to_vec(&formations)?.into());
-        assert_eq!(enemies(&files, &catalogue, 1, 0)?.spawns.len(), 2);
-        assert!(enemies(&files, &catalogue, 1, 1).is_err());
+        assert_eq!(enemies(&files, &catalogue, 1, &[0])?.spawns.len(), 2);
+        assert!(enemies(&files, &catalogue, 1, &[1]).is_err());
         Ok(())
     }
 
     #[test]
     fn missing_inputs_resources_variants_and_invalid_slots_fail_before_activation() {
         let (files, mut catalogue) = inputs();
-        assert!(enemies(&Files::default(), &catalogue, 1, 0).is_err());
-        assert!(enemies(&files, &catalogue, 1, 1).is_err());
+        assert!(enemies(&Files::default(), &catalogue, 1, &[0]).is_err());
+        assert!(enemies(&files, &catalogue, 1, &[1]).is_err());
         for change in [
             |row: &mut Formation| row.resources[1].enemy = 2,
             |row: &mut Formation| row.actors[0].variant = 2,
@@ -306,14 +338,14 @@ mod tests {
         ] {
             let mut changed = files.clone();
             edit(&mut changed, change);
-            assert!(enemies(&changed, &catalogue, 1, 0).is_err());
+            assert!(enemies(&changed, &catalogue, 1, &[0]).is_err());
         }
         assert_eq!(catalogue.records[0].statistics[0].hp, 320);
         for id in [7, 700] {
             catalogue.records[0].drops[0] = Some(id);
             catalogue.records[1].steal = Some(id);
-            assert!(enemies(&files, &catalogue, usize::from(id) + 1, 0).is_ok());
-            assert!(enemies(&files, &catalogue, usize::from(id), 0).is_err());
+            assert!(enemies(&files, &catalogue, usize::from(id) + 1, &[0]).is_ok());
+            assert!(enemies(&files, &catalogue, usize::from(id), &[0]).is_err());
         }
     }
 }

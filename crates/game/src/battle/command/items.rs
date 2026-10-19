@@ -274,7 +274,7 @@ impl Owner {
                 };
                 if next != *target {
                     *target = next;
-                    cues.push(108);
+                    cues.push(crate::battle::audio::TARGET_CHANGED);
                 }
             }
         }

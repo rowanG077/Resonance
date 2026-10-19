@@ -68,6 +68,7 @@ fn instance(bounce: bool, ricochet: bool) -> Projectile {
             disarmed: false,
             shadow: None,
         },
+        3,
     );
     projectile.age = 1;
     projectile
@@ -116,7 +117,10 @@ fn floor_response_bounces_or_holds_the_aimed_landing_point() {
     lance.frame.position = [-528.80975, 300., 229.80965];
     lance.frame.heading = -90.;
     lance.target_point = [-299., 80., 0.];
-    lance.initialize(&mut Vec::new(), &mut crate::Random::new(1), None);
+    let mut random = crate::Random::new(1);
+    lance
+        .initialize(&mut Vec::new(), |_, _| Ok(random.next_u16()), None)
+        .unwrap();
     for (actual, expected) in lance
         .velocity
         .into_iter()
@@ -144,7 +148,8 @@ fn floor_ricochet_preserves_forward_direction_until_above_ground() -> Result<()>
     let definition = Arc::make_mut(&mut projectile.definition);
     definition.clamp_ground = false;
     definition.motion.response.as_mut().unwrap().ground_ricochet = true;
-    projectile.frame.position = [-173.961746, 4.630753, 129.388687];
+    definition.effects.spin_on_rebound = true;
+    projectile.frame.position = [-173.961_75, 4.630753, 129.388_69];
     projectile.velocity = [-13., -14.5, 3.099995];
     projectile.acceleration = [0.; 3];
     projectile.step()?;
@@ -159,6 +164,9 @@ fn floor_ricochet_preserves_forward_direction_until_above_ground() -> Result<()>
     assert_eq!(projectile.acceleration, [0., -0.3, 0.]);
     assert!(projectile.ricocheted);
     assert!(!projectile.bounce);
+    assert!(projectile.frame.disarmed);
+    assert!(!projectile.frame.contact_active);
+    assert_eq!(projectile.take_rebound(), Some(Rebound::Ground));
     let velocity = projectile.velocity;
     projectile.hit(ActorId(1), false);
     projectile.step()?;
@@ -166,11 +174,16 @@ fn floor_ricochet_preserves_forward_direction_until_above_ground() -> Result<()>
     for (actual, expected) in projectile.velocity.into_iter().zip(velocity) {
         assert!((actual - expected).abs() < 0.00001);
     }
+    assert!(!projectile.bounce);
+    assert_eq!(projectile.take_rebound(), Some(Rebound::Ground));
     projectile.step()?;
     assert!((projectile.frame.position[1] - 8.130753).abs() < 0.00001);
     assert!((projectile.velocity[0] - velocity[0]).abs() < 0.00001);
     assert!((projectile.velocity[2] - velocity[2]).abs() < 0.00001);
     assert!((projectile.velocity[1] - 8.7).abs() < 0.00001);
+    assert!(projectile.frame.disarmed);
+    assert!(!projectile.frame.contact_active);
+    assert_eq!(projectile.take_rebound(), None);
     Ok(())
 }
 
@@ -305,19 +318,25 @@ fn contact_return_hops_toward_owner_then_departs_once() {
         projectile.velocity = [0., -3., 0.];
         projectile.target_point = owner;
         projectile.ricocheted = false;
+        projectile.frame.disarmed = false;
         projectile.hit(ActorId(1), false);
         projectile.step().unwrap();
+        assert!(!projectile.frame.contact_active && projectile.frame.disarmed);
+        assert!(
+            !projectile.can_hit(ActorId(2)),
+            "return cannot hit another actor"
+        );
         for (actual, expected) in projectile.velocity.into_iter().zip(expected) {
             assert!((actual - expected).abs() < 0.00001);
         }
         projectile.target_point = [1000.; 3];
         projectile.step().unwrap();
         assert_eq!(projectile.velocity[1], 9., "the return hop runs once");
-        assert!(projectile.frame.contact_active && !projectile.frame.disarmed);
+        assert!(!projectile.frame.contact_active && projectile.frame.disarmed);
     }
     // Two ordinary floor contacts and one independently translated projectile.
     for (position, expected) in [
-        ([-293.20819, 0.5, -13.746511], [-0.5600735, 0., 11.986923]),
+        ([-293.208_2, 0.5, -13.746511], [-0.5600735, 0., 11.986923]),
         ([-263.0494, 0.5, -34.126984], [-1.5381423, 0., 11.901013]),
         ([336.95044, 0.5, 215.87302], [6.487067, 0., -10.095441]),
     ] {
@@ -333,7 +352,7 @@ fn contact_return_hops_toward_owner_then_departs_once() {
         projectile.step().unwrap();
         assert_eq!(projectile.velocity, [direction[0], -1., direction[2]]);
         assert_eq!(projectile.frame.position[1], 0.);
-        assert!(projectile.frame.contact_active && !projectile.frame.disarmed);
+        assert!(!projectile.frame.contact_active && projectile.frame.disarmed);
     }
 }
 
@@ -395,13 +414,8 @@ fn menu_pause_defers_pending_ricochet_until_resume() {
     assert_eq!(battle.projectiles[&ProjectileId(1)].frame, before);
     assert_eq!(battle.random_state(), random_before);
     let frame = battle.step(BattleInput::default()).unwrap();
-    assert_eq!(frame.projectiles.len(), 2);
+    assert_eq!(frame.projectiles.len(), 1);
     assert!(battle.projectiles[&ProjectileId(1)].frame.disarmed);
-    let child = &battle.projectiles[&ProjectileId(2)];
-    assert_eq!(child.frame.position, battle.actors[1].position);
-    assert_eq!(child.age, 0, "the child first advances on the next update");
-    let child_origin = child.frame.position;
-    let child_velocity = child.velocity;
     let mut expected = crate::Random::new(random_before);
     expected.next_u16();
     assert_eq!(battle.random_state(), expected.state());
@@ -409,9 +423,36 @@ fn menu_pause_defers_pending_ricochet_until_resume() {
         cue,
         Cue::ProjectileRebound {
             projectile: ProjectileId(1),
-            first: true
+            first: true,
+            pitch: None
         }
     )));
+    let after_ricochet = frame.projectiles;
+    let paused = battle
+        .step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(paused.projectiles, after_ricochet);
+    assert_eq!(battle.random_state(), expected.state());
+    let frame = battle.step(BattleInput::default()).unwrap();
+    assert_eq!(frame.projectiles.len(), 2);
+    let child = &battle.projectiles[&ProjectileId(2)];
+    assert_eq!(
+        child.frame.position,
+        std::array::from_fn(|axis| battle.actors[1].position[axis] + [0., 5., 8.][axis]),
+        "the child begins moving on the update after ricochet"
+    );
+    assert!(frame.cues.iter().any(|cue| matches!(
+        cue,
+        Cue::ProjectileStarted {
+            projectile: ProjectileId(2),
+            ..
+        }
+    )));
+    let child_origin = child.frame.position;
+    let child_velocity = child.velocity;
     let frame = battle.step(BattleInput::default()).unwrap();
     assert_eq!(frame.projectiles.len(), 2, "the child is emitted only once");
     assert_eq!(
@@ -419,10 +460,8 @@ fn menu_pause_defers_pending_ricochet_until_resume() {
         std::array::from_fn(|axis| child_origin[axis] + child_velocity[axis])
     );
     assert_eq!(battle.random_state(), expected.state());
-    assert!(
-        !frame
-            .cues
-            .iter()
-            .any(|cue| matches!(cue, Cue::ProjectileRebound { .. }))
-    );
+    assert!(!frame.cues.iter().any(|cue| matches!(
+        cue,
+        Cue::ProjectileRebound { .. } | Cue::ProjectileStarted { .. }
+    )));
 }

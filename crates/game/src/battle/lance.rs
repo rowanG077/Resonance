@@ -66,6 +66,7 @@ pub(super) fn prepare(
         at: at(tick),
         appearance: appearance(member),
         placement: resonance_battle::SpellEffectPlacement::Scene(offset),
+        deferred: true,
         captured_heading_offset: None,
     };
     let mut effects = Vec::new();
@@ -82,7 +83,7 @@ pub(super) fn prepare(
         let raised = [offset[0], RING_HEIGHT, offset[2]];
         effects.push(effect(launch, 3, raised));
         projectiles.push(SpellProjectile {
-            at: at(launch),
+            at: at(launch) + 1,
             definition: Arc::clone(&definitions[0]),
             origin_offset: raised,
             launch: resonance_battle::SpellLaunch::AtHeight(AIM_HEIGHT),
@@ -90,7 +91,7 @@ pub(super) fn prepare(
     }
     effects.push(effect(85, 3, [0., 350., 0.]));
     projectiles.push(SpellProjectile {
-        at: at(85),
+        at: at(85) + 1,
         definition: Arc::clone(&definitions[1]),
         origin_offset: [0., 400., 0.],
         launch: resonance_battle::SpellLaunch::AtHeight(AIM_HEIGHT),
@@ -108,7 +109,10 @@ pub(super) fn prepare(
         stage_tint: stored_spells::stage_tint(scene.stage_color, LIFETIME)?,
         camera: stored_spells::scene_camera(scene.camera, LIFETIME)?,
         duration: TRANSITION_TICKS + LIFETIME + SCENE_BOUNDARY_TICKS,
-        startup: Some((TRANSITION_TICKS + 1, SpellStartup::Effect(appearance(1)))),
+        startup: Some((
+            TRANSITION_TICKS + 1,
+            SpellStartup::DeferredEffect(appearance(1)),
+        )),
         sound: None,
     })
 }

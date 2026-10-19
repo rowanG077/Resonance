@@ -8,12 +8,14 @@ fn encounter_health_hold_prevents_kill_credit_until_released() -> Result<()> {
     let mut victim = target(Side::Enemy, 1);
     victim.equipment.max_hp = 1001;
     let mut battle = battle(killer(Side::Party, BOTH), victim)?;
+    battle.update = 181;
     battle.hold_event_boss_hp(Some(ActorId(1)))?;
     assert_eq!(battle.actors[1].hp, 500);
     let cues = resolve(&mut battle, 700, false)?;
     assert_eq!(battle.actors[1].hp, 500);
     assert!(battle.actors[1].available());
     assert_eq!(battle.ledger.kills, [0, 0]);
+    assert_eq!(battle.ledger.technical_smash_bonus, 0);
     assert_eq!((battle.actors[0].hp, battle.actors[0].tp), (100, 20));
     assert!(!cues.iter().any(|cue| matches!(cue, Cue::Defeated { .. })));
     battle.hold_event_boss_hp(None)?;
@@ -21,10 +23,20 @@ fn encounter_health_hold_prevents_kill_credit_until_released() -> Result<()> {
     let cues = resolve(&mut battle, 700, false)?;
     assert_eq!(battle.actors[1].availability, ActorAvailability::Dead);
     assert_eq!(battle.ledger.kills, [1, 0]);
+    assert_eq!(battle.ledger.technical_smash_bonus, 5);
+    assert!(cues.iter().any(|cue| matches!(cue,
+        Cue::TechnicalSmash { bonuses, total_percent: 5 }
+            if bonuses.no_damage && bonuses.skill)));
     assert!(
         cues.iter()
             .any(|cue| matches!(cue, Cue::Defeated { actor: ActorId(1) }))
     );
+    assert!(
+        resolve(&mut battle, 700, false)?
+            .iter()
+            .all(|cue| !matches!(cue, Cue::TechnicalSmash { .. }))
+    );
+    assert_eq!(battle.ledger.technical_smash_bonus, 5);
     Ok(())
 }
 

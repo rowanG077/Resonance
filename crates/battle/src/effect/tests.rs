@@ -4,9 +4,16 @@ use resonance_content::battle_effect::*;
 fn frame() -> BattleFrame {
     BattleFrame {
         actors: [crate::Side::Party, crate::Side::Enemy]
-            .map(|side| crate::ActorFrame {
-                state: crate::tests::actor(side),
-                activity: crate::Activity::Idle,
+            .map(|side| {
+                let state = crate::tests::actor(side);
+                crate::ActorFrame {
+                    effect_center: state.effect_origin(),
+                    state,
+                    activity: crate::Activity::Idle,
+                    cast_releasing: false,
+                    stun_remaining: 0,
+                    stun_struggling: false,
+                }
             })
             .to_vec(),
         ..Default::default()
@@ -62,6 +69,38 @@ fn emit(at: u32, birth: ParticleBirth) -> ScheduledEvent {
             birth: Box::new(birth),
         },
     }
+}
+
+#[test]
+fn cinematic_cleanup_destroys_particles_and_delayed_births_while_held() -> Result<()> {
+    let mut effects = effects(
+        vec![emit(0, Default::default()), emit(4, Default::default())],
+        true,
+    );
+    let mut frame = frame();
+    frame.cues.push(Cue::Effect(request()));
+    effects.advance(&frame, false)?;
+    assert!(!effects.particles.is_empty());
+    assert!(!effects.emitters.is_empty());
+    frame.clock = crate::BattleClock::Held;
+    frame.cues = vec![Cue::ClearEffects];
+    effects.advance(&frame, true)?;
+    assert!(effects.particles.is_empty());
+    assert!(effects.emitters.is_empty());
+    frame.cues.clear();
+    for paused in [true, false] {
+        frame.clock = if paused {
+            crate::BattleClock::Held
+        } else {
+            crate::BattleClock::Running
+        };
+        for _ in 0..10 {
+            assert!(effects.advance(&frame, paused)?.is_empty());
+            assert!(effects.particles.is_empty());
+            assert!(effects.emitters.is_empty());
+        }
+    }
+    Ok(())
 }
 
 #[test]
@@ -157,17 +196,13 @@ fn delayed_size_motion_targets_its_birth_before_integration_and_waits_when_pause
         at: 58,
         operation: EffectOperation::SetMotion {
             spawn: 2,
-            offset: [None; 3],
-            size: [Some(32.), Some(32.), None],
-            animation: None,
-            velocity: [None, Some(-0.5), None],
-            velocity_add: None,
-            acceleration: [None; 3],
-            angular_velocity: [None; 3],
-            forward_motion: None,
-            velocity_scale: None,
-            size_velocity: [None, None, Some(5.)],
-            size_acceleration: [None, None, Some(1.)],
+            motion: Box::new(MotionChange {
+                size: [Some(32.), Some(32.), None],
+                velocity: [None, Some(-0.5), None],
+                size_velocity: [None, None, Some(5.)],
+                size_acceleration: [None, None, Some(1.)],
+                ..Default::default()
+            }),
         },
     });
     let definition = |events| {
@@ -263,17 +298,11 @@ fn delayed_motion_preserves_rotation_and_stops_selected_spin() -> Result<()> {
                     at: 2,
                     operation: EffectOperation::SetMotion {
                         spawn: 0,
-                        offset: [None; 3],
-                        size: [None; 3],
-                        animation: None,
-                        velocity: [None; 3],
-                        velocity_add: None,
-                        acceleration: [None; 3],
-                        angular_velocity: [Some(0.), None, None],
-                        forward_motion: None,
-                        velocity_scale: Some([-0.05, -0.08, -0.05]),
-                        size_velocity: [None; 3],
-                        size_acceleration: [None; 3],
+                        motion: Box::new(MotionChange {
+                            angular_velocity: [Some(0.), None, None],
+                            velocity_scale: Some([-0.05, -0.08, -0.05]),
+                            ..Default::default()
+                        }),
                     },
                 },
             ],
@@ -304,17 +333,13 @@ fn delayed_forward_motion_uses_retained_heading_and_stops_acceleration() -> Resu
         at,
         operation: EffectOperation::SetMotion {
             spawn: 0,
-            offset: [None; 3],
-            size: [None; 3],
-            animation: None,
-            velocity,
-            velocity_add,
-            acceleration,
-            angular_velocity: [None; 3],
-            forward_motion,
-            velocity_scale: None,
-            size_velocity: [None; 3],
-            size_acceleration: [None; 3],
+            motion: Box::new(MotionChange {
+                velocity,
+                velocity_add,
+                acceleration,
+                forward_motion,
+                ..Default::default()
+            }),
         },
     };
     let mut effects = effects(
@@ -398,11 +423,84 @@ fn ambient_births_match_recorded_arena_clock_and_world_origin() -> Result<()> {
             (142, 1)
         ]
     );
+    let mut paused = self::effects(
+        vec![emit(0, Default::default()), emit(5, Default::default())],
+        false,
+    )
+    .with_ambient(Some((request().appearance, 30)))?;
+    let mut uninterrupted = self::effects(
+        vec![emit(0, Default::default()), emit(5, Default::default())],
+        false,
+    )
+    .with_ambient(Some((request().appearance, 30)))?;
+    paused.advance(&frame, false)?;
+    uninterrupted.advance(&frame, false)?;
+    let mut held = frame.clone();
+    held.cues.push(Cue::Casting {
+        actor: ActorId(0),
+        action: crate::ActionKey(0),
+        phase: crate::CastPhase::SceneOpening,
+    });
+    paused.advance(&held, false)?;
+    held.cues.clear();
+    held.clock = crate::BattleClock::SpellTransition;
+    for _ in 0..60 {
+        paused.advance(&held, false)?;
+        assert_eq!(paused.frames(), uninterrupted.frames());
+    }
+    for _ in 0..60 {
+        paused.advance(&frame, false)?;
+        uninterrupted.advance(&frame, false)?;
+        assert_eq!(paused.frames(), uninterrupted.frames());
+    }
     Ok(())
 }
 
 #[test]
 fn action_effects_pause_births_with_the_actor_but_keep_particles_running() -> Result<()> {
+    for (initialized, interrupted) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut emitter = effects(
+            [0, 1, 2].map(|at| emit(at, Default::default())).into(),
+            false,
+        );
+        let mut snapshot = frame();
+        let action = crate::ActionId(7);
+        snapshot.actions.push((action, ActorId(0), 0));
+        snapshot.cues = vec![if initialized {
+            Cue::InitializedActionEffect {
+                action,
+                request: request(),
+            }
+        } else {
+            Cue::ActionEffect {
+                action,
+                request: request(),
+            }
+        }];
+        emitter.advance(&snapshot, false)?;
+        assert_eq!(emitter.frames().len(), 2 * usize::from(initialized));
+        snapshot.cues.clear();
+        emitter.advance(&snapshot, false)?;
+        assert_eq!(emitter.frames().len(), 1 + 2 * usize::from(initialized));
+        snapshot.cues = vec![Cue::RetireActionEffects(action)];
+        if interrupted {
+            snapshot.actions.clear();
+            snapshot.cues = vec![Cue::Interrupted { action }];
+        }
+        emitter.advance(&snapshot, false)?;
+        let surviving = if initialized {
+            3
+        } else if interrupted {
+            1
+        } else {
+            2
+        };
+        assert_eq!(emitter.frames().len(), surviving);
+        assert!(emitter.emitters.is_empty());
+        snapshot.cues.clear();
+        emitter.advance(&snapshot, false)?;
+        assert_eq!(emitter.frames().len(), surviving);
+    }
     let mut effects = effects(
         vec![
             emit(0, Default::default()),
@@ -445,11 +543,37 @@ fn action_effects_pause_births_with_the_actor_but_keep_particles_running() -> Re
     effects.advance(&frame, false)?;
     assert_eq!(effects.frames().len(), 2);
     assert_eq!(effects.frames()[1].origin, [100., 20., 30.]);
+    let later_particle = effects.frames()[1].id;
 
-    frame.actions.clear();
+    frame.cues = vec![Cue::PauseActionEffects(action)];
+    let age = effects.particles.values().next().unwrap().age;
+    for _ in 0..2 {
+        effects.advance(&frame, false)?;
+        assert_eq!(effects.frames().len(), 2);
+    }
+    assert_eq!(effects.particles.values().next().unwrap().age, age + 2);
+
+    frame.cues = vec![Cue::RetireActionEffects(action)];
     effects.advance(&frame, false)?;
     assert!(effects.emitters.is_empty());
-    assert_eq!(effects.frames().len(), 2);
+    // The older particle expires naturally; retirement preserves the later birth.
+    assert_eq!(effects.frames().len(), 1);
+    assert_eq!(effects.frames()[0].id, later_particle);
+    let immediate = crate::ActionId(8);
+    frame.actions.push((immediate, ActorId(0), 0));
+    frame.cues = vec![
+        Cue::ActionEffect {
+            action: immediate,
+            request: request(),
+        },
+        Cue::RetireActionEffects(immediate),
+    ];
+    effects.advance(&frame, false)?;
+    assert!(effects.emitters.is_empty());
+    assert_eq!(effects.frames().len(), 1);
+    assert_eq!(effects.frames()[0].id, later_particle);
+    frame.cues.clear();
+    frame.actions.clear();
     for _ in 0..10 {
         effects.advance(&frame, false)?;
     }
@@ -526,14 +650,11 @@ fn scene_effects_hold_expire_and_clear_at_combat_retirement() -> Result<()> {
         false,
     );
     let mut frame = frame();
-    frame.actors[0].state.position = [30., 20., 50.];
-    frame.actors[0].state.body.collider = Some(crate::Collider::standing(30., 160.));
-    frame.actors[0].state.body.scale = 2.;
-    frame.cues = vec![Cue::PoisonPulse { actor: ActorId(0) }];
+    frame.cues = vec![Cue::Effect(request())];
     assert!(effects.advance(&frame, false)?.is_empty());
     let first = effects.frames();
     assert_eq!(first.len(), 1);
-    assert_eq!(first[0].origin, [30., 340., 50.]);
+    assert_eq!(first[0].origin, request().origin);
     frame.cues.clear();
     for _ in 0..5 {
         assert!(effects.advance(&frame, true)?.is_empty());
@@ -641,6 +762,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
             slot: 0,
             animation: None,
             repeat: false,
+            reverse_at: None,
             program_animation: false,
             attachment: None,
         });
@@ -673,6 +795,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
             ..Default::default()
         }
         .matrix();
+        model.particle_world = model.world;
         frame.models.push(model);
         frame.cues.push(Cue::Effect(request()));
         effects.advance(&frame, false)?;
@@ -693,6 +816,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
             scale: [2., 3., 4.],
         }
         .matrix();
+        frame.models[0].world[3][0] += 7.;
         effects.advance(&frame, false)?;
         let next = &effects.frames()[0];
         assert_eq!(next.id, first.id);
@@ -706,6 +830,11 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         );
         assert_eq!(next.state.offset, first.state.offset);
         assert_eq!(next.state.angles, first.state.angles);
+        if following {
+            frame.models[0].particle_world = frame.models[0].world;
+            effects.advance(&frame, false)?;
+            assert_eq!(effects.frames()[0].origin, [137., 50., 70.]);
+        }
         assert!(effects.diagnostics.entries().is_empty());
     }
     for following in [false, true] {
@@ -739,6 +868,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
             .matrix()
         };
         model.world = Transform::default().matrix();
+        model.particle_world = model.world;
         model.bones = Arc::new(vec![bone(10.), bone(20.)]);
         frame.models.push(model);
         frame.cues.push(Cue::Effect(request()));
@@ -806,10 +936,14 @@ fn following_particles_can_use_a_fixed_world_origin() -> Result<()> {
 }
 
 #[test]
-fn projectile_retirement_removes_attachments_and_pending_emission_only() -> Result<()> {
-    for followed in [false, true] {
+fn projectile_retirement_removes_attachments_but_finishes_independent_bursts() -> Result<()> {
+    for (followed, attached) in [(false, true), (true, true), (false, false)] {
         let mut effects = effects(
-            vec![emit(0, Default::default()), emit(4, Default::default())],
+            vec![
+                emit(0, Default::default()),
+                emit(2, Default::default()),
+                emit(7, Default::default()),
+            ],
             followed,
         );
         if followed {
@@ -837,11 +971,18 @@ fn projectile_retirement_removes_attachments_and_pending_emission_only() -> Resu
             shadow: None,
         });
         let mut spawn = request();
-        spawn.follow = Some(EffectFollow::Projectile(parent));
-        frame.cues = vec![Cue::Effect(spawn)];
+        spawn.follow = attached.then_some(EffectFollow::Projectile(parent));
+        let origin = if followed {
+            frame.projectiles[0].position
+        } else {
+            spawn.origin
+        };
+        frame.cues = vec![Cue::InitializedEffect(spawn)];
         effects.advance(&frame, false)?;
+        assert_eq!(effects.frames().len(), 1);
+        assert_eq!(effects.particles.values().next().unwrap().age, 1);
         let first = effects.frames()[0].clone();
-        assert_eq!(first.origin, frame.projectiles[0].position);
+        assert_eq!(first.origin, origin);
         if followed {
             assert!((first.state.angles[0] + 45.).abs() < 0.001);
             assert_eq!(first.state.angles[1], 90.);
@@ -851,25 +992,120 @@ fn projectile_retirement_removes_attachments_and_pending_emission_only() -> Resu
         effects.advance(&frame, false)?;
         assert_eq!(
             effects.frames()[0].origin[0],
-            if followed { 15. } else { 5. }
+            if followed { 15. } else { origin[0] }
         );
         if followed {
             assert_eq!(effects.frames()[0].state.angles[..2], [270., 90.]);
         }
+        assert_eq!(effects.frames().len(), 2);
+        effects.advance(&frame, false)?;
+        assert_eq!(effects.frames().len(), 2);
         frame.projectiles.clear();
         effects.advance(&frame, true)?;
+        assert_eq!(effects.emitters.is_empty(), attached && followed);
+        assert_eq!(effects.frames().len(), 2 * usize::from(!followed));
+        let last_anchor = if attached { [15., 6., 7.] } else { origin };
+        for _ in 0..5 {
+            effects.advance(&frame, false)?;
+        }
         assert!(effects.emitters.is_empty());
         assert_eq!(effects.frames().len(), usize::from(!followed));
+        if !followed {
+            assert_eq!(effects.frames()[0].origin, last_anchor);
+        }
         for _ in 0..10 {
             effects.advance(&frame, false)?;
         }
         assert!(effects.frames().is_empty());
+        assert!(effects.emitters.is_empty());
     }
     Ok(())
 }
 
 #[test]
+fn reused_buffers_keep_birth_order_and_release_live_state() -> Result<()> {
+    let birth = ParticleBirth {
+        random_draws: 2,
+        ..Default::default()
+    };
+    let mut effects = effects(vec![emit(0, birth.clone()), emit(2, birth)], false);
+    let mut frame = frame();
+    let requests: Vec<_> = [ActorId(0), ActorId(1)]
+        .into_iter()
+        .map(|owner| Cue::Effect(EffectRequest { owner, ..request() }))
+        .collect();
+    frame.cues.clone_from(&requests);
+    effects.advance(&frame, false)?;
+    for active in &effects.emitters {
+        assert_eq!(active.spawned.capacity(), 2);
+        assert_eq!(active.samples.capacity(), 4);
+    }
+    frame.cues.clear();
+    for _ in 0..2 {
+        effects.advance(&frame, false)?;
+    }
+    let mut published = Vec::new();
+    effects.write_frames(&mut published);
+    assert_eq!(
+        published.iter().map(|p| p.owner).collect::<Vec<_>>(),
+        [ActorId(0), ActorId(1), ActorId(0), ActorId(1)]
+    );
+    let last_id = published.last().unwrap().id;
+    let emitter_capacities = (
+        effects.emitters.capacity(),
+        effects.spare_emitters.capacity(),
+    );
+    let visit_capacity = effects.particle_visits.capacity();
+    let publication_capacity = published.capacity();
+    for _ in 0..6 {
+        effects.advance(&frame, false)?;
+        effects.write_frames(&mut published);
+        assert_eq!(
+            (
+                effects.emitters.capacity(),
+                effects.spare_emitters.capacity()
+            ),
+            emitter_capacities
+        );
+        assert_eq!(effects.particle_visits.capacity(), visit_capacity);
+        assert!(effects.particle_visits.is_empty());
+        assert_eq!(published.capacity(), publication_capacity);
+    }
+    assert!(effects.emitters.is_empty() && effects.spare_emitters.is_empty());
+    assert!(effects.particles.is_empty() && published.is_empty());
+    frame.cues = requests;
+    effects.advance(&frame, false)?;
+    effects.write_frames(&mut published);
+    assert_eq!(
+        published.iter().map(|p| p.owner).collect::<Vec<_>>(),
+        [ActorId(0), ActorId(1)]
+    );
+    assert!(published.iter().all(|p| p.id > last_id));
+    assert_eq!(published.capacity(), publication_capacity);
+    Ok(())
+}
+
+#[test]
 fn birth_variation_faults_and_pool_pressure_do_not_damage_other_feedback() -> Result<()> {
+    for (min, max, step, choices) in [
+        (0.3, 0.7, 0.1, 5.),
+        (14.1, 21.9, 0.1, 79.),
+        (1.2, 1.8, 0.1, 7.),
+        (0., 1., 0.3, 4.),
+    ] {
+        let range = ValueRange {
+            min,
+            max,
+            step,
+            draw: None,
+            reverse: false,
+        };
+        assert_eq!(range.choice_count(), choices);
+        assert_eq!(
+            range.sample(1. - 0.5 / choices),
+            min + (choices - 1.) * step
+        );
+    }
     let range = ValueRange {
         min: -10.,
         max: 10.,
@@ -915,6 +1151,59 @@ fn birth_variation_faults_and_pool_pressure_do_not_damage_other_feedback() -> Re
         palette: Some(ValueRange::fixed(19.)),
         ..Default::default()
     };
+    #[cfg(feature = "test-support")]
+    {
+        let carried = ParticleBirth {
+            offset: [Some(range), None, None],
+            ..Default::default()
+        };
+        let mut replay = effects(
+            vec![emit(0, birth.clone()), emit(1, carried.clone())],
+            false,
+        );
+        replay.diagnostics = Diagnostics::new(true);
+        let request = request();
+        replay.observe_fixture_births(&[(request.owner, request.appearance, 0)])?;
+        replay.fixture_birth_inputs(vec![FixtureEffectBirth {
+            owner: request.owner,
+            appearance: request.appearance,
+            spawn: 0,
+            particle: 0,
+            first_draw: 0,
+            birth: birth.clone(),
+            samples: vec![0.25, 0.75, 0.5],
+            model_ordinal: Some(1),
+            heading: None,
+        }])?;
+        assert!(replay.finish_fixture_birth_inputs().is_err());
+        let mut frame = frame();
+        frame.cues.push(Cue::Effect(request.clone()));
+        replay.advance(&frame, false)?;
+        replay.finish_fixture_birth_inputs()?;
+        let shown = replay.frames();
+        assert_eq!(shown[0].state.offset, [-5., 5., -5.]);
+        assert_eq!(shown[0].state.angular_velocity[0], 5.);
+        replay.fixture_birth_inputs(vec![FixtureEffectBirth {
+            owner: request.owner,
+            appearance: request.appearance,
+            spawn: 1,
+            particle: 0,
+            first_draw: 3,
+            birth: carried,
+            samples: Vec::new(),
+            model_ordinal: None,
+            heading: None,
+        }])?;
+        frame.cues.clear();
+        replay.advance(&frame, false)?;
+        replay.finish_fixture_birth_inputs()?;
+        assert_eq!(replay.frames().last().unwrap().state.offset[0], -5.);
+        frame.cues.push(Cue::Effect(request));
+        assert!(
+            replay.advance(&frame, false).is_err(),
+            "extra recorded birth"
+        );
+    }
     let mut effects = effects(vec![emit(0, birth)], false);
     let mut frame = frame();
     frame.cues = vec![Cue::Effect(request()); MAX_PARTICLES + 1];
@@ -998,6 +1287,7 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         ),
         (vec![(0, 0)], 61, vec![(1, 0), (62, 0), (123, 0)]),
         (vec![(0, 0)], 60, vec![(1, 0), (61, 0), (121, 0)]),
+        (vec![(0, 0)], 1, vec![(1, 0), (2, 0), (3, 0)]),
     ] {
         let mut particle = crate::tests::particle_definition(77, 0);
         particle.data.state.effect_group = Some(0);
@@ -1028,8 +1318,20 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         )?;
         let mut effects =
             Effects::new(vec![bank], None, 1, Diagnostics::new(true))?.with_passive(vec![
-                (ActorId(0), request().appearance, interval),
-                (ActorId(1), request().appearance, interval),
+                PassiveEffect {
+                    actor: ActorId(0),
+                    appearance: request().appearance,
+                    interval,
+                    idle_only: false,
+                    weapon: None,
+                },
+                PassiveEffect {
+                    actor: ActorId(1),
+                    appearance: request().appearance,
+                    interval,
+                    idle_only: false,
+                    weapon: None,
+                },
             ])?;
         let mut frame = frame();
         frame.actors[0].state.body.scale = 0.9;
@@ -1056,7 +1358,32 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         }
         assert_eq!(births[0], births[1]);
         assert_eq!(births[0], expected);
+        // A defeated body's glow continues until the body disappears.
+        // Already emitted particles finish normally.
         frame.actors[0].state.hp = 0;
+        frame.actors[0].state.availability = crate::ActorAvailability::Dead;
+        let model = crate::model::Model::new(
+            Arc::new(crate::tests::model_definition(7, [(0, 10.)])),
+            ActorId(0),
+            &frame.actors[0],
+        )?;
+        frame.models.push(model.render_frame(&frame.actors[0]));
+        if interval == 1 {
+            for _ in 0..3 {
+                let before = effects.next_particle;
+                effects.advance(&frame, false)?;
+                assert_eq!(effects.next_particle - before, 2);
+            }
+        }
+        frame.models[0].visible = false;
+        if interval == 1 {
+            let before = effects.next_particle;
+            effects.advance(&frame, false)?;
+            assert_eq!(effects.next_particle - before, 2);
+            let before = effects.next_particle;
+            effects.advance(&frame, false)?;
+            assert_eq!(effects.next_particle - before, 1);
+        }
         for _ in 0..52_u16.div_ceil(interval) * interval {
             effects.advance(&frame, false)?;
         }
@@ -1075,6 +1402,109 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         }
         assert!(effects.frames().is_empty() && effects.emitters.is_empty());
     }
+    {
+        let mut idle = effects(vec![emit(0, Default::default())], false).with_passive(vec![
+            PassiveEffect {
+                actor: ActorId(0),
+                appearance: request().appearance,
+                interval: 2,
+                idle_only: true,
+                weapon: None,
+            },
+        ])?;
+        let initial = idle.next_particle;
+        let mut frame = frame();
+        idle.advance(&frame, false)?;
+        assert_eq!(idle.next_particle, initial);
+        frame.combat_active = true;
+        idle.advance(&frame, false)?;
+        assert_eq!(idle.next_particle, initial + 1);
+        frame.actors[0].activity = crate::Activity::Action;
+        for _ in 0..4 {
+            idle.advance(&frame, false)?;
+        }
+        assert_eq!(idle.next_particle, initial + 1);
+        frame.actors[0].activity = crate::Activity::Idle;
+        let model = crate::model::Model::new(
+            Arc::new(crate::tests::model_definition(7, [(0, 10.)])),
+            ActorId(0),
+            &frame.actors[0],
+        )?;
+        let mut body = model.render_frame(&frame.actors[0]);
+        body.blend_weight = 0.5;
+        frame.models.push(body);
+        idle.advance(&frame, false)?;
+        assert_eq!(idle.next_particle, initial + 1);
+        frame.models[0].blend_weight = 1.;
+        idle.advance(&frame, false)?;
+        assert_eq!(idle.next_particle, initial + 2);
+        idle.advance(&frame, false)?;
+        assert_eq!(idle.next_particle, initial + 2);
+        idle.advance(&frame, false)?;
+        assert_eq!(idle.next_particle, initial + 3);
+    }
+    let mut effects = effects(
+        vec![emit(
+            0,
+            ParticleBirth {
+                origin_bone: Some(0),
+                ..Default::default()
+            },
+        )],
+        false,
+    )
+    .with_passive(vec![PassiveEffect {
+        actor: ActorId(0),
+        appearance: request().appearance,
+        interval: 2,
+        idle_only: false,
+        weapon: Some(100),
+    }])?;
+    let mut frame = frame();
+    frame.weapons.push(crate::WeaponFrame {
+        owner: ActorId(0),
+        slot: 0,
+        visible: true,
+        resource: 100,
+        tint: [255; 4],
+        material: Default::default(),
+        clip: None,
+        frame: 0.,
+        world: glam::Mat4::from_translation(glam::Vec3::new(20., 0., 0.)).to_cols_array_2d(),
+        bones: Arc::new(vec![
+            glam::Mat4::from_translation(glam::Vec3::new(0., 3., 0.)).to_cols_array_2d(),
+        ]),
+        links: vec![],
+        texture_scroll: None,
+    });
+    for _ in 0..2 {
+        effects.advance(&frame, false)?;
+        assert!(effects.frames().is_empty());
+    }
+    effects.advance(&frame, false)?;
+    assert_eq!(effects.frames().len(), 1);
+    assert_eq!(effects.frames()[0].origin, [20., 3., 0.]);
+    frame.weapons[0].world[3][0] = 40.;
+    frame.weapons[0].visible = false;
+    effects.advance(&frame, false)?;
+    assert_eq!(effects.frames()[0].origin, [20., 3., 0.]);
+    for _ in 0..8 {
+        effects.advance(&frame, false)?;
+    }
+    assert!(effects.frames().is_empty());
+    frame.weapons[0].visible = true;
+    for _ in 0..2 {
+        effects.advance(&frame, false)?;
+    }
+    assert_eq!(effects.frames().len(), 1);
+    assert_eq!(effects.frames()[0].origin, [40., 3., 0.]);
+    frame.cues.push(Cue::CombatRetired);
+    effects.advance(&frame, false)?;
+    frame.cues.clear();
+    for _ in 0..8 {
+        effects.advance(&frame, false)?;
+    }
+    assert!(effects.frames().is_empty());
     Ok(())
 }
 
@@ -1192,8 +1622,16 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
         [(1, definition)].into(),
         &Diagnostics::new(true),
     )?;
-    let mut effects = Effects::new(vec![bank], None, 1, Diagnostics::new(true))?
-        .with_passive(vec![(ActorId(1), request().appearance, 20)])?;
+    let mut effects =
+        Effects::new(vec![bank], None, 1, Diagnostics::new(true))?.with_passive(vec![
+            PassiveEffect {
+                actor: ActorId(1),
+                appearance: request().appearance,
+                interval: 20,
+                idle_only: false,
+                weapon: None,
+            },
+        ])?;
     let mut frame = frame();
     frame.cues.push(Cue::Effect(request()));
     effects.advance(&frame, false)?;
@@ -1268,5 +1706,122 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
         assert_eq!(effects.passive[0].remaining, passive_remaining);
     }
     assert!(effects.particles.len() > births);
+    frame.clock = crate::BattleClock::Running;
+    frame.cues = vec![
+        Cue::ClearEffects,
+        Cue::Casting {
+            actor: ActorId(0),
+            action: crate::ActionKey(0),
+            phase: crate::CastPhase::SceneOpening,
+        },
+        Cue::InitializedEffect(request()),
+    ];
+    effects.advance(&frame, false)?;
+    assert_eq!(effects.emitters[0].age, 2);
+    assert_eq!(ages(&effects), [0, 1]);
+    assert_eq!(effects.passive[0].remaining, passive_remaining);
+    frame.cues.clear();
+    frame.clock = crate::BattleClock::SpellTransition;
+    for _ in 0..4 {
+        effects.advance(&frame, false)?;
+        assert!(
+            effects
+                .particles
+                .values()
+                .all(|particle| { particle.definition.data.during_pause || particle.age == 0 })
+        );
+    }
+    assert_eq!(effects.particles.len(), 4);
+    assert_eq!(effects.passive[0].remaining, passive_remaining);
+    frame.clock = crate::BattleClock::Running;
+    effects.advance(&frame, false)?;
+    assert!(effects.particles.values().all(|particle| particle.age > 0));
+
+    let ordinary: Vec<_> = effects
+        .particles
+        .iter()
+        .filter(|(_, particle)| !particle.definition.data.during_pause)
+        .map(|(&id, _)| id)
+        .collect();
+    let ordinary_ages = |effects: &Effects| {
+        ordinary
+            .iter()
+            .map(|id| effects.particles[id].age)
+            .collect::<Vec<_>>()
+    };
+    let frozen = ordinary_ages(&effects);
+    frame.cues = vec![Cue::HoldEffects(3)];
+    effects.advance(&frame, false)?;
+    frame.cues.clear();
+    effects.advance(&frame, true)?;
+    for _ in 0..2 {
+        effects.advance(&frame, false)?;
+        assert_eq!(ordinary_ages(&effects), frozen);
+    }
+    effects.advance(&frame, false)?;
+    assert_eq!(
+        ordinary_ages(&effects),
+        frozen.iter().map(|age| age + 1).collect::<Vec<_>>()
+    );
+
+    let mut delayed = self::effects(
+        vec![
+            emit(0, Default::default()),
+            emit(2, Default::default()),
+            emit(4, Default::default()),
+        ],
+        false,
+    )
+    .with_passive(
+        (0..2)
+            .map(|actor| PassiveEffect {
+                actor: ActorId(actor),
+                appearance: request().appearance,
+                interval: 100,
+                idle_only: false,
+                weapon: None,
+            })
+            .collect(),
+    )?;
+    for passive in &mut delayed.passive {
+        passive.remaining = 0;
+    }
+    delayed.advance(&frame, false)?;
+    frame.cues = vec![Cue::Casting {
+        actor: ActorId(0),
+        action: crate::ActionKey(0),
+        phase: crate::CastPhase::SceneOpening,
+    }];
+    delayed.advance(&frame, false)?;
+    assert_eq!(
+        delayed
+            .passive
+            .iter()
+            .map(|p| p.remaining)
+            .collect::<Vec<_>>(),
+        [98, 99]
+    );
+    frame.cues.clear();
+    frame.clock = crate::BattleClock::SpellTransition;
+    for _ in 0..20 {
+        delayed.advance(&frame, false)?;
+    }
+    assert_eq!(
+        delayed.emitters.iter().map(|p| p.age).collect::<Vec<_>>(),
+        [2, 2]
+    );
+    assert_eq!(
+        delayed
+            .particles
+            .values()
+            .map(|p| p.age)
+            .collect::<Vec<_>>(),
+        [1, 1]
+    );
+    frame.clock = crate::BattleClock::Running;
+    for count in [4, 4, 6] {
+        delayed.advance(&frame, false)?;
+        assert_eq!(delayed.particles.len(), count);
+    }
     Ok(())
 }

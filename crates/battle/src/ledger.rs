@@ -16,6 +16,9 @@ pub struct Ledger {
     pub combat_ticks: u32,
     pub maximum_combo: u16,
     pub maximum_combo_damage: u32,
+    /// Percentage increase to base item-drop odds, accumulated from enemy defeats.
+    pub technical_smash_bonus: u8,
+    pub(crate) last_enemy_defeat: Option<u32>,
     pub last_party_killer: Option<ActorId>,
     /// Accepted party contact, including guards, avoidance and absorption.
     pub party_was_hit: bool,
@@ -46,6 +49,8 @@ impl Ledger {
             combat_ticks: 0,
             maximum_combo: 1,
             maximum_combo_damage: 0,
+            technical_smash_bonus: 0,
+            last_enemy_defeat: None,
             last_party_killer: None,
             party_was_hit: false,
             enemy_was_scanned: false,

@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 #[ignore = "requires current Presea, projectile and encounter publications; CPU only"]
-fn destruction_releases_three_rocks_and_finishes() -> Result<()> {
-    let (mut battle, owner) = encounter(7, &[154])?;
+fn destruction_releases_five_rocks_and_finishes() -> Result<()> {
+    let (mut battle, owner) = encounter(7, &[154], false)?;
     let action = battle.prepared_technique(owner, 154).unwrap().action;
     let tp = battle.actors()[owner.index()].tp;
     let first = battle.step(BattleInput {
@@ -38,7 +38,7 @@ fn destruction_releases_three_rocks_and_finishes() -> Result<()> {
         }
     }
     assert!(ended);
-    assert_eq!(emitted, 3);
+    assert_eq!(emitted, 5);
     assert!(
         battle
             .snapshot()

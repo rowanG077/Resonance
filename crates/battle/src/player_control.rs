@@ -60,7 +60,22 @@ impl Battle {
                 && self.special_guard_learned(actor, *binding)
         });
         if let Some(special) = special {
-            self.start_special_guard(actor, special, cues)?;
+            if self
+                .action_rejection(crate::ActionRequest {
+                    actor,
+                    action: special,
+                    target: actor,
+                })?
+                .is_none()
+            {
+                self.runtime[index].special_guard_pending = self
+                    .prepared
+                    .technique(actor, special)
+                    .map(|technique| technique.catalogue);
+                self.actors[index].guard.active = false;
+                self.actors[index].guard.recovery = 0;
+                self.actors[index].movement.forward = 0.;
+            }
             return Ok(());
         }
         let selected = if commands {
@@ -139,6 +154,9 @@ impl Battle {
         }
         if intent.motion == GroundMotion::Guard && intent.action.is_none() && !intent.jump {
             self.enter_player_guard(index);
+            // The pose starts at selection; blocking starts on the next visit.
+            self.actors[index].guard.active = false;
+            self.set_task(index, ActorTask::EnteringGuard);
             self.actors[index].input = InputIntent::default();
             self.actors[index].movement.locomotion = Locomotion::Action;
             self.runtime[index].control.as_mut().unwrap().run_ticks = 0;
@@ -192,12 +210,34 @@ impl Battle {
             self.begin_taunt(actor)?;
             return Ok(());
         }
-        let direction = self.actors[index].facing_direction;
-        crate::control::face(
-            &mut self.actors[index],
-            direction,
-            180. / f32::from(definition.turn_ticks),
-        );
+        let control = self.runtime[index].control.as_mut().unwrap();
+        if intent.action.is_some() || intent.motion != GroundMotion::Idle {
+            control.selector_turn_pending = false;
+        }
+        let turns = intent.action.is_some()
+            || intent.motion != GroundMotion::Idle
+            || control.selector_turn_pending;
+        // Idle preserves heading unless a target selection requested a turn.
+        // An immediately usable action starts facing on its next visit.
+        if turns && (intent.action.is_none() || !self.approach_within_range(index)) {
+            let direction = self.actors[index].facing_direction;
+            let face = if intent.motion == GroundMotion::Run && intent.action.is_none() {
+                crate::control::face_running
+            } else {
+                crate::control::face
+            };
+            if face(
+                &mut self.actors[index],
+                direction,
+                180. / f32::from(definition.turn_ticks),
+            ) {
+                self.runtime[index]
+                    .control
+                    .as_mut()
+                    .unwrap()
+                    .selector_turn_pending = false;
+            }
+        }
         Ok(())
     }
 }

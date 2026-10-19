@@ -35,8 +35,7 @@ fn entry_chooses_health_pose_or_an_idle_phase() -> Result<()> {
             &profile,
             resonance_battle::Side::Party,
             &motions,
-            hp,
-            100,
+            (hp, 100),
             petrified,
         )?;
         assert_eq!(
@@ -54,8 +53,7 @@ fn entry_chooses_health_pose_or_an_idle_phase() -> Result<()> {
             &profile,
             resonance_battle::Side::Party,
             &motions,
-            100,
-            100,
+            (100, 100),
             false,
         )?;
         assert_eq!(initial.clip, expected_clip);
@@ -69,8 +67,7 @@ fn entry_chooses_health_pose_or_an_idle_phase() -> Result<()> {
             &profile,
             resonance_battle::Side::Party,
             &motions,
-            100,
-            100,
+            (100, 100),
             false
         )
         .is_err()

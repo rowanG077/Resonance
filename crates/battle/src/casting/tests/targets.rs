@@ -12,11 +12,27 @@ fn released(frame: &crate::BattleFrame, actor: ActorId) -> Option<ActionId> {
 }
 
 #[test]
-fn ordinary_and_stored_casts_use_current_opponent_without_repaying() {
-    for stored in [false, true] {
-        let mut battle = spell_charge::charged_prepared(Control::Manual, 0)
-            .finish()
-            .unwrap();
+fn ordinary_and_stored_casts_keep_support_and_opponent_targets_without_repaying() {
+    for (stored, support) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut prepared = spell_charge::charged_prepared(Control::Manual, 0);
+        if support {
+            let release = Arc::make_mut(&mut casting_definition(&mut prepared).release);
+            release.projectiles.clear();
+            release.policy = crate::SpellPolicy::TransferRecovery {
+                appearance: crate::EffectAppearance {
+                    resource: 0,
+                    member: 1,
+                },
+                apex: 120.,
+                speed: 1.,
+                benefit: crate::SpellBenefit::Tp(15),
+            };
+            release.duration = 300;
+            prepared.resources.actor_setup[0].techniques[0]
+                .capabilities
+                .target = crate::TechniqueTarget::Ally;
+        }
+        let mut battle = prepared.finish().unwrap();
         let initial_tp = battle.actors[0].tp;
         let cost = battle.prepared.actions.entries[0].tp_cost;
         if stored {
@@ -26,6 +42,9 @@ fn ordinary_and_stored_casts_use_current_opponent_without_repaying() {
             // The admission target deliberately differs from the current opponent.
             input.actions[0].target = ActorId(2);
             battle.step(input).unwrap();
+            if support {
+                assert_eq!(battle.runtime[0].support_target, ActorId(2));
+            }
         }
         battle.runtime[0].target = ActorId(1);
         battle.runtime[0].support_target = ActorId(2);
@@ -47,8 +66,8 @@ fn ordinary_and_stored_casts_use_current_opponent_without_repaying() {
         assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
         assert_eq!(
             battle.volleys[&resident].target,
-            ActorId(1),
-            "stored={stored}"
+            if support { ActorId(2) } else { ActorId(1) },
+            "stored={stored}, support={support}"
         );
         assert_eq!(battle.actors[0].stored_spell, None);
         for _ in 0..8 {

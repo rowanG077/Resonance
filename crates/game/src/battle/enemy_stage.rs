@@ -63,10 +63,7 @@ pub fn apply_sword(
         decision.choices[8].chain_group = 0;
     }
     if !bone_scales.is_empty() {
-        decision.behavior = Some(EnemyBehavior::ModelParts {
-            bone_scales,
-            hidden_weapons: Vec::new(),
-        });
+        decision.behavior = Some(EnemyBehavior::ModelParts { bone_scales });
     }
     Ok(())
 }

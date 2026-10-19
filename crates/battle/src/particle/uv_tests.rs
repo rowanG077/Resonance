@@ -263,6 +263,7 @@ fn model_scroll_keeps_signed_offsets_across_a_texture_repeat() {
         slot: 1,
         animation: None,
         repeat: false,
+        reverse_at: None,
         program_animation: false,
         attachment: None,
     });

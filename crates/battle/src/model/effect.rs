@@ -19,7 +19,8 @@ pub struct EffectModelDefinition {
 #[derive(Debug, Clone)]
 pub struct PreparedEffectModel {
     definition: Arc<EffectModelDefinition>,
-    animation: Option<(u16, AnimatedPose)>,
+    animation: Option<(u16, AnimatedPose, Arc<EffectModelDefinition>)>,
+    layers: Vec<PreparedEffectModel>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -46,7 +47,33 @@ impl PreparedEffectModel {
         Ok(Self {
             definition,
             animation: None,
+            layers: Vec::new(),
         })
+    }
+
+    /// Independent visual rigs share the particle transform, but own their animation clocks.
+    pub fn with_layers(mut self, layers: Vec<Self>) -> Result<Self> {
+        for layer in &layers {
+            ensure!(layer.layers.is_empty(), "nested effect model layers");
+            for &clip in self.definition.motions.keys() {
+                layer.validate_clip(clip)?;
+            }
+        }
+        self.layers = layers;
+        Ok(self)
+    }
+
+    /// Start an equipment layer's own loop before any particle borrows the model.
+    pub fn with_playback(mut self, playback: Playback) -> Result<Self> {
+        self.play(resonance_content::battle_effect::ModelAnimation {
+            model: 0,
+            clip: playback.clip,
+            frame: playback.frame,
+            rate: playback.rate,
+            repeat: playback.repeat,
+            blend_ticks: 0,
+        })?;
+        Ok(self)
     }
 
     pub(crate) fn validate_clip(&self, clip: u16) -> Result<()> {
@@ -78,14 +105,44 @@ impl PreparedEffectModel {
         })
     }
 
+    /// A geometry-only selection keeps the declaration's motion resource.
+    pub(crate) fn play_repeating_from(
+        &mut self,
+        source: &Self,
+        clip: u16,
+        repeat: bool,
+    ) -> Result<()> {
+        self.play_from(
+            source.definition.clone(),
+            resonance_content::battle_effect::ModelAnimation {
+                model: 0,
+                clip,
+                frame: 0.,
+                rate: 0.5,
+                repeat,
+                blend_ticks: 0,
+            },
+        )
+    }
+
     pub(crate) fn play(
         &mut self,
         playback: resonance_content::battle_effect::ModelAnimation,
     ) -> Result<()> {
+        self.play_from(self.definition.clone(), playback)
+    }
+
+    fn play_from(
+        &mut self,
+        source: Arc<EffectModelDefinition>,
+        playback: resonance_content::battle_effect::ModelAnimation,
+    ) -> Result<()> {
         playback.validate()?;
         let clip = playback.clip;
-        self.validate_clip(clip)?;
-        let motion = &self.definition.motions[&clip];
+        let motion = source
+            .motions
+            .get(&clip)
+            .context("unprepared effect model motion")?;
         let frame = if playback.repeat && playback.frame > motion.duration_frames {
             playback.frame.rem_euclid(motion.duration_frames)
         } else {
@@ -97,12 +154,18 @@ impl PreparedEffectModel {
             rate: playback.rate,
             repeat: playback.repeat,
         };
-        if let Some((requested, animation)) = &mut self.animation {
+        if let Some((requested, animation, motion_source)) = &mut self.animation {
+            if playback.blend_ticks > 1 {
+                // Capture the outgoing effect pose from this update before blending.
+                animation.advance(&self.definition.skeleton, &motion_source.motions[requested])?;
+            }
             *requested = clip;
+            *motion_source = source.clone();
             animation.start(Clock::new(
                 play,
                 motion.duration_frames,
-                playback.blend_ticks,
+                // Effect commands replace this update's sample when no blend is requested.
+                playback.blend_ticks.max(1),
             )?);
         } else {
             ensure!(
@@ -112,16 +175,34 @@ impl PreparedEffectModel {
             self.animation = Some((
                 clip,
                 AnimatedPose::new(&self.definition.skeleton, motion, play)?,
+                source,
             ));
+        }
+        for layer in &mut self.layers {
+            layer.play(playback)?;
         }
         Ok(())
     }
 
+    pub(crate) fn reverse(&mut self) {
+        if let Some((_, animation, _)) = &mut self.animation {
+            animation.clock.rate = -animation.clock.rate;
+            animation.clock.stopped = false;
+            animation.clock.finished = false;
+        }
+        for layer in &mut self.layers {
+            layer.reverse();
+        }
+    }
+
     pub(crate) fn advance(&mut self) -> Result<()> {
-        if let Some((clip, animation)) = &mut self.animation {
+        if let Some((clip, animation, source)) = &mut self.animation {
             let skeleton = &self.definition.skeleton;
-            let motion = &self.definition.motions[clip];
+            let motion = &source.motions[clip];
             animation.advance(skeleton, motion)?;
+        }
+        for layer in &mut self.layers {
+            layer.advance()?;
         }
         Ok(())
     }
@@ -133,6 +214,7 @@ impl PreparedEffectModel {
         elevation: Option<f32>,
         ground_relative: bool,
         parent: Option<Matrix>,
+        advance: bool,
     ) -> Result<EffectModelFrame> {
         let state = &particle.state;
         let crate::ParticleGeometry::Size { value, .. } = state.geometry else {
@@ -170,7 +252,7 @@ impl PreparedEffectModel {
         } else {
             rotation
         };
-        self.sample_at(world, rotation, secondary, true)
+        self.sample_at(world, rotation, secondary, advance)
     }
 
     pub(crate) fn sample_at(
@@ -180,16 +262,45 @@ impl PreparedEffectModel {
         secondary: &mut Vec<Simulation>,
         advance: bool,
     ) -> Result<EffectModelFrame> {
-        let (mut pose, sampled) = if let Some((clip, animation)) = &self.animation {
-            (
-                animation.pose(&self.definition.skeleton, [false; 3])?.0,
-                Some((*clip, animation.clock.frame)),
-            )
+        let secondary_count = std::iter::once(self)
+            .chain(&self.layers)
+            .map(|layer| layer.definition.secondary_motion.len())
+            .sum();
+        secondary.resize_with(secondary_count, Simulation::default);
+        let (primary_secondary, mut simulations) =
+            secondary.split_at_mut(self.definition.secondary_motion.len());
+        let mut bones = self.sample_pose(world, rotation, primary_secondary, advance)?;
+        for layer in &self.layers {
+            let (layer_secondary, remaining) =
+                simulations.split_at_mut(layer.definition.secondary_motion.len());
+            simulations = remaining;
+            bones.extend(layer.sample_pose(world, rotation, layer_secondary, advance)?);
+        }
+        Ok(EffectModelFrame {
+            resource: self.definition.resource,
+            clip: self.animation.as_ref().map(|(clip, _, _)| *clip),
+            frame: self
+                .animation
+                .as_ref()
+                .map_or(0., |(_, animation, _)| animation.clock.frame),
+            world: world.to_cols_array_2d(),
+            bones: Arc::new(bones),
+        })
+    }
+
+    fn sample_pose(
+        &self,
+        world: Mat4,
+        rotation: Quat,
+        secondary: &mut [Simulation],
+        advance: bool,
+    ) -> Result<Vec<Matrix>> {
+        let mut pose = if let Some((_, animation, _)) = &self.animation {
+            animation.pose(&self.definition.skeleton, [false; 3])?.0
         } else {
-            (self.definition.skeleton.bind_pose()?, None)
+            self.definition.skeleton.bind_pose()?
         };
         if self.animation.is_some() && !self.definition.secondary_motion.is_empty() {
-            secondary.resize_with(self.definition.secondary_motion.len(), Simulation::default);
             secondary::apply(
                 &self.definition.secondary_motion,
                 secondary,
@@ -202,13 +313,7 @@ impl PreparedEffectModel {
                 advance,
             )?;
         }
-        Ok(EffectModelFrame {
-            resource: self.definition.resource,
-            clip: sampled.map(|(clip, _)| clip),
-            frame: sampled.map_or(0., |(_, frame)| frame),
-            world: world.to_cols_array_2d(),
-            bones: Arc::new(pose.global),
-        })
+        Ok(pose.global)
     }
 }
 
@@ -216,6 +321,104 @@ impl PreparedEffectModel {
 mod tests {
     use super::*;
     use resonance_content::battle_effect::ModelAnimation;
+
+    #[test]
+    fn independent_layers_keep_their_rig_and_loop_length() -> Result<()> {
+        use resonance_content::animation::{
+            Track, TransformChannels, VectorCurve, VectorInterpolation,
+        };
+        let make = |duration, extra_bone| -> Result<_> {
+            let mut source = crate::tests::model_definition(41, [(0, duration)]);
+            source.motions.get_mut(&0).unwrap().tracks.push(Track {
+                bone: 0,
+                bind_channels: TransformChannels(8),
+                period_frames: duration,
+                times: vec![0., duration],
+                translation: Some(VectorCurve {
+                    interpolation: VectorInterpolation::Linear,
+                    values: vec![[0.; 3], [duration, 0., 0.]],
+                    incoming: vec![],
+                    outgoing: vec![],
+                    ease: vec![],
+                }),
+                scale: None,
+                rotation: None,
+                euler_degrees: None,
+                matrices: None,
+            });
+            if extra_bone {
+                let mut child = source.skeleton.bones[0].clone();
+                child.name = "child".into();
+                child.parent = Some(0);
+                child.bind.translation[1] = 5.;
+                source.skeleton.bones.push(child);
+            }
+            PreparedEffectModel::new(Arc::new(EffectModelDefinition {
+                resource: 41,
+                skeleton: source.skeleton,
+                motions: source.motions,
+                secondary_motion: vec![],
+            }))
+        };
+        let mut model = make(4., false)?.with_layers(vec![make(8., true)?])?;
+        model.play_repeating(0, true)?;
+        for _ in 0..10 {
+            model.advance()?;
+        }
+        let world = Mat4::from_translation(Vec3::new(10., 20., 30.));
+        let frame = model.sample_at(world, Quat::IDENTITY, &mut vec![], true)?;
+        assert_eq!(frame.world, world.to_cols_array_2d());
+        assert_eq!(frame.bones.len(), 3);
+        assert_eq!(frame.bones[0][3], [1., 0., 0., 1.]);
+        assert_eq!(frame.bones[1][3], [5., 0., 0., 1.]);
+        assert_eq!(frame.bones[2][3], [5., 5., 0., 1.]);
+
+        let source = crate::tests::model_definition(41, [(0, 1.)]);
+        let mut rigid = PreparedEffectModel::new(Arc::new(EffectModelDefinition {
+            resource: 41,
+            skeleton: source.skeleton,
+            motions: BTreeMap::new(),
+            secondary_motion: vec![],
+        }))?
+        .with_layers(vec![make(8., true)?.with_playback(Playback {
+            clip: 0,
+            frame: 0.,
+            rate: 0.5,
+            repeat: true,
+        })?])?;
+        for _ in 0..10 {
+            rigid.advance()?;
+        }
+        let frame = rigid.sample_at(world, Quat::IDENTITY, &mut vec![], true)?;
+        assert_eq!(frame.bones[0][3], [0., 0., 0., 1.]);
+        assert_eq!(frame.bones[1][3], [5., 0., 0., 1.]);
+        assert_eq!(frame.bones[2][3], [5., 5., 0., 1.]);
+
+        let mut source = make(8., true)?;
+        let definition = Arc::make_mut(&mut source.definition);
+        let motion = definition.motions.get_mut(&0).unwrap();
+        let mut child_track = motion.tracks[0].clone();
+        child_track.bone = 1;
+        motion.tracks.push(child_track);
+        motion.validate(&definition.skeleton)?;
+        let mut selected = make(4., false)?;
+        Arc::make_mut(&mut selected.definition).resource = 42;
+        selected.play_repeating_from(&source, 0, true)?;
+        for _ in 0..10 {
+            selected.advance()?;
+        }
+        let frame = selected.sample_at(world, Quat::IDENTITY, &mut vec![], true)?;
+        assert_eq!(frame.resource, 42);
+        assert_eq!(frame.bones.len(), 1);
+        assert_eq!(frame.frame, 5.);
+        assert_eq!(frame.bones[0][3], [5., 0., 0., 1.]);
+        selected.play_repeating(0, true)?;
+        for _ in 0..11 {
+            selected.advance()?;
+        }
+        assert_eq!(selected.animation.as_ref().unwrap().1.clock.frame, 1.);
+        Ok(())
+    }
 
     #[test]
     fn effect_model_blends_freeze_frames_and_hold_or_loop() -> Result<()> {
@@ -231,6 +434,11 @@ mod tests {
             model.advance()?;
         }
         assert_eq!(model.animation.as_ref().unwrap().1.clock.frame, 3.);
+        model.reverse();
+        for expected in [2.5, 2., 1.5, 1., 0.5, 0., 0.] {
+            model.advance()?;
+            assert_eq!(model.animation.as_ref().unwrap().1.clock.frame, expected);
+        }
         for repeat in [false, true] {
             model.play(ModelAnimation {
                 model: 0,

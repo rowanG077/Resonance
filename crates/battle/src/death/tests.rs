@@ -24,8 +24,9 @@ fn prepared(actors: Vec<Actor>) -> PreparedBattle {
 #[test]
 fn unavailable_members_settle_without_admitting_commands() {
     let mut actors = vec![crate::tests::actor(Side::Party); 4];
-    actors.extend(vec![crate::tests::actor(Side::Enemy); 2]);
+    actors.extend(vec![crate::tests::actor(Side::Enemy); 3]);
     actors[4].hp = 0;
+    actors[6].hp = 0;
     actors[0].hp = 0;
     actors[1].availability = ActorAvailability::Petrified;
     actors[1].conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
@@ -38,8 +39,15 @@ fn unavailable_members_settle_without_admitting_commands() {
         actor.movement.vertical = -1.;
         actor.movement.gravity = -0.5;
     }
+    actors[4].movement.flying = true;
+    actors[4].movement.vertical = 0.;
+    actors[4].movement.gravity = 0.;
     let absent_position = actors[2].position;
+    actors[6].movement.forward = 4.;
+    actors[6].reaction.direction = [1., 0., 0.];
+    let fading_position = actors[6].position;
     let mut prepared = prepared(actors);
+    prepared.resources.actor_setup[6].stationary_defeat = true;
     prepared
         .resources
         .actions
@@ -91,6 +99,7 @@ fn unavailable_members_settle_without_admitting_commands() {
     assert_eq!(battle.actors[4].position[1], 0.);
     assert_eq!(battle.actors[1].position[1], 0.);
     assert_eq!(battle.actors[2].position, absent_position);
+    assert_eq!(battle.actors[6].position, fading_position);
     assert!(battle.actors[..3].iter().all(|actor| actor.tp == tp));
 }
 
@@ -186,7 +195,7 @@ fn death_clears_mutable_effects_and_enchantment_without_removing_equipment_grant
     });
     owner
         .conditions
-        .prepare_buff(Buff::PhysicalAilmentGuard { persistent: true }, false)
+        .prepare_buff(Buff::PhysicalAilmentGuard, false)
         .commit(&mut owner);
     owner
         .conditions

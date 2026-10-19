@@ -44,6 +44,10 @@ pub fn prepare(
         "invalid companion policy limits"
     );
     Ok(CompanionDefinition {
+        normal_attack_opening: matches!(
+            super::party::Character::try_from(character)?,
+            super::party::Character::Kratos | super::party::Character::Zelos
+        ),
         initial_policy: member.strategy,
         defaults,
         limits,

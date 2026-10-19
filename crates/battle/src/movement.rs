@@ -34,6 +34,9 @@ pub struct Movement {
     /// Direction toward the current opponent, independent of movement and desired facing.
     pub target_direction: [f32; 3],
     pub forward: f32,
+    /// Signed distance from the last integration, retained while its controller is suspended.
+    /// Body separation uses this distance before acceleration and braking.
+    pub(crate) forward_step: f32,
     pub vertical: f32,
     pub acceleration: f32,
     pub gravity: f32,
@@ -48,6 +51,113 @@ pub struct Movement {
     /// Attack classification retained through the final landing contacts.
     pub airborne_action: bool,
     pub steering: crate::Steering,
+}
+
+/// Recorded motion at an idle input boundary, independent of fixture warm-up.
+#[cfg(feature = "test-support")]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct FixtureMotion {
+    position: [f32; 3],
+    heading: f32,
+    facing_direction: [f32; 3],
+    movement_direction: [f32; 3],
+    target_direction: [f32; 3],
+    forward: f32,
+    forward_step: f32,
+    vertical: f32,
+    acceleration: f32,
+    gravity: f32,
+    hover_settled: bool,
+    hover_phase: u16,
+    floor_armed: bool,
+}
+
+#[cfg(feature = "test-support")]
+impl FixtureMotion {
+    pub fn observe(actor: &Actor) -> Self {
+        let motion = &actor.movement;
+        Self {
+            position: actor.position,
+            heading: actor.heading,
+            facing_direction: actor.facing_direction,
+            movement_direction: motion.direction,
+            target_direction: motion.target_direction,
+            forward: motion.forward,
+            forward_step: motion.forward_step,
+            vertical: motion.vertical,
+            acceleration: motion.acceleration,
+            gravity: motion.gravity,
+            hover_settled: motion.hover.settled,
+            hover_phase: motion.hover.phase,
+            floor_armed: motion.floor.armed,
+        }
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl Battle {
+    pub fn restore_fixture_target(&mut self, actor: ActorId, target: ActorId) -> Result<()> {
+        self.actor(actor)?;
+        self.actor(target)?;
+        ensure!(
+            self.phase() == crate::BattlePhase::Combat
+                && matches!(self.activity(actor), Activity::Idle | Activity::Approaching)
+                && self.target_available(actor, target),
+            "invalid fixture controller target"
+        );
+        self.runtime[actor.index()].target = target;
+        Ok(())
+    }
+
+    pub fn restore_fixture_position(&mut self, actor: ActorId, position: [f32; 3]) -> Result<()> {
+        let mut observed = FixtureMotion::observe(self.actor(actor)?);
+        observed.position = position;
+        self.restore_fixture_motion(actor, observed)
+    }
+
+    pub fn restore_fixture_motion(
+        &mut self,
+        actor: ActorId,
+        observed: FixtureMotion,
+    ) -> Result<()> {
+        self.actor(actor)?;
+        ensure!(
+            self.phase() == crate::BattlePhase::Combat
+                && (self.activity(actor) == Activity::Idle
+                    || self.activity(actor) == Activity::Defeated
+                        && self.actors[actor.index()].availability
+                            == crate::ActorAvailability::Dead)
+                && observed.hover_phase < 360
+                && observed
+                    .position
+                    .iter()
+                    .chain(&observed.facing_direction)
+                    .chain([&observed.heading, &observed.forward_step])
+                    .all(|value| value.is_finite()),
+            "invalid fixture motion boundary"
+        );
+        let current = &mut self.actors[actor.index()];
+        let mut motion = current.movement;
+        motion.direction = observed.movement_direction;
+        motion.target_direction = observed.target_direction;
+        motion.forward = observed.forward;
+        motion.forward_step = observed.forward_step;
+        motion.vertical = observed.vertical;
+        motion.acceleration = observed.acceleration;
+        motion.gravity = observed.gravity;
+        motion.hover.settled = observed.hover_settled;
+        motion.hover.phase = observed.hover_phase;
+        motion.floor = Floor {
+            armed: observed.floor_armed,
+            landing: None,
+        };
+        motion.validate()?;
+        current.position = observed.position;
+        current.heading = observed.heading;
+        current.facing_direction = observed.facing_direction;
+        current.movement = motion;
+        Ok(())
+    }
 }
 
 impl crate::Actor {
@@ -150,6 +260,7 @@ impl Movement {
 
     /// Hurt controllers retain a recoil direction independently of action motion.
     pub(crate) fn integrate_along(&mut self, position: &mut [f32; 3], direction: [f32; 3]) {
+        self.forward_step = self.forward;
         position[0] += direction[0] * self.forward;
         if !self.fixed_height {
             position[1] += self.vertical;
@@ -165,12 +276,11 @@ impl Movement {
         }
         let grounded = self.flying || height <= GROUND_TOLERANCE;
         if grounded {
-            let speed = self.forward.abs() - self.braking;
-            self.forward = if speed > STOP_SPEED {
-                self.forward.signum() * speed
-            } else {
-                0.
-            };
+            let speed = (self.forward.abs() - self.braking).max(0.);
+            self.forward = self.forward.signum() * speed;
+        }
+        if self.forward.abs() <= STOP_SPEED {
+            self.forward = 0.;
         }
         self.forward == 0.
     }
@@ -207,6 +317,27 @@ impl PreparedBattle {
 }
 
 impl Battle {
+    pub(crate) fn emit_movement_effect(&self, owner: ActorId, elapsed: u16, cues: &mut Vec<Cue>) {
+        let Some((appearance, interval)) = self.prepared.actor_setup[owner.index()].movement_effect
+        else {
+            return;
+        };
+        if elapsed == 0 || !elapsed.is_multiple_of(interval) {
+            return;
+        }
+        let actor = &self.actors[owner.index()];
+        cues.push(Cue::InitializedEffect(crate::EffectRequest {
+            owner,
+            target: owner,
+            appearance,
+            origin: actor.position,
+            heading: actor.heading,
+            follow: Some(crate::EffectFollow::Actor(owner)),
+            scale: actor.effect_scale,
+            tint: Default::default(),
+        }));
+    }
+
     pub(crate) fn advance_hover(&mut self, index: usize, bob: bool) -> Result<()> {
         let actor = &mut self.actors[index];
         actor.movement.settle_hover(&mut actor.position[1]);

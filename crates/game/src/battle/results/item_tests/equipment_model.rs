@@ -234,7 +234,7 @@ fn weapon_swap_preserves_active_contacts_and_native_state() -> Result<()> {
 
 #[test]
 #[ignore = "requires current cooked equipment resources; CPU only"]
-fn missing_actor_art_allows_stats_contacts_and_result_commit() -> Result<()> {
+fn missing_required_actor_resources_abort_preparation() -> Result<()> {
     for broken in [Some(135), Some(136), Some(356), None] {
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
@@ -285,59 +285,12 @@ fn missing_actor_art_allows_stats_contacts_and_result_commit() -> Result<()> {
                 },
             )
             .and_then(|loaded| loaded.prepare(2500, |sound| Ok(Some(sound))));
-            if paranoid {
-                let error = loaded
-                    .err()
-                    .context("strict preparation accepted broken artwork")?;
-                let expected =
-                    broken.map_or_else(|| "battle/party/01.json".into(), |item| item.to_string());
-                assert!(format!("{error:#}").contains(&expected), "{error:#}");
-                continue;
-            }
-            let PreparedFixture {
-                mut candidate,
-                mut battle,
-                field,
-                ..
-            } = loaded?;
-            let actor = candidate.setup.actors[0].0;
-            assert!(diagnostics.has_errors());
-
-            enter_battle(&mut candidate, &mut battle)?;
-            // The initially equipped weapon can hit even when its artwork was omitted.
-            let (previous, _) = strike(&mut candidate, &mut battle, actor, None)?;
-            let (mut page, mut character) = candidate.begin_equipment(&mut battle, 0)?;
-            for _ in 0..12 {
-                candidate.step_equipment(
-                    &mut battle,
-                    &mut page,
-                    &mut character,
-                    Input::default(),
-                )?;
-            }
-            let draft = candidate.menu_party.as_mut().unwrap();
-            assert!(
-                draft
-                    .equip_slot(&candidate.session, 0, 0, 136)
-                    .map_err(anyhow::Error::msg)?
-            );
-            let expected = draft.members[0].stats_for(&candidate.menus, 0);
-            close_equipment(&mut candidate, &mut battle, &mut page, &mut character)?;
-            assert_eq!(candidate.party.members[0].equipment[0], 136);
-            assert_eq!(
-                battle.actors()[actor.index()].equipment.stats.slash,
-                i32::from(expected.slash)
-            );
-            assert!(!candidate.party.items.contains_key(&136));
-
-            strike(&mut candidate, &mut battle, actor, Some(previous))?;
-            assert!(!battle.is_diagnostic());
-            let outcome = escape(&mut candidate, &mut battle)?;
-            let completed = candidate.finish(&battle, &outcome)?;
-            assert_eq!(completed.party.members[0].equipment[0], 136);
-            assert_eq!(completed.party.members[8].equipment[5], 356);
-            assert!(!completed.party.items.contains_key(&136));
-            assert_eq!(field.members[0].equipment[0], 135);
+            let error = loaded
+                .err()
+                .context("preparation accepted missing required actor resources")?;
+            let expected =
+                broken.map_or_else(|| "battle/party/01.json".into(), |item| item.to_string());
+            assert!(format!("{error:#}").contains(&expected), "{error:#}");
         }
     }
     Ok(())

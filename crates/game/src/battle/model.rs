@@ -184,6 +184,7 @@ pub(super) enum MotionRole {
     WeakIdle = 26,
     Taunt = 27,
     Backstep = 28,
+    Acquisition = 29,
 }
 
 impl MotionRole {
@@ -255,6 +256,7 @@ pub(super) fn body(
     actor: &Actor,
     setup: ModelSetup,
 ) -> Result<Arc<ModelDefinition>> {
+    rig.skeleton.validate()?;
     ensure!(
         rig.skeleton
             .bones
@@ -278,8 +280,16 @@ pub(super) fn body(
         ReactionMotions::default()
     } else {
         ReactionMotions {
+            walk: clip(MotionRole::Walk.id()),
+            run: clip(MotionRole::Run.id()),
             chant: clip(MotionRole::Chant.id()).or_else(|| clip(MotionRole::Cast.id())),
+            chant_once: profile.chant_once,
+            chant_rate: profile.cast_poses.release.rate,
+            chant_loop_start: profile.chant_loop_start,
             cast: clip(MotionRole::Cast.id()),
+            cast_recovery: profile
+                .cast_recovery_motion
+                .and_then(|id| clip(u16::from(id))),
             jump: clip(MotionRole::Jump.id()),
             backstep: clip(MotionRole::Backstep.id()),
             taunt: clip(MotionRole::Taunt.id()),
@@ -288,9 +298,7 @@ pub(super) fn body(
             } else {
                 MotionRole::Run.id()
             }),
-            stopping: (actor.side == Side::Party)
-                .then(|| clip(MotionRole::Stop.id()))
-                .flatten(),
+            stopping: clip(MotionRole::Stop.id()),
             hurt: [hurt, alternate],
             guard: [clip(2), clip(4)],
             stunned: clip(21),
@@ -305,12 +313,20 @@ pub(super) fn body(
             } else {
                 16
             },
-            down: clip(8).or_else(|| clip(MotionRole::Defeated.id())),
+            stagger_down: clip(MotionRole::Defeated.id()),
+            stagger_get_up: clip(MotionRole::Revival.id()),
+            down: clip(8),
             get_up: clip(10).or_else(|| clip(9)),
             defeated: (profile.death_motion != 0)
                 .then(|| clip(u16::from(profile.death_motion)))
                 .flatten()
-                .or_else(|| clip(MotionRole::Defeated.id())),
+                .or_else(|| {
+                    clip(if profile.traits.retain_defeated_body {
+                        MotionRole::Defeated.id()
+                    } else {
+                        MotionRole::Hurt.id()
+                    })
+                }),
         }
     };
     let blink = if let Some(blink) = &profile.blink {
@@ -344,6 +360,7 @@ pub(super) fn body(
             ]
         },
         idle_expression: profile.idle_expression,
+        forced_eye_frame: None,
         blink,
         shadow: if actor.side == resonance_battle::Side::Enemy && profile.traits.hide_enemy_shadow {
             None
@@ -410,13 +427,52 @@ pub fn effect(
     files: &Files,
     part: &resonance_content::battle_model::ModelPart,
     resource: u32,
+    animate_layers: bool,
 ) -> Result<resonance_battle::PreparedEffectModel> {
     let primary = &part
         .layers
         .first()
         .context("missing effect model layer")?
         .scene;
+    let prepare = |layer: &resonance_content::model_preview::PreviewPart,
+                   skeleton: &resonance_content::animation::Skeleton|
+     -> Result<_> {
+        let scene = &layer.scene;
+        let mut motions = BTreeMap::new();
+        for clip in &scene.clips {
+            ensure!(
+                motions
+                    .insert(
+                        clip.resource_slot,
+                        Motion::decode(&files.read(&clip.motion)?)?
+                    )
+                    .is_none(),
+                "duplicate effect motion slot"
+            );
+        }
+        let model = resonance_battle::PreparedEffectModel::new(Arc::new(
+            resonance_battle::EffectModelDefinition {
+                resource,
+                skeleton: skeleton.clone(),
+                motions,
+                secondary_motion: scene.secondary_motion.chains.clone(),
+            },
+        ))?;
+        if animate_layers && let Some((_, clip)) = layer.selected_clip()? {
+            model.with_playback(Playback {
+                clip: clip.resource_slot,
+                frame: 0.,
+                rate: 1.,
+                repeat: true,
+            })
+        } else {
+            Ok(model)
+        }
+    };
+    let mut independent = Vec::new();
     for layer in &part.layers {
+        let declared = part.layer_skeletons.get(&layer.scene.resource);
+        let expected = declared.unwrap_or(&part.rig.skeleton);
         let skeleton =
             resonance_content::animation::Skeleton::from_glb(&files.read(&layer.scene.mesh)?)?;
         ensure!(
@@ -425,8 +481,18 @@ pub fn effect(
                 .iter()
                 .map(|bone| &bone.name)
                 .eq(layer.scene.bone_names.iter())
-                && shares_indexed_pose(&part.rig.skeleton, &skeleton)
-                && primary
+                && shares_indexed_pose(expected, &skeleton),
+            "effect model layer bindings differ"
+        );
+        if declared.is_some() {
+            ensure!(
+                layer.attached_to.is_none(),
+                "independent effect layer has an attachment"
+            );
+            independent.push(prepare(layer, expected)?);
+        } else {
+            ensure!(
+                primary
                     .clips
                     .iter()
                     .map(|clip| (clip.resource_slot, &clip.motion))
@@ -435,30 +501,11 @@ pub fn effect(
                         .clips
                         .iter()
                         .map(|clip| (clip.resource_slot, &clip.motion))),
-            "effect model layer bindings differ"
-        );
+                "shared effect layer motions differ"
+            );
+        }
     }
-    let mut motions = BTreeMap::new();
-    for clip in &primary.clips {
-        ensure!(
-            motions
-                .insert(
-                    clip.resource_slot,
-                    Motion::decode(&files.read(&clip.motion)?)?
-                )
-                .is_none(),
-            "duplicate effect motion slot"
-        );
-    }
-    let model = resonance_battle::PreparedEffectModel::new(Arc::new(
-        resonance_battle::EffectModelDefinition {
-            resource,
-            skeleton: part.rig.skeleton.clone(),
-            motions,
-            secondary_motion: primary.secondary_motion.chains.clone(),
-        },
-    ))?;
-    Ok(model)
+    prepare(&part.layers[0], &part.rig.skeleton)?.with_layers(independent)
 }
 
 /// Effect layers consume indexed poses. Labels may differ between the body and
@@ -469,7 +516,7 @@ fn shares_indexed_pose(
 ) -> bool {
     // Independently exported body/outline matrices acquire small differences
     // when decomposed into TRS. Compare their pose, not float serialization.
-    const REST_POSE_TOLERANCE: f32 = 0.00001;
+    const REST_POSE_TOLERANCE: f32 = 0.0001;
     primary.bones.len() == layer.bones.len()
         && primary.bones.iter().zip(&layer.bones).all(|(a, b)| {
             a.parent == b.parent

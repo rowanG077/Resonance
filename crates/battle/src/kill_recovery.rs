@@ -16,6 +16,7 @@ impl Battle {
             let (hp, nominal) = actor.recovered_hp(10);
             actor.hp = hp;
             cues.push(Cue::Recovered {
+                floating: false,
                 kind: RecoveryKind::Hp,
                 actor: owner,
                 nominal,
@@ -25,6 +26,7 @@ impl Battle {
         if conditions.contains(Condition::KillTpRecovery) {
             let (tp, nominal) = actor.recovered_tp(5);
             cues.push(Cue::Recovered {
+                floating: false,
                 actor: owner,
                 kind: RecoveryKind::Tp,
                 nominal,

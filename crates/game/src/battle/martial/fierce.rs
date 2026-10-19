@@ -36,37 +36,9 @@ impl Technique {
         let ActionExecution::Attack(attack) = &mut ordinary.execution else {
             unreachable!()
         };
-        for (index, forward) in [90., 120., 150.].into_iter().enumerate() {
-            let mut hit = recipe.hits[0].clone();
-            hit.recoil = if index == 2 { 7 } else { 1 };
-            attack.events.push((
-                24 + knight_delay + index as u16 * 4,
-                AttackEvent::Projectile(Arc::new(ProjectileDefinition {
-                    lifetime: Some(2),
-                    velocity: [0.; 3],
-                    acceleration: [0.; 3],
-                    offset: [0., 50., forward],
-                    clamp_ground: false,
-                    active: None,
-                    birth: None,
-                    motion: Default::default(),
-                    effects: Default::default(),
-                    contact: Some(ProjectileContact {
-                        hit: crate::battle::hit::authored(&hit, &recoil)?,
-                        cooldown: hit.cooldown,
-                        repeat_limit: 0,
-                        radius: 90.,
-                        height: 90.,
-                        shape: resonance_battle::HitShape::Box,
-                        offset: [0.; 3],
-                        radius_growth: 0.,
-                        height_growth: 0.,
-                        survives_contact: true,
-                        clashes: false,
-                    }),
-                })),
-            ));
-        }
+        attack
+            .events
+            .extend(resources.fierce_fang_shockwaves(&recipe.hits[0], 24 + knight_delay)?);
         let row = resources
             .projectiles
             .records
@@ -111,5 +83,52 @@ impl Technique {
             AttackEvent::ChooseGraveBlade([Arc::new(ordinary), Arc::new(earth)]),
         )];
         Ok(entry)
+    }
+}
+
+impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
+    crate::battle::encounter::resources::Resources<'_, S>
+{
+    pub(crate) fn fierce_fang_shockwaves(
+        &mut self,
+        hit: &resonance_content::battle_action::ActionHit,
+        first_at: u16,
+    ) -> Result<Vec<(u16, AttackEvent)>> {
+        let recoil = crate::battle::recoil::Parameters::load(self.files)?;
+        [90., 120., 150.]
+            .into_iter()
+            .enumerate()
+            .map(|(index, forward)| {
+                let mut hit = *hit;
+                hit.recoil = if index == 2 { 7 } else { 1 };
+                Ok((
+                    first_at + index as u16 * 4,
+                    AttackEvent::Projectile(Arc::new(ProjectileDefinition {
+                        lifetime: Some(2),
+                        velocity: [0.; 3],
+                        acceleration: [0.; 3],
+                        offset: [0., 50., forward],
+                        clamp_ground: false,
+                        active: None,
+                        birth: None,
+                        motion: Default::default(),
+                        effects: Default::default(),
+                        contact: Some(ProjectileContact {
+                            hit: crate::battle::hit::authored(&hit, &recoil)?,
+                            cooldown: hit.cooldown,
+                            repeat_limit: 0,
+                            radius: 90.,
+                            height: 90.,
+                            shape: resonance_battle::HitShape::Box,
+                            offset: [0.; 3],
+                            radius_growth: 0.,
+                            height_growth: 0.,
+                            survives_contact: true,
+                            clashes: false,
+                        }),
+                    })),
+                ))
+            })
+            .collect()
     }
 }

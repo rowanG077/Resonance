@@ -102,6 +102,7 @@ pub(crate) fn native_fixture(
         level_difference: 0,
         actors: roster,
         formation: 1,
+        formation_count: 1,
         style: ResultStyle {
             play_music: false,
             celebrate: false,
@@ -311,17 +312,13 @@ pub(crate) fn step(
 
 pub(crate) fn enter_battle(candidate: &mut Candidate, battle: &mut Battle) -> Result<()> {
     for _ in 0..600 {
-        if battle.phase() != resonance_battle::BattlePhase::Entry {
+        let frame = step(candidate, battle)?;
+        if battle.phase() == resonance_battle::BattlePhase::Combat && !frame.clock.paused() {
             return Ok(());
         }
-        step(candidate, battle)?;
         ensure!(!battle.is_diagnostic(), "battle entry entered diagnostics");
     }
-    ensure!(
-        battle.phase() != resonance_battle::BattlePhase::Entry,
-        "battle entry did not complete"
-    );
-    Ok(())
+    anyhow::bail!("battle entry did not enable actor control")
 }
 
 pub(super) fn close_equipment(

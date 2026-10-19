@@ -489,11 +489,19 @@ impl Owner {
             }
             Page::TechTarget(mut target) => {
                 let owns_input = input.controller == session.admission.controller;
+                let previous = target.selected;
                 target.selected = battle.select_target_step(
                     target.issuer,
                     target.selected,
                     if owns_input { input.step } else { 0 },
                 );
+                if owns_input
+                    && input.step != 0
+                    && target.selected != previous
+                    && target.selected.is_some()
+                {
+                    result.events.push(Event::Cue(super::audio::TARGET_CHANGED));
+                }
                 let queued = owns_input
                     && input.confirm_a.pressed
                     && candidate.queue_tech_target(battle, target)?;

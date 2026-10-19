@@ -69,7 +69,8 @@ impl PreparedBattle {
         let mut targets: Vec<_> = self
             .actors
             .iter()
-            .map(|actor| crate::TargetActor {
+            .enumerate()
+            .map(|(index, actor)| crate::TargetActor {
                 side: actor.side,
                 position: actor.position,
                 hp: actor.hp,
@@ -77,7 +78,7 @@ impl PreparedBattle {
                 flying: actor.movement.flying,
                 casting: false,
                 available: actor.available(),
-                hidden: false,
+                hidden: self.resources.actor_setup[index].target_excluded,
                 dying: actor.availability == crate::ActorAvailability::Dead,
                 target: None,
             })
@@ -110,6 +111,7 @@ impl PreparedBattle {
             }));
             owner.movement.direction = direction;
             owner.facing_direction = direction;
+            owner.reaction.direction = direction.map(|axis| -axis);
             crate::control::face(owner, direction, 0.);
         }
         Ok(self)
@@ -117,6 +119,12 @@ impl PreparedBattle {
 }
 
 impl Battle {
+    /// Controlled fixtures submit actions explicitly while keeping actor recovery intact.
+    #[cfg(feature = "test-support")]
+    pub fn suppress_automatic_decisions(&mut self) {
+        self.automatic_decisions_suppressed = true;
+    }
+
     pub(crate) fn initialize_entry_state(&mut self) -> Result<()> {
         for index in 0..self.actors.len() {
             if self.prepared.actor_setup[index].enemy_decision.is_some() {
@@ -149,6 +157,15 @@ impl Battle {
         if !self.actor_command_ready(actor) {
             return Ok(());
         }
+        #[cfg(feature = "test-support")]
+        if self.automatic_decisions_suppressed {
+            if companion && self.pending_technique(actor).is_some() {
+                self.request_queued_technique(actor, cues)?;
+            } else {
+                self.maintain_ai_idle(actor);
+            }
+            return Ok(());
+        }
         if companion {
             self.advance_auto_charge(actor, cues)?;
         }
@@ -169,18 +186,16 @@ impl Battle {
         self.actors[index].movement.forward = 0.;
 
         let turn_ticks = self.prepared.actor_setup[index].turn_ticks().unwrap_or(8);
-        if let Some(target) = self.target(actor) {
-            let direction = crate::distance::planar_direction(
-                self.actors[target.index()].position,
-                self.actors[index].position,
-                self.actors[index].facing_direction,
-            );
-            self.actors[index].facing_direction = direction;
-            crate::control::face(
-                &mut self.actors[index],
-                direction,
-                180. / f32::from(turn_ticks),
-            );
+        let owner = &mut self.actors[index];
+        if !owner.movement.turning_disabled && owner.movement.hover_ready() {
+            let direction = if owner.control == crate::Control::Auto {
+                owner.movement.target_direction
+            } else {
+                owner.facing_direction
+            };
+            crate::control::face(owner, direction, 180. / f32::from(turn_ticks));
+            // Idle keeps the completed turn instead of continuing an earlier movement turn.
+            owner.facing_direction = crate::control::direction_from_heading(owner.heading);
         }
     }
 
@@ -204,6 +219,7 @@ impl Battle {
             crate::state::ActorTask::Recovering {
                 remaining: 0,
                 after_hit: false,
+                idle_pose: None,
             },
         );
         Ok(())
@@ -238,7 +254,7 @@ impl Battle {
                     crate::Activity::Casting { .. }
                 ),
                 available: a.available(),
-                hidden: false,
+                hidden: self.target_excluded(ActorId(index as u8)),
                 dying: a.availability == crate::ActorAvailability::Dead,
                 target: self.target(ActorId(index as u8)).map(ActorId::index),
             })
@@ -256,7 +272,7 @@ impl Battle {
             target.index() < self.actors.len(),
             "invalid decision target"
         );
-        self.runtime[owner.index()].target = target;
+        self.runtime[owner.index()].set_target(target);
         Ok(())
     }
 }

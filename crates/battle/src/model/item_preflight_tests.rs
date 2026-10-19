@@ -33,7 +33,9 @@ fn definition() -> ModelDefinition {
         }
         Arc::new(WeaponDefinition {
             slot,
-            attachment: 0,
+            attachment: Some(0),
+            effect_interval: None,
+            initially_visible: true,
             layers: vec![crate::WeaponLayerDefinition {
                 texture_animation: None,
                 resource: u32::from(offset),
@@ -72,6 +74,7 @@ fn definition() -> ModelDefinition {
         reactions: Default::default(),
         idle_motions: [None; 2],
         idle_expression: [0; 4],
+        forced_eye_frame: None,
         blink: None,
         weapons: vec![child(0, 60, true), child(1, 100, false)],
 

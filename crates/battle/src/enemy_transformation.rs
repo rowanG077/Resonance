@@ -31,6 +31,11 @@ impl Battle {
                 final_actions,
                 ..
             }) => (initial_actions, final_actions, runtime.health_stage_shifted),
+            Some(EnemyBehavior::ReplaceWeapon {
+                disabled_action, ..
+            }) => {
+                return !runtime.weapon_replaced || row != usize::from(*disabled_action);
+            }
             _ => return true,
         };
         let actions = if shifted {
@@ -50,12 +55,21 @@ impl Battle {
                 .and_then(|decision| decision.behavior.as_ref()),
             Some(EnemyBehavior::Transformation { .. })
         ) {
-            self.advance_enemy_behavior(index);
+            self.advance_enemy_behavior(index, false)?;
         }
         let Some(decision) = &self.prepared.actor_setup[index].enemy_decision else {
             return Ok(());
         };
-        if let Some(EnemyBehavior::HealthStage { hp_percent, .. }) = &decision.behavior {
+        if let Some(EnemyBehavior::HealthStage {
+            hp_percent,
+            initial_station,
+            ..
+        }) = &decision.behavior
+        {
+            if !self.runtime[index].enemy_behavior.health_stage_shifted {
+                self.actors[index].position = initial_station.position;
+                self.actors[index].heading = initial_station.heading;
+            }
             if !self.runtime[index].enemy_behavior.health_stage_shifted
                 && self.actors[index].hp_percent() <= i16::from(*hp_percent)
             {
@@ -71,6 +85,8 @@ impl Battle {
             reveal_hp_percent,
             revealed_bones,
             airborne_hp_percent,
+            airborne_walk_speed,
+            airborne_motions,
             hover_height,
             ..
         }) = &decision.behavior
@@ -88,6 +104,11 @@ impl Battle {
             }
             State::Revealed if health <= i16::from(*airborne_hp_percent) => {
                 self.runtime[index].enemy_behavior.transformation = State::Airborne;
+                self.runtime[index].enemy_walk_override = Some(*airborne_walk_speed);
+                self.model_requests.push(ModelRequest::MotionAliases {
+                    actor: ActorId(index as u8),
+                    aliases: airborne_motions.iter().copied().collect(),
+                });
                 let movement = &mut self.actors[index].movement;
                 movement.flying = true;
                 movement.hover_height = *hover_height;
@@ -126,6 +147,10 @@ mod tests {
                 .unwrap()
                 .behavior = Some(EnemyBehavior::HealthStage {
                 hp_percent: 50,
+                initial_station: resonance_content::battle_action::EnemyStation {
+                    position: [850., 0., 0.],
+                    heading: -90.,
+                },
                 initial_actions: 0..1,
                 final_actions: 1..2,
             });
@@ -134,6 +159,8 @@ mod tests {
             assert!(battle.enemy_behavior_allows_choice(owner, 0));
             assert!(!battle.enemy_behavior_allows_choice(owner, 1));
             assert!(battle.actors[owner.index()].movement.turning_disabled);
+            assert_eq!(battle.actors[owner.index()].position, [850., 0., 0.]);
+            assert_eq!(battle.actors[owner.index()].heading, -90.);
 
             battle.start_admitted_action(
                 ActionRequest {
@@ -159,7 +186,10 @@ mod tests {
             assert!(!actor.reaction.profile.can_knock_down);
 
             battle.actors[owner.index()].hp = maximum_hp;
+            battle.actors[owner.index()].position = [200., 0., 30.];
             battle.advance_enemy_transformation(owner.index())?;
+            battle.advance_enemy_behavior(owner.index(), false)?;
+            assert_eq!(battle.actors[owner.index()].position, [200., 0., 30.]);
             assert!(!battle.enemy_behavior_allows_choice(owner, 0));
             assert!(battle.enemy_behavior_allows_choice(owner, 1));
         }
@@ -189,6 +219,8 @@ mod tests {
                 reveal_hp_percent: 75,
                 revealed_bones: vec![0],
                 airborne_hp_percent: 50,
+                airborne_walk_speed: 6.5,
+                airborne_motions: vec![(0, Some(1))],
                 hover_height: 25.,
                 initial_actions: 0..1,
                 final_actions: 1..2,
@@ -242,6 +274,7 @@ mod tests {
             battle.advance_enemy_transformation(owner.index())?;
             assert_eq!(battle.choose_enemy_action(owner)?, Some(1));
             assert!(battle.actors[owner.index()].movement.flying);
+            assert_eq!(battle.runtime[owner.index()].enemy_walk_override, Some(6.5));
         }
         Ok(())
     }

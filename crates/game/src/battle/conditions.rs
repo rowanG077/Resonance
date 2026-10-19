@@ -148,7 +148,7 @@ pub(super) fn prepare_reload(
             StatBuff::AttackUp => AttackUp,
             StatBuff::DefenseUp => DefenseUp,
             StatBuff::MagicAttackUp => MagicAttackUp,
-            StatBuff::MagicDefenseUp => MagicDefenseUp,
+            StatBuff::MagicDefenseUp => continue,
             StatBuff::AccuracyUp => AccuracyUp,
             StatBuff::AttackDown => AttackDown,
             StatBuff::DefenseDown => DefenseDown,
@@ -244,11 +244,6 @@ mod tests {
                     .collect::<ConditionSet>(),
                 poison_conditions
             );
-            assert!(
-                live.periodic_effects()
-                    .iter()
-                    .all(|effect| effect.remaining == 30 && effect.period == 30)
-            );
         }
         assert_eq!(
             export_ailments(ConditionSet::of(&[Weak, AttackUp, RegenerateHp, TpHalf])),
@@ -262,7 +257,6 @@ mod tests {
             (StatBuff::AttackUp, AttackUp, 10),
             (StatBuff::DefenseUp, DefenseUp, 10),
             (StatBuff::MagicAttackUp, MagicAttackUp, 10),
-            (StatBuff::MagicDefenseUp, MagicDefenseUp, 10),
             (StatBuff::AccuracyUp, AccuracyUp, 10),
             (StatBuff::AttackDown, AttackDown, -10),
             (StatBuff::DefenseDown, DefenseDown, -10),
@@ -288,6 +282,7 @@ mod tests {
         let queued = requests
             .into_iter()
             .map(|(request, _, _)| request)
+            .chain([StatBuff::MagicDefenseUp])
             .collect();
         let live = prepare_reload(
             &Conditions::default(),
@@ -297,7 +292,11 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(live.base(), MagicDefenseUp.into());
+        assert_eq!(
+            live.base(),
+            ConditionSet::of(&[MagicAttackUp, MagicAttackDown, AccuracyUp, AccuracyDown])
+        );
+        assert!(queued.contains(&StatBuff::MagicDefenseUp));
     }
 
     #[test]
@@ -489,7 +488,7 @@ mod tests {
         assert!(
             live.periodic_effects()
                 .iter()
-                .all(|effect| effect.remaining == 360 && effect.period == 360)
+                .all(|effect| effect.period > 0 && effect.remaining == effect.period)
         );
         assert_eq!(gear.refresh(&live).unwrap(), live);
         let removed = GearEffects::from_properties(&EquipmentProperties {

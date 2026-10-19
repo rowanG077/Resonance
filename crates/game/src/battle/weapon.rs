@@ -20,6 +20,55 @@ pub(super) fn prepare(
     playback: Option<WeaponPlayback>,
     animation: Option<&AttachmentAnimation>,
 ) -> Result<Arc<WeaponDefinition>> {
+    let layers = layers(files, part, resources, playback, animation)?;
+    let mut weapon = WeaponDefinition::new(
+        slot,
+        attachment,
+        layers,
+        if matches!(playback, Some(WeaponPlayback::Owner { .. })) {
+            ensure!(
+                part.rig.skeleton.bones.len() >= 10,
+                "missing linked weapon string bones"
+            );
+            (0..9).map(|bone| [bone, bone + 1]).collect()
+        } else {
+            vec![]
+        },
+    )?;
+    weapon.effect_interval = animation
+        .map(|animation| animation.effect_interval)
+        .filter(|&interval| interval != 0)
+        .map(|interval| u16::from(interval) + 1);
+    Ok(Arc::new(weapon))
+}
+
+pub(super) fn secondary_body(
+    files: &Files,
+    source: &resonance_content::battle_model::SecondaryBody,
+    resources: &[u32],
+    attachment: Option<u16>,
+    initial: Playback,
+) -> Result<Arc<WeaponDefinition>> {
+    let layers = layers(
+        files,
+        &source.model,
+        resources,
+        Some(WeaponPlayback::Body {
+            offset: source.motion_offset,
+            initial,
+        }),
+        None,
+    )?;
+    Ok(Arc::new(WeaponDefinition::body(attachment, layers)?))
+}
+
+fn layers(
+    files: &Files,
+    part: &ModelPart,
+    resources: &[u32],
+    playback: Option<WeaponPlayback>,
+    animation: Option<&AttachmentAnimation>,
+) -> Result<Vec<WeaponLayerDefinition>> {
     let rig = &part.rig;
     rig.skeleton.validate()?;
     for skeleton in part.layer_skeletons.values() {
@@ -29,8 +78,7 @@ pub(super) fn prepare(
         resources.len() == part.layers.len() && !resources.is_empty(),
         "weapon layer resources differ"
     );
-    let layers = part
-        .layers
+    part.layers
         .iter()
         .zip(resources)
         .map(|(layer, &resource)| {
@@ -86,21 +134,7 @@ pub(super) fn prepare(
                 texture_animation,
             })
         })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(Arc::new(WeaponDefinition::new(
-        slot,
-        attachment,
-        layers,
-        if matches!(playback, Some(WeaponPlayback::Owner { .. })) {
-            ensure!(
-                rig.skeleton.bones.len() >= 10,
-                "missing linked weapon string bones"
-            );
-            (0..9).map(|bone| [bone, bone + 1]).collect()
-        } else {
-            vec![]
-        },
-    )?))
+        .collect()
 }
 
 fn texture_animation(

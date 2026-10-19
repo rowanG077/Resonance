@@ -15,17 +15,12 @@ pub fn initial_playback(
     profile: &Profile,
     side: Side,
     motions: &BTreeMap<u16, Motion>,
-    hp: i32,
-    max_hp: i32,
+    (hp, max_hp): (i32, i32),
     petrified: bool,
 ) -> Result<Playback> {
     ensure!(
         max_hp > 0 && hp >= 0 && hp <= max_hp,
         "invalid entry actor health"
-    );
-    ensure!(
-        !profile.traits.secondary_body_entry,
-        "secondary body entry is not prepared"
     );
     ensure!(
         entry.replacement_motion_rate.is_finite() && entry.replacement_motion_rate > 0.,
