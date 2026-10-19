@@ -200,7 +200,8 @@ pub(crate) fn resolve(
 #[derive(Debug, Clone)]
 pub enum DialogueAnchor {
     Actor(i32),
-    ScreenGrid(u8),
+    /// Indices outside the nine grid positions use the screen center.
+    ScreenGrid(i32),
     Screen([f32; 2]),
 }
 

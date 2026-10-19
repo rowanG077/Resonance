@@ -171,14 +171,16 @@ mod tests {
             .into(),
             ..Default::default()
         });
-        let mut world = GameWorld::default();
-        world.field_camera = Some(crate::camera::CameraRig {
-            position: [0.; 3],
-            target: [0., 1000., 0.],
-            position_settled: true,
-            target_settled: true,
+        let mut world = GameWorld {
+            field_camera: Some(crate::camera::CameraRig {
+                position: [0.; 3],
+                target: [0., 1000., 0.],
+                position_settled: true,
+                target_settled: true,
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
         for (id, parent) in [(10, None), (20, Some(10)), (30, Some(20))] {
             let mut actor = Actor::new(1, [0.; 3]);
             actor.grounded = false;
@@ -258,6 +260,83 @@ mod tests {
                 .to_string()
                 .contains("cyclic")
         );
+    }
+
+    #[test]
+    fn locked_model_heading_keeps_nested_attachments_aligned_during_backwards_motion() {
+        let resources = ResourceLibrary {
+            models: [(
+                1,
+                ModelResource {
+                    names: vec!["socket".into()],
+                    attachments: crate::ModelAttachments {
+                        skeleton: Some(Arc::new(Skeleton {
+                            bones: vec![Bone {
+                                name: "socket".into(),
+                                parent: None,
+                                bind_channels: TransformChannels(0),
+                                bind: Transform {
+                                    translation: [10., 0., 0.],
+                                    ..Default::default()
+                                },
+                            }],
+                        })),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let mut owner = Actor::new(1, [100., 200., 0.]);
+        owner.appearance.fixed_heading = Some(0.);
+        owner.turn_speed = 90.;
+        owner.motion = Some(crate::ActorMotion {
+            target: [100., 210., 0.],
+            speed: 10.,
+        });
+        owner.step_motion();
+        owner.step_heading(false, true);
+        assert_eq!(owner.position, [100., 210., 0.]);
+        assert_eq!(owner.heading, 180.);
+
+        let mut child = Actor::new(1, [2., 0., 0.]);
+        child.face(270.);
+        child.appearance.fixed_heading = Some(90.);
+        child.attachment = Some(Attachment {
+            actor: 10,
+            bone: "socket".into(),
+        });
+        let mut emitter = Actor::new(0, [3., 0., 0.]);
+        emitter.attachment = Some(Attachment {
+            actor: 20,
+            bone: "socket".into(),
+        });
+        let mut world = GameWorld::default();
+        world.insert_actor(10, owner);
+        world.insert_actor(20, child);
+        world.insert_actor(30, emitter);
+
+        let assert_point = |actual: [f32; 3], expected: [f32; 3]| {
+            for (actual, expected) in actual.into_iter().zip(expected) {
+                assert!((actual - expected).abs() < 0.0001, "{actual} != {expected}");
+            }
+        };
+        for (locked, bone, nested) in [
+            (true, [110., 210., 0.], [112., 223., 0.]),
+            (false, [90., 210., 0.], [88., 197., 0.]),
+        ] {
+            world.actors.get_mut(&10).unwrap().appearance.fixed_heading = locked.then_some(0.);
+            let owner = &world.actors[&10];
+            assert_point(resources.attachment_point(owner, 0, 0).unwrap(), bone);
+            assert_point(world.attached_position(&resources, 30).unwrap(), nested);
+            // Script coordinates follow travel heading; model collision follows
+            // the same locked pose as its visible geometry and attachments.
+            assert_point(owner.world_point([10., 0., 0.]), [90., 210., 0.]);
+            assert_point(owner.collision_point([10., 0., 0.]), bone);
+            assert_eq!(owner.heading, 180.);
+        }
     }
 
     #[test]

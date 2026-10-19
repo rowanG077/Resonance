@@ -13,11 +13,11 @@ pub struct Prepared {
     resources: Arc<ResourceLibrary>,
 }
 impl Prepared {
-    pub fn load(catalog: Arc<SkitCatalog>, files: &Files) -> Result<BTreeMap<u16, Self>> {
-        let text: Arc<resonance_content::session::GameText> =
-            Arc::new(files.json("game/text.json")?);
-        let data: Arc<resonance_content::session::SessionData> =
-            Arc::new(files.json("game/session-data.json")?);
+    pub fn load(
+        catalog: Arc<SkitCatalog>,
+        files: &Files,
+        resources: &ResourceLibrary,
+    ) -> Result<BTreeMap<u16, Self>> {
         catalog
             .resources
             .iter()
@@ -36,8 +36,8 @@ impl Prepared {
                         program: Arc::new(Program::decode(&files.read(&paths.script)?)?),
                         resources: Arc::new(ResourceLibrary {
                             skits: Some(catalog.clone()),
-                            text: text.clone(),
-                            session_data: Some(data.clone()),
+                            text: resources.text.clone(),
+                            session_data: resources.session_data.clone(),
                             messages: files.json(&paths.messages)?,
                             actor_names: ResourceLibrary::character_names(),
                             ..Default::default()

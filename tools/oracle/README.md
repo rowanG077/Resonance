@@ -45,6 +45,13 @@ individual hashes; additional samples come from the same pinned recording.
 The report retains reference provenance. Re-record when source inputs, profile
 or required observations change.
 
+Resident oracle workers require the patched Dolphin from `nix build
+.#dolphin-observer`. The development shell includes it; an existing shell can set
+`RESONANCE_DOLPHIN` to its `bin/dolphin-emu`. Its opt-in `mem1-v1` observer reads
+bounded GameCube main memory independently of the guest CPU's address-translation
+mode. Each real VI acknowledges that mode, and invalid reads reject the capture.
+The ordinary MemoryWatcher interface remains available to other tools.
+
 `--native-reference local/previous-pair` also reuses native output for comparison
 analysis. It requires the same pinned save/replay and records the original
 renderer hash when available. **It does not validate subsequent runtime edits.**
@@ -198,6 +205,72 @@ The paired replay cases establish those separately.
 graphics/audio output; `--trigger KEY --follow` invokes a registered event directly.
 `--output PATH` exports a lightweight checkpoint when control returns. Use the
 player for save identity validation.
+
+## Battle formations and artes
+
+Select formation IDs from the cooked catalogue, then observe entry and exact
+initialized enemy profiles in a resident Dolphin process:
+
+```sh
+python3 tools/oracle/battle_formations.py plan --range 0 999 --missing-entry
+python3 tools/oracle/battle_formations.py run --ids 0 14 15 16 \
+  --disc /path/to/Disc1.rvz --output local/battle-capture-work/formation-probe
+```
+
+The [formation profile](cases/battle-formations.json) pins private checkpoint and
+receipt inputs. Authored field/world callers supply arenas where available;
+other selections explicitly report a component arena. `--missing-entry` reuses
+accepted entry receipts without claiming their enemy identities were verified.
+Each new case checks named scene observations and exact enemy counts/profile
+data, including each authored variant's experience/gald fields, retaining compact
+receipts and failed snapshots without image recording. Reused identity receipts
+are carried separately when available.
+The fixture uses one manual Lloyd with raised HP. Entry, actor identity, visual
+review, artes and battle completion remain separate evidence. Identical profiles
+for enemies 236/237 remain ambiguous and fail exact identity checking.
+
+[battle_artes.py](battle_artes.py) and its [catalogue](cases/battle-artes.json)
+provide focused arte selection; see [arte validation](battle-artes.md) for commands
+and remaining evidence gates. Both tools share the data-only
+[battle fixture](battle_fixture.py); neither cooks assets or runs the full suite.
+Run small disjoint selections in separate disk-backed output directories under
+the task's resource-limited scheduler.
+
+[enemy_artes.py](enemy_artes.py) selects every authored enemy row from the
+[enemy catalogue](cases/enemy-artes.json). Prepare one enemy or repeat `--case`
+for several rows in the same resident encounter:
+
+```sh
+python3 tools/oracle/enemy_artes.py prepare --case enemy093:row02 \
+  --output local/battle-capture-work/enemy093-row02
+python3 tools/oracle/enemy_artes.py run \
+  --prepared local/battle-capture-work/enemy093-row02 --disc /path/to/Disc1.rvz
+python3 tools/oracle/enemy_artes.py review \
+  --output local/battle-capture-work/enemy093-row02/enemy093-row02
+```
+
+Enemy probes default to numeric observations and retain one initialized state.
+Numeric capture stops after the requested execution reaches idle and its watched
+projectiles clear, or at the `--capture-vis` limit. This bounds collection;
+semantic review still determines whether the requested row actually executed.
+`--images` retains selected registered frames; `--retain-states` preserves every
+case's ready/terminal states when pose or model-part analysis needs them.
+An unfinished opening or action also retains its terminal state and movie for
+continuation, independently of that option. The
+fixture changes row selection, health and positions while preserving authored
+execution streams. It applies those changes at an initialized entry checkpoint,
+before combat starts or any actor leaves its entry action, and checks independent
+enemy and package identities. Requirements that the fixture does not satisfy remain
+visible failures; controlled selection does not establish natural admission.
+New captures also watch the actor's exact authored row binding. It counts only
+during active execution; the pointer can persist while the actor is idle.
+Metadata onsets, contact outcomes, cleanup and visual/native comparisons require
+separate review. A successful recording alone is not an arte pass.
+
+Regenerate the manifest from the private authored packages and cooked data with
+`enemy_catalogue.py --packages PATH --assets PATH`. Shared spell recipes are
+grouped without dropping any enemy binding; enemy-local tracks retain their
+body context, including rows with a physical technique tag.
 
 ## Effect comparisons
 

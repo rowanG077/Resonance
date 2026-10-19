@@ -37,7 +37,7 @@ pub(super) fn press(world: &mut World, index: usize) {
     let Some(session) = world.get_resource::<super::new_game::Session>() else {
         return;
     };
-    let can_skip = session.overworld.is_none() && session.field.can_skip_event();
+    let can_skip = session.is_field() && session.field().can_skip_event();
     world.resource_scope(|world, mut controls: Mut<Controls>| {
         let mut time = world.resource_mut::<Time<Virtual>>();
         match index {
@@ -92,7 +92,7 @@ fn advance(world: &mut World) {
             world.resource_mut::<Controls>().skipping = false;
             return Ok(());
         };
-        if session.overworld.is_some() {
+        if session.overworld().is_some() {
             world.resource_mut::<Controls>().skipping = false;
             return Ok(());
         }
@@ -109,12 +109,12 @@ fn advance(world: &mut World) {
         // Bound work per rendered frame, including when virtual time is paused.
         for _ in 0..SKIP_UPDATES_PER_FRAME {
             let mut session = world.resource_mut::<super::new_game::Session>();
-            if session.field.events.world.field_transition.is_some()
-                || session.field.events.world.world_transition.is_some()
+            if session.field().events.world.field_transition.is_some()
+                || session.field().events.world.world_transition.is_some()
             {
                 break;
             }
-            if session.field.skip_event_step()? {
+            if session.field_mut().skip_event_step()? {
                 world.resource_mut::<Controls>().skipping = false;
                 break;
             }

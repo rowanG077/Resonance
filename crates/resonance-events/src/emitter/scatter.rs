@@ -20,6 +20,10 @@ pub(crate) struct Scatter {
     pub lifetime: [u32; 2],
 }
 impl Scatter {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Keep independent timing and mutable emission state explicit at the call site"
+    )]
     pub(super) fn emit(
         &self,
         center: [f32; 3],

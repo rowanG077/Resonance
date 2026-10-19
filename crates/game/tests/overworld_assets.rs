@@ -296,7 +296,13 @@ fn original_world_package_enters_towns_and_restores_travel_without_filesystem_re
     let root = PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
     );
-    let prepared = Prepared::load(&root, &mut Default::default(), (0..547).collect(), || false)?;
+    let prepared = Prepared::load(
+        &root,
+        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
+        &mut Default::default(),
+        (0..547).collect(),
+        || false,
+    )?;
     for world in [World::Sylvarant, World::TetheAlla] {
         for story in [900000, 10405000, 20201000, 22601000] {
             let data = prepared.resources.session_data.as_ref().unwrap();
@@ -381,7 +387,13 @@ fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<
     let root = PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
     );
-    let prepared = Prepared::load(&root, &mut Default::default(), (0..547).collect(), || false)?;
+    let prepared = Prepared::load(
+        &root,
+        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
+        &mut Default::default(),
+        (0..547).collect(),
+        || false,
+    )?;
     for world in [World::Sylvarant, World::TetheAlla] {
         let mut persistent = PersistentState {
             party: Some(Party::new(

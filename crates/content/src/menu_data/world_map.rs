@@ -2,7 +2,6 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldMapData {
-    pub names: [String; 2],
     pub locations: BTreeMap<u16, MapLocation>,
     pub field_locations: BTreeMap<u32, u16>,
     pub shops: Vec<Shop>,
@@ -10,10 +9,6 @@ pub struct WorldMapData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapLocation {
-    pub name: String,
-    /// Position on the 384 × 288 map image.
-    pub point: [i16; 2],
-    pub listed: bool,
     pub visit_alias: Option<u16>,
     pub shops: Vec<u8>,
     pub shop_variants: Vec<MapShopVariant>,
@@ -30,7 +25,6 @@ pub struct MapShopVariant {
 /// Ordered stock shared by the shop counter and world-map directory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Shop {
-    pub name: String,
     pub items: Vec<u16>,
 }
 
@@ -56,7 +50,6 @@ impl Item {
 
 impl Shop {
     pub fn validate(&self, item_count: usize) -> Result<()> {
-        ensure!(!self.name.is_empty(), "missing shop name");
         let mut seen = std::collections::BTreeSet::new();
         ensure!(
             !self.items.is_empty()
@@ -64,8 +57,7 @@ impl Shop {
                     .items
                     .iter()
                     .all(|&id| { id > 0 && usize::from(id) < item_count && seen.insert(id) }),
-            "shop {:?} has empty, duplicate, or invalid stock",
-            self.name
+            "shop has empty, duplicate, or invalid stock"
         );
         Ok(())
     }
@@ -82,26 +74,35 @@ impl MapLocation {
 }
 
 impl WorldMapData {
+    /// Field entry only needs the current location's travel-history identity.
+    pub fn validate_field(&self, field: u32) -> Result<()> {
+        if let Some(&id) = self.field_locations.get(&field) {
+            let location = self.locations.get(&id).ok_or_else(|| {
+                anyhow::anyhow!("field {field} references missing world location {id}")
+            })?;
+            ensure!(
+                [id, location.visit_alias.unwrap_or(id)]
+                    .into_iter()
+                    .all(|id| (1..=98).contains(&id) || (257..=337).contains(&id)),
+                "field {field} references invalid travel locations"
+            );
+        }
+        Ok(())
+    }
+
     pub fn validate(&self, item_count: usize) -> Result<()> {
         for shop in &self.shops {
             shop.validate(item_count)?;
         }
-        ensure!(
-            self.names.iter().all(|v| !v.is_empty()),
-            "missing world map name"
-        );
         for (&id, location) in &self.locations {
             ensure!(
                 (1..=98).contains(&id) || (257..=337).contains(&id),
                 "invalid world location {id}"
             );
             ensure!(
-                (!location.listed || !location.name.is_empty())
-                    && (0..384).contains(&location.point[0])
-                    && (0..288).contains(&location.point[1])
-                    && location
-                        .visit_alias
-                        .is_none_or(|v| self.locations.contains_key(&v))
+                location
+                    .visit_alias
+                    .is_none_or(|v| self.locations.contains_key(&v))
                     && location.shop_variants.iter().all(|v| v.global < 256)
                     && location
                         .shops
@@ -119,12 +120,35 @@ impl WorldMapData {
         );
         Ok(())
     }
+}
 
-    pub fn texts(&self) -> impl Iterator<Item = &str> {
-        self.names
-            .iter()
-            .chain(self.locations.values().map(|v| &v.name))
-            .chain(self.shops.iter().map(|v| &v.name))
-            .map(String::as_str)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_travel_validates_only_its_selected_location() {
+        let mut data = WorldMapData {
+            locations: BTreeMap::new(),
+            field_locations: [(4, 1)].into(),
+            shops: Vec::new(),
+        };
+        assert!(data.validate_field(5).is_ok());
+        assert!(data.validate_field(4).is_err());
+        data.locations.insert(
+            1,
+            MapLocation {
+                visit_alias: None,
+                shops: Vec::new(),
+                shop_variants: Vec::new(),
+            },
+        );
+        assert!(data.validate_field(4).is_ok());
+        data.locations.get_mut(&1).unwrap().shops.push(1);
+        assert!(data.validate_field(4).is_ok());
+        assert!(
+            data.validate(528).is_err(),
+            "the shop page validates its own references"
+        );
     }
 }

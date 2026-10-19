@@ -1,14 +1,17 @@
 use super::*;
 use crate::{all_assets::world_map as source, field_catalogue as phases};
-use resonance_content::menu_data::{MapLocation, MapShopVariant, Shop, WorldMapData};
+use resonance_content::menu_data::{
+    MapLocation, MapLocationText, MapShopVariant, Shop, WorldMapData, WorldMapText,
+};
 use std::collections::BTreeMap;
 
 pub(crate) fn cook(
     source: &source::Catalogue,
     phases: &phases::Phases,
     ui: &inventory_ui::Catalogue,
-) -> Result<WorldMapData> {
+) -> Result<(WorldMapData, WorldMapText, Vec<String>)> {
     let mut locations = BTreeMap::new();
+    let mut location_names = BTreeMap::new();
     for world in 0..2 {
         for (local, row) in source
             .world(world)?
@@ -18,14 +21,19 @@ pub(crate) fn cook(
             .skip(1)
         {
             let id = world as u16 * 256 + local as u16;
+            location_names.insert(
+                id,
+                MapLocationText {
+                    name: row
+                        .text
+                        .map(|id| source.text(id))
+                        .unwrap_or_default()
+                        .into(),
+                    point: row.position.map(|v| (v / 200) as i16),
+                    listed: row.listed,
+                },
+            );
             let mut location = MapLocation {
-                name: row
-                    .text
-                    .map(|id| source.text(id))
-                    .unwrap_or_default()
-                    .into(),
-                point: row.position.map(|v| (v / 200) as i16),
-                listed: row.listed,
                 // Ruined and rebuilt Luin share the town's visited flag.
                 visit_alias: matches!(id, 43 | 44).then_some(7),
                 shops: source.shop_bindings[world]
@@ -59,16 +67,11 @@ pub(crate) fn cook(
         .iter()
         .map(|shop| {
             Ok(Shop {
-                name: source.required_text(shop.name)?.into(),
                 items: shop.items.clone(),
             })
         })
         .collect::<Result<_>>()?;
-    Ok(WorldMapData {
-        names: ui
-            .inventory
-            .worlds
-            .map(|reference| ui.text(reference).to_owned()),
+    let data = WorldMapData {
         locations,
         field_locations: phases
             .records
@@ -79,5 +82,20 @@ pub(crate) fn cook(
             })
             .collect(),
         shops,
-    })
+    };
+    Ok((
+        data,
+        WorldMapText {
+            names: ui
+                .inventory
+                .worlds
+                .map(|reference| ui.text(reference).to_owned()),
+            locations: location_names,
+        },
+        source
+            .shops
+            .iter()
+            .map(|shop| Ok(source.required_text(shop.name)?.into()))
+            .collect::<Result<_>>()?,
+    ))
 }

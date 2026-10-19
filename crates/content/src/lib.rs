@@ -2,7 +2,9 @@
 use serde::{Deserialize, Serialize};
 pub mod animation;
 pub mod appearance;
+pub mod arte;
 pub mod credits;
+pub mod diagnostics;
 pub mod effect;
 pub mod field;
 pub mod field_audio;
@@ -18,6 +20,8 @@ pub mod monster;
 pub mod movie;
 pub mod overworld;
 pub mod prepared;
+pub mod random;
+pub mod save_identity;
 pub mod secondary_motion;
 pub mod session;
 pub mod skit;
@@ -112,20 +116,20 @@ impl MovieAsset {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TitleSounds {
+pub struct TitleAudio {
     pub version: u32,
     pub path: String,
     pub sha256: String,
 }
 
-impl TitleSounds {
+impl TitleAudio {
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_asset_path(&self.path)?;
         anyhow::ensure!(
             self.version == 3
                 && self.sha256.len() == 64
                 && self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()),
-            "unsupported title sound manifest; recook title sounds"
+            "unsupported title audio manifest; recook title audio"
         );
         Ok(())
     }
@@ -143,24 +147,6 @@ pub fn validate_asset_path(name: &str) -> anyhow::Result<()> {
         "unsafe asset path {name}"
     );
     Ok(())
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TitleAudio {
-    pub version: u32,
-    pub path: String,
-    pub sample_rate: u32,
-    pub channels: u16,
-}
-
-impl TitleAudio {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.version == 3 && self.sample_rate == 32028 && self.channels == 2,
-            "unsupported title audio format; recook title audio"
-        );
-        validate_asset_path(&self.path)
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

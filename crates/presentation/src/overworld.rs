@@ -30,7 +30,7 @@ impl State<'_> {
     fn get(&self) -> Option<&Scene> {
         self.live
             .as_ref()
-            .and_then(|s| s.overworld.as_ref())
+            .and_then(|s| s.overworld())
             .or_else(|| self.capture.as_ref().map(|s| &s.0))
     }
 }
@@ -153,8 +153,7 @@ impl Scene {
                     token,
                     slot,
                     start: self.session.events.tick(),
-                    duration: (f64::from(clip.duration_seconds) * resonance_game::clock::UPDATE_HZ)
-                        .ceil() as u32,
+                    duration: clip.duration_ticks(),
                 });
             }
         }
@@ -280,17 +279,19 @@ pub(super) fn controls(
     input.skip_skit |= edge(&[KeyCode::Home], Start);
     input.accelerate_dialogue = input.travel.throttle;
 }
+#[allow(clippy::too_many_arguments)] // Acknowledge replay input only after the world can consume it.
 fn advance(
     mut owner: Option<ResMut<super::new_game::Session>>,
     art: Option<Res<Art>>,
     resident: Res<super::loading::Resident>,
-    loading_save: Option<Res<super::saves::WorldLoad>>,
+    loading_save: Option<Res<super::saves::Quickload>>,
     mut controls: ResMut<Controls>,
     mut menu_controls: ResMut<super::field_view::Controls>,
+    scenario: Option<ResMut<super::saves::ScenarioInput>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let mut input = controls.0;
-    if owner.as_ref().is_some_and(|s| s.overworld.is_some()) {
+    if owner.as_ref().is_some_and(|s| s.overworld().is_some()) {
         input.menu = menu_controls.consume();
     }
     controls.0.confirm = false;
@@ -304,11 +305,14 @@ fn advance(
     if loading_save.is_some() || owner.as_ref().is_some_and(|s| s.audio.is_some()) {
         return;
     }
-    let Some(scene) = owner.as_mut().and_then(|s| s.overworld.as_mut()) else {
+    let Some(scene) = owner.as_mut().and_then(|s| s.overworld_mut()) else {
         return;
     };
     if art.is_none_or(|a| !a.ready) || !resident.active.load(Ordering::Acquire) {
         return;
+    }
+    if let Some(mut scenario) = scenario {
+        scenario.acknowledge_input();
     }
     if let Err(error) = scene.step(input) {
         error!("Overworld update failed: {error:#}");
@@ -352,7 +356,7 @@ struct TerrainDraw {
 fn retire(world: &mut World) {
     let current = world
         .get_resource::<super::new_game::Session>()
-        .and_then(|s| s.overworld.as_ref())
+        .and_then(|s| s.overworld())
         .or_else(|| world.get_resource::<capture::Scene>().map(|s| &s.0));
     let Some(art) = world.get_resource::<Art>() else {
         return;
@@ -489,6 +493,7 @@ fn instances(
                 .surfaces(&mut images, &mut sampled)
                 .into_iter()
                 .map(|mut s| {
+                    s.field_fog = false;
                     if matches!(model, Model::Actor(203 | 213 | 214)) {
                         s.blend = Some(Blend::Additive);
                         s.depth_write = false;
@@ -618,24 +623,28 @@ fn bind(
                     commands.entity(entity).insert((
                         MeshMaterial3d(instance.materials[slot].clone()),
                         super::draw_order::DrawOrder(
-                            part.spec.materials[slot].draw_order
-                                + match instance.model {
-                                    Model::Sky => 0,
-                                    Model::Cinematic(actor)
-                                        if art
-                                            .cinematic
-                                            .is_some_and(|id| cinematic::background(id, actor)) =>
-                                    {
-                                        0
-                                    }
-                                    // The native secondary terrain pass (water,
-                                    // shore foam and foliage) follows all opaque
-                                    // terrain and actors, with depth writes off.
-                                    Model::Tile(_) if part.spec.resource == 2 => 3 << 20,
-                                    Model::Tile(_) => 1 << 20,
-                                    _ => 2 << 20,
-                                },
+                            super::draw_order::Layer::Scene(
+                                part.spec.materials[slot].draw_order
+                                    + match instance.model {
+                                        Model::Sky => 0,
+                                        Model::Cinematic(actor)
+                                            if art.cinematic.is_some_and(|id| {
+                                                cinematic::background(id, actor)
+                                            }) =>
+                                        {
+                                            0
+                                        }
+                                        // Water follows opaque scenery and actors.
+                                        // Vehicle effects must follow water so it
+                                        // cannot paint over their additive light.
+                                        Model::Actor(203 | 213 | 214) => 4 << 20,
+                                        Model::Tile(_) if part.spec.resource == 2 => 3 << 20,
+                                        Model::Tile(_) => 1 << 20,
+                                        _ => 2 << 20,
+                                    },
+                            ),
                             instance.landmark.map_or(0, usize::from),
+                            0,
                         ),
                     ));
                     if let Model::Tile(tile) = instance.model {
@@ -718,8 +727,8 @@ fn terrain_order(
     for (draw, mut order) in &mut draws {
         let key =
             ((if draw.secondary { 3 } else { 1 }) << 20) + rank[draw.tile] * 4096 + draw.material;
-        if order.0 != key {
-            order.0 = key;
+        if order.0 != super::draw_order::Layer::Scene(key) {
+            order.0 = super::draw_order::Layer::Scene(key);
         }
     }
 }
@@ -1096,8 +1105,8 @@ fn animate(
             continue;
         };
         let clip = clips.get(&part.clips[index]).unwrap();
-        let elapsed = (scene.session.events.tick().saturating_sub(start) as f64
-            / resonance_game::clock::UPDATE_HZ) as f32;
+        let elapsed_ticks = scene.session.events.tick().saturating_sub(start);
+        let elapsed = elapsed_ticks as f32 / resonance_content::ANIMATION_HZ;
         let duration = part.spec.clips[index].duration_seconds;
         let seconds = if matches!(instance.model, Model::Cinematic(_)) {
             scene
@@ -1111,8 +1120,7 @@ fn animate(
             let Some(wake) = &scene.effects.wakes[index] else {
                 continue;
             };
-            (wake.age as f32 / resonance_game::clock::UPDATE_HZ as f32 * effects::WAKE_RATE)
-                .min(duration)
+            (wake.age as f32 / resonance_content::ANIMATION_HZ * effects::WAKE_RATE).min(duration)
         } else if instance.model == Model::Actor(99) {
             scene
                 .session
@@ -1120,7 +1128,7 @@ fn animate(
                 .filter(|(id, _)| Some(*id) == instance.landmark)
                 .map_or(0., |(_, start)| {
                     (scene.session.events.tick().saturating_sub(start) as f32
-                        / resonance_game::clock::UPDATE_HZ as f32)
+                        / resonance_content::ANIMATION_HZ)
                         .min(duration)
                 })
         } else if slot >= 4 {
@@ -1130,7 +1138,9 @@ fn animate(
                 elapsed.min(duration)
             }
         } else {
-            elapsed % duration
+            resonance_events::AnimationClip::from(&part.spec.clips[index])
+                .sample_tick(elapsed_ticks, true) as f32
+                / resonance_content::ANIMATION_HZ
         };
         if let Err(error) = instance
             .binding
@@ -1245,12 +1255,6 @@ fn ui(
         error!("World interface failed: {error:#}");
         exit.write(AppExit::error());
     }
-}
-
-fn embed_shaders(app: &mut App) {
-    super::materials::embed_shaders(app);
-    bevy::asset::embedded_asset!(app, "field_ui.wgsl");
-    bevy::asset::embedded_asset!(app, "title_output.wgsl");
 }
 
 pub(super) fn ready(world: &mut World) -> bool {

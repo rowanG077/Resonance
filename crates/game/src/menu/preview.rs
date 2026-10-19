@@ -71,9 +71,7 @@ impl Menu {
             _ => unreachable!(),
         };
         if view.page_fade == 255 {
-            self.page = Page::Items;
-            self.open_items();
-            self.fade_item_description();
+            self.return_to_items();
             return true;
         }
         if view.page_closing {

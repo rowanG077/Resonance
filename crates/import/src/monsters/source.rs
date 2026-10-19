@@ -1,4 +1,4 @@
-//! Only the enemy fields consumed by the Monster Book, read from original packages.
+//! Shared enemy statistics consumed by the Monster Book and battle preparation.
 use crate::read::{u16 as half, u32 as word};
 use anyhow::{Context, Result, ensure};
 use resonance_content::monster::MonsterStats;
@@ -7,10 +7,13 @@ pub(super) struct Record<'a> {
     pub metadata: &'a [u8],
     pub statistics: Vec<MonsterStats>,
     pub attack_element: u8,
-    pub affinities: [i8; 8],
+    pub affinities: [i8; 9],
     pub family: u16,
     pub drops: [u16; 2],
+    pub drop_chances: [u8; 2],
+    pub grade: i16,
     pub steal: u16,
+    pub steal_chance: u8,
 }
 
 pub(super) fn read(bytes: &[u8]) -> Result<Record<'_>> {
@@ -18,7 +21,7 @@ pub(super) fn read(bytes: &[u8]) -> Result<Record<'_>> {
     let metadata = bytes
         .get(usize::from(half(bytes, 4)?)..)
         .context("enemy metadata exceeds package")?;
-    ensure!(metadata.len() >= 0x1e8, "truncated enemy metadata");
+    ensure!(metadata.len() >= 0x1ec, "truncated enemy metadata");
     let stats = bytes
         .get(usize::from(half(bytes, 6)?)..)
         .context("enemy statistics exceed package")?;
@@ -28,8 +31,16 @@ pub(super) fn read(bytes: &[u8]) -> Result<Record<'_>> {
     let mut statistics = vec![MonsterStats {
         hp: word(stats, 32)?,
         tp: positive(stats, 40)?,
+        initial_hp: word(stats, 36)?,
+        initial_tp: positive(stats, 42)?,
         attack: positive(stats, 44)?,
+        thrust: half(stats, 46)? as i16,
         defense: positive(stats, 48)?,
+        intelligence: half(stats, 50)? as i16,
+        accuracy: half(stats, 52)? as i16,
+        evasion: half(stats, 54)? as i16,
+        luck: stats[56],
+        level: stats[29],
         experience: word(metadata, 0x40)?,
         gald: word(metadata, 0x44)?,
     }];
@@ -45,8 +56,16 @@ pub(super) fn read(bytes: &[u8]) -> Result<Record<'_>> {
             statistics.push(MonsterStats {
                 hp: word(row, 0)?,
                 tp: positive(row, 8)?,
+                initial_hp: word(row, 4)?,
+                initial_tp: positive(row, 10)?,
                 attack: positive(row, 20)?,
+                thrust: half(row, 22)? as i16,
                 defense: positive(row, 24)?,
+                intelligence: half(row, 26)? as i16,
+                accuracy: half(row, 28)? as i16,
+                evasion: half(row, 30)? as i16,
+                luck: row[32],
+                level: row[33],
                 experience: word(row, 12)?,
                 gald: word(row, 16)?,
             });
@@ -56,10 +75,13 @@ pub(super) fn read(bytes: &[u8]) -> Result<Record<'_>> {
         metadata,
         statistics,
         attack_element: metadata[0],
-        affinities: std::array::from_fn(|i| metadata[2 + i] as i8),
+        affinities: std::array::from_fn(|i| metadata[1 + i] as i8),
         family: half(metadata, 0x2a)?,
         drops: [half(metadata, 0x48)?, half(metadata, 0x4a)?],
+        drop_chances: [metadata[0x4e], metadata[0x4f]],
+        grade: half(metadata, 0x1ea)? as i16,
         steal: half(metadata, 0x4c)?,
+        steal_chance: metadata[0x50],
     })
 }
 
@@ -85,4 +107,57 @@ pub(super) fn clips(bytes: &[u8]) -> Result<Vec<u16>> {
         clips.push(index as u16);
     }
     Ok(clips)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires both extracted original discs"]
+    fn enemy_variants_cover_formations_and_preserve_opening_stats() -> Result<()> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+        let mut first = None;
+        for disc in [1, 2] {
+            let extracted = root.join(format!("disc{disc}"));
+            let sources = crate::source_assets::Sources::read(&extracted)?;
+            let usual = std::fs::read(extracted.join("files").join(sources.usual))?;
+            let archive = extracted.join("files").join(sources.enemy);
+            let mut records = Vec::new();
+            for id in 0..resonance_content::monster::MONSTER_COUNT {
+                let bytes = crate::source_assets::enemy_package(&archive, &usual, id as u16)?;
+                let record = read(&bytes)?;
+                assert!(record.drop_chances.iter().all(|&chance| chance <= 100));
+                assert!(record.steal_chance <= 100);
+                match id {
+                    126 => assert_eq!((record.steal, record.steal_chance), (10, 21)),
+                    36 => {
+                        assert_eq!(record.grade, 0);
+                        assert_eq!(record.drops, [1, 50]);
+                        assert_eq!(record.drop_chances, [20, 8]);
+                        assert_eq!(
+                            (record.statistics[0].experience, record.statistics[0].gald),
+                            (8, 12)
+                        );
+                    }
+                    49 => {
+                        assert_eq!(record.grade, 0);
+                        assert_eq!(record.drops, [1, 10]);
+                        assert_eq!(record.drop_chances, [15, 5]);
+                        assert_eq!(
+                            (record.statistics[1].experience, record.statistics[1].gald),
+                            (9, 8)
+                        );
+                    }
+                    _ => {}
+                }
+                records.push((record.statistics, record.affinities));
+            }
+            if let Some(first) = &first {
+                assert_eq!(&records, first);
+            }
+            first = Some(records);
+        }
+        Ok(())
+    }
 }

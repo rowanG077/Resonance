@@ -13,6 +13,7 @@ use symphonia_script::{Program, Width};
 /// Prepared immutable dependencies. Construction performs no runtime file reads.
 #[derive(Clone)]
 pub struct Assets {
+    pub files: Arc<resonance_content::prepared::Files>,
     pub world: super::World,
     pub terrain: Arc<collision::Terrain>,
     pub rules: Arc<Rules>,
@@ -383,6 +384,23 @@ impl Session {
             && self.events.player_has_control()
             && self.travel.player_has_control()
     }
+    pub fn ship_action(&self) -> Option<travel::ShipAction> {
+        if !self.player_has_control() {
+            return None;
+        }
+        let party = self.events.world.party.as_ref()?;
+        self.travel
+            .ship_action(
+                &travel::Context {
+                    event_flags: &self.events.world.event_flags,
+                    rheairds_owned: party.items.get(&58).copied().unwrap_or(0) > 0,
+                    landing_clear: true,
+                },
+                &self.assets.rules,
+            )
+            .map(|(action, _)| action)
+    }
+
     pub fn checkpoint(&self) -> Result<Checkpoint> {
         ensure!(
             self.player_has_control(),
@@ -397,29 +415,10 @@ impl Session {
             played_ticks: self.play_time.total(),
         })
     }
-    /// The shared menu edits a progress snapshot. Its field-shaped view model
-    /// is never persisted as a field save: world saves retain their typed pose.
-    pub fn menu_checkpoint(&self) -> Result<Checkpoint> {
-        let snapshot = self
-            .menu
-            .as_ref()
-            .and_then(|menu| menu.checkpoint.as_ref())
-            .context("world menu is closed")?;
-        let state = self.travel.checkpoint()?;
-        ensure!(
-            snapshot.progress.party.travel.overworld.as_ref() == Some(&state),
-            "world menu lost its travel pose"
-        );
-        Ok(Checkpoint {
-            state,
-            progress: snapshot.progress.clone(),
-            played_ticks: self.play_time.total(),
-        })
-    }
-
     fn open_menu(&mut self) -> Result<()> {
         let checkpoint = self.checkpoint()?;
         let resources = Arc::new(crate::menu::Resources {
+            files: self.assets.files.clone(),
             session: self
                 .assets
                 .resources
@@ -433,13 +432,14 @@ impl Session {
                 .clone()
                 .context("world menu data missing")?,
         });
+        let world = checkpoint.state.world;
         let mut menu = crate::menu::Menu::new(
             crate::menu::Page::Main,
-            Some(checkpoint.menu_snapshot()),
+            Some(crate::Checkpoint::World(checkpoint)),
             true,
         );
         menu.resources = Some(resources);
-        menu.world_map.world = checkpoint.state.world.index() as u8;
+        menu.world_map.world = world.index() as u8;
         menu.set_play_time(self.play_time);
         menu.begin_opening();
         self.menu = Some(menu);
@@ -984,21 +984,6 @@ impl Session {
                 .insert(contact.id);
         }
         Ok(())
-    }
-}
-
-impl Checkpoint {
-    /// Shared menu/slot display data; only the typed world checkpoint is loaded.
-    pub fn menu_snapshot(&self) -> crate::field::FieldCheckpoint {
-        crate::field::FieldCheckpoint {
-            allow_incomplete_scripts: false,
-            map_id: 3000,
-            position: self.state.position.plane(),
-            heading: self.state.heading.to_degrees(),
-            camera: None,
-            progress: self.progress.clone(),
-            played_ticks: Some(self.played_ticks),
-        }
     }
 }
 

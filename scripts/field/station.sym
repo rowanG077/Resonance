@@ -3,6 +3,10 @@ use game::actors;
 use game::effects;
 pub task interact(station: actors::Actor) {
     let player = actors::controlled();
-    await actors::interact(station);
+    let dialogue = spawn interaction(station);
     await effects::station_transfer(station, player);
+    await dialogue;
+}
+task interaction(station: actors::Actor) {
+    await actors::interact(station);
 }

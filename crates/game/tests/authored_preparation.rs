@@ -46,7 +46,7 @@ fn runtime() -> EventRuntime {
 
 #[test]
 fn prepare_edit_and_activate_use_immutable_programs_without_recooking() {
-    let original = "script field; use game::story; use game::field; pub task run() { await field::wait_ticks(2ticks); story::set_flag(41, true); }";
+    let original = "script field; use game::story; use game::field; pub task run() { await field::wait_ticks(ticks(2)); story::set_flag(41, true); }";
     let mut sources = BTreeMap::from([("field::example".into(), original.into())]);
     let entry = || Entry {
         module: "field::example",

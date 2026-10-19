@@ -181,7 +181,7 @@ impl FieldSession {
     /// Decode scenarios while preparing the field. Z never reads the filesystem.
     pub fn prepare_skits(&mut self, files: &resonance_content::prepared::Files) -> Result<()> {
         if let Some(catalog) = self.skits.data.clone() {
-            self.skit_programs = Prepared::load(catalog, files)?;
+            self.skit_programs = Prepared::load(catalog, files, self.events.resources())?;
         }
         Ok(())
     }

@@ -1,10 +1,11 @@
 use super::*;
 use crate::all_assets::cooking_ui::{Catalogue, Label};
 use resonance_content::menu_data::{
-    CookingData, FoodPreferences, Ingredient, IngredientGroup, Recipe, RecipeCook, RecipeGrade,
+    CookingData, CookingText, FoodPreferences, Ingredient, IngredientGroup, NamedText, Recipe,
+    RecipeCook, RecipeGrade,
 };
 
-pub(super) fn cook(source: &Catalogue) -> Result<CookingData> {
+pub(super) fn cook(source: &Catalogue) -> Result<(CookingData, CookingText)> {
     let text = |reference| -> Result<String> { Ok(source.required_text(reference)?.to_owned()) };
     let ingredients = |source: &[u16]| -> Result<Vec<Ingredient>> {
         source
@@ -19,14 +20,12 @@ pub(super) fn cook(source: &Catalogue) -> Result<CookingData> {
             })
             .collect()
     };
-    Ok(CookingData {
+    let data = CookingData {
         recipes: source
             .recipes
             .iter()
             .map(|recipe| {
                 Ok(Recipe {
-                    name: text(recipe.name)?,
-                    description: text(recipe.description)?,
                     required: ingredients(&recipe.required)?,
                     cooks: recipe
                         .cooks
@@ -63,7 +62,6 @@ pub(super) fn cook(source: &Catalogue) -> Result<CookingData> {
             .iter()
             .map(|group| {
                 Ok(IngredientGroup {
-                    name: text(group.name)?,
                     category: group.category,
                     items: group.items.clone().context("null cooking group")?,
                 })
@@ -79,6 +77,24 @@ pub(super) fn cook(source: &Catalogue) -> Result<CookingData> {
                 })
             })
             .collect::<Result<_>>()?,
+        bonus_skill: source.bonus_skill.try_into()?,
+    };
+    let captions = CookingText {
+        recipes: source
+            .recipes
+            .iter()
+            .map(|recipe| {
+                Ok(Some(NamedText {
+                    name: text(recipe.name)?,
+                    description: text(recipe.description)?,
+                }))
+            })
+            .collect::<Result<_>>()?,
+        groups: source
+            .groups
+            .iter()
+            .map(|group| text(group.name))
+            .collect::<Result<_>>()?,
         labels: Label::RUNTIME
             .into_iter()
             .map(|(label, name)| Ok((name.into(), source.label(label)?.into())))
@@ -87,13 +103,15 @@ pub(super) fn cook(source: &Catalogue) -> Result<CookingData> {
                 source.text(source.locked).into(),
             ))))
             .collect::<Result<_>>()?,
-        effects: source
-            .effects
-            .map(text)
-            .into_iter()
-            .collect::<Result<Vec<_>>>()?
-            .try_into()
-            .unwrap(),
-        bonus_skill: source.bonus_skill.try_into()?,
-    })
+        effects: Some(
+            source
+                .effects
+                .map(text)
+                .into_iter()
+                .collect::<Result<Vec<_>>>()?
+                .try_into()
+                .unwrap(),
+        ),
+    };
+    Ok((data, captions))
 }

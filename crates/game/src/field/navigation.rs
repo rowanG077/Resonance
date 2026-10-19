@@ -19,7 +19,7 @@ type Surface = ([[f32; 3]; 3], u32);
 
 pub struct WalkMesh {
     triangles: Arc<[Surface]>,
-    model_floors: Vec<(u64, Surface)>,
+    model_floors: Vec<(u64, usize, Surface)>,
     solids: Vec<Solid>,
 }
 struct Solid {
@@ -44,6 +44,67 @@ pub struct GroundSurface {
     pub normal: [f32; 3],
 }
 impl WalkMesh {
+    /// Carry grounded feet with their supporting triangle after model movement.
+    /// The same local point follows translations, rotations and attached floors.
+    pub(super) fn carry_player(&self, world: &mut resonance_events::GameWorld) {
+        let id = world.controlled_actor;
+        let Some(player) = world.actors.get(&id).filter(|actor| {
+            actor.grounded && actor.attachment.is_none() && !actor.interaction_anchor
+        }) else {
+            return;
+        };
+        let point = player.position;
+        let support =
+            self.model_floors
+                .iter()
+                .find_map(|&(owner, index, (triangle, attributes))| {
+                    if owner == player.instance
+                        || !CollisionQuery::Player.accepts(attributes)
+                        || surface_normal(triangle)[2] <= 0.
+                    {
+                        return None;
+                    }
+                    let [u, v] = barycentric(triangle, point)?;
+                    let [a, b, c] = triangle;
+                    let z = a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2]);
+                    ((z - point[2]).abs() <= 0.01).then_some((owner, index, triangle, [u, v]))
+                });
+        let Some((owner, index, previous, [u, v])) = support else {
+            return;
+        };
+        let Some(platform) = world.actors.values().find(|actor| actor.instance == owner) else {
+            return;
+        };
+        let Some(current) = platform.model_collision.as_ref().and_then(|mesh| {
+            mesh.floors
+                .iter()
+                .flat_map(|group| platform.collision_triangles(group))
+                .nth(index)
+        }) else {
+            return;
+        };
+        if current == previous {
+            return;
+        }
+        // Where a dock overlaps the platform, the fixed floor wins the same
+        // height tie as normal walking. Stepping ashore ends the ride.
+        if self.triangles.iter().any(|&(triangle, attributes)| {
+            CollisionQuery::Player.accepts(attributes)
+                && height(triangle, point).is_some_and(|z| (z - point[2]).abs() <= 0.01)
+        }) {
+            return;
+        }
+        let delta: [[f32; 3]; 3] = std::array::from_fn(|vertex| {
+            std::array::from_fn(|axis| current[vertex][axis] - previous[vertex][axis])
+        });
+        world.actors.get_mut(&id).unwrap().position = std::array::from_fn(|axis| {
+            point[axis]
+                + delta[0][axis]
+                + u * (delta[1][axis] - delta[0][axis])
+                + v * (delta[2][axis] - delta[0][axis])
+        });
+    }
+
     pub(super) fn update_enemy_sight(&self, world: &mut resonance_events::GameWorld) {
         let player = world
             .actors
@@ -227,10 +288,10 @@ impl WalkMesh {
     fn surfaces(&self, excluding: Option<u64>) -> impl Iterator<Item = &Surface> {
         self.model_floors
             .iter()
-            .filter(move |(owner, (triangle, _))| {
+            .filter(move |(owner, _, (triangle, _))| {
                 Some(*owner) != excluding && surface_normal(*triangle)[2] > 0.
             })
-            .map(|(_, surface)| surface)
+            .map(|(_, _, surface)| surface)
             .chain(self.triangles.iter())
     }
     /// Snapshot live model floors without copying the map. Hidden scenery also
@@ -248,15 +309,23 @@ impl WalkMesh {
                         .collision_triangles(group)
                         .map(Plane::triangle)
                         .collect();
-                    // Block solids include clearance for walking characters. A swept
-                    // body supplies its own clearance, so use the physical block faces.
-                    let body_planes = (actor.pushable && !mesh.floors.is_empty()).then(|| {
-                        mesh.floors
-                            .iter()
-                            .flat_map(|group| actor.collision_triangles(group))
-                            .map(Plane::triangle)
-                            .collect()
-                    });
+                    // Solid meshes already include walking clearance. When the floor
+                    // mesh describes a closed body, sweep against its physical faces.
+                    // This applies to fixed barriers as well as movable blocks.
+                    let body_planes = (mesh.solids.len() == 1 && mesh.floors.len() == 1)
+                        .then(|| &mesh.floors[0])
+                        .filter(|group| closed_volume(group))
+                        .map(|group| {
+                            actor
+                                .collision_triangles(group)
+                                .map(Plane::triangle)
+                                .collect()
+                        })
+                        .or_else(|| {
+                            actor
+                                .block_mesh_bounds()
+                                .map(|(low, high)| Plane::bounds(low, high).to_vec())
+                        });
                     solids.push(Solid {
                         owner: actor.instance,
                         surface: group.surface,
@@ -264,13 +333,17 @@ impl WalkMesh {
                         body_planes,
                     });
                 }
-                for group in &mesh.floors {
-                    model_floors.extend(
-                        actor
-                            .collision_triangles(group)
-                            .map(|triangle| (actor.instance, (triangle, group.surface))),
-                    );
-                }
+                model_floors.extend(
+                    mesh.floors
+                        .iter()
+                        .flat_map(|group| {
+                            actor
+                                .collision_triangles(group)
+                                .map(|triangle| (triangle, group.surface))
+                        })
+                        .enumerate()
+                        .map(|(index, surface)| (actor.instance, index, surface)),
+                );
             }
         }
         Self {
@@ -322,8 +395,10 @@ impl WalkMesh {
     }
     /// Select the closest reachable floor, including ramps and raised platforms.
     pub fn height(&self, point: [f32; 3], max_step: f32) -> Option<f32> {
-        self.walking_surface(point, |z| (z - point[2]).abs() <= max_step)
-            .map(|surface| surface.height)
+        self.surface_within(point, None, |z, attributes| {
+            CollisionQuery::Player.accepts(attributes) && (z - point[2]).abs() <= max_step
+        })
+        .map(|surface| surface.height)
     }
     /// Ground reachable by a normal walking step, including raised platforms.
     pub fn ground_surface(&self, point: [f32; 3]) -> Option<GroundSurface> {
@@ -334,6 +409,15 @@ impl WalkMesh {
         let surface =
             self.walking_surface(proposed, |z| (z - proposed[2]).abs() <= MAX_STEP_HEIGHT)?;
         Some([proposed[0], proposed[1], surface.height])
+    }
+    /// Ground actor movement along the slope, including horizontal correction.
+    pub fn resolve_actor_motion(&self, proposed: [f32; 3]) -> Option<[f32; 3]> {
+        let surface =
+            self.walking_surface(proposed, |z| (z - proposed[2]).abs() <= MAX_STEP_HEIGHT)?;
+        let distance = (proposed[2] - surface.height) * surface.normal[2];
+        Some(std::array::from_fn(|axis| {
+            proposed[axis] - distance * surface.normal[axis]
+        }))
     }
     /// An authored landing can end just outside the floor while the feet overlap it.
     pub(super) fn landing_near(&self, point: [f32; 3], radius: f32) -> Option<[f32; 3]> {
@@ -451,9 +535,13 @@ impl WalkMesh {
         point: [f32; 3],
         accepts: impl Fn(f32) -> bool,
     ) -> Option<GroundSurface> {
-        self.surface_within(point, None, |z, attributes| {
-            CollisionQuery::Player.accepts(attributes) && accepts(z)
-        })
+        // A ramp can overlap the floor beneath it. Step onto the highest
+        // reachable surface rather than staying on that lower floor.
+        self.surfaces_at(point, None)
+            .filter(|surface| {
+                CollisionQuery::Player.accepts(surface.attributes) && accepts(surface.height)
+            })
+            .max_by(|a, b| a.height.total_cmp(&b.height))
     }
     fn surface_within(
         &self,
@@ -461,12 +549,24 @@ impl WalkMesh {
         excluding: Option<u64>,
         accepts: impl Fn(f32, u32) -> bool,
     ) -> Option<GroundSurface> {
+        self.surfaces_at(point, excluding)
+            .filter(|surface| accepts(surface.height, surface.attributes))
+            .min_by(|a, b| {
+                (a.height - point[2])
+                    .abs()
+                    .total_cmp(&(b.height - point[2]).abs())
+            })
+    }
+
+    fn surfaces_at(
+        &self,
+        point: [f32; 3],
+        excluding: Option<u64>,
+    ) -> impl Iterator<Item = GroundSurface> + '_ {
         self.surfaces(excluding)
-            .filter_map(|(triangle, attributes)| {
+            .filter_map(move |(triangle, attributes)| {
                 height(*triangle, point).map(|z| (z, triangle, *attributes))
             })
-            .filter(|(z, _, attributes)| accepts(*z, *attributes))
-            .min_by(|(a, _, _), (b, _, _)| (a - point[2]).abs().total_cmp(&(b - point[2]).abs()))
             .map(|(height, [a, b, c], attributes)| {
                 let normal = surface_normal([*a, *b, *c]);
                 GroundSurface {
@@ -492,8 +592,8 @@ impl WalkMesh {
         let steps = (distance / 4.).ceil().clamp(1., 64.) as u32;
         let delta = delta.map(|v| v / steps as f32);
         let mut point = start;
-        let fit = |mut p: [f32; 3]| {
-            p[2] = self.height(p, 32.)?;
+        let fit = |p: [f32; 3]| {
+            let p = self.resolve_motion(p)?;
             (!blocked(p)).then_some(p)
         };
         for _ in 0..steps {
@@ -509,8 +609,7 @@ impl WalkMesh {
                 for _ in 0..probe_steps {
                     probe = probe.and_then(|mut p| {
                         p[axis] += radius.copysign(delta[axis]) / probe_steps as f32;
-                        p[2] = self.height(p, 32.)?;
-                        Some(p)
+                        self.resolve_motion(p)
                     });
                 }
                 if probe.is_some() { delta[axis] } else { 0. }
@@ -528,6 +627,18 @@ impl WalkMesh {
         }
         point
     }
+}
+
+fn closed_volume(group: &CollisionGroup) -> bool {
+    !group.triangles.is_empty()
+        && group.triangles.iter().all(|&[a, b, c]| {
+            [(a, b), (b, c), (c, a)].into_iter().all(|(from, to)| {
+                group
+                    .triangles
+                    .iter()
+                    .any(|&[x, y, z]| [(x, y), (y, z), (z, x)].contains(&(to, from)))
+            })
+        })
 }
 fn surface_normal([a, b, c]: [[f32; 3]; 3]) -> [f32; 3] {
     let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
@@ -567,7 +678,12 @@ fn crosses_triangle(start: [f32; 3], end: [f32; 3], triangle: [[f32; 3]; 3]) -> 
     })
 }
 
-fn height([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
+fn height(triangle: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
+    let [a, b, c] = triangle;
+    let [u, v] = barycentric(triangle, p)?;
+    Some(a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2]))
+}
+fn barycentric([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<[f32; 2]> {
     let cross = |a: [f32; 2], b: [f32; 2]| a[0] * b[1] - a[1] * b[0];
     let ab = [b[0] - a[0], b[1] - a[1]];
     let ac = [c[0] - a[0], c[1] - a[1]];
@@ -578,8 +694,7 @@ fn height([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
     }
     let u = cross(ap, ac) / determinant;
     let v = cross(ab, ap) / determinant;
-    (u >= -0.0001 && v >= -0.0001 && u + v <= 1.0001)
-        .then_some(a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2]))
+    (u >= -0.0001 && v >= -0.0001 && u + v <= 1.0001).then_some([u, v])
 }
 
 #[cfg(test)]
@@ -693,6 +808,43 @@ mod tests {
         );
     }
     #[test]
+    fn walking_climbs_and_descends_a_ramp_above_an_overlapping_floor() {
+        let mut floor = CollisionGroup {
+            surface: 0,
+            vertices: vec![
+                [0., -100., 0.],
+                [200., -100., 0.],
+                [200., 300., 0.],
+                [0., 300., 0.],
+            ],
+            triangles: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let ramp = CollisionGroup {
+            vertices: vec![
+                [0., 0., 0.],
+                [200., 0., 0.],
+                [200., 200., 200.],
+                [0., 200., 200.],
+            ],
+            ..floor.clone()
+        };
+        let ground = floor.clone();
+        for point in &mut floor.vertices {
+            point[2] = 300.;
+        }
+        let mesh = WalkMesh::new(&[ground, ramp, floor]).unwrap();
+        let mut position = [100., 0., 0.];
+        for direction in [1., -1.] {
+            for _ in 0..30 {
+                let next = mesh.move_by(position, [0., 4. * direction], 40., |_| false);
+                assert!((next[1] - position[1] - 4. * direction).abs() < 0.001);
+                assert!((next[2] - next[1]).abs() < 0.001, "{next:?}");
+                assert_eq!(mesh.resolve_motion(next), Some(next));
+                position = next;
+            }
+        }
+    }
+    #[test]
     fn doorway_height_does_not_expand_its_horizontal_reach() {
         let trigger = resonance_events::Trigger {
             ring_barrier: false,
@@ -790,6 +942,10 @@ mod tests {
         let normal = mesh.surface([50., 50., 0.], 32.).unwrap().normal;
         assert!((normal[2] - 1. / 1.04f32.sqrt()).abs() < 0.00001);
         assert!((normal[1] + 0.2 / 1.04f32.sqrt()).abs() < 0.00001);
+        let projected = mesh.resolve_actor_motion([50., 50., 0.]).unwrap();
+        assert!((projected[1] - 48.076923).abs() < 0.00001);
+        assert!((projected[2] - 9.615385).abs() < 0.00001);
+        assert!((mesh.height(projected, 32.).unwrap() - projected[2]).abs() < 0.00001);
     }
     #[test]
     fn directional_clearance_preserves_small_slides_and_movement_away() {

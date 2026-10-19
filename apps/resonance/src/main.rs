@@ -45,19 +45,22 @@ struct Args {
     /// Render one title tick to a PNG without a window or audio device.
     #[arg(long, requires = "capture")]
     tick: Option<u32>,
-    /// Original counter at title entry for a checkpoint or title-only recording.
+    /// Presentation clock at title entry for deterministic recordings.
     #[arg(long, conflicts_with = "record_music")]
     presentation_start: Option<u32>,
+    /// Play a native title input fixture.
+    #[arg(long, conflicts_with_all = ["reveal", "selected"])]
+    replay: Option<PathBuf>,
     #[arg(long, requires = "checkpoint")]
     capture: Option<PathBuf>,
-    /// Render an opening-movie frame without starting audio playback.
+    /// Play the opening movie to this frame and capture a held PNG without devices.
     #[arg(long, requires = "capture")]
     movie_frame: Option<u32>,
-    /// Render one authored startup-logo tick without playback.
-    #[arg(long, requires = "capture", conflicts_with_all = ["skip_intro", "replay", "presentation_start", "record_music", "record_playthrough"])]
+    /// Run the startup logos to this update and capture a held PNG without devices.
+    #[arg(long, requires = "capture", conflicts_with_all = ["skip_intro", "record_music", "record_playthrough"])]
     boot_frame: Option<u32>,
-    /// Start directly at the title scene (also implied by title checkpoints/replays).
-    #[arg(long, conflicts_with = "movie_frame")]
+    /// Start directly at the title scene (also implied by --tick).
+    #[arg(long, conflicts_with_all = ["movie_frame", "record_music"])]
     skip_intro: bool,
     /// Reveal the menu immediately (development checkpoint).
     #[arg(long)]
@@ -67,15 +70,28 @@ struct Args {
     /// Disable speaker output. Capture mode disables the audio device entirely.
     #[arg(long)]
     silent: bool,
+    /// Stop on missing or unsupported content instead of logging and continuing.
+    #[arg(long)]
+    paranoid: bool,
     /// Show wall-clock FPS, frame-time percentiles and low FPS (F3 toggles).
     #[arg(long, conflicts_with_all = ["record_music", "capture", "record_playthrough"])]
     perf_overlay: bool,
     /// Stream frame timings and rolling summaries to a new JSONL file.
     #[arg(long, conflicts_with = "record_music")]
     perf_dump: Option<PathBuf>,
-    /// Play a native title input fixture (update numbers, not Dolphin polls).
-    #[arg(long, conflicts_with_all = ["reveal", "selected"])]
-    replay: Option<PathBuf>,
+}
+
+impl Args {
+    fn capture_target(&self) -> Option<resonance_presentation::CaptureAt> {
+        use resonance_presentation::CaptureAt;
+        self.tick
+            .map(CaptureAt::TitleTick)
+            .or_else(|| self.movie_frame.map(CaptureAt::MovieFrame))
+            .or_else(|| self.boot_frame.map(CaptureAt::BootTick))
+            .or_else(|| {
+                (self.load.is_some() && self.capture.is_some()).then_some(CaptureAt::LoadedField)
+            })
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -102,6 +118,7 @@ fn main() -> anyhow::Result<()> {
             &args.audio_cue,
         );
     }
+    let capture_at = args.capture_target();
     resonance_presentation::run_with_display(
         resonance_presentation::RunOptions {
             saves: resonance_presentation::SaveOptions {
@@ -111,15 +128,14 @@ fn main() -> anyhow::Result<()> {
             },
             assets: args.assets,
             script_root: args.scripts,
-            tick: args.tick,
+            capture_at,
             presentation_start: args.presentation_start,
+            replay: args.replay,
             capture: args.capture,
             reveal: args.reveal,
             selected: args.selected as usize,
             silent: args.silent,
-            replay: args.replay,
-            movie_frame: args.movie_frame,
-            boot_frame: args.boot_frame,
+            paranoid: args.paranoid,
             skip_intro: args.skip_intro,
             skip_battles: args.skip_battles || args.test_overworld,
             allow_incomplete_scripts: args.test_overworld,
@@ -132,4 +148,32 @@ fn main() -> anyhow::Result<()> {
         },
         args.resolution.unwrap_or_default(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loaded_save_capture_uses_the_field_runner_but_play_does_not() {
+        let capture =
+            Args::try_parse_from(["resonance", "--load", "save.json", "--capture", "field.png"])
+                .unwrap();
+        assert!(matches!(
+            capture.capture_target(),
+            Some(resonance_presentation::CaptureAt::LoadedField)
+        ));
+        let play = Args::try_parse_from(["resonance", "--load", "save.json"]).unwrap();
+        assert!(play.capture_target().is_none());
+    }
+
+    #[test]
+    fn diagnostics_are_tolerant_unless_paranoid_is_requested() {
+        assert!(!Args::try_parse_from(["resonance"]).unwrap().paranoid);
+        assert!(
+            Args::try_parse_from(["resonance", "--paranoid"])
+                .unwrap()
+                .paranoid
+        );
+    }
 }

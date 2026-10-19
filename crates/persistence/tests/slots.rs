@@ -32,8 +32,10 @@ fn slots_are_independent_and_invalid_writes_preserve_previous_data() {
             .unwrap();
         assert_eq!(store.list(kind).unwrap(), [first.clone(), second.clone()]);
         assert_eq!(store.read(kind, &first).unwrap(), bytes);
+        let saved = decode::<Vec<u32>>(&store.read(kind, &second).unwrap()).unwrap();
+        assert_eq!(saved.state, [4, 5]);
         assert_eq!(
-            decode::<Vec<u32>>(&store.read(kind, &second).unwrap(), &header.identity).unwrap(),
+            saved.admit(&header.identity).unwrap(),
             (header.clone(), vec![4, 5])
         );
         assert!(store.write(kind, &first, b"incomplete write").is_err());
@@ -42,14 +44,24 @@ fn slots_are_independent_and_invalid_writes_preserve_previous_data() {
         assert_eq!(store.read(kind, &first).unwrap(), replacement);
         let mut incompatible = header.identity.clone();
         incompatible.schema += 1;
-        assert!(decode::<Vec<u32>>(&bytes, &incompatible).is_err());
+        assert!(
+            decode::<Vec<u32>>(&bytes)
+                .unwrap()
+                .admit(&incompatible)
+                .is_err()
+        );
         incompatible = header.identity.clone();
         incompatible.content[0] ^= 1;
-        assert!(decode::<Vec<u32>>(&bytes, &incompatible).is_err());
-        assert!(inspect(&bytes[..bytes.len() - 1]).is_err());
+        assert!(
+            decode::<Vec<u32>>(&bytes)
+                .unwrap()
+                .admit(&incompatible)
+                .is_err()
+        );
+        assert!(decode::<Vec<u32>>(&bytes[..bytes.len() - 1]).is_err());
     }
     for name in ["", "../outside", "/absolute", "x/y", "x\\y", ".", "a.b"] {
         assert!(SlotId::new(name).is_err());
     }
-    assert!(inspect(&vec![b' '; MAX_FILE_BYTES + 1]).is_err());
+    assert!(decode::<Vec<u32>>(&vec![b' '; MAX_FILE_BYTES + 1]).is_err());
 }

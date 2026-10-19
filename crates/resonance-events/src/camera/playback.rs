@@ -83,7 +83,7 @@ impl CameraTrack {
                 0
             }
             4 => {
-                self.rate = value as f32 / 100.;
+                self.rate = value as f32 / 200.;
                 0
             }
             5 => {

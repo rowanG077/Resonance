@@ -61,6 +61,9 @@ impl GameWorld {
             .clone_from(&model.hidden_nodes);
         previous.visible = false;
         previous.autonomy = None;
+        // The replaced player no longer owns its script ID. A scene can spawn
+        // that member immediately after switching control to someone else.
+        previous.retiring = true;
         self.insert_actor(id, actor);
         if let Some(rig) = &mut self.field_camera {
             for camera in &mut rig.cameras {

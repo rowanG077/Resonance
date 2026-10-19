@@ -14,10 +14,11 @@ use std::{
     path::{Component, Path},
 };
 
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 4;
+const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[derive(Serialize, Deserialize)]
 pub struct SampleAsset {
@@ -41,15 +42,81 @@ pub struct Package {
 }
 
 pub struct Loaded {
-    pub resources: Resources,
-    pub score: Score,
-    pub tables: Tables,
-    pub reverbs: [[f32; 5]; 2],
+    resources: Resources,
+    score: Score,
+    tables: Tables,
+    reverbs: [[f32; 5]; 2],
 }
 
-/// A preparation-scoped pool; live voices retain shared, immutable samples.
+impl Loaded {
+    /// Validate immutable playback data once, before it reaches a mixer.
+    pub fn new(
+        resources: Resources,
+        score: Score,
+        tables: Tables,
+        reverbs: [[f32; 5]; 2],
+    ) -> Result<Self> {
+        validate_playback(&resources, &score, &tables)?;
+        for reverb in reverbs {
+            crate::reverb::validate_parameters(reverb)?;
+        }
+        Ok(Self {
+            resources,
+            score,
+            tables,
+            reverbs,
+        })
+    }
+
+    pub fn resources(&self) -> &Resources {
+        &self.resources
+    }
+    pub fn score(&self) -> &Score {
+        &self.score
+    }
+    pub fn tables(&self) -> &Tables {
+        &self.tables
+    }
+    pub fn reverbs(&self) -> [[f32; 5]; 2] {
+        self.reverbs
+    }
+}
+
+pub(crate) fn validate_playback(
+    resources: &Resources,
+    score: &Score,
+    tables: &Tables,
+) -> Result<()> {
+    tables.validate()?;
+    resources.validate()?;
+    score.validate(resources)?;
+    ensure!(
+        tables.mix.spatial.is_some()
+            || !resources
+                .programs
+                .values()
+                .flatten()
+                .any(|command| matches!(
+                    command,
+                    Command::VolumeCurve {
+                        interaural_delay: true,
+                        ..
+                    }
+                )),
+        "instrument requires uncooked spatial audio tables"
+    );
+    Ok(())
+}
+
+/// Shares decoded samples while packages or live voices own them.
 #[derive(Default)]
-pub struct SampleCache(BTreeMap<String, std::sync::Arc<Sample>>);
+pub struct SampleCache(BTreeMap<String, std::sync::Weak<Sample>>);
+
+impl SampleCache {
+    pub fn prune(&mut self) {
+        self.0.retain(|_, sample| sample.strong_count() != 0);
+    }
+}
 
 pub(crate) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -83,32 +150,66 @@ impl Package {
         )
     }
 
+    pub fn load_verified(
+        root: &Path,
+        path: &str,
+        expected_sha256: &str,
+        cache: &mut SampleCache,
+    ) -> Result<Loaded> {
+        Self::load_with(
+            path,
+            &mut |requested, limit| {
+                let bytes = read_bounded(&root.join(requested), limit)?;
+                if requested == path {
+                    ensure!(
+                        format!("{:x}", Sha256::digest(&bytes)) == expected_sha256,
+                        "music package digest differs from metadata"
+                    );
+                }
+                Ok(bytes)
+            },
+            cache,
+        )
+    }
+
     pub fn load_with(
         path: &str,
         read: &mut impl FnMut(&str, usize) -> Result<Vec<u8>>,
         cache: &mut SampleCache,
     ) -> Result<Loaded> {
         relative_path(path)?;
-        let package: Self = serde_json::from_slice(&read(path, 16 * 1024 * 1024)?)?;
+        let bytes = read(path, MAX_PACKAGE_BYTES)?;
+        ensure!(
+            bytes.len() <= MAX_PACKAGE_BYTES,
+            "music package exceeds read budget"
+        );
+        let package: Self = serde_json::from_slice(&bytes)?;
+        package.prepare(
+            &mut |asset, limit| {
+                let bytes = read(&asset.path, limit)?;
+                ensure!(
+                    bytes.len() <= limit && format!("{:x}", Sha256::digest(&bytes)) == asset.sha256,
+                    "instrument sample digest or size differs from manifest"
+                );
+                Ok(bytes.into())
+            },
+            cache,
+        )
+    }
+
+    /// Decode once from an already parsed package and verified immutable samples.
+    /// The reader validates each sample's digest and budget, including cache hits.
+    pub fn prepare(
+        self,
+        read: &mut impl FnMut(&SampleAsset, usize) -> Result<std::sync::Arc<[u8]>>,
+        cache: &mut SampleCache,
+    ) -> Result<Loaded> {
+        cache.prune();
+        let package = self;
         ensure!(
             package.version == VERSION,
             "unsupported cooked music version; recook audio packages"
         );
-        package.tables.validate()?;
-        ensure!(
-            package.tables.mix.spatial.is_some()
-                || !package.programs.values().flatten().any(|command| matches!(
-                    command,
-                    Command::VolumeCurve {
-                        interaural_delay: true,
-                        ..
-                    }
-                )),
-            "instrument requires uncooked spatial audio tables"
-        );
-        for reverb in package.reverbs {
-            crate::reverb::StandardReverb::new(reverb)?;
-        }
         let mut samples = BTreeMap::new();
         let mut total = 0usize;
         for (id, asset) in package.samples {
@@ -134,15 +235,11 @@ impl Package {
                 asset.loop_start,
                 asset.loop_length,
             ))?;
-            if let Some(sample) = cache.0.get(&key) {
-                samples.insert(id, sample.clone());
+            let bytes = read(&asset, count as usize * 2 + 1024 * 1024)?;
+            if let Some(sample) = cache.0.get(&key).and_then(std::sync::Weak::upgrade) {
+                samples.insert(id, sample);
                 continue;
             }
-            let bytes = read(&asset.path, count as usize * 2 + 1024 * 1024)?;
-            ensure!(
-                format!("{:x}", Sha256::digest(&bytes)) == asset.sha256,
-                "instrument sample digest differs from manifest"
-            );
             let mut wave = hound::WavReader::new(Cursor::new(bytes))?;
             let spec = wave.spec();
             ensure!(
@@ -166,21 +263,14 @@ impl Package {
                 pcm,
                 loop_pcm,
             });
-            cache.0.insert(key, sample.clone());
+            cache.0.insert(key, std::sync::Arc::downgrade(&sample));
             samples.insert(id, sample);
         }
         let resources = Resources {
             programs: package.programs,
             samples,
         };
-        resources.validate()?;
-        package.score.validate(&resources)?;
-        Ok(Loaded {
-            resources,
-            score: package.score,
-            tables: package.tables,
-            reverbs: package.reverbs,
-        })
+        Loaded::new(resources, package.score, package.tables, package.reverbs)
     }
 }
 

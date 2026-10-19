@@ -24,30 +24,22 @@ pub struct Prepared {
 impl Prepared {
     pub fn load(
         root: &Path,
+        shared: Files,
         cache: &mut Cache,
         mut available_fields: BTreeSet<u32>,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
         let definition: Package = serde_json::from_slice(&std::fs::read(root.join(PACKAGE_PATH))?)?;
         definition.validate()?;
-        let files = Arc::new(Files::from_inventory(
-            root,
-            definition.files.clone(),
-            cache,
-            cancelled,
-        )?);
-        let mut data: resonance_content::session::SessionData =
-            files.json("game/session-data.json")?;
-        let menu: resonance_content::menu_data::MenuData = files.json("game/menu-data.json")?;
-        menu.validate()?;
-        data.ex_skills = Some(Arc::new(menu.ex_skills.clone()));
-        data.validate()?;
+        let files =
+            Arc::new(shared.with_dependencies(root, definition.files.clone(), cache, cancelled)?);
+        let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
         let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
         skits.validate()?;
         available_fields.insert(3000);
         let resources = Arc::new(ResourceLibrary {
-            session_data: Some(Arc::new(data)),
-            menu_data: Some(Arc::new(menu)),
+            menu_data: data.rules.clone(),
+            session_data: Some(data),
             text: Arc::new(files.json("game/text.json")?),
             skits: Some(Arc::new(skits)),
             messages: files.json(&definition.messages)?,
@@ -59,6 +51,7 @@ impl Prepared {
         let skits = Arc::new(crate::skit::Prepared::load(
             resources.skits.clone().unwrap(),
             &files,
+            &resources,
         )?);
         let story_rules =
             super::scripts::Rules::prepare(&mut Default::default(), &files.script_sources()?)?;
@@ -120,6 +113,7 @@ impl Prepared {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(Arc::new(Assets {
+            files: self.files.clone(),
             world,
             terrain: Arc::new(collision::Terrain::new(
                 terrain,

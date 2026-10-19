@@ -63,10 +63,7 @@ impl Rig {
                 ))
             })
             .collect();
-        let chains = spec
-            .secondary_motion
-            .prepare(&spec.bone_names)
-            .unwrap_or_else(|error| panic!("secondary-motion preparation failed: {error:#}"));
+        let chains = spec.secondary_motion.chains.clone();
         if chains.iter().any(|chain| {
             chain.joints.iter().any(|j| !bones.contains_key(&j.node))
                 || chain

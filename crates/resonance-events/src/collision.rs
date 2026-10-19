@@ -5,6 +5,19 @@ pub struct Plane {
     distance: f32,
 }
 impl Plane {
+    pub fn bounds(low: [f32; 3], high: [f32; 3]) -> [Self; 6] {
+        std::array::from_fn(|face| {
+            let axis = face / 2;
+            let sign = if face % 2 == 0 { -1. } else { 1. };
+            let mut normal = [0.; 3];
+            normal[axis] = sign;
+            Self {
+                normal,
+                distance: if sign < 0. { -low[axis] } else { high[axis] },
+            }
+        })
+    }
+
     pub fn triangle([a, b, c]: [[f32; 3]; 3]) -> Self {
         let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
         let v: [f32; 3] = std::array::from_fn(|i| c[i] - a[i]);

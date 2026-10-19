@@ -48,6 +48,7 @@ pub struct FieldEntry {
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
     pub menu_data: Option<Arc<resonance_content::menu_data::MenuData>>,
+    pub menu_files: Arc<resonance_content::prepared::Files>,
     pub skits: Option<Arc<resonance_content::skit::SkitCatalog>>,
     pub text: Arc<resonance_content::session::GameText>,
     pub available_fields: std::collections::BTreeSet<u32>,
@@ -86,6 +87,7 @@ pub struct FieldSession {
     pub allow_incomplete_scripts: bool,
     entered_control: bool,
     entry_wait_ticks: u32,
+    diagnostics: resonance_content::diagnostics::Diagnostics,
     pub play_time: crate::clock::PlayTime,
     /// Effect births keep their phase through menus; particle age uses field time.
     pub effect_clock: crate::clock::PresentationClock,
@@ -96,6 +98,8 @@ pub struct FieldSession {
     pub shop: Option<shop::Shop>,
     pub crafting: Option<crafting::Crafting>,
     menu_operation: Option<resonance_events::Operation>,
+    /// The Unison selection survives each temporary menu.
+    unison_character: usize,
     menu_resources: Option<Arc<crate::menu::Resources>>,
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
     choices: crate::choice::ChoicePlayer,
@@ -109,12 +113,21 @@ pub struct FieldSession {
     action_hints: prompt::ActionHints,
     skits: skit::Skits,
     pub active_skit: Option<SkitPlayback>,
-    skit_programs: BTreeMap<u16, skit::Prepared>,
-    pub voice_feedback: Option<Arc<dyn crate::dialogue::VoiceFeedback>>,
+    skit_programs: BTreeMap<u16, crate::skit::Prepared>,
+    pub voice_feedback: bool,
     /// Actor -> first update of its current continuous dialogue mouth cycle.
     pub talking: BTreeMap<i32, u32>,
 }
 impl FieldSession {
+    pub fn menu_data(&self) -> Option<&Arc<resonance_content::menu_data::MenuData>> {
+        self.menu_resources
+            .as_ref()
+            .map(|resources| &resources.data)
+    }
+
+    pub fn set_diagnostics(&mut self, diagnostics: resonance_content::diagnostics::Diagnostics) {
+        self.diagnostics = diagnostics;
+    }
     pub fn dialogue_scene(
         &self,
     ) -> (
@@ -191,12 +204,32 @@ impl FieldSession {
     /// Preserve ambient clocks across field changes, dismissing the skit title.
     /// Quickloads restart ambient services through ordinary field initialization.
     pub fn continue_ambient(&mut self, previous: &Self) {
+        self.unison_character = previous.unison_character();
         self.skits = previous.skits.next_field();
         self.effect_clock = previous.effect_clock;
     }
-
     pub fn action_prompt(&self) -> Option<ActionPrompt> {
         self.action_hints.prompt.filter(|_| !self.menu_is_open())
+    }
+
+    /// Import app-lifetime UI scratch before a new Menu is opened. An already
+    /// active Menu continues to own its own in-progress selection.
+    pub fn set_unison_character(&mut self, character: usize) {
+        self.unison_character = character;
+    }
+
+    pub fn unison_character(&self) -> usize {
+        self.menu
+            .as_ref()
+            .map_or(self.unison_character, |menu| menu.unison.character)
+    }
+
+    /// Colette's character state, independent of main story progression.
+    pub fn colette_state(&self) -> Result<i32> {
+        Ok(self
+            .events
+            .memory()
+            .read(0x4c, symphonia_script::Width::S32)?)
     }
 
     pub fn story_progress(&self) -> Result<i32> {
@@ -218,19 +251,26 @@ impl FieldSession {
         assets: &FieldAssets,
         entry: FieldEntry,
     ) -> Result<Self> {
-        use sha2::{Digest, Sha256};
-        ensure!(
-            format!("{:x}", Sha256::digest(script)) == assets.script.sha256,
-            "field script digest mismatch"
-        );
         let skits = skit::Skits::new(entry.skits.clone());
-        let menu_resources = entry
-            .data
-            .clone()
-            .zip(entry.menu_data.clone())
-            .map(|(session, data)| Arc::new(crate::menu::Resources { session, data }));
+        let menu_resources =
+            entry
+                .data
+                .clone()
+                .zip(entry.menu_data.clone())
+                .map(|(session, data)| {
+                    Arc::new(crate::menu::Resources {
+                        session,
+                        data,
+                        files: entry.menu_files.clone(),
+                    })
+                });
         if let Some(resources) = &menu_resources {
-            resources.data.validate()?;
+            ensure!(
+                resources.session.items.len() == resources.data.items.len(),
+                "item definitions differ from the menu catalogue"
+            );
+            resources.data.validate_gameplay()?;
+            resources.data.world_map.validate_field(assets.map_id)?;
             ensure!(
                 resources
                     .session
@@ -246,6 +286,7 @@ impl FieldSession {
             allow_incomplete_scripts: entry.allow_incomplete_scripts,
             entered_control: false,
             entry_wait_ticks: 0,
+            diagnostics: Default::default(),
             menu_resources,
             skits,
             active_skit: None,
@@ -259,6 +300,7 @@ impl FieldSession {
             shop: None,
             crafting: None,
             menu_operation: None,
+            unison_character: 0,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
             conversation_facing: None,
@@ -268,7 +310,7 @@ impl FieldSession {
             },
             blocks: Default::default(),
             action_hints: Default::default(),
-            voice_feedback: None,
+            voice_feedback: false,
             talking: Default::default(),
             walkmesh: navigation::WalkMesh::new(&assets.ground)?,
             player_fall: Default::default(),
@@ -281,7 +323,7 @@ impl FieldSession {
         }
         Ok(session)
     }
-    /// Install a prepared entry only after legacy setup/checkpoint restoration.
+    /// Install a prepared entry after scenario setup or checkpoint restoration.
     /// The presentation owner starts gameplay updates after the field is ready.
     pub fn queue_authored_entry(&mut self, event: Option<Arc<crate::authored::PreparedEvent>>) {
         self.authored_entry = event;
@@ -385,11 +427,7 @@ impl FieldSession {
             0.,
             actor.position,
         ));
-        let entry = resonance_events::camera::EntryCamera::following(id);
-        let mut camera = resonance_events::camera::CameraRig::default();
-        camera.angles = entry.camera.angles;
-        camera.distance = entry.camera.distance;
-        *camera.current_mut() = entry.camera;
+        let mut camera = resonance_events::camera::CameraRig::following(id);
         camera.snap_follow_view(&self.events.world.actors);
         self.events.world.field_camera = Some(camera);
         self.entered_control = true;
@@ -470,6 +508,10 @@ impl FieldSession {
         if let Some(menu) = &mut self.menu {
             menu.set_play_time(self.play_time);
             let cue = menu.step(input);
+            if let Some(error) = menu.take_failure() {
+                return Err(error);
+            }
+            self.unison_character = menu.unison.character;
             if let Some((party, gameplay_random)) = menu.take_party_changes() {
                 self.events.world.party = Some(party);
                 self.events.world.gameplay_random = gameplay_random;
@@ -639,7 +681,13 @@ impl FieldSession {
                         let angle = -forward[0].atan2(forward[1]);
                         let forward = [-angle.sin(), angle.cos()];
                         let size = events.world.player_size;
-                        let speed = if input.run { 8. } else { 4. } * size.movement_scale();
+                        let mobility = events
+                            .world
+                            .party
+                            .as_ref()
+                            .map_or(1., |party| party.field_movement_multiplier());
+                        let speed =
+                            if input.run { 12. } else { 4. } * size.movement_scale() * mobility;
                         let delta = [
                             (forward[1] * stick[0] + forward[0] * stick[1]) * speed,
                             (-forward[0] * stick[0] + forward[1] * stick[1]) * speed,
@@ -732,11 +780,7 @@ impl FieldSession {
                         actor.target_heading = heading;
                     }
                 }
-                if actor.grounded
-                    && actor.attachment.is_none()
-                    && actor.resource < SCENERY_RESOURCE_BASE
-                    && !actor.interaction_anchor
-                {
+                if actor.grounded && actor.attachment.is_none() && !actor.interaction_anchor {
                     if id != controlled_actor
                         && !event_paused
                         && actor.collidable
@@ -775,7 +819,7 @@ impl FieldSession {
                     } else if actor.enemy.is_some() {
                         walkmesh.resolve_enemy(actor.position, actor.instance)
                     } else {
-                        walkmesh.resolve_motion(actor.position)
+                        walkmesh.resolve_actor_motion(actor.position)
                     };
                     if let Some(autonomy) = &mut actor.autonomy {
                         autonomy.resolve_floor(position.is_some());
@@ -797,6 +841,7 @@ impl FieldSession {
                 resolved.insert(id, actor.position);
             },
             |events| {
+                walkmesh.carry_player(&mut events.world);
                 walkmesh.update_enemy_sight(&mut events.world);
                 conditions::step(&mut events.world, self.effect_clock.tick())?;
                 self.save_points
@@ -874,7 +919,6 @@ impl FieldSession {
         for (id, actor) in &mut self.events.world.actors {
             if actor.grounded
                 && actor.attachment.is_none()
-                && actor.resource < SCENERY_RESOURCE_BASE
                 && !actor.interaction_anchor
                 // A script can move an actor after its movement update. New
                 // actors retain their spawn height until their first update;
@@ -907,7 +951,10 @@ impl FieldSession {
     }
 
     fn open_menu(&mut self, page: crate::menu::Page, checkpoint: FieldCheckpoint, at_circle: bool) {
-        let mut menu = crate::menu::Menu::new(page, Some(checkpoint), at_circle);
+        let mut menu =
+            crate::menu::Menu::new(page, Some(crate::Checkpoint::Field(checkpoint)), at_circle);
+        // Unison keeps its character selection between menu visits.
+        menu.unison.character = self.unison_character;
         menu.begin_opening();
         menu.resources = self.menu_resources.clone();
         menu.set_play_time(self.play_time);
@@ -1004,7 +1051,7 @@ impl FieldSession {
                             .map_or(3, |p| u16::from(p.settings.preferences.message_speed)),
                     )?
                     .with_voice_durations(self.events.world.voice_durations.clone())
-                    .with_voice_feedback(self.voice_feedback.clone()),
+                    .with_voice_feedback(self.voice_feedback),
                 );
             }
         }
@@ -1029,7 +1076,10 @@ impl FieldSession {
             };
             for voice in voices {
                 self.events.world.audio_commands.push(match voice {
-                    crate::dialogue::VoiceAction::Play(id) => {
+                    resonance_events::AudioCommand::Voice {
+                        resource: id,
+                        completion,
+                    } => {
                         self.events.world.voice = Some(resonance_events::VoicePlayback {
                             resource: id,
                             end_tick: self.events.world.tick.saturating_add(
@@ -1041,12 +1091,16 @@ impl FieldSession {
                                     .unwrap_or(0),
                             ),
                         });
-                        resonance_events::AudioCommand::Voice(id)
+                        resonance_events::AudioCommand::Voice {
+                            resource: id,
+                            completion,
+                        }
                     }
-                    crate::dialogue::VoiceAction::Stop => {
+                    resonance_events::AudioCommand::StopVoice => {
                         self.events.world.voice = None;
                         resonance_events::AudioCommand::StopVoice
                     }
+                    other => other,
                 });
             }
         }
@@ -1218,16 +1272,22 @@ impl FieldSession {
         &self,
         actor: &resonance_events::Actor,
     ) -> resonance_events::effect::CharacterLight {
-        if actor.unlit {
-            return self
-                .events
+        let mut light = if actor.unlit {
+            self.events
                 .world
                 .character_lights
                 .get(&-2)
                 .cloned()
-                .unwrap_or_default();
+                .unwrap_or_default()
+        } else {
+            self.target_light(actor.position)
+        };
+        if actor.keeps_script_lighting() {
+            let previous = actor.light.clone().unwrap_or_default();
+            light.shade = previous.shade;
+            light.bright = previous.bright;
         }
-        self.target_light(actor.position)
+        light
     }
     fn target_light(&self, point: [f32; 3]) -> resonance_events::effect::CharacterLight {
         // The ground attribute mesh selects the light using its low five bits.
@@ -1260,7 +1320,7 @@ fn within_interaction_reach(player: &Actor, actor: &Actor) -> bool {
         && (actor.position[2] - player.position[2]).abs() <= HEIGHT
 }
 fn movement_heading([x, y]: [f32; 2]) -> f32 {
-    x.atan2(-y).to_degrees().rem_euclid(360.)
+    (y.atan2(x).to_degrees() + 90.).rem_euclid(360.)
 }
 
 pub fn start(
@@ -1407,11 +1467,11 @@ fn start_with_entry(
 ) -> Result<EventRuntime> {
     assets.validate()?;
     if let (Some(data), Some(menu)) = (&mut entry.data, &entry.menu_data) {
-        if data.ex_skills.is_none() {
-            Arc::make_mut(data).ex_skills = Some(Arc::new(menu.ex_skills.clone()));
+        if data.rules.is_none() {
+            Arc::make_mut(data).rules = Some(menu.clone());
         }
         if let Some(party) = &mut entry.persistent.party {
-            party.bind_ex_skills(data);
+            party.bind_rules(data);
         }
     }
     let mut resources = ResourceLibrary {
@@ -1439,15 +1499,9 @@ fn start_with_entry(
     }
     let leader = world.party.as_ref().map_or(1, |p| p.field_leader);
     world.controlled_actor = i32::from(leader);
-    let entry_camera = entry.camera.or_else(|| {
-        (entry.kind == EntryKind::Arrival)
-            .then(|| resonance_events::camera::EntryCamera::following(world.controlled_actor))
-    });
-    let mut camera = resonance_events::camera::CameraRig::default();
-    camera.current_mut().follow = true;
-    camera.current_mut().anchor_to_actor = true;
-    camera.current_mut().actor = world.controlled_actor;
-    if let Some(entry) = entry_camera {
+    let initialize_view = entry.kind == EntryKind::Arrival || entry.camera.is_none();
+    let mut camera = resonance_events::camera::CameraRig::following(world.controlled_actor);
+    if let Some(entry) = entry.camera {
         camera.angles = entry.camera.angles;
         camera.distance = entry.camera.distance;
         camera.position_rate = entry.position_rate;
@@ -1508,9 +1562,9 @@ fn start_with_entry(
         world.insert_actor(actor, instance);
     }
     bind_attachments(&mut resources, entry.attachments)?;
-    if entry.kind == EntryKind::Arrival {
-        // Resolve the entrance before scripts configure the live camera.
-        // Saved scenes resolve their view after setup and player placement.
+    if initialize_view {
+        // Script-rebuilt views need their initial anchor before camera commands.
+        // Saved follow-camera settings settle after setup and player placement.
         world
             .field_camera
             .as_mut()
@@ -1598,7 +1652,7 @@ mod tests {
         words.push(0x2000 | op as u16);
     }
 
-    fn choice_session() -> FieldSession {
+    pub(super) fn choice_session() -> FieldSession {
         choice_session_with_flags(0x100)
     }
 
@@ -1694,6 +1748,8 @@ mod tests {
     fn session(events: EventRuntime) -> FieldSession {
         FieldSession {
             allow_incomplete_scripts: false,
+            diagnostics: Default::default(),
+            unison_character: 0,
             entered_control: false,
             entry_wait_ticks: 0,
             map_id: 0,
@@ -1713,7 +1769,7 @@ mod tests {
             skits: Default::default(),
             active_skit: None,
             skit_programs: BTreeMap::new(),
-            voice_feedback: None,
+            voice_feedback: false,
             talking: Default::default(),
             events,
             dialogue: BTreeMap::new(),
@@ -1762,7 +1818,12 @@ mod tests {
 
     #[test]
     fn grounding_depends_on_actor_role_instead_of_resource_number() {
-        for (resource, anchor) in [(24, false), (7, true)] {
+        for (resource, anchor) in [
+            (24, false),
+            (7, true),
+            (SCENERY_RESOURCE_BASE + 5, false),
+            (SCENERY_RESOURCE_BASE + 5, true),
+        ] {
             let mut field = empty_session();
             let mut actor = Actor::new(resource, [2., 2., 20.]);
             actor.interaction_anchor = anchor;
@@ -1995,6 +2056,95 @@ mod tests {
     }
 
     #[test]
+    fn moving_platform_carries_player_until_they_walk_off() {
+        use resonance_content::field::{CollisionGroup, ModelCollision};
+        let mut session = empty_session();
+        session.events.world.controlled_actor = 1;
+        session.events.world.input_enabled = true;
+        session
+            .events
+            .world
+            .insert_actor(1, Actor::new(1, [0., 0., 100.]));
+        let mut platform = Actor::new(SCENERY_RESOURCE_BASE, [0., 0., 100.]);
+        platform.grounded = false;
+        platform.collidable = false;
+        platform.appearance.fixed_heading = Some(0.);
+        platform.model_collision = Some(Arc::new(ModelCollision {
+            floors: vec![CollisionGroup {
+                surface: 7,
+                vertices: vec![
+                    [-40., -40., 0.],
+                    [40., -40., 0.],
+                    [-40., 40., 0.],
+                    [40., 40., 0.],
+                ],
+                triangles: vec![[0, 1, 2], [1, 3, 2]],
+            }],
+            solids: Vec::new(),
+        }));
+        session.events.world.insert_actor(500, platform);
+        for target in [
+            [120., 0., 100.],
+            [0., 120., 100.],
+            [0., 0., 220.],
+            [120., 0., -20.],
+        ] {
+            // An off-center rider must not swing around when travel reverses
+            // while the visible platform keeps its orientation.
+            session.events.world.actors.get_mut(&1).unwrap().position = [10., 15., 100.];
+            let platform = session.events.world.actors.get_mut(&500).unwrap();
+            platform.position = [0., 0., 100.];
+            platform.motion = Some(resonance_events::ActorMotion { target, speed: 4. });
+            for _ in 0..12 {
+                session.step(FieldInput::default()).unwrap();
+                let player = session.events.world.actors[&1].position;
+                let platform = session.events.world.actors[&500].position;
+                assert!(
+                    player
+                        .iter()
+                        .zip(platform)
+                        .zip([10., 15., 0.])
+                        .all(|((a, b), offset)| (a - b - offset).abs() < 0.001),
+                    "{player:?} != {platform:?}"
+                );
+            }
+        }
+        // Stepping onto a dock ends the ride, including its overlap with the
+        // moving floor.
+        session.walkmesh = navigation::WalkMesh::new(&[CollisionGroup {
+            surface: 7,
+            vertices: vec![
+                [40., -100., 100.],
+                [200., -100., 100.],
+                [40., 100., 100.],
+                [200., 100., 100.],
+            ],
+            triangles: vec![[0, 1, 2], [1, 3, 2]],
+        }])
+        .unwrap();
+        session.events.world.actors.get_mut(&1).unwrap().position = [39., 0., 100.];
+        let platform = session.events.world.actors.get_mut(&500).unwrap();
+        platform.position = [0., 0., 100.];
+        platform.face(180.);
+        platform.motion = Some(resonance_events::ActorMotion {
+            target: [0., 120., 100.],
+            speed: 4.,
+        });
+        session
+            .step(FieldInput {
+                direction: [1., 0.],
+                ..Default::default()
+            })
+            .unwrap();
+        let player = session.events.world.actors[&1].position;
+        assert!(player[0] > 40. && player[2] == 100., "{player:?}");
+        for _ in 0..4 {
+            session.step(FieldInput::default()).unwrap();
+        }
+        assert_eq!(session.events.world.actors[&1].position[1], player[1]);
+    }
+
+    #[test]
     fn live_scenery_floors_connect_a_gap_and_follow_transforms() {
         use resonance_content::field::{CollisionGroup, ModelCollision};
         let rectangle = |x: [f32; 2], y: [f32; 2], z| CollisionGroup {
@@ -2148,6 +2298,12 @@ mod tests {
             let mut world = resonance_events::GameWorld::default();
             world.controlled_actor = 1;
             world.insert_actor(1, Actor::new(1, [2., 2., 0.]));
+            let mut prop = Actor::new(2, [0.; 3]);
+            prop.model_collision = Some(resonance_content::test_support::solid_box(
+                [-100., -100., 0.],
+                [100., 100., 100.],
+            ));
+            world.insert_actor(2, prop);
             session.events = EventRuntime::with_state_policy(
                 program,
                 Default::default(),
@@ -2342,6 +2498,10 @@ mod tests {
             };
             session.step(input).unwrap();
             positions.push(session.events.world.actors[&1].position[0]);
+            let walked = session.events.world.actors[&1].position[0];
+            session.step(FieldInput { run: true, ..input }).unwrap();
+            let ran = session.events.world.actors[&1].position[0] - walked;
+            assert!((ran - 3. * walked).abs() < 0.0001);
             for _ in 0..100 {
                 session.step(input).unwrap();
             }
@@ -2749,5 +2909,93 @@ mod tests {
         let choice = fresh.events.world.choices.get_mut(&1).unwrap();
         assert_eq!(player.step(choice, up, true), (None, true));
         assert_eq!(choice.selection.lines().unwrap().selected_line, 1);
+    }
+    #[test]
+    #[ignore = "requires prepared session/menu data; no devices"]
+    fn unison_selection_survives_menu_and_field_owners_while_main_character_resets() {
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
+            });
+        let data: Arc<resonance_content::session::SessionData> = Arc::new(
+            serde_json::from_slice(&std::fs::read(root.join("game/session-data.json")).unwrap())
+                .unwrap(),
+        );
+        let menus: Arc<resonance_content::menu_data::MenuData> = Arc::new(
+            serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json")).unwrap())
+                .unwrap(),
+        );
+        let mut party = resonance_events::party::Party::new(&data, Default::default()).unwrap();
+        party.formation = vec![1, 2, 3, 4];
+        party.field_leader = 1;
+        let mut globals = vec![0; 256];
+        globals[16] = 1_403_000;
+        let checkpoint = FieldCheckpoint {
+            allow_incomplete_scripts: false,
+            map_id: 0,
+            position: [0.; 3],
+            heading: 0.,
+            camera: {
+                let mut rig = resonance_events::camera::CameraRig::default();
+                *rig.current_mut() = resonance_events::camera::EntryCamera::following(1).camera;
+                Some(rig.settings(1).unwrap())
+            },
+            played_ticks: 0,
+            progress: resonance_events::SavedProgress {
+                script_globals: globals,
+                script_state: Default::default(),
+                party: party.clone(),
+                event_flags: Default::default(),
+                event_records: Default::default(),
+                random_state: 0,
+                gameplay_random: Default::default(),
+                tick: 0,
+            },
+        };
+        let mut field = choice_session();
+        field.events.world.party = Some(party);
+        field.events.world.controlled_actor = 1;
+        field.menu_resources = Some(Arc::new(crate::menu::Resources {
+            session: data.clone(),
+            data: menus.clone(),
+            files: Default::default(),
+        }));
+        field.set_unison_character(3);
+        field.open_menu(crate::menu::Page::Main, checkpoint.clone(), false);
+        assert_eq!(field.menu.as_ref().unwrap().character, 0);
+        assert_eq!(field.menu.as_ref().unwrap().unison.character, 3);
+        // The active field Menu's scratch wins over a stale host import.
+        field.menu.as_mut().unwrap().unison.character = 2;
+        field.menu.as_mut().unwrap().character = 2;
+        field.set_unison_character(0);
+        assert_eq!(field.unison_character(), 2);
+        field.menu.as_mut().unwrap().closed = true;
+        field
+            .events
+            .world
+            .insert_actor(1, resonance_events::Actor::new(1, [0.; 3]));
+        field.step(Default::default()).unwrap();
+        assert!(field.menu.is_none());
+        assert_eq!(field.unison_character(), 2);
+        let mut next = choice_session();
+        next.continue_ambient(&field);
+        next.open_menu(crate::menu::Page::Main, checkpoint.clone(), false);
+        assert_eq!(next.menu.as_ref().unwrap().character, 0);
+        assert_eq!(next.unison_character(), 2);
+        let retained = crate::menu::unison::Unison::opening(
+            next.unison_character(),
+            &checkpoint.progress.party,
+        )
+        .unwrap();
+        assert_eq!(retained.character, 2);
+        let mut smaller = checkpoint.progress.party;
+        smaller.formation.truncate(1);
+        assert_eq!(
+            crate::menu::unison::Unison::opening(2, &smaller)
+                .unwrap()
+                .character,
+            0
+        );
     }
 }

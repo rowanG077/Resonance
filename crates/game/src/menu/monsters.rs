@@ -1,6 +1,5 @@
 use super::*;
 use resonance_content::monster::Monster;
-use resonance_events::input::Button;
 use resonance_events::party::MonsterKnowledge;
 
 pub const VISIBLE: usize = 12;
@@ -49,7 +48,13 @@ impl MonsterList {
 }
 impl Menu {
     pub fn monster_records(&self) -> Vec<(&Monster, &MonsterKnowledge)> {
-        let book = &self.resources.as_ref().unwrap().data.monsters;
+        let Some(book) = self
+            .resources
+            .as_ref()
+            .and_then(|resources| resources.data.presentation.monsters.as_ref())
+        else {
+            return Vec::new();
+        };
         self.party()
             .monsters
             .iter()
@@ -74,9 +79,12 @@ impl Menu {
     }
     pub(super) fn step_monsters(
         &mut self,
-        input: crate::field::FieldInput,
-        [left, right, up, down, page_up, page_down]: [bool; 6],
+        input: Input,
+        preview_direction: [f32; 2],
     ) -> Option<i16> {
+        use MenuAction::*;
+        let [left, right, up, down, page_up, page_down] =
+            [Left, Right, Up, Down, PageUp, PageDown].map(|action| input == Some(action));
         let book = &mut self.monsters;
         if book.listing {
             book.scroll = (book.scroll + book.scroll.signum()) % 5;
@@ -88,7 +96,7 @@ impl Menu {
         {
             return None;
         }
-        if input.pressed(Button::Start) {
+        if input == Some(Details) {
             self.monsters.yaw = DEFAULT_YAW;
             self.monsters.distance = DEFAULT_DISTANCE;
         }
@@ -98,7 +106,7 @@ impl Menu {
             .filter(|(_, k)| k.scanned)
             .map_or(0, |(_, k)| usize::from(k.variant));
         let book = &mut self.monsters;
-        if input.pressed(Button::Cancel) {
+        if input == Some(Cancel) {
             if book.listing {
                 book.listing = false;
             } else {
@@ -110,7 +118,7 @@ impl Menu {
             return None;
         }
         if book.listing {
-            if input.pressed(Button::Accept) {
+            if input == Some(Confirm) {
                 if book.row != book.list_row {
                     book.row = book.list_row;
                     book.variant = 0;
@@ -146,7 +154,7 @@ impl Menu {
             }
             return (old != book.list_row).then_some(1);
         }
-        if input.pressed(Button::Ring) {
+        if input == Some(Alternate) {
             book.listing = true;
             book.list_row = book.row;
             book.first = book
@@ -155,10 +163,9 @@ impl Menu {
                 .max((book.row + 1).saturating_sub(VISIBLE));
             return Some(1);
         }
-        if !input.pressed(Button::Start) {
-            book.yaw = (book.yaw + preview_step(input.preview_direction[0])).rem_euclid(360.);
-            book.distance =
-                (book.distance + preview_step(input.preview_direction[1])).clamp(600., 1400.);
+        if input != Some(Details) {
+            book.yaw = (book.yaw + preview_step(preview_direction[0])).rem_euclid(360.);
+            book.distance = (book.distance + preview_step(preview_direction[1])).clamp(600., 1400.);
         }
         let old = (book.row, book.variant);
         let jump = if count > 10 { 10 } else { 0 };
@@ -166,9 +173,9 @@ impl Menu {
             -1
         } else if right {
             1
-        } else if input.pressed(Button::PreviousPage) {
+        } else if input == Some(PreviousTab) {
             -jump
-        } else if input.pressed(Button::NextPage) {
+        } else if input == Some(NextTab) {
             jump
         } else {
             0

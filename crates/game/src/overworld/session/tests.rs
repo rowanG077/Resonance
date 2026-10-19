@@ -47,6 +47,7 @@ fn start(mut landmarks: Landmarks, guideposts: Vec<Guidepost>) -> Result<Session
         ..Default::default()
     });
     let assets = Arc::new(Assets {
+        files: Default::default(),
         world: crate::overworld::World::Sylvarant,
         terrain: Arc::new(terrain(1)),
         rules: Arc::new(Rules::new(crate::overworld::tests::tables())?),
@@ -222,7 +223,8 @@ fn temporary_battle_bypass_resumes_world_and_scripted_encounters_as_victories() 
                 }
             ]
         ),
-        "a skipped battle restores music once"
+        "a skipped battle restores music once: {:?}",
+        events.world.audio_commands
     );
     for address in [0x20, 0x24] {
         assert_eq!(
@@ -253,7 +255,7 @@ fn sandworm_handoff_freezes_the_source_and_resumes_once_after_results() -> Resul
         );
         let request = session.events.world.battle_request.take().unwrap();
         assert_eq!(
-            (request.setup.encounter, request.setup.arena),
+            (request.setup.encounter.clone(), request.setup.arena),
             (resonance_events::battle::Encounter::Formation(96), 5)
         );
         assert_eq!(request.setup.defeat, DefeatPolicy::GameOver);
@@ -394,7 +396,7 @@ fn symbol_handoffs_observe_mount_surface_and_existing_control_owners() -> Result
         if accepted {
             let request = session.battle_request().unwrap().clone();
             assert_eq!(
-                (request.setup.encounter, request.setup.arena),
+                (request.setup.encounter.clone(), request.setup.arena),
                 (resonance_events::battle::Encounter::Pool(1007), 0)
             );
             assert!(!session.encounter_symbol(position, 0)?);
@@ -803,7 +805,7 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
     });
     catalog.validate()?;
     let mut files = resonance_content::prepared::Files::default();
-    files.bytes.insert(
+    files.insert(
         "skit.ssb".into(),
         words
             .into_iter()
@@ -811,19 +813,9 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
             .collect::<Vec<_>>()
             .into(),
     );
-    files
-        .bytes
-        .insert("messages.json".into(), b"[]".to_vec().into());
-    files.bytes.insert(
-        "game/text.json".into(),
-        serde_json::to_vec(&resonance_content::session::GameText::default())?.into(),
-    );
-    files.bytes.insert(
-        "game/session-data.json".into(),
-        serde_json::to_vec(data().as_ref())?.into(),
-    );
-    Arc::get_mut(&mut session.assets).unwrap().skits =
-        Arc::new(crate::skit::Prepared::load(catalog, &files)?);
+    files.insert("messages.json".into(), b"[]".to_vec().into());
+    let prepared = crate::skit::Prepared::load(catalog, &files, session.events.resources())?;
+    Arc::get_mut(&mut session.assets).unwrap().skits = Arc::new(prepared);
     session.start_skit(450, true, false, None)?;
     assert_eq!(session.active_skit.as_ref().unwrap().title, "Event scene");
     assert!(session.checkpoint().is_err());

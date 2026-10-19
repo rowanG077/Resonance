@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "description": "Independent Dolphin title music with navigation and confirmation, including both complete cue tails. Recaptured on 2026-10-15 from the unchanged pinned disc, emulator and input movie after the earlier recording was unavailable. Comparison uses the same fixed source-frame window and exact stereo PCM; no gain fitting, resampling or offset search.",
+  "reference": "local/findings-fixes-20261015/recovered-audio-mix/user/Dump/Audio/GQSEAF_2026-10-15_01-49-08_dspdump.wav",
+  "reference_sha256": "58f6ab9dfa4f8a8524f14c00b5d16c30d0b30e87fe8f86f3747c1e242acbfc07",
+  "window": {
+    "reference_start_frame": 1383592,
+    "frames": 570544
+  },
+  "cue_events": [
+    {
+      "frame": 327040,
+      "cue": "navigate"
+    },
+    {
+      "frame": 487360,
+      "cue": "confirm"
+    }
+  ],
+  "dolphin": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "ec37fd9e889b01acc01a44bef9ef86e687f8e70e2d9a900574109981fee67bc0"
+  },
+  "capture": "local/findings-fixes-20261015/recovered-audio-mix/capture.json",
+  "registration": {
+    "method": "Fixed source-frame window verified against two retained independent Dolphin recordings.",
+    "title_music_case": "title-music-loop",
+    "pre_cue_exact_frames": 327040,
+    "navigation_case": "navigation-audio-player-overlap",
+    "navigation_reference_cue_frame": 487360,
+    "navigation_exact_frames": 16000
+  }
+}

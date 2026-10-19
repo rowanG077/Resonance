@@ -4,19 +4,19 @@ use resonance_game::menu::monsters::VISIBLE;
 impl Drawing<'_> {
     pub(super) fn monsters(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         let data = &menu.resources.as_ref().unwrap().data;
-        let labels = &data.monsters.labels;
+        let labels = &data.monsters()?.labels;
         let state = &menu.monsters;
         let records = menu.monster_records();
         let fade = u32::from(state.view.page_fade);
         self.opacity = 255 - state.view.page_fade;
         self.offset = [0., -((fade * 76 / 256) as f32)];
-        self.heading(&labels["title"])?;
+        self.heading(menu_label(labels, "title")?)?;
         self.offset = [0., -((fade * 48 / 256) as f32)];
-        self.framed([380., 20., 236., 32.], false);
+        self.framed([380., 20., 236., 32.], false)?;
         let rank = menu.preferences().unwrap().battle_rank;
-        self.text(&labels["battle_rank"], [388., 24.], 18., GOLD)?;
+        self.text(menu_label(labels, "battle_rank")?, [388., 24.], 18., GOLD)?;
         self.text(
-            &labels[["normal", "hard", "mania"][usize::from(rank)]],
+            menu_label(labels, ["normal", "hard", "mania"][usize::from(rank)])?,
             [536., 24.],
             18.,
             WHITE,
@@ -30,7 +30,7 @@ impl Drawing<'_> {
         )?;
         let left = -((fade * 344 / 256) as f32);
         self.offset = [left, 0.];
-        self.framed([16., 60., 320., 368.], true);
+        self.framed([16., 60., 320., 368.], true)?;
         let mut anchor = self.monster_details(menu)?;
         anchor[0] += left;
         self.offset = [0.; 2];
@@ -43,7 +43,7 @@ impl Drawing<'_> {
 
     fn monster_details(&mut self, menu: &Menu) -> Result<[f32; 2]> {
         let data = &menu.resources.as_ref().unwrap().data;
-        let labels = &data.monsters.labels;
+        let labels = &data.monsters()?.labels;
         let state = &menu.monsters;
         let records = menu.monster_records();
         if state.listing {
@@ -62,7 +62,7 @@ impl Drawing<'_> {
         let Some((record, _)) = menu.monster() else {
             return Ok([32., 72.]);
         };
-        self.text(&labels["number"], [32., 64.], 20., GOLD)?;
+        self.text(menu_label(labels, "number")?, [32., 64.], 20., GOLD)?;
         self.text(
             &format!("{:3}", u16::from(record.id) + 1),
             [92., 64.],
@@ -95,15 +95,15 @@ impl Drawing<'_> {
         {
             let y = 118. + i as f32 * 24.;
             self.opacity = page_opacity;
-            self.text(&labels[left], [40., y], 16., GOLD)?;
-            self.text(&labels[right], [184., y], 16., GOLD)?;
+            self.text(menu_label(labels, left)?, [40., y], 16., GOLD)?;
+            self.text(menu_label(labels, right)?, [184., y], 16., GOLD)?;
             self.opacity = state.view.model_opacity;
             if knowledge.scanned {
                 self.number(a, [168., y], [16., 24.], WHITE)?;
                 self.number(b, [328., y], [16., 24.], WHITE)?;
             } else {
-                self.text(&labels["unknown_stat"], [88., y], 16., WHITE)?;
-                self.text(&labels["unknown_stat"], [232., y], 16., WHITE)?;
+                self.text(menu_label(labels, "unknown_stat")?, [88., y], 16., WHITE)?;
+                self.text(menu_label(labels, "unknown_stat")?, [232., y], 16., WHITE)?;
             }
         }
         self.opacity = page_opacity;
@@ -115,7 +115,7 @@ impl Drawing<'_> {
             ("weak", 370.),
             ("strong", 396.),
         ] {
-            self.text(&labels[key], [32., y], 20., GOLD)?;
+            self.text(menu_label(labels, key)?, [32., y], 20., GOLD)?;
         }
         self.opacity = state.view.model_opacity;
         for (id, known, y) in [
@@ -125,17 +125,19 @@ impl Drawing<'_> {
         ] {
             if let Some(id) = id {
                 let item = &data.items[usize::from(id)];
+                let item_text = data.item_text(id)?;
                 if known {
                     self.sprite(
-                        self.spec.sprites.items[usize::from(item.category - 1)],
+                        self.spec
+                            .sprite(Sprite::Items, usize::from(item.category - 1))?,
                         [40., y],
                     );
                 }
                 self.text(
                     if known {
-                        &item.name
+                        &item_text.name
                     } else {
-                        &labels["unknown_item"]
+                        menu_label(labels, "unknown_item")?
                     },
                     [64., y],
                     16.,
@@ -147,7 +149,7 @@ impl Drawing<'_> {
             if knowledge.location {
                 &record.location
             } else {
-                &labels["unknown_item"]
+                menu_label(labels, "unknown_item")?
             },
             [92., 318.],
             16.,
@@ -160,13 +162,16 @@ impl Drawing<'_> {
             ] {
                 for (i, &element) in elements.iter().enumerate() {
                     self.sprite(
-                        self.spec.sprites.elements[element as usize],
+                        self.spec.sprite(Sprite::Elements, element as usize)?,
                         [112. + i as f32 * 24., y],
                     );
                 }
             }
             if let Some(element) = record.attack_element {
-                self.sprite(self.spec.sprites.elements[element as usize], [112., 344.]);
+                self.sprite(
+                    self.spec.sprite(Sprite::Elements, element as usize)?,
+                    [112., 344.],
+                );
             }
         }
         Ok([32., 72.])
@@ -200,10 +205,10 @@ impl Drawing<'_> {
         }
         self.clip_rows(starts, [84., 420.]);
         if first > 0 {
-            self.scroll_arrow(SCROLL_UP, [x + 132., 68.]);
+            self.scroll_arrow(SCROLL_UP, [x + 132., 68.])?;
         }
         if first + VISIBLE < names.len() {
-            self.scroll_arrow(SCROLL_DOWN, [x + 132., 416.]);
+            self.scroll_arrow(SCROLL_DOWN, [x + 132., 416.])?;
         }
         Ok([x, y + 8.])
     }
@@ -215,7 +220,11 @@ impl Drawing<'_> {
         self.opacity = 255;
         self.offset = [0.; 2];
         let result = self.text_size(
-            &menu.resources.as_ref().unwrap().data.labels["preview_loading"],
+            menu.resources
+                .as_ref()
+                .unwrap()
+                .data
+                .label("preview_loading")?,
             [360., 220.],
             [16., 20.],
             WHITE,

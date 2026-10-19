@@ -116,7 +116,10 @@ impl ResourceLibrary {
             .bone_matrix(actor, name, tick)
             .map_err(|e| format!("{e:#}"))?;
         let point = matrix[3][..3].try_into().unwrap();
-        Ok(actor.world_point(point))
+        Ok(resonance_content::animation::transform_point(
+            actor.local_matrix(),
+            point,
+        ))
     }
 
     pub(crate) fn bone_matrix(
@@ -129,6 +132,33 @@ impl ResourceLibrary {
         let model = self
             .model(actor.model_resource())
             .context("attachment model is missing")?;
+        if let Some(layer) = actor.scenery_animations.values().next() {
+            let skeleton = &self
+                .attachment_animation_pose(actor, layer)
+                .context("attachment pose is not prepared")?
+                .skeleton;
+            let bone = skeleton.bone(name).context("attachment bone is missing")?;
+            let layers = actor
+                .animation
+                .iter()
+                .chain(actor.scenery_animations.values())
+                .map(|animation| {
+                    let clip = self
+                        .animation(animation)
+                        .context("attachment clip is missing")?;
+                    let pose = self
+                        .attachment_animation_pose(actor, animation)
+                        .context("attachment pose is not prepared")?;
+                    let tick = animation.sample(
+                        tick,
+                        model.attachment_pose_delay,
+                        clip.duration_ticks as f32,
+                    );
+                    Ok((pose.motion.as_ref(), pose.frame(tick)))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            return skeleton.sample_layered_matrix(&layers, bone);
+        }
         if let Some(animation) = &actor.animation {
             let clip = self
                 .animation(animation)
@@ -157,6 +187,14 @@ impl ResourceLibrary {
 
     pub fn attachment_pose(&self, actor: &crate::Actor) -> Option<&AttachmentPose> {
         let animation = actor.animation.as_ref()?;
+        self.attachment_animation_pose(actor, animation)
+    }
+
+    fn attachment_animation_pose(
+        &self,
+        actor: &crate::Actor,
+        animation: &crate::Animation,
+    ) -> Option<&AttachmentPose> {
         let resource = if animation.source == crate::animation::AnimationSource::Model
             && animation.resource == actor.resource
         {
@@ -192,6 +230,7 @@ pub struct ModelResource {
 #[derive(Clone, Default)]
 pub struct ModelAttachments {
     pub skeleton: Option<std::sync::Arc<resonance_content::animation::Skeleton>>,
+    pub mesh_bounds: Option<[[f32; 3]; 2]>,
     pub clips: BTreeMap<(crate::animation::AnimationSource, u32, u16), AttachmentPose>,
 }
 pub struct AnimationClip {
@@ -264,9 +303,12 @@ impl AttachmentPose {
             .skeleton
             .bone(name)
             .ok_or_else(|| anyhow::anyhow!("missing attachment bone {name}"))?;
-        let frame = (tick * resonance_content::animation::FRAME_HZ
-            / resonance_content::ANIMATION_HZ)
-            .min(self.motion.duration_frames);
-        self.skeleton.sample_matrix(&self.motion, frame, bone)
+        self.skeleton
+            .sample_matrix(&self.motion, self.frame(tick), bone)
+    }
+
+    fn frame(&self, tick: f32) -> f32 {
+        (tick * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ)
+            .min(self.motion.duration_frames)
     }
 }

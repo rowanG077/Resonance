@@ -39,8 +39,10 @@ cargo run -p resonance-presentation --example new_game_capture -- local/checks/n
 cargo run -p resonance-presentation --example display_capture -- local/checks/1080 1920x1080 raine-question-oracle
 # Real window, field preparation and forced window-size changes.
 cargo run --release -p resonance-presentation --example window_probe -- local/checks/window 1920x1080
-# Five-minute classroom throughput run at a fixed physical window size.
+# Five-minute classroom throughput run at a fixed render resolution.
 cargo run --release -p resonance-presentation --example frame_benchmark -- local/checks/benchmark 1920x1080 300
+# Thirty seconds in a saved field.
+cargo run --release -p resonance-presentation --example frame_benchmark -- local/checks/field 1920x1080 30 plain local/checks/save.json
 # Both movies for over ten minutes, with 200 ms consumer stalls.
 cargo run -p resonance-media --example playback_probe -- local/all-assets 640 200 512
 # Device-rate quality reference written to WAV.
@@ -52,7 +54,12 @@ cargo test -p resonance-presentation muted_device_loss_reopens_output_without_re
 ```
 
 The window probe temporarily permits resize requests to exercise the fixed-target
-contract. It does not enable resizing in ordinary play. The benchmark requires
-the compositor to honor the requested physical window size.
+contract. It does not enable resizing in ordinary play. The benchmark records
+the compositor's actual physical window size and rejects changes during measurement.
+Compare runs only when both render and physical window sizes match.
+Use `plain` for normal throughput. `profile` adds render-stage diagnostics and
+their overhead; compare profiled runs separately.
+`RESONANCE_TEST_ASSETS` selects the benchmark’s cooked assets. An optional replay
+JSON after the save argument drives the scene with ordinary input.
 Audio starvation, output underruns, backend xruns and callback deadline misses
 must be counted separately; a short callback alone does not prove clean delivery.

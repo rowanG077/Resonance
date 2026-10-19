@@ -176,6 +176,40 @@ impl EventRuntime {
     pub fn tick(&self) -> u32 {
         self.world.tick
     }
+    /// Read active VM owners without running or polling any event or service.
+    pub fn observed_instances(&self) -> Vec<crate::EventInstanceObservation> {
+        self.instances
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, instance)| {
+                let instance = instance.as_ref()?;
+                Some(crate::EventInstanceObservation {
+                    slot,
+                    handle: instance.handle,
+                    key: instance.key,
+                    program_entry: instance.program.entry(),
+                    legacy_program: instance.program.authored().is_none(),
+                    pc: instance.vm.pc(),
+                    legacy_return_stack: instance.vm.legacy_return_stack().to_vec(),
+                    value_depth: instance.vm.value_depth(),
+                    argument_depth: instance.vm.argument_depth(),
+                    expression: instance.vm.expression(),
+                    join: instance.join,
+                    registers: instance.registers,
+                    background: instance.background.as_ref().map(|b| {
+                        crate::diagnostic::BackgroundObservation {
+                            paused: b.paused,
+                            require_control: b.require_control,
+                        }
+                    }),
+                    wait: instance
+                        .wait
+                        .as_ref()
+                        .map(|wait| crate::diagnostic::wait(wait, &self.world)),
+                })
+            })
+            .collect()
+    }
     pub fn active_instances(&self) -> usize {
         self.instances.iter().filter(|i| i.is_some()).count()
     }
@@ -254,6 +288,14 @@ impl EventRuntime {
             && self.interaction.is_none()
             && self.world.field_exit.is_none()
     }
+    /// Taking a request does not release the suspended field. Only completing
+    /// its operation allows the next field update to resume the caller.
+    pub fn battle_pending(&self) -> bool {
+        self.world.battle_request.as_ref().is_some_and(|r| r.is_pending())
+            || self.instances.iter().flatten().any(|instance| {
+                matches!(&instance.wait, Some(Wait::Battle(operation)) if operation.is_pending())
+            })
+    }
     pub fn save_progress(&self) -> Result<crate::SavedProgress> {
         ensure!(!self.failed, "cannot save a failed event runtime");
         Ok(crate::SavedProgress {
@@ -276,7 +318,7 @@ impl EventRuntime {
             script_state: self.world.script_state.clone(),
             event_records: self.world.event_records.clone(),
             random_state: self.world.random_state,
-            gameplay_random: self.world.gameplay_random.clone(),
+            gameplay_random: self.world.gameplay_random,
             tick: self.world.tick,
         })
     }
@@ -288,7 +330,7 @@ impl EventRuntime {
         memory.copy_from(&self.memory, 0..crate::persistent::GLOBAL_BYTES)?;
         Ok(crate::PersistentState {
             memory,
-            gameplay_random: self.world.gameplay_random.clone(),
+            gameplay_random: self.world.gameplay_random,
             party: self.world.party.clone(),
             event_flags: self.world.event_flags.clone(),
             script_state: self.world.script_state.clone(),
@@ -623,6 +665,7 @@ impl EventRuntime {
             // entrance. Preview walking uses the field's static ground mesh.
             if id != self.world.controlled_actor {
                 actor.collidable = false;
+                actor.model_collision = None;
             }
             if let Some(autonomy) = &mut actor.autonomy {
                 autonomy.conversing = false;
@@ -686,6 +729,7 @@ impl EventRuntime {
         self.world.actors.retain(|_, actor| !actor.retiring);
         for actor in self.world.actors.values_mut() {
             actor.rendered_scale = None;
+            actor.rendered_heading = None;
         }
         self.world.tick = self.world.tick.checked_add(1).context("clock overflow")?;
         self.world.particles_before_update = self.world.next_particle;
@@ -752,7 +796,8 @@ impl EventRuntime {
                     .or_else(|| self.world.actors.get(&id).map(|actor| actor.position))
             });
             camera.shake.step(&mut self.world.random_state);
-            if let Some(playback) = &self.world.camera
+            if camera.motion.is_none()
+                && let Some(playback) = &self.world.camera
                 && let Some(track) = self.resources.camera_tracks.get(&playback.resource)
                 && let Some((position, target)) = playback.sample(self.world.tick, track)
             {
@@ -798,6 +843,10 @@ impl EventRuntime {
                 .map(|_| self.world.attached_culling_position(&self.resources, *id))
                 .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
+            // Temporary flashes clear each update; custom lighting stays scripted.
+            if !actor.keeps_script_lighting() {
+                actor.tint = [crate::effect::NEUTRAL_TINT; 3];
+            }
             let previous = actor.position;
             let ambient = if actor.motion.is_none()
                 && actor
@@ -828,7 +877,9 @@ impl EventRuntime {
                 .as_ref()
                 .map(|motion| motion.speed)
                 .or_else(|| ambient.walking.then(|| actor.autonomy.unwrap().speed));
-            actor.step_motion();
+            if !ambient.paused {
+                actor.step_motion();
+            }
             resolve(&prepared, *id, actor, previous);
             actor.step_heading(
                 self.world.input_enabled && *id == self.world.controlled_actor,
@@ -1015,7 +1066,7 @@ impl EventRuntime {
             }
             if instance.background.as_ref().is_some_and(|b| {
                 b.paused
-                    || b.require_control && !self.world.input_enabled
+                    || b.require_control && self.world.mapped_input_disabled
                     || self.world.field_transition.is_some()
                     || self.world.world_transition.is_some()
                     || self.world.field_exit.is_some()

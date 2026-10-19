@@ -52,8 +52,9 @@ pub struct Actor {
     pub(crate) visual_lift: Option<crate::projectile::VisualLift>,
     pub chain_impulses: BTreeMap<u32, crate::projectile::ChainImpulse>,
     pub visible: bool,
-    /// A spawned actor is presented after its first update.
+    /// New models wait for their first update; identical replacements stay visible.
     pub visible_from: u32,
+    pub(crate) first_update_tick: u32,
     /// A non-rendered scene marker can still own a scenery interaction.
     pub interaction_anchor: bool,
     /// Read-only actors use a strict depth test; ordinary actors test and write
@@ -66,6 +67,8 @@ pub struct Actor {
     pub scale_percent: [i32; 3],
     /// Scale already presented before this update's script edits.
     pub(crate) rendered_scale: Option<[i32; 3]>,
+    /// Facing already presented before this update's script edits.
+    pub(crate) rendered_heading: Option<f32>,
     pub tilt: [i32; 2],
     pub tint: [u8; 3],
     pub opacity: u8,
@@ -73,6 +76,8 @@ pub struct Actor {
     pub interaction_label: i32,
     pub pushable: bool,
     pub ring_contact_disabled: bool,
+    /// Visible scenery may be offset from its pivot and have separate walking barriers.
+    pub ring_bounds: Option<[[f32; 3]; 2]>,
     pub interaction_disabled: bool,
     pub unlit: bool,
     pub toon_lighting: Option<u8>,
@@ -99,6 +104,8 @@ pub struct Actor {
     pub contact_event: bool,
     /// Enabled by native property 18; separate from the actor's contact cylinder.
     pub model_collision: Option<std::sync::Arc<resonance_content::field::ModelCollision>>,
+    /// Mesh extents used when a movable model has only padded walking barriers.
+    pub model_bounds: Option<[[f32; 3]; 2]>,
     /// Parent bone's rigid frame; script coordinates remain local to the attachment.
     pub(crate) collision_parent: Option<resonance_content::animation::Matrix>,
     pub radius: f32,
@@ -154,11 +161,22 @@ impl Enemy {
     }
 }
 impl Actor {
+    /// Custom lighting retains script colours and also disables view culling.
+    pub fn keeps_script_lighting(&self) -> bool {
+        self.culling_flags[1] == Some(true)
+    }
+
     pub fn model_resource(&self) -> u32 {
         resonance_content::appearance::costume_resource(self.resource, self.appearance.costume)
     }
     pub fn model_scale(&self) -> [f32; 3] {
         self.model_scale_percent().map(|scale| scale as f32 / 100.)
+    }
+    /// The model can keep facing one way while the actor moves in another.
+    pub fn model_heading(&self) -> f32 {
+        self.rendered_heading
+            .or(self.appearance.fixed_heading)
+            .unwrap_or(self.heading)
     }
     fn model_scale_percent(&self) -> [i32; 3] {
         if self.wings.is_some() {
@@ -186,17 +204,17 @@ impl Actor {
     }
 
     pub fn world_point(&self, point: [f32; 3]) -> [f32; 3] {
-        let vector = self.local_vector(point);
+        let vector = self.local_vector(point, self.heading);
         std::array::from_fn(|i| vector[i] + self.position[i])
     }
 
-    fn local_vector(&self, point: [f32; 3]) -> [f32; 3] {
+    fn local_vector(&self, point: [f32; 3], heading: f32) -> [f32; 3] {
         let scale = self.model_scale_percent();
         let [x, y, z] = std::array::from_fn(|i| point[i] * scale[i] as f32 / 100.);
         let [tilt_x, tilt_y] = self.tilt_degrees();
         let (sx, cx) = tilt_x.to_radians().sin_cos();
         let (sy, cy) = tilt_y.to_radians().sin_cos();
-        let (sz, cz) = self.heading.to_radians().sin_cos();
+        let (sz, cz) = heading.to_radians().sin_cos();
         let (y, z) = (cx * y - sx * z, sx * y + cx * z);
         let (x, z) = (cy * x + sy * z, -sy * x + cy * z);
         [cz * x - sz * y, sz * x + cz * y, z]
@@ -243,6 +261,9 @@ impl Actor {
     }
 
     pub fn collision_bounds(&self) -> ([f32; 3], [f32; 3]) {
+        if let Some(bounds) = self.block_mesh_bounds() {
+            return bounds;
+        }
         let points = self
             .model_collision
             .iter()
@@ -272,13 +293,39 @@ impl Actor {
         })
     }
 
+    pub fn block_mesh_bounds(&self) -> Option<([f32; 3], [f32; 3])> {
+        if !self.pushable || !self.model_collision.as_ref()?.floors.is_empty() {
+            return None;
+        }
+        let [low, high] = self.model_bounds?;
+        let mut bounds = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+        for corner in 0..8 {
+            let point = self.collision_point(std::array::from_fn(|axis| {
+                if corner & (1 << axis) == 0 {
+                    low[axis]
+                } else {
+                    high[axis]
+                }
+            }));
+            for axis in 0..3 {
+                bounds.0[axis] = bounds.0[axis].min(point[axis]);
+                bounds.1[axis] = bounds.1[axis].max(point[axis]);
+            }
+        }
+        Some(bounds)
+    }
+
     pub fn collision_point(&self, point: [f32; 3]) -> [f32; 3] {
-        let point = self.world_point(point);
+        // Physical model surfaces follow the displayed pose, even when the
+        // actor's travel heading turns independently of the model.
+        let vector = self.local_vector(point, self.model_heading());
+        let point = std::array::from_fn(|axis| vector[axis] + self.position[axis]);
         self.collision_parent.map_or(point, |parent| {
             resonance_content::animation::transform_point(parent, point)
         })
     }
 
+    /// Local model frame, including a visual heading lock when present.
     pub(crate) fn local_matrix(&self) -> resonance_content::animation::Matrix {
         std::array::from_fn(|column| {
             if column == 3 {
@@ -286,7 +333,7 @@ impl Actor {
             }
             let mut axis = [0.; 3];
             axis[column] = 1.;
-            let point = self.local_vector(axis);
+            let point = self.local_vector(axis, self.model_heading());
             [point[0], point[1], point[2], 0.]
         })
     }
@@ -303,6 +350,7 @@ impl Actor {
             chain_impulses: BTreeMap::new(),
             visible: true,
             visible_from: 0,
+            first_update_tick: 0,
             update_order: 0,
             interaction_anchor: false,
             depth_write: true,
@@ -311,6 +359,7 @@ impl Actor {
             scenery_animations: BTreeMap::new(),
             scale_percent: [100; 3],
             rendered_scale: None,
+            rendered_heading: None,
             tilt: [0; 2],
             tint: [crate::effect::NEUTRAL_TINT; 3],
             opacity: 255,
@@ -318,6 +367,7 @@ impl Actor {
             interaction_label: 2,
             pushable: false,
             ring_contact_disabled: false,
+            ring_bounds: None,
             interaction_disabled: false,
             unlit: false,
             toon_lighting: None,
@@ -338,6 +388,7 @@ impl Actor {
             contact: ActorContact::Cylinder,
             contact_event: false,
             model_collision: None,
+            model_bounds: None,
             collision_parent: None,
             radius: 42.,
             path: Default::default(),
@@ -360,6 +411,11 @@ impl Actor {
     pub fn face(&mut self, heading: f32) {
         self.heading = heading.rem_euclid(360.);
         self.target_heading = self.heading;
+    }
+    pub(crate) fn set_script_heading(&mut self, heading: f32) {
+        // Relative placements in the same script update use the displayed pose.
+        self.rendered_heading = Some(self.model_heading());
+        self.face(heading);
     }
     pub fn movement_speed(&self) -> f32 {
         self.motion.as_ref().map_or_else(
@@ -835,7 +891,10 @@ impl TryFrom<i16> for MusicCommand {
 #[derive(Debug, Clone)]
 pub enum AudioCommand {
     SoundReverb(u8),
-    Voice(u32),
+    Voice {
+        resource: u32,
+        completion: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    },
     StopVoice,
     SelectBank(u8),
     StopSound(u16),
@@ -866,6 +925,14 @@ pub enum AudioCommand {
         volume: u8,
         slot: u8,
     },
+}
+impl AudioCommand {
+    pub fn voice(resource: u32) -> Self {
+        Self::Voice {
+            resource,
+            completion: None,
+        }
+    }
 }
 #[derive(Debug, Clone)]
 pub struct Trigger {
@@ -1040,7 +1107,16 @@ impl GameWorld {
     pub fn insert_actor(&mut self, id: i32, mut actor: Actor) {
         self.next_actor_instance += 1;
         actor.instance = self.next_actor_instance;
-        actor.visible_from = self.tick + 1;
+        actor.first_update_tick = self.tick + 1;
+        actor.visible_from = self
+            .actors
+            .get(&id)
+            .filter(|previous| {
+                previous.visible
+                    && !previous.appearance.model_hidden
+                    && previous.model_resource() == actor.model_resource()
+            })
+            .map_or(actor.first_update_tick, |previous| previous.visible_from);
         actor.update_order = self.actors.get(&id).map_or_else(
             || {
                 (0..=self.actors.len())
@@ -1089,7 +1165,8 @@ impl GameWorld {
     }
 }
 
-pub(crate) fn random(state: &mut u32) -> u32 {
+/// Random stream shared by field effects and stat growth.
+pub fn random(state: &mut u32) -> u32 {
     *state = state.wrapping_mul(0x41c64e6d).wrapping_add(0x3039);
     (*state >> 16) & 0x7fff
 }

@@ -6,5 +6,9 @@
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = textureSample(source, source_sampler, in.uv).rgb;
-    return vec4(color, f32(enabled));
+    var alpha = f32(enabled);
+#ifdef VERTEX_COLORS
+    alpha *= in.color.a;
+#endif
+    return vec4(color, alpha);
 }

@@ -41,5 +41,13 @@ voice buses through shared effects before saturation. Baking gain or quantizing
 each wet tail separately changes fades and overlapping cues. Unsupported
 instruments/controllers fail explicitly; current coverage is not full-game coverage.
 
-See [audio compilation](../audio-cook/README.md) and
+Live and offline reverb use the same finite tail after the last auxiliary input:
+two configured decay periods, 100 ms for queued input, and a final 100 ms fade.
+The fade clears expired filter history; new input starts a fresh duration. A preset
+change keeps the current tail deadline, while a dry-only preset clears the effect.
+Idle effects skip filter work. Completion is a countdown, without scanning filter
+buffers or deriving a mathematical silence bound.
+
+See [audio compilation](../audio-cook/README.md),
+[playback ownership](../../docs/audio-video-architecture.md), and
 [offline comparisons](../../tools/oracle/README.md).

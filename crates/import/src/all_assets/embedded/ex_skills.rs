@@ -84,13 +84,6 @@ pub(crate) struct Formats {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SavePointRule {
-    /// Zero-based character index, from a signed compare-immediate operand.
-    pub(crate) character_index: i16,
-    pub(crate) tp_cost: i16,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Catalogue {
     texts: Vec<String>,
     pub(crate) definitions: Vec<Definition>,
@@ -98,7 +91,6 @@ pub(crate) struct Catalogue {
     pub(crate) personal_skills: [u16; 9],
     pub(crate) labels: [Option<TextRef>; 19],
     pub(crate) formats: Formats,
-    pub(crate) save_point_rule: SavePointRule,
 }
 
 impl Catalogue {
@@ -164,10 +156,6 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
         personal_skills: Field::read(personal, 0)?,
         labels,
         formats,
-        save_point_rule: SavePointRule {
-            character_index: 3,
-            tp_cost: 1,
-        },
     })
 }
 
@@ -180,7 +168,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both extracted discs; publishes only EX skill JSON"]
-    fn original_ex_catalogue_preserves_definitions_recipes_and_rules() -> Result<()> {
+    fn ex_catalogue_preserves_definitions_and_recipes() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let output = crate::temporary_path(&std::env::temp_dir().join(FAMILY));
         let result = (|| -> Result<()> {

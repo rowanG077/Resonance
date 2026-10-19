@@ -152,7 +152,7 @@ impl Actor {
             return intent;
         }
         if let Some(enemy) = &mut self.enemy {
-            if enemy.pause_ticks != 0 && self.motion.is_none() {
+            if enemy.pause_ticks != 0 {
                 if free_control && enemy.pause_ticks > 0 {
                     enemy.pause_ticks -= 1;
                 }

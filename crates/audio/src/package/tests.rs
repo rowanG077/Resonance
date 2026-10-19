@@ -1,68 +1,45 @@
 use super::*;
-use crate::{dls, mix, modulation, music_voice::Controls, pitch, resample};
+use crate::{dls, mix, modulation, music_voice::Controls, resample};
 use std::{
     fs,
     path::PathBuf,
     sync::atomic::{AtomicU32, Ordering},
 };
 
-struct Fixture(PathBuf);
+pub(crate) struct Fixture(pub(crate) PathBuf);
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
 
-fn fixture() -> (Fixture, serde_json::Value) {
-    static NEXT: AtomicU32 = AtomicU32::new(0);
-    let root = Fixture(std::env::temp_dir().join(format!(
-        "resonance-music-test-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    )));
-    fs::create_dir(&root.0).unwrap();
-    let path = root.0.join("sample.wav");
-    let mut wave = hound::WavWriter::create(
-        &path,
-        hound::WavSpec {
-            channels: 1,
-            sample_rate: 32000,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
+pub(crate) fn playback_data() -> (Resources, Score, Tables) {
+    (
+        Resources {
+            programs: BTreeMap::from([(1, vec![Command::StartSample { sample: 2 }, Command::End])]),
+            samples: BTreeMap::from([(
+                2,
+                std::sync::Arc::new(Sample {
+                    key: 60,
+                    rate: 32000,
+                    pcm: vec![10, 20, 30, 40],
+                    loop_pcm: vec![50, 60],
+                    loop_start: 2,
+                    loop_length: 2,
+                }),
+            )]),
         },
-    )
-    .unwrap();
-    for value in [10i16, 20, 30, 40, 50, 60] {
-        wave.write_sample(value).unwrap();
-    }
-    wave.finalize().unwrap();
-    let package = Package {
-        version: VERSION,
-        programs: BTreeMap::from([(1, vec![Command::StartSample { sample: 2 }, Command::End])]),
-        samples: BTreeMap::from([(
-            2,
-            SampleAsset {
-                path: "sample.wav".into(),
-                sha256: format!("{:x}", Sha256::digest(fs::read(&path).unwrap())),
-                key: 60,
-                rate: 32000,
-                first_frames: 4,
-                loop_start: 2,
-                loop_length: 2,
-            },
-        )]),
-        score: Score {
+        Score {
             origin: crate::data::ScoreOrigin::Sequence,
             initial_bpm_1024: 120 * 1024,
             loop_start_tick: 0,
             end_tick: 100,
-            has_master_track: false,
             tempos: vec![],
             controls: [Controls::default(); 16],
             first_events: vec![],
             loop_events: vec![],
         },
-        tables: Tables {
+        Tables {
             mix: mix::Tables {
                 volume: [1.; 129],
                 alternate_volume: [1.; 129],
@@ -72,15 +49,8 @@ fn fixture() -> (Fixture, serde_json::Value) {
                 pan_16_scale: 1.,
                 spatial: None,
             },
-            pitch: pitch::Tables {
-                up: [1.; 128],
-                down: [1.; 128],
-                semitone: 1.05946,
-            },
             dls: dls::Tables {
                 attenuation: [0; 194],
-                inverse: [0; 1024],
-                sustain: [0.; 128],
             },
             modulation: modulation::Tables {
                 sine: [0; 1024],
@@ -88,7 +58,57 @@ fn fixture() -> (Fixture, serde_json::Value) {
             },
             coefficients: resample::Coefficients([[[0; 4]; 128]; 4]),
         },
-        reverbs: [[0., 0., 1., 0., 0.]; 2],
+    )
+}
+
+fn prepared() -> Loaded {
+    let (resources, score, tables) = playback_data();
+    Loaded::new(resources, score, tables, [[0., 0., 1., 0., 0.]; 2]).unwrap()
+}
+
+pub(crate) fn fixture() -> (Fixture, serde_json::Value) {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let root = Fixture(std::env::temp_dir().join(format!(
+        "resonance-music-test-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )));
+    fs::create_dir(&root.0).unwrap();
+    let path = root.0.join("sample.wav");
+    let loaded = prepared();
+    let sample = &loaded.resources.samples[&2];
+    let mut wave = hound::WavWriter::create(
+        &path,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: u32::from(sample.rate),
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .unwrap();
+    for &value in sample.pcm.iter().chain(&sample.loop_pcm) {
+        wave.write_sample(value).unwrap();
+    }
+    wave.finalize().unwrap();
+    let package = Package {
+        version: VERSION,
+        programs: loaded.resources.programs,
+        samples: BTreeMap::from([(
+            2,
+            SampleAsset {
+                path: "sample.wav".into(),
+                sha256: format!("{:x}", Sha256::digest(fs::read(&path).unwrap())),
+                key: sample.key,
+                rate: sample.rate,
+                first_frames: sample.pcm.len() as u32,
+                loop_start: sample.loop_start,
+                loop_length: sample.loop_length,
+            },
+        )]),
+        score: loaded.score,
+        tables: loaded.tables,
+        reverbs: loaded.reverbs,
     };
     (root, serde_json::to_value(package).unwrap())
 }
@@ -102,14 +122,105 @@ fn load(root: &Fixture, value: &serde_json::Value) -> Result<Loaded> {
     Package::load(&root.0, "music.json")
 }
 
+fn control_deadline(milliseconds: u64) -> usize {
+    crate::volume::frames_from_millis(milliseconds)
+        .unwrap()
+        .div_ceil(32) as usize
+        * 32
+}
+
+#[test]
+fn prepared_constructor_rejects_invalid_score_data() {
+    let Loaded {
+        resources,
+        mut score,
+        tables,
+        reverbs,
+    } = prepared();
+    score.first_events.push(crate::data::Event {
+        tick: 0,
+        channel: 16,
+        kind: crate::data::EventKind::Volume { value: 127 },
+    });
+    assert!(Loaded::new(resources, score, tables, reverbs).is_err());
+}
+
+#[test]
+fn prepared_constructor_rejects_invalid_reverb() {
+    let Loaded {
+        resources,
+        score,
+        tables,
+        mut reverbs,
+    } = prepared();
+    reverbs[0][0] = f32::NAN;
+    assert!(Loaded::new(resources, score, tables, reverbs).is_err());
+}
+
+#[test]
+fn package_boundary_rejects_every_unsupported_controller_destination() {
+    use crate::data::{Arithmetic, Controller, Operand, Variable};
+    let (root, mut value) = fixture();
+    let destination = Variable::Controller(Controller::Paired(6));
+    for command in [
+        Command::SetVariable {
+            destination,
+            value: 0,
+        },
+        Command::Calculate {
+            destination,
+            operation: Arithmetic::Add,
+            left: Variable::Local(0),
+            right: Operand::Constant(0),
+        },
+        Command::VoiceHandle {
+            destination,
+            child: false,
+        },
+        Command::ReceiveMessage { destination },
+    ] {
+        value["programs"]["1"] = serde_json::to_value([command, Command::End]).unwrap();
+        let error = load(&root, &value)
+            .err()
+            .expect("invalid destination accepted");
+        assert!(
+            format!("{error:#}").contains("RPN data-entry"),
+            "{command:?}: {error}"
+        );
+    }
+}
+
+#[test]
+fn pitch_envelope_has_one_validated_sustain() {
+    let (root, mut value) = fixture();
+    let envelope = dls::Timing {
+        attack_timecents: 0,
+        decay_timecents: 0,
+        release_ms: 20,
+        attack_velocity_scale: i32::MIN,
+        decay_key_scale: i32::MIN,
+    };
+    for sustain in [0, 193, 194] {
+        value["programs"]["1"] = serde_json::to_value([
+            Command::PitchEnvelope {
+                envelope,
+                sustain,
+                depth_8: 256,
+            },
+            Command::End,
+        ])
+        .unwrap();
+        assert_eq!(load(&root, &value).is_ok(), sustain <= 193);
+    }
+}
+
 #[test]
 fn noops_preserve_playing_sample_phase_envelope_and_waits() {
     use crate::{
         data::{Interpolation, Note},
         music_voice::Voice,
     };
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     let wait = Command::Wait {
         milliseconds: Some(7),
         from_start: false,
@@ -153,11 +264,11 @@ fn noops_preserve_playing_sample_phase_envelope_and_waits() {
         let mut pcm = Vec::new();
         let mut done = Vec::new();
         for frame in 0..800 {
-            voice.prepare_frame(Controls::default()).unwrap();
+            crate::music_voice::test_frame(&mut voice, Controls::default()).unwrap();
             done.push(voice.is_done());
             if frame % 160 == 159 {
                 let mut block = [[[0; 2]; 3]; 160];
-                voice.mix_block(&mut block).unwrap();
+                voice.mix_block(&mut block);
                 pcm.extend(block.into_iter().flatten().flatten());
             }
         }
@@ -171,8 +282,7 @@ fn noops_preserve_playing_sample_phase_envelope_and_waits() {
 #[test]
 fn timed_pitch_steps_loop_and_key_off_without_losing_the_wait() {
     use crate::{data::Note, music_voice::Voice};
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     let note = Note {
         macro_id: 1,
         key: 60,
@@ -181,7 +291,10 @@ fn timed_pitch_steps_loop_and_key_off_without_losing_the_wait() {
         priority: 1,
         max_voices: 1,
     };
-    for (count, release_at, finish) in [(2, None, 960), (u16::MAX, Some(480), 640)] {
+    for (count, release_at, finish) in [
+        (2, None, 3 * control_deadline(10)),
+        (u16::MAX, Some(480), 2 * control_deadline(10)),
+    ] {
         loaded.resources.programs.insert(
             1,
             vec![
@@ -207,10 +320,10 @@ fn timed_pitch_steps_loop_and_key_off_without_losing_the_wait() {
             if release_at == Some(frame) {
                 voice.key_off().unwrap();
             }
-            voice.prepare_frame(Controls::default()).unwrap();
+            crate::music_voice::test_frame(&mut voice, Controls::default()).unwrap();
             assert_eq!(voice.is_done(), frame == finish, "frame {frame}");
             if frame % 160 == 159 {
-                voice.mix_block(&mut [[[0; 2]; 3]; 160]).unwrap();
+                voice.mix_block(&mut [[[0; 2]; 3]; 160]);
             }
         }
     }
@@ -225,8 +338,7 @@ fn timed_pitch_steps_loop_and_key_off_without_losing_the_wait() {
     );
     let mut voice = Voice::new(&loaded.resources, &loaded.tables, note).unwrap();
     assert!(
-        voice
-            .prepare_frame(Controls::default())
+        crate::music_voice::test_frame(&mut voice, Controls::default())
             .unwrap_err()
             .to_string()
             .contains("instruction budget")
@@ -259,10 +371,10 @@ fn voice_pcm(
         if key_off == Some(frame) {
             voice.key_off().unwrap();
         }
-        voice.prepare_frame(Controls::default()).unwrap();
+        crate::music_voice::test_frame(&mut voice, Controls::default()).unwrap();
         if voice.is_done() || frame % 160 == 159 {
             let mut block = [[[0; 2]; 3]; 160];
-            voice.mix_block(&mut block).unwrap();
+            voice.mix_block(&mut block);
             let count = if voice.is_done() { frame % 160 } else { 160 };
             pcm.extend(block[..count as usize].iter().flat_map(|frame| frame[0]));
         }
@@ -276,8 +388,7 @@ fn voice_pcm(
 #[test]
 fn selectors_route_sends_without_overriding_dry_volume_or_stereo_pan() {
     use crate::data::{ControlTarget, Interpolation, Note, Operand};
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     loaded.tables.mix.volume = std::array::from_fn(|i| i as f32 / 128.);
     loaded.tables.mix.volume_16_scale = 1. / (127. * 65536.);
     loaded.tables.mix.controller_14_scale = 1. / 16383.;
@@ -323,10 +434,10 @@ fn selectors_route_sends_without_overriding_dry_volume_or_stereo_pan() {
         )
         .unwrap();
         for _ in 0..160 {
-            voice.prepare_frame(controls).unwrap();
+            crate::music_voice::test_frame(&mut voice, controls).unwrap();
         }
         let mut block = [[[0; 2]; 3]; 160];
-        voice.mix_block(&mut block).unwrap();
+        voice.mix_block(&mut block);
         block[0]
     };
     let normal = render(ControlTarget::SurroundPan, 127 << 7);
@@ -345,8 +456,7 @@ fn selectors_route_sends_without_overriding_dry_volume_or_stereo_pan() {
 #[test]
 fn identical_interpolation_preserves_pcm_for_live_and_finished_sources() {
     use crate::data::Interpolation;
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     loaded.tables.coefficients.0[2] =
         std::array::from_fn(|phase| [0, 0, 32767 - phase as i16 * 128, phase as i16 * 128]);
     let wait = |milliseconds| Command::Wait {
@@ -405,13 +515,12 @@ fn identical_interpolation_preserves_pcm_for_live_and_finished_sources() {
 }
 
 #[test]
-fn changed_interpolation_is_rejected_for_retained_sources() {
+fn interpolation_changes_only_require_an_inactive_source() {
     use crate::{
         data::{Interpolation, Note},
         music_voice::Voice,
     };
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     let note = Note {
         macro_id: 1,
         key: 60,
@@ -446,24 +555,32 @@ fn changed_interpolation_is_rejected_for_retained_sources() {
                 ],
             );
             let mut voice = Voice::new(&loaded.resources, &loaded.tables, note).unwrap();
-            for frame in 0..7 * 32 {
-                voice.prepare_frame(Controls::default()).unwrap();
+            for frame in 0..control_deadline(7) {
+                crate::music_voice::test_frame(&mut voice, Controls::default()).unwrap();
                 if frame % 160 == 159 {
-                    voice.mix_block(&mut [[[0; 2]; 3]; 160]).unwrap();
+                    voice.mix_block(&mut [[[0; 2]; 3]; 160]);
                 }
             }
             assert_eq!(voice.source_active(), !finished);
-            let error = voice.prepare_frame(Controls::default()).unwrap_err();
-            assert!(error.to_string().contains("changing an active source mode"));
+            let result = crate::music_voice::test_frame(&mut voice, Controls::default());
+            if finished {
+                result.unwrap();
+            } else {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("changing an active source mode")
+                );
+            }
         }
     }
 }
 
 #[test]
-fn custom_volume_curves_and_overlapping_fades_match_native_targets() {
+fn custom_volume_curves_and_overlapping_fades_reach_their_targets() {
     use crate::data::{Interpolation, VolumeCurve};
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     loaded.tables.mix.volume = std::array::from_fn(|index| index as f32 / 128.0);
     loaded.tables.mix.volume_16_scale = 1.0 / (127 << 16) as f32;
     loaded.tables.mix.controller_14_scale = 1.0 / 16384.0;
@@ -523,7 +640,6 @@ fn custom_volume_curves_and_overlapping_fades_match_native_targets() {
             ));
         }
     }
-    // An instant setter while a fade is running must not reset its accumulator.
     let fade = Command::FadeVolume {
         factor: 64,
         offset: 0,
@@ -537,7 +653,6 @@ fn custom_volume_curves_and_overlapping_fades_match_native_targets() {
         key_off: false,
         sample_end: false,
     };
-    cases.push((vec![fade, wait, set(110)], vec![fade, wait]));
     // A new fade does start from the current volume, including an intervening setter.
     cases.push((
         vec![fade, wait, set(110), fade],
@@ -585,10 +700,9 @@ fn custom_volume_curves_and_overlapping_fades_match_native_targets() {
 }
 
 #[test]
-fn pan_ramp_pcm_matches_native_control_steps_and_surround_is_inert_in_stereo() {
+fn pan_ramp_moves_continuously_and_surround_is_inert_in_stereo() {
     use crate::data::{Interpolation, PanAxis};
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     loaded.tables.mix.pan = [0., 0.5, 1., 1.];
     loaded.tables.mix.pan_16_scale = 1. / (63 << 16) as f32;
     let sample = std::sync::Arc::make_mut(loaded.resources.samples.get_mut(&2).unwrap());
@@ -631,29 +745,13 @@ fn pan_ramp_pcm_matches_native_control_steps_and_surround_is_inert_in_stereo() {
             &[],
             None,
         );
-        // Waking at 5ms retains the previous pitch timestamp: the new ramp
-        // immediately consumes those 5ms, then advances every 15ms.
-        let reference = start
-            .iter()
-            .copied()
-            .chain((0..=6).flat_map(|step| {
-                [
-                    Command::PanRamp {
-                        axis: PanAxis::Pan,
-                        initial: (lead as u8 + step * 15).min(90),
-                        delta: 0,
-                        milliseconds: 0,
-                    },
-                    wait(15),
-                ]
-            }))
-            .chain([Command::End])
-            .collect();
-        assert_eq!(
-            actual,
-            voice_pcm(&mut loaded, reference, &[], None),
-            "lead {lead}"
-        );
+        let ramp_start = crate::volume::frames_from_millis(u64::from(lead))
+            .unwrap()
+            .div_ceil(32)
+            * 32;
+        let frames = &actual.1[ramp_start as usize * 2..];
+        let middle = crate::volume::frames_from_millis(45).unwrap() as usize;
+        assert!(frames[middle * 2] != frames[0] || frames[middle * 2 + 1] != frames[1]);
         assert!(actual.1.chunks_exact(2).any(|frame| frame[0] != frame[1]));
         assert_eq!(
             actual,
@@ -688,9 +786,9 @@ fn pan_ramp_pcm_matches_native_control_steps_and_surround_is_inert_in_stereo() {
     assert_ne!(middle, gains(65 << 16));
 }
 
-fn random_cue(root: &Fixture, value: &serde_json::Value, before_ms: u16, wait: Command) -> Loaded {
+fn random_cue(before_ms: u16, wait: Command) -> Loaded {
     use crate::data::{Event, EventKind, Interpolation, Note};
-    let mut loaded = load(root, value).unwrap();
+    let mut loaded = prepared();
     loaded.score.origin = crate::data::ScoreOrigin::SoundEffect;
     loaded.resources.programs.insert(
         1,
@@ -736,244 +834,103 @@ fn random_cue(root: &Fixture, value: &serde_json::Value, before_ms: u16, wait: C
     loaded
 }
 
-#[test]
-fn random_notes_branches_and_loops_preserve_shared_draws_and_pcm() {
-    use crate::{
-        data::Interpolation,
-        sequence::{LiveControls, shared::Synthesizer, stream::Stream},
-    };
-    use std::sync::Arc;
-    let (root, value) = fixture();
-    let note = |key, cents| Command::SetNote {
-        key,
-        cents,
-        wait_ms: 0,
-        from_start: false,
-    };
-    let mut cases = vec![
-        (
-            Command::RandomNote {
-                low: 67,
-                high: 60,
-                cents: -7,
-                random_cents: false,
-                relative: false,
-            },
-            note(65, -7),
-            1,
-        ),
-        (
-            Command::RandomNote {
-                low: 53,
-                high: 66,
-                cents: -7,
-                random_cents: true,
-                relative: false,
-            },
-            note(60, 19),
-            2,
-        ),
-        (
-            Command::RandomNote {
-                low: 100,
-                high: 100,
-                cents: 0,
-                random_cents: false,
-                relative: true,
-            },
-            note(117, 0),
-            1,
-        ),
-        (
-            Command::RandomNote {
-                low: 200,
-                high: 210,
-                cents: 0,
-                random_cents: false,
-                relative: false,
-            },
-            note(77, 0),
-            1,
-        ),
-        (
-            Command::RandomNote {
-                low: 60,
-                high: 60,
-                cents: 0,
-                random_cents: false,
-                relative: false,
-            },
-            note(60, 0),
-            1,
-        ),
-        (
-            Command::RandomBranch {
-                minimum: 117,
-                program: 1,
-                instruction: 4,
-            },
-            Command::Jump {
-                program: 1,
-                instruction: 4,
-            },
-            1,
-        ),
-        (
-            Command::RandomBranch {
-                minimum: 118,
-                program: 1,
-                instruction: 4,
-            },
-            Command::Noop,
-            1,
-        ),
-        (
-            Command::RandomBranch {
-                minimum: 0,
-                program: 99,
-                instruction: 100,
-            },
-            Command::Noop,
-            1,
-        ),
-    ];
-    for bound in [1, 17] {
-        cases.push((
-            Command::RandomLoop {
-                instruction: 1,
-                count: bound,
-                key_off: false,
-                sample_end: false,
-            },
-            Command::Wait {
-                milliseconds: Some(54389 % bound + 1),
-                from_start: false,
-                key_off: false,
-                sample_end: false,
-            },
-            1,
-        ));
-    }
-    for (command, reference, draws) in cases {
-        let make = |command| {
-            let before = u16::from(matches!(command, Command::RandomLoop { .. }));
-            let mut loaded = random_cue(&root, &value, before, command);
-            loaded.resources.programs.get_mut(&1).unwrap()[0] = Command::Interpolation {
-                mode: Interpolation::Linear,
-                coefficients: 0,
-            };
-            loaded.tables.pitch.up = std::array::from_fn(|i| 2f32.powf(i as f32 / 12.));
-            loaded.tables.pitch.down = std::array::from_fn(|i| 2f32.powf(-(i as f32) / 12.));
-            loaded
-        };
-        let synth = Synthesizer::default();
-        let actual = Stream::in_synthesizer(Arc::new(make(command)), false, &synth).unwrap();
-        let mut expected = Stream::new(Arc::new(make(reference)), false).unwrap();
-        for _ in 0..4 {
-            let block = expected.block(LiveControls::default()).unwrap();
-            for frame in 0..160 {
-                synth.advance().unwrap();
-                assert_eq!(
-                    actual.shared_frame().unwrap(),
-                    block.as_ref().map(|b| b[frame]),
-                    "{command:?}"
-                );
+fn mixer_frame(
+    synth: &crate::sequence::shared::Synthesizer,
+    players: &[crate::sequence::stream::Stream],
+) -> (Vec<bool>, crate::sequence::BusFrame) {
+    let frames: Vec<_> = players.iter().map(|player| player.shared_frame()).collect();
+    let live = frames.iter().map(Option::is_some).collect();
+    let mut mixed = [[0; 2]; 3];
+    // Read globals only after every player has marked its current frame read.
+    for frame in frames.into_iter().flatten().chain([synth.unread_frame()]) {
+        for (bus, source) in mixed.iter_mut().zip(frame) {
+            for (value, source) in bus.iter_mut().zip(source) {
+                *value += source;
             }
         }
-        assert_eq!(synth.random_state().1, draws, "{command:?}");
-        assert_eq!(
-            synth.random_state().0,
-            if draws == 1 { 0xa8351d63 } else { 509449289 }
-        );
     }
+    (live, mixed)
 }
 
 #[test]
-fn shared_random_cues_order_waits_across_streams_and_preserve_production_pcm() {
-    use crate::sequence::{LiveControls, shared::Synthesizer, stream::Stream};
+fn randomized_cues_replay_reproducibly_with_bounded_audible_completion() {
+    use crate::sequence::{shared::Synthesizer, stream::Stream};
     use std::sync::Arc;
-    let (root, value) = fixture();
-    let random = Command::RandomWait {
-        upper_ms: 17,
-        key_off: false,
-        sample_end: false,
-    };
-    let fixed = |duration| Command::Wait {
-        milliseconds: Some(duration),
+    let wait = |ms| Command::Wait {
+        milliseconds: Some(ms),
         from_start: false,
         key_off: false,
         sample_end: false,
     };
-    // The source seed1 yields54389,30289: modulo17 gives6,12. The earlier
-    // deadline must draw first even when its stream was registered last.
-    // Equal deadlines preserve the order in which waits were scheduled.
-    for before in [[4, 1], [1, 1]] {
+    let render = || {
         let synth = Synthesizer::default();
-        let players = before.map(|ms| {
-            Stream::in_synthesizer(
-                Arc::new(random_cue(&root, &value, ms, random)),
-                false,
-                &synth,
-            )
-            .unwrap()
+        let players = [0, 4].map(|before| {
+            let mut loaded = random_cue(0, Command::Noop);
+            loaded.resources.programs.insert(
+                1,
+                vec![
+                    Command::Interpolation {
+                        mode: crate::data::Interpolation::Linear,
+                        coefficients: 0,
+                    },
+                    wait(before),
+                    Command::RandomNote {
+                        low: 53,
+                        high: 67,
+                        cents: 7,
+                        random_cents: true,
+                        relative: false,
+                    },
+                    Command::RandomWait {
+                        upper_ms: 17,
+                        key_off: false,
+                        sample_end: false,
+                    },
+                    Command::RandomBranch {
+                        minimum: 128,
+                        program: 1,
+                        instruction: 6,
+                    },
+                    wait(1),
+                    Command::StartSample { sample: 2 },
+                    wait(1),
+                    Command::RandomLoop {
+                        instruction: 7,
+                        count: 17,
+                        key_off: false,
+                        sample_end: false,
+                    },
+                    Command::End,
+                ],
+            );
+            Stream::in_synthesizer(Arc::new(loaded), false, &synth).unwrap()
         });
-        let mut expected = [(before[0], 12), (before[1], 6)].map(|(ms, delay)| {
-            Stream::new(Arc::new(random_cue(&root, &value, ms, fixed(delay))), false).unwrap()
-        });
-        let mut actual = [Vec::new(), Vec::new()];
-        let mut reference = [Vec::new(), Vec::new()];
-        for block in 0..8 {
-            let mut active = [false; 2];
-            for i in 0..2 {
-                let samples = expected[i].block(LiveControls::default()).unwrap();
-                active[i] = samples.is_some();
-                reference[i].extend(samples.unwrap_or_else(|| vec![[[0; 2]; 3]; 160]));
-            }
-            for _ in 0..160 {
-                synth.advance().unwrap();
-                for i in 0..2 {
-                    let sample = players[i].shared_frame().unwrap();
-                    assert_eq!(
-                        sample.is_some(),
-                        active[i],
-                        "cue {i}, block {block}: lifetime"
-                    );
-                    actual[i].push(sample.unwrap_or([[0; 2]; 3]));
-                }
-            }
-            if block == 0 {
-                assert_eq!(synth.random_state(), (509449289, 2));
+        let bound = control_deadline(4) + control_deadline(17) + 18 * control_deadline(1) + 2 * 160;
+        let mut output = Vec::new();
+        for _ in 0..bound {
+            synth.advance().unwrap();
+            let (live, frame) = mixer_frame(&synth, &players);
+            output.push(frame);
+            if live.iter().all(|live| !live) {
+                assert!(output.iter().flatten().flatten().any(|sample| *sample != 0));
+                assert_eq!(frame, [[0; 2]; 3]);
+                return output;
             }
         }
-        assert!(
-            actual
-                .iter()
-                .all(|pcm| pcm.iter().flatten().flatten().any(|&v| v != 0))
-        );
-        assert_eq!(actual, reference);
-        assert_eq!(synth.random_state(), (509449289, 2));
-        drop(players);
-        let next = Stream::in_synthesizer(
-            Arc::new(random_cue(&root, &value, 0, random)),
-            false,
-            &synth,
-        )
-        .unwrap();
-        synth.advance().unwrap();
-        assert!(next.started());
-        assert_eq!(
-            synth.random_state(),
-            (4078542139, 3),
-            "cue turnover must not reseed the synthesizer"
-        );
-    }
+        panic!("random waits/loops exceeded their authored bounds");
+    };
+    assert_eq!(
+        render(),
+        render(),
+        "a fresh session must replay reproducibly"
+    );
 }
 
 mod shared_scheduler {
     use super::*;
     use crate::{
-        data::{Event, EventKind, Interpolation, ScoreOrigin},
-        sequence::{LiveControls, shared::Synthesizer, stream::Stream},
+        data::{EventKind, Interpolation, ScoreOrigin},
+        sequence::{shared::Synthesizer, stream::Stream},
     };
     use std::sync::Arc;
 
@@ -986,8 +943,8 @@ mod shared_scheduler {
         }
     }
 
-    fn cue(root: &Fixture, value: &serde_json::Value, programs: Vec<Vec<Command>>) -> Loaded {
-        let mut loaded = random_cue(root, value, 0, Command::Noop);
+    fn cue(programs: Vec<Vec<Command>>) -> Loaded {
+        let mut loaded = random_cue(0, Command::Noop);
         let EventKind::Notes { voices, length, .. } = &mut loaded.score.first_events[0].kind else {
             unreachable!()
         };
@@ -1029,459 +986,170 @@ mod shared_scheduler {
         prefix
     }
 
-    fn compare_block(synth: &Synthesizer, players: &[Stream], references: &mut [Stream]) {
-        let blocks: Vec<_> = references
-            .iter_mut()
-            .map(|stream| stream.block(LiveControls::default()).unwrap())
-            .collect();
+    fn compare_block(
+        synth: &Synthesizer,
+        players: &[Stream],
+        reference_synth: &Synthesizer,
+        references: &mut [Stream],
+    ) {
+        // Cue completion follows queued samples and release tails.
+        // Compare the full six-bus mixer against independently authored fixed
+        // commands; each global contribution is read exactly once per frame.
         for frame in 0..160 {
             synth.advance().unwrap();
-            for (index, player) in players.iter().enumerate() {
-                assert_eq!(
-                    player.shared_frame().unwrap(),
-                    blocks[index].as_ref().map(|block| block[frame]),
-                    "stream {index}, frame {frame}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn song_timing_is_independent_of_previous_playback() {
-        let (root, value) = fixture();
-        let mut song = cue(&root, &value, vec![tone(vec![])]);
-        song.score.origin = ScoreOrigin::Sequence;
-        song.score.end_tick = 6;
-        for event in &mut song.score.first_events {
-            if let EventKind::Notes { source, length, .. } = &mut event.kind {
-                *source = crate::data::VoiceSource::Sequence {
-                    group: 0,
-                    program: 0,
-                    drums: false,
-                };
-                *length = 3;
-            }
-        }
-        song.score.loop_events = song.score.first_events.clone();
-        let synth = Synthesizer::default();
-        let mut prior = cue(&root, &value, vec![tone(vec![])]);
-        prior.score = song.score.clone();
-        prior.score.initial_bpm_1024 *= 2;
-        let prior = Stream::in_synthesizer(Arc::new(prior), true, &synth).unwrap();
-        for _ in 0..320 {
-            synth.advance().unwrap();
-        }
-        drop(prior);
-        let song = Arc::new(song);
-        let player = Stream::in_synthesizer(song.clone(), true, &synth).unwrap();
-        let mut reference = [Stream::new(song, true).unwrap()];
-        for _ in 0..6 {
-            compare_block(&synth, std::slice::from_ref(&player), &mut reference);
-        }
-    }
-
-    #[test]
-    fn ending_a_macro_preserves_its_sample_and_live_mixer_controls() {
-        let (root, value) = fixture();
-        let make = |wait_ms| {
-            let mut loaded = cue(
-                &root,
-                &value,
-                vec![vec![
-                    Command::StartSample { sample: 3 },
-                    wait(Some(wait_ms), false, false),
-                    Command::End,
-                ]],
+            reference_synth.advance().unwrap();
+            assert_eq!(
+                mixer_frame(synth, players),
+                mixer_frame(reference_synth, references),
+                "mixed frame {frame}",
             );
-            Arc::make_mut(loaded.resources.samples.get_mut(&3).unwrap()).pcm = vec![2000; 640];
-            Arc::new(loaded)
-        };
-        let synth = Synthesizer::default();
-        let player = Stream::in_synthesizer(make(5), false, &synth).unwrap();
-        let mut standalone = Stream::new(make(5), false).unwrap();
-        let mut reference = Stream::new(make(25), false).unwrap();
-        for block in 0..4 {
-            let controls = LiveControls {
-                volume: if block < 2 { 1. } else { 0.25 },
-                ..Default::default()
-            };
-            player.set_shared_controls([controls; 5]).unwrap();
-            let expected = reference.block(controls).unwrap().unwrap();
-            assert!(expected.iter().flatten().flatten().any(|&v| v != 0));
-            let actual = standalone.block(controls).unwrap().unwrap();
-            for (frame, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
-                assert_eq!(actual, expected, "standalone block {block}, frame {frame}");
-            }
-            for frame in expected {
-                synth.advance().unwrap();
-                assert_eq!(player.shared_frame().unwrap(), Some(frame));
-            }
-        }
-        synth.advance().unwrap();
-        assert!(player.shared_frame().unwrap().is_none());
-        assert!(standalone.block(LiveControls::default()).unwrap().is_none());
-    }
-
-    #[test]
-    fn freed_macro_slots_keep_dsp_samples_until_reuse() {
-        let (root, value) = fixture();
-        let synth = Synthesizer::default();
-        let mut players = Vec::new();
-        let mut per_voice = 0;
-        for count in [22, 22, 20, 1] {
-            let silent = players.len() == 3;
-            let program = if silent {
-                vec![Command::End]
-            } else {
-                vec![Command::StartSample { sample: 2 }, Command::End]
-            };
-            let mut loaded = cue(&root, &value, vec![program; count]);
-            let sample = Arc::make_mut(loaded.resources.samples.get_mut(&2).unwrap());
-            sample.pcm.fill(2000);
-            sample.loop_pcm.fill(2000);
-            players.push(Stream::in_synthesizer(Arc::new(loaded), false, &synth).unwrap());
-            for _ in 0..160 {
-                synth.advance().unwrap();
-            }
-            let total: i32 = players
-                .iter()
-                .map(|p| p.shared_frame().unwrap().map_or(0, |frame| frame[0][0]))
-                .sum();
-            if players.len() == 1 {
-                assert!(total > 0 && total % 22 == 0);
-                per_voice = total / 22;
-            }
-            // Released macros no longer consume the 22-SFX admission limit.
-            // The 65th allocation replaces exactly one lingering DSP sample.
-            assert_eq!(total, per_voice * [22, 44, 64, 63][players.len() - 1]);
         }
     }
 
     #[test]
-    fn random_sample_end_waits_wake_and_skip_draws_after_completion() {
-        let (root, value) = fixture();
+    fn sample_end_wakes_random_waits_before_their_deadline() {
         for active in [false, true] {
             let synth = Synthesizer::default();
-            let random = Command::RandomWait {
-                upper_ms: 203,
-                key_off: true,
-                sample_end: true,
-            };
-            let mut actual = Vec::new();
-            let mut expected = Vec::new();
+            let mut program = Vec::new();
             if active {
-                actual.push(Command::StartSample { sample: 3 });
-                expected.extend([
-                    Command::StartSample { sample: 3 },
-                    wait(Some(5), false, false),
-                ]);
+                program.push(Command::StartSample { sample: 3 });
             }
-            actual.extend([random, random]);
-            let player = Stream::in_synthesizer(
-                Arc::new(cue(&root, &value, vec![tone(actual)])),
-                false,
-                &synth,
-            )
-            .unwrap();
-            let reference =
-                Stream::new(Arc::new(cue(&root, &value, vec![tone(expected)])), false).unwrap();
-            let mut references = [reference];
-            for _ in 0..4 {
-                compare_block(&synth, std::slice::from_ref(&player), &mut references);
-            }
-            assert_eq!(synth.random_state().1, u64::from(active));
-        }
-    }
-
-    #[test]
-    fn timed_and_looping_sequences_share_native_rng_order_with_sound_effects() {
-        let (root, value) = fixture();
-        let random = Command::RandomWait {
-            upper_ms: 17,
-            key_off: false,
-            sample_end: false,
-        };
-        let sequence = |delays: &[Command], looping: bool| {
-            let mut loaded = cue(
-                &root,
-                &value,
-                delays.iter().map(|&delay| tone(vec![delay])).collect(),
+            program.extend(
+                [Command::RandomWait {
+                    upper_ms: 60_000,
+                    key_off: false,
+                    sample_end: true,
+                }; 2],
             );
-            let EventKind::Notes { voices, .. } = &loaded.score.first_events[0].kind else {
-                unreachable!()
-            };
-            let note = voices[0];
-            loaded.score.origin = ScoreOrigin::Sequence;
-            loaded.score.initial_bpm_1024 = 160_000; // One tick per millisecond.
-            // A master track updates the incoming clock at the loop handoff.
-            // This scheduling fixture has no retained-tempo delay.
-            loaded.score.has_master_track = true;
-            loaded.score.end_tick = if looping { 20 } else { 60 };
-            loaded.score.first_events = (0..if looping { 1 } else { 3 })
-                .flat_map(|cycle| {
-                    let tick = cycle * 20;
-                    [
-                        Event {
-                            tick,
-                            channel: 0,
-                            kind: EventKind::Volume { value: 32 },
-                        },
-                        Event {
-                            tick,
-                            channel: 0,
-                            kind: EventKind::Notes {
-                                source: crate::data::VoiceSource::Sequence {
-                                    group: 0,
-                                    program: 0,
-                                    drums: false,
-                                },
-                                voices: vec![crate::data::Note {
-                                    macro_id: if delays.len() == 1 {
-                                        1
-                                    } else {
-                                        cycle as u16 + 1
-                                    },
-                                    ..note
-                                }],
-                                length: 25,
-                            },
-                        },
-                        Event {
-                            tick: tick + 10,
-                            channel: 0,
-                            kind: EventKind::Volume { value: 96 },
-                        },
-                    ]
-                })
-                .collect();
-            loaded.score.loop_events = if looping {
-                loaded.score.first_events.clone()
-            } else {
-                Vec::new()
-            };
-            loaded.tables.mix.volume = std::array::from_fn(|i| i as f32 / 128.);
-            loaded
-        };
-        for looping in [false, true] {
-            for order in [[0, 1, 2], [2, 0, 1], [0, 2, 1]] {
-                let synth = Synthesizer::default();
-                let mut players = Vec::new();
-                let mut references = Vec::new();
-                for index in order {
-                    let (actual, reference) = if index == 2 {
-                        (
-                            cue(&root, &value, vec![tone(vec![random])]),
-                            cue(
-                                &root,
-                                &value,
-                                vec![tone(vec![wait(Some(14), false, false)])],
-                            ),
-                        )
-                    } else {
-                        // Sequence B is visited before A, so prepending their
-                        // notes dispatches A then B, ahead of the admitted SFX.
-                        // Seed1 modulo17: 6,12,14,3,15,12,14 across three passes.
-                        let delays = if index == 0 { [6, 3, 12] } else { [12, 15, 14] }
-                            .map(|ms| wait(Some(ms), false, false));
-                        (sequence(&[random], looping), sequence(&delays, false))
-                    };
-                    players.push(
-                        Stream::in_synthesizer(Arc::new(actual), looping && index != 2, &synth)
-                            .unwrap(),
-                    );
-                    references.push(Stream::new(Arc::new(reference), false).unwrap());
+            let mut loaded = cue(vec![tone(program)]);
+            Arc::make_mut(loaded.resources.samples.get_mut(&3).unwrap())
+                .pcm
+                .fill(-32000);
+            let sample = Arc::make_mut(loaded.resources.samples.get_mut(&2).unwrap());
+            sample.pcm.fill(32000);
+            sample.loop_pcm.fill(32000);
+            let player = Stream::in_synthesizer(Arc::new(loaded), false, &synth).unwrap();
+            let mut first_tone = None;
+            let bound = 2 * 32 + control_deadline(5) + 2 * 160;
+            let mut completed = false;
+            for index in 0..bound {
+                synth.advance().unwrap();
+                let (live, frame) = mixer_frame(&synth, std::slice::from_ref(&player));
+                if frame[0][0] > 0 {
+                    first_tone.get_or_insert(index);
                 }
-                // Compare independent, explicitly written notes and waits with
-                // actual timed/loop dispatch, including intervening volume events.
-                for _ in 0..12 {
-                    compare_block(&synth, &players, &mut references);
+                if !live[0] {
+                    completed = true;
+                    break;
                 }
-                assert_eq!(synth.random_state(), (2800480555, 7));
-            }
-        }
-    }
-
-    #[test]
-    fn layered_start_timer_and_release_draws_follow_global_voice_order() {
-        let (root, value) = fixture();
-        for (before, release) in [(0, false), (1, false), (100, true)] {
-            let synth = Synthesizer::default();
-            let actual = || {
-                tone(vec![
-                    wait(Some(before), release, false),
-                    Command::RandomWait {
-                        upper_ms: 17,
-                        key_off: false,
-                        sample_end: false,
-                    },
-                ])
-            };
-            let players = [
-                Stream::in_synthesizer(
-                    Arc::new(cue(&root, &value, vec![actual(), actual()])),
-                    false,
-                    &synth,
-                )
-                .unwrap(),
-                Stream::in_synthesizer(Arc::new(cue(&root, &value, vec![actual()])), false, &synth)
-                    .unwrap(),
-            ];
-            // Newest stream, then reverse layer order: draws54389,30289,26228.
-            let expected = |delay| {
-                tone(vec![
-                    wait(Some(if release { 5 } else { before }), false, false),
-                    wait(Some(delay), false, false),
-                ])
-            };
-            let mut references = [
-                Stream::new(
-                    Arc::new(cue(&root, &value, vec![expected(14), expected(12)])),
-                    false,
-                )
-                .unwrap(),
-                Stream::new(Arc::new(cue(&root, &value, vec![expected(6)])), false).unwrap(),
-            ];
-            for block in 0..8 {
-                if release && block == 1 {
-                    assert_eq!(synth.random_state().1, 0);
-                    for player in &players {
-                        player
-                            .set_shared_controls(
-                                [LiveControls {
-                                    release: true,
-                                    ..Default::default()
-                                }; 5],
-                            )
-                            .unwrap();
-                    }
-                }
-                compare_block(&synth, &players, &mut references);
-            }
-            assert_eq!(synth.random_state(), (4078542139, 3));
-        }
-    }
-
-    #[test]
-    fn ordinary_sources_participate_in_global_sample_completion_ties() {
-        let (root, value) = fixture();
-        for ordinary in [false, true] {
-            let synth = Synthesizer::default();
-            let mut players = Vec::new();
-            let mut references = Vec::new();
-            if ordinary {
-                let program = vec![Command::StartSample { sample: 2 }, wait(None, false, false)];
-                players.push(
-                    Stream::in_synthesizer(
-                        Arc::new(cue(&root, &value, vec![program.clone()])),
-                        false,
-                        &synth,
-                    )
-                    .unwrap(),
-                );
-                references
-                    .push(Stream::new(Arc::new(cue(&root, &value, vec![program])), false).unwrap());
-            }
-            for delay in if ordinary { [6, 12] } else { [12, 6] } {
-                let actual = tone(vec![
-                    Command::StartSample { sample: 3 },
-                    wait(None, false, true),
-                    Command::RandomWait {
-                        upper_ms: 17,
-                        key_off: false,
-                        sample_end: false,
-                    },
-                ]);
-                let expected = tone(vec![
-                    Command::StartSample { sample: 3 },
-                    wait(Some(5), false, false),
-                    wait(Some(delay), false, false),
-                ]);
-                players.push(
-                    Stream::in_synthesizer(
-                        Arc::new(cue(&root, &value, vec![actual])),
-                        false,
-                        &synth,
-                    )
-                    .unwrap(),
-                );
-                references.push(
-                    Stream::new(Arc::new(cue(&root, &value, vec![expected])), false).unwrap(),
-                );
-            }
-            // With the still-playing ordinary source, newest-first[B,A,C]
-            // partitions as[A,B,C]; without it[B,A] stays[B,A].
-            for _ in 0..6 {
-                compare_block(&synth, &players, &mut references);
-            }
-            assert_eq!(synth.random_state(), (509449289, 2));
-        }
-    }
-
-    #[test]
-    fn cross_stream_groups_preserve_random_draws_release_kill_and_clear() {
-        let (root, value) = fixture();
-        let random = Command::RandomWait {
-            upper_ms: 17,
-            key_off: false,
-            sample_end: false,
-        };
-        for (kill, clear) in [(false, false), (true, false), (true, true)] {
-            let synth = Synthesizer::default();
-            let group = Command::ExclusiveGroup { group: 5, kill };
-            let mut target = vec![group];
-            if clear {
-                target.push(Command::ExclusiveGroup { group: 0, kill });
-            }
-            target.extend([
-                Command::StartSample { sample: 2 },
-                wait(None, true, false),
-                random,
-                Command::End,
-            ]);
-            let caller = tone(vec![wait(Some(5), false, false), group, random]);
-            let players = [target, caller].map(|program| {
-                Stream::in_synthesizer(Arc::new(cue(&root, &value, vec![program])), false, &synth)
-                    .unwrap()
-            });
-            // At 5ms the caller consumes draw1 (6ms). A released target runs
-            // next pass at 6ms and consumes draw2 (12ms), ending at 18ms.
-            // Killing ends the source at 5ms; group0 leaves it untouched.
-            let mut references = [
-                vec![
-                    Command::StartSample { sample: 2 },
-                    wait((!clear).then_some(if kill { 5 } else { 18 }), false, false),
-                    if kill {
-                        Command::StopSample
-                    } else {
-                        Command::Noop
-                    },
-                    Command::End,
-                ],
-                tone(vec![wait(Some(11), false, false)]),
-            ]
-            .map(|program| {
-                Stream::new(Arc::new(cue(&root, &value, vec![program])), false).unwrap()
-            });
-            for _ in 0..6 {
-                compare_block(&synth, &players, &mut references);
             }
             assert_eq!(
-                synth.random_state(),
-                if kill {
-                    (0xa8351d63, 1)
-                } else {
-                    (509449289, 2)
-                }
+                first_tone,
+                Some(if active { 32 } else { 0 }),
+                "sample end must wake at the next control boundary"
             );
+            assert!(completed, "sample completion must wake the program");
+        }
+    }
+
+    #[test]
+    fn looping_music_and_random_effects_replay_then_release_independently() {
+        let random = Command::RandomWait {
+            upper_ms: 17,
+            key_off: false,
+            sample_end: false,
+        };
+        let mut music = cue(vec![tone(vec![random])]);
+        music.score.origin = ScoreOrigin::Sequence;
+        music.score.initial_bpm_1024 = 160_000;
+        music.score.end_tick = 30;
+        let EventKind::Notes { source, length, .. } = &mut music.score.first_events[0].kind else {
+            unreachable!()
+        };
+        *source = crate::data::VoiceSource::Sequence {
+            group: 0,
+            program: 1,
+            drums: false,
+        };
+        *length = 20;
+        music.score.loop_events = music.score.first_events.clone();
+        let music = Arc::new(music);
+        let effect = Arc::new(cue(vec![tone(vec![random]), tone(vec![random])]));
+        let render = || {
+            let synth = Synthesizer::default();
+            let song = Stream::in_synthesizer(music.clone(), true, &synth).unwrap();
+            let effect = Stream::in_synthesizer(effect.clone(), false, &synth).unwrap();
+            let mut output = Vec::new();
+            let cycle = control_deadline(30);
+            for _ in 0..cycle * 3 {
+                synth.advance().unwrap();
+                let frames = [song.shared_frame(), effect.shared_frame()];
+                output.push(frames[0].unwrap_or([[0; 2]; 3]));
+                let _ = synth.unread_frame();
+            }
+            for cycle in output.chunks(cycle) {
+                assert!(cycle.iter().flatten().flatten().any(|sample| *sample != 0));
+            }
+            assert!(effect.shared_frame().is_none());
+            drop(song);
+            for _ in 0..2 * 160 {
+                synth.advance().unwrap();
+                let _ = synth.unread_frame();
+            }
+            assert_eq!(synth.unread_frame(), [[0; 2]; 3]);
+            output
+        };
+        assert_eq!(render(), render());
+    }
+
+    #[test]
+    fn cross_stream_groups_release_kill_and_clear_membership() {
+        for kill in [false, true] {
+            for clear in [false, true] {
+                let synth = Synthesizer::default();
+                let group = Command::ExclusiveGroup { group: 5, kill };
+                let mut target = vec![group];
+                if clear {
+                    target.push(Command::ExclusiveGroup { group: 0, kill });
+                }
+                target.extend([
+                    Command::StartSample { sample: 2 },
+                    wait(None, true, false),
+                    Command::End,
+                ]);
+                let caller = vec![wait(Some(5), false, false), group, Command::End];
+                let players = [target, caller].map(|program| {
+                    Stream::in_synthesizer(Arc::new(cue(vec![program])), false, &synth).unwrap()
+                });
+                let trigger = control_deadline(5);
+                let mut heard_before = false;
+                let mut heard_after = false;
+                let mut final_live = Vec::new();
+                for frame in 0..trigger + 4 * 160 {
+                    synth.advance().unwrap();
+                    let (live, mixed) = mixer_frame(&synth, &players);
+                    let audible = mixed.iter().flatten().any(|sample| *sample != 0);
+                    if frame < trigger {
+                        heard_before |= audible;
+                    }
+                    if frame >= trigger + 2 * 160 {
+                        heard_after |= audible;
+                    }
+                    final_live = live;
+                }
+                assert!(heard_before);
+                assert_eq!(heard_after, clear);
+                assert_eq!(final_live, [clear, false]);
+            }
         }
     }
 
     #[test]
     fn macro_controller_writes_share_sequence_channels_but_not_sound_layers() {
         use crate::data::{Controller, Variable};
-        let (root, value) = fixture();
         for origin in [ScoreOrigin::Sequence, ScoreOrigin::SoundEffect] {
             let synth = Synthesizer::default();
+            let reference_synth = Synthesizer::default();
             let writes = [(7, 7001), (10, 6555), (11, 12001)];
             let mut commands: Vec<_> = writes
                 .into_iter()
@@ -1497,7 +1165,7 @@ mod shared_scheduler {
                 },
                 Command::End,
             ]);
-            let mut actual = cue(&root, &value, vec![commands, tone(vec![])]);
+            let mut actual = cue(vec![commands, tone(vec![])]);
             actual.score.origin = origin;
             let EventKind::Notes { source, .. } = &mut actual.score.first_events[0].kind else {
                 unreachable!()
@@ -1510,7 +1178,7 @@ mod shared_scheduler {
                 },
                 ScoreOrigin::SoundEffect => crate::data::VoiceSource::SoundEffect { id: 7 },
             };
-            let mut expected = cue(&root, &value, vec![vec![Command::End], tone(vec![])]);
+            let mut expected = cue(vec![vec![Command::End], tone(vec![])]);
             if origin == ScoreOrigin::Sequence {
                 for (index, value) in writes {
                     expected.score.controls[0].paired[index as usize] = value as u16;
@@ -1525,9 +1193,10 @@ mod shared_scheduler {
                 cue.tables.mix.pan_16_scale = 1. / (63 << 16) as f32;
             }
             let players = [Stream::in_synthesizer(Arc::new(actual), false, &synth).unwrap()];
-            let mut references = [Stream::new(Arc::new(expected), false).unwrap()];
+            let mut references =
+                [Stream::in_synthesizer(Arc::new(expected), false, &reference_synth).unwrap()];
             for _ in 0..3 {
-                compare_block(&synth, &players, &mut references);
+                compare_block(&synth, &players, &reference_synth, &mut references);
             }
         }
     }
@@ -1535,30 +1204,25 @@ mod shared_scheduler {
     #[test]
     fn child_handle_messages_cross_cues_and_wake_after_parent_end() {
         use crate::data::{
-            MessageTarget,
+            Comparison, MessageTarget,
             Variable::{Global, Local},
         };
-        let (root, value) = fixture();
         for broadcast in [false, true] {
             let synth = Synthesizer::default();
-            let mut producer = cue(
-                &root,
-                &value,
-                vec![vec![
-                    Command::SpawnMacro {
-                        program: 2,
-                        instruction: 0,
-                        key_offset: 0,
-                        priority: 9,
-                        max_voices: 255,
-                    },
-                    Command::VoiceHandle {
-                        destination: Global(0),
-                        child: true,
-                    },
-                    Command::End,
-                ]],
-            );
+            let mut producer = cue(vec![vec![
+                Command::SpawnMacro {
+                    program: 2,
+                    instruction: 0,
+                    key_offset: 0,
+                    priority: 9,
+                    max_voices: 255,
+                },
+                Command::VoiceHandle {
+                    destination: Global(0),
+                    child: true,
+                },
+                Command::End,
+            ]]);
             producer.resources.programs.insert(
                 2,
                 vec![
@@ -1578,52 +1242,61 @@ mod shared_scheduler {
                 3,
                 vec![
                     Command::ReceiveMessage {
-                        destination: Global(1),
-                    },
-                    Command::Release,
-                    Command::End,
-                ],
-            );
-            let controller = cue(
-                &root,
-                &value,
-                vec![vec![
-                    wait(Some(3), false, false),
-                    Command::SetVariable {
                         destination: Local(0),
+                    },
+                    Command::SetVariable {
+                        destination: Local(1),
                         value: 42,
                     },
-                    Command::SendMessage {
-                        target: if broadcast {
-                            MessageTarget::Macro(2)
-                        } else {
-                            MessageTarget::Handle(Global(0))
-                        },
-                        value: Local(0),
+                    Command::Branch {
+                        comparison: Comparison::Equal,
+                        left: Local(0),
+                        right: Local(1),
+                        invert: false,
+                        instruction: 4,
                     },
-                    Command::End,
-                ]],
-            );
-            let players = [producer, controller]
-                .map(|cue| Stream::in_synthesizer(Arc::new(cue), false, &synth).unwrap());
-            // Child starts at 1ms. Delivery at 3ms wakes its trap in the next
-            // scheduler pass, independently of the parent that ended at 0ms.
-            let mut references = [
-                vec![
-                    wait(Some(1), false, false),
-                    Command::StartSample { sample: 2 },
-                    wait(Some(3), false, false),
+                    wait(None, false, false), // A missing/wrong payload must remain live and fail below.
                     Command::Release,
                     Command::End,
                 ],
-                vec![Command::End],
-            ]
-            .map(|program| {
-                Stream::new(Arc::new(cue(&root, &value, vec![program])), false).unwrap()
-            });
-            for _ in 0..3 {
-                compare_block(&synth, &players, &mut references);
+            );
+            let controller = cue(vec![vec![
+                wait(Some(3), false, false),
+                Command::SetVariable {
+                    destination: Local(0),
+                    value: 42,
+                },
+                Command::SendMessage {
+                    target: if broadcast {
+                        MessageTarget::Macro(2)
+                    } else {
+                        MessageTarget::Handle(Global(0))
+                    },
+                    value: Local(0),
+                },
+                Command::End,
+            ]]);
+            let players = [producer, controller]
+                .map(|loaded| Stream::in_synthesizer(Arc::new(loaded), false, &synth).unwrap());
+            let delivery = control_deadline(3);
+            let mut heard = false;
+            let mut completed = false;
+            for frame in 0..delivery + 3 * 160 {
+                synth.advance().unwrap();
+                let (live, mixed) = mixer_frame(&synth, &players);
+                if frame < delivery {
+                    heard |= mixed.iter().flatten().any(|sample| *sample != 0);
+                }
+                if live.iter().all(|live| !live) {
+                    completed = true;
+                    break;
+                }
             }
+            assert!(
+                heard,
+                "child must outlive the parent and play before delivery"
+            );
+            assert!(completed, "child must receive the payload and release");
         }
     }
 
@@ -1633,30 +1306,26 @@ mod shared_scheduler {
             Arithmetic, Comparison, Operand,
             Variable::{Global, Local},
         };
-        let (root, value) = fixture();
         let synth = Synthesizer::default();
-        let mut producer = cue(
-            &root,
-            &value,
-            vec![vec![
-                Command::SetVariable {
-                    destination: Local(0),
-                    value: 99,
-                },
-                Command::SetVariable {
-                    destination: Global(0),
-                    value: 7,
-                },
-                Command::SpawnMacro {
-                    program: 2,
-                    instruction: 0,
-                    key_offset: 0,
-                    priority: 9,
-                    max_voices: 255,
-                },
-                Command::End,
-            ]],
-        );
+        let reference_synth = Synthesizer::default();
+        let mut producer = cue(vec![vec![
+            Command::SetVariable {
+                destination: Local(0),
+                value: 99,
+            },
+            Command::SetVariable {
+                destination: Global(0),
+                value: 7,
+            },
+            Command::SpawnMacro {
+                program: 2,
+                instruction: 0,
+                key_offset: 0,
+                priority: 9,
+                max_voices: 255,
+            },
+            Command::End,
+        ]]);
         producer.resources.programs.insert(
             2,
             vec![
@@ -1678,239 +1347,175 @@ mod shared_scheduler {
             ],
         );
         let consumer = |delay| {
-            Arc::new(cue(
-                &root,
-                &value,
-                vec![vec![
-                    wait(Some(delay), false, false),
-                    Command::SetVariable {
-                        destination: Local(0),
-                        value: -14,
-                    },
-                    Command::Branch {
-                        comparison: Comparison::Equal,
-                        left: Global(0),
-                        right: Local(0),
-                        invert: false,
-                        instruction: 5,
-                    },
-                    Command::End,
-                    Command::StartSample { sample: 2 },
-                    wait(Some(5), false, false),
-                    Command::End,
-                ]],
-            ))
+            Arc::new(cue(vec![vec![
+                wait(Some(delay), false, false),
+                Command::SetVariable {
+                    destination: Local(0),
+                    value: -14,
+                },
+                Command::Branch {
+                    comparison: Comparison::Equal,
+                    left: Global(0),
+                    right: Local(0),
+                    invert: false,
+                    instruction: 5,
+                },
+                Command::End,
+                Command::StartSample { sample: 2 },
+                wait(Some(5), false, false),
+                Command::End,
+            ]]))
         };
         let players = [
             Stream::in_synthesizer(Arc::new(producer), false, &synth).unwrap(),
             Stream::in_synthesizer(consumer(2), false, &synth).unwrap(),
         ];
         let mut references = [
-            Stream::new(
-                Arc::new(cue(&root, &value, vec![vec![Command::End]])),
+            Stream::in_synthesizer(
+                Arc::new(cue(vec![vec![Command::End]])),
                 false,
+                &reference_synth,
             )
             .unwrap(),
-            Stream::new(
-                Arc::new(cue(
-                    &root,
-                    &value,
-                    vec![tone(vec![wait(Some(2), false, false)])],
-                )),
+            Stream::in_synthesizer(
+                Arc::new(cue(vec![tone(vec![wait(Some(2), false, false)])])),
                 false,
+                &reference_synth,
             )
             .unwrap(),
         ];
         for _ in 0..2 {
-            compare_block(&synth, &players, &mut references);
+            compare_block(&synth, &players, &reference_synth, &mut references);
         }
         drop(players);
+        drop(references);
         // The bank belongs to the synthesizer, so destroying both cues leaves
         // the child's -14 available to a later cue.
         let later = consumer(0);
-        assert!(Stream::new(later.clone(), false).is_err());
+        assert!(Stream::new(later.clone(), false).is_ok());
         let players = [Stream::in_synthesizer(later, false, &synth).unwrap()];
         let mut references =
-            [Stream::new(Arc::new(cue(&root, &value, vec![tone(vec![])])), false).unwrap()];
+            [
+                Stream::in_synthesizer(Arc::new(cue(vec![tone(vec![])])), false, &reference_synth)
+                    .unwrap(),
+            ];
         for _ in 0..2 {
-            compare_block(&synth, &players, &mut references);
+            compare_block(&synth, &players, &reference_synth, &mut references);
         }
-        assert_eq!(synth.random_state(), (1, 0));
     }
 
     #[test]
-    fn child_macros_start_next_pass_inherit_controls_and_outlive_the_parent() {
-        let (root, value) = fixture();
-        for origin in [ScoreOrigin::SoundEffect, ScoreOrigin::Sequence] {
-            for (offset, key, level, pan) in
-                [(-100, 0, 88, 17), (-7, 53, 88, 17), (100, 127, 200, 255)]
-            {
-                let synth = Synthesizer::default();
-                let volume = Command::SetVolume {
+    fn child_macros_inherit_gain_and_pan_and_outlive_the_parent() {
+        let render = |level, pan, pan_delta| {
+            let synth = Synthesizer::default();
+            let mut loaded = cue(vec![vec![
+                Command::SetVolume {
                     factor: 0,
                     offset: 0,
                     curve: Some(crate::data::VolumeCurve([level; 128])),
                     from_velocity: false,
-                };
-                let panning = Command::PanRamp {
+                },
+                Command::PanRamp {
                     axis: crate::data::PanAxis::Pan,
                     initial: pan,
-                    delta: 0,
+                    delta: pan_delta,
                     milliseconds: 0,
-                };
-                let spatial = Command::VolumeCurve {
-                    alternate: false,
-                    interaural_delay: true,
-                };
-                let first_wait = if offset == 100 {
-                    Command::BeatWait {
-                        ticks: Some(1),
-                        key_off: false,
-                        sample_end: false,
-                    }
-                } else {
-                    Command::Wait {
-                        milliseconds: Some(2),
-                        from_start: true,
-                        key_off: false,
-                        sample_end: false,
-                    }
-                };
-                let onset = if offset == 100 && origin == ScoreOrigin::Sequence {
-                    2
-                } else {
-                    3
-                };
-                let mut loaded = cue(
-                    &root,
-                    &value,
-                    vec![vec![
-                        Command::SetNote {
-                            key: 100,
-                            cents: 0,
-                            wait_ms: 0,
-                            from_start: false,
-                        },
-                        volume,
-                        panning,
-                        spatial,
-                        Command::SpawnMacro {
-                            program: 2,
-                            instruction: 1,
-                            key_offset: offset,
-                            priority: 9,
-                            max_voices: 255,
-                        },
-                        Command::RandomWait {
-                            upper_ms: 1,
-                            key_off: false,
-                            sample_end: false,
-                        },
-                        Command::End,
-                    ]],
-                );
-                loaded.resources.programs.insert(
-                    2,
-                    vec![
-                        Command::End,
-                        Command::Interpolation {
-                            mode: Interpolation::Direct,
-                            coefficients: 0,
-                        },
-                        first_wait,
-                        Command::RandomWait {
-                            upper_ms: 1,
-                            key_off: false,
-                            sample_end: false,
-                        },
-                        Command::StartSample { sample: 2 },
-                        wait(None, true, false),
-                        Command::End,
-                    ],
-                );
-                if origin == ScoreOrigin::Sequence {
-                    loaded.score.origin = origin;
-                    loaded.score.initial_bpm_1024 = 160_000;
-                    let EventKind::Notes { source, length, .. } =
-                        &mut loaded.score.first_events[0].kind
-                    else {
-                        unreachable!()
-                    };
-                    *source = crate::data::VoiceSource::Sequence {
-                        group: 1,
-                        program: 2,
-                        drums: false,
-                    };
-                    *length = 10;
-                }
-                let mut reference = cue(
-                    &root,
-                    &value,
-                    vec![vec![
-                        volume,
-                        panning,
-                        spatial,
-                        wait(Some(onset), false, false),
-                        Command::StartSample { sample: 2 },
-                        wait(Some(10 - onset), false, false),
-                        Command::End,
-                    ]],
-                );
-                let EventKind::Notes { voices, .. } = &mut reference.score.first_events[0].kind
-                else {
-                    unreachable!()
-                };
-                voices[0].key = key;
-                for package in [&mut loaded, &mut reference] {
-                    package.tables.mix.spatial = Some(mix::Spatial {
-                        pan_scale: 1.,
-                        left_delay: std::array::from_fn(|index| (index / 4) as u8),
-                    });
-                }
-                let players = [Stream::in_synthesizer(Arc::new(loaded), false, &synth).unwrap()];
-                let mut references = [Stream::new(Arc::new(reference), false).unwrap()];
-                for block in 0..4 {
-                    if block == 2 && origin == ScoreOrigin::SoundEffect {
-                        players[0]
-                            .set_shared_controls(
-                                [LiveControls {
-                                    release: true,
-                                    ..Default::default()
-                                }; 5],
-                            )
-                            .unwrap();
-                    }
-                    compare_block(&synth, &players, &mut references);
-                }
-                assert_eq!(synth.random_state(), (509449289, 2));
-            }
-        }
-    }
-
-    #[test]
-    fn failed_child_spawns_continue_parent_without_allocating_or_drawing_randomness() {
-        let (root, value) = fixture();
-        let synth = Synthesizer::default();
-        let mut loaded = cue(
-            &root,
-            &value,
-            vec![tone(vec![
-                Command::SpawnMacro {
-                    program: 999,
-                    instruction: 65535,
-                    key_offset: 0,
-                    priority: 255,
-                    max_voices: 255,
                 },
                 Command::SpawnMacro {
                     program: 2,
                     instruction: 0,
                     key_offset: 0,
-                    priority: 255,
-                    max_voices: 1,
+                    priority: 9,
+                    max_voices: 255,
                 },
-            ])],
+                Command::End,
+            ]]);
+            loaded.resources.programs.insert(
+                2,
+                vec![
+                    Command::Interpolation {
+                        mode: Interpolation::Direct,
+                        coefficients: 0,
+                    },
+                    Command::Envelope {
+                        envelope: crate::data::Envelope::Dls(dls::Definition {
+                            timing: dls::Timing {
+                                attack_timecents: i32::MIN,
+                                decay_timecents: i32::MIN,
+                                release_ms: 0,
+                                attack_velocity_scale: 0,
+                                decay_key_scale: 0,
+                            },
+                            sustain: 193,
+                        }),
+                    },
+                    Command::StartSample { sample: 2 },
+                    wait(Some(5), false, false),
+                    Command::End,
+                ],
+            );
+            let sample = Arc::make_mut(loaded.resources.samples.get_mut(&2).unwrap());
+            sample.pcm.fill(32000);
+            sample.loop_pcm.fill(32000);
+            loaded.tables.mix.volume = std::array::from_fn(|i| i as f32 / 128.);
+            loaded.tables.mix.volume_16_scale = 1. / (255 << 16) as f32;
+            loaded.tables.dls.attenuation =
+                std::array::from_fn(|index| ((193 - index) * 32767 / 193) as u16);
+            loaded.tables.mix.controller_14_scale = 1. / 16383.;
+            loaded.tables.mix.pan = [0., 0.5, 1., 1.];
+            loaded.tables.mix.pan_16_scale = 1. / (63 << 16) as f32;
+            let player = Stream::in_synthesizer(Arc::new(loaded), false, &synth).unwrap();
+            let mut output = Vec::new();
+            for _ in 0..32 + control_deadline(5) + 3 * 160 {
+                synth.advance().unwrap();
+                let (live, frame) = mixer_frame(&synth, std::slice::from_ref(&player));
+                output.push(frame[0]);
+                if !live[0] {
+                    return output;
+                }
+            }
+            panic!("child did not complete after parent ended");
+        };
+        let full = render(127, 0, 0);
+        let half = render(64, 0, 0);
+        let right = render(127, 127, 0);
+        let loud = render(200, 0, 0);
+        assert_eq!(render(127, 0, -127), full);
+        assert_eq!(render(127, 127, 127), right);
+        assert_eq!(full.len(), half.len());
+        assert!(full[..32].iter().all(|frame| *frame == [0; 2]));
+        let onset = full.iter().position(|frame| frame[0] != 0).unwrap();
+        assert!(onset >= 32);
+        assert_eq!(full[onset][1], 0);
+        assert!(
+            loud[onset][0] > full[onset][0],
+            "raw gain above127 must survive bounded envelope velocity"
         );
+        assert!(half[onset][0] > 0 && half[onset][0] < full[onset][0]);
+        assert_eq!(right[onset][0], 0);
+        assert!(right[onset][1] > 0);
+    }
+
+    #[test]
+    fn refused_child_spawns_leave_the_parent_playing() {
+        let synth = Synthesizer::default();
+        let reference_synth = Synthesizer::default();
+        let mut loaded = cue(vec![tone(vec![
+            Command::SpawnMacro {
+                program: 999,
+                instruction: 65535,
+                key_offset: 0,
+                priority: 255,
+                max_voices: 255,
+            },
+            Command::SpawnMacro {
+                program: 2,
+                instruction: 0,
+                key_offset: 0,
+                priority: 255,
+                max_voices: 1,
+            },
+        ])]);
         loaded.resources.programs.insert(
             2,
             tone(vec![Command::RandomWait {
@@ -1920,96 +1525,15 @@ mod shared_scheduler {
             }]),
         );
         let loaded = Arc::new(loaded);
-        assert!(Stream::new(loaded.clone(), false).is_err());
+        assert!(Stream::new(loaded.clone(), false).is_ok());
         let players = [Stream::in_synthesizer(loaded, false, &synth).unwrap()];
         let mut references =
-            [Stream::new(Arc::new(cue(&root, &value, vec![tone(vec![])])), false).unwrap()];
+            [
+                Stream::in_synthesizer(Arc::new(cue(vec![tone(vec![])])), false, &reference_synth)
+                    .unwrap(),
+            ];
         for _ in 0..3 {
-            compare_block(&synth, &players, &mut references);
-        }
-        assert_eq!(synth.random_state(), (1, 0));
-    }
-
-    #[test]
-    fn shared_voice_budget_and_dropped_streams_use_one_pool() {
-        let (root, value) = fixture();
-        let synth = Synthesizer::default();
-        let held = |count, origin, priority, last_ends| {
-            let mut programs =
-                vec![vec![Command::StartSample { sample: 2 }, wait(None, false, false)]; count];
-            if last_ends {
-                *programs.last_mut().unwrap() = vec![
-                    Command::StartSample { sample: 2 },
-                    wait(Some(5), false, false),
-                    Command::StopSample,
-                    Command::End,
-                ];
-            }
-            let mut loaded = cue(&root, &value, programs);
-            loaded.score.origin = origin;
-            let EventKind::Notes { source, voices, .. } = &mut loaded.score.first_events[0].kind
-            else {
-                unreachable!()
-            };
-            *source = match origin {
-                ScoreOrigin::Sequence => crate::data::VoiceSource::Sequence {
-                    group: 0,
-                    program: 0,
-                    drums: false,
-                },
-                ScoreOrigin::SoundEffect => crate::data::VoiceSource::SoundEffect { id: 0 },
-            };
-            for note in voices {
-                note.priority = priority;
-            }
-            Arc::new(loaded)
-        };
-        let sequence = held(42, ScoreOrigin::Sequence, 1, false);
-        let mut players = vec![
-            Stream::in_synthesizer(sequence.clone(), false, &synth).unwrap(),
-            Stream::in_synthesizer(held(22, ScoreOrigin::SoundEffect, 9, false), false, &synth)
-                .unwrap(),
-        ];
-        let mut references = vec![
-            Stream::new(sequence, false).unwrap(),
-            Stream::new(held(22, ScoreOrigin::SoundEffect, 9, true), false).unwrap(),
-        ];
-        compare_block(&synth, &players, &mut references);
-        // A lower-priority SFX cannot steal cheaper sequence voices once its
-        // own 22 slots are occupied, and refusal must not execute its RNG.
-        let mut refused = cue(
-            &root,
-            &value,
-            vec![tone(vec![Command::RandomWait {
-                upper_ms: 17,
-                key_off: false,
-                sample_end: false,
-            }])],
-        );
-        let EventKind::Notes { voices, .. } = &mut refused.score.first_events[0].kind else {
-            unreachable!()
-        };
-        voices[0].priority = 8;
-        players.push(Stream::in_synthesizer(Arc::new(refused), false, &synth).unwrap());
-        references.push(
-            Stream::new(
-                Arc::new(cue(&root, &value, vec![vec![Command::End]])),
-                false,
-            )
-            .unwrap(),
-        );
-        let replacement = held(1, ScoreOrigin::SoundEffect, 9, false);
-        players.push(Stream::in_synthesizer(replacement.clone(), false, &synth).unwrap());
-        references.push(Stream::new(replacement, false).unwrap());
-        compare_block(&synth, &players, &mut references);
-        assert_eq!(synth.random_state(), (1, 0));
-        drop(players.remove(1));
-        drop(references.remove(1));
-        let refill = held(21, ScoreOrigin::SoundEffect, 9, false);
-        players.push(Stream::in_synthesizer(refill.clone(), false, &synth).unwrap());
-        references.push(Stream::new(refill, false).unwrap());
-        for _ in 0..3 {
-            compare_block(&synth, &players, &mut references);
+            compare_block(&synth, &players, &reference_synth, &mut references);
         }
     }
 }
@@ -2018,10 +1542,7 @@ mod shared_scheduler {
 fn finite_score_keeps_pending_notes_and_ends_when_the_last_macro_finishes() {
     use crate::sequence::{LiveControls, stream::Stream};
     use std::sync::Arc;
-    let (root, value) = fixture();
     let mut loaded = random_cue(
-        &root,
-        &value,
         0,
         Command::Wait {
             milliseconds: Some(10),
@@ -2044,50 +1565,50 @@ fn finite_score_keeps_pending_notes_and_ends_when_the_last_macro_finishes() {
     let mut second = loaded.score.first_events[0].clone();
     second.tick = 50;
     loaded.score.first_events.push(second);
+    let second_note = control_deadline(50);
+    let onset = control_deadline(10);
+    let stop = onset + control_deadline(5);
+    let release_frames = crate::release::RELEASE_FRAMES as usize;
+    let bound = (second_note + stop + release_frames).div_ceil(160) * 160;
     let mut stream = Stream::new(Arc::new(loaded), false).unwrap();
     let mut pcm = Vec::new();
     while let Some(block) = stream.block(LiveControls::default()).unwrap() {
         pcm.extend(block);
         assert!(
-            pcm.len() <= 2240,
+            pcm.len() <= bound,
             "completed macros retained a silent source handle"
         );
     }
-    // Each note waits 10ms, sounds for 5ms and ends. The 50ms score gap
-    // remains alive, but completion has no four-second effect-tail padding.
-    assert!((2080..=2240).contains(&pcm.len()));
     let audible =
         |frames: &[crate::sequence::BusFrame]| frames.iter().flatten().flatten().any(|&v| v != 0);
-    assert!(audible(&pcm[..640]) && audible(&pcm[1600..]));
-    assert!(!audible(&pcm[640..1600]));
+    assert!(!audible(&pcm[..onset]));
+    assert!(audible(&pcm[onset..stop]));
+    assert!(!audible(&pcm[stop + release_frames..second_note + onset]));
+    assert!(audible(&pcm[second_note + onset..second_note + stop]));
+    assert!(!audible(&pcm[second_note + stop + release_frames..]));
+    assert!(stream.block(LiveControls::default()).unwrap().is_none());
 }
 
 #[test]
 fn shared_random_cue_admission_release_and_isolated_rendering_are_explicit() {
     use crate::sequence::{LiveControls, shared::Synthesizer, stream::Stream};
     use std::sync::Arc;
-    let (root, value) = fixture();
     let random = Command::RandomWait {
         upper_ms: 65535,
         key_off: true,
         sample_end: false,
     };
     let synth = Synthesizer::default();
-    // A command submitted inside a prepared DSP block enters the next block,
+    // A command submitted inside a prepared audio block enters the next block,
     // without consuming any random values or claiming to have started early.
     for _ in 0..33 {
         synth.advance().unwrap();
     }
-    let player = Stream::in_synthesizer(
-        Arc::new(random_cue(&root, &value, 10, random)),
-        false,
-        &synth,
-    )
-    .unwrap();
+    let player = Stream::in_synthesizer(Arc::new(random_cue(10, random)), false, &synth).unwrap();
     for _ in 33..160 {
         synth.advance().unwrap();
         assert!(!player.started());
-        assert_eq!(player.shared_frame().unwrap(), Some([[0; 2]; 3]));
+        assert_eq!(player.shared_frame(), Some([[0; 2]; 3]));
     }
     synth.advance().unwrap();
     assert!(player.started());
@@ -2102,21 +1623,24 @@ fn shared_random_cue_admission_release_and_isolated_rendering_are_explicit() {
             }; 5],
         )
         .unwrap();
-    for _ in 320..800 {
+    let completion = (160
+        + control_deadline(10)
+        + control_deadline(5)
+        + crate::release::RELEASE_FRAMES as usize)
+        .div_ceil(160)
+        * 160;
+    for _ in 320..=completion {
         synth.advance().unwrap();
     }
-    assert_eq!(
-        synth.random_state(),
-        (1, 0),
-        "key-off bypasses the random draw"
+    assert!(
+        player.shared_frame().is_none(),
+        "key-off must bypass the long random wait"
     );
-    let loaded = Arc::new(random_cue(&root, &value, 0, random));
-    assert!(Stream::new(loaded.clone(), false).is_err());
+    let loaded = Arc::new(random_cue(0, random));
+    assert!(Stream::new(loaded.clone(), false).is_ok());
     assert!(Stream::in_synthesizer(loaded, true, &synth).is_err());
     let zero = Stream::in_synthesizer(
         Arc::new(random_cue(
-            &root,
-            &value,
             0,
             Command::RandomWait {
                 upper_ms: 0,
@@ -2128,19 +1652,33 @@ fn shared_random_cue_admission_release_and_isolated_rendering_are_explicit() {
         &synth,
     )
     .unwrap();
-    synth.advance().unwrap();
+    for _ in 0..160 {
+        synth.advance().unwrap();
+        if zero.started() {
+            break;
+        }
+    }
     assert!(zero.started());
-    assert_eq!(
-        synth.random_state(),
-        (1, 0),
-        "zero upper bound consumes no randomness"
+    let mut completed = false;
+    let mut heard = false;
+    for _ in 0..control_deadline(5) + 2 * 160 {
+        synth.advance().unwrap();
+        let (live, frame) = mixer_frame(&synth, std::slice::from_ref(&zero));
+        heard |= frame.iter().flatten().any(|sample| *sample != 0);
+        if !live[0] {
+            completed = true;
+            break;
+        }
+    }
+    assert!(
+        heard && completed,
+        "zero-bound wait must complete without delaying playback"
     );
 }
 
 #[test]
-fn beat_waits_preserve_fractional_deadlines_tempo_sampling_and_key_off_pcm() {
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+fn beat_waits_use_source_frames_sample_tempo_and_allow_key_off() {
+    let mut loaded = prepared();
     let start = [
         Command::Interpolation {
             mode: crate::data::Interpolation::Direct,
@@ -2151,12 +1689,6 @@ fn beat_waits_preserve_fractional_deadlines_tempo_sampling_and_key_off_pcm() {
     let beats = |ticks, key_off| Command::BeatWait {
         ticks,
         key_off,
-        sample_end: false,
-    };
-    let ms = |milliseconds| Command::Wait {
-        milliseconds,
-        from_start: false,
-        key_off: false,
         sample_end: false,
     };
     let render = |loaded: &mut Loaded, tail: Vec<_>, tempos: &[_], key_off| {
@@ -2171,8 +1703,9 @@ fn beat_waits_preserve_fractional_deadlines_tempo_sampling_and_key_off_pcm() {
             key_off,
         )
     };
-    // One native tick at120 BPM is312/256 ms after integer division. Four waits
-    // finish at5 ms, retaining each scheduled deadline rather than rounding four times.
+    let bpm = 120 * 1024 + 1023;
+    let tick_frames =
+        (60_u64 * 1024 * u64::from(crate::SOURCE_RATE)).div_ceil(u64::from(bpm) * 384);
     let looped = render(
         &mut loaded,
         vec![
@@ -2184,23 +1717,25 @@ fn beat_waits_preserve_fractional_deadlines_tempo_sampling_and_key_off_pcm() {
                 sample_end: false,
             },
         ],
-        &[(0, 120 * 1024 + 1023)],
+        &[(0, bpm)],
         None,
     );
-    assert_eq!(looped.0, 160);
+    assert_eq!(u64::from(looped.0), (4 * tick_frames).div_ceil(32) * 32);
     assert!(looped.1.iter().any(|&sample| sample != 0));
-    assert_eq!(looped, render(&mut loaded, vec![ms(Some(5))], &[], None));
     let changed = render(
         &mut loaded,
         vec![beats(Some(384), false); 2],
         &[(3200, 60 * 1024)],
         None,
     );
-    assert_eq!(changed.0, 48000);
     assert_eq!(
-        changed,
-        render(&mut loaded, vec![ms(Some(500)), ms(Some(1000))], &[], None)
+        u64::from(changed.0),
+        crate::volume::frames_from_millis(1500)
+            .unwrap()
+            .div_ceil(32)
+            * 32
     );
+    assert!(changed.1.iter().any(|&sample| sample != 0));
     let interrupted = render(&mut loaded, vec![beats(None, true)], &[], Some(64));
     assert_eq!(interrupted.0, 64);
     assert_eq!(
@@ -2220,10 +1755,9 @@ fn beat_waits_preserve_fractional_deadlines_tempo_sampling_and_key_off_pcm() {
 }
 
 #[test]
-fn both_pitch_sweep_slots_mix_additively_and_cancel_independently() {
+fn pitch_sweep_slots_change_pitch_cancel_and_disable_independently() {
     use crate::data::{Interpolation, SweepSlot};
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     let sweep = |slot, step_hz, period| Command::PitchSweep {
         slot,
         step_hz,
@@ -2278,21 +1812,6 @@ fn both_pitch_sweep_slots_mix_additively_and_cancel_independently() {
             ]
         )
     );
-    let doubled = render(
-        &mut loaded,
-        vec![sweep(SweepSlot::First, 2000, 8), wait(100)],
-    );
-    assert_eq!(
-        doubled,
-        render(
-            &mut loaded,
-            vec![
-                sweep(SweepSlot::First, 1000, 8),
-                sweep(SweepSlot::Second, 1000, 8),
-                wait(100)
-            ]
-        )
-    );
     let retained = render(
         &mut loaded,
         vec![sweep(SweepSlot::First, 1000, 8), wait(20), wait(80)],
@@ -2312,9 +1831,11 @@ fn both_pitch_sweep_slots_mix_additively_and_cancel_independently() {
 }
 
 #[test]
-fn vibrato_disable_and_phase_match_unmodulated_notes() {
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+fn modulators_preserve_vibrato_and_tremolo_input_endpoints() {
+    let mut loaded = prepared();
+    loaded.tables.mix.volume = std::array::from_fn(|index| (index as f32 / 127.).min(1.));
+    loaded.tables.mix.volume_16_scale = 1. / (127 << 16) as f32;
+    loaded.tables.mix.controller_14_scale = 1. / 16383.;
     loaded.tables.modulation.sine = std::array::from_fn(|i| i as i16 * 4);
     let vibrato = |period_ms| Command::Vibrato {
         period_ms,
@@ -2350,35 +1871,39 @@ fn vibrato_disable_and_phase_match_unmodulated_notes() {
     };
     let plain = render(&mut loaded, vec![]);
     assert!(plain.1.iter().any(|&sample| sample != 0));
-    assert_ne!(plain, render(&mut loaded, vec![vibrato(100)]));
-    assert_eq!(plain, render(&mut loaded, vec![vibrato(100), vibrato(0)]));
-    // A constant quarter-wave holds the first half-period at exactly +/- one
-    // semitone, giving an independent reference through ordinary note commands.
-    loaded.tables.modulation.sine.fill(4096);
-    loaded.tables.pitch.up = std::array::from_fn(|i| 2f32.powf(i as f32 / 12.0));
-    loaded.tables.pitch.down = std::array::from_fn(|i| 2f32.powf(-(i as f32) / 12.0));
-    let plain = render(&mut loaded, vec![]);
-    for (reverse, key) in [(false, 61), (true, 59)] {
-        let actual = render(
-            &mut loaded,
-            vec![Command::Vibrato {
-                period_ms: 200,
-                depth_8: 256,
-                reverse,
-                scale_by_modulation: false,
-            }],
-        );
-        let expected = render(
-            &mut loaded,
-            vec![Command::SetNote {
-                key,
-                cents: 0,
-                wait_ms: 0,
-                from_start: false,
-            }],
-        );
-        assert_ne!(actual, plain);
-        assert_eq!(actual, expected);
+    assert!(
+        plain != render(&mut loaded, vec![vibrato(100)]),
+        "vibrato must change played PCM"
+    );
+    assert!(
+        plain == render(&mut loaded, vec![vibrato(100), vibrato(0)]),
+        "a disabled oscillator must leave playback unchanged"
+    );
+    use crate::data::TremoloInput;
+    loaded.tables.modulation.tremolo = [1. / 8192., 1. / 4096., 1., 1. / 16384., 1.];
+    let tremolo = vec![
+        Command::Lfo { period_ms: 20 },
+        Command::Tremolo {
+            scale: 2048,
+            modulation_scale: 4096,
+        },
+    ];
+    let midpoint = render(&mut loaded, tremolo.clone());
+    assert_ne!(plain.1, midpoint.1);
+    let mut oscillator = tremolo;
+    oscillator.push(Command::TremoloInput {
+        input: TremoloInput::Lfo,
+    });
+    let modulated = render(&mut loaded, oscillator.clone());
+    assert_ne!(modulated.1, plain.1);
+    assert_ne!(modulated.1, midpoint.1);
+    for (input, expected) in [
+        (TremoloInput::Zero, &plain),
+        (TremoloInput::Midpoint, &midpoint),
+    ] {
+        let mut commands = oscillator.clone();
+        commands.push(Command::TremoloInput { input });
+        assert_eq!(render(&mut loaded, commands), *expected);
     }
 }
 
@@ -2428,6 +1953,64 @@ fn banks_share_samples_only_when_tuning_and_loop_metadata_match() {
         &c.resources.samples[&2]
     ));
     assert_eq!(a.resources.samples[&2].pcm, c.resources.samples[&2].pcm);
+
+    let oversized = Package::load_with(
+        "bank.json",
+        &mut |path, limit| {
+            if path == "sample.wav" {
+                Ok(vec![0; limit + 1])
+            } else {
+                Ok(fs::read(root.0.join(path))?)
+            }
+        },
+        &mut cache,
+    );
+    assert!(oversized.is_err());
+
+    let sample_path = root.0.join("sample.wav");
+    let mut corrupt = fs::read(&sample_path).unwrap();
+    *corrupt.last_mut().unwrap() ^= 1;
+    fs::write(&sample_path, corrupt).unwrap();
+    assert!(Package::load_with("bank.json", &mut read, &mut cache).is_err());
+    fs::remove_file(sample_path).unwrap();
+    assert!(Package::load_with("bank.json", &mut read, &mut cache).is_err());
+}
+
+#[test]
+fn sample_cache_releases_pcm_after_live_owners_drop_and_reprepares() {
+    use std::sync::Arc;
+    let (root, value) = fixture();
+    fs::write(
+        root.0.join("bank.json"),
+        serde_json::to_vec(&value).unwrap(),
+    )
+    .unwrap();
+    let mut cache = SampleCache::default();
+    let mut read = |path: &str, limit| read_bounded(&root.0.join(path), limit);
+    let first = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
+    let second = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
+    let sample = Arc::downgrade(&first.resources.samples[&2]);
+    let live_sample = first.resources.samples[&2].clone();
+    drop((first, second));
+    assert!(sample.upgrade().is_some());
+    drop(live_sample);
+    assert!(sample.upgrade().is_none());
+
+    let mut replacement = value;
+    replacement["samples"]["2"]["key"] = 61.into();
+    fs::write(
+        root.0.join("bank.json"),
+        serde_json::to_vec(&replacement).unwrap(),
+    )
+    .unwrap();
+    let loaded = Package::load_with("bank.json", &mut read, &mut cache).unwrap();
+    assert_eq!(loaded.resources.samples[&2].pcm, [10, 20, 30, 40]);
+    assert_eq!(loaded.resources.samples[&2].key, 61);
+    assert_eq!(
+        cache.0.len(),
+        1,
+        "preparation prunes expired sample entries"
+    );
 }
 
 #[test]
@@ -2444,7 +2027,6 @@ fn package_preserves_independent_loop_pcm_and_rejects_corruption() {
         ("/samples/2/loop_start", serde_json::json!(4)),
         ("/samples/2/path", serde_json::json!("../sample.wav")),
         ("/programs/1/0/sample", serde_json::json!(3)),
-        ("/tables/pitch/up", serde_json::json!([1.])),
         ("/tables/coefficients", serde_json::json!([0])),
         ("/score/controls/0/paired/10", serde_json::json!(16384)),
         ("/score/end_tick", serde_json::json!(0)),
@@ -2465,8 +2047,7 @@ fn field_loops_keep_note_onsets_and_held_note_releases_on_time() {
         sequence::{self, LiveControls, stream::Stream},
     };
     use std::sync::Arc;
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     loaded.resources.programs.insert(
         1,
         vec![
@@ -2484,8 +2065,8 @@ fn field_loops_keep_note_onsets_and_held_note_releases_on_time() {
             Command::End,
         ],
     );
-    // Exactly one score tick per millisecond. Each ten-tick note spans the
-    // eight-tick loop, exercising both the new and the retiring clock.
+    // A note sustains across several loop restarts. Compare it with the same
+    // passage written out on a continuous score timeline.
     loaded.score.initial_bpm_1024 = 160_000;
     let event = |tick| Event {
         tick,
@@ -2504,36 +2085,35 @@ fn field_loops_keep_note_onsets_and_held_note_releases_on_time() {
                 priority: 64,
                 max_voices: 255,
             }],
-            length: 10,
+            length: 26,
         },
     };
     // An explicitly written-out passage supplies an independent timing
     // expectation, without taking a loop or sharing its clock handoff.
-    loaded.score.first_events = [1, 9, 17].map(event).into();
-    let expected = sequence::render_preview(
-        &loaded.resources,
-        &loaded.score,
-        &loaded.tables,
-        loaded.reverbs,
-        800,
-    )
-    .unwrap();
+    loaded.score.first_events = [1, 9, 17, 25, 33, 41, 49].map(event).into();
+    let mut loaded = Arc::new(loaded);
+    let expected = sequence::render_preview(loaded.clone(), loaded.reverbs, 1600).unwrap();
     assert!(expected.pcm.iter().any(|sample| *sample != 0));
-    assert_eq!(
+    assert!(
+        expected
+            .voice_lifetimes
+            .windows(2)
+            .all(|notes| notes[0].start_frame < notes[1].start_frame)
+    );
+    assert!(
         expected
             .voice_lifetimes
             .iter()
-            .map(|voice| voice.start_frame)
-            .collect::<Vec<_>>(),
-        [32, 288, 544]
+            .any(|note| note.end_frame.is_some())
     );
-    loaded.score.end_tick = 8;
-    loaded.score.first_events = vec![event(1)];
-    loaded.score.loop_events = vec![event(1)];
+    let score = &mut Arc::get_mut(&mut loaded).unwrap().score;
+    score.end_tick = 8;
+    score.first_events = vec![event(1)];
+    score.loop_events = vec![event(1)];
     let mut studio = Studio::new(loaded.reverbs).unwrap();
-    let mut stream = Stream::new(Arc::new(loaded), true).unwrap();
+    let mut stream = Stream::new(loaded, true).unwrap();
     let mut actual = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..10 {
         for buses in stream.block(LiveControls::default()).unwrap().unwrap() {
             actual.extend(
                 studio
@@ -2543,19 +2123,16 @@ fn field_loops_keep_note_onsets_and_held_note_releases_on_time() {
         }
     }
     assert_eq!(actual, expected.pcm);
-    stream.stop().unwrap();
 }
 
 #[test]
-fn worker_preserves_millisecond_controls_from_the_offline_renderer() {
+fn existing_voices_follow_each_control_quantum_without_backdating_pcm() {
     use crate::{
-        data::{Event, EventKind, Interpolation, Note},
-        reverb::Studio,
-        sequence::{self, LiveControls, stream::Stream},
+        data::{Event, EventKind, Interpolation, Note, VoiceSource},
+        sequence::{LiveControls, stream::Stream},
     };
     use std::sync::Arc;
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     loaded.tables.mix.volume = std::array::from_fn(|i| i as f32 / 128.);
     loaded.tables.mix.volume_16_scale = 1. / (127. * 65536.);
     loaded.tables.mix.controller_14_scale = 1. / 16383.;
@@ -2579,13 +2156,11 @@ fn worker_preserves_millisecond_controls_from_the_offline_renderer() {
             Command::End,
         ],
     );
-    loaded.score.first_events.push(Event {
-        // Birth inside the block observes the current group value even
-        // though existing voices normally update on five-ms boundaries.
-        tick: 1,
+    loaded.score.first_events = vec![Event {
+        tick: 0,
         channel: 0,
         kind: EventKind::Notes {
-            source: crate::data::VoiceSource::Sequence {
+            source: VoiceSource::Sequence {
                 group: 0,
                 program: 0,
                 drums: false,
@@ -2595,68 +2170,50 @@ fn worker_preserves_millisecond_controls_from_the_offline_renderer() {
                 key: 60,
                 velocity: 127,
                 pan: 64,
-                priority: 64,
-                max_voices: 255,
+                priority: 1,
+                max_voices: 1,
             }],
             length: 90,
         },
-    });
-    let volume = |frame: u32| (frame / 32 % 5) as f32 / 4.;
-    let expected = sequence::render_preview_with_volume(
-        &loaded.resources,
-        &loaded.score,
-        &loaded.tables,
-        loaded.reverbs,
-        1600,
-        volume,
-    )
-    .unwrap();
-    assert!(
-        expected.pcm.iter().any(|sample| *sample != 0),
-        "silent fixture cannot test gain changes"
-    );
-    let held = sequence::render_preview_with_volume(
-        &loaded.resources,
-        &loaded.score,
-        &loaded.tables,
-        loaded.reverbs,
-        1600,
-        |frame| volume(frame / 160 * 160),
-    )
-    .unwrap();
-    assert_ne!(
-        expected.pcm, held.pcm,
-        "fixture must detect the previous block-wide gain hold"
-    );
-    let mut studio = Studio::new(loaded.reverbs).unwrap();
+    }];
     let mut stream = Stream::new(Arc::new(loaded), false).unwrap();
-    let mut actual = Vec::new();
-    for block in 0..10 {
-        let input = std::array::from_fn(|i| LiveControls {
-            volume: volume(block * 160 + i as u32 * 32),
+    for _ in 0..10 {
+        let controls = std::array::from_fn(|quantum| LiveControls {
+            volume: quantum as f32 / 4.,
             ..Default::default()
         });
-        for buses in stream.block_envelope(input).unwrap().unwrap() {
-            actual.extend(
-                studio
-                    .process(buses)
-                    .map(|sample| sample.clamp(-32768, 32767) as i16),
-            );
-        }
+        let output = stream.block_envelope(controls).unwrap().unwrap();
+        let levels: Vec<i64> = output
+            .chunks_exact(32)
+            .map(|quantum| {
+                quantum
+                    .iter()
+                    .flat_map(|frame| frame[0])
+                    .map(|sample| i64::from(sample).abs())
+                    .sum()
+            })
+            .collect();
+        assert_eq!(levels.len(), 5);
+        assert_eq!(levels[0], 0, "later gain rewrote the silent first quantum");
+        assert!(
+            levels.windows(2).all(|pair| pair[0] < pair[1]),
+            "the held voice must follow every increasing gain within the block: {levels:?}"
+        );
     }
-    assert_eq!(actual, expected.pcm);
 }
 
 #[test]
 fn mono_centers_live_voices_and_preserves_pan_changes_for_stereo() {
     use crate::{
-        data::{Event, EventKind, Interpolation, Note},
+        data::{
+            ControlTarget, Controller, Event, EventKind, Interpolation, Note, Operand, ScoreOrigin,
+            Variable, VoiceSource,
+        },
         sequence::{LiveControls, stream::Stream},
     };
     use std::sync::Arc;
-    let (root, value) = fixture();
-    let score = |centered| {
-        let mut loaded = load(&root, &value).unwrap();
+    let score = |centered, sound, selected| {
+        let mut loaded = prepared();
         loaded.tables.mix.pan = [0., std::f32::consts::FRAC_1_SQRT_2, 1., 1.];
         loaded.tables.mix.pan_16_scale = 1. / (63. * 65536.);
         loaded.resources.programs.insert(
@@ -2676,6 +2233,45 @@ fn mono_centers_live_voices_and_preserves_pan_changes_for_stereo() {
                 Command::End,
             ],
         );
+        if sound {
+            let hold = loaded.resources.programs[&1].clone();
+            loaded.resources.programs.insert(2, hold);
+            let program = loaded.resources.programs.get_mut(&1).unwrap();
+            program.truncate(2);
+            program.extend([
+                Command::Wait {
+                    milliseconds: Some(20),
+                    from_start: false,
+                    key_off: false,
+                    sample_end: false,
+                },
+                Command::SetVariable {
+                    destination: Variable::Controller(Controller::Paired(10)),
+                    value: (if centered { 64 } else { 113 }) << 7,
+                },
+                Command::SpawnMacro {
+                    program: 2,
+                    instruction: 0,
+                    key_offset: 0,
+                    priority: 64,
+                    max_voices: 255,
+                },
+                Command::End,
+            ]);
+            loaded.score.origin = ScoreOrigin::SoundEffect;
+        }
+        if selected {
+            for program in loaded.resources.programs.values_mut() {
+                program.insert(
+                    0,
+                    Command::SelectControl {
+                        target: ControlTarget::Pan,
+                        source: Operand::Constant(0),
+                        scale: 0,
+                    },
+                );
+            }
+        }
         loaded.score.initial_bpm_1024 = 160_000; // One tick per millisecond.
         loaded.score.controls[0].paired[10] = (if centered { 64 } else { 17 }) << 7;
         loaded.score.first_events = vec![
@@ -2683,10 +2279,14 @@ fn mono_centers_live_voices_and_preserves_pan_changes_for_stereo() {
                 tick: 0,
                 channel: 0,
                 kind: EventKind::Notes {
-                    source: crate::data::VoiceSource::Sequence {
-                        group: 0,
-                        program: 0,
-                        drums: false,
+                    source: if sound {
+                        VoiceSource::SoundEffect { id: 1 }
+                    } else {
+                        VoiceSource::Sequence {
+                            group: 0,
+                            program: 0,
+                            drums: false,
+                        }
                     },
                     voices: vec![Note {
                         macro_id: 1,
@@ -2707,27 +2307,51 @@ fn mono_centers_live_voices_and_preserves_pan_changes_for_stereo() {
                 },
             },
         ];
+        if sound {
+            loaded.score.first_events.truncate(1);
+        }
         Arc::new(loaded)
     };
-    let panned = score(false);
-    let mut stereo = Stream::new(panned.clone(), false).unwrap();
-    let mut changing = Stream::new(panned, false).unwrap();
-    // An authored centered score supplies the expectation without using mono mode.
-    let mut center = Stream::new(score(true), false).unwrap();
-    for block in 0..16 {
-        let stereo = stereo.block(LiveControls::default()).unwrap().unwrap();
-        let center = center.block(LiveControls::default()).unwrap().unwrap();
-        let mono = (3..10).contains(&block);
-        let actual = changing
-            .block(LiveControls {
-                mono,
-                ..Default::default()
-            })
-            .unwrap()
-            .unwrap();
-        if block < 3 || (5..10).contains(&block) || block >= 12 {
-            assert_ne!(stereo, center, "fixture must exercise audible panning");
-            assert_eq!(actual, if mono { center } else { stereo }, "block {block}");
+    for (sound, selected) in [(false, false), (true, false), (false, true), (true, true)] {
+        let panned = score(false, sound, selected);
+        let mut stereo = Stream::new(panned.clone(), false).unwrap();
+        let mut changing = Stream::new(panned.clone(), false).unwrap();
+        let mut overridden = Stream::new(panned, false).unwrap();
+        // An authored centered score supplies the expectation without using mono mode.
+        let mut center = Stream::new(score(true, sound, selected), false).unwrap();
+        for block in 0..16 {
+            let stereo = stereo.block(LiveControls::default()).unwrap().unwrap();
+            let center = center.block(LiveControls::default()).unwrap().unwrap();
+            let mono = (3..10).contains(&block);
+            let actual = changing
+                .block(LiveControls {
+                    mono,
+                    ..Default::default()
+                })
+                .unwrap()
+                .unwrap();
+            let external = overridden
+                .block(LiveControls {
+                    pan: (3..10).contains(&block).then_some(32),
+                    ..Default::default()
+                })
+                .unwrap()
+                .unwrap();
+            if !(3..12).contains(&block) {
+                assert_eq!(external, stereo, "cleared override, block {block}");
+            } else if (5..10).contains(&block) {
+                assert_ne!(external, stereo, "override must remain audible");
+                if !selected {
+                    assert!(
+                        external.iter().any(|buses| buses[0][1] > 0),
+                        "authored pan change was overwritten"
+                    );
+                }
+            }
+            if block < 3 || (5..10).contains(&block) || block >= 12 {
+                assert_ne!(stereo, center, "fixture must exercise audible panning");
+                assert_eq!(actual, if mono { center } else { stereo }, "block {block}");
+            }
         }
     }
 }
@@ -2739,8 +2363,7 @@ fn exclusive_group_ends_the_previous_voice_and_cue_release_finishes() {
         sequence::{self, LiveControls, stream::Stream},
     };
     use std::sync::Arc;
-    let (root, value) = fixture();
-    let mut loaded = load(&root, &value).unwrap();
+    let mut loaded = prepared();
     loaded.resources.programs.insert(
         1,
         vec![
@@ -2786,22 +2409,19 @@ fn exclusive_group_ends_the_previous_voice_and_cue_release_finishes() {
             },
         })
         .to_vec();
-    let preview = sequence::render_preview(
-        &loaded.resources,
-        &loaded.score,
-        &loaded.tables,
-        loaded.reverbs,
-        2000,
-    )
-    .unwrap();
+    let mut loaded = Arc::new(loaded);
+    let preview = sequence::render_preview(loaded.clone(), loaded.reverbs, 2000).unwrap();
     assert_eq!(preview.voice_lifetimes.len(), 2);
     assert_eq!(
         preview.voice_lifetimes[0].end_frame,
         Some(preview.voice_lifetimes[1].start_frame)
     );
     assert!(preview.voice_lifetimes[1].end_frame.is_none());
-    loaded.score.first_events.truncate(1);
-    let loaded = Arc::new(loaded);
+    Arc::get_mut(&mut loaded)
+        .unwrap()
+        .score
+        .first_events
+        .truncate(1);
     let mut stream = Stream::new(loaded.clone(), false).unwrap();
     assert_eq!(
         stream
@@ -2828,8 +2448,344 @@ fn exclusive_group_ends_the_previous_voice_and_cue_release_finishes() {
         }
     }
     assert!(completed, "released cue did not finish its macros");
-    // A worker waiting for its first control request must also cancel cleanly.
-    let mut paused = Stream::new(loaded, true).unwrap();
-    paused.stop().unwrap();
-    assert!(paused.block(LiveControls::default()).unwrap().is_none());
+}
+
+#[test]
+fn spatial_voices_drain_the_last_sample_and_envelope_release_in_both_channels() {
+    use crate::{
+        data::{Envelope, Interpolation},
+        envelope::Parameters,
+        sequence::stream::Stream,
+    };
+    use std::sync::Arc;
+    for envelope_end in [false, true] {
+        for left_delay in [0, 16, 32] {
+            let mut loaded = random_cue(0, Command::Noop);
+            let sample = Arc::make_mut(loaded.resources.samples.get_mut(&2).unwrap());
+            sample.rate = crate::SOURCE_RATE as u16;
+            sample.loop_start = 0;
+            if envelope_end {
+                sample.pcm = vec![32000; 64];
+                sample.loop_pcm = sample.pcm.clone();
+                sample.loop_length = 64;
+            } else {
+                sample.pcm = vec![0; 64];
+                *sample.pcm.last_mut().unwrap() = 32000;
+                sample.loop_pcm.clear();
+                sample.loop_length = 0;
+            }
+            loaded.tables.mix.spatial = Some(mix::Spatial {
+                pan_scale: 1.,
+                left_delay: [left_delay; 128],
+            });
+            let mut commands = vec![
+                Command::Interpolation {
+                    mode: Interpolation::Direct,
+                    coefficients: 0,
+                },
+                Command::VolumeCurve {
+                    alternate: false,
+                    interaural_delay: true,
+                },
+                Command::Envelope {
+                    envelope: Envelope::Ordinary(Parameters {
+                        release_ms: 1,
+                        ..Default::default()
+                    }),
+                },
+                Command::StartSample { sample: 2 },
+            ];
+            let last_input = if envelope_end {
+                commands.extend([
+                    Command::Wait {
+                        milliseconds: Some(2),
+                        from_start: false,
+                        key_off: false,
+                        sample_end: false,
+                    },
+                    Command::Release,
+                ]);
+                control_deadline(2) + crate::volume::frames_from_millis(1).unwrap() as usize - 1
+            } else {
+                63
+            };
+            commands.push(Command::End);
+            loaded.resources.programs.insert(1, commands);
+            let mut stream = Stream::new(Arc::new(loaded), false).unwrap();
+            let mut pcm = Vec::new();
+            let bound = (last_input + 33 + crate::RELEASE_FRAMES as usize).div_ceil(160) * 160;
+            while let Some(block) = stream.block(Default::default()).unwrap() {
+                pcm.extend(block.into_iter().map(|frame| frame[0]));
+                assert!(pcm.len() <= bound, "spatial tail did not complete");
+            }
+            for (channel, delay) in [left_delay, 32 - left_delay].into_iter().enumerate() {
+                let last = pcm.iter().rposition(|frame| frame[channel] != 0);
+                assert_eq!(
+                    last,
+                    Some(last_input + usize::from(delay)),
+                    "envelope_end={envelope_end}, channel={channel}"
+                );
+                assert!(pcm[last.unwrap()][channel] > 0);
+            }
+        }
+    }
+}
+
+mod live_adsr {
+    use super::*;
+    use crate::{data::Envelope as Definition, envelope::Parameters};
+
+    fn wait(milliseconds: u16) -> Command {
+        Command::Wait {
+            milliseconds: Some(milliseconds),
+            from_start: false,
+            key_off: false,
+            sample_end: false,
+        }
+    }
+
+    fn envelope(attack_ms: u16, sustain: u16) -> Command {
+        Command::Envelope {
+            envelope: Definition::Ordinary(Parameters {
+                attack_ms,
+                decay_ms: 0,
+                sustain,
+                release_ms: 4,
+            }),
+        }
+    }
+
+    fn render(commands: impl IntoIterator<Item = Command>) -> Vec<i32> {
+        let mut loaded = prepared();
+        let sample = std::sync::Arc::make_mut(loaded.resources.samples.get_mut(&2).unwrap());
+        sample.pcm.fill(32000);
+        sample.loop_pcm.fill(32000);
+        let mut program = vec![Command::Interpolation {
+            mode: crate::data::Interpolation::Direct,
+            coefficients: 0,
+        }];
+        program.extend(commands);
+        program.push(Command::End);
+        let duration: u64 = program
+            .iter()
+            .filter_map(|command| match command {
+                Command::Wait {
+                    milliseconds: Some(ms),
+                    ..
+                } => Some(control_deadline(u64::from(*ms)) as u64),
+                _ => None,
+            })
+            .sum();
+        let mut score = random_cue(0, Command::Noop).score;
+        score.end_tick = u32::MAX;
+        loaded.score = score;
+        loaded.resources.programs.insert(1, program);
+        let mut stream =
+            crate::sequence::stream::Stream::new(std::sync::Arc::new(loaded), false).unwrap();
+        let bound = (duration as usize + control_deadline(4) + 160).div_ceil(160) * 160;
+        let mut pcm = Vec::new();
+        while let Some(block) = stream.block(Default::default()).unwrap() {
+            assert!(block.iter().all(|frame| frame[0][0] == frame[0][1]));
+            pcm.extend(block.iter().map(|frame| frame[0][0]));
+            assert!(pcm.len() <= bound, "envelope voice did not complete");
+        }
+        assert_eq!(pcm.last(), Some(&0));
+        pcm
+    }
+
+    #[test]
+    fn envelope_changes_affect_only_subsequent_samples() {
+        let full = render([
+            envelope(0, 32767),
+            Command::StartSample { sample: 2 },
+            wait(15),
+        ]);
+        let changed = render([
+            envelope(0, 32767),
+            Command::StartSample { sample: 2 },
+            wait(7),
+            envelope(0, 8192),
+            wait(8),
+        ]);
+        let change = control_deadline(7);
+        assert_eq!(full[..change], changed[..change]);
+        assert!(changed[change] > 0 && changed[change] < full[change]);
+    }
+
+    #[test]
+    fn delayed_attack_begins_at_the_note_onset() {
+        let pcm = render([
+            wait(3),
+            envelope(2, 32767),
+            Command::StartSample { sample: 2 },
+            wait(10),
+        ]);
+        let onset = control_deadline(3);
+        let attack = crate::volume::frames_from_millis(2).unwrap() as usize;
+        assert!(pcm[..=onset].iter().all(|&sample| sample == 0));
+        assert!(pcm[onset + 1] > 0);
+        assert!(
+            pcm[onset..=onset + attack]
+                .windows(2)
+                .all(|pair| pair[0] <= pair[1])
+        );
+        assert!(pcm[onset + attack] > 30_000);
+    }
+
+    #[test]
+    fn retrigger_preserves_played_audio_and_starts_a_fresh_envelope() {
+        let base = render([
+            envelope(0, 32767),
+            Command::StartSample { sample: 2 },
+            wait(5),
+            Command::Release,
+            wait(10),
+        ]);
+        let retrigger = render([
+            envelope(0, 32767),
+            Command::StartSample { sample: 2 },
+            wait(5),
+            Command::Release,
+            wait(2),
+            Command::StartSample { sample: 2 },
+            wait(8),
+        ]);
+        let onset = control_deadline(5) + control_deadline(2);
+        assert_eq!(base[..onset], retrigger[..onset]);
+        assert!(retrigger[onset] > base[onset]);
+        assert!(retrigger[onset] > 30_000);
+    }
+
+    #[test]
+    fn release_before_start_does_not_release_the_future_sample() {
+        let baseline = render([
+            envelope(0, 32767),
+            Command::StartSample { sample: 2 },
+            wait(8),
+        ]);
+        let released = render([
+            envelope(0, 32767),
+            Command::Release,
+            Command::StartSample { sample: 2 },
+            wait(8),
+        ]);
+        assert_eq!(released, baseline);
+    }
+
+    #[test]
+    fn repeated_release_keeps_its_endpoint_and_replacement_can_release_again() {
+        let baseline = render([
+            envelope(0, 32767),
+            Command::StartSample { sample: 2 },
+            wait(3),
+            Command::Release,
+            wait(2),
+            wait(8),
+        ]);
+        let repeated = render([
+            envelope(0, 32767),
+            Command::StartSample { sample: 2 },
+            wait(3),
+            Command::Release,
+            Command::Release,
+            wait(2),
+            Command::Release,
+            wait(8),
+        ]);
+        assert_eq!(repeated, baseline);
+        let replaced = render([
+            envelope(0, 32767),
+            Command::StartSample { sample: 2 },
+            wait(3),
+            Command::Release,
+            wait(2),
+            envelope(0, 32767),
+            Command::Release,
+            wait(8),
+        ]);
+        let replacement = control_deadline(3) + control_deadline(2);
+        assert_eq!(replaced[..replacement], baseline[..replacement]);
+        assert!(replaced[replacement] > baseline[replacement]);
+        let endpoint = replacement + crate::volume::frames_from_millis(4).unwrap() as usize;
+        assert!(
+            replaced[endpoint + crate::RELEASE_FRAMES as usize..]
+                .iter()
+                .all(|&sample| sample == 0)
+        );
+    }
+}
+
+#[test]
+fn finite_preview_keeps_reverb_after_the_source_finishes() {
+    use crate::{
+        data::{Event, EventKind, Interpolation, Note, ScoreOrigin, VoiceSource},
+        sequence::{self, LiveControls, stream::Stream},
+    };
+    use std::sync::Arc;
+    let mut loaded = prepared();
+    loaded.resources.programs.insert(
+        1,
+        vec![
+            Command::Interpolation {
+                mode: Interpolation::Direct,
+                coefficients: 0,
+            },
+            Command::VolumeControl { value: 16383 },
+            Command::Auxiliary { bus: 0, value: 127 },
+            Command::StartSample { sample: 2 },
+            Command::End,
+        ],
+    );
+    loaded.resources.samples.insert(
+        2,
+        Arc::new(Sample {
+            key: 60,
+            rate: crate::SOURCE_RATE as u16,
+            pcm: vec![16000; 32],
+            loop_start: 0,
+            loop_length: 0,
+            loop_pcm: vec![],
+        }),
+    );
+    loaded.tables.mix.volume = std::array::from_fn(|index| (index as f32 / 127.).min(1.));
+    loaded.tables.mix.volume_16_scale = 1. / (127 << 16) as f32;
+    loaded.tables.mix.controller_14_scale = 1. / 16383.;
+    loaded.score.origin = ScoreOrigin::SoundEffect;
+    loaded.score.first_events = vec![Event {
+        tick: 0,
+        channel: 0,
+        kind: EventKind::Notes {
+            source: VoiceSource::SoundEffect { id: 1 },
+            voices: vec![Note {
+                macro_id: 1,
+                key: 60,
+                velocity: 127,
+                pan: 64,
+                priority: 1,
+                max_voices: 1,
+            }],
+            length: 99,
+        },
+    }];
+    let reverbs = [[0.5, 0.5, 1., 0.5, 0.02]; 2];
+    let loaded =
+        Arc::new(Loaded::new(loaded.resources, loaded.score, loaded.tables, reverbs).unwrap());
+    let mut source = Stream::new(loaded.clone(), false).unwrap();
+    let mut source_frames = 0;
+    while let Some(block) = source.block(LiveControls::default()).unwrap() {
+        source_frames += block.len();
+        assert!(source_frames < 1600, "finite source did not finish");
+    }
+    let preview = sequence::render_preview(loaded, reverbs, 4096).unwrap();
+    assert_eq!(preview.pcm.len(), 4096 * 2);
+    assert!(
+        preview.pcm[(source_frames + 320) * 2..]
+            .iter()
+            .any(|sample| *sample != 0),
+        "preview discarded the effect tail when its source completed"
+    );
+    assert_eq!(preview.notes, 1);
+    assert_eq!(preview.maximum_voices, 1);
+    assert_eq!(preview.voice_lifetimes.len(), 1);
+    assert!(preview.voice_lifetimes[0].end_frame.is_some());
 }

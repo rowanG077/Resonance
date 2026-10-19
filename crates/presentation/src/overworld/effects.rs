@@ -72,8 +72,7 @@ impl Effects {
         self.wakes[index] = Some(Wake {
             position,
             age: 0,
-            duration: (duration * resonance_game::clock::UPDATE_HZ as f32 / WAKE_RATE).ceil()
-                as u32,
+            duration: (duration * resonance_content::ANIMATION_HZ / WAKE_RATE).ceil() as u32,
         });
         self.cooldown = 6;
         Ok(())
