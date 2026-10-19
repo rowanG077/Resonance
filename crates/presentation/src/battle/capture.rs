@@ -1,5 +1,6 @@
 //! Read-only observations for the existing checkpoint recorder and screenshot sidecars.
 use super::{Owner, Phase, SceneState};
+use bevy::prelude::World;
 use resonance_battle::{ActorId, BattlePhase, BattleResult, Control, Side};
 use resonance_game::battle::command::{ActorSelection, View};
 use serde_json::{Value, json};
@@ -62,7 +63,7 @@ impl Owner {
         let Phase::Scene(scene) = &self.phase else {
             return None;
         };
-        (self.presenting() && scene.entry_remaining == 0).then_some((
+        self.presenting().then_some((
             self.request.setup.formation().ok()?,
             scene.core.phase(),
             scene.core.ledger().combat_ticks,
@@ -74,24 +75,17 @@ impl Owner {
         self.presenting()
     }
 
-    pub(crate) fn entry_clock(&self) -> Option<(u64, u8)> {
-        let Phase::Scene(scene) = &self.phase else {
-            return None;
-        };
-        Some((self.request.id(), scene.entry_remaining))
-    }
-
-    pub(crate) fn entry_diagnostic(&self) -> Option<Value> {
+    pub(crate) fn entry_diagnostic(&self, world: &World) -> Option<Value> {
         let mut result = json!({"request": self.request.id(), "presenting": self.presenting()});
+        result["shatter"] = world
+            .get_resource::<super::transition::State>()
+            .map_or(Value::Null, super::transition::State::diagnostic);
         if let Phase::Scene(scene) = &self.phase {
             result["state"] = json!(match scene.state {
                 SceneState::Warming => "warming",
                 SceneState::Activating => "activating",
                 SceneState::Active => "active",
             });
-            result["remaining_ticks"] = json!(scene.entry_remaining);
-            result["active"] = json!(scene.entry_remaining > 0);
-            result["alpha"] = json!(scene.entry_alpha());
         }
         Some(result)
     }
@@ -149,11 +143,12 @@ impl Owner {
             .enumerate()
             .map(|(index, actor)| {
                 let hud = json!({
+                "displayed_vitals": scene.hud.displayed_vitals(index),
                 "cast_delayed": matches!(actor.activity, resonance_battle::Activity::Casting { held: true }),
                 "stored_spell": actor.stored_spell.map(|action| action.0)});
                 let portrait_draw = (actor.side == Side::Party).then(|| {
                     let observed = scene.hud.portrait_observation(actor, frame.recognized_result);
-                    json!({"row": observed.row, "color": observed.color})
+                    json!({"row": observed.row, "color": observed.color, "offset_y": observed.offset_y})
                 });
                 json!({
                     "actor": index, "side": if actor.side == Side::Party { 0 } else { 1 },
@@ -166,6 +161,8 @@ impl Owner {
                         Control::Auto => "auto", Control::Enemy => "enemy",
                     },
                     "activity": format!("{:?}", actor.activity),
+                    "cast_releasing": actor.cast_releasing,
+                    "stun_remaining": actor.stun_remaining,
                     "clock_paused": frame.paused_actors.iter().any(|id| id.index() == index),
                     "casting": ActorId::from_index(index).ok()
                         .and_then(|actor| scene.core.casting_remaining(actor))
@@ -235,7 +232,9 @@ impl Owner {
             "random_state": {"entry_seed": scene.entry_seed, "state": scene.core.random_state()},
             "recognized_result": frame.recognized_result.map(result),
             "item_cooldown": frame.item_cooldown,
-            "scanned_enemies": frame.scanned_enemies,
+            "scanned_enemies": (0..frame.actors.len()).filter(|&index|
+                frame.scanned_enemies.contains(resonance_battle::ActorId::from_index(index).unwrap()))
+                .collect::<Vec<_>>(),
             "target_selector": frame.target_selector.map(|id| id.index()),
             "command": scene.lifecycle.command_frame().map(|command| json!({
                 "actor": command.actor.index(), "selected": command.selected.index(),
@@ -244,6 +243,11 @@ impl Owner {
                 "view": command_view(&command.view),
             })),
             "strategy_party": strategy_party,
+            "enemy_presentation": frame.enemy_presentation.as_ref().map(|opening| json!({
+                "flash": opening.flash.as_ref().map(|flash| json!({"color":flash.color,"alpha":flash.alpha})),
+                "feedback": opening.feedback.map(|feedback| json!({"remaining":feedback.remaining,"expansion":feedback.expansion,"alpha":feedback.alpha})),
+            })),
+            "stage_color": scene.view.stage_color(),
             "actors": actors,
             "models": models,
             "weapons": frame.weapons.iter().map(|weapon| json!({
@@ -263,6 +267,7 @@ impl Owner {
                 "handle": format!("{id:?}"), "actor": actor.index(), "age": age,
                 "recovery_remaining": scene.core.action_recovery_remaining(*id),
             })).collect::<Vec<_>>(),
+            "model_particle_pool": scene.view.model_particle_stats(),
             "particles": scene.particles.iter().map(|particle| json!({
                 "handle": format!("{:?}", particle.id), "actor": particle.owner.index(),
                 "resource": particle.resource, "member": particle.member,
@@ -284,6 +289,10 @@ impl Owner {
         // Keep these read-only blocks outside the large frame object so each
         // JSON macro expansion stays within the ordinary recursion limit.
         diagnostic["controller_motors"] = json!(scene.feedback.motors(scene.feedback_paused()));
+        diagnostic["quick_order"] = json!({
+            "selected": scene.lifecycle.order_selection(),
+            "revision": scene.lifecycle.order_revision(),
+        });
         diagnostic["pause"] = json!({
             "clock": format!("{:?}", frame.clock),
             "paused": frame.clock.paused(),

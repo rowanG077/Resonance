@@ -128,7 +128,10 @@ def prepare_case(args, manifest):
         state.write(at + GAUGE, "B", 100 if index == 0 and case["fixture"] in ("martial", "summon")
                     and case.get("input") != "guard_down" else 0)
     at = member(state, character)
-    state.write(at + SHORTCUT, "H", arte)
+    state.write(at + SHORTCUT, "H", case.get("input_arte", arte))
+    for technique, count in case.get("technique_uses", {}).items():
+        index = catalogue["learning"][character - 1].index(int(technique))
+        state.write(at + 0x88 + index * 2, "H", count)
     state.write(at + BALANCE, "b", -100 if route == "technical" else 100)
     if "colette_state" in case:
         state.write(state.read(0x8035A578) + 0x4C, "i", case["colette_state"])
@@ -192,7 +195,7 @@ def prepare_ready(output, record):
         raise ValueError("warmup consumed the future input")
     case = record["case"]
     at = member(state, case["character"])
-    if state.read(at + SHORTCUT, "H") != case["arte"]:
+    if state.read(at + SHORTCUT, "H") != case.get("input_arte", case["arte"]):
         raise ValueError("requested shortcut changed during battle entry")
     bit = 1 << record["learned_index"]
     if not state.read(at + 0x70, "Q") & bit:

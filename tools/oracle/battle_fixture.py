@@ -25,6 +25,8 @@ PARTY_ORDER_OFFSET = 0xE9D
 PARTY_CONTROLS_OFFSET = 0xEA5
 LLOYD_STATS_OFFSET = 0x2B8
 LLOYD_HP_OFFSETS = (0x12, 0x26, 0x36)
+PARTY_MEMBER_BYTES = 0x118
+JOIN_CHARACTER_COMMAND = 0x24
 START_BATTLE_COMMAND = 0xCD
 OBSERVATION_POLL_VIS = 30
 
@@ -204,8 +206,8 @@ def neutral_movie(source, target, cursor, button=0, *, polls=12000):
     effect_workers.set_movie_backend(target)
 
 
-def prepare_entry(source, target, observation, formation, arena, *, seed=1, hp=20000):
-    """Enter an authored encounter with one manual Lloyd and raised HP.
+def prepare_entry(source, target, observation, formation, arena, *, seed=1, hp=20000, party=(1,)):
+    """Enter an authored encounter with a declared manual party and raised HP.
 
     Enemy selection, action commands, and battle positions are left authored.
     The source movie is copied alongside the prepared checkpoint; callers can
@@ -213,18 +215,26 @@ def prepare_entry(source, target, observation, formation, arena, *, seed=1, hp=2
     """
     if not 1 <= hp <= 65535:
         raise ValueError("fixture HP must fit the party stat fields")
+    if (not 1 <= len(party) <= 4 or len(set(party)) != len(party) or
+            any(character not in range(1, 10) for character in party)):
+        raise ValueError("fixture party must contain one to four distinct characters")
     target = Path(target)
-    commands = [(START_BATTLE_COMMAND, [formation, arena, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0])]
+    commands = ([(JOIN_CHARACTER_COMMAND, [character]) for character in party]
+                if tuple(party) != (1,) else [])
+    commands.append((START_BATTLE_COMMAND, [formation, arena, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0]))
     fixture = prepare(source, target, observation, [], commands, seed=seed)
     state = State(target)
     settings = state.read(PARTY_SETTINGS_POINTER)
+    for slot in range(8 if len(party) > 1 else 4):
+        state.write(settings + PARTY_ORDER_OFFSET + slot, "B", party[slot] if slot < len(party) else 0)
     for slot in range(4):
-        state.write(settings + PARTY_ORDER_OFFSET + slot, "B", 1 if slot == 0 else 0)
         state.write(settings + PARTY_CONTROLS_OFFSET + slot, "B", 0)
-    for offset in LLOYD_HP_OFFSETS:
-        state.write(settings + LLOYD_STATS_OFFSET + offset, "H", hp)
+    for character in party:
+        member = settings + LLOYD_STATS_OFFSET + (character - 1) * PARTY_MEMBER_BYTES
+        for offset in LLOYD_HP_OFFSETS:
+            state.write(member + offset, "H", hp)
     state.save(target)
-    fixture.update(party_changes=state.changes, fixture_sha256=digest(target))
+    fixture.update(party_changes=state.changes, fixture_sha256=digest(target), declared_party=list(party))
     return fixture
 
 
@@ -251,11 +261,12 @@ def unique_enemy_package(state, raw):
 
 
 def enemy_package(state, raw):
-    """Locate an exact header and six complete, unchanged authored sections.
+    """Locate an exact header and six complete authored sections.
 
     Encounter initialization can change vital names and action rows. Those two
-    sections are excluded explicitly; this never falls back to an action-table
-    match. Actor identity still needs its own initialized-data observation.
+    sections are excluded explicitly. Staged enemy initialization narrows its
+    policy to the first five actions; that typed rewrite is recorded separately.
+    Actor identity still needs its own initialized-data observation.
     """
     header_bytes = 488
     if len(raw) < header_bytes or raw[:4] != b"em8\0":
@@ -275,13 +286,26 @@ def enemy_package(state, raw):
             raise ValueError(f"invalid authored enemy {name} section")
         end = min((value for value in offsets if start < value < len(raw)), default=len(raw))
         section = raw[start:end]
-        if memory[offset + start:offset + end] != section:
+        initialized = memory[offset + start:offset + end]
+        initialization = None
+        if (name == "policy" and len(section) >= 24 and section[8] in (7, 17)
+                and section[22:24] == bytes((0, 9)) and initialized != section):
+            initial_stage = bytearray(section)
+            initial_stage[23] = 5
+            if initialized == initial_stage:
+                initialization = {"kind": "transformation" if section[8] == 7 else "health_stage",
+                                  "action_range": [0, 5],
+                                  "authored_action_range": [0, 9]}
+        if initialized != section and initialization is None:
             raise ValueError(f"initialized enemy {name} differs from its authored package")
         matched.append({"name": name, "header_field": field, "offset": start,
                         "bytes": len(section), "sha256": sha256(section).hexdigest()})
+        if initialization:
+            matched[-1].update(initialization=initialization,
+                               initialized_sha256=sha256(initialized).hexdigest())
     address = RAM_BASE + offset
     return address, {"package_address": address, "source_sha256": sha256(raw).hexdigest(),
-                     "basis": "unique exact header and six complete authored sections",
+                     "basis": "unique exact header and six complete sections with recorded initialization",
                      "matched": matched, "excluded_sections": [
                          {"header_field": 6, "reason": "encounter initialization changes displayed vital names"},
                          {"header_field": 10, "reason": "encounter initialization changes action rows"}]}

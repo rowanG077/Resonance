@@ -14,7 +14,7 @@ from pathlib import Path
 import shutil
 import struct
 
-from battle_fixture import (BattleFixture, DTM_BUTTONS, enemy_package,
+from battle_fixture import (BattleFixture, DTM_BUTTONS, PARTY_SETTINGS_POINTER, enemy_package,
                             neutral_movie, prepare_entry)
 from battle_identity import EnemyCatalogue
 from battle_state import watch_locations
@@ -30,7 +30,9 @@ ANIMATION_POINTER, COMMAND_POINTER, NATIVE_WORD = 0x104C, 0x1050, 0x1174
 ACTION_TABLE_POINTER, SELECTED_ROW_POINTER = 0x50, 0x104
 POSITION_X, POSITION_Z, CENTER_X, CENTER_Z = 0x18C0, 0x18C8, 0x195C, 0x1964
 HP_OFFSET = 0x24
+BATTLE_RANK_OFFSET = 0x19F
 ENTRY_ACTION = 13
+FOLLOWUP_CHANCE = 50
 
 
 def read(path):
@@ -102,6 +104,23 @@ def prepare(args, manifest):
     formation, arena = cases[0]["formation"], cases[0]["arena"]
     if any((case["formation"], case["arena"]) != (formation, arena) for case in cases):
         raise ValueError("resident cases must share one encounter")
+    intervals = [case["requirements"]["difficulty"] for case in cases]
+    if any(not 0 <= interval["start"] <= interval["end"] <= 2 for interval in intervals):
+        raise ValueError("authored difficulty interval is outside the supported battle ranks")
+    minimum, maximum = max(interval["start"] for interval in intervals), min(
+        interval["end"] for interval in intervals)
+    if minimum > maximum:
+        raise ValueError("resident cases require different encounter difficulties")
+    opponent_bounds = [predicate["opponent_count"] for case in cases
+                       for predicate in case["requirements"]["predicates"]
+                       if isinstance(predicate, dict) and "opponent_count" in predicate]
+    party_minimum = max([1] + [bounds["minimum"] for bounds in opponent_bounds
+                             if bounds["minimum"] is not None])
+    party_maximum = min([4] + [bounds["maximum"] for bounds in opponent_bounds
+                             if bounds["maximum"] is not None])
+    if not 1 <= party_minimum <= party_maximum <= 4:
+        raise ValueError("resident cases have no supported living party-count interval")
+    party = list(range(1, party_minimum + 1))
     formations = read(formation_path)["records"]
     formation_record = formations[formation]
     roster = sorted({formation_record["resources"][actor["resource"]]["enemy"]
@@ -113,18 +132,35 @@ def prepare(args, manifest):
     output = output_path(args.output)
     output.mkdir(parents=True, exist_ok=False)
     source = State(source_path)
+    session = source.read(PARTY_SETTINGS_POINTER)
+    if not 0x80000000 <= session <= 0x81800000 - BATTLE_RANK_OFFSET - 1:
+        raise ValueError("entry session pointer is outside RAM")
+    previous_rank = source.read(session + BATTLE_RANK_OFFSET, "B")
+    if previous_rank > 2:
+        raise ValueError("entry battle rank is invalid")
+    selected_rank = max(minimum, min(previous_rank, maximum))
+    if selected_rank != previous_rank:
+        source.write(session + BATTLE_RANK_OFFSET, "B", selected_rank)
+    difficulty_fixture = {"authored_interval": {"start": minimum, "end": maximum},
+                          "previous": previous_rank, "selected": selected_rank,
+                          "changes": source.changes.copy(),
+                          "scope": "Session difficulty selected before encounter initialization; "
+                                   "ordinary initialization derives difficulty-scaled vitals and selection rules."}
     observation = inspect(source)
     defaults = manifest["fixture_defaults"]
     capture_vis = args.capture_vis or defaults["capture_vis"]
     movie_polls = 4 * (capture_vis + defaults["warmup_vis"] +
                        defaults["entry_gate_attempts"] * defaults["entry_gate_vis"]) + 1000
     fixture = prepare_entry(source, output / "entry.s01", observation, formation, arena,
-                            hp=defaults["party_hp"])
+                            hp=defaults["party_hp"], party=party)
     neutral_movie(source_path, output / "input.dtm", observation["movie"]["input_count"],
                   DTM_BUTTONS["x"] if args.guard else 0, polls=movie_polls)
     shutil.copyfile(output / "input.dtm", output / "entry.s01.dtm")
     record = {"cases": cases, "enemy": enemy, "packages": packages,
               "formation": formation, "arena": arena, "fixture": fixture,
+              "difficulty_fixture": difficulty_fixture,
+              "party_count_fixture": {"party": party, "authored_bounds": opponent_bounds,
+                  "scope": "Party joined before encounter initialization; authored selection requirements unchanged."},
               "defaults": defaults, "inputs": inputs,
               "manifest_sha256": digest(args.manifest),
               "entry_sha256": digest(output / "entry.s01"),
@@ -132,7 +168,7 @@ def prepare(args, manifest):
               "capture_vis": capture_vis, "movie_polls": movie_polls,
               "images": args.images, "retain_states": args.retain_states, "guard": args.guard,
               "enemy_x": args.enemy_x, "enemy_hp_percent": args.enemy_hp_percent,
-              "expected_slots": [0] + list(range(4, 4 + len(formation_record["actors"]))),
+              "expected_slots": list(range(len(party))) + list(range(4, 4 + len(formation_record["actors"]))),
               "checkpoint": "initialized entry before the first combat choice",
               "selection": "controlled row weight; competing priorities suppressed; selected follow-up/repeat gates cleared",
               "natural_admission_tested": False}
@@ -165,18 +201,52 @@ def ready(worker, output, record):
             raise ValueError("encounter did not initialize before combat within the bounded entry gate")
         worker.warmup(path, output / f"entry-gate-{attempt}", marker, defaults["entry_gate_vis"])
         worker.snapshot(path)
+    return initialized_state(path, output, record)
+
+
+def initialized_state(path, output, record, *, idle=False):
+    """Validate a newly captured or retained preselection state identically."""
+    slots = record["expected_slots"]
     state = State(path)
+    if difficulty := record.get("difficulty_fixture"):
+        session = state.read(PARTY_SETTINGS_POINTER)
+        if not 0x80000000 <= session <= 0x81800000 - BATTLE_RANK_OFFSET - 1:
+            raise ValueError("initialized session pointer is outside RAM")
+        if state.read(session + BATTLE_RANK_OFFSET, "B") != difficulty["selected"]:
+            raise ValueError("retained encounter difficulty differs from the requested fixture; "
+                             "initialize a fresh encounter at the eligible difficulty")
     observation = inspect(state, battle=True)["battle"]
     if (observation.get("mode"), observation.get("formation"), observation.get("arena")) != (
             9, record["formation"], record["arena"]):
         raise ValueError("initialized encounter does not match the requested formation/arena")
-    if (observation["combat_tick"] != 0 or sorted(actor["slot"] for actor in observation["actors"]) != slots
-            or any(actor["action"][0] != ENTRY_ACTION for actor in observation["actors"])):
+    if sorted(actor["slot"] for actor in observation["actors"]) != slots:
+        raise ValueError("retained encounter roster differs from the requested fixture")
+    if party_fixture := record.get("party_count_fixture"):
+        party = party_fixture["party"]
+        living = [actor for actor in observation["actors"] if actor["side"] == 0 and actor["hp"] > 0]
+        if observation["party_order"] != party + [0] * (4 - len(party)) or len(living) != len(party):
+            raise ValueError("initialized encounter differs from its declared living party count")
+    if idle:
+        if (observation["phase"] != 3 or observation["pause_flags"] or
+                observation["menu_flags"] & 0x80000000 or
+                any(actor["action"][0] != 3 for actor in observation["actors"])):
+            raise ValueError("retained encounter is not ordinary idle combat")
+        pool = observation["pool"]
+        for offset in (0x75c40, 0x75ec8, 0x763d8, 0x76660):
+            sentinel = pool + offset
+            if state.read(sentinel) != sentinel or state.read(sentinel + 4) != sentinel:
+                raise ValueError("retained idle encounter still has live effects")
+        if (any(observation["stored_transition"]["occupied"]) or
+                observation["stored_transition"]["remaining"] or
+                any(scene["resource"] for scene in observation["stored_scenes"])):
+            raise ValueError("retained idle encounter still has a stored action")
+    elif (observation["combat_tick"] != 0 or
+            any(actor["action"][0] != ENTRY_ACTION for actor in observation["actors"])):
         raise ValueError("retained entry snapshot is not the observed preselection checkpoint")
     catalogue = EnemyCatalogue(record["inputs"]["packages"], record["inputs"]["assets"])
     identities = [catalogue.identify(state, actor) for actor in observation["actors"] if actor["side"] == 1]
     matches = [item for item in identities if item["enemy"] == record["enemy"]["enemy"]]
-    if not matches:
+    if not matches or (idle and len(matches) != 1):
         raise ValueError("requested actor has no unambiguous authored identity in initialized data")
     actor = next(item for item in observation["actors"] if item["slot"] == matches[0]["slot"])
     packages = {}
@@ -186,16 +256,19 @@ def ready(worker, output, record):
         packages[str(item["enemy"])] = {"address": address, "proof": proof}
     record = {"battle": observation, "actor": actor, "identities": identities,
               "packages": packages, "state_sha256": digest(path),
-              "checkpoint": "initialized entry before the first combat choice",
+              "checkpoint": "observed idle combat" if idle else "initialized entry before the first combat choice",
+              "settled_idle": idle,
               "movie_sha256": digest(Path(str(path) + ".dtm"))}
     write(output / "ready.json", record)
     return state, record
 
 
 def prepare_row(base, output, record, initialized, case):
-    if (initialized["battle"]["combat_tick"] != 0 or
-            any(actor["action"][0] != ENTRY_ACTION for actor in initialized["battle"]["actors"])):
-        raise ValueError("selection fixture requires an initialized checkpoint before combat")
+    idle = initialized.get("settled_idle", False)
+    if ((idle and any(actor["action"][0] != 3 for actor in initialized["battle"]["actors"])) or
+            (not idle and (initialized["battle"]["combat_tick"] != 0 or
+             any(actor["action"][0] != ENTRY_ACTION for actor in initialized["battle"]["actors"])))):
+        raise ValueError("selection fixture requires a verified entry or idle checkpoint")
     state = base.fork()
     target = initialized["actor"]
     for item in record["packages"]:
@@ -209,14 +282,19 @@ def prepare_row(base, output, record, initialized, case):
             flags = state.read(at + 8)
             cleared = (FOLLOWUP_ONLY | FOLLOWUP_HIT | DO_NOT_REPEAT) if chosen else PRIORITY
             state.write(at + 8, "I", flags & ~cleared)
+            if chosen:
+                # Compare one selected row; automatic chains are a separate action.
+                state.write(at + FOLLOWUP_CHANCE, "b", 0)
     for actor in initialized["battle"]["actors"]:
+        if idle or actor["slot"] not in (0, target["slot"]):
+            continue
         at = actor["address"]
-        x = 0.0 if actor["side"] == 0 else record["enemy_x"] if actor["slot"] == target["slot"] else 3000.0
+        x = 0.0 if actor["side"] == 0 else record["enemy_x"]
         state.write(at + POSITION_X, "f", x)
         state.write(at + POSITION_Z, "f", 0.0)
         state.write(at + CENTER_X, "f", actor["center"][0] + x - actor["position"][0])
         state.write(at + CENTER_Z, "f", actor["center"][2] - actor["position"][2])
-        if actor["side"] == 1:
+        if actor["slot"] == target["slot"]:
             state.write(actor["vitals_address"] + HP_OFFSET, "I",
                         max(1, actor["max_hp"] * record["enemy_hp_percent"] // 100))
     package = initialized["packages"][str(case["enemy"])]["address"]
@@ -243,6 +321,7 @@ def prepare_row(base, output, record, initialized, case):
     write(output / "fixture.json", {"case": case, "actor": target,
           "expected": expected, "execution_aliases": aliases, "changes": state.changes,
           "state_sha256": digest(path), "movie_sha256": digest(Path(str(path) + ".dtm")),
+          "selection_scope": "one authored row; automatic followup chance disabled with recorded preimage",
           "natural_admission_tested": False})
     return path
 

@@ -45,6 +45,13 @@ individual hashes; additional samples come from the same pinned recording.
 The report retains reference provenance. Re-record when source inputs, profile
 or required observations change.
 
+Resident oracle workers require the patched Dolphin from `nix build
+.#dolphin-observer`. The development shell includes it; an existing shell can set
+`RESONANCE_DOLPHIN` to its `bin/dolphin-emu`. Its opt-in `mem1-v1` observer reads
+bounded GameCube main memory independently of the guest CPU's address-translation
+mode. Each real VI acknowledges that mode, and invalid reads reject the capture.
+The ordinary MemoryWatcher interface remains available to other tools.
+
 `--native-reference local/previous-pair` also reuses native output for comparison
 analysis. It requires the same pinned save/replay and records the original
 renderer hash when available. **It does not validate subsequent runtime edits.**
