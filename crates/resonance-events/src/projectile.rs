@@ -9,7 +9,7 @@ impl crate::Actor {
             && (self.resource < resonance_content::field::SCENERY_RESOURCE_BASE
                 || resonance_content::field::LOCAL_MODEL_RESOURCES.contains(&self.resource))
     }
-    /// First contact along a segment with the actor's horizontal collision cylinder.
+    /// First contact with a scenery model's bounds or an actor's collision cylinder.
     pub(crate) fn projectile_contact(
         &self,
         start: [f32; 3],
@@ -18,6 +18,37 @@ impl crate::Actor {
     ) -> Option<f32> {
         if self.contact != crate::ActorContact::Cylinder {
             return None;
+        }
+        if let Some([low, high]) = self.ring_bounds {
+            let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];
+            for corner in 0..8 {
+                let point = self.world_point(std::array::from_fn(|axis| {
+                    if corner & (1 << axis) == 0 {
+                        low[axis]
+                    } else {
+                        high[axis]
+                    }
+                }));
+                for axis in 0..3 {
+                    bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                    bounds[1][axis] = bounds[1][axis].max(point[axis]);
+                }
+            }
+            let (mut enter, mut exit) = (0_f32, 1_f32);
+            for axis in 0..3 {
+                let low = bounds[0][axis] - radius - start[axis];
+                let high = bounds[1][axis] + radius - start[axis];
+                if delta[axis] == 0. {
+                    if low > 0. || high < 0. {
+                        return None;
+                    }
+                } else {
+                    let (a, b) = (low / delta[axis], high / delta[axis]);
+                    enter = enter.max(a.min(b));
+                    exit = exit.min(a.max(b));
+                }
+            }
+            return (enter <= exit).then_some(enter);
         }
         let offset: [f32; 3] = std::array::from_fn(|i| start[i] - self.position[i]);
         let radius = radius + self.radius;

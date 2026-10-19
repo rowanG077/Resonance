@@ -133,7 +133,7 @@ pub fn calculator_by_name(name: &str) -> Option<CalculatorSpec> {
 /// Return the stable source mnemonic for a calculator opcode.
 ///
 /// This is the inverse of [`calculator_by_name`].  Keeping this mapping next
-/// to the decoder's opcode table lets the exact-layout decompiler emit names
+/// to the decoder's opcode table lets the script formatter emit names
 /// without changing the serialized instruction stream.
 #[must_use]
 pub fn calculator_name(opcode: u8) -> Option<&'static str> {
@@ -189,11 +189,21 @@ pub struct NativeProcedure {
     #[serde(default)]
     pub arguments: Vec<String>,
     #[serde(default)]
+    pub argument_types: Vec<String>,
+    #[serde(default)]
+    pub result_type: Option<String>,
+    #[serde(default = "default_true")]
+    pub authoring_available: bool,
+    #[serde(default)]
     pub returns_value: Option<bool>,
     #[serde(default)]
     pub yields: bool,
     #[serde(default)]
     pub control_flow: bool,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,6 +221,18 @@ struct RegistryDocument {
 pub struct NativeRegistry {
     pub game: String,
     calls: BTreeMap<u8, NativeProcedure>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ControlSurfaceEntry {
+    pub opcode: u8,
+    pub name: String,
+    pub arguments: Vec<String>,
+    pub argument_types: Vec<String>,
+    pub returns_value: Option<bool>,
+    pub result_type: Option<String>,
+    pub yields: bool,
+    pub domain: &'static str,
 }
 
 #[derive(Debug, Error)]
@@ -281,12 +303,79 @@ impl NativeRegistry {
 
     #[must_use]
     pub fn get_by_name(&self, name: &str) -> Option<&NativeProcedure> {
-        self.calls.values().find(|call| call.name == name)
+        if let Some(call) = self.calls.values().find(|call| call.name == name) {
+            return Some(call);
+        }
+        // Numeric names also identify opcodes with unresolved semantic names.
+        let opcode = name
+            .strip_prefix("native_")
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok())?;
+        self.calls.get(&opcode)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &NativeProcedure> {
         self.calls.values()
     }
+
+    /// List native procedures with their argument types and control domains.
+    #[must_use]
+    pub fn control_surface(&self) -> Vec<ControlSurfaceEntry> {
+        self.iter()
+            .map(|call| ControlSurfaceEntry {
+                opcode: call.opcode,
+                name: call.name.clone(),
+                arguments: call.arguments.clone(),
+                argument_types: call.argument_types.clone(),
+                returns_value: call.returns_value,
+                result_type: call.result_type.clone(),
+                yields: call.yields,
+                domain: domain_for(call),
+            })
+            .collect()
+    }
+}
+
+fn domain_for(call: &NativeProcedure) -> &'static str {
+    let name = call.name.as_str();
+    if call.control_flow {
+        return "interpreter.control_flow";
+    }
+    if name.contains("dialogue")
+        || name.contains("message")
+        || name.contains("choice")
+        || name == "yield_command"
+    {
+        return "dialogue_and_yield";
+    }
+    if name.contains("camera") {
+        return "camera";
+    }
+    if name.contains("actor") || name.contains("object") || name.contains("animation") {
+        return "actors_and_objects";
+    }
+    if name.contains("field")
+        || name.contains("stage")
+        || name.contains("encounter")
+        || name.contains("transition")
+    {
+        return "field_and_stage";
+    }
+    if name.contains("sound") || name.contains("audio") {
+        return "audio";
+    }
+    if name.contains("item") || name.contains("inventory") {
+        return "inventory";
+    }
+    if name.contains("event_bit") || name.contains("global") || name.contains("counter") {
+        return "persistent_state";
+    }
+    if name.contains("input") {
+        return "input";
+    }
+    if name.contains("resource") {
+        return "resource_lifecycle";
+    }
+    "unknown_native_side_effect"
 }
 
 fn valid_identifier(name: &str) -> bool {

@@ -51,10 +51,10 @@ impl Party {
         }
         if has(Benefit::ExGems) {
             let rules = data
-                .ex_skills
+                .rules
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("EX gem definitions are missing"))?;
-            for id in rules.gem_items {
+            for id in rules.ex_skills.gem_items {
                 if let Some(&count) = self.items.get(&id) {
                     next.change_item(data, id, count as i8)
                         .map_err(anyhow::Error::msg)?;
@@ -192,7 +192,7 @@ mod tests {
             party.gald = 789;
             party.members[0].name = Some("Player".into());
             party.members[0].hp = 1;
-            party.members[0].conditions = 32;
+            party.members[0].ailments.paralysis = true;
             party.members[0].affinity = 42;
             party.members[0].techniques.insert(10);
             party.members[0].technique_uses.insert(10, 123);
@@ -249,7 +249,7 @@ mod tests {
             assert!(party.items.is_empty());
             let member = &party.members[0];
             assert_eq!(member.name.as_deref(), Some("Player"));
-            assert_eq!(member.conditions, 0);
+            assert_eq!(member.ailments, Default::default());
             assert_eq!(member.hp, if carry { 600 } else { 100 });
             assert_eq!(member.affinity, if carry { 42 } else { 0 });
             assert!(member.techniques.is_empty());

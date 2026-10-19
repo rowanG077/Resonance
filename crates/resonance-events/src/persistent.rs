@@ -31,11 +31,23 @@ pub struct SavedProgress {
     pub event_flags: BTreeSet<u16>,
     pub event_records: BTreeMap<u8, EventRecord>,
     pub random_state: u32,
-    #[serde(default)]
     pub gameplay_random: crate::GameplayRandom,
     pub tick: u32,
 }
 impl SavedProgress {
+    pub fn new(party: Party) -> Self {
+        Self {
+            script_globals: vec![0; usize::from(GLOBAL_BYTES / 4)],
+            script_state: Default::default(),
+            party,
+            event_flags: Default::default(),
+            event_records: Default::default(),
+            random_state: 0,
+            gameplay_random: Default::default(),
+            tick: 0,
+        }
+    }
+
     pub fn cook(
         &mut self,
         data: &resonance_content::menu_data::MenuData,
@@ -51,7 +63,7 @@ impl SavedProgress {
             self.script_globals.len() == usize::from(GLOBAL_BYTES / 4),
             "invalid persistent script globals"
         );
-        self.party.bind_ex_skills(data);
+        self.party.bind_rules(data);
         self.party.validate(data)?;
         ensure!(
             self.event_records.iter().all(|(id, r)| *id <= 200

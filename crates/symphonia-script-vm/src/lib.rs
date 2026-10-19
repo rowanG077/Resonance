@@ -224,6 +224,10 @@ impl Vm {
             trace: VecDeque::new(),
         })
     }
+    pub fn legacy_return_stack(&self) -> &[u32] {
+        &self.calls
+    }
+
     pub fn pc(&self) -> u32 {
         self.pc
     }

@@ -226,8 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn portrait_tiles_persist_and_copy_in_native_order_with_signed_linear_positions() -> Result<()>
-    {
+    fn portrait_tiles_persist_and_copy_in_order_with_signed_linear_positions() -> Result<()> {
         let (asset, mut portrait) = fixture();
         let mut recipe = PortraitRecipe {
             tracks: std::array::from_fn(|channel| {

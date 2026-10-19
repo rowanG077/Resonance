@@ -34,7 +34,7 @@ impl Transfer {
             station,
             player,
             source: [0.; 3],
-            // Let the completed interaction reach the field before launching.
+            // Let the interaction start before launching its lights.
             born: tick + 2,
             lights: Vec::new(),
             operation,

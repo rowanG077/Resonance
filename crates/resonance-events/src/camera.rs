@@ -225,6 +225,18 @@ impl Default for CameraRig {
     }
 }
 impl CameraRig {
+    pub fn following(actor: i32) -> Self {
+        let entry = EntryCamera::following(actor);
+        Self {
+            cameras: std::array::from_fn(|_| entry.camera.clone()),
+            angles: entry.camera.angles,
+            distance: entry.camera.distance,
+            position_rate: entry.position_rate,
+            target_rate: entry.target_rate,
+            ..Default::default()
+        }
+    }
+
     /// Rebuild a follow view immediately when entering a saved field. This uses
     /// the current player position without advancing scripts or presentation.
     pub fn snap_follow_view(&mut self, actors: &BTreeMap<i32, Actor>) {
@@ -501,6 +513,22 @@ mod tests {
         };
         assert!(wide.animates([400., 1000., 0.]));
         assert!(!wide.animates([600., 1000., 0.]));
+    }
+
+    #[test]
+    fn switching_camera_slots_keeps_the_orbit_with_its_actor() {
+        let actor = 2;
+        let mut actors = [(actor, Actor::new(2, [1000., 2000., 300.]))].into();
+        let mut rig = CameraRig::following(actor);
+        for slot in 0..rig.cameras.len() {
+            rig.selected = slot;
+            rig.snap_follow_view(&actors);
+            let (eye, target) = (rig.position, rig.target);
+            actors.get_mut(&actor).unwrap().position[0] += 100.;
+            rig.snap_follow_view(&actors);
+            assert!((rig.position[0] - eye[0] - 100.).abs() < 0.001);
+            assert!((rig.target[0] - target[0] - 100.).abs() < 0.001);
+        }
     }
 
     #[test]

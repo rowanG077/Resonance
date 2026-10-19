@@ -388,7 +388,7 @@ impl NativeHost<'_> {
                                 .as_ref()
                                 .ok_or("party is not initialized")?
                                 .battles
-                                .last_duration_ticks as i32,
+                                .combat_ticks as i32,
                         );
                     }
                     FieldSystemCommand::SetSkitPrompts => {
@@ -412,7 +412,8 @@ impl NativeHost<'_> {
                             .as_ref()
                             .ok_or("monster catalogue is missing")?;
                         value = Some(
-                            menu.monsters
+                            menu.monsters()
+                                .map_err(|error| error.to_string())?
                                 .records
                                 .iter()
                                 .filter(|monster| {
@@ -726,7 +727,8 @@ impl NativeHost<'_> {
                                 pan: sound_pan(a[2]),
                             },
                             102 => AudioCommand::StopSound(slot),
-                            _ => return Err("sound slot operation is not implemented".into()),
+                            // Unrecognized slot operations leave playback unchanged.
+                            _ => return Ok(NativeResult::Continue(None)),
                         }
                     }
                     NativeCall::SelectAudioBank => AudioCommand::SelectBank((a[0] & 7) as u8),
@@ -817,8 +819,8 @@ impl NativeHost<'_> {
                             actor.target_heading =
                                 (actor.target_heading + a[2] as f32).rem_euclid(360.)
                         }
-                        2 => actor.face(a[2] as f32),
-                        3 => actor.face(actor.target_heading + a[2] as f32),
+                        2 => actor.set_script_heading(a[2] as f32),
+                        3 => actor.set_script_heading(actor.target_heading + a[2] as f32),
                         4 => actor.turn_speed = (a[2] as f32 / 100.).abs(),
                         _ => unreachable!(),
                     }
@@ -1081,6 +1083,7 @@ impl NativeHost<'_> {
             }
             NativeCall::SetActorAnimationProperty => {
                 require((0..=6).contains(&a[1]), "unknown animation property")?;
+                let position_units_per_tick = 0.5;
                 let mut previous = 0.;
                 if let Some(animation) = self
                     .world
@@ -1107,18 +1110,18 @@ impl NativeHost<'_> {
                             animation.set_script_rate(rate, self.world.tick);
                         }
                         2 => {
-                            previous = position / 2.;
-                            let position = a[2] as f32 * 2.;
+                            previous = position * position_units_per_tick;
+                            let position = a[2] as f32 / position_units_per_tick;
                             if (0. ..=duration).contains(&position) {
                                 animation.seek(position, self.world.tick);
                             }
                         }
                         3 => previous = animation.script_rate() * 100.,
-                        4 => previous = position / 2.,
-                        5 => previous = duration / 2.,
+                        4 => previous = position * position_units_per_tick,
+                        5 => previous = duration * position_units_per_tick,
                         6 => {
-                            previous = animation.loop_start / 2.;
-                            let position = a[2] as f32 * 2.;
+                            previous = animation.loop_start * position_units_per_tick;
+                            let position = a[2] as f32 / position_units_per_tick;
                             if (0. ..=duration).contains(&position) {
                                 animation.loop_start = position;
                             }
@@ -1285,6 +1288,9 @@ impl NativeHost<'_> {
                         let d: [f32; 3] =
                             std::array::from_fn(|i| second.position[i] - first.position[i]);
                         match a[0] {
+                            // Coincident points have no direction; signed zero
+                            // must not turn this into a half-turn.
+                            0 if d[0] == 0. && d[1] == 0. => 0,
                             0 => d[0].atan2(-d[1]).to_degrees().rem_euclid(360.) as i32,
                             1 => d[0].hypot(d[1]) as i32,
                             2 => d[2] as i32,
@@ -1486,13 +1492,12 @@ impl NativeHost<'_> {
                         actor.radius = BLOCK_RADIUS;
                         actor.interaction_label = GRAB_HINT;
                     }
-                    actor.model_collision = Some(
-                        self.resources
-                            .model(resource)
-                            .ok_or("collision model is missing")?
-                            .collision
-                            .clone(),
-                    );
+                    let model = self
+                        .resources
+                        .model(resource)
+                        .ok_or("collision model is missing")?;
+                    actor.model_collision = Some(model.collision.clone());
+                    actor.model_bounds = model.attachments.mesh_bounds;
                 }
                 if let Some(clip) = self
                     .resources

@@ -236,7 +236,7 @@ impl NativeHost<'_> {
                     if media.voice.is_some() {
                         self.world
                             .audio_commands
-                            .push(crate::AudioCommand::Voice(id));
+                            .push(crate::AudioCommand::voice(id));
                     }
                     return self.yield_update();
                 }
