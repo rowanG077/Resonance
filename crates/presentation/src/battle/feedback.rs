@@ -14,9 +14,9 @@ pub(super) struct Feedback {
 }
 
 struct Shake {
-    age: u8,
-    duration: u8,
+    remaining: u32,
     strength: f32,
+    offset: f32,
 }
 
 impl Feedback {
@@ -78,6 +78,105 @@ impl Feedback {
         }
         for cue in &frame.cues {
             match *cue {
+                Cue::ResultAdvancement {
+                    ref actors,
+                    level_up,
+                } => {
+                    if let Some(effect) = self.resources.result_advancement {
+                        cues.extend(actors.iter().map(|&actor| {
+                            let owner = &frame.actors[actor.index()];
+                            Cue::Effect(EffectRequest {
+                                owner: actor,
+                                target: actor,
+                                appearance: effect,
+                                origin: std::array::from_fn(|axis| {
+                                    owner.position[axis] + owner.body.center_offset[axis] * 1.75
+                                }),
+                                heading: owner.heading,
+                                follow: None,
+                                scale: 0.8,
+                                tint: Default::default(),
+                            })
+                        }));
+                    }
+                    for &actor in actors {
+                        let mut position = frame.actors[actor.index()].condition_label_origin();
+                        position[1] -= 8.;
+                        cues.push(Cue::CustomLabel {
+                            actor,
+                            position,
+                            left: if level_up { "LEVEL" } else { "NEW" }.into(),
+                            right: if level_up { "UP" } else { "EX SKILL" }.into(),
+                            duration: if level_up { 60 } else { 90 },
+                        });
+                    }
+                    if let Some((&actor, sound)) =
+                        actors.last().zip(self.resources.result_advancement_sound)
+                    {
+                        cues.push(Cue::Sound {
+                            actor,
+                            sound,
+                            priority: 1,
+                            position: frame.actors[actor.index()].audio_position(),
+                        });
+                    }
+                }
+                Cue::TechniqueAcquired { actor, spell, .. } => {
+                    let owner = &frame.actors[actor.index()];
+                    if let Some(appearance) = self.resources.acquisition {
+                        cues.push(Cue::EffectDuringPause(EffectRequest {
+                            owner: actor,
+                            target: actor,
+                            appearance,
+                            origin: owner.effect_origin(),
+                            heading: owner.heading,
+                            follow: None,
+                            scale: owner.effect_scale,
+                            tint: Default::default(),
+                        }));
+                    }
+                    if !owner.airborne()
+                        && let Some(motion) = self
+                            .resources
+                            .actors
+                            .get(actor.index())
+                            .and_then(|control| control.acquisition_motion)
+                    {
+                        frame
+                            .model_requests
+                            .push(resonance_battle::ModelRequest::Play {
+                                actor,
+                                motion,
+                                pose: resonance_battle::Pose {
+                                    blend: 8,
+                                    ..Default::default()
+                                },
+                            });
+                    }
+                    cues.push(Cue::EffectNotice {
+                        actor,
+                        text: if spell {
+                            "-Acquired Spell-"
+                        } else {
+                            "-Acquired Skill-"
+                        }
+                        .into(),
+                        duration: 90,
+                    });
+                    cues.extend(self.resources.acquisition_sound.map(|sound| Cue::Sound {
+                        actor,
+                        sound,
+                        priority: 1,
+                        position: owner.audio_position(),
+                    }));
+                }
+                Cue::TargetChanged { .. } => {
+                    cues.extend(
+                        self.resources
+                            .target_changed
+                            .map(|sound| Cue::GlobalSound { sound, priority: 1 }),
+                    );
+                }
                 Cue::Casting {
                     actor,
                     action,
@@ -105,6 +204,15 @@ impl Feedback {
                         CastPhase::Chanting => (cast.chant_effect, None, None),
                         CastPhase::Charged => (cast.charged_effect, None, None),
                         CastPhase::Stored => (cast.stored_effect, None, None),
+                        CastPhase::SceneOpening => {
+                            let Some(opening) = cast.opening_effect else {
+                                continue;
+                            };
+                            (opening, cast.release_sound, cast.release_voice)
+                        }
+                        CastPhase::Released if cast.opening_effect.is_some() => {
+                            (cast.release_effect, None, None)
+                        }
                         CastPhase::Released => {
                             (cast.release_effect, cast.release_sound, cast.release_voice)
                         }
@@ -112,7 +220,7 @@ impl Feedback {
                     let chanting = phase == CastPhase::Chanting;
                     if !summon_release {
                         if phase != CastPhase::Started {
-                            cues.push(Cue::CastingEffect(EffectRequest {
+                            let request = EffectRequest {
                                 owner: actor,
                                 target: actor,
                                 appearance,
@@ -133,7 +241,12 @@ impl Feedback {
                                 } else {
                                     cast.tint
                                 },
-                            }));
+                            };
+                            cues.push(if phase == CastPhase::SceneOpening {
+                                Cue::InitializedEffect(request)
+                            } else {
+                                Cue::Effect(request)
+                            });
                         }
                         cues.extend(sound.map(|sound| Cue::Sound {
                             actor,
@@ -149,7 +262,9 @@ impl Feedback {
                         priority: VoicePriority::Action,
                         centered: false,
                     }));
-                    if phase == CastPhase::Released {
+                    if phase == CastPhase::SceneOpening
+                        || (phase == CastPhase::Released && cast.opening_effect.is_none())
+                    {
                         cues.push(Cue::Notice {
                             actor,
                             action,
@@ -217,7 +332,7 @@ impl Feedback {
                     ..
                 } => {
                     if let Some(&color) = self.resources.admission_flashes.get(&action) {
-                        cues.push(Cue::ActorFlash { actor, color });
+                        cues.push(Cue::ActorPulse { actor, color });
                     }
                 }
                 Cue::Recovered {
@@ -238,24 +353,33 @@ impl Feedback {
                 } => {
                     if let Some(items) = &self.resources.items {
                         let owner = &frame.actors[user.index()];
-                        cues.push(Cue::Effect(attached_effect(user, owner, items.use_effect)));
-                        if let Some(sound) = items.sound {
-                            cues.push(Cue::Sound {
-                                actor: user,
-                                sound,
-                                position: owner.audio_position(),
-                                priority: 1,
-                            });
-                        }
-                        let voice = &items.voices[user.index()];
-                        if let Some(sound) = voice.discovery.filter(|_| discovered).or(voice.used) {
-                            cues.push(Cue::Voice {
-                                actor: user,
-                                sound,
-                                priority: VoicePriority::Action,
-                                position: owner.audio_position(),
-                                centered: false,
-                            });
+                        if owner.side == Side::Party {
+                            let feedback = &items.actors[user.index()];
+                            let mut sparkle = attached_effect(user, owner, items.use_effect);
+                            sparkle.origin = owner.local_point(std::array::from_fn(|axis| {
+                                owner.body.center_offset[axis] + feedback.use_offset[axis]
+                            }));
+                            sparkle.follow = None;
+                            cues.push(Cue::Effect(sparkle));
+                            if let Some(sound) = items.sound {
+                                cues.push(Cue::Sound {
+                                    actor: user,
+                                    sound,
+                                    position: owner.audio_position(),
+                                    priority: 1,
+                                });
+                            }
+                            if let Some(sound) =
+                                feedback.discovery.filter(|_| discovered).or(feedback.used)
+                            {
+                                cues.push(Cue::Voice {
+                                    actor: user,
+                                    sound,
+                                    priority: VoicePriority::Action,
+                                    position: owner.audio_position(),
+                                    centered: false,
+                                });
+                            }
                         }
                         use resonance_battle::item::Effect;
                         let color = match effect {
@@ -271,11 +395,17 @@ impl Feedback {
                             });
                         }
                         if matches!(effect, Effect::Revive) {
-                            cues.push(Cue::Effect(attached_effect(
-                                target,
-                                &frame.actors[target.index()],
-                                items.revival_effect,
-                            )));
+                            let recipient = &frame.actors[target.index()];
+                            let mut request =
+                                attached_effect(target, recipient, items.revival_effect);
+                            cues.push(if owner.side == Side::Enemy {
+                                request.origin = recipient.position;
+                                request.follow =
+                                    Some(resonance_battle::EffectFollow::Actor(target));
+                                Cue::InitializedEffect(request)
+                            } else {
+                                Cue::Effect(request)
+                            });
                         }
                     }
                 }
@@ -316,9 +446,7 @@ impl Feedback {
                 | Cue::Countered { actor }
                 | Cue::Charged { actor, .. } => {
                     let owner = &frame.actors[actor.index()];
-                    let position = std::array::from_fn(|axis| {
-                        owner.position[axis] + owner.body.center_offset[axis] * 2.
-                    });
+                    let position = owner.condition_label_origin();
                     let failed = matches!(
                         cue,
                         Cue::Charged {
@@ -367,12 +495,12 @@ impl Feedback {
                         );
                     }
                 }
-                Cue::Paralyzed { actor } => cues.push(Cue::ActorFlash {
+                Cue::Paralyzed { actor } => cues.push(Cue::ActorPulse {
                     actor,
                     color: [192, 192, 160],
                 }),
                 Cue::Breakfall { actor } => {
-                    cues.push(Cue::ActorFlash {
+                    cues.push(Cue::ActorPulse {
                         actor,
                         color: [192; 3],
                     });
@@ -508,6 +636,14 @@ impl Feedback {
         }
         frame.cues.extend(cues);
         self.contacts(frame);
+        // Rescue recovery is the final appearance change of its lethal contact.
+        if let Some(color) = self.resources.recovery_tint {
+            for index in 0..frame.cues.len() {
+                if let Cue::Rescued { actor, .. } = frame.cues[index] {
+                    frame.cues.push(Cue::ActorFlash { actor, color });
+                }
+            }
+        }
     }
 
     /// Sample activation attachments only after the current actor pose has been published.
@@ -579,6 +715,7 @@ impl Feedback {
                 was_casting,
                 overlimit,
                 stunned,
+                repeated,
                 result,
                 ..
             } = *cue
@@ -589,7 +726,7 @@ impl Feedback {
             if let Some(art) = &self.resources.contact_art {
                 let tint = art.elements[element.map_or(0, |element| element as usize + 1)];
                 let mut emit = |effect_owner, appearance| {
-                    cues.push(Cue::Effect(EffectRequest {
+                    cues.push(Cue::DeferredEffect(EffectRequest {
                         owner: effect_owner,
                         target: actor,
                         appearance,
@@ -604,14 +741,35 @@ impl Feedback {
                     emit(actor, art.overlimit);
                 } else {
                     match result.guard {
-                        GuardResult::Broken => emit(actor, art.guard_break),
-                        GuardResult::Blocked { .. } => emit(actor, art.guard),
+                        GuardResult::Broken => {
+                            emit(
+                                actor,
+                                if repeated {
+                                    art.repeated_guard
+                                } else {
+                                    art.guard
+                                },
+                            );
+                            let mut effect = attached_effect(actor, &target.state, art.guard_break);
+                            effect.heading = 0.;
+                            cues.push(Cue::DeferredEffect(effect));
+                        }
+                        GuardResult::Blocked { .. } => emit(
+                            actor,
+                            if repeated {
+                                art.repeated_guard
+                            } else {
+                                art.guard
+                            },
+                        ),
                         GuardResult::None => {
-                            if element.is_some() {
-                                if let Some(appearance) = tint.effect {
-                                    emit(actor, appearance);
-                                }
-                                emit(actor, art.elemental_impact);
+                            if element.is_some()
+                                && let Some(appearance) = tint.effect
+                            {
+                                emit(actor, appearance);
+                            }
+                            if element.is_some() || repeated {
+                                emit(actor, art.compact_impact);
                             } else {
                                 emit(actor, art.ordinary);
                             }
@@ -621,8 +779,13 @@ impl Feedback {
                         }
                     }
                 }
-                if result.is_unblocked_damage() && !overlimit {
-                    cues.push(Cue::ActorFlash {
+                if result.is_unblocked_damage()
+                    && !overlimit
+                    && !frame.cues.iter().any(
+                        |cue| matches!(cue, Cue::Rescued { actor: rescued, .. } if *rescued == actor),
+                    )
+                {
+                    cues.push(Cue::ActorPulse {
                         actor,
                         color: tint.color,
                     });
@@ -703,8 +866,8 @@ impl Feedback {
     }
 
     /// Called once with the completed simulation snapshot, never while drawing.
-    pub fn advance(&mut self, frame: &mut BattleFrame, paused: bool) {
-        self.appearance.advance(frame, paused);
+    pub fn advance(&mut self, frame: &mut BattleFrame, paused: bool, actor_ticks: &[u16]) {
+        self.appearance.advance(frame, paused, actor_ticks);
         if frame.recognized_result.is_some() || frame.outcome.is_some() {
             self.shake = None;
             self.motors.fill(0);
@@ -715,8 +878,13 @@ impl Feedback {
                 *motor = motor.saturating_sub(1);
             }
             if let Some(shake) = &mut self.shake {
-                shake.age += 1;
-                if shake.age >= shake.duration {
+                shake.offset = if (shake.remaining / 2).is_multiple_of(2) {
+                    0.
+                } else {
+                    0.5 * shake.strength
+                };
+                shake.remaining = shake.remaining.saturating_sub(1);
+                if shake.remaining == 0 {
                     self.shake = None;
                 }
             }
@@ -726,16 +894,20 @@ impl Feedback {
                 Cue::Shake {
                     duration,
                     amplitude,
-                } if duration > 0 && amplitude > 0 => {
-                    // At 60 updates/second: at most half a second and 12 world units.
-                    let duration = duration.min(30) as u8;
-                    self.shake = Some(Shake {
-                        age: 0,
-                        duration,
-                        strength: amplitude.min(24) as f32 * 0.5,
+                } => {
+                    // Requests replace the timer after this visit's displacement is published.
+                    let shake = self.shake.get_or_insert(Shake {
+                        remaining: 0,
+                        strength: 0.,
+                        offset: 0.,
                     });
-                    for actor in &frame.actors {
-                        self.pulse(actor, (duration / 2).max(1));
+                    shake.remaining = duration;
+                    shake.strength = amplitude as f32;
+                    if duration > 0 && amplitude > 0 {
+                        let motor_duration = duration.min(30) as u8;
+                        for actor in &frame.actors {
+                            self.pulse(actor, (motor_duration / 2).max(1));
+                        }
                     }
                 }
                 Cue::IncidentalDamage { actor, amount } if amount > 0 => {
@@ -749,14 +921,8 @@ impl Feedback {
         let (Some(shake), Some(camera)) = (&self.shake, &mut frame.camera) else {
             return;
         };
-        // Oscillate around the unmodified camera and settle smoothly to rest.
-        let fade = 1. - f32::from(shake.age) / f32::from(shake.duration);
-        let offset = (f32::from(shake.age) * std::f32::consts::TAU / 6.).cos()
-            * shake.strength
-            * fade
-            * fade;
-        camera.eye[1] += offset;
-        camera.focus[1] += offset;
+        camera.eye[1] += shake.offset;
+        camera.focus[1] += shake.offset;
     }
 
     fn pulse(&mut self, actor: &Actor, duration: u8) {
@@ -796,9 +962,71 @@ mod tests {
     use resonance_battle::{BattleResult, CameraDefinition, PreparedBattle};
 
     #[test]
+    fn result_advancement_uses_one_fanfare_for_all_awarded_members() -> anyhow::Result<()> {
+        let battle = PreparedBattle::new(
+            [Side::Party, Side::Party, Side::Enemy]
+                .into_iter()
+                .map(|side| {
+                    (
+                        crate::test_support::actor(side, 100, 20),
+                        Default::default(),
+                    )
+                })
+                .collect(),
+            Default::default(),
+            1,
+        )?
+        .finish()?;
+        let effect = resonance_battle::EffectAppearance {
+            resource: 1,
+            member: 20,
+        };
+        let sound = resonance_battle::Sound::Cue(resonance_game::battle::audio::RESULT_ADVANCEMENT);
+        let mut feedback = Feedback::new(
+            Resources {
+                result_advancement: Some(effect),
+                result_advancement_sound: Some(sound),
+                ..Default::default()
+            },
+            1,
+        );
+        let mut frame = battle.snapshot();
+        frame.cues = vec![Cue::ResultAdvancement {
+            level_up: true,
+            actors: vec![
+                resonance_battle::ActorId::from_index(0)?,
+                resonance_battle::ActorId::from_index(1)?,
+            ],
+        }];
+        feedback.resolve(&mut frame);
+        assert_eq!(
+            frame
+                .cues
+                .iter()
+                .filter(|cue| matches!(cue,
+            Cue::Effect(request) if request.appearance == effect))
+                .count(),
+            2
+        );
+        let sounds: Vec<_> = frame
+            .cues
+            .iter()
+            .filter(|cue| matches!(cue, Cue::Sound { .. }))
+            .collect();
+        assert_eq!(sounds.len(), 1);
+        assert!(
+            matches!(sounds[0], Cue::Sound { actor, sound: emitted, priority: 1, .. }
+            if *actor == resonance_battle::ActorId::from_index(1)? && *emitted == sound)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn item_feedback_uses_committed_events_and_one_user_voice() -> anyhow::Result<()> {
         use resonance_battle::{EffectAppearance, Sound, item::Effect};
-        use resonance_game::battle::items::{Feedback as ItemFeedback, ItemVoice};
+        use resonance_game::battle::items::{
+            ActorFeedback as ItemActorFeedback, Feedback as ItemFeedback,
+        };
         let battle = PreparedBattle::new(
             vec![
                 (
@@ -833,12 +1061,13 @@ mod tests {
                     sound: None,
                     buff_tint: None,
                     scan_tint: Some([20, 40, 60]),
-                    voices: vec![
-                        ItemVoice {
+                    actors: vec![
+                        ItemActorFeedback {
+                            use_offset: [0.; 3],
                             used: Some(Sound::Stream(1)),
                             discovery: Some(Sound::Stream(2)),
                         },
-                        ItemVoice::default(),
+                        ItemActorFeedback::default(),
                     ],
                 }),
                 ..Default::default()
@@ -952,8 +1181,9 @@ mod tests {
         };
         let art = ContactArt {
             ordinary: effect(1),
-            elemental_impact: effect(6),
+            compact_impact: effect(6),
             guard: effect(2),
+            repeated_guard: effect(8),
             critical: effect(3),
             guard_break: effect(4),
             overlimit: effect(5),
@@ -991,13 +1221,25 @@ mod tests {
             99,
         );
         feedback.resources.entry_voice = Some((ids[0], Sound::Stream(90)));
+        feedback.resources.target_changed = Some(Sound::Cue(108));
         let mut entry = base.clone();
         feedback.resolve(&mut entry);
         assert!(entry.cues.iter().any(|cue| matches!(cue,
             Cue::Voice { actor, sound: Sound::Stream(90), centered: true, .. } if *actor == ids[0])));
         let mut next = base.clone();
+        next.cues.push(Cue::TargetChanged {
+            actor: ids[0],
+            target: ids[1],
+        });
         feedback.resolve(&mut next);
         assert!(!next.cues.iter().any(|cue| matches!(cue, Cue::Voice { .. })));
+        assert!(next.cues.iter().any(|cue| matches!(
+            cue,
+            Cue::GlobalSound {
+                sound: Sound::Cue(108),
+                priority: 1
+            }
+        )));
         for (guard, was_casting, hp, critical, impacts, sound, voice) in [
             (
                 GuardResult::None,
@@ -1025,7 +1267,7 @@ mod tests {
                 false,
                 100,
                 false,
-                &[4][..],
+                &[2, 4][..],
                 13,
                 Some(6),
             ),
@@ -1054,6 +1296,7 @@ mod tests {
                 was_casting,
                 overlimit: false,
                 stunned: false,
+                repeated: false,
                 result: HitResult {
                     amount: 10,
                     hp_change: -10,
@@ -1072,7 +1315,7 @@ mod tests {
                 .cues
                 .iter()
                 .filter_map(|cue| match cue {
-                    Cue::Effect(request) => Some(request),
+                    Cue::DeferredEffect(request) => Some(request),
                     _ => None,
                 })
                 .collect();
@@ -1087,7 +1330,16 @@ mod tests {
                     .collect::<Vec<_>>()
             );
             for request in effects {
-                assert_eq!(request.origin, [1., 2., 3.]);
+                if request.appearance == effect(4) {
+                    assert_eq!(request.origin, frame.actors[1].effect_origin());
+                    assert_eq!(
+                        request.follow,
+                        Some(resonance_battle::EffectFollow::Center(ids[1]))
+                    );
+                    assert_eq!(request.scale, frame.actors[1].effect_scale);
+                } else {
+                    assert_eq!(request.origin, [1., 2., 3.]);
+                }
                 assert_eq!(request.target, ids[1]);
                 assert_eq!(
                     request.owner,
@@ -1183,6 +1435,7 @@ mod tests {
             for nominal in [0, 10] {
                 let mut capped = base.clone();
                 capped.cues = vec![Cue::Recovered {
+                    floating: true,
                     actor: ids[0],
                     kind,
                     nominal,
@@ -1220,6 +1473,7 @@ mod tests {
         let mut frame = admitted;
         frame.cues.extend([
             Cue::Recovered {
+                floating: true,
                 actor: ids[0],
                 kind: resonance_battle::RecoveryKind::Hp,
                 nominal: 10,
@@ -1243,7 +1497,7 @@ mod tests {
             .collect();
         assert_eq!(notices, [(ids[0], "Self Cure"), (ids[0], "Angel's Tear")]);
         feedback.resolve(&mut frame);
-        assert!(frame.cues.contains(&Cue::ActorFlash {
+        assert!(frame.cues.contains(&Cue::ActorPulse {
             actor: ids[0],
             color: [10, 20, 30]
         }));
@@ -1300,6 +1554,7 @@ mod tests {
                 charged_effect: effect(6),
                 stored_effect: effect(50),
                 release_effect: effect(7),
+                opening_effect: None,
                 tint: Default::default(),
             },
         );
@@ -1365,6 +1620,10 @@ mod tests {
             root_translation: [0.; 3],
             world: bevy::math::Mat4::from_translation(bevy::math::Vec3::new(10., 20., 30.))
                 .to_cols_array_2d(),
+            particle_world: bevy::math::Mat4::from_translation(bevy::math::Vec3::new(
+                10., 20., 30.,
+            ))
+            .to_cols_array_2d(),
             bones: std::sync::Arc::new(vec![
                 identity,
                 bevy::math::Mat4::from_translation(bevy::math::Vec3::new(3., 4., 5.))
@@ -1438,11 +1697,59 @@ mod tests {
             );
         }
         assert!(frame.cues.iter().any(|cue| matches!(cue,
-            Cue::CastingEffect(request) if request.appearance == effect(7))));
+            Cue::Effect(request) if request.appearance == effect(7))));
         assert!(
             frame.cues.iter().any(|cue| matches!(cue,
             Cue::Notice { actor, action: resonance_battle::ActionKey(0), .. } if *actor == ids[0]))
         );
+        feedback
+            .resources
+            .casting
+            .get_mut(&resonance_battle::ActionKey(0))
+            .unwrap()
+            .opening_effect = Some(effect(37));
+        for phase in [
+            resonance_battle::CastPhase::SceneOpening,
+            resonance_battle::CastPhase::Released,
+        ] {
+            let mut frame = base.clone();
+            frame.cues = vec![Cue::Casting {
+                actor: ids[0],
+                action: resonance_battle::ActionKey(0),
+                phase,
+            }];
+            feedback.resolve(&mut frame);
+            let opening = phase == resonance_battle::CastPhase::SceneOpening;
+            assert_eq!(
+                frame.cues.iter().any(|cue| matches!(cue,
+                Cue::InitializedEffect(request) if request.appearance == effect(37))),
+                opening
+            );
+            assert_eq!(
+                frame.cues.iter().any(|cue| matches!(cue,
+                Cue::Effect(request) if request.appearance == effect(7))),
+                !opening
+            );
+            for count in [
+                frame
+                    .cues
+                    .iter()
+                    .filter(|cue| matches!(cue, Cue::Voice { .. }))
+                    .count(),
+                frame
+                    .cues
+                    .iter()
+                    .filter(|cue| matches!(cue, Cue::Sound { .. }))
+                    .count(),
+                frame
+                    .cues
+                    .iter()
+                    .filter(|cue| matches!(cue, Cue::Notice { .. }))
+                    .count(),
+            ] {
+                assert_eq!(count, usize::from(opening));
+            }
+        }
         assert_eq!(battle.snapshot(), base);
         assert_eq!(battle.random_state(), gameplay_random);
         Ok(())
@@ -1481,6 +1788,7 @@ mod tests {
                 leader,
                 stage_pitch: 0.,
                 auto_zoom: false,
+                yaw_limits: None,
             })
             .unwrap()
             .finish()
@@ -1492,19 +1800,40 @@ mod tests {
             amplitude: 8,
         });
         let mut feedback = Feedback::default();
-        feedback.advance(&mut frame, false);
-        assert_ne!(frame.camera, base.camera);
+        feedback.advance(&mut frame, false, &[]);
+        assert_eq!(frame.camera, base.camera);
+        for expected in [0., 4.] {
+            frame = base.clone();
+            feedback.advance(&mut frame, false, &[]);
+            assert_eq!(
+                frame.camera.unwrap().eye[1] - base.camera.unwrap().eye[1],
+                expected
+            );
+        }
         assert_eq!(feedback.motors(false), [false, true, false, true]);
         assert_eq!(frame.actors, base.actors);
         assert_eq!(battle.snapshot(), base);
         let mut held = base.clone();
-        feedback.advance(&mut held, true);
+        feedback.advance(&mut held, true, &[]);
         assert_eq!(held.camera, frame.camera);
         assert_eq!(feedback.motors(true), [false; 4]);
         assert_eq!(feedback.motors(false), [false, true, false, true]);
+        frame = base.clone();
+        frame.cues.push(Cue::Shake {
+            duration: 0,
+            amplitude: 0,
+        });
+        feedback.advance(&mut frame, false, &[]);
+        assert_eq!(
+            frame.camera.unwrap().eye[1] - base.camera.unwrap().eye[1],
+            4.
+        );
+        held = base.clone();
+        feedback.advance(&mut held, true, &[]);
+        assert_eq!(held.camera, frame.camera);
         for _ in 0..40 {
             frame = base.clone();
-            feedback.advance(&mut frame, false);
+            feedback.advance(&mut frame, false, &[]);
         }
         assert_eq!(frame, base);
         assert_eq!(feedback.motors(false), [false; 4]);
@@ -1519,7 +1848,7 @@ mod tests {
                 amount: 2,
             },
         ];
-        feedback.advance(&mut frame, false);
+        feedback.advance(&mut frame, false, &[]);
         assert_eq!(feedback.motors(false), [false, false, false, true]);
         assert_eq!(frame.camera, base.camera);
         frame = base.clone();
@@ -1527,11 +1856,15 @@ mod tests {
             duration: 120,
             amplitude: 100,
         });
-        feedback.advance(&mut frame, false);
-        assert!((frame.camera.unwrap().eye[1] - base.camera.unwrap().eye[1]).abs() <= 12.);
-        for _ in 0..30 {
+        feedback.advance(&mut frame, false, &[]);
+        assert_eq!(frame.camera, base.camera);
+        for expected in [0., 50., 50., 0.].into_iter().cycle().take(120) {
             frame = base.clone();
-            feedback.advance(&mut frame, false);
+            feedback.advance(&mut frame, false, &[]);
+            assert_eq!(
+                frame.camera.unwrap().eye[1] - base.camera.unwrap().eye[1],
+                expected
+            );
         }
         assert_eq!(frame, base);
         assert_eq!(feedback.motors(false), [false; 4]);
@@ -1540,10 +1873,10 @@ mod tests {
             duration: 12,
             amplitude: 8,
         });
-        feedback.advance(&mut frame, false);
+        feedback.advance(&mut frame, false, &[]);
         frame = base.clone();
         frame.recognized_result = Some(BattleResult::Victory);
-        feedback.advance(&mut frame, true);
+        feedback.advance(&mut frame, true, &[]);
         assert_eq!(frame.camera, base.camera);
         assert_eq!(feedback.motors(false), [false; 4]);
     }

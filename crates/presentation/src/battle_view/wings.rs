@@ -1,11 +1,16 @@
-//! Colette's attachment reuses field wing layers and the shared sparse pose sampler.
+//! Colette's battle wings use delayed translucent poses and a scrolling color texture.
 use anyhow::{Context, Result};
 use bevy::prelude::{Mat4, Quat, Vec3};
 use resonance_battle::BattleFrame;
 use resonance_content::animation::{Matrix, multiply, pose};
 use resonance_content::random::Random;
-use resonance_events::{Animation, WingStyle, Wings};
+use resonance_events::{Animation, Wings};
 use resonance_game::battle::encounter::WingAccessory;
+
+// Authored-frame delay and opacity, beginning with the current pose.
+const WING_LAYERS: [(f32, u8); 3] = [(0., 111), (5., 191), (10., 111)];
+const COLOR_SCROLL_PER_TICK: f32 = 0.01;
+const LAYER_COLOR_OFFSET: f32 = 0.15;
 
 const SPARKLE_INTERVAL: u32 = 5;
 const SPARKLE_LIFETIME: u32 = 32;
@@ -73,7 +78,6 @@ impl Sparkles {
 
 pub(super) struct State {
     pub source: WingAccessory,
-    policy: Wings,
     animation: Animation,
     update: Option<u64>,
     age: u32,
@@ -102,7 +106,6 @@ impl State {
         animation.repeat = true;
         Self {
             source,
-            policy: Wings::new(WingStyle::Layered),
             animation,
             update: None,
             age: 0,
@@ -145,14 +148,14 @@ impl State {
             * Mat4::from_quat(Quat::from_rotation_y(y) * Quat::from_rotation_x(x));
         let duration = self.source.motion.duration_frames * resonance_content::ANIMATION_HZ
             / resonance_content::animation::FRAME_HZ;
-        let time = self.animation.sample(self.age, 0, duration);
-        let layers = (0..Wings::LAYERS)
-            .map(|pass| {
-                let layer = self.policy.layer(pass, self.age);
-                let entrance = self.policy.entrance(pass, self.age);
-                let delay = entrance
-                    .as_ref()
-                    .map_or(layer.pose_delay, |entry| entry.delay);
+        let time = self.animation.sample(self.age, 0, duration)
+            * resonance_content::animation::FRAME_HZ
+            / resonance_content::ANIMATION_HZ;
+        let duration = self.source.motion.duration_frames;
+        let layers = WING_LAYERS
+            .into_iter()
+            .enumerate()
+            .map(|(pass, (delay, alpha))| {
                 let mut sample = time - delay;
                 if sample < 0. || sample > duration {
                     let phase = sample.rem_euclid(duration);
@@ -162,28 +165,31 @@ impl State {
                         phase
                     };
                 }
-                let sample = sample * resonance_content::animation::FRAME_HZ
-                    / resonance_content::ANIMATION_HZ;
                 let local = pose::sample(&self.source.skeleton, &self.source.motion, sample)?;
                 let mut bones = Vec::with_capacity(local.len());
                 for (bone, value) in self.source.skeleton.bones.iter().zip(local) {
-                    let value = if let Some(entrance) = &entrance {
-                        pose::BonePose::complete(pose::LocalPose::Trs(bone.bind))
-                            .mix(value, entrance.weight)
-                    } else {
-                        value
-                    };
                     let matrix = value.matrix();
                     bones.push(bone.parent.map_or(matrix, |parent| {
                         multiply(bones[usize::from(parent)], matrix)
                     }));
                 }
                 Ok(Frame {
-                    pass,
-                    world: (world * Mat4::from_scale(Vec3::splat(layer.scale))).to_cols_array_2d(),
+                    pass: pass as u8,
+                    world: world.to_cols_array_2d(),
                     bones,
-                    alpha: layer.alpha,
-                    uv: (layer.uv_texture, [layer.uv_offset, 0.]),
+                    alpha: if pass == 0 && self.age == 0 {
+                        255
+                    } else {
+                        alpha
+                    },
+                    uv: (
+                        0,
+                        [
+                            self.age as f32 * COLOR_SCROLL_PER_TICK
+                                - pass as f32 * LAYER_COLOR_OFFSET,
+                            0.,
+                        ],
+                    ),
                 })
             })
             .collect::<Result<Vec<_>>>()?;

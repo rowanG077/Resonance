@@ -12,6 +12,7 @@ pub(super) struct State {
     prelude_remaining: u16,
     transitioning: bool,
     scene: Option<StageTint>,
+    scene_step: u8,
     unison: Option<[u8; 3]>,
     unison_generation: Option<u64>,
 }
@@ -24,6 +25,7 @@ impl State {
             prelude_remaining: 0,
             transitioning: false,
             scene: None,
+            scene_step: PRELUDE_STEP,
             unison: None,
             unison_generation: None,
         }
@@ -81,6 +83,11 @@ impl State {
         if clock.feedback_paused() {
             return;
         }
+        for cue in cues {
+            if let Cue::InitializedStageTint { tint, step } = cue {
+                self.apply_tint(*tint, *step);
+            }
+        }
         let transitioning = clock == BattleClock::SpellTransition;
         if transitioning && !self.transitioning {
             self.prelude_remaining = TRANSITION_TICKS;
@@ -103,8 +110,10 @@ impl State {
         } else {
             base
         };
-        let step = if self.prelude_remaining != 0 || self.scene.is_some() {
+        let step = if self.prelude_remaining != 0 {
             PRELUDE_STEP
+        } else if self.scene.is_some() {
+            self.scene_step
         } else {
             RESTORE_STEP
         };
@@ -117,13 +126,25 @@ impl State {
         }
         // Scene initialization follows this update's color step.
         for cue in cues {
+            if matches!(cue, Cue::TechniqueAcquired { .. }) {
+                self.scene = Some(StageTint {
+                    color: PRELUDE_COLOR,
+                    duration: 60,
+                });
+                self.scene_step = 16;
+            }
             if let Cue::StageTint(request) = cue {
-                self.scene = Some(self.scene.map_or(*request, |current| StageTint {
-                    color: std::array::from_fn(|axis| current.color[axis].min(request.color[axis])),
-                    duration: current.duration.max(request.duration),
-                }));
+                self.apply_tint(*request, PRELUDE_STEP);
             }
         }
+    }
+
+    fn apply_tint(&mut self, request: StageTint, step: u8) {
+        self.scene_step = step;
+        self.scene = Some(self.scene.map_or(request, |current| StageTint {
+            color: std::array::from_fn(|axis| current.color[axis].min(request.color[axis])),
+            duration: current.duration.max(request.duration),
+        }));
     }
 }
 

@@ -35,8 +35,12 @@ pub(super) fn actor(layers: Layers) -> resonance_battle::ActorFrame {
     actor.facing_direction = [1., 0., 0.];
     actor.body.center_offset = [0., 50., 0.];
     resonance_battle::ActorFrame {
+        effect_center: actor.effect_origin(),
         state: actor,
         activity: Activity::Idle,
+        cast_releasing: false,
+        stun_remaining: 0,
+        stun_struggling: false,
     }
 }
 

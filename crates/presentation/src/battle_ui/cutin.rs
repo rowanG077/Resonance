@@ -27,19 +27,19 @@ impl Artwork {
         files: &resonance_content::prepared::Files,
         scenes: impl IntoIterator<Item = (u16, String)>,
         materials: &mut Assets<Surface>,
-        images: &mut Assets<Image>,
+        server: &AssetServer,
     ) -> Result<()> {
         for (catalogue, path) in scenes {
             let scene: resonance_content::battle_scene::Scene = files.json(&path)?;
             let Some(cutin) = scene.cutin else { continue };
             ensure!(cutin.images.len() == 1, "skill cut-in requires one image");
             let texture = &cutin.images[0];
-            let image = images.add(ui_image(
-                &texture.path,
-                [texture.width, texture.height],
-                false,
-                &|path| files.read(path).map(|bytes| bytes.to_vec()),
-            )?);
+            let image = menu::menu_image(server, texture.path.clone(), false);
+            self.pending_images.push(PendingImage {
+                image: image.clone(),
+                size: [texture.width, texture.height],
+                required: true,
+            });
             self.cutin.layers.insert(
                 catalogue,
                 HudLayer::load(

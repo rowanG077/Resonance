@@ -4,6 +4,10 @@ use resonance_game::battle::results::{ResultNotice, Results as Model};
 
 const ITEMS_PER_PAGE: usize = 2;
 const STAT_ADVANCE: f32 = 18.;
+const PAGE_SLIDE_TICKS: u32 = 20;
+const BONUS_TRANSFER_DELAY: u32 = 150;
+// Large awards transfer quickly, then slow down near the final total.
+const BONUS_TRANSFER_STEPS: [u32; 3] = [111, 11, 1];
 
 #[derive(serde::Serialize)]
 struct Row {
@@ -18,30 +22,83 @@ pub(super) struct Results {
     item_count: usize,
     chef: Option<String>,
     page: usize,
+    slide_age: Option<u32>,
+    slide_width: f32,
     sounds: Vec<u16>,
+    age: u32,
+    remaining_bonus: u32,
 }
 impl Results {
     fn pages(&self) -> usize {
         (self.item_count.div_ceil(ITEMS_PER_PAGE) + self.rows.len() - self.item_count).max(1)
     }
-    fn page_rows(&self) -> (&[Row], bool) {
+    fn page_rows(&self, page: usize) -> (&[Row], bool) {
         let item_pages = self.item_count.div_ceil(ITEMS_PER_PAGE);
-        if self.page < item_pages {
-            let first = self.page * ITEMS_PER_PAGE;
+        if page < item_pages {
+            let first = page * ITEMS_PER_PAGE;
             (
                 &self.rows[first..(first + ITEMS_PER_PAGE).min(self.item_count)],
                 true,
             )
         } else {
-            let first = self.item_count + self.page - item_pages;
+            let first = self.item_count + page - item_pages;
             (&self.rows[first..(first + 1).min(self.rows.len())], false)
         }
     }
     fn ready(&self) -> bool {
-        self.page + 1 == self.pages()
+        self.slide_age.is_none() && self.page + 1 == self.pages()
     }
-    pub(super) fn page_character(&self) -> Option<u8> {
-        self.page_rows().0.first().and_then(|row| row.character)
+    fn visible_pages(&self) -> impl Iterator<Item = (usize, f32)> {
+        let travel = self.slide_age.map(|age| {
+            age.min(PAGE_SLIDE_TICKS) as f32 / PAGE_SLIDE_TICKS as f32 * self.slide_width
+        });
+        travel
+            .map(|distance| (self.page - 1, -distance))
+            .into_iter()
+            .chain(std::iter::once((
+                self.page,
+                travel.map_or(0., |distance| self.slide_width - distance),
+            )))
+    }
+    pub(super) fn page_characters(&self) -> impl Iterator<Item = (u8, f32)> {
+        self.visible_pages().filter_map(|(page, offset)| {
+            self.page_rows(page)
+                .0
+                .first()
+                .and_then(|row| row.character)
+                .map(|character| (character, offset))
+        })
+    }
+    fn experience(&self) -> u32 {
+        self.model
+            .rewards
+            .experience
+            .saturating_add(self.model.rewards.combo_experience - self.remaining_bonus)
+    }
+    fn advance(&mut self, elapsed: u32) {
+        for _ in 0..elapsed {
+            if self.age >= BONUS_TRANSFER_DELAY
+                && let Some(&step) = BONUS_TRANSFER_STEPS
+                    .iter()
+                    .find(|&&step| step <= self.remaining_bonus)
+            {
+                self.remaining_bonus -= step;
+            }
+            self.age = self.age.saturating_add(1);
+        }
+        if let Some(age) = &mut self.slide_age {
+            *age = age.saturating_add(elapsed);
+            if *age > PAGE_SLIDE_TICKS {
+                self.slide_age = None;
+            }
+        }
+    }
+    fn next_page(&mut self) {
+        if self.slide_age.is_none() && self.page + 1 < self.pages() {
+            self.page += 1;
+            self.slide_age = Some(0);
+            self.sounds.push(1);
+        }
     }
 }
 
@@ -68,7 +125,7 @@ fn result_text(
         (2., [[16, 16, 24, 220]; 4]),
         (0., [colors[0], colors[0], colors[1], colors[1]]),
     ] {
-        for (column, character) in text.chars().enumerate() {
+        for (column, character) in text.chars().enumerate().filter(|(_, ch)| *ch != ' ') {
             let glyph = font
                 .glyphs
                 .get(&character)
@@ -97,7 +154,7 @@ impl Artwork {
     pub(crate) fn results_diagnostic(&self) -> Option<serde_json::Value> {
         let state = self.results.as_ref()?;
         Some(
-            serde_json::json!({"page": state.page, "pages": state.pages(), "ready": state.ready(), "rows": state.rows, "chef": state.chef}),
+            serde_json::json!({"page": state.page, "pages": state.pages(), "ready": state.ready(), "rows": state.rows, "chef": state.chef, "slide_age": state.slide_age, "age": state.age, "experience": state.experience(), "bonus": state.remaining_bonus}),
         )
     }
     pub fn results_on_last_page(&self) -> bool {
@@ -210,9 +267,9 @@ impl Artwork {
             self.font.validate_text(text)?;
         }
         self.font.validate_text("Cook")?;
-        self.art
-            .font
-            .validate_text("EXP GALD TIME GRADE ITEM(S) FOUND INFO +-.\"'0123456789")?;
+        self.art.font.validate_text(
+            "EXP BONUS MAX HIT GALD TIME GRADE ITEM(S) FOUND INFO +-.\"'0123456789",
+        )?;
         let previous_notices = self
             .results
             .as_ref()
@@ -240,17 +297,23 @@ impl Artwork {
                 item_count: model.rewards.items.len(),
                 chef,
                 page: 0,
+                slide_age: None,
+                slide_width: self.resolution.ui_size().x,
                 sounds,
+                age: 0,
+                remaining_bonus: model.rewards.combo_experience,
             });
         }
         Ok(())
     }
     pub fn next_result_page(&mut self) {
-        if let Some(state) = &mut self.results
-            && !state.ready()
-        {
-            state.page += 1;
-            state.sounds.push(1);
+        if let Some(state) = &mut self.results {
+            state.next_page();
+        }
+    }
+    pub(super) fn advance_results(&mut self, elapsed: u32) {
+        if let Some(state) = &mut self.results {
+            state.advance(elapsed);
         }
     }
     fn draw_results(&self) -> Result<[Batch; 3]> {
@@ -269,6 +332,8 @@ impl Artwork {
         let [red, blue, heading] = self.art.result_colors;
         for (label, position, color) in [
             ("EXP", [56., 20.], red),
+            ("BONUS", [56., 56.], red),
+            ("MAX", [56., 92.], red),
             ("GALD", [332., 20.], blue),
             ("TIME", [332., 56.], blue),
             ("GRADE", [332., 92.], blue),
@@ -278,16 +343,9 @@ impl Artwork {
         let ticks = model.combat_ticks;
         let grade = model.grade.unsigned_abs();
         for (value, right, top, color) in [
-            (
-                model
-                    .rewards
-                    .experience
-                    .saturating_add(model.rewards.combo_experience)
-                    .to_string(),
-                290.,
-                20.,
-                red,
-            ),
+            (state.experience().to_string(), 290., 20., red),
+            (format!("+{}", state.remaining_bonus), 290., 56., red),
+            (format!("{} HIT", model.maximum_combo), 290., 92., red),
             (model.rewards.gald.to_string(), 586., 20., blue),
             (
                 format!(
@@ -320,13 +378,16 @@ impl Artwork {
                 color,
             )?;
         }
-        let (rows, items) = state.page_rows();
-        if !rows.is_empty() {
+        for (page, offset) in state.visible_pages() {
+            let (rows, items) = state.page_rows(page);
+            if rows.is_empty() {
+                continue;
+            }
             text::glyph_gradient(
                 &mut batches[2],
                 &self.art.font,
                 if items { "ITEM(S) FOUND" } else { "INFO" },
-                [if items { 98. } else { 108. }, 340.],
+                [(if items { 98. } else { 108. }) + offset, 340.],
                 [13., 18.],
                 heading,
             )?;
@@ -336,11 +397,11 @@ impl Artwork {
                     &self.font,
                     &row.text,
                     [
-                        if items {
+                        (if items {
                             108. + column as f32 * 260.
                         } else {
                             136.
-                        },
+                        }) + offset,
                         362.,
                         if items { 242. } else { 472. },
                         24.,
@@ -372,12 +433,11 @@ impl Artwork {
     ) -> Result<()> {
         let result = (|| {
             let batches = self.draw_results()?;
-            if self
-                .results
-                .as_ref()
-                .is_some_and(|state| !state.page_rows().0.is_empty())
-            {
+            if let Some(state) = &self.results {
                 self.windows.render_battle_results_panel(
+                    state.visible_pages().filter_map(|(page, offset)| {
+                        (!state.page_rows(page).0.is_empty()).then_some(offset)
+                    }),
                     &self.font,
                     &self.dialogue,
                     &self.settings,
@@ -404,6 +464,114 @@ impl Artwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn result_pages_slide_together_and_cannot_skip_unread_notices() {
+        use resonance_game::battle::rewards::{ItemAward, Rewards};
+        let mut state = Results {
+            model: Model {
+                rewards: Rewards {
+                    experience: 0,
+                    combo_experience: 0,
+                    gald: 0,
+                    items: vec![ItemAward {
+                        item: 1,
+                        count: 1,
+                        discoveries: Vec::new(),
+                    }],
+                },
+                grade: 0,
+                maximum_combo: 0,
+                combat_ticks: 0,
+                character_names: Default::default(),
+                notices: vec![ResultNotice::Cooking {
+                    character: 1,
+                    recipe: 0,
+                    success: true,
+                }],
+                cook_prompt: None,
+                overflow: vec![false],
+            },
+            rows: vec![
+                Row {
+                    text: "Apple Gel".into(),
+                    overflow: false,
+                    character: None,
+                },
+                Row {
+                    text: "Cooked Sandwich".into(),
+                    overflow: false,
+                    character: Some(1),
+                },
+            ],
+            item_count: 1,
+            chef: None,
+            page: 0,
+            slide_age: None,
+            slide_width: 640.,
+            sounds: Vec::new(),
+            age: 0,
+            remaining_bonus: 0,
+        };
+        state.model.rewards.experience = 100;
+        state.model.rewards.combo_experience = 123;
+        state.remaining_bonus = 123;
+        state.advance(150);
+        assert_eq!((state.experience(), state.remaining_bonus), (100, 123));
+        state.advance(0);
+        assert_eq!((state.experience(), state.remaining_bonus), (100, 123));
+        for expected in [(211, 12), (222, 1), (223, 0), (223, 0)] {
+            state.advance(1);
+            assert_eq!((state.experience(), state.remaining_bonus), expected);
+        }
+        assert_eq!(
+            (
+                state.model.rewards.experience,
+                state.model.rewards.combo_experience
+            ),
+            (100, 123)
+        );
+        for width in [640., 480. * 16. / 9.] {
+            state.page = 0;
+            state.slide_width = width;
+            state.sounds.clear();
+            state.next_page();
+            assert!(!state.ready());
+            assert_eq!(
+                state.visible_pages().collect::<Vec<_>>(),
+                [(0, 0.), (1, width)]
+            );
+            state.next_page();
+            state.advance(0);
+            assert_eq!(state.slide_age, Some(0));
+            assert_eq!(state.sounds, [1]);
+            state.advance(10);
+            assert_eq!(
+                state.visible_pages().collect::<Vec<_>>(),
+                [(0, -width / 2.), (1, width / 2.)]
+            );
+            assert_eq!(
+                state.page_characters().collect::<Vec<_>>(),
+                [(1, width / 2.)]
+            );
+            state.next_page();
+            state.advance(10);
+            assert!(!state.ready());
+            assert_eq!(
+                state.visible_pages().collect::<Vec<_>>(),
+                [(0, -width), (1, 0.)]
+            );
+            // Both pages start/end outside the complete viewport, including sidebands.
+            assert!(96. + width > 320. + width / 2.);
+            assert!(616. - width < 320. - width / 2.);
+            state.advance(1);
+            assert!(state.ready());
+            assert_eq!(state.visible_pages().collect::<Vec<_>>(), [(1, 0.)]);
+            state.next_page();
+            assert_eq!(state.sounds, [1]);
+            assert_eq!(state.model.rewards.items[0].count, 1);
+        }
+    }
 
     #[test]
     #[ignore = "requires current font and item/technique catalogues; CPU drawing only"]
@@ -470,6 +638,7 @@ mod tests {
         let pages = hud.results.as_ref().unwrap().pages();
         for _ in 1..pages {
             hud.next_result_page();
+            hud.advance_results(PAGE_SLIDE_TICKS + 1);
         }
         assert!(hud.results_on_last_page());
         assert_eq!(hud.take_result_sounds(), vec![1; pages - 1]);
@@ -485,6 +654,8 @@ mod tests {
         hud.synchronize_results(&model, &diagnostics)?;
         assert!(hud.take_result_sounds().is_empty());
         hud.next_result_page();
+        assert!(!hud.results_on_last_page());
+        hud.advance_results(PAGE_SLIDE_TICKS + 1);
         assert!(hud.results_on_last_page());
         assert!(
             hud.results

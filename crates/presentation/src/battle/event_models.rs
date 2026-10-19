@@ -1,6 +1,5 @@
 //! Scene events sample the prepared battle artwork without changing combat playback.
 use anyhow::{Context, Result, ensure};
-use bevy::prelude::{Mat4, Vec3};
 use resonance_battle::{
     Actor, ActorId, Battle, BattleFrame, ModelDefinition, ModelSample, ModelSampler,
 };
@@ -8,7 +7,10 @@ use resonance_content::{
     animation::Motion, battle_event::Scene, model_preview::PreviewPart, prepared::Files,
 };
 use resonance_events::{Face, animation::AnimationSource};
-use resonance_game::battle::{encounter::RenderModel, event::Playback};
+use resonance_game::battle::{
+    encounter::{RenderInstances, RenderModel},
+    event::Playback,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -30,14 +32,12 @@ struct ActorModel {
     clips: BTreeMap<MotionKey, u16>,
     player: ModelSampler,
     selection: Option<Selection>,
-    head: Option<usize>,
 }
 
 pub(super) struct State {
     actors: Vec<ActorModel>,
     combat_count: usize,
     sampled_tick: Option<u32>,
-    heads: BTreeMap<i32, Vec3>,
     mouth_cycle: Vec<u8>,
     talking: BTreeMap<i32, u32>,
 }
@@ -127,12 +127,12 @@ impl State {
                                 uv_offsets: vec![],
                             })
                             .collect(),
-                        capacity: SOLDIER_ALIASES.len(),
+                        instances: RenderInstances::Fixed(SOLDIER_ALIASES.len()),
                         lit: true,
-                        effect: false,
                         texture_channels: vec![],
                         weapon_style: None,
                         suppressed_nodes: Default::default(),
+                        target_anchor: None,
                     });
                     resource
                 };
@@ -159,6 +159,7 @@ impl State {
                     reactions: Default::default(),
                     idle_motions: [None; 2],
                     idle_expression: [0; 4],
+                    forced_eye_frame: None,
                     blink: None,
                     weapons: vec![],
                     shadow: None,
@@ -228,11 +229,6 @@ impl State {
                 rate: 0.,
                 repeat: false,
             };
-            let head = definition
-                .skeleton
-                .bones
-                .iter()
-                .position(|bone| bone.name.starts_with("Bone_atama"));
             let definition = Arc::new(definition);
             actors.push(ActorModel {
                 alias,
@@ -240,7 +236,6 @@ impl State {
                 resource,
                 template: template.clone(),
                 clips,
-                head,
                 player: ModelSampler::new(definition.clone(), id, &template)?,
                 definition,
                 selection: None,
@@ -259,12 +254,7 @@ impl State {
             actors,
             combat_count: frame.actors.len(),
             sampled_tick: None,
-            heads: BTreeMap::new(),
         })
-    }
-
-    pub fn heads(&self) -> &BTreeMap<i32, Vec3> {
-        &self.heads
     }
 
     pub fn apply(&mut self, playback: &Playback, frame: &mut BattleFrame) -> Result<()> {
@@ -297,7 +287,6 @@ impl State {
         for speaker in speakers {
             self.talking.entry(speaker).or_insert(tick);
         }
-        self.heads.clear();
         frame.models.clear();
         frame.weapons.clear();
         frame.actors.truncate(self.combat_count);
@@ -305,8 +294,12 @@ impl State {
         for actor in &mut self.actors {
             if actor.id.index() >= self.combat_count {
                 frame.actors.push(resonance_battle::ActorFrame {
+                    effect_center: actor.template.effect_origin(),
                     state: actor.template.clone(),
                     activity: resonance_battle::Activity::Idle,
+                    cast_releasing: false,
+                    stun_remaining: 0,
+                    stun_struggling: false,
                 });
                 frame.targets.push(None);
             }
@@ -328,6 +321,7 @@ impl State {
                 "nonuniform battle event actor scale"
             );
             pose.body.scale = actor.template.body.scale * scale[0];
+            pose.effect_center = pose.effect_origin();
             pose.availability = resonance_battle::ActorAvailability::Active;
             pose.hp = pose.equipment.max_hp;
             pose.overlimit = Default::default();
@@ -402,11 +396,6 @@ impl State {
                 Some(Face::Blink) => self.mouth_cycle[tick as usize % self.mouth_cycle.len()],
                 _ => 0,
             };
-            if let Some(head) = actor.head {
-                let head = Mat4::from_cols_array_2d(&model.world)
-                    * Mat4::from_cols_array_2d(&model.bones[head]);
-                self.heads.insert(actor.alias, head.w_axis.truncate());
-            }
             for weapon in &mut weapons {
                 weapon.visible &= model.visible;
                 weapon.tint = model.tint;

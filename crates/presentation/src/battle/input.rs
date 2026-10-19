@@ -80,7 +80,7 @@ struct LocalControls {
     extra: [BattleButton; 5],
     stick: [i8; 2],
     c_stick: [i8; 2],
-    navigation: [DirectionRepeat; 4],
+    navigation: [DirectionRepeat; 6],
 }
 impl LocalControls {
     fn clear(&mut self) {
@@ -90,16 +90,19 @@ impl LocalControls {
         }
     }
 
-    fn directions(&mut self) -> [Direction; 4] {
+    fn directions(&mut self) -> [Direction; 6] {
         let digital = [
             i8::from(self.extra[1].held) - i8::from(self.extra[0].held),
             i8::from(self.extra[3].held) - i8::from(self.extra[2].held),
         ];
+        // Battle reads sticks only; shared menu navigation also accepts the D-pad.
         let held = [
-            (direction(self.stick[0]) + digital[0]).signum(),
-            (direction(self.stick[1]) + digital[1]).signum(),
+            direction(self.stick[0]),
+            direction(self.stick[1]),
             direction(self.c_stick[0]),
             direction(self.c_stick[1]),
+            (direction(self.stick[0]) + digital[0]).signum(),
+            (direction(self.stick[1]) + digital[1]).signum(),
         ];
         std::array::from_fn(|axis| self.navigation[axis].sample(held[axis]))
     }
@@ -127,6 +130,9 @@ impl LocalControls {
             cancel,
             cancel_selector,
             cook: cook.pressed,
+            order: [(1, 3), (0, 1), (3, 2), (2, 0)]
+                .into_iter()
+                .find_map(|(button, order)| self.extra[button].pressed.then_some(order)),
             menu: menu_input(&self.buttons, &self.extra, directions),
             stick: self.stick,
             pressed_direction: [directions[0].pressed, directions[1].pressed],
@@ -182,7 +188,7 @@ impl LocalControls {
 fn menu_input(
     buttons: &[BattleButton; 7],
     extra: &[BattleButton; 5],
-    directions: [Direction; 4],
+    directions: [Direction; 6],
 ) -> SharedMenuInput {
     use MenuAction::*;
     let [
@@ -207,10 +213,10 @@ fn menu_input(
         (directions[2].step > 0, NextPosition),
         (directions[3].step > 0, PageUp),
         (directions[3].step < 0, PageDown),
-        (directions[1].step > 0, Up),
-        (directions[1].step < 0, Down),
-        (directions[0].step < 0, Left),
-        (directions[0].step > 0, Right),
+        (directions[5].step > 0, Up),
+        (directions[5].step < 0, Down),
+        (directions[4].step < 0, Left),
+        (directions[4].step > 0, Right),
     ]
     .into_iter()
     .find_map(|(active, action)| active.then_some(action))
@@ -230,6 +236,7 @@ struct ControllerSample {
     cancel: BattleButton,
     cancel_selector: BattleButton,
     cook: bool,
+    order: Option<u8>,
     menu: SharedMenuInput,
     stick: [i8; 2],
     pressed_direction: [i8; 2],
@@ -344,6 +351,10 @@ impl Frame {
         self.slots[0].cook
     }
 
+    pub fn order(&self) -> Option<u8> {
+        self.slots.iter().find_map(|sample| sample.order)
+    }
+
     pub fn command_input(
         &self,
         owner: Option<u8>,
@@ -429,7 +440,7 @@ impl Controls {
             .iter_mut()
             .chain(std::iter::once(&mut self.keyboard))
         {
-            slot.navigation = [DirectionRepeat::default(); 4];
+            slot.navigation = [DirectionRepeat::default(); 6];
             slot.discard();
         }
     }
@@ -515,6 +526,13 @@ pub(super) fn gather(
     let battle_key = |key: KeyCode| {
         key != KeyCode::Tab || !keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
     };
+    let extra_keys = [
+        KeyCode::Digit1,
+        KeyCode::Digit3,
+        KeyCode::Digit0,
+        KeyCode::Digit2,
+        KeyCode::Home,
+    ];
     let keyboard = Sample {
         held: bindings.map(|buttons| {
             buttons
@@ -526,8 +544,8 @@ pub(super) fn gather(
                 .iter()
                 .any(|key| battle_key(*key) && keys.just_pressed(*key))
         }),
-        extra_held: [false, false, false, false, keys.pressed(KeyCode::Home)],
-        extra_pressed: [false, false, false, false, keys.just_pressed(KeyCode::Home)],
+        extra_held: extra_keys.map(|key| keys.pressed(key)),
+        extra_pressed: extra_keys.map(|key| keys.just_pressed(key)),
         stick: Vec2::new(
             axis(
                 [KeyCode::ArrowRight, KeyCode::KeyD],
@@ -748,19 +766,22 @@ mod tests {
     }
 
     #[test]
-    fn direction_repeat_is_shared_by_sticks_and_dpad_without_opposite_events() {
+    fn direction_repeat_keeps_battle_sticks_separate_from_shared_menu_dpad() {
         let mut analog = LocalControls::default();
         let mut digital = LocalControls::default();
         analog.stick[0] = STICK_RANGE as i8;
         digital.extra[1].held = true;
         let settings = CustomizeSettings::default();
         assert_eq!(analog.sample(&settings).step, 1);
-        assert_eq!(digital.sample(&settings).step, 1);
+        let first = digital.sample(&settings);
+        assert_eq!(first.step, 0);
+        assert_eq!(first.menu, Some(MenuAction::Right));
         let events: Vec<_> = (0..60)
             .map(|_| {
                 let a = analog.sample(&settings);
                 let b = digital.sample(&settings);
-                assert_eq!(a.step, b.step);
+                assert_eq!(a.step == 1, b.menu == Some(MenuAction::Right));
+                assert_eq!(b.step, 0);
                 assert_eq!(a.pressed_direction, [0; 2]);
                 a.step
             })
@@ -768,9 +789,68 @@ mod tests {
         assert!(events.contains(&0));
         assert!(events.contains(&1));
         analog.extra[0].held = true;
-        assert_eq!(analog.sample(&settings).step, 0);
+        assert_eq!(analog.sample(&settings).menu, None);
         analog.stick[0] = 0;
-        assert_eq!(analog.sample(&settings).step, -1);
+        let digital_only = analog.sample(&settings);
+        assert_eq!(digital_only.step, 0);
+        assert_eq!(digital_only.menu, Some(MenuAction::Left));
+    }
+
+    #[test]
+    fn quick_orders_latch_once_without_battle_navigation_or_hold_repeat() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Controls>()
+            .add_systems(Update, gather);
+        for (key, order) in [
+            (KeyCode::Digit1, 1),
+            (KeyCode::Digit2, 2),
+            (KeyCode::Digit3, 3),
+            (KeyCode::Digit0, 0),
+        ] {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .reset_all();
+            app.update();
+            app.world_mut()
+                .resource_mut::<Controls>()
+                .sample(&Default::default());
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(key);
+            app.update();
+            let frame = app
+                .world_mut()
+                .resource_mut::<Controls>()
+                .sample(&Default::default());
+            assert_eq!(frame.order(), Some(order));
+            let actor_input = inputs(&frame, &[actor(0, Control::Manual)])[0];
+            assert_eq!(actor_input.stick, [0; 2]);
+            assert_eq!(actor_input.horizontal_pressed, 0);
+            assert_eq!(actor_input.vertical_pressed, 0);
+            assert_eq!(actor_input.target_step, 0);
+            assert_eq!(
+                frame.command_input(Some(0), &[], InputKind::Command).step,
+                0
+            );
+            for _ in 0..60 {
+                assert_eq!(
+                    app.world_mut()
+                        .resource_mut::<Controls>()
+                        .sample(&Default::default())
+                        .order(),
+                    None
+                );
+            }
+        }
+        let mut controls = Controls::default();
+        controls.slots[3].gather(Sample {
+            extra_held: [false, false, false, true, false],
+            ..Default::default()
+        });
+        controls.slots[3].gather(Sample::default());
+        assert_eq!(controls.sample(&Default::default()).order(), Some(2));
+        assert_eq!(controls.sample(&Default::default()).order(), None);
     }
 
     #[test]

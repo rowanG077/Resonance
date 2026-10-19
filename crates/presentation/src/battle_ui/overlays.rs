@@ -4,7 +4,7 @@ use anyhow::Result;
 use resonance_battle::conditions::ConditionLabel;
 
 const HOLD_TICKS: u32 = 60;
-const FADE_TICKS: u64 = 20;
+const LABEL_FADE_STEP: u64 = 8;
 const CONDITION_HOLD_TICKS: u32 = 45;
 const COLLAPSE_TICKS: u64 = 12;
 
@@ -12,6 +12,7 @@ const COLLAPSE_TICKS: u64 = 12;
 pub(super) enum LabelKind {
     Applied,
     OverLimit,
+    GuardBreak,
     ExSkill,
     StatusDown,
     Custom,
@@ -105,6 +106,7 @@ impl ActorLabel {
             kind,
             lines: match kind {
                 LabelKind::OverLimit => ["OVER", "LIMIT"],
+                LabelKind::GuardBreak => ["GUARD", "BREAK"],
                 LabelKind::Applied => ["STATUS", "EFFECT"],
                 LabelKind::ExSkill => ["EX SKILL", "EFFECT"],
                 LabelKind::StatusDown => ["STATUS", "DOWN"],
@@ -116,7 +118,7 @@ impl ActorLabel {
             .map(str::to_owned),
             age: 0,
             duration: match kind {
-                LabelKind::OverLimit | LabelKind::Custom => HOLD_TICKS,
+                LabelKind::Custom => HOLD_TICKS,
                 _ => CONDITION_HOLD_TICKS,
             },
         }
@@ -128,10 +130,7 @@ impl ActorLabel {
 
     fn alpha(&self) -> u8 {
         let fading = self.age.saturating_sub(u64::from(self.duration));
-        if matches!(self.kind, LabelKind::Applied) {
-            return if fading < COLLAPSE_TICKS { 255 } else { 0 };
-        }
-        (255 * FADE_TICKS.saturating_sub(fading) / FADE_TICKS) as u8
+        255_u64.saturating_sub(fading.saturating_mul(LABEL_FADE_STEP)) as u8
     }
 
     pub fn visible(&self) -> bool {
@@ -158,50 +157,39 @@ impl ActorLabel {
         const GLYPH: [f32; 2] = [18., 24.];
         const ADVANCE: f32 = 14.;
         const SKEW: f32 = 12.;
-        const ROW_OFFSET: [f32; 2] = [12., 22.];
+        const ALIGNMENT_CELL: f32 = 12.;
+        const ROW_ADVANCE: f32 = 22.;
+        const BASELINE_ABOVE_ANCHOR: f32 = 10.;
         const ECHO_TICKS: u64 = 8;
         const ECHO_STEP: f32 = 4.;
         const ECHO_START_ALPHA: u64 = 128;
-        const STRIP_WIDTH: f32 = 100.;
-        const STRIP_OFFSET: f32 = 60.;
-        const STRIP_SKEW: f32 = 12.;
-        const STRIP_LEAD: f32 = 24.;
+        const STRIP_PADDING: [f32; 2] = [24., 8.];
+        const STRIP_EXTRA_WIDTH: f32 = 40.;
         const STRIP_GROWTH: f32 = 4.;
-        let line_width =
-            |columns: usize| columns.saturating_sub(1) as f32 * ADVANCE + GLYPH[0] + SKEW;
-        let columns = lines
-            .iter()
-            .map(|line| line.chars().count())
-            .max()
-            .unwrap_or(0);
-        let width = line_width(columns).max(STRIP_WIDTH);
-        let [x, y] = super::floating_origin(
-            [projected[0] - STRIP_LEAD, projected[1] - GLYPH[1]],
-            [width + STRIP_OFFSET + STRIP_SKEW, ROW_OFFSET[1] + GLYPH[1]],
-        );
-        let right = x + width + STRIP_LEAD;
-        let collapse = if matches!(self.kind, LabelKind::Applied) {
-            self.age
-                .saturating_sub(u64::from(self.duration))
-                .min(COLLAPSE_TICKS) as f32
-        } else {
-            0.
-        };
+        let columns = lines.each_ref().map(|line| line.chars().count());
+        let alignment = [columns[0].div_ceil(2), columns[1].saturating_sub(1) / 2];
+        let [x, y] = projected.map(f32::trunc);
+        let strip_width = columns[0] as f32 * ALIGNMENT_CELL + STRIP_EXTRA_WIDTH;
+        let collapse = self
+            .age
+            .saturating_sub(u64::from(self.duration))
+            .min(COLLAPSE_TICKS) as f32;
         let height = GLYPH[1] * (1. - collapse / COLLAPSE_TICKS as f32);
+        let skew = SKEW + GLYPH[1] - height;
         let mut colors = stat_colors;
         for color in &mut colors {
             color[3] = self.alpha();
         }
         for (row, line) in lines.iter().enumerate() {
-            let top = y + row as f32 * ROW_OFFSET[1];
-            let baseline = top + GLYPH[1];
-            let text_left = right - line_width(line.chars().count()) + row as f32 * ROW_OFFSET[0];
-            let left = x + width - STRIP_WIDTH + row as f32 * STRIP_OFFSET;
+            let baseline = y - BASELINE_ABOVE_ANCHOR + row as f32 * ROW_ADVANCE;
+            let top = baseline - height;
+            let text_left = x - alignment[row] as f32 * ALIGNMENT_CELL;
+            let left = text_left - STRIP_PADDING[row];
             let expansion = collapse * STRIP_GROWTH;
             let strip = if row == 0 {
-                [left - expansion, left + STRIP_WIDTH]
+                [left - expansion, left + strip_width]
             } else {
-                [left, left + STRIP_WIDTH + expansion]
+                [left, left + strip_width + expansion]
             };
             let mut backdrop = stat_backdrops[row];
             for (corner, color) in backdrop.iter_mut().enumerate() {
@@ -215,7 +203,7 @@ impl ActorLabel {
                 solid,
                 [strip[0], baseline - height, strip[1], baseline],
                 [0.5; 4],
-                STRIP_SKEW,
+                skew,
                 backdrop,
             );
             text::italic(
@@ -225,7 +213,7 @@ impl ActorLabel {
                 [text_left, baseline - height],
                 [GLYPH[0], height],
                 ADVANCE,
-                SKEW,
+                skew,
                 colors,
             )?;
             if self.age <= ECHO_TICKS {
@@ -253,6 +241,22 @@ impl ActorLabel {
 }
 
 impl super::Artwork {
+    pub(super) fn advance_labels(&mut self, clock: resonance_battle::BattleClock, elapsed: u32) {
+        let activation_hold = matches!(
+            clock,
+            resonance_battle::BattleClock::TimedHold | resonance_battle::BattleClock::Rescue(_)
+        );
+        self.labels.retain_mut(|(owner, label)| {
+            let rescue = matches!(clock, resonance_battle::BattleClock::Rescue(actor) if actor.index() == *owner);
+            label.advance(if rescue || (activation_hold && matches!(label.kind, LabelKind::OverLimit)) {
+                1
+            } else {
+                elapsed
+            });
+            label.visible()
+        });
+    }
+
     pub(crate) fn overlays_diagnostic(&self) -> serde_json::Value {
         serde_json::json!({
             "actor_labels": self.labels.iter().map(|(actor, label)| serde_json::json!({
@@ -280,7 +284,7 @@ mod tests {
         assert_eq!(labels[0].1.text(), "OVER LIMIT");
         labels[0].1.advance(HOLD_TICKS);
         assert!(labels[0].1.visible());
-        labels[0].1.advance(FADE_TICKS as u32);
+        labels[0].1.advance(HOLD_TICKS);
         assert!(!labels[0].1.visible());
         request_custom(
             &mut labels,

@@ -34,6 +34,7 @@ pub(super) struct LayerDefinition {
     pub(super) size: [u32; 2],
     pub(super) depth: f32,
     pub(super) nearest: bool,
+    pub(super) texture_effect: TextureEffect,
 }
 impl LayerDefinition {
     pub(super) fn new(image: Handle<Image>, size: [u32; 2], depth: Depth) -> Self {
@@ -42,6 +43,7 @@ impl LayerDefinition {
             size,
             depth: depth.value(),
             nearest: false,
+            texture_effect: TextureEffect::Plain,
         }
     }
     pub(super) fn foreground(mut self) -> Self {
@@ -54,6 +56,10 @@ impl LayerDefinition {
     }
     pub(super) fn at(mut self, depth: Depth) -> Self {
         self.depth = depth.value();
+        self
+    }
+    pub(super) fn effect(mut self, effect: TextureEffect) -> Self {
+        self.texture_effect = effect;
         self
     }
 }
@@ -81,7 +87,7 @@ impl HudLayer {
             color_mask: image.clone(),
             coverage: Coverage::default(),
             additive: false,
-            red_channel: false,
+            texture_effect: definition.texture_effect,
             opaque: false,
         });
         Self {
@@ -96,6 +102,9 @@ impl HudLayer {
         }
         let mut batch = Batch::default();
         batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
+        if self.definition.texture_effect == TextureEffect::GlyphPattern {
+            batch.pattern_uv = batch.uv.clone();
+        }
         let mesh = meshes.add(batch.mesh([1, 1]));
         let transform = Transform::from_xyz(0., 0., self.definition.depth);
         let entity = commands
@@ -165,11 +174,15 @@ impl Palette {
 
 pub(super) struct UiLayers {
     pub(super) portraits: Vec<HudLayer>,
+    pub(super) petrified_portraits: Vec<HudLayer>,
     pub(super) stat_icons: Vec<HudLayer>,
+    pub(super) rhythm_prompt: HudLayer,
     pub(super) unison: Vec<HudLayer>,
     pub(super) gauges: HudLayer,
     pub(super) font: HudLayer,
+    pub(super) patterned_vitals: HudLayer,
     pub(super) commands: [HudLayer; 4],
+    pub(super) ribbons: [HudLayer; 3],
     pub(super) results: [HudLayer; 3],
     pub(super) notice: Vec<HudLayer>,
     pub(super) labels: [HudLayer; 2],
@@ -182,16 +195,20 @@ impl UiLayers {
     pub(super) fn iter(&self) -> impl Iterator<Item = &HudLayer> {
         self.portraits
             .iter()
+            .chain(&self.petrified_portraits)
             .chain(&self.stat_icons)
             .chain(&self.unison)
             .chain(&self.commands)
+            .chain(&self.ribbons)
             .chain(&self.results)
             .chain(&self.notice)
             .chain(&self.labels)
             .chain(&self.scan)
             .chain([
+                &self.rhythm_prompt,
                 &self.gauges,
                 &self.font,
+                &self.patterned_vitals,
                 &self.floating,
                 &self.recovery,
                 &self.transition,
@@ -200,16 +217,20 @@ impl UiLayers {
     pub(super) fn iter_mut(&mut self) -> impl Iterator<Item = &mut HudLayer> {
         self.portraits
             .iter_mut()
+            .chain(&mut self.petrified_portraits)
             .chain(&mut self.stat_icons)
             .chain(&mut self.unison)
             .chain(&mut self.commands)
+            .chain(&mut self.ribbons)
             .chain(&mut self.results)
             .chain(&mut self.notice)
             .chain(&mut self.labels)
             .chain(&mut self.scan)
             .chain([
+                &mut self.rhythm_prompt,
                 &mut self.gauges,
                 &mut self.font,
+                &mut self.patterned_vitals,
                 &mut self.floating,
                 &mut self.recovery,
                 &mut self.transition,

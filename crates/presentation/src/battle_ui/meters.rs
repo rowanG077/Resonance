@@ -2,7 +2,7 @@
 use super::*;
 use resonance_battle::{MAX_ESCAPE_GAUGE, MAX_UNISON_GAUGE, item::ITEM_COOLDOWN_TICKS};
 
-pub(super) const COUNT: usize = 6;
+pub(super) const COUNT: usize = 7;
 
 pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Result<()> {
     if frame.recognized_result.is_some() {
@@ -108,7 +108,7 @@ pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Res
             [0.5; 4],
             hud_color(color),
         );
-        batches[2].quad(
+        batches[6].quad(
             [3., 267., 371., 411.],
             [0., 368., 352., 512.],
             [0., 0., 0., 0.5],
