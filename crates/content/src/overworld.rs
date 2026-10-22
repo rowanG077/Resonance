@@ -4,13 +4,13 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 mod movement;
-pub use movement::MovementParameters;
+pub use movement::{FlightZone, MovementParameters};
 mod position;
 pub use position::{Position, TileCoordinate, World};
 mod travel;
 pub use travel::{MapDisplay, Mount, TravelState};
 mod landmarks;
-pub use landmarks::{Guidepost, Interaction, Landmark, Landmarks, Marker};
+pub use landmarks::{Guidepost, Interaction, Landmark, Landmarks, Marker, ShipCameraClearance};
 mod package;
 pub use package::{
     Cinematic, CinematicDialogue, PACKAGE_PATH, PACKAGE_VERSION, Package, TerrainTile,

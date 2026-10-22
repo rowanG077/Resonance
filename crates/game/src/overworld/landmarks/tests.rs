@@ -11,6 +11,7 @@ pub(crate) fn definitions() -> Landmarks {
                     radius: 80.,
                     interaction: Interaction::Disabled,
                     marker: Marker::None,
+                    ship_camera_clearance: None,
                     name: format!("Place {id}"),
                     automatic: false,
                 })
@@ -65,6 +66,57 @@ pub(crate) fn progress() -> TestProgress {
         formation: vec![1, 3],
         ..Default::default()
     }
+}
+
+#[test]
+fn flight_zones_respect_activation_bounds_and_existing_height() -> Result<()> {
+    let mut data = definitions();
+    data.worlds[0][0].position = [10., 1000.];
+    data.worlds[0][0].interaction = Interaction::Active;
+    let mut locations = Locations::new(
+        Arc::new(data),
+        Default::default(),
+        crate::overworld::scripts::fixture(),
+    )?;
+    let zones = [
+        FlightZone::Landmark {
+            location: 1,
+            margin: 20.,
+            height: 500.,
+            active_only: true,
+        },
+        FlightZone::Circle {
+            position: [2000., 1000.],
+            radius: 300.,
+            height: 1000.,
+        },
+    ];
+    // Landmark bounds include the world seam.
+    for (x, ground, expected) in [
+        (-90., 0., 500.),
+        (-91., 0., 0.),
+        (110., 0., 500.),
+        (111., 0., 0.),
+        (10., 800., 800.),
+        (1700., 0., 1000.),
+        (1699., 0., 0.),
+    ] {
+        assert_eq!(
+            locations.flight_floor(Position::from_map([x, 1000., ground])?, &zones)?,
+            expected
+        );
+    }
+    locations.appearances.get_mut(&1).unwrap().interaction = Interaction::Disabled;
+    let center = Position::from_map([10., 1000., 0.])?;
+    assert_eq!(locations.flight_floor(center, &zones)?, 0.);
+    let unconditional = [FlightZone::Landmark {
+        location: 1,
+        margin: 20.,
+        height: 500.,
+        active_only: false,
+    }];
+    assert_eq!(locations.flight_floor(center, &unconditional)?, 500.);
+    Ok(())
 }
 
 #[test]

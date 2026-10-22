@@ -12,6 +12,7 @@ pub(super) struct Sources {
     party: Vec<[String; 2]>,
     animation_members: [usize; 4],
     skies: [Vec<u8>; 2],
+    dust: Vec<u8>,
     cinematics: Vec<String>,
     dialogue: Vec<resonance_content::overworld::CinematicDialogue>,
 }
@@ -86,6 +87,7 @@ impl Sources {
                 })
                 .collect::<Result<_>>()?,
             animation_members,
+            dust: rel.at((6, 0x2f100))?.to_vec(),
             skies: [
                 crate::compression::payload(rel.at(rel.pointer(6, 0x2a56c)?)?.to_vec())?,
                 crate::compression::payload(rel.at(rel.pointer(6, 0x2a570)?)?.to_vec())?,
@@ -100,7 +102,17 @@ impl Sources {
             "unexpected world actor archive"
         );
         let mounts = member(&common, 20)?.context("missing world mount motion bank")?;
-        let mut visuals = Visuals::default();
+        let mut visuals = Visuals {
+            dust: crate::texture::decode_source(&self.dust)?
+                .write(output)?
+                .textures
+                .into_iter()
+                .map(|texture| Ok(texture.context("missing world dust sprite")?.image(0)?.path))
+                .collect::<Result<Vec<_>>>()?
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("expected four world dust sprites"))?,
+            ..Default::default()
+        };
         for (index, bytes) in self.skies.iter().enumerate() {
             let decoded_sky = Package::cook(
                 bytes,

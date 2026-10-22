@@ -3,6 +3,35 @@ use super::*;
 
 pub(super) const WAKE_COUNT: usize = 24;
 pub(super) const WAKE_RATE: f32 = 1. / 12.;
+pub(super) const BARRIER_MODEL: u16 = 215;
+pub(super) const PORTAL_MODEL: u16 = 216;
+const BARRIER_DURATION: u32 = 80;
+
+/// Horizontal cloud loops for the ordinary and endgame skies, in 60 Hz ticks.
+pub(super) fn sky_scroll(variant: usize, texture: usize, tick: u32) -> f32 {
+    const PERIODS: [&[u32]; 2] = [&[12288, 16384], &[12288, 12288, 8192]];
+    let period = PERIODS[variant][texture];
+    (tick % period) as f32 / period as f32
+}
+
+pub(super) fn portal_uv(age: u32, texture: usize) -> f32 {
+    match texture {
+        1 if (30..90).contains(&age) => (age - 30) as f32 / 60.,
+        2 if age < 50 => age as f32 / 50.,
+        _ => 0.,
+    }
+}
+
+pub(super) struct Barrier {
+    pub position: Position,
+    pub heading: f32,
+    age: u32,
+}
+impl Barrier {
+    pub fn uv_offset(&self) -> f32 {
+        1. - self.age as f32 / BARRIER_DURATION as f32
+    }
+}
 
 pub(super) struct Wake {
     pub position: Position,
@@ -11,25 +40,51 @@ pub(super) struct Wake {
 }
 
 pub(super) struct Effects {
+    pub(super) particles: super::particles::Particles,
     pub wakes: [Option<Wake>; WAKE_COUNT],
+    pub barriers: Vec<Option<Barrier>>,
     cooldown: u8,
     random: u32,
 }
 impl Default for Effects {
     fn default() -> Self {
         Self {
+            particles: Default::default(),
             wakes: std::array::from_fn(|_| None),
+            barriers: Vec::new(),
             cooldown: 0,
             random: 1,
         }
     }
 }
 impl Effects {
+    pub fn hit_barrier(&mut self, position: Position, heading: f32) {
+        let barrier = Some(Barrier {
+            position,
+            heading,
+            age: 0,
+        });
+        if let Some(slot) = self.barriers.iter_mut().find(|slot| slot.is_none()) {
+            *slot = barrier;
+        } else {
+            self.barriers.push(barrier);
+        }
+    }
+
     pub fn step(
         &mut self,
         session: &game::Session,
         models: &BTreeMap<Model, Vec<ScenePart>>,
     ) -> Result<()> {
+        self.particles.step(session, models)?;
+        for slot in &mut self.barriers {
+            if let Some(barrier) = slot {
+                barrier.age += 1;
+                if barrier.age >= BARRIER_DURATION {
+                    *slot = None;
+                }
+            }
+        }
         if session.travel.state().mount != Mount::Ship {
             self.wakes = std::array::from_fn(|_| None);
             self.cooldown = 0;

@@ -33,5 +33,57 @@
       1800.0,
       3400.0
     ]
+  ],
+  "flight_zones": [
+    [
+      {
+        "area": "landmark",
+        "location": 23,
+        "margin": 50.0,
+        "height": 1000.0,
+        "active_only": true
+      },
+      {
+        "area": "landmark",
+        "location": 25,
+        "margin": 50.0,
+        "height": 1000.0,
+        "active_only": true
+      }
+    ],
+    [
+      {
+        "area": "circle",
+        "position": [
+          19800.0,
+          49840.0
+        ],
+        "radius": 400.0,
+        "height": 1200.0
+      },
+      {
+        "area": "landmark",
+        "location": 266,
+        "margin": 300.0,
+        "height": 500.0,
+        "active_only": true
+      },
+      {
+        "area": "landmark",
+        "location": 274,
+        "margin": 50.0,
+        "height": 500.0,
+        "active_only": false
+      },
+      {
+        "area": "circle",
+        "position": [
+          51074.0,
+          32808.0
+        ],
+        "radius": 300.0,
+        "height": 400.0
+      }
+    ]
   ]
 }

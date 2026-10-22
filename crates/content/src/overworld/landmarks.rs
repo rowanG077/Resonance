@@ -23,6 +23,14 @@ pub enum Marker {
     Unmodeled,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ShipCameraClearance {
+    /// Distances beyond the landmark's footprint where camera clearance applies.
+    pub near_margin: f32,
+    pub far_margin: f32,
+    pub height: f32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Landmark {
     /// World-event registry key: Sylvarant 1..98, Tethe'alla 257..337.
@@ -33,6 +41,8 @@ pub struct Landmark {
     pub radius: f32,
     pub interaction: Interaction,
     pub marker: Marker,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ship_camera_clearance: Option<ShipCameraClearance>,
     pub name: String,
     pub automatic: bool,
 }
@@ -67,6 +77,19 @@ impl Landmarks {
                 );
                 if let Marker::Model { id } = entry.marker {
                     ensure!((1..=17).contains(&id), "invalid landmark model");
+                }
+                if let Some(clearance) = entry.ship_camera_clearance {
+                    ensure!(
+                        [
+                            clearance.near_margin,
+                            clearance.far_margin,
+                            clearance.height
+                        ]
+                        .into_iter()
+                        .all(|value| value.is_finite() && value > 0.)
+                            && clearance.near_margin < clearance.far_margin,
+                        "invalid landmark ship camera clearance"
+                    );
                 }
                 ensure!(ids.insert(entry.id), "duplicate landmark");
             }

@@ -56,6 +56,9 @@ pub(super) fn discover(
     let tiles = overworld_encounters::tiles::read(&module, &source_hashes)?
         .context("world terrain catalogue missing")?;
     let world = super::world_map::read(executable)?;
+    let controller = crate::rel::Rel::read(&module)?;
+    let mut landmarks = overworld_landmarks::prepare(&world)?;
+    overworld_landmarks::bind_camera_clearance(&mut landmarks, &controller)?;
     let map = crate::menu::world_map(
         &world,
         &crate::field_catalogue::read(executable)?,
@@ -83,10 +86,10 @@ pub(super) fn discover(
     Ok(Plan {
         dependencies,
         visuals,
-        movement: overworld_movement::read(&crate::rel::Rel::read(&module)?)?,
+        movement: overworld_movement::read(&controller)?,
         collision: overworld_collision::prepare(&module)?,
         encounters: overworld_encounters::prepare(&module)?,
-        landmarks: overworld_landmarks::prepare(&world)?,
+        landmarks,
         guideposts: super::field_unlocks::read(&module, &map.locations)?
             .context("world guideposts missing")?,
         tiles,
@@ -261,6 +264,7 @@ pub(super) fn prepare(
             .filter(|(path, _)| path.ends_with(".sym"))
             .map(|(path, _)| format!("scripts/{path}")),
     );
+    paths.extend(package.visuals.dust.iter().cloned());
     for part in package
         .worlds
         .iter()
