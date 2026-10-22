@@ -121,6 +121,9 @@ fn release_fire_ball(f: &mut PreparedFixture, initial: u16) -> Result<()> {
         chanted |= matches!(f.battle.activity(actor), Activity::Casting { .. });
         if total > initial {
             assert!(chanted);
+            let facts = &f.battle.ledger().achievements[actor.index()];
+            assert!(facts.acted && facts.used_arte);
+            assert_eq!(facts.spell_elements, 1 << 2, "Fire Ball records fire");
             assert_eq!(total, expected);
             // Casting snapshots the prior total; release does not update it.
             assert_eq!(

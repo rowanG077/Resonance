@@ -88,6 +88,7 @@ pub struct Setup {
     /// Prepared capacity is shared by menus and live control; saved membership gates use.
     pub formation: u16,
     pub formation_count: usize,
+    pub hunting_symbol: Option<u32>,
     pub style: ResultStyle,
     pub story: u32,
     /// Colette's character state, independent of main story progression.
@@ -458,7 +459,9 @@ impl Candidate {
         remembered: usize,
     ) -> Result<(crate::menu::equipment::Equipment, usize)> {
         self.begin_menu(battle)?;
-        let count = self.menu_party().formation.len();
+        let party = self.menu_party.as_mut().unwrap();
+        party.formation = self.menu_actors.iter().map(|&(_, member)| member).collect();
+        let count = party.formation.len();
         Ok((
             crate::menu::equipment::Equipment::opening(),
             remembered.min(count - 1),
@@ -506,6 +509,12 @@ impl Candidate {
             replacements.push(self.equipment_replacement(battle, &next, member)?);
         }
         battle.replace_equipment_batch(replacements)?;
+        for &(actor, character) in &self.setup.actors {
+            let member = usize::from(character - 1);
+            if self.party.members[member].equipment[0] != next.members[member].equipment[0] {
+                battle.record_weapon_change(actor);
+            }
+        }
         let lloyd = Character::Lloyd as usize - 1;
         if self
             .setup
@@ -546,7 +555,7 @@ impl Candidate {
         );
         let count = self.party.items.get(&item).copied().unwrap_or(0);
         ensure!(
-            count > 0 && count <= definition.stack_limit,
+            count > 0 && count <= self.party.item_limit(definition),
             "invalid battle item quantity"
         );
         Ok(())
@@ -842,6 +851,15 @@ impl Candidate {
         let multiplier = super::rewards::combined_multiplier_halves(self.setup.formation_count)?;
         let grade = i32::try_from(i64::from(grade) * i64::from(multiplier) / 2)
             .context("combined Grade reward overflow")?;
+        let grade = if party
+            .new_game_plus
+            .benefits
+            .contains(&resonance_content::grade::Benefit::IncreasedGrade)
+        {
+            grade.checked_mul(2).context("Grade Shop reward overflow")?
+        } else {
+            grade
+        };
         battle.normalize_result_overlimit()?;
         for &(id, character) in &self.setup.actors {
             party.members[usize::from(character - 1)].overlimit =
@@ -876,12 +894,24 @@ impl Candidate {
                 });
             }
         }
+        if party.settings.preferences.battle_rank >= 1 {
+            party.battles.hard_victories =
+                party.battles.hard_victories.saturating_add(1).min(9_999);
+        }
+        let presea_leads = self.setup.actors.first().is_some_and(|&(id, character)| {
+            character == Character::Presea as u8
+                && battle.actors()[id.index()].control != resonance_battle::Control::Auto
+        });
+        party
+            .battles
+            .record_hunt(self.setup.hunting_symbol.filter(|_| presea_leads));
         notices.extend(titles::award(
             &mut party,
             &self.setup.actors,
             battle.actors(),
             battle.ledger(),
             self.setup.formation,
+            self.setup.level_difference,
         ));
         for &(_, character) in &self.setup.actors {
             if self.new_ex_skills.iter().any(|&(id, _)| id == character) {
@@ -894,10 +924,6 @@ impl Candidate {
             .saturating_add_signed(grade)
             .min(resonance_content::grade::MAX_GRADE);
         party.battles.maximum_combo = party.battles.maximum_combo.max(maximum_combo);
-        if party.settings.preferences.battle_rank >= 1 {
-            party.battles.hard_victories =
-                party.battles.hard_victories.saturating_add(1).min(9_999);
-        }
         let results = Results {
             rewards,
             grade,
@@ -977,6 +1003,13 @@ impl Candidate {
                 modifiers.experience_bonus_percent[usize::from(character - 1)] = 10;
             }
         }
+        use resonance_events::battle::Rules;
+        let rules = self.party.battle_rules.modifiers;
+        modifiers.floor_experience_double = rules & Rules::EXPERIENCE_DOUBLE != 0;
+        modifiers.floor_gald_double = rules & Rules::GALD_DOUBLE != 0;
+        if rules & Rules::ITEM_DROP_BONUS != 0 {
+            modifiers.item_drop_bonus += 25;
+        }
         Ok(modifiers)
     }
 
@@ -1050,8 +1083,12 @@ impl Candidate {
             BattleResult::Escaped | BattleResult::Defeat => {}
         }
         self.sync_party(battle)?;
+        if outcome.result != BattleResult::Victory {
+            self.party.battles.record_hunt(None);
+        }
         let ledger = battle.ledger();
         self.party.battles.combat_ticks = ledger.combat_ticks;
+        self.party.battles.formation_count = u32::try_from(self.setup.formation_count)?;
         self.party.battles.maximum_combo_damage = self
             .party
             .battles
@@ -1068,9 +1105,9 @@ impl Candidate {
             self.party.battles.kills[index] = self.party.battles.kills[index]
                 .saturating_add(ledger.kills[id.index()])
                 .min(5_000);
-            self.party.battles.deaths[index] = self.party.battles.deaths[index]
-                .saturating_add(ledger.deaths[id.index()])
-                .min(250);
+            self.party
+                .battles
+                .record_deaths(index, ledger.deaths[id.index()]);
             self.party.battles.items[index] = self.party.battles.items[index]
                 .saturating_add(ledger.items[id.index()])
                 .min(250);

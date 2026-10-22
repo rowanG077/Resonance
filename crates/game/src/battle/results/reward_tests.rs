@@ -75,6 +75,40 @@ fn enter_controlled_victory(fixture: &mut PreparedFixture) -> Result<()> {
 }
 
 #[test]
+fn grade_shop_doubles_signed_grade_in_results_records_and_balance() -> Result<()> {
+    for enemy_grade in [-500, 1000] {
+        for formations in [1, 2, 3] {
+            let mut ordinary = None;
+            for enabled in [false, true] {
+                let mut fixture = local_fixture(&[1], |party, _, _| {
+                    if enabled {
+                        party
+                            .new_game_plus
+                            .benefits
+                            .insert(resonance_content::grade::Benefit::IncreasedGrade);
+                    }
+                    Ok(())
+                })?;
+                fixture.candidate.setup.formation_count = formations;
+                fixture.candidate.setup.enemies[0].grade = enemy_grade;
+                fixture.candidate.party.grade_hundredths = 100_000;
+                enter_controlled_victory(&mut fixture)?;
+                construct_result(&mut fixture)?;
+                let grade = fixture.candidate.results.as_ref().unwrap().grade;
+                let expected = *ordinary.get_or_insert(grade) * if enabled { 2 } else { 1 };
+                assert_eq!(grade, expected);
+                assert_eq!(fixture.candidate.party.battles.grade, expected);
+                assert_eq!(
+                    fixture.candidate.party.grade_hundredths,
+                    (100_000 + expected) as u32
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn combined_bonus_reaches_results_and_party_including_signed_grade() -> Result<()> {
     for enemy_grade in [-500, 1000] {
         let mut ordinary_grade = None;
@@ -115,7 +149,42 @@ fn combined_bonus_reaches_results_and_party_including_signed_grade() -> Result<(
 }
 
 #[test]
-fn equipment_gald_flags_and_compound_reward_queries_are_separate() -> Result<()> {
+fn field_handoff_preserves_battle_duration_and_formation_count() -> Result<()> {
+    for formations in [1, 2, 3, 5] {
+        let mut fixture = super::item_tests::native_fixture(
+            &[1],
+            |_, _, _| Ok(()),
+            |actors, setup| {
+                setup.formation_count = formations;
+                PreparedBattle::new(
+                    actors
+                        .into_iter()
+                        .map(|a| (a, Default::default()))
+                        .collect(),
+                    Default::default(),
+                    1,
+                )?
+                .finish()
+            },
+        )?;
+        for _ in 0..1201 {
+            fixture.candidate.world_update(
+                &mut fixture.battle,
+                resonance_battle::BattleInput::default(),
+            )?;
+        }
+        let outcome = super::item_tests::escape(&mut fixture.candidate, &mut fixture.battle)?;
+        assert_eq!(fixture.battle.ledger().combat_ticks, 1201);
+        let completed = fixture.candidate.finish(&fixture.battle, &outcome)?;
+        let saved: Party = serde_json::from_slice(&serde_json::to_vec(&completed.party)?)?;
+        assert_eq!(saved.battles.combat_ticks, 1201);
+        assert_eq!(saved.battles.formation_count, formations as u32);
+    }
+    Ok(())
+}
+
+#[test]
+fn equipment_and_floor_reward_modifiers_compose_independently_of_skills() -> Result<()> {
     // Defeated owners retain gear multipliers, but cannot supply global skills.
     for (item, skills, fallen, expected) in [
         (1, [0; 4], false, (0, true, false, false)),
@@ -125,6 +194,9 @@ fn equipment_gald_flags_and_compound_reward_queries_are_separate() -> Result<()>
         (2, [1, 6, 0, 0], true, (0, false, true, false)),
     ] {
         let mut fixture = local_fixture(&[2, 1], |party, _, _| {
+            party.battle_rules.modifiers = resonance_events::battle::Rules::EXPERIENCE_DOUBLE
+                | resonance_events::battle::Rules::GALD_DOUBLE
+                | resonance_events::battle::Rules::ITEM_DROP_BONUS;
             let member = &mut party.members[1];
             member.equipment[3] = item;
             member.ex_skills = skills;
@@ -137,6 +209,8 @@ fn equipment_gald_flags_and_compound_reward_queries_are_separate() -> Result<()>
             .compound_ex_skills
             .clear();
         let modifiers = fixture.candidate.reward_modifiers(&fixture.battle)?;
+        assert!(modifiers.floor_experience_double);
+        assert!(modifiers.floor_gald_double);
         assert_eq!(
             (
                 modifiers.item_drop_bonus,
@@ -144,7 +218,7 @@ fn equipment_gald_flags_and_compound_reward_queries_are_separate() -> Result<()>
                 modifiers.gald_double,
                 modifiers.gald_finder
             ),
-            expected,
+            (expected.0 + 25, expected.1, expected.2, expected.3),
             "item {item}, skills {skills:?}, fallen {fallen}"
         );
     }

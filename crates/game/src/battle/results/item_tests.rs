@@ -103,6 +103,7 @@ pub(crate) fn native_fixture(
         actors: roster,
         formation: 1,
         formation_count: 1,
+        hunting_symbol: None,
         style: ResultStyle {
             play_music: false,
             celebrate: false,
@@ -271,6 +272,7 @@ impl LoadedFixture {
         let prepared = inputs.prepare(
             &menus,
             PrepareOptions {
+                hunting_symbol: None,
                 event_flags: Default::default(),
                 random_seed: 0x2345,
                 map: 332,
@@ -375,6 +377,81 @@ pub(crate) fn escape(candidate: &mut Candidate, battle: &mut Battle) -> Result<B
         .finish_result()?
         .outcome
         .context("missing escape outcome")
+}
+
+#[test]
+fn grade_shop_large_stacks_allow_item_use_and_magic_lens() -> Result<()> {
+    let mut fixture = native_fixture(
+        &[1],
+        |party, _, menus| {
+            party
+                .new_game_plus
+                .benefits
+                .insert(resonance_content::grade::Benefit::ThirtyItems);
+            party.items = [(1, 30), (37, 30)].into();
+            menus.items.resize(38, menus.items[0].clone());
+            for item in [1, 37] {
+                menus.items[item].battle_usable = true;
+            }
+            Ok(())
+        },
+        |actors, _| {
+            resonance_battle::PreparedBattle::new(
+                actors
+                    .into_iter()
+                    .map(|actor| (actor, Default::default()))
+                    .collect(),
+                Default::default(),
+                1,
+            )?
+            .finish()
+        },
+    )?;
+    let candidate = &mut fixture.candidate;
+    let user = candidate.setup.actors[0].0;
+    let enemy = candidate.setup.enemies[0].actor;
+    for count in [30, 21, 20] {
+        candidate.party.items.insert(1, count);
+        candidate.party.items.insert(37, count);
+        candidate
+            .acquire_item(Release {
+                user,
+                target: user,
+                item: 1,
+            })?
+            .consume();
+        let mut loan = candidate.acquire_scan(Release {
+            user,
+            target: enemy,
+            item: 37,
+        })?;
+        loan.scan();
+        loan.consume();
+        assert_eq!(candidate.party.items[&1], count - 1);
+        assert_eq!(candidate.party.items[&37], count - 1);
+    }
+    candidate.party.new_game_plus.benefits.clear();
+    candidate.party.items.insert(1, 21);
+    candidate.party.items.insert(37, 21);
+    assert!(
+        candidate
+            .acquire_item(Release {
+                user,
+                target: user,
+                item: 1
+            })
+            .is_err()
+    );
+    assert!(
+        candidate
+            .acquire_scan(Release {
+                user,
+                target: enemy,
+                item: 37
+            })
+            .is_err()
+    );
+    Ok(())
 }
 
 #[test]
