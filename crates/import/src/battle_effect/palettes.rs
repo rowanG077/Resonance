@@ -3,16 +3,11 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::battle_effect::{
     SourceBank, declaration::Declaration, visual::ParticleTexture,
 };
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, fs, path::Path};
 
 pub(crate) struct SharedPalettes {
-    banks: Vec<(PathBuf, SourceBank)>,
+    banks: Vec<SourceBank>,
     bindings: BTreeMap<(u8, u8), u8>,
-    changed: bool,
 }
 
 impl SharedPalettes {
@@ -78,17 +73,13 @@ impl SharedPalettes {
                     "conflicting resident palette bindings"
                 );
             }
-            banks.push((path, bank));
+            banks.push(bank);
         }
         ensure!(
-            serde_json::to_value(&banks[0].1.art)? == serde_json::to_value(&banks[1].1.art)?,
+            serde_json::to_value(&banks[0].art)? == serde_json::to_value(&banks[1].art)?,
             "resident banks have different shared artwork"
         );
-        Ok(Self {
-            banks,
-            bindings,
-            changed: false,
-        })
+        Ok(Self { banks, bindings })
     }
 
     pub(crate) fn set(&mut self, slot: u8, stride: u8) -> Result<u8> {
@@ -105,12 +96,11 @@ impl SharedPalettes {
                 format!("no prepared effect palette stride for slot {slot}, stride {stride}")
             })?;
         let textures = self.banks[0]
-            .1
             .art
-            .as_mut()
+            .as_ref()
             .unwrap()
             .textures
-            .get_mut(&slot)
+            .get(&slot)
             .context("resident effect texture slot is missing")?;
         ensure!(
             !textures.is_empty(),
@@ -133,14 +123,7 @@ impl SharedPalettes {
                     .zip(&maps)
                     .all(|(texture, map)| texture.palette_sets.get(set) == Some(map))
             })
-            .unwrap_or_else(|| {
-                let set = textures[0].palette_sets.len();
-                for (texture, map) in textures.iter_mut().zip(maps) {
-                    texture.palette_sets.push(map);
-                }
-                self.changed = true;
-                set
-            });
+            .context("shared effect palette table was not prepared before publication")?;
         let set = u8::try_from(set).context("too many shared effect palette tables")?;
         self.bindings.insert((slot, stride), set);
         Ok(set)
@@ -157,7 +140,6 @@ impl SharedPalettes {
                     slot, palette_set, ..
                 } = &mut visual.texture
                 && self.banks[0]
-                    .1
                     .art
                     .as_ref()
                     .unwrap()
@@ -169,19 +151,9 @@ impl SharedPalettes {
         }
         Ok(())
     }
-
-    pub(crate) fn publish(mut self) -> Result<()> {
-        if self.changed {
-            self.banks[1].1.art = self.banks[0].1.art.clone();
-            for (path, bank) in self.banks {
-                crate::write_atomic(&path, &serde_json::to_vec(&bank)?)?;
-            }
-        }
-        Ok(())
-    }
 }
 
-fn resample(selectors: &[Option<usize>], factor: u8) -> Vec<Option<usize>> {
+pub(super) fn resample(selectors: &[Option<usize>], factor: u8) -> Vec<Option<usize>> {
     (0..=u8::MAX)
         .map(|selector| {
             selectors
