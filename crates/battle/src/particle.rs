@@ -1,4 +1,6 @@
 //! Particle motion and lifetime.
+#[cfg(feature = "test-support")]
+pub mod observed;
 use crate::{ActorId, BattleFrame, Effects, geometry::rotate};
 use anyhow::{Context, Result, ensure};
 use resonance_content::battle_effect::{UvAnimation, UvChange};
@@ -403,10 +405,7 @@ impl Effects {
         target: ActorId,
         origin: [f32; 3],
         heading: f32,
-    ) -> Result<Option<ParticleId>> {
-        if self.particles.len() >= crate::MAX_PARTICLES {
-            return Ok(None);
-        }
+    ) -> Result<ParticleId> {
         let id = ParticleId(self.next_particle);
         self.next_particle = self
             .next_particle
@@ -466,7 +465,7 @@ impl Effects {
                 floor_effect_emitted: false,
             },
         );
-        Ok(Some(id))
+        Ok(id)
     }
 
     pub(crate) fn attach_particle_model(
@@ -652,7 +651,6 @@ impl Effects {
                         let result = self.emit_child(&request, frame, &mut cues, false);
                         self.diagnostics.attempt("battle child effect", result)?;
                         // New children receive one visit after existing siblings.
-                        // The shared particle budget bounds this queue.
                         ids.extend((first_child..self.next_particle).map(ParticleId));
                     }
                     Ok(None) => {}

@@ -34,7 +34,6 @@ fn particle(data: ParticleTemplate) -> Particle {
             [0.; 3],
             0.,
         )
-        .unwrap()
         .unwrap();
     effects.particles.remove(&id).unwrap()
 }

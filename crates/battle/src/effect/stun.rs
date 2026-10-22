@@ -88,11 +88,8 @@ impl Effects {
                 if paused || phase == StunPhase::Existing && contact {
                     continue;
                 }
-                let Some(id) =
-                    self.spawn_particle(definition.clone(), owner, owner, origin, actor.heading)?
-                else {
-                    continue;
-                };
+                let id =
+                    self.spawn_particle(definition.clone(), owner, owner, origin, actor.heading)?;
                 crate::particle::apply_scale(
                     &mut self.particles.get_mut(&id).unwrap().frame.state,
                     actor.effect_scale,

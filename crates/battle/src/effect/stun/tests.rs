@@ -28,6 +28,7 @@ fn fixture() -> Result<(Effects, BattleFrame)> {
             tint: [255; 4],
             material: Default::default(),
             texture_layers: [0; 4],
+            texture_tick: 0,
             light: None,
             shadow: None,
             resource: 1,
