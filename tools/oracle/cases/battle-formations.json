@@ -18,9 +18,15 @@
   "party_hp": 20000,
   "warmup_vis": 180,
   "observations": 30,
+  "enemy_variant_rows": {
+    "191": {
+      "1": [2, 3, 4, 8],
+      "2": [5, 6, 7]
+    }
+  },
   "source_movie": {
     "path": "local/battle-repair-20261011/source-all/525-05/start.s01.dtm",
     "sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600"
   },
-  "fixture_party": "One manual Lloyd with raised persistent HP; enemy formation/actions remain authored."
+  "fixture_party": "Manual party with raised persistent HP, satisfying the selected action's party count and admission requirements; enemy formation/actions remain authored."
 }

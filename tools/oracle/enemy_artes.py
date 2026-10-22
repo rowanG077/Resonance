@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Observe authored enemy action bindings with one resident Dolphin per enemy.
 
-Preparation changes selection data and fixture health/positions. It preserves
+Preparation changes selection data and fixture resources/positions. It preserves
 the authored action, animation, contact and command streams. A recording is
 evidence to review, never an automatic claim of gameplay or visual parity.
 """
@@ -30,6 +30,7 @@ ANIMATION_POINTER, COMMAND_POINTER, NATIVE_WORD = 0x104C, 0x1050, 0x1174
 ACTION_TABLE_POINTER, SELECTED_ROW_POINTER = 0x50, 0x104
 POSITION_X, POSITION_Z, CENTER_X, CENTER_Z = 0x18C0, 0x18C8, 0x195C, 0x1964
 HP_OFFSET = 0x24
+MAX_TP_OFFSET, TP_OFFSET, ROW_TP_COST = 0x28, 0x2A, 52
 BATTLE_RANK_OFFSET = 0x19F
 ENTRY_ACTION = 13
 FOLLOWUP_CHANCE = 50
@@ -86,6 +87,20 @@ def select(manifest, cases, enemy):
     return result
 
 
+def distinct_ground_targets(rows):
+    """Supply every distinct recipient needed by an authored ground release."""
+    minimum = 1
+    for row in rows:
+        execution = row.get("execution")
+        if not isinstance(execution, dict):
+            continue
+        attack = execution.get("attack", execution.get("physical", {}).get("attack", {}))
+        for _, event in attack.get("events", []):
+            if isinstance(event, dict) and "ground_projectiles" in event:
+                minimum = max(minimum, len(event["ground_projectiles"]["definitions"]))
+    return minimum
+
+
 def prepare(args, manifest):
     cases = select(manifest, args.case, args.enemy)
     inputs = manifest["inputs"]
@@ -95,6 +110,13 @@ def prepare(args, manifest):
         raise ValueError("checkpoint companion differs from the pinned movie")
     formation_path = pinned(inputs["formations"])
     enemy = next(row for row in manifest["enemies"] if row["enemy"] == cases[0]["enemy"])
+    if (requested_formation := getattr(args, "formation", None)) is not None:
+        candidates = [fixture for fixture in enemy["formation_candidates"]
+                      if fixture["formation"] == requested_formation and fixture["arena_cooked"]]
+        if len(candidates) != 1:
+            raise ValueError("fixture formation must be a cooked encounter containing the selected enemy")
+        encounter = {key: candidates[0][key] for key in ("formation", "arena", "arena_basis")}
+        cases = [dict(case, **encounter) for case in cases]
     raw_path = pinned(enemy["package"])
     raw = raw_path.read_bytes()
     for case in cases:
@@ -118,11 +140,26 @@ def prepare(args, manifest):
                              if bounds["minimum"] is not None])
     party_maximum = min([4] + [bounds["maximum"] for bounds in opponent_bounds
                              if bounds["maximum"] is not None])
+    action_rows = read(pinned(enemy["definition"]))["actions"]["rows"]
+    ground_target_minimum = distinct_ground_targets(action_rows[case["action_row"]] for case in cases)
+    party_minimum = max(party_minimum, ground_target_minimum)
+    fixture_party_minimum = getattr(args, "party_minimum", None)
+    if fixture_party_minimum is None:
+        fixture_party_minimum = 1
+    if type(fixture_party_minimum) is not int or not 1 <= fixture_party_minimum <= 4:
+        raise ValueError("fixture party minimum must be between one and four")
+    party_minimum = max(party_minimum, fixture_party_minimum)
+    formations = read(formation_path)["records"]
+    formation_record = formations[formation]
+    station_admission_minimum = 1
+    if "three_stations" in (enemy["policy"].get("behavior") or {}):
+        # Station movement can put the owner behind its neutral companions.
+        # A larger ordinary party admits the encounter's first three enemies.
+        station_admission_minimum = max(1, min(3, len(formation_record["actors"])) - 1)
+        party_minimum = max(party_minimum, station_admission_minimum)
     if not 1 <= party_minimum <= party_maximum <= 4:
         raise ValueError("resident cases have no supported living party-count interval")
     party = list(range(1, party_minimum + 1))
-    formations = read(formation_path)["records"]
-    formation_record = formations[formation]
     roster = sorted({formation_record["resources"][actor["resource"]]["enemy"]
                      for actor in formation_record["actors"]})
     packages = [row for row in manifest["enemies"] if row["enemy"] in roster]
@@ -139,6 +176,10 @@ def prepare(args, manifest):
     if previous_rank > 2:
         raise ValueError("entry battle rank is invalid")
     selected_rank = max(minimum, min(previous_rank, maximum))
+    if (requested_rank := getattr(args, "difficulty", None)) is not None:
+        if not minimum <= requested_rank <= maximum:
+            raise ValueError("fixture difficulty is outside the authored action interval")
+        selected_rank = requested_rank
     if selected_rank != previous_rank:
         source.write(session + BATTLE_RANK_OFFSET, "B", selected_rank)
     difficulty_fixture = {"authored_interval": {"start": minimum, "end": maximum},
@@ -160,6 +201,9 @@ def prepare(args, manifest):
               "formation": formation, "arena": arena, "fixture": fixture,
               "difficulty_fixture": difficulty_fixture,
               "party_count_fixture": {"party": party, "authored_bounds": opponent_bounds,
+                  "fixture_minimum": fixture_party_minimum,
+                  "station_admission_minimum": station_admission_minimum,
+                  "ground_target_minimum": ground_target_minimum,
                   "scope": "Party joined before encounter initialization; authored selection requirements unchanged."},
               "defaults": defaults, "inputs": inputs,
               "manifest_sha256": digest(args.manifest),
@@ -181,26 +225,34 @@ def ready(worker, output, record):
     marker = record["fixture"]["case_marker"]
     defaults = record["defaults"]
     path = output / "initialized.s01"
-    worker.warmup(output / "entry.s01", output / "warmup", marker, defaults["warmup_vis"])
-    worker.snapshot(path)
+    # Body emitters start during entry. Stop at their first initialized visit,
+    # so replay never needs to invent particles born before its ready snapshot.
+    worker.warmup(output / "entry.s01", output / "warmup", marker,
+                  max(1, defaults["warmup_vis"] // 2))
+    if worker.watcher.latest.get("battle_presentation_tick_word", 0) > 1:
+        worker.load(output / "entry.s01")
+        worker.step()
     slots = record["expected_slots"]
     readiness = []
-    for attempt in range(defaults["entry_gate_attempts"] + 1):
+    limit = defaults["warmup_vis"] + defaults["entry_gate_attempts"] * defaults["entry_gate_vis"]
+    for attempt in range(limit + 1):
         row = worker.watcher.latest
         actions = [row.get(f"battle_actor_{slot}_action", 0) >> 24 for slot in slots]
         entry_ready = bool(row.get("battle_camera_address")) and actions == [ENTRY_ACTION] * len(slots)
         readiness.append({"attempt": attempt, "camera": row.get("battle_camera_address"),
                           "actions": actions, "combat_tick": row.get("battle_combat_tick_word"),
+                          "presentation_tick": row.get("battle_presentation_tick_word"),
                           "ready": entry_ready})
-        write(output / "entry-readiness.json", readiness)
         if row.get("battle_combat_tick_word", 0) != 0:
             raise ValueError("initialized checkpoint passed the first combat choice; retained for inspection")
         if entry_ready:
+            worker.snapshot(path)
+            write(output / "entry-readiness.json", readiness)
             break
-        if attempt == defaults["entry_gate_attempts"]:
+        if attempt == limit:
+            write(output / "entry-readiness.json", readiness)
             raise ValueError("encounter did not initialize before combat within the bounded entry gate")
-        worker.warmup(path, output / f"entry-gate-{attempt}", marker, defaults["entry_gate_vis"])
-        worker.snapshot(path)
+        worker.step()
     return initialized_state(path, output, record)
 
 
@@ -299,6 +351,15 @@ def prepare_row(base, output, record, initialized, case):
                         max(1, actor["max_hp"] * record["enemy_hp_percent"] // 100))
     package = initialized["packages"][str(case["enemy"])]["address"]
     raw = pinned(record["enemy"]["package"]).read_bytes()
+    required_tp = raw[case["row_offset"] + ROW_TP_COST]
+    tp_budget = None
+    if target["tp"] < required_tp:
+        # Some authored rows cost TP even though every encounter variant has
+        # none. Fund one ordinary admission without changing its cost.
+        state.write(target["vitals_address"] + MAX_TP_OFFSET, "H", max(target["max_tp"], required_tp))
+        state.write(target["vitals_address"] + TP_OFFSET, "H", required_tp)
+        tp_budget = dict(before=target["tp"], maximum_before=target["max_tp"], required=required_tp,
+                         scope="Resource budget for one authored action; ordinary admission and consumption retained.")
     expected = {"animation_pointer": package + struct.unpack_from(">H", raw, 18)[0] + case["animation_index"] * 12,
                 "command_pointer": package + struct.unpack_from(">H", raw, 14)[0] + case["command_index"] * 2,
                 "selected_row_pointer": package + case["row_offset"]}
@@ -320,6 +381,7 @@ def prepare_row(base, output, record, initialized, case):
                   polls=record.get("movie_polls", 12000))
     write(output / "fixture.json", {"case": case, "actor": target,
           "expected": expected, "execution_aliases": aliases, "changes": state.changes,
+          "tp_budget": tp_budget,
           "state_sha256": digest(path), "movie_sha256": digest(Path(str(path) + ".dtm")),
           "selection_scope": "one authored row; automatic followup chance disabled with recorded preimage",
           "natural_admission_tested": False})

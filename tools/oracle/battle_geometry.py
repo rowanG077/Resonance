@@ -7,6 +7,31 @@ import re
 import struct
 
 
+def model_world(origin, offset, angles, scale, flags, elevation, parent=None):
+    """Ordinary model instance TRS; shared displayed scene matrices are not instances."""
+    if flags & (0x40000000 | 0x20000) and parent is None:
+        return None
+    if flags & 0x20000:
+        return parent
+    position = list(offset) if flags & 0x40000000 else [a + b for a, b in zip(origin, offset)]
+    if flags & 0x1000:
+        position[1] = offset[1]
+    if flags & 2:
+        position[1] += elevation
+    x, y, z = map(math.radians, angles)
+    sx, sy, sz, cx, cy, cz = math.sin(x), math.sin(y), math.sin(z), math.cos(x), math.cos(y), math.cos(z)
+    rotation = [[cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
+                [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
+                [-sy, cy * sx, cy * cx]]
+    world = [value for i in range(3) for value in
+             [*[rotation[i][j] * scale[j] for j in range(3)], position[i]]]
+    if parent is None:
+        return world
+    return [sum(parent[row * 4 + axis] * world[axis * 4 + column] for axis in range(3))
+            + (parent[row * 4 + 3] if column == 3 else 0)
+            for row in range(3) for column in range(4)]
+
+
 def escape_ascii(raw):
     """Rust byte escape_ascii representation; preserve every byte, including CRLF."""
     escapes = {9: r"\t", 10: r"\n", 13: r"\r", 34: r'\"', 39: r"\'", 92: r"\\"}
@@ -58,6 +83,19 @@ def read_initialized_body(state, actor, descriptor):
     if not math.isfinite(scale) or scale <= 0:
         raise ValueError("invalid initialized model scale")
     model = read(address + 0x2c0)
+    if read(model + 0x1c, "B") & (0x10 | 4):
+        raise ValueError("initialized body uses an unsupported model placement")
+
+    def transform(base, position_at, angles_at, scale_at):
+        position = [read(base + position_at + i * 4, "f") for i in range(3)]
+        angles = [read(base + angles_at + i * 4, "f") for i in range(3)]
+        scales = [read(base + scale_at + i * 4, "f") for i in range(3)]
+        if not all(math.isfinite(value) for value in [*position, *angles, *scales]) or min(scales) <= 0:
+            raise ValueError("invalid initialized body transform")
+        return model_world(position, [0, 0, 0], angles, scales, 0, 0)
+
+    published = transform(model, 0x3c, 0x2c, 0x20)
+    current = transform(address, 0x18c0, 0x18cc, 0x18d8)
     skeleton = read(model)
     count = read(model + 4)
     if not 0 < count <= len(bones) or count != read(skeleton + 4):
@@ -107,14 +145,22 @@ def read_initialized_body(state, actor, descriptor):
         if not all(math.isfinite(value) for value in matrix):
             raise ValueError("nonfinite initialized displayed matrix")
         center = [matrix[3], matrix[7], matrix[11]]
+        # Entry and fixture placement can precede the next displayed matrix
+        # publication. Retain the observed pose in the actor's current placement.
+        local = [sum(published[i * 4 + j] * (center[i] - published[i * 4 + 3])
+                     for i in range(3)) / sum(published[i * 4 + j] ** 2 for i in range(3))
+                 for j in range(3)]
+        world = [sum(current[i * 4 + j] * local[j] for j in range(3)) + current[i * 4 + 3]
+                 for i in range(3)]
         spheres.append(dict(index=index, name=bone["name"], units=units, radius=units * 10 * scale,
-            matrix_address=hex(matrix_at), displayed_center=center,
-            root_offset=[center[i] - actor["position"][i] for i in range(3)]))
+            matrix_address=hex(matrix_at), displayed_center=center, world_center=world,
+            root_offset=[world[i] - actor["position"][i] for i in range(3)]))
     if not spheres:
         raise ValueError("body has no named sphere markers; do not guess a source capsule")
     return dict(actor_address=hex(address), root_position=actor["position"], heading=actor["heading"],
         effect_center=actor["center"], profile_address=hex(profile), model_scale=scale,
         model_address=hex(model), skeleton_address=hex(skeleton), displayed_matrices_address=hex(matrices),
+        published_transform=published, current_transform=current,
         descriptor=dict(path=str(descriptor), sha256=hashlib.sha256(descriptor_bytes).hexdigest()),
         all_authored_names_verified=count, names=names, spheres=spheres)
 
@@ -141,8 +187,8 @@ def separation_for_gap(enemy, party, gap):
     if not bounds:
         raise ValueError('no right-hand sphere pair can attain requested gap')
     distance = max(bounds)
-    if distance < 0 or abs(surface_gap(enemy, party, [distance, 0], [0, 0]) - gap) > 0.001:
+    if distance < 0:
+        raise ValueError('right-hand placement requires a negative root separation')
+    if abs(surface_gap(enemy, party, [distance, 0], [0, 0]) - gap) > 0.001:
         raise ValueError('right-hand placement does not reproduce requested gap')
     return distance
-
-

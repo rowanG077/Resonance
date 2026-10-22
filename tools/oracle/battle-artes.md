@@ -1,10 +1,29 @@
 # Catalogue arte captures
 
-`battle_artes.py` uses one tracked manifest for the 249 required character/arte
-bindings. IDs are explicit even when characters share an underlying action.
-Unused authored slots are excluded from this playable catalogue. They remain
-listed, with their evidence, in the working inventory. Grand Fall51 is retained
-as inactive authored content: its learning/grant data supplies no playable route.
+`battle_artes.py` uses one tracked manifest with capture recipes for 249
+character/arte bindings. IDs are explicit even when characters share an action.
+The active comparison inventory has 1,446 bindings: 249 party bindings and
+1,197 enemy bindings.
+
+`excluded_comparisons` removes 36 reviewed unused or unreachable bindings and
+five redundant forced-action comparisons.
+These cases are removed from comparison selection, not counted as passing or
+left pending. An explained random or numerical mismatch does not justify
+removing an entire binding: its other gameplay checks can still be useful.
+
+The duplicate comparisons retain the same enemy and complete action execution.
+These fixtures override selection weights, admit one action, and disable later
+automatic selection. They do not test admission rejection or whether a second
+action may repeat. The return flag also makes no difference in the retained
+fixture because the actor stays at its formation position throughout.
+These removals concern action execution, not natural selection or retreat behavior.
+
+| Removed comparison | Retained comparison | Redundant coverage |
+| --- | --- | --- |
+| `enemy:218:1`, `enemy:218:2` | `enemy:218:0` | All 87 native frames and 84 events are identical. Return is unobservable at the actor's unchanged home position; no later selection observes repeat state. |
+| `enemy:234:20` | `enemy:234:19` | All 514 source events are identical. Across 425 frames, only the owner's unchanged starting HP differs: 30,000 versus 60,000, satisfying each admission threshold. |
+| `enemy:236:5` | `enemy:236:3` | All 384 source frames and 579 events are identical; native arrays are identical too. Selection weight is overridden. |
+| `enemy:230:5` | `enemy:230:4` | All 168 native frames and 378 events are identical. No later selection observes the different once-per-battle state. |
 
 From the repository root, inside the development environment:
 
@@ -86,8 +105,8 @@ source capture.
 ## Catalogue comparison in Rust
 
 `battle::oracle::tests::every_arte_matches_dolphin` is an explicit integration test
-in `resonance-presentation`. It enumerates learned player bindings and all authored
-enemy rows, obtains source observations through the shared Dolphin adapter, then
+in `resonance-presentation`. It enumerates learned player bindings and authored
+enemy rows, removes the manifest's exclusions, obtains source observations through the shared Dolphin adapter, then
 prepares and executes native actions with the same participant setup. Worker reuse
 requires matching observers and boot input; a changed finalized input movie starts
 a new worker. Missing setup, contact, effect observations or retirement fail the
@@ -114,22 +133,10 @@ existing aggregate memory cap. `RESONANCE_ARTE_REFERENCE` reuses an explicitly
 selected source trace directory. Output directories must be new. The test does
 not run during ordinary unit testing, recook assets, or run the workspace suite.
 
-The focused run recorded in `plan.md` passes five representative comparisons.
-This is not catalogue-wide acceptance; only the per-case report from matched
-complete observations establishes what passed.
+The per-case report from matched complete observations establishes what passed.
+Manifest membership and successful preparation alone do not establish acceptance.
 
 The comparison covers actual contact or benefit, movement, selected poses,
 projectiles, deterministic effect models and cleanup. Body-bone geometry is
 diagnostic because the sampled source matrix has no verified publication time.
 Exact pixels/audio and random cosmetic trajectories are outside this test.
-Critical-feedback comparison currently requires the neutral fixture: the source
-adapter rejects observed guard and OverLimit. Guard break can clear the guard
-flag during contact, and the attached hit's final result flags are not observed,
-so guard-break feedback parity is unverified. The five retained neutral cases
-have no observed guard or OverLimit and are unaffected by this limitation.
-Counter, revival, capture and departure outcome adapters remain explicit gaps
-for 18 active bindings; those cases are reported as incomplete, never passed.
-The HP-only source benefit observer also cannot establish nonhealing benefits for
-32 active party bindings classified as nonhealing support. These do not overlap
-the 18 above. This count describes adapter coverage; it does not establish
-individual execution or acceptance of those 32 cases.

@@ -1,9 +1,12 @@
-use super::{Trace, effect_pitch, projectile_random, support};
+use super::{
+    Trace, attached_effects, ballistic_particles, effect_pitch, projectile_random, reaction,
+    recoil, support,
+};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::conditions::{Condition, ConditionSet, MAGICAL_AILMENTS, PHYSICAL_AILMENTS};
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Deserialize)]
 struct Baseline {
@@ -71,6 +74,42 @@ fn registered_baseline(entry: &Baseline, setup: &Value) -> bool {
             })
         })
     }
+}
+
+fn baseline_active_at_start(entry: &Baseline, trace: &Trace) -> bool {
+    let (program_end, start_age) = match (&entry.scheduler, &entry.scenery) {
+        (Some(scheduler), None) => (scheduler.program_end, scheduler.observed_start_age),
+        (None, Some(scenery)) => (scenery.program_end, 1),
+        _ => return false,
+    };
+    let Some(frame) = trace.frames.first() else {
+        return false;
+    };
+    let Some(tick) = frame["presentation_tick"].as_u64() else {
+        return false;
+    };
+    let Some(start) = entry
+        .observed_starts
+        .iter()
+        .copied()
+        .filter(|&at| at <= tick)
+        .max()
+    else {
+        return false;
+    };
+    let Some(age) = (tick - start).checked_add(start_age) else {
+        return false;
+    };
+    registered_baseline(entry, &trace.setup)
+        && age <= program_end
+        && frame["programs"].as_array().is_some_and(|programs| {
+            programs.iter().any(|program| {
+                program["owner"].as_u64() == Some(entry.owner)
+                    && program["bank"].as_str() == Some(entry.bank.as_str())
+                    && program["program"].as_u64() == Some(entry.program)
+                    && program["age"].as_u64() == Some(age)
+            })
+        })
 }
 
 fn baseline_particles(frame: &Value, baseline: &[Baseline], final_frame: bool) -> Result<Vec<u64>> {
@@ -171,10 +210,23 @@ pub(super) fn equivalent(source: &Trace, native: &Trace) -> Result<()> {
             "{label} observations incomplete: {}",
             trace.incomplete_observations.join(", ")
         );
+        if let Some(failures) = trace.assessment.get("execution_failures") {
+            let failures: Vec<String> = serde_json::from_value(failures.clone())?;
+            ensure!(
+                failures.is_empty(),
+                "{label} execution differs: {}",
+                failures.join(", ")
+            );
+        }
         validate_execution(trace).with_context(|| label)?;
     }
     let randomized_projectiles = projectile_random::validate(source, native)?;
+    let qualified_recoil = recoil::validate(source, native, &randomized_projectiles);
+    let ballistic_particles = ballistic_particles::validate(source, native)?;
+    let stationary_area_targets = projectile_random::stationary_area_targets(source, native)?;
     let random_rotations = effect_pitch::validate(source, native)?;
+    let reactions = reaction::validate(source, native)?;
+    let hidden_fixture_actors = hidden_fixture_actors(source, native);
     let attached_ordinals = [
         attached_effect_ordinals(source)?,
         attached_effect_ordinals(native)?,
@@ -208,7 +260,8 @@ pub(super) fn equivalent(source: &Trace, native: &Trace) -> Result<()> {
                 .any(|event| event["kind"] == "program_started"
                     && event["owner"].as_u64() == Some(entry.owner)
                     && event["bank"].as_str() == Some(entry.bank.as_str())
-                    && event["program"].as_u64() == Some(entry.program)),
+                    && event["program"].as_u64() == Some(entry.program))
+                || baseline_active_at_start(entry, source),
             "periodic baseline lacks a compared program emission"
         );
         if let Some(scenery) = &entry.scenery {
@@ -245,12 +298,45 @@ pub(super) fn equivalent(source: &Trace, native: &Trace) -> Result<()> {
     let native_start = start(native)?;
     let owner = required(&source.setup, "owner")?;
     ensure!(
-        source.frames.len() == native.frames.len(),
-        "observation duration differs: {} / {} frames",
+        source.frames.len() <= native.frames.len(),
+        "native observation is shorter than the source: {} / {} frames",
         source.frames.len(),
         native.frames.len()
     );
-    let (source_events, native_events) = contact_events(source, native)?;
+    if native.frames.len() > source.frames.len() {
+        let cleanup = &native.assessment["cleanup"];
+        ensure!(
+            cleanup["source_frames"] == source.frames.len()
+                && cleanup["tail_frames"] == native.frames.len() - source.frames.len()
+                && cleanup["complete"] == true
+                && cleanup["budget_exhausted"] == false
+                && [
+                    "remaining_projectiles",
+                    "remaining_programs",
+                    "remaining_particles"
+                ]
+                .iter()
+                .all(|key| cleanup[*key] == 0),
+            "native tail lacks observed complete cleanup"
+        );
+    }
+    let (mut source_events, mut native_events) =
+        contact_events_with_projectiles(source, native, &randomized_projectiles)?;
+    randomized_projectiles.retain_events(0, &mut source_events)?;
+    randomized_projectiles.retain_events(1, &mut native_events)?;
+    source_events.retain(|event| reactions.retain_event(0, event));
+    native_events.retain(|event| reactions.retain_event(1, event));
+    for event in source_events.iter_mut().chain(&mut native_events) {
+        projectile_random::canonicalize_stored_target(event, &stationary_area_targets);
+    }
+    for events in [&mut source_events, &mut native_events] {
+        events.retain(|event| {
+            !(event["kind"] == "projectile_expired"
+                && event["projectile"]
+                    .as_u64()
+                    .is_some_and(|id| randomized_projectiles.boundary_retirements.contains(&id)))
+        });
+    }
     let traces = [source, native];
     let frame_count = source.frames.len();
     for (index, (source, native)) in source.frames.iter().zip(&native.frames).enumerate() {
@@ -284,6 +370,30 @@ pub(super) fn equivalent(source: &Trace, native: &Trace) -> Result<()> {
                     } else {
                         required(frame, field)?.clone()
                     };
+                    if field == "projectiles" {
+                        // Complete identity, visibility, flight and first boundary exit
+                        // were checked per run. Random paths need not exit together.
+                        values
+                            .as_array_mut()
+                            .context("invalid projectiles")?
+                            .retain(|shot| {
+                                !shot["id"].as_u64().is_some_and(|id| {
+                                    randomized_projectiles.boundary_retirements.contains(&id)
+                                })
+                            });
+                    }
+                    if field == "effect_models" {
+                        values
+                            .as_array_mut()
+                            .context("invalid effect models")?
+                            .retain(|model| {
+                                !model["attachment"]["projectile"]
+                                    .as_u64()
+                                    .is_some_and(|id| {
+                                        randomized_projectiles.model_lifetimes.contains(&id)
+                                    })
+                            });
+                    }
                     for value in values.as_array_mut().context("invalid observation list")? {
                         if field == "effect_models"
                             && let Some(world) = projectile_random::canonical_world(
@@ -296,20 +406,51 @@ pub(super) fn equivalent(source: &Trace, native: &Trace) -> Result<()> {
                             value["model"]["world"] = world;
                         }
                         if field == "effect_models" {
+                            randomized_projectiles.canonicalize_trail_model(side, frame, value)?;
+                            attached_effects::canonicalize(traces[0], index, side == 0, value)?;
                             let ordinal = attached_ordinals[side].get(&effect_key(value)?);
                             effect_pitch::canonicalize(value, &random_rotations[side], index)?;
+                            ballistic_particles::canonicalize(
+                                value,
+                                &ballistic_particles[side],
+                                index,
+                            )?;
                             if let Some(&ordinal) = ordinal {
                                 value["ordinal"] = ordinal.into();
                             }
                         }
                         let other_actor = field == "models" && &value["actor"] != owner;
+                        if field == "projectiles" {
+                            projectile_random::canonicalize_stored_target(
+                                value,
+                                &stationary_area_targets,
+                            );
+                        }
+                        let hidden_fixture = field == "models"
+                            && value["actor"]
+                                .as_u64()
+                                .is_some_and(|actor| hidden_fixture_actors.contains(&actor));
+                        let conditional_reaction = other_actor
+                            && value["actor"]
+                                .as_u64()
+                                .is_some_and(|actor| reactions.permits(index, actor));
                         let object = value.as_object_mut().context("invalid observation")?;
                         if field == "models" {
                             object.remove("world");
                             // Unrelated idle animation phase is not part of the arte fixture.
-                            // Every actor's selected reaction clip and world movement remain compared.
+                            // Qualified random contact reactions were checked independently above.
                             if other_actor {
                                 object.remove("frame");
+                            }
+                            // A proved hidden fixture corpse has no presented pose.
+                            // Keep model presence and all actor movement/state checks.
+                            if hidden_fixture {
+                                object.remove("clip");
+                            }
+                            // The contact, actual stun pose and entire effect lifetime
+                            // were checked per run. Actor movement remains exact.
+                            if conditional_reaction {
+                                object.remove("clip");
                             }
                         } else if field == "projectiles" {
                             // These counters describe different update phases. Actual trajectory,
@@ -353,63 +494,77 @@ pub(super) fn equivalent(source: &Trace, native: &Trace) -> Result<()> {
         }
         // Contact damage is checked against the source's rule/stat envelope below.
         // Comparing accumulated HP here would require identical random streams.
-        let actors = |frame: &Value, trace: &Trace, start: [u64; 2]| -> Result<Value> {
-            let elapsed = [
-                required(frame, "presentation_tick")?
-                    .as_u64()
-                    .context("invalid frame clock")?
-                    .checked_sub(start[0])
-                    .context("frame precedes admission")?,
-                required(frame, "combat_tick")?
-                    .as_u64()
-                    .context("invalid frame clock")?
-                    .checked_sub(start[1])
-                    .context("frame precedes admission")?,
-            ];
-            let mut actors = required(frame, "actors")?.clone();
-            for actor in actors.as_array_mut().context("invalid actors")? {
-                actor.as_object_mut().context("invalid actor")?.remove("hp");
-                // Retain every other TP change after removing only the exact,
-                // independently validated drain received by this actor so far.
-                let drained = trace
-                    .events
-                    .iter()
-                    .filter(|event| {
-                        event["kind"] == "tp_drained"
-                            && event["target"] == actor["actor"]
-                            && event["clock"]
-                                .as_u64()
-                                .is_some_and(|clock| elapsed[1] >= clock)
-                            && event["presentation_clock"]
-                                .as_u64()
-                                .is_some_and(|clock| elapsed[0] >= clock)
-                    })
-                    .try_fold(0_i64, |total, event| {
-                        total
-                            .checked_add(event["amount"].as_i64().context("invalid TP drain")?)
-                            .context("TP drain overflow")
-                    })?;
-                if drained != 0 {
-                    let tp = required(actor, "tp")?
-                        .as_i64()
-                        .context("invalid actor TP")?;
-                    actor["tp"] = (tp - drained).into();
+        let actors =
+            |frame: &Value, trace: &Trace, start: [u64; 2], side: usize| -> Result<Value> {
+                let elapsed = [
+                    required(frame, "presentation_tick")?
+                        .as_u64()
+                        .context("invalid frame clock")?
+                        .checked_sub(start[0])
+                        .context("frame precedes admission")?,
+                    required(frame, "combat_tick")?
+                        .as_u64()
+                        .context("invalid frame clock")?
+                        .checked_sub(start[1])
+                        .context("frame precedes admission")?,
+                ];
+                let mut actors = required(frame, "actors")?.clone();
+                for actor in actors.as_array_mut().context("invalid actors")? {
+                    qualified_recoil.canonicalize(side, index, actor);
+                    actor.as_object_mut().context("invalid actor")?.remove("hp");
+                    // Only Y values whose complete contact-to-floor recurrence was
+                    // proved independently may differ. X/Z and heading stay exact.
+                    if actor["actor"]
+                        .as_u64()
+                        .is_some_and(|actor| reactions.permits_height(index, actor))
+                    {
+                        actor["position"][1] = 0.into();
+                    }
+                    // Retain every other TP change after removing only the exact,
+                    // independently validated drain received by this actor so far.
+                    let drained = trace
+                        .events
+                        .iter()
+                        .filter(|event| {
+                            event["kind"] == "tp_drained"
+                                && event["target"] == actor["actor"]
+                                && event["clock"]
+                                    .as_u64()
+                                    .is_some_and(|clock| elapsed[1] >= clock)
+                                && event["presentation_clock"]
+                                    .as_u64()
+                                    .is_some_and(|clock| elapsed[0] >= clock)
+                        })
+                        .try_fold(0_i64, |total, event| {
+                            total
+                                .checked_add(event["amount"].as_i64().context("invalid TP drain")?)
+                                .context("TP drain overflow")
+                        })?;
+                    if drained != 0 {
+                        let tp = required(actor, "tp")?
+                            .as_i64()
+                            .context("invalid actor TP")?;
+                        actor["tp"] = (tp - drained).into();
+                    }
                 }
-            }
-            Ok(actors)
-        };
+                Ok(actors)
+            };
         equal(
-            &actors(source, traces[0], source_start)?,
-            &actors(native, traces[1], native_start)?,
+            &actors(source, traces[0], source_start, 0)?,
+            &actors(native, traces[1], native_start, 1)?,
             &format!("frame {index}.actors"),
         )?;
         let final_frame = index + 1 == frame_count;
         let source_counts = baseline_particles(source, &baseline, final_frame)?;
-        let native_counts = baseline_particles(native, &baseline, final_frame)?;
+        let native_counts =
+            baseline_particles(native, &baseline, index + 1 == traces[1].frames.len())?;
         ensure!(
             source_counts == native_counts,
             "frame {index}.baseline_particles: {source_counts:?} != {native_counts:?}"
         );
+    }
+    for (index, frame) in native.frames.iter().enumerate().skip(frame_count) {
+        baseline_particles(frame, &baseline, index + 1 == native.frames.len())?;
     }
     equal(
         required(&source.assessment, "outcome")?,
@@ -426,6 +581,54 @@ pub(super) fn equivalent(source: &Trace, native: &Trace) -> Result<()> {
         equal(source, native, &format!("semantic.events[{index}]"))?;
     }
     Ok(())
+}
+
+fn hidden_fixture_actors(source: &Trace, native: &Trace) -> BTreeSet<u64> {
+    source.setup["ready_models"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|model| {
+            let actor = model["actor"].as_u64()?;
+            if source.setup["owner"] == actor || model["defeated_hidden"] != true {
+                return None;
+            }
+            let proof = source.setup["ready_model_observations"]
+                .as_array()?
+                .iter()
+                .find(|proof| proof["actor"] == actor)?;
+            let initial = source.setup["initial_battle"]["actors"]
+                .as_array()?
+                .get(actor as usize)?;
+            if proof["status"].as_u64()? & 4 == 0
+                || proof["source_slot"] != initial["slot"]
+                || initial["hp"] != 0
+                || initial["side"] != 1
+                || initial["action"][0] != 18
+                || initial["action"][4] != 16
+                || !native.setup["ready_models"]
+                    .as_array()?
+                    .iter()
+                    .any(|model| model["actor"] == actor && model["defeated_hidden"] == true)
+            {
+                return None;
+            }
+            // Revival clears the native fixture visibility override. Do not infer
+            // later visibility from an old admission observation after a revival.
+            [source, native]
+                .iter()
+                .all(|trace| {
+                    trace.frames.iter().all(|frame| {
+                        frame["actors"].as_array().is_some_and(|actors| {
+                            let mut matches = actors.iter().filter(|value| value["actor"] == actor);
+                            matches.next().is_some_and(|value| value["hp"] == 0)
+                                && matches.next().is_none()
+                        })
+                    })
+                })
+                .then_some(actor)
+        })
+        .collect()
 }
 
 type EffectKey = (u64, String, u64, u64);
@@ -570,6 +773,14 @@ fn contact_history(trace: &Trace) -> Result<Option<Trace>> {
 // Validate each random damage branch before comparing deterministic events. Only
 // the critical feedback justified by those actual outcomes may differ.
 fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Value>)> {
+    contact_events_with_projectiles(source, native, &projectile_random::Validated::default())
+}
+
+fn contact_events_with_projectiles(
+    source: &Trace,
+    native: &Trace,
+    projectiles: &projectile_random::Validated,
+) -> Result<(Vec<Value>, Vec<Value>)> {
     let histories = [contact_history(source)?, contact_history(native)?];
     ensure!(
         histories[0].is_some() == histories[1].is_some(),
@@ -594,6 +805,11 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
     }
     let source = histories[0].as_ref().unwrap_or(source);
     let native = histories[1].as_ref().unwrap_or(native);
+    let native_damage_observed = native.setup["contact_damage_observations"] == true;
+    ensure!(
+        !native_damage_observed || native.setup["contact_damage_normalized"] == true,
+        "native contact inputs lack independent envelope normalization"
+    );
     let recipient_input = source.setup.get("recipient_input");
     ensure!(
         recipient_input == native.setup.get("recipient_input"),
@@ -603,10 +819,18 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
         canonical_events(&source.events)?,
         canonical_events(&native.events)?,
     ];
+    super::acid_rain::retain_gameplay(source, native, &mut events)?;
     validate_contact_outcomes(source, &events[0])?;
     validate_contact_outcomes(native, &events[1])?;
     validate_poison_pulses(source, &events[0])?;
     validate_poison_pulses(native, &events[1])?;
+    ensure!(
+        source.setup["catalogue"] == native.setup["catalogue"],
+        "condition catalogue differs"
+    );
+    optional_enemy_conditions(source, &mut events[0])?;
+    optional_enemy_conditions(native, &mut events[1])?;
+    optional_seal_conditions(source, native, &mut events)?;
     if let Some(programs) = source.setup.get("immediate_end_programs") {
         for program in programs
             .as_array()
@@ -639,12 +863,41 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
             }
         }
     }
+    let qualified = |event: &Value| {
+        histories[0].is_none()
+            && event["kind"] == "hit"
+            && event["projectile"]
+                .as_u64()
+                .is_some_and(|id| projectiles.contact_timings.contains(&id))
+    };
     let hits = events.each_ref().map(|events| {
-        events
+        let mut hits = events
             .iter()
             .filter(|event| event["kind"] == "hit")
             .cloned()
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        hits.sort_by_cached_key(|hit| {
+            if qualified(hit) {
+                (
+                    1,
+                    hit["owner"].as_u64(),
+                    hit["projectile"].as_u64(),
+                    hit["target"].as_u64(),
+                    hit["clock"].as_u64(),
+                    hit["presentation_clock"].as_u64(),
+                )
+            } else {
+                (
+                    0,
+                    hit["clock"].as_u64(),
+                    hit["presentation_clock"].as_u64(),
+                    None,
+                    None,
+                    None,
+                )
+            }
+        });
+        hits
     });
     ensure!(
         hits[0].len() == hits[1].len(),
@@ -665,6 +918,7 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
     };
     // Count simultaneous hits together; each critical hit emits its own feedback.
     let mut feedback = std::collections::BTreeMap::new();
+    let mut native_feedback_keys = std::collections::BTreeMap::new();
     let actors = required(&source.setup, "actors")?
         .as_array()
         .context("invalid initial actors")?;
@@ -703,8 +957,10 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
         let protected = source.get("protection").is_some();
         if protected {
             ensure!(
-                source["protection"] == "recovery"
-                    && native["protection"] == "recovery"
+                matches!(
+                    source["protection"].as_str(),
+                    Some("recovery" | "down_window_closed")
+                ) && native["protection"] == source["protection"]
                     && actors
                         .iter()
                         .any(|actor| actor["actor"] == source["target"] && actor["side"] == 0)
@@ -714,10 +970,10 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
                     && critical.is_none()
                     && source["critical"] == false
                     && native["critical"] == false,
-                "protected contact lacks matched recovery protection and exact zero damage bounds"
+                "protected contact lacks matched observed protection and exact zero damage bounds"
             );
         }
-        let damage = |event: &Value| -> Result<f64> {
+        let damage = |event: &Value, range: (f64, f64)| -> Result<f64> {
             let amount = -required(event, "hp_change")?
                 .as_f64()
                 .context("invalid contact damage")?;
@@ -730,7 +986,7 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
             );
             Ok(amount)
         };
-        let source_amount = damage(source)?;
+        let source_amount = damage(source, range)?;
         let ordinary_matches = (ordinary.0..=ordinary.1).contains(&source_amount);
         let critical_matches = critical.is_some_and(|(lo, hi)| (lo..=hi).contains(&source_amount));
         ensure!(
@@ -750,17 +1006,43 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
         let native_critical = required(native, "critical")?
             .as_bool()
             .context("unknown native critical outcome")?;
-        let native_range = if native_critical {
-            critical.context("native critical hit has no legal critical branch")?
+        // New native traces carry independently normalized bounds for their own
+        // contact-time stun, protection, guard, strength and HP. Older retained
+        // traces keep their conservative source-bound comparison.
+        let (native_bounds, native_ordinary, native_critical_bounds) = if native_damage_observed {
+            required(native, "damage_inputs")?;
+            let branches = required(native, "damage_branches")?;
+            let critical = required(branches, "critical")?;
+            (
+                bounds(required(native, "damage_range")?)?,
+                bounds(required(branches, "ordinary")?)?,
+                (!critical.is_null())
+                    .then(|| bounds(critical))
+                    .transpose()?,
+            )
         } else {
-            ordinary
+            (range, ordinary, critical)
         };
-        let native_amount = damage(native)?;
+        if protected {
+            ensure!(
+                native_bounds == (0., 0.)
+                    && native_ordinary == (0., 0.)
+                    && native_critical_bounds.is_none(),
+                "native protected contact lacks exact zero damage bounds"
+            );
+        }
+        let native_range = if native_critical {
+            native_critical_bounds.context("native critical hit has no legal critical branch")?
+        } else {
+            native_ordinary
+        };
+        let native_amount = damage(native, native_bounds)?;
         if guarded {
             ensure!(
                 !native_critical
-                    && ((ordinary.0..=ordinary.1).contains(&native_amount)
-                        || critical.is_some_and(|(lo, hi)| (lo..=hi).contains(&native_amount))),
+                    && ((native_ordinary.0..=native_ordinary.1).contains(&native_amount)
+                        || native_critical_bounds
+                            .is_some_and(|(lo, hi)| (lo..=hi).contains(&native_amount))),
                 "guarded damage {native_amount} matches neither independent damage branch"
             );
         } else {
@@ -769,11 +1051,22 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
                 "native damage {native_amount} disagrees with its critical outcome"
             );
         }
-        equal(
-            &event_identity(source)?,
-            &event_identity(native)?,
-            "attributed contact",
-        )?;
+        let mut identities = [event_identity(source)?, event_identity(native)?];
+        if qualified(source) && qualified(native) {
+            for identity in &mut identities {
+                let object = identity.as_object_mut().unwrap();
+                object.remove("clock");
+                object.remove("presentation_clock");
+            }
+        }
+        equal(&identities[0], &identities[1], "attributed contact")?;
+        let source_key = key(source)?;
+        if let Some(previous) = native_feedback_keys.insert(key(native)?, source_key) {
+            ensure!(
+                previous == source_key,
+                "ambiguous randomized contact feedback pairing"
+            );
+        }
         let group = feedback.entry(key(source)?).or_insert(([0usize; 2], true));
         group.0[0] += usize::from(!guarded && inferred == Some(true));
         group.0[1] += usize::from(native_critical);
@@ -791,6 +1084,17 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
             "common effect bank",
         )?;
         for (side, events) in events.iter_mut().enumerate() {
+            let feedback_key = |event: &Value| -> Result<(u64, u64, u64)> {
+                let actual = key(event)?;
+                if side == 0 {
+                    Ok(actual)
+                } else {
+                    native_feedback_keys
+                        .get(&actual)
+                        .copied()
+                        .context("native critical feedback has no contact at its own clock")
+                }
+            };
             let is_critical = |event: &Value| {
                 event["kind"] == "program_started"
                     && &event["bank"] == common
@@ -798,7 +1102,7 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
             };
             for event in events.iter().filter(|event| is_critical(event)) {
                 ensure!(
-                    feedback.contains_key(&key(event)?),
+                    feedback.contains_key(&feedback_key(event)?),
                     "critical feedback has no matching attacker/contact clock"
                 );
             }
@@ -807,7 +1111,7 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
                     let count = events
                         .iter()
                         .filter(|event| {
-                            is_critical(event) && key(event).ok().as_ref() == Some(contact)
+                            is_critical(event) && feedback_key(event).ok().as_ref() == Some(contact)
                         })
                         .count();
                     ensure!(
@@ -819,7 +1123,7 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
             events.retain(|event| {
                 !(is_critical(event)
                     && feedback
-                        .get(&key(event).unwrap())
+                        .get(&feedback_key(event).unwrap())
                         .is_some_and(|(_, known)| *known))
             });
         }
@@ -827,6 +1131,9 @@ fn contact_events(source: &Trace, native: &Trace) -> Result<(Vec<Value>, Vec<Val
     let [source, native] = events.map(|events| {
         events
             .iter()
+            // Matched recipient multiplicities and every other contact identity
+            // were retained above; each own clock was validated before pairing.
+            .filter(|event| !qualified(event))
             .map(event_identity)
             .collect::<Result<Vec<_>>>()
     });
@@ -837,7 +1144,13 @@ fn event_identity(event: &Value) -> Result<Value> {
     let mut identity = event.clone();
     let object = identity.as_object_mut().context("invalid semantic event")?;
     if event["kind"] == "hit" {
-        for field in ["hp_change", "damage_range", "critical", "damage_branches"] {
+        for field in [
+            "hp_change",
+            "damage_range",
+            "critical",
+            "damage_branches",
+            "damage_inputs",
+        ] {
             object.remove(field);
         }
     } else if matches!(
@@ -1026,6 +1339,13 @@ fn validate_poison_pulses(trace: &Trace, events: &[Value]) -> Result<()> {
                 event["kind"] == "condition_changed"
                     && event["target"] == pulse["target"]
                     && clock(event).is_ok_and(|value| value < at)
+                    && event["before"]
+                        .as_array()
+                        .zip(event["after"].as_array())
+                        .is_none_or(|(before, after)| {
+                            before.iter().any(|value| value == condition)
+                                != after.iter().any(|value| value == condition)
+                        })
             })
             .max_by_key(|event| clock(event).ok())
             .context("poison pulse lacks its application")?;
@@ -1118,6 +1438,1018 @@ fn validate_poison_pulses(trace: &Trace, events: &[Value]) -> Result<()> {
         );
     }
     Ok(())
+}
+
+// The source observer registers only optional seal callbacks in chance_effects.
+// These recipes are identified by the original techniques bank, not case IDs.
+const SEAL_BANK: &str = "2a0b8378be586933a7a3e4d59eda0e1a073c59b9cbc6f2169f300edebe09c059";
+
+fn optional_seal_conditions(
+    source: &Trace,
+    native: &Trace,
+    events: &mut [Vec<Value>; 2],
+) -> Result<()> {
+    let Some(bindings) = source.setup["chance_effects"]
+        .as_array()
+        .filter(|bindings| !bindings.is_empty())
+    else {
+        return Ok(());
+    };
+    if source.setup.get("random_inputs").is_some()
+        || native.setup.get("random_inputs").is_some()
+        || !source.case.starts_with("party:")
+    {
+        return Ok(());
+    }
+    ensure!(
+        source.setup["chance_effects"] == native.setup["chance_effects"],
+        "seal callback witnesses differ"
+    );
+    // Strike-route seals are guaranteed. A registration cannot turn them into
+    // optional outcomes, even if a malformed fixture supplies one.
+    let pin: super::random_inputs::Pin = serde_json::from_value(source.setup["catalogue"].clone())?;
+    let catalogue: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    let index: usize = source.case.rsplit(':').next().unwrap().parse()?;
+    let definition = &catalogue["definitions"][index];
+    if definition["learning"]["route"] == "strike" || definition["capabilities"]["spell"] != false {
+        return Ok(());
+    }
+    ensure!(
+        bindings.len() == 1,
+        "overlapping seal recipes need separate attribution"
+    );
+    let binding = &bindings[0];
+    ensure!(
+        binding["owner"] == source.setup["owner"] && binding["bank"] == SEAL_BANK,
+        "seal callback has the wrong owner or authored bank"
+    );
+    let (condition, recipe): (Condition, &[(u64, u64, u64)]) = match binding["program"].as_u64() {
+        Some(134) => (
+            Condition::DefenseDown,
+            &[(0, 141, 25), (4, 141, 25), (8, 141, 25)],
+        ),
+        Some(135) => (
+            Condition::AccuracyDown,
+            &[(0, 141, 25), (4, 141, 25), (8, 141, 25)],
+        ),
+        Some(59) => (
+            Condition::EvasionDown,
+            &[
+                (0, 103, 41),
+                (0, 104, 51),
+                (3, 104, 51),
+                (5, 103, 41),
+                (6, 104, 51),
+                (8, 104, 51),
+            ],
+        ),
+        _ => return Ok(()),
+    };
+    let owner = source.setup["owner"]
+        .as_u64()
+        .context("missing seal owner")? as usize;
+    let character = &source.setup["party"][owner];
+    let luck = source.setup["party_members"]
+        .as_array()
+        .and_then(|members| {
+            members
+                .iter()
+                .find(|member| member["character"] == *character)
+        })
+        .and_then(|member| member["luck"].as_u64())
+        .context("missing seal chance input")?;
+    if 25 + luck / 10 >= 100 {
+        return Ok(());
+    }
+    for (side, trace) in [source, native].into_iter().enumerate() {
+        validate_seal_callbacks(
+            trace,
+            binding,
+            condition,
+            recipe,
+            side == 0,
+            &mut events[side],
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_seal_callbacks(
+    trace: &Trace,
+    binding: &Value,
+    condition: Condition,
+    recipe: &[(u64, u64, u64)],
+    source: bool,
+    events: &mut Vec<Value>,
+) -> Result<()> {
+    let attempts = binding["attempts"]
+        .as_array()
+        .filter(|attempts| !attempts.is_empty())
+        .context("missing seal callback attempts")?;
+    let event_clock = |event: &Value| -> Result<(u64, u64)> {
+        Ok((
+            required(event, "clock")?
+                .as_u64()
+                .context("missing seal clock")?,
+            required(event, "presentation_clock")?
+                .as_u64()
+                .context("missing seal display clock")?,
+        ))
+    };
+    let is_program = |event: &Value| {
+        event["kind"] == "program_started"
+            && ["owner", "bank", "program"]
+                .iter()
+                .all(|key| event[key] == binding[key])
+    };
+    let actor = |id: &Value| {
+        trace.setup["actors"]
+            .as_array()
+            .and_then(|actors| actors.iter().find(|actor| actor["actor"] == *id))
+    };
+    let owner = actor(&binding["owner"]).context("missing seal actor")?;
+    let mut removed = Vec::new();
+    let mut births = BTreeMap::<(u64, u64, u64), (usize, u64)>::new();
+    let mut seen = BTreeSet::new();
+    for attempt in attempts {
+        let clock = event_clock(attempt)?;
+        ensure!(seen.insert(clock), "duplicate seal callback attempt");
+        let target = actor(&attempt["target"]).context("missing seal victim")?;
+        ensure!(
+            target["side"] != owner["side"],
+            "seal callback targets an ally"
+        );
+        let hits: Vec<_> = events
+            .iter()
+            .filter(|event| {
+                event["kind"] == "hit"
+                    && event["owner"] == binding["owner"]
+                    && event["target"] == attempt["target"]
+                    && event["clock"] == attempt["contact_clock"]
+                    && event["hp_change"].as_i64().is_some_and(|amount| amount < 0)
+            })
+            .collect();
+        ensure!(
+            hits.len() == 1,
+            "seal callback lacks its unique damaging contact"
+        );
+        let hit = hits[0];
+        let contact = event_clock(hit)?;
+        let melee = hit["projectile"].is_null();
+        ensure!(
+            contact.0 < clock.0
+                && contact.1 < clock.1
+                && (melee || clock == (contact.0 + 1, contact.1 + 1)),
+            "seal callback has the wrong contact phase"
+        );
+        ensure!(
+            events.iter().any(|event| event["kind"] == "started"
+                && event["owner"] == binding["owner"]
+                && event["action"] == hit["action"]
+                && event["clock"] == 0),
+            "seal callback lacks its action admission"
+        );
+        let programs: Vec<_> = events
+            .iter()
+            .filter(|event| is_program(event) && event_clock(event).ok() == Some(clock))
+            .collect();
+        ensure!(programs.len() <= 1, "duplicate seal success program");
+        let emitted = !programs.is_empty();
+        ensure!(
+            !source || attempt["emitted"].as_bool() == Some(emitted),
+            "seal source success differs from its callback witness"
+        );
+        let before = events
+            .iter()
+            .filter(|event| {
+                event["kind"] == "condition_changed"
+                    && event["target"] == attempt["target"]
+                    && event_clock(event).is_ok_and(|at| at < clock)
+            })
+            .max_by_key(|event| event_clock(event).ok())
+            .map_or(&target["conditions"], |event| &event["after"]);
+        let before: ConditionSet = serde_json::from_value(before.clone())?;
+        let after = if emitted {
+            before.union(ConditionSet::of(&[condition]))
+        } else {
+            before
+        };
+        let changes: Vec<_> = events
+            .iter()
+            .filter(|event| {
+                event["kind"] == "condition_changed"
+                    && event["target"] == attempt["target"]
+                    && event_clock(event).ok() == Some(clock)
+            })
+            .collect();
+        ensure!(
+            changes.len() == usize::from(before != after),
+            "seal condition and success program disagree"
+        );
+        if let Some(change) = changes.first() {
+            ensure!(
+                change["owner"] == binding["owner"]
+                    && change["action"] == hit["action"]
+                    && serde_json::from_value::<ConditionSet>(change["before"].clone())? == before
+                    && serde_json::from_value::<ConditionSet>(change["after"].clone())? == after,
+                "seal changed the wrong condition or attribution"
+            );
+            removed.push((*change).clone());
+        }
+        if emitted {
+            removed.push(programs[0].clone());
+            // InitializedEffect executes the melee callback's first scheduler
+            // visit immediately; projectile callbacks queue an ordinary Effect.
+            for &(at, member, lifetime) in recipe {
+                let offset = at.saturating_sub(u64::from(melee));
+                let count = births
+                    .entry((clock.0 + offset, clock.1 + offset, member))
+                    .or_insert((0, lifetime));
+                count.0 += 1;
+            }
+        }
+    }
+    ensure!(
+        events.iter().filter(|event| is_program(event)).count()
+            == removed.iter().filter(|event| is_program(event)).count(),
+        "seal program has no witnessed callback"
+    );
+    validate_seal_feedback(trace, binding, recipe, &births)?;
+    for (&(clock, presentation, member), _) in &births {
+        let declarations: Vec<_> = events
+            .iter()
+            .filter(|event| {
+                event["kind"] == "declaration_started"
+                    && event["owner"] == binding["owner"]
+                    && event["bank"] == binding["bank"]
+                    && event["member"] == member
+                    && event_clock(event).ok() == Some((clock, presentation))
+            })
+            .collect();
+        ensure!(
+            declarations.len() == 1,
+            "seal feedback declaration is missing or duplicated"
+        );
+        removed.push(declarations[0].clone());
+    }
+    ensure!(
+        events
+            .iter()
+            .filter(|event| event["kind"] == "declaration_started"
+                && event["owner"] == binding["owner"]
+                && event["bank"] == binding["bank"]
+                && recipe
+                    .iter()
+                    .any(|&(_, member, _)| event["member"] == member))
+            .count()
+            == births.len(),
+        "seal feedback declaration has no success-program birth"
+    );
+    events.retain(|event| !removed.contains(event));
+    Ok(())
+}
+
+fn validate_seal_feedback(
+    trace: &Trace,
+    binding: &Value,
+    recipe: &[(u64, u64, u64)],
+    expected: &BTreeMap<(u64, u64, u64), (usize, u64)>,
+) -> Result<()> {
+    let onset = start(trace)?;
+    let mut lives = BTreeMap::<u64, Vec<((u64, u64), &Value)>>::new();
+    for frame in &trace.frames {
+        let clock = (
+            frame["combat_tick"]
+                .as_u64()
+                .context("missing seal frame clock")?
+                - onset[1],
+            frame["presentation_tick"]
+                .as_u64()
+                .context("missing seal frame display clock")?
+                - onset[0],
+        );
+        for particle in frame["particles"]
+            .as_array()
+            .context("missing seal particles")?
+        {
+            if particle["owner"] == binding["owner"]
+                && particle["bank"] == binding["bank"]
+                && recipe
+                    .iter()
+                    .any(|&(_, member, _)| particle["member"] == member)
+            {
+                lives
+                    .entry(
+                        particle["id"]
+                            .as_u64()
+                            .context("missing seal particle identity")?,
+                    )
+                    .or_default()
+                    .push((clock, particle));
+            }
+        }
+    }
+    let mut actual = BTreeMap::<(u64, u64, u64), usize>::new();
+    for life in lives.values() {
+        let initialized = life
+            .iter()
+            .position(|(_, particle)| particle["initialized"] == true)
+            .context("seal feedback never initializes")?;
+        ensure!(
+            initialized <= 1,
+            "seal feedback has repeated uninitialized visits"
+        );
+        let (clock, first) = life[initialized];
+        let member = first["member"].as_u64().context("missing seal member")?;
+        let key = (clock.0, clock.1, member);
+        let &(_, lifetime) = expected
+            .get(&key)
+            .context("seal feedback has no success-program birth")?;
+        if initialized == 1 {
+            ensure!(
+                life[0].0 == (clock.0 - 1, clock.1 - 1) && life[0].1["age"] == 0,
+                "seal feedback has an unbound allocation phase"
+            );
+        }
+        let live = &life[initialized..];
+        ensure!(
+            live.len() as u64 == lifetime,
+            "seal feedback has the wrong finite lifetime"
+        );
+        for (index, (at, particle)) in live.iter().enumerate() {
+            let age = index as u64 + 1;
+            ensure!(
+                *at == (clock.0 + age - 1, clock.1 + age - 1)
+                    && particle["age"] == age
+                    && particle["initialized"] == true
+                    && particle["member"] == member
+                    && particle["model"].is_null(),
+                "seal feedback identity, age or model changed"
+            );
+            equal(
+                &first["origin"],
+                &particle["origin"],
+                "detached seal feedback origin",
+            )?;
+        }
+        *actual.entry(key).or_default() += 1;
+    }
+    ensure!(
+        actual
+            == expected
+                .iter()
+                .map(|(&key, &(count, _))| (key, count))
+                .collect(),
+        "seal feedback births differ from its success programs"
+    );
+    Ok(())
+}
+
+#[test]
+fn optional_seals_keep_contacts_and_validate_each_feedback_lifetime() {
+    use serde_json::json;
+    let binding = json!({"owner":0,"bank":SEAL_BANK,"program":134,"attempts":[
+        {"clock":2,"presentation_clock":2,"target":1,"contact_clock":1,"emitted":true}]});
+    let recipe = [(0, 141, 25), (4, 141, 25), (8, 141, 25)];
+    let trace = Trace {
+        case: "test".into(), setup: json!({"owner":0,"actors":[
+            {"actor":0,"side":0,"conditions":[]},{"actor":1,"side":1,"conditions":[]}]}),
+        frames: (0..=34).map(|clock| json!({"combat_tick":clock,"presentation_tick":clock,
+            "particles":([2,5,9].into_iter().enumerate().filter(|(_,birth)| clock >= *birth && clock < *birth + 25)
+                .map(|(id,birth)| json!({"id":id,"owner":0,"bank":SEAL_BANK,"member":141,
+                    "initialized":true,"age":clock-birth+1,"origin":[1.,2.,3.],"model":null})).collect::<Vec<_>>())})).collect(),
+        events: vec![
+            json!({"kind":"started","owner":0,"action":1,"clock":0,"presentation_clock":0}),
+            json!({"kind":"hit","owner":0,"target":1,"action":1,"projectile":null,"hp_change":-10,"clock":1,"presentation_clock":1}),
+            json!({"kind":"condition_changed","owner":0,"target":1,"action":1,"before":[],"after":["defense_down"],"clock":2,"presentation_clock":2}),
+            json!({"kind":"program_started","owner":0,"bank":SEAL_BANK,"program":134,"clock":2,"presentation_clock":2}),
+            json!({"kind":"declaration_started","owner":0,"bank":SEAL_BANK,"member":141,"clock":2,"presentation_clock":2}),
+            json!({"kind":"declaration_started","owner":0,"bank":SEAL_BANK,"member":141,"clock":5,"presentation_clock":5}),
+            json!({"kind":"declaration_started","owner":0,"bank":SEAL_BANK,"member":141,"clock":9,"presentation_clock":9}),
+            json!({"kind":"returned","owner":0,"clock":34,"presentation_clock":34}),
+        ], assessment: json!({}), incomplete_observations: vec![],
+    };
+    let validate = |trace: &Trace, events: &mut Vec<Value>| {
+        validate_seal_callbacks(
+            trace,
+            &binding,
+            Condition::DefenseDown,
+            &recipe,
+            true,
+            events,
+        )
+    };
+    let mut accepted = trace.events.clone();
+    validate(&trace, &mut accepted).unwrap();
+    assert_eq!(
+        accepted,
+        vec![
+            trace.events[0].clone(),
+            trace.events[1].clone(),
+            trace.events[7].clone()
+        ]
+    );
+    for (index, field, value) in [
+        (1, "hp_change", json!(0)),
+        (2, "target", json!(0)),
+        (2, "after", json!(["attack_down"])),
+        (3, "clock", json!(3)),
+        (5, "clock", json!(6)),
+    ] {
+        let mut events = trace.events.clone();
+        events[index][field] = value;
+        assert!(validate(&trace, &mut events).is_err());
+    }
+    let mut duplicate = trace.events.clone();
+    duplicate.push(trace.events[3].clone());
+    assert!(validate(&trace, &mut duplicate).is_err());
+    let mut wrong: Trace = serde_json::from_value(serde_json::to_value(&trace).unwrap()).unwrap();
+    wrong.frames[10]["particles"][0]["age"] = json!(99);
+    assert!(validate(&wrong, &mut trace.events.clone()).is_err());
+    wrong = serde_json::from_value(serde_json::to_value(&trace).unwrap()).unwrap();
+    wrong.frames[33]["particles"]
+        .as_array_mut()
+        .unwrap()
+        .clear();
+    assert!(validate(&wrong, &mut trace.events.clone()).is_err());
+    // Without an optional callback registration, a guaranteed condition remains
+    // an exact event comparison. Recorded random inputs remain exact as well.
+    let mut pair = [trace.events.clone(), trace.events.clone()];
+    optional_seal_conditions(&trace, &trace, &mut pair).unwrap();
+    assert_eq!(pair[0], trace.events);
+    wrong.setup["chance_effects"] = json!([binding]);
+    wrong.case = "party:5:126".into();
+    wrong.setup["random_inputs"] = json!({});
+    optional_seal_conditions(&wrong, &wrong, &mut pair).unwrap();
+    assert_eq!(pair[0], trace.events);
+}
+
+/// Compare a chance-bearing contact's deterministic mechanics, while checking
+/// each independently rolled condition and its poison consequences in its own run.
+fn optional_enemy_conditions(trace: &Trace, events: &mut Vec<Value>) -> Result<()> {
+    if !trace.case.starts_with("enemy:")
+        || trace.setup["catalogue"].is_null()
+        || trace.setup.get("random_inputs").is_some()
+    {
+        return Ok(());
+    }
+    let row: usize = trace.case.rsplit(':').next().unwrap().parse()?;
+    let pin: super::random_inputs::Pin = serde_json::from_value(trace.setup["catalogue"].clone())?;
+    let catalogue: Value = serde_json::from_slice(&pin.read_bytes()?)?;
+    let Some(authored) =
+        catalogue["actions"]["rows"][row]["execution"]["attack"]["events"].as_array()
+    else {
+        return Ok(());
+    };
+    optional_contact_conditions(trace, authored, events)
+}
+
+fn optional_contact_conditions(
+    trace: &Trace,
+    authored: &[Value],
+    events: &mut Vec<Value>,
+) -> Result<()> {
+    let owner = &trace.setup["owner"];
+    let side = |actor: &Value| {
+        trace.setup["actors"].as_array().and_then(|actors| {
+            actors
+                .iter()
+                .find(|entry| entry["actor"] == *actor)
+                .map(|entry| &entry["side"])
+        })
+    };
+    let mut applications = Vec::new();
+    for change in events.iter().filter(|event| {
+        event["kind"] == "condition_changed"
+            && &event["owner"] == owner
+            && events.iter().any(|start| {
+                start["kind"] == "started"
+                    && start["owner"] == *owner
+                    && start["action"] == event["action"]
+                    && start["clock"] == 0
+            })
+    }) {
+        let before: ConditionSet = serde_json::from_value(change["before"].clone())?;
+        let after: ConditionSet = serde_json::from_value(change["after"].clone())?;
+        if !before.without(after).is_empty() {
+            continue;
+        }
+        let added = serde_json::to_value(after.without(before))?;
+        let Some(added) = added.as_array().filter(|conditions| conditions.len() == 1) else {
+            continue;
+        };
+        let permitted = events
+            .iter()
+            .filter(|hit| {
+                hit["kind"] == "hit"
+                    && ["owner", "target", "action", "clock", "presentation_clock"]
+                        .iter()
+                        .all(|key| hit[key] == change[key])
+                    && hit["hp_change"].as_i64().is_some_and(|amount| amount < 0)
+                    && side(&hit["owner"])
+                        .zip(side(&hit["target"]))
+                        .is_some_and(|(owner, target)| owner != target)
+            })
+            .any(|hit| {
+                authored.iter().any(|entry| {
+                    let Some(at) = entry[0].as_u64() else {
+                        return false;
+                    };
+                    let projectile = !hit["projectile"].is_null();
+                    let definition = &entry[1][if projectile { "projectile" } else { "contact" }];
+                    let condition = &definition["hit"]["condition"];
+                    condition["condition"] == added[0]
+                        && condition["chance"]
+                            .as_u64()
+                            .is_some_and(|chance| (1..100).contains(&chance))
+                        && if projectile {
+                            events.iter().any(|birth| {
+                                birth["kind"] == "projectile_started"
+                                    && ["owner", "action", "projectile"]
+                                        .iter()
+                                        .all(|key| birth[key] == hit[key])
+                                    && birth["clock"] == at
+                            })
+                        } else {
+                            hit["clock"]
+                                .as_u64()
+                                .zip(definition["duration"].as_u64())
+                                .is_some_and(|(clock, duration)| {
+                                    clock >= at && clock < at + duration
+                                })
+                        }
+                })
+            });
+        if permitted {
+            ensure!(
+                !applications.contains(change),
+                "optional condition transition is duplicated"
+            );
+            applications.push(change.clone());
+        }
+    }
+    applications.extend(authored_condition_groups(trace, authored, events)?);
+    // Pauses, cures and poison rearming need their own observed clock contract.
+    // Keep these intervals strict rather than extrapolating the first cycle.
+    applications.retain(|change| {
+        let poison = change["after"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "poison_mild" || value == "poison_severe");
+        !poison
+            || trace
+                .frames
+                .first()
+                .zip(trace.frames.last())
+                .is_some_and(|(first, last)| {
+                    last["combat_tick"]
+                        .as_u64()
+                        .zip(first["combat_tick"].as_u64())
+                        .zip(change["clock"].as_u64())
+                        .is_some_and(|((end, onset), applied)| {
+                            end.checked_sub(onset + applied)
+                                .is_some_and(|elapsed| elapsed <= 301)
+                        })
+                })
+                && trace.frames.windows(2).all(|pair| {
+                    pair[0]["combat_tick"]
+                        .as_u64()
+                        .and_then(|at| at.checked_add(1))
+                        == pair[1]["combat_tick"].as_u64()
+                })
+                && trace.frames.iter().all(|frame| {
+                    frame["actors"].as_array().is_some_and(|actors| {
+                        actors
+                            .iter()
+                            .all(|actor| actor["time_stop"].as_u64().unwrap_or(0) == 0)
+                    })
+                })
+                && !events.iter().any(|later| {
+                    later["kind"] == "condition_changed"
+                        && later["target"] == change["target"]
+                        && later["clock"].as_u64() > change["clock"].as_u64()
+                        && change["after"].as_array().unwrap().iter().any(|condition| {
+                            (condition == "poison_mild" || condition == "poison_severe")
+                                && later["after"]
+                                    .as_array()
+                                    .is_some_and(|values| !values.contains(condition))
+                        })
+                })
+    });
+    let pulses: Vec<_> = events
+        .iter()
+        .filter(|pulse| {
+            pulse["kind"] == "poison_pulse"
+                && applications.iter().any(|change| {
+                    ["owner", "target", "action"]
+                        .iter()
+                        .all(|key| pulse[key] == change[key])
+                        && change["before"]
+                            .as_array()
+                            .is_some_and(|values| !values.contains(&pulse["condition"]))
+                        && change["after"]
+                            .as_array()
+                            .is_some_and(|values| values.contains(&pulse["condition"]))
+                })
+        })
+        .cloned()
+        .collect();
+    validate_optional_poison_cadence(trace, events, &applications, &pulses)?;
+    for pulse in &pulses {
+        ensure!(
+            events
+                .iter()
+                .filter(|event| event["kind"] == "declaration_started"
+                    && event["owner"] == pulse["target"]
+                    && event["bank"] == trace.setup["common_effect_bank"]
+                    && event["member"] == 73
+                    && ["clock", "presentation_clock"]
+                        .iter()
+                        .all(|key| event[key] == pulse[key]))
+                .count()
+                == 1,
+            "poison pulse lacks its single feedback declaration"
+        );
+    }
+    events.retain(|event| {
+        !applications.contains(event)
+            && !pulses.contains(event)
+            && !pulses.iter().any(|pulse| {
+                event["owner"] == pulse["target"]
+                    && event["bank"] == trace.setup["common_effect_bank"]
+                    && ["clock", "presentation_clock"]
+                        .iter()
+                        .all(|key| event[key] == pulse[key])
+                    && (event["kind"] == "program_started" && event["program"] == 44
+                        || event["kind"] == "declaration_started" && event["member"] == 73)
+            })
+    });
+    Ok(())
+}
+
+// A grouped affliction is mandatory: each clean, living opponent receives one
+// choice from every authored group. Only the choices are independently random.
+fn authored_condition_groups(
+    trace: &Trace,
+    authored: &[Value],
+    events: &[Value],
+) -> Result<Vec<Value>> {
+    let mut applications = Vec::new();
+    for entry in authored
+        .iter()
+        .filter(|entry| entry[1].get("afflict_opponents").is_some())
+    {
+        let groups = entry[1]["afflict_opponents"]["groups"]
+            .as_array()
+            .context("missing authored condition groups")?;
+        let actors = trace.setup["actors"]
+            .as_array()
+            .context("missing affliction actors")?;
+        let owner = &trace.setup["owner"];
+        let side = &actors
+            .iter()
+            .find(|actor| actor["actor"] == *owner)
+            .context("missing affliction owner")?["side"];
+        let opponents: Vec<_> = actors
+            .iter()
+            .filter(|actor| &actor["side"] != side)
+            .collect();
+        // Existing ailments, immunity and pauses need their own state contract;
+        // don't infer a missing group choice from an unobserved rejection/cure.
+        if opponents.iter().any(|actor| {
+            !actor["conditions"].as_array().is_some_and(Vec::is_empty)
+                || !actor["actor"].as_u64().is_some_and(|id| {
+                    trace.setup["damage_context"][id as usize]["blocked"]
+                        .as_array()
+                        .is_some_and(Vec::is_empty)
+                })
+        }) || trace.frames.windows(2).any(|pair| {
+            ["combat_tick", "presentation_tick"].iter().any(|key| {
+                pair[0][key].as_u64().and_then(|at| at.checked_add(1)) != pair[1][key].as_u64()
+            })
+        }) {
+            continue;
+        }
+        let at = entry[0].as_u64().context("missing affliction clock")?;
+        let Some(first) = trace.frames.first() else {
+            continue;
+        };
+        let onset = first["combat_tick"]
+            .as_u64()
+            .context("missing affliction onset")?;
+        let Some(frame) = trace
+            .frames
+            .iter()
+            .position(|frame| frame["combat_tick"] == onset + at)
+        else {
+            continue;
+        };
+        ensure!(frame > 0, "affliction lacks preceding recipient state");
+        let start = events
+            .iter()
+            .find(|event| {
+                event["kind"] == "started" && event["owner"] == *owner && event["clock"] == 0
+            })
+            .context("affliction lacks action admission")?;
+        for target in opponents {
+            let hp = |frame: &Value| {
+                frame["actors"]
+                    .as_array()
+                    .and_then(|actors| {
+                        actors
+                            .iter()
+                            .find(|actor| actor["actor"] == target["actor"])
+                    })
+                    .and_then(|actor| actor["hp"].as_i64())
+            };
+            let before = hp(&trace.frames[frame - 1]).context("missing affliction recipient HP")?;
+            let after = hp(&trace.frames[frame]).context("missing affliction recipient HP")?;
+            if before == 0 && after == 0 {
+                continue;
+            }
+            ensure!(
+                before > 0 && before == after,
+                "affliction recipient lacks unchanged living HP"
+            );
+            let changes: Vec<_> = events
+                .iter()
+                .filter(|event| {
+                    event["kind"] == "condition_changed"
+                        && event["owner"] == *owner
+                        && event["target"] == target["actor"]
+                        && event["action"] == start["action"]
+                        && event["clock"] == at
+                        && event["presentation_clock"].as_u64()
+                            == trace.frames[frame]["presentation_tick"]
+                                .as_u64()
+                                .zip(first["presentation_tick"].as_u64())
+                                .map(|(now, start)| now - start)
+                })
+                .collect();
+            ensure!(
+                changes.len() == 1,
+                "required grouped affliction is missing or duplicated"
+            );
+            let change = changes[0];
+            let choices = change["after"]
+                .as_array()
+                .context("missing affliction choices")?;
+            ensure!(
+                change["before"].as_array().is_some_and(Vec::is_empty)
+                    && choices.len() == groups.len()
+                    && groups
+                        .iter()
+                        .all(|group| group.as_array().is_some_and(|group| {
+                            choices
+                                .iter()
+                                .filter(|choice| group.contains(choice))
+                                .count()
+                                == 1
+                        }))
+                    && choices.iter().all(|choice| groups
+                        .iter()
+                        .filter(|group| group
+                            .as_array()
+                            .is_some_and(|group| group.contains(choice)))
+                        .count()
+                        == 1),
+                "affliction does not select exactly one condition from each authored group"
+            );
+            applications.push(change.clone());
+        }
+    }
+    Ok(applications)
+}
+
+fn validate_optional_poison_cadence(
+    trace: &Trace,
+    events: &[Value],
+    applications: &[Value],
+    pulses: &[Value],
+) -> Result<()> {
+    let Some(first) = trace.frames.first() else {
+        return Ok(());
+    };
+    let onset = first["combat_tick"]
+        .as_u64()
+        .context("missing poison clock")?;
+    let end = trace.frames.last().unwrap()["combat_tick"]
+        .as_u64()
+        .context("missing poison end")?
+        - onset;
+    let active = |target: &Value, condition: &str, clock: u64| {
+        events
+            .iter()
+            .filter(|event| {
+                event["kind"] == "condition_changed"
+                    && event["target"] == *target
+                    && event["clock"].as_u64().is_some_and(|at| at <= clock)
+            })
+            .max_by_key(|event| event["clock"].as_u64())
+            .and_then(|event| event["after"].as_array())
+            .is_some_and(|values| {
+                values.iter().any(|value| value == condition)
+                    && (condition == "poison_severe"
+                        || !values.iter().any(|value| value == "poison_severe"))
+            })
+    };
+    for change in applications {
+        for condition in ["poison_mild", "poison_severe"] {
+            if !change["after"]
+                .as_array()
+                .is_some_and(|values| values.iter().any(|value| value == condition))
+                || change["before"]
+                    .as_array()
+                    .is_some_and(|values| values.iter().any(|value| value == condition))
+            {
+                continue;
+            }
+            let applied = change["clock"]
+                .as_u64()
+                .context("missing poison application clock")?;
+            for pulse in pulses.iter().filter(|pulse| {
+                pulse["target"] == change["target"] && pulse["condition"] == condition
+            }) {
+                let elapsed = pulse["clock"]
+                    .as_u64()
+                    .context("missing poison pulse clock")?
+                    .checked_sub(applied)
+                    .context("poison precedes application")?;
+                ensure!(
+                    elapsed >= 31
+                        && (elapsed - 31) % 30 == 0
+                        && active(&pulse["target"], condition, applied + elapsed),
+                    "poison pulse cadence or severity differs from its application"
+                );
+            }
+            for clock in (applied + 31..=end).step_by(30) {
+                let before = trace
+                    .frames
+                    .iter()
+                    .find(|frame| frame["combat_tick"].as_u64() == Some(onset + clock - 1))
+                    .and_then(|frame| frame["actors"].as_array())
+                    .and_then(|actors| {
+                        actors
+                            .iter()
+                            .find(|actor| actor["actor"] == change["target"])
+                    });
+                if active(&change["target"], condition, clock) {
+                    let hp = before
+                        .and_then(|actor| actor["hp"].as_i64())
+                        .context("scheduled poison lacks its recipient HP observation")?;
+                    if hp <= 1 {
+                        continue;
+                    }
+                    ensure!(
+                        pulses
+                            .iter()
+                            .filter(|pulse| pulse["target"] == change["target"]
+                                && pulse["condition"] == condition
+                                && pulse["clock"] == clock)
+                            .count()
+                            == 1,
+                        "active poison is missing its scheduled pulse"
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn optional_contact_conditions_keep_contacts_and_reject_unbound_changes() {
+    use serde_json::json;
+    let trace = Trace {
+        case: "test".into(),
+        setup: json!({"owner":0,"actors":[{"actor":0,"side":0},{"actor":1,"side":1}]}),
+        frames: vec![],
+        events: vec![],
+        assessment: json!({}),
+        incomplete_observations: vec![],
+    };
+    let authored =
+        vec![json!([18,{"projectile":{"hit":{"condition":{"condition":"heavy","chance":50}}}}])];
+    let events = vec![
+        json!({"kind":"started","owner":0,"action":1,"clock":0}),
+        json!({"kind":"projectile_started","owner":0,"action":1,"projectile":1,"clock":18}),
+        json!({"kind":"hit","owner":0,"target":1,"action":1,"projectile":1,"clock":19,"presentation_clock":19,"hp_change":-10}),
+        json!({"kind":"condition_changed","owner":0,"target":1,"action":1,"clock":19,"presentation_clock":19,"before":[],"after":["heavy"]}),
+    ];
+    let mut accepted = events.clone();
+    optional_contact_conditions(&trace, &authored, &mut accepted).unwrap();
+    assert_eq!(accepted, events[..3]);
+    for (index, field, value) in [
+        (1, "clock", json!(17)),
+        (2, "hp_change", json!(0)),
+        (3, "target", json!(0)),
+        (3, "clock", json!(20)),
+        (3, "after", json!(["weak"])),
+        (3, "after", json!(["heavy", "weak"])),
+    ] {
+        let mut wrong = events.clone();
+        wrong[index][field] = value;
+        let before = wrong.clone();
+        optional_contact_conditions(&trace, &authored, &mut wrong).unwrap();
+        assert_eq!(wrong, before);
+    }
+    for chance in [0, 100] {
+        let mut definition = authored.clone();
+        definition[0][1]["projectile"]["hit"]["condition"]["chance"] = json!(chance);
+        let mut strict = events.clone();
+        optional_contact_conditions(&trace, &definition, &mut strict).unwrap();
+        assert_eq!(strict, events);
+    }
+    let mut duplicate = events.clone();
+    duplicate.push(events[3].clone());
+    assert!(optional_contact_conditions(&trace, &authored, &mut duplicate).is_err());
+}
+
+#[test]
+fn authored_condition_groups_require_each_recipient_and_choice() {
+    use serde_json::json;
+    let trace = Trace {
+        case: "test".into(),
+        setup: json!({"owner":0,"actors":[
+            {"actor":0,"side":0,"conditions":[]},
+            {"actor":1,"side":1,"conditions":[]}],
+            "damage_context":[{"blocked":[]},{"blocked":[]}]}),
+        frames: (0..=2)
+            .map(|clock| {
+                json!({"combat_tick":clock,"presentation_tick":clock,
+            "actors":[{"actor":1,"hp":100}]})
+            })
+            .collect(),
+        events: vec![],
+        assessment: json!({}),
+        incomplete_observations: vec![],
+    };
+    let authored = vec![json!([1,{"afflict_opponents":{"groups":[
+        ["weak","heavy"],["attack_down","defense_down"]],"dispel":true}}])];
+    let events = vec![
+        json!({"kind":"started","owner":0,"action":1,"clock":0}),
+        json!({"kind":"condition_changed","owner":0,"target":1,"action":1,
+            "clock":1,"presentation_clock":1,"before":[],"after":["weak","attack_down"]}),
+        json!({"kind":"program_started","owner":0,"program":7,"clock":1}),
+    ];
+    let mut accepted = events.clone();
+    optional_contact_conditions(&trace, &authored, &mut accepted).unwrap();
+    assert_eq!(accepted, vec![events[0].clone(), events[2].clone()]);
+    for (field, value) in [
+        ("target", json!(0)),
+        ("owner", json!(1)),
+        ("clock", json!(2)),
+        ("after", json!(["weak"])),
+        ("after", json!(["weak", "heavy"])),
+        ("after", json!(["weak", "unknown"])),
+    ] {
+        let mut wrong = events.clone();
+        wrong[1][field] = value;
+        assert!(optional_contact_conditions(&trace, &authored, &mut wrong).is_err());
+    }
+    let mut missing = vec![events[0].clone(), events[2].clone()];
+    assert!(optional_contact_conditions(&trace, &authored, &mut missing).is_err());
+    let mut duplicate = events.clone();
+    duplicate.push(events[1].clone());
+    assert!(optional_contact_conditions(&trace, &authored, &mut duplicate).is_err());
+}
+
+#[test]
+fn optional_poison_requires_every_scheduled_pulse() {
+    use serde_json::json;
+    let trace = Trace {
+        case: "test".into(),
+        setup: json!({}),
+        frames: (0..=80)
+            .map(|clock| json!({"combat_tick":clock,"actors":[{"actor":1,"hp":100}]}))
+            .collect(),
+        events: vec![],
+        assessment: json!({}),
+        incomplete_observations: vec![],
+    };
+    let applications = vec![
+        json!({"kind":"condition_changed","owner":0,"target":1,"action":1,"clock":19,"before":[],"after":["poison_mild"]}),
+    ];
+    let pulses = vec![
+        json!({"target":1,"condition":"poison_mild","clock":50}),
+        json!({"target":1,"condition":"poison_mild","clock":80}),
+    ];
+    assert!(
+        validate_optional_poison_cadence(&trace, &applications, &applications, &pulses).is_ok()
+    );
+    assert!(
+        validate_optional_poison_cadence(&trace, &applications, &applications, &pulses[..1])
+            .is_err()
+    );
+    let mut delayed = pulses.clone();
+    delayed[0]["clock"] = json!(51);
+    assert!(
+        validate_optional_poison_cadence(&trace, &applications, &applications, &delayed).is_err()
+    );
+    let mut severe = applications.clone();
+    severe[0]["after"] = json!(["poison_mild", "poison_severe"]);
+    assert!(validate_optional_poison_cadence(&trace, &severe, &applications, &pulses).is_err());
 }
 
 fn bounds(value: &Value) -> Result<(f64, f64)> {
@@ -1631,6 +2963,10 @@ fn required<'a>(value: &'a Value, field: &str) -> Result<&'a Value> {
 
 pub(super) fn equal(source: &Value, native: &Value, path: &str) -> Result<()> {
     let heading = path == "heading" || path.ends_with(".heading");
+    let actor_position = path.contains(".actors[")
+        && [".position[0]", ".position[1]", ".position[2]"]
+            .iter()
+            .any(|suffix| path.ends_with(suffix));
     match (source, native) {
         (Value::Object(source), Value::Object(native)) => {
             ensure!(
@@ -1655,7 +2991,8 @@ pub(super) fn equal(source: &Value, native: &Value, path: &str) -> Result<()> {
         (Value::Number(source), Value::Number(native))
             if source.is_f64() || native.is_f64() || heading =>
         {
-            // The existing paired oracle resolves geometry to 0.01 game units.
+            // Portable direction arithmetic can accumulate sub-unit recoil drift.
+            // Keep animation, heading, contact clocks and other quantities strict.
             let mut difference = (source.as_f64().context("invalid source number")?
                 - native.as_f64().context("invalid native number")?)
             .abs();
@@ -1664,7 +3001,8 @@ pub(super) fn equal(source: &Value, native: &Value, path: &str) -> Result<()> {
                 difference = difference.rem_euclid(360.);
                 difference = difference.min(360. - difference);
             }
-            ensure!(difference <= 0.01, "{path}: {source} != {native}");
+            let tolerance = if actor_position { 0.25 } else { 0.01 };
+            ensure!(difference <= tolerance, "{path}: {source} != {native}");
         }
         _ => ensure!(source == native, "{path}: {source} != {native}"),
     }
@@ -1698,6 +3036,49 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         incomplete_observations: vec![],
     };
     assert!(equivalent(&make(), &make()).is_ok());
+    let mut hidden = make();
+    hidden.setup["ready_models"] = json!([{"actor":2,"defeated_hidden":true}]);
+    hidden.setup["ready_model_observations"] = json!([{"actor":2,"source_slot":5,"status":6}]);
+    hidden.setup["initial_battle"] = json!({"actors":[{}, {},
+        {"slot":5,"side":1,"hp":0,"action":[18,0,0,0,16,0,0,0]}]});
+    hidden.frames[0]["actors"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"actor":2,"side":1,"hp":0,"tp":0,"position":[200.,0.,0.],"heading":0.}));
+    hidden.frames[0]["models"].as_array_mut().unwrap().push(
+        json!({"actor":2,"clip":0,"frame":2.5,"world":[1.,0.,0.,200.,0.,1.,0.,0.,0.,0.,1.,0.]}),
+    );
+    let mut hidden_native: Trace =
+        serde_json::from_value(serde_json::to_value(&hidden).unwrap()).unwrap();
+    hidden_native.frames[0]["models"][1]["clip"] = json!(3);
+    equivalent(&hidden, &hidden_native).expect("proved invisible defeated fixture pose");
+    hidden.setup["ready_model_observations"][0]["status"] = json!(2);
+    assert!(equivalent(&hidden, &hidden_native).is_err());
+    hidden.setup["ready_model_observations"][0]["status"] = json!(6);
+    hidden_native.frames[0]["actors"][2]["hp"] = json!(1);
+    assert!(equivalent(&hidden, &hidden_native).is_err());
+    hidden_native.frames[0]["actors"][2]["hp"] = json!(0);
+    hidden_native.frames[0]["actors"][2]["position"][0] = json!(210.);
+    assert!(equivalent(&hidden, &hidden_native).is_err());
+    hidden_native.frames[0]["actors"][2]["position"][0] = json!(200.);
+    hidden_native.frames[0]["models"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    assert!(equivalent(&hidden, &hidden_native).is_err());
+    for failure in [
+        "execution_or_cleanup_not_completed_within_source_window",
+        "selected_action_did_not_damage_an_opponent",
+        "departure_prerequisite_not_reproduced",
+        "observed_cast_replacement_not_reproduced",
+    ] {
+        let mut failed = make();
+        failed.assessment["execution_failures"] = json!([failure]);
+        assert!(failed.incomplete_observations.is_empty());
+        let error = equivalent(&make(), &failed).unwrap_err().to_string();
+        assert!(error.contains("native execution differs") && error.contains(failure));
+        assert!(equivalent(&failed, &failed).is_err());
+    }
     let mut retained = make();
     retained.setup["presentation"] = json!({"poses":[],"effects":[],"retained_pose":true});
     retained.setup["ready_models"] = json!([{"actor":0,"clip":1}]);
@@ -1806,6 +3187,31 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     assert!(equivalent(&recurring, &recurring).is_ok());
     let baseline: Vec<Baseline> =
         serde_json::from_value(recurring.setup["effect_baseline"].clone()).unwrap();
+    let mut active = make();
+    active.setup["initial_battle"] = recurring.setup["initial_battle"].clone();
+    active.setup["ready_passive_effects"] =
+        json!([{"actor":0,"program":30,"interval":9,"counter":0}]);
+    let mut active_baseline = recurring.setup["effect_baseline"][0].clone();
+    active_baseline["scenery"] = Value::Null;
+    active_baseline["scheduler"] =
+        json!({"program_end":8,"observed_start_age":2,"spawn_offsets":[0]});
+    let active_baseline: Baseline = serde_json::from_value(active_baseline).unwrap();
+    active.frames[0]["presentation_tick"] = json!(14);
+    active.frames[0]["programs"] = json!([{"owner":0,"bank":bank,"program":30,"age":6}]);
+    assert!(baseline_active_at_start(&active_baseline, &active));
+    active.frames[0]["programs"][0]["age"] = json!(5);
+    assert!(!baseline_active_at_start(&active_baseline, &active));
+    active.frames[0]["programs"][0]["age"] = json!(6);
+    active.setup["ready_passive_effects"][0]["counter"] = json!(1);
+    assert!(!baseline_active_at_start(&active_baseline, &active));
+    active.setup["ready_passive_effects"][0]["counter"] = json!(0);
+    active.setup["ready_ambient_effect"] = recurring.setup["ready_ambient_effect"].clone();
+    active.frames[0]["programs"][0]["age"] = json!(5);
+    assert!(baseline_active_at_start(&baseline[0], &active));
+    active.frames[0]["programs"][0]["age"] = json!(6);
+    assert!(!baseline_active_at_start(&baseline[0], &active));
+    active.frames[0]["programs"] = json!([]);
+    assert!(!baseline_active_at_start(&active_baseline, &active));
     let mut pending = json!({"presentation_tick":15,
         "programs":[{"owner":0,"bank":bank,"program":30,"age":1}],
         "particles":[{"owner":0,"bank":bank,"member":47,"age":0,"initialized":false}]});
@@ -1886,6 +3292,10 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         assert!(equivalent(&source, &native).is_err());
     }
     let mut wrong_position = make();
+    wrong_position.frames[0]["actors"][0]["position"][0] = json!(0.2);
+    assert!(equivalent(&make(), &wrong_position).is_ok());
+    wrong_position.frames[0]["actors"][0]["position"][0] = json!(1.);
+    assert!(equivalent(&make(), &wrong_position).is_err());
     wrong_position.frames[0]["actors"][0]["position"][0] = json!(360.);
     assert!(equivalent(&make(), &wrong_position).is_err());
     let mut wrong_world = make();
@@ -2190,6 +3600,32 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         yaw_native.frames.push(native_frame);
     }
     assert!(equivalent(&yaw_source, &yaw_native).is_ok());
+    let mut anisotropic_source: Trace =
+        serde_json::from_value(serde_json::to_value(&yaw_source).unwrap()).unwrap();
+    let mut anisotropic_native: Trace =
+        serde_json::from_value(serde_json::to_value(&yaw_native).unwrap()).unwrap();
+    for trace in [&mut anisotropic_source, &mut anisotropic_native] {
+        for frame in &mut trace.frames {
+            for model in frame["effect_models"].as_array_mut().unwrap() {
+                for (column, factor) in [1.5, 0.75, 0.5].into_iter().enumerate() {
+                    for row in 0..3 {
+                        let value = model["model"]["world"][row * 4 + column].as_f64().unwrap();
+                        model["model"]["world"][row * 4 + column] = json!(value * factor);
+                    }
+                }
+            }
+        }
+    }
+    equivalent(&anisotropic_source, &anisotropic_native)
+        .expect("random yaw retains independent authored scale axes");
+    for row in 0..3 {
+        let value = anisotropic_native.frames[1]["effect_models"][0]["model"]["world"][row * 4 + 2]
+            .as_f64()
+            .unwrap();
+        anisotropic_native.frames[1]["effect_models"][0]["model"]["world"][row * 4 + 2] =
+            json!(value * 1.25);
+    }
+    assert!(equivalent(&anisotropic_source, &anisotropic_native).is_err());
     let accepted = yaw_native.frames.clone();
     yaw_native.frames[1]["effect_models"][0]["model"]["world"][3] = json!(13.);
     assert!(equivalent(&yaw_source, &yaw_native).is_err());
@@ -2266,6 +3702,88 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         }
     }
     assert!(equivalent(&choice_source, &choice_native).is_ok());
+    // Independently sampled XYZ angles with authored multi-axis spin cannot be
+    // normalized by applying only one constant inverse rotation to later frames.
+    let mut spinning_source: Trace =
+        serde_json::from_value(serde_json::to_value(&choice_source).unwrap()).unwrap();
+    let mut spinning_native: Trace =
+        serde_json::from_value(serde_json::to_value(&choice_native).unwrap()).unwrap();
+    let set_spin_angles = |frame: &mut Value, angles: [f32; 3]| {
+        let [x, y, z] = angles.map(f32::to_radians);
+        let position = [3, 7, 11].map(|index| {
+            frame["effect_models"][0]["model"]["world"][index]
+                .as_f64()
+                .unwrap() as f32
+        });
+        let world = bevy::math::Mat4::from_scale_rotation_translation(
+            bevy::math::Vec3::new(0.4, 0.5, 0.7),
+            bevy::math::Quat::from_euler(bevy::math::EulerRot::ZYX, z, y, x),
+            bevy::math::Vec3::from_array(position),
+        );
+        frame["effect_models"][0]["model"]["world"] =
+            json!(super::affine(world.to_cols_array_2d()));
+        frame["particles"][0]["model"] = frame["effect_models"][0]["model"].clone();
+        frame["particles"][0]["angles"] = json!(angles);
+    };
+    for (trace, yaw) in [(&mut spinning_source, -70.), (&mut spinning_native, 40.)] {
+        trace.setup["effect_random_births"][0]["angles"][1] = angle_range.clone();
+        trace.setup["effect_random_births"][0]["angular_velocity"] = json!([4., 5., 6.]);
+        trace.setup["effect_random_births"][0]["template"]["modifier_words"] = json!([
+            11, 52, 900, 0, 11, 60, 900, 0, 11, 88, 1800, 0, 11, 92, 1800, 0, 11, 96, 1800, 0, 2,
+            32764, 2, 0, 12, 212, 32764, 0, 65535
+        ]);
+        for (index, frame) in trace.frames[..2].iter_mut().enumerate() {
+            let age = index + 1;
+            let mut angles: [f32; 3] =
+                serde_json::from_value(frame["particles"][0]["angles"].clone()).unwrap();
+            angles[1] = yaw + 5. * age as f32;
+            set_spin_angles(frame, angles);
+            frame["particles"][0]["age"] = json!(age);
+        }
+    }
+    equivalent(&spinning_source, &spinning_native)
+        .expect("independent XYZ draws retain authored spin");
+    for failure in ["spin", "age", "slot", "scale", "translation"] {
+        let mut wrong: Trace =
+            serde_json::from_value(serde_json::to_value(&spinning_native).unwrap()).unwrap();
+        match failure {
+            "spin" => {
+                let mut angles: [f32; 3] =
+                    serde_json::from_value(wrong.frames[1]["particles"][0]["angles"].clone())
+                        .unwrap();
+                angles[1] += 1.;
+                set_spin_angles(&mut wrong.frames[1], angles);
+            }
+            "age" => wrong.frames[1]["particles"][0]["age"] = json!(3),
+            "slot" => wrong.frames[1]["particles"][0]["model_slot"] = json!(3),
+            "scale" | "translation" => {
+                let index = if failure == "scale" { 0 } else { 7 };
+                let value = wrong.frames[1]["effect_models"][0]["model"]["world"][index]
+                    .as_f64()
+                    .unwrap();
+                wrong.frames[1]["effect_models"][0]["model"]["world"][index] = json!(value + 1.);
+                wrong.frames[1]["particles"][0]["model"] =
+                    wrong.frames[1]["effect_models"][0]["model"].clone();
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            equivalent(&spinning_source, &wrong).is_err(),
+            "XYZ {failure} must remain checked"
+        );
+    }
+    for field in ["angles", "model_slot"] {
+        let mut missing: Trace =
+            serde_json::from_value(serde_json::to_value(&spinning_source).unwrap()).unwrap();
+        missing.frames[0]["particles"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(
+            equivalent(&missing, &spinning_native).is_err(),
+            "missing actual XYZ {field}"
+        );
+    }
     for factor in [0., -1., 1.5] {
         let mut scaled: Trace =
             serde_json::from_value(serde_json::to_value(&choice_native).unwrap()).unwrap();
@@ -2395,6 +3913,32 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         frame["particles"].as_array_mut().unwrap().reverse();
     }
     equivalent(&simultaneous, &permuted).expect("simultaneous whole-lifetime permutation");
+    let mut exact_source: Trace =
+        serde_json::from_value(serde_json::to_value(&simultaneous).unwrap()).unwrap();
+    let mut exact_native: Trace =
+        serde_json::from_value(serde_json::to_value(&permuted).unwrap()).unwrap();
+    exact_source
+        .setup
+        .as_object_mut()
+        .unwrap()
+        .remove("effect_random_births");
+    equivalent(&exact_source, &exact_native)
+        .expect("exact detached lifetime permutation without random metadata");
+    // Preserve the per-frame multiset while exchanging identity midway: this
+    // must still fail when no random birth normalization has been admitted.
+    for (instance, height) in [60, 80].into_iter().enumerate() {
+        exact_native.frames[2]["effect_models"][instance]["model"]["world"][7] = json!(height);
+    }
+    assert!(equivalent(&exact_source, &exact_native).is_err());
+    exact_native.frames = permuted.frames.clone();
+    exact_native.frames[1]["effect_models"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    assert!(equivalent(&exact_source, &exact_native).is_err());
+    exact_native.frames = permuted.frames.clone();
+    exact_native.frames[2]["effect_models"][0]["model"]["world"][0] = json!(0.7);
+    assert!(equivalent(&exact_source, &exact_native).is_err());
     let mut identical: Trace =
         serde_json::from_value(serde_json::to_value(&simultaneous).unwrap()).unwrap();
     let mut identical_permuted: Trace =
@@ -2486,6 +4030,33 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     let moving_source = motion_trace(0.1);
     let mut moving_native = motion_trace(-0.1);
     equivalent(&moving_source, &moving_native).expect("qualified vertical birth motion");
+    let mut retained_source = motion_trace(0.1);
+    for (index, choice) in retained_source.setup["effect_random_births"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .enumerate()
+    {
+        choice["static_binding"] = json!({"angles":[-90.,index as f32 * 120.,0.],"model":0});
+    }
+    for frame in &mut retained_source.frames {
+        for particle in frame["particles"].as_array_mut().unwrap() {
+            particle.as_object_mut().unwrap().remove("angles");
+            particle.as_object_mut().unwrap().remove("model_slot");
+        }
+    }
+    let mut observed_native = motion_trace(-0.1);
+    observed_native.setup = retained_source.setup.clone();
+    equivalent(&retained_source, &observed_native).expect("deterministic source binding");
+    observed_native.frames[0]["particles"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("model_slot");
+    assert!(equivalent(&retained_source, &observed_native).is_err());
+    retained_source.frames[1]["effect_models"][0]["model"]["world"][0] = json!(2.);
+    retained_source.frames[1]["particles"][0]["model"] =
+        retained_source.frames[1]["effect_models"][0]["model"].clone();
+    assert!(equivalent(&retained_source, &motion_trace(-0.1)).is_err());
     moving_native.frames[1]["particles"][1]["age"] = json!(2);
     assert!(equivalent(&moving_source, &moving_native).is_err());
     moving_native = motion_trace(-0.1);
@@ -2725,6 +4296,30 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     assert!(equivalent(&make(), &random).is_ok());
     random.events[3]["hp_change"] = json!(-13);
     assert!(equivalent(&make(), &random).is_err());
+    let mut unstunned = make();
+    unstunned.events[3]["hp_change"] = json!(-43);
+    unstunned.events[3]["damage_range"] = json!([42, 68]);
+    unstunned.events[3]["damage_branches"] = json!({"ordinary":[42,45],"critical":[63,68]});
+    let mut stunned = make();
+    stunned.setup["contact_damage_observations"] = json!(true);
+    stunned.setup["contact_damage_normalized"] = json!(true);
+    stunned.events[3]["damage_inputs"] = json!({"context":{"target_accuracy_override":true}});
+    stunned.events[3]["hp_change"] = json!(-52);
+    stunned.events[3]["damage_range"] = json!([48, 79]);
+    stunned.events[3]["damage_branches"] = json!({"ordinary":[48,52],"critical":[73,79]});
+    assert!(contact_events(&unstunned, &stunned).is_ok());
+    for damage in [-47, -53, -72] {
+        let mut wrong = make();
+        wrong.setup = stunned.setup.clone();
+        wrong.events = stunned.events.clone();
+        wrong.events[3]["hp_change"] = json!(damage);
+        assert!(contact_events(&unstunned, &wrong).is_err());
+    }
+    stunned.events[3]["critical"] = json!(true);
+    assert!(contact_events(&unstunned, &stunned).is_err());
+    stunned.events[3]["critical"] = json!(false);
+    stunned.setup["contact_damage_normalized"] = json!(false);
+    assert!(contact_events(&unstunned, &stunned).is_err());
     let mut protected = make();
     protected.setup["actors"][1]["side"] = json!(0);
     protected
@@ -2822,6 +4417,22 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
             "condition":"poison_mild", "amount":1, "clock":1, "presentation_clock":1}),
     ]);
     assert!(validate_poison_pulses(&poison, &poison.events).is_ok());
+    let application = poison.events.len() - 3;
+    let unrelated = json!({"kind":"condition_changed", "owner":0, "target":1, "action":1,
+        "before":["poison_mild"], "after":["poison_mild","paralysis"],
+        "clock":0, "presentation_clock":1});
+    poison.events.insert(application + 1, unrelated.clone());
+    assert!(validate_poison_pulses(&poison, &poison.events).is_ok());
+    poison.events[application + 1]["after"] = json!(["paralysis"]);
+    assert!(validate_poison_pulses(&poison, &poison.events).is_err());
+    poison.events[application + 1]["after"] = Value::Null;
+    assert!(validate_poison_pulses(&poison, &poison.events).is_err());
+    poison.events[application + 1] = unrelated;
+    poison.events[application]["clock"] = json!(2);
+    poison.events[application]["presentation_clock"] = json!(2);
+    assert!(validate_poison_pulses(&poison, &poison.events).is_err());
+    poison.events[application]["clock"] = json!(0);
+    poison.events[application]["presentation_clock"] = json!(0);
     poison.events.last_mut().unwrap()["amount"] = json!(2);
     assert!(validate_poison_pulses(&poison, &poison.events).is_err());
     poison.events.last_mut().unwrap()["amount"] = json!(1);

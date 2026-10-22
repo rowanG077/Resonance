@@ -85,8 +85,11 @@ def prepare_case(args, manifest):
         raise ValueError("attempt output must be under local/battle-capture-work")
     output.mkdir(parents=True, exist_ok=False)
     defaults = dict(manifest["fixture_defaults"])
+    if "formation" in case:
+        defaults["formation"] = case["formation"]
     defaults["capture_frames"] = manifest["capture_frames"][case["fixture"]]
     character, arte = case["character"], case["arte"]
+    input_arte = case.get("input_arte", arte)
     catalogue = read(techniques_path)
     definition = catalogue["definitions"][arte]
     if definition["tp_cost"] != case["tp_cost"]:
@@ -95,7 +98,8 @@ def prepare_case(args, manifest):
     grants = [value for value in catalogue["learning"][character - 1]
               if 0 < catalogue["definitions"][value]["required_level"] <= defaults["level"]
               and catalogue["definitions"][value]["learning"]["route"] in (None, route)]
-    grants = sorted(set(grants + [arte]))
+    grants = sorted(set(grants + [input_arte]
+                        + [int(technique) for technique in case.get("technique_uses", {})]))
     companions = [value for value in (1, 2, 3, 4) if value != character]
     party = [character] if case["fixture"] == "martial" else [character] + companions[:3]
     commands = [(JOIN_CHARACTER, [value]) for value in party]
@@ -162,7 +166,7 @@ def prepare_case(args, manifest):
               "movie_sha256": digest(movie_path), "entry_sha256": digest(entry),
               "manifest_sha256": digest(args.manifest), "commands": commands,
               "fixture": fixture, "changes": state.changes, "press_poll": press,
-              "learned_index": catalogue["learning"][character - 1].index(arte),
+              "learned_index": catalogue["learning"][character - 1].index(input_arte),
               "disc_sha256": inputs["disc_sha256"],
               "assistance": "saved OverLimit" if case["fixture"] in ("martial", "summon")
               and case.get("input") != "guard_down" else None,
@@ -199,7 +203,7 @@ def prepare_ready(output, record):
         raise ValueError("requested shortcut changed during battle entry")
     bit = 1 << record["learned_index"]
     if not state.read(at + 0x70, "Q") & bit:
-        raise ValueError("requested arte was not learned")
+        raise ValueError("requested input arte was not learned")
     if case["character"] == 2 and not state.read(at + 0x80, "Q") & bit:
         raise ValueError("requested Colette arte is unavailable in the prepared story state")
     actors = before["battle"]["actors"]

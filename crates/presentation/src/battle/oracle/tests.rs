@@ -1,12 +1,7 @@
 use super::{Oracle, Trace, compare};
 use anyhow::{Context, Result, ensure};
 use serde_json::json;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::PathBuf,
-    process::Command,
-};
+use std::{collections::BTreeSet, fs, path::PathBuf, process::Command};
 
 pub(super) fn condition_branch(trace: &Trace, attempts: &[serde_json::Value]) -> Vec<bool> {
     attempts
@@ -26,6 +21,63 @@ pub(super) fn condition_branch(trace: &Trace, attempts: &[serde_json::Value]) ->
             })
         })
         .collect()
+}
+
+fn require_source_admission(source: &Trace) -> Result<()> {
+    ensure!(
+        !source.frames.is_empty(),
+        "source trace has no execution window"
+    );
+    ensure!(
+        source.setup["input"]["bound_admission_after_updates"].is_u64(),
+        "source capture has no witnessed requested action admission; gaps: {:?}; other selection: {}",
+        source.incomplete_observations,
+        source.assessment["other_selection"],
+    );
+    Ok(())
+}
+
+#[test]
+fn unadmitted_source_prelude_is_a_capture_failure() {
+    let mut source = Trace {
+        case: "enemy:219:2".into(),
+        setup: json!({"input":{"button":"neutral"}}),
+        frames: vec![json!({"combat_tick":3})],
+        events: vec![],
+        assessment: json!({"other_selection":{"selected":1,"expected":2}}),
+        incomplete_observations: vec!["requested action admission was not observed".into()],
+    };
+    let error = require_source_admission(&source).unwrap_err().to_string();
+    assert!(error.contains("source capture has no witnessed requested action admission"));
+    assert!(error.contains("requested action admission was not observed"));
+    source.setup["input"]["bound_admission_after_updates"] = json!(3);
+    assert!(require_source_admission(&source).is_ok());
+    source.frames.clear();
+    assert!(require_source_admission(&source).is_err());
+}
+
+#[test]
+fn initial_navigation_preserves_uninitialized_entry_targets_only() {
+    let roster = [json!({"address":100}), json!({"address":200})];
+    let mut observed = json!({"target":0,"action":[13]});
+    assert!(
+        super::initial_navigation_target(&observed, &roster, true)
+            .unwrap()
+            .is_none()
+    );
+    assert!(super::initial_navigation_target(&observed, &roster, false).is_err());
+    observed["action"][0] = json!(3);
+    assert!(super::initial_navigation_target(&observed, &roster, true).is_err());
+    observed["target"] = json!(300);
+    assert!(super::initial_navigation_target(&observed, &roster, true).is_err());
+    observed["target"] = json!(200);
+    assert_eq!(
+        super::initial_navigation_target(&observed, &roster, true)
+            .unwrap()
+            .unwrap()
+            .index(),
+        1
+    );
 }
 
 /// Explicitly run the catalogue, or a deterministic shard of it, against Dolphin.
@@ -75,28 +127,13 @@ fn every_arte_matches_dolphin() -> Result<()> {
             Ok(first..=last)
         })
         .transpose()?;
-    let all = oracle.cases()?;
+    let mut all = oracle.cases()?;
     let catalogue: serde_json::Value = serde_json::from_slice(&fs::read(
         repo.join("tools/oracle/cases/battle-artes.json"),
     )?)?;
-    let mut inactive = BTreeMap::new();
-    for slot in catalogue["inactive_authored_slots"]
-        .as_array()
-        .context("missing inactive slot inventory")?
-    {
-        let id = format!("party:{}:{}", slot["character"], slot["arte"]);
-        let reason = slot["reason"]
-            .as_str()
-            .context("inactive slot has no reason")?;
-        ensure!(
-            all.iter().any(|case| case.id == id),
-            "unknown inactive slot {id}"
-        );
-        ensure!(
-            !reason.is_empty() && inactive.insert(id, reason).is_none(),
-            "invalid inactive slot classification"
-        );
-    }
+    let excluded: BTreeSet<String> =
+        serde_json::from_value(catalogue["excluded_comparisons"].clone())?;
+    all.retain(|case| !excluded.contains(&case.id));
     let requested: BTreeSet<String> = std::env::var("RESONANCE_ARTE_CASES")
         .unwrap_or_default()
         .split(',')
@@ -126,9 +163,7 @@ fn every_arte_matches_dolphin() -> Result<()> {
         }))?,
     )?;
 
-    let reference = if cases.iter().all(|case| inactive.contains_key(&case.id)) {
-        output.join("dolphin")
-    } else if let Some(path) = std::env::var_os("RESONANCE_ARTE_REFERENCE") {
+    let reference = if let Some(path) = std::env::var_os("RESONANCE_ARTE_REFERENCE") {
         absolute(PathBuf::from(path))
     } else {
         let reference = output.join("dolphin");
@@ -137,12 +172,7 @@ fn every_arte_matches_dolphin() -> Result<()> {
         let generated = output.join("cases.json");
         fs::write(
             &generated,
-            serde_json::to_vec_pretty(
-                &cases
-                    .iter()
-                    .filter(|case| !inactive.contains_key(&case.id))
-                    .collect::<Vec<_>>(),
-            )?,
+            serde_json::to_vec_pretty(&cases.iter().collect::<Vec<_>>())?,
         )?;
         let mut bridge = Command::new("python3");
         bridge
@@ -168,18 +198,20 @@ fn every_arte_matches_dolphin() -> Result<()> {
 
     let mut report = Vec::new();
     for case in cases {
-        if let Some(reason) = inactive.get(&case.id) {
-            report.push(json!({"case":case.id,"status":"inactive_authored_slot","reason":reason,"equivalent":null,"error":null}));
-            continue;
-        }
         let directory = output.join(case.id.replace(':', "-"));
         fs::create_dir(&directory)?;
+        let mut stage = "capture";
+        let mut source_observations_complete = None;
+        let mut native_observations_complete = None;
         let result = (|| -> Result<()> {
             let path = reference.join(case.id.replace(':', "-")).join("trace.json");
             let mut source: Trace = serde_json::from_slice(
                 &fs::read(&path)
                     .with_context(|| format!("missing source trace {}", path.display()))?,
             )?;
+            source_observations_complete = Some(source.incomplete_observations.is_empty());
+            require_source_admission(&source)?;
+            stage = "replay";
             // Bound a single action to one minute of simulation, including cleanup.
             let native = if let Some(seeds) = &native_seeds {
                 ensure!(
@@ -286,6 +318,28 @@ fn every_arte_matches_dolphin() -> Result<()> {
                 oracle.run(case, &source, MAX_UPDATES)?
             };
             fs::write(directory.join("native.json"), serde_json::to_vec(&native)?)?;
+            stage = "observation";
+            let damage = Command::new("python3")
+                .current_dir(&repo)
+                .arg("tools/oracle/damage_envelope.py")
+                .arg("--normalize-native")
+                .arg(directory.join("native.json"))
+                .output()
+                .context("start independent native damage envelope")?;
+            ensure!(
+                damage.status.success(),
+                "native damage observation: {}",
+                String::from_utf8_lossy(&damage.stderr)
+            );
+            let native: Trace = serde_json::from_slice(&fs::read(directory.join("native.json"))?)?;
+            native_observations_complete = Some(native.incomplete_observations.is_empty());
+            stage = if source_observations_complete == Some(false)
+                || native_observations_complete == Some(false)
+            {
+                "observation"
+            } else {
+                "comparison"
+            };
             if let Some(expected) = source.setup.get("contact_stun") {
                 ensure!(
                     native.setup.get("contact_stun") == Some(expected),
@@ -297,7 +351,14 @@ fn every_arte_matches_dolphin() -> Result<()> {
         })();
         let error = result.err().map(|error| format!("{error:#}"));
         eprintln!("{}: {}", case.id, error.as_deref().unwrap_or("equivalent"));
-        report.push(json!({"case": case.id, "equivalent": error.is_none(), "error": error}));
+        report.push(json!({
+            "case": case.id,
+            "equivalent": error.is_none(),
+            "stage": if error.is_none() { "complete" } else { stage },
+            "source_observations_complete": source_observations_complete,
+            "native_observations_complete": native_observations_complete,
+            "error": error,
+        }));
         fs::write(
             output.join("report.json"),
             serde_json::to_vec_pretty(&report)?,

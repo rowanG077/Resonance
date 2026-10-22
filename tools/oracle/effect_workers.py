@@ -75,7 +75,7 @@ class DolphinFixture:
             '[Hotkeys]\nDevice = XInput2/0/Virtual core pointer\n'
             'General/Toggle Pause = F10\nLoad State/Load State Slot 1 = F1\n'
             'Save State/Save State Slot 2 = F8\n'
-            '')
+            'Frame Advance/Frame Advance = F11\n')
         self.slot = self.user/'StateSaves/GQSEAF.s01'
         self.slot.parent.mkdir()
         self.paused = False

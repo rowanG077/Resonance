@@ -140,26 +140,31 @@ def cast_recipient(rows, setup, expected, frames, events):
                 for row in (before, after))):
         raise ValueError("support recipient lacks the bound cast-to-recovery transition")
     pointer = word(after, prefix + "spell_support_target")
-    if any(word(row, prefix + "support_target") != pointer for row in (before, after)):
-        raise ValueError("released spell recipient differs from the stable support selection")
+    selections = (prefix + "support_target", f"battle_actor_{slot}_target")
+    selected = next((field for field in selections
+                     if all(word(row, field) == pointer for row in (before, after))), None)
+    if selected is None:
+        raise ValueError("released spell recipient differs from both stable selections")
     recipients = [index for index, actor in enumerate(setup["initial_battle"]["actors"])
                   if actor["address"] == pointer]
     if len(recipients) != 1 or setup["actors"][recipients[0]]["side"] != setup["actors"][owner]["side"]:
         raise ValueError("support recipient is not a unique allied actor")
     return dict(recipient=recipients[0], source_slot=slot,
                 clock=release["clock"], presentation_clock=release["presentation_clock"],
-                support_pointer=pointer, spell_support_pointer=pointer,
+                support_pointer=word(after, prefix + "support_target"),
+                spell_support_pointer=pointer, selected_field=selected,
                 combat_target_unchanged=True)
 
 
-def hp_drain(row, previous, setup, events, common):
-    """Bind Life Seal's recovery to its observed last unsuppressed contact."""
+def seal_drain(row, previous, setup, events, common, vital):
+    """Bind seal recovery to its observed last unsuppressed contact."""
+    native, percent = {"hp": (72, 10), "tp": (73, 3)}[vital]
     owner = setup["owner"]
     slot = setup["source_actor_map"][owner]["source_slot"]
     prefix, body = f"actor_{slot}_", f"battle_actor_{slot}_"
     if (word(previous, body + "cast_clock_word") & 65535 != 15 or
             word(row, body + "cast_clock_word") & 65535 != 16 or
-            word(row, prefix + "native") & 65535 != 72 or
+            word(row, prefix + "native") & 65535 != native or
             word(row, body + "action") >> 24 != 5 or
             setup["opponent_control"]["mode"] != "manual" or
             setup["damage_context"][owner]["blocked"] or
@@ -187,13 +192,116 @@ def hp_drain(row, previous, setup, events, common):
     if (word(row, prefix + "contact_target") != victim or
             word(row, prefix + "effective_target") != victim):
         return None
-    before, after = word(previous, body + "hp"), word(row, body + "hp")
-    amount = min(max(1, damage // 10), word(row, body + "max_hp") - before)
-    if before <= 0 or amount <= 0 or after - before != amount:
+    if vital == "tp":
+        before, after = (word(sample, body + "tp_word") & 65535 for sample in (previous, row))
+        maximum = word(row, body + "tp_word") >> 16
+    else:
+        before, after = word(previous, body + "hp"), word(row, body + "hp")
+        maximum = word(row, body + "max_hp")
+    amount = min(max(1, damage * percent // 100), maximum - before)
+    if word(previous, body + "hp") <= 0 or amount <= 0 or after - before != amount:
         return None
-    return dict(common, kind="hp_drained", owner=owner, target=owner, action=1,
+    return dict(common, kind=f"{vital}_drained", owner=owner, target=owner, action=1,
                 amount=amount, contact_clock=contact["combat_tick"] - started["combat_tick"],
                 contact_presentation_clock=contact["presentation_tick"] - started["presentation_tick"])
+
+
+def enemy_debuffs(case, previous, row, setup, events, common, admission):
+    """Observe Retribution's two direct ailments before periodic damage begins."""
+    if (case.get("enemy"), case.get("action_row")) != (239, 5):
+        return []
+    owner = setup["owner"]
+    owner_slot = setup["source_actor_map"][owner]["source_slot"]
+    clock = f"battle_actor_{owner_slot}_cast_clock_word"
+    if word(previous, clock) & 65535 != 119 or word(row, clock) & 65535 != 120:
+        return []
+    # The caller has bound the requested action's live selection and tracks.
+    if (word(row, f"actor_{owner_slot}_target_state_word") >> 24 != 3
+            or setup["opponent_control"]["mode"] != "manual"
+            or row["battle_combat_tick_word"] != previous["battle_combat_tick_word"] + 1
+            or not any(event["kind"] == "program_started" and event["owner"] == owner
+                       and event["program"] == 7 and event["bank"] is not None
+                       and event["combat_tick"] == admission for event in events)
+            or any(word(row, f"battle_actor_{entry['source_slot']}_action") >> 24 == 5
+                   for entry in setup["source_actor_map"] if entry["actor"] != owner)):
+        raise ValueError("enemy debuff lacks its sole owned action callback")
+    groups = ({"curse", "paralysis", "poison_severe"},
+              {"attack_down", "defense_down", "weak"})
+    changes = []
+    for actor in setup["source_actor_map"]:
+        target, slot = actor["actor"], actor["source_slot"]
+        if setup["actors"][target]["side"] == setup["actors"][owner]["side"]:
+            continue
+        before, after = [conditions(word(sample, f"actor_{slot}_condition_10"),
+                                    word(sample, f"actor_{slot}_condition_14"))
+                         for sample in (previous, row)]
+        if before == after:
+            continue
+        if (before or len(after) != 2 or any(len(set(after) & group) != 1 for group in groups)
+                or word(row, f"battle_actor_{slot}_hp") <= 0
+                or word(previous, f"battle_actor_{slot}_hp") != word(row, f"battle_actor_{slot}_hp")
+                or word(row, f"actor_{slot}_fresh_contact_word") >> 24):
+            raise ValueError("enemy debuff lacks its two living opponent ailment transitions")
+        changes.append(dict(common, kind="condition_changed", owner=owner,
+                            target=target, action=1, before=before, after=after))
+    return changes
+
+
+def spell_debuffs(case, rows, setup, frames, events):
+    """Attribute non-damaging status changes to an owned, released spell scene."""
+    execution = case.get("definition", {}).get("execution", {})
+    native = case.get("native", execution.get("spell") if isinstance(execution, dict) else None)
+    if native != 265:
+        return []
+    owner = setup["owner"]
+    owner_slot = setup["source_actor_map"][owner]["source_slot"]
+    owner_address = setup["initial_battle"]["actors"][owner]["address"]
+    registrations = setup.get("stored_scenes", {}).get("registrations", [])
+    banks = {scene["bank_sha256"] for scene in registrations
+             if scene["native"] == native and scene["owner"] == owner_address}
+    starts = [event for event in events if event["kind"] == "started" and event["owner"] == owner]
+    if len(starts) != 1 or len(banks) != 1 or not frames:
+        raise ValueError("spell debuff lacks one admitted action and its bound scene")
+    bank = banks.pop()
+    by_clock = {(row["battle_combat_tick_word"], row["battle_presentation_tick_word"]): index
+                for index, row in enumerate(rows)}
+    scene_frames = [(frame, program) for frame in frames for program in frame["programs"]
+                    if program["owner"] == owner and program["bank"] == bank and program["program"] == 1]
+    if not scene_frames or len({program["id"] for _, program in scene_frames}) != 1:
+        raise ValueError("spell debuff lacks one observed scene instance")
+    opening, scene = scene_frames[0]
+    admission = rows[by_clock[(opening["combat_tick"], opening["presentation_tick"])]]
+    if scene["age"] > 1 or word(admission, f"actor_{owner_slot}_native") & 65535 != native:
+        raise ValueError("spell debuff scene was not observed at its bound release")
+    changes = []
+    for frame in frames:
+        index = by_clock[(frame["combat_tick"], frame["presentation_tick"])]
+        if index == 0:
+            continue
+        previous, row = rows[index - 1:index + 1]
+        for actor in setup["source_actor_map"]:
+            target, slot = actor["actor"], actor["source_slot"]
+            if setup["actors"][target]["side"] == setup["actors"][owner]["side"]:
+                continue
+            before, after = [conditions(word(sample, f"actor_{slot}_condition_10"),
+                                        word(sample, f"actor_{slot}_condition_14"))
+                             for sample in (previous, row)]
+            if before == after:
+                continue
+            if (setup["opponent_control"]["mode"] != "manual"
+                    or any(word(row, f"battle_actor_{entry['source_slot']}_action") >> 24 == 5
+                           for entry in setup["source_actor_map"] if entry["actor"] != owner)
+                    or not any(program["id"] == scene["id"] for program in frame["programs"])
+                    or word(row, f"battle_actor_{slot}_hp") <= 0
+                    or word(previous, f"battle_actor_{slot}_hp") != word(row, f"battle_actor_{slot}_hp")
+                    or "defense_down" in before
+                    or set(after) != set(before) | {"defense_down"}):
+                raise ValueError("spell debuff lacks its sole owned scene and living opponent transition")
+            changes.append(dict(kind="condition_changed", owner=owner, target=target,
+                action=starts[0]["action"], before=before, after=after,
+                clock=frame["combat_tick"] - frames[0]["combat_tick"],
+                presentation_clock=frame["presentation_tick"] - frames[0]["presentation_tick"]))
+    return changes
 
 
 def seal_branches(case, rows, setup, frames, events, banks):

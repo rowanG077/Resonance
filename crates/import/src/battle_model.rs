@@ -1,9 +1,11 @@
 //! Battle skeletons and carried-model attachment slots.
 mod enemy_resources;
+mod fixture;
 pub mod party;
 pub mod weapon;
 use crate::{geometry, model::Model};
 use anyhow::{Context, Result, ensure};
+pub use fixture::bind_party_motion;
 use resonance_content::{
     animation::{Bone, Skeleton, Transform, TransformChannels},
     battle_model::{Enemy, Rig, enemy_path},
@@ -341,7 +343,6 @@ pub fn publish_enemies(
             )
         })
         .collect::<Result<Vec<_>>>()?;
-    shared.publish()?;
     Ok(paths.into_iter().flatten().collect())
 }
 

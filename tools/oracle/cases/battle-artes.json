@@ -2097,174 +2097,47 @@
       "tp_cost": 40
     }
   ],
-  "inactive_authored_slots": [
-    {
-      "character": 1,
-      "arte": 30,
-      "name": "Final Justice",
-      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
-    },
-    {
-      "character": 1,
-      "arte": 31,
-      "name": "Sonic Burst",
-      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
-    },
-    {
-      "character": 1,
-      "arte": 32,
-      "name": "Aurora Slash",
-      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
-    },
-    {
-      "character": 1,
-      "arte": 33,
-      "name": "Holy Guardian",
-      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
-    },
-    {
-      "character": 2,
-      "arte": 47,
-      "name": "Listra",
-      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
-    },
-    {
-      "character": 2,
-      "arte": 49,
-      "name": "Listra",
-      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
-    },
-    {
-      "character": 2,
-      "arte": 51,
-      "name": "Grand Fall",
-      "reason": "Unreachable level256 with no learning/parent/story/Unison route; all942 authored scripts parsed and all43 literal LearnTechnique grants resolved, none51. Forced named execution remains uninitialized. Named content alone does not establish playable scope."
-    },
-    {
-      "character": 2,
-      "arte": 53,
-      "name": "Mirage Saber",
-      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
-    },
-    {
-      "character": 2,
-      "arte": 54,
-      "name": "Dancing Sickles",
-      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
-    },
-    {
-      "character": 2,
-      "arte": 55,
-      "name": "Final Fury",
-      "reason": "BTLusual section8 null action-directory entries and level256. Rows47/49 are enemy-targeted and retain parent46/48; unavailable target and self-parent are NOT claimed for those two. No physical common-action track exists."
-    },
-    {
-      "character": 2,
-      "arte": 60,
-      "name": "Grand Cross",
-      "reason": "Unavailable target, level256, self prerequisite, and no physical scene; distinct from required GrandFall51 and mystic251."
-    },
-    {
-      "character": 2,
-      "arte": 61,
-      "name": "Sephiroth",
-      "reason": "Unavailable target, level256, self prerequisite, and no physical scene; distinct from required GrandFall51 and mystic251."
-    },
-    {
-      "character": 3,
-      "arte": 96,
-      "name": "Divine Power",
-      "reason": "Unavailable target, level256, self-parent96,999 parent uses; native scene234 absent. Family owner confirms inactive authored slot; name preserved from authored localized menu."
-    },
-    {
-      "character": 3,
-      "arte": 97,
-      "name": "Tetraspell",
-      "reason": "Unavailable target, level256, self-parent97,999 parent uses; native scene235 absent. Family owner confirms inactive authored slot; name preserved from authored localized menu."
-    },
-    {
-      "character": 4,
-      "arte": 124,
-      "name": "Magic Shell",
-      "reason": "Native262,target unavailable,level256,self-parent124,parent uses999,empty description,no physical scene. Root applies same authored-inactivity rule as87/96/97. No Dolphin claim; positive physical/entry evidence distinguishes real required mystics."
-    },
-    {
-      "character": 6,
-      "arte": 152,
-      "name": "Spirit of the Earth",
-      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
-    },
-    {
-      "character": 6,
-      "arte": 153,
-      "name": "Eternal Chaos",
-      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
-    },
-    {
-      "character": 6,
-      "arte": 87,
-      "name": "Gungnir",
-      "reason": "Unavailable target, level256, self-parent87,999 parent uses; native scene225 absent. Family owner confirms inactive authored slot; name preserved from authored localized menu."
-    },
-    {
-      "character": 7,
-      "arte": 158,
-      "name": "Ultimate",
-      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
-    },
-    {
-      "character": 7,
-      "arte": 166,
-      "name": "Finality Infliction",
-      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
-    },
-    {
-      "character": 7,
-      "arte": 174,
-      "name": "Eternal Wind",
-      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
-    },
-    {
-      "character": 8,
-      "arte": 196,
-      "name": "Dragon Strike",
-      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
-    },
-    {
-      "character": 8,
-      "arte": 198,
-      "name": "Heaven Rising",
-      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
-    },
-    {
-      "character": 8,
-      "arte": 199,
-      "name": "Dragon's Talon",
-      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
-    },
-    {
-      "character": 8,
-      "arte": 200,
-      "name": "Rage",
-      "reason": "Owner found zero duration and empty pose/contact/command tracks; target unavailable, level256, parent uses999. Some parent links are not self-links; self-parenting is not used as a blanket rule."
-    },
-    {
-      "character": 9,
-      "arte": 152,
-      "name": "Spirit of the Earth",
-      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
-    },
-    {
-      "character": 9,
-      "arte": 153,
-      "name": "Eternal Chaos",
-      "reason": "Owner confirmed null section8 native offsets30/31/32/33/88/89, empty description and placement, unavailable target, level256 and999 parent uses. Native140 Falcon's Crest remains required."
-    },
-    {
-      "character": 9,
-      "arte": 87,
-      "name": "Gungnir",
-      "reason": "Unavailable target, level256, self-parent87,999 parent uses; native scene225 absent. Family owner confirms inactive authored slot; name preserved from authored localized menu."
-    }
+  "excluded_comparisons": [
+    "enemy:189:4",
+    "enemy:190:3",
+    "enemy:218:1",
+    "enemy:218:2",
+    "enemy:230:5",
+    "enemy:234:20",
+    "enemy:236:10",
+    "enemy:236:4",
+    "enemy:236:5",
+    "enemy:236:7",
+    "enemy:237:3",
+    "enemy:237:6",
+    "enemy:237:9",
+    "party:1:30",
+    "party:1:31",
+    "party:1:32",
+    "party:1:33",
+    "party:2:47",
+    "party:2:49",
+    "party:2:51",
+    "party:2:53",
+    "party:2:54",
+    "party:2:55",
+    "party:2:60",
+    "party:2:61",
+    "party:3:96",
+    "party:3:97",
+    "party:4:124",
+    "party:6:152",
+    "party:6:153",
+    "party:6:87",
+    "party:7:158",
+    "party:7:166",
+    "party:7:174",
+    "party:8:196",
+    "party:8:198",
+    "party:8:199",
+    "party:8:200",
+    "party:9:152",
+    "party:9:153",
+    "party:9:87"
   ]
 }

@@ -1,0 +1,542 @@
+{
+  "enemy:32:1": {
+    "party_minimum": 2,
+    "reason": "Keep a non-target party member alive so the authored Petrified roll does not end combat before the action tail is observed."
+  },
+  "enemy:80:1": {
+    "formation": 135,
+    "reason": "Keep an authored neutral companion alive so self-destruct damage can complete before victory."
+  },
+  "enemy:61:4": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 164,
+      "release_after_polls": 224
+    },
+    "reason": "Approach the short melee flurry after satisfying its distant selection minimum."
+  },
+  "enemy:98:4": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        0,
+        127
+      ],
+      "press_after_polls": 198,
+      "release_after_polls": 230
+    },
+    "reason": "Jump into the rising volley at its muzzle height before it travels above the recipient."
+  },
+  "enemy:79:0": {
+    "placement": "far",
+    "reason": "Leave flight time for the delayed homing window before the projectile passes the recipient."
+  },
+  "enemy:78:0": {
+    "surface_gap": 360,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        0,
+        127
+      ],
+      "press_after_polls": 210,
+      "release_after_polls": 242
+    },
+    "reason": "Stand beyond the two muzzles and jump where their spreading shots cross the recipient's plane."
+  },
+  "enemy:78:1": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        0,
+        127
+      ],
+      "press_after_polls": 202,
+      "release_after_polls": 234
+    },
+    "reason": "Jump into the horizontal shot launched above the grounded recipient."
+  },
+  "enemy:79:2": {
+    "placement": "far",
+    "reason": "The curved projectiles return to the recipient's plane near the far end of the admitted interval."
+  },
+  "enemy:41:4": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        0,
+        127
+      ],
+      "press_after_polls": 268,
+      "release_after_polls": 300
+    },
+    "reason": "Jump into the lobbed volley before its sideways spread carries the descending shots beyond the recipient."
+  },
+  "enemy:16:0": {
+    "surface_gap": 600,
+    "reason": "The lobbed shots descend to recipient height about 720 world units from the owner."
+  },
+  "enemy:110:1": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        0,
+        127
+      ],
+      "press_after_polls": 188,
+      "release_after_polls": 220
+    },
+    "reason": "Jump into the rising thrown projectile after the close-range action is admitted."
+  },
+  "enemy:121:2": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 622,
+      "release_after_polls": 662
+    },
+    "reason": "Advance after the required retreat; the downward projectile expires before reaching the initial recipient position."
+  },
+  "enemy:171:2": {
+    "surface_gap": 250,
+    "reason": "The bone-directed volley reaches recipient height about 475 world units from the owner."
+  },
+  "enemy:172:0": {
+    "surface_gap": 380,
+    "reason": "The downward projectile reaches recipient height about 605 world units from the owner."
+  },
+  "enemy:176:3": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 176,
+      "release_after_polls": 216
+    },
+    "reason": "Advance after admission and the owner's backward rise to meet the downward bone-directed volley."
+  },
+  "enemy:187:0": {
+    "surface_gap": 200,
+    "reason": "Stand within the observed expanding ground ring, between its initial and final radius."
+  },
+  "enemy:187:2": {
+    "surface_gap": 500,
+    "reason": "Stand inside the stationary blast at the arena center, rather than beside the owner's head."
+  },
+  "enemy:188:4": {
+    "surface_gap": 140,
+    "reason": "The mouth projects beyond the body, so a touching recipient stands behind the projectile muzzle."
+  },
+  "enemy:211:0": {
+    "owner_anchor": [
+      850,
+      0
+    ],
+    "reason": "Use the core's initialized station and keep the recipient close enough for ordinary engagement admission."
+  },
+  "enemy:55:3": {
+    "placement": "far",
+    "reason": "The active weapon sweep passes beyond a recipient touching the rider's body."
+  },
+  "enemy:150:3": {
+    "placement": "far",
+    "reason": "The rising slash starts beyond a touching recipient before moving above him."
+  },
+  "enemy:155:4": {
+    "placement": "far",
+    "reason": "The rising slash starts beyond a touching recipient before moving above him."
+  },
+  "enemy:143:3": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 170,
+      "release_after_polls": 270
+    },
+    "reason": "Walk toward the descending head strike after its distant selection requirement has admitted the action."
+  },
+  "enemy:144:4": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 170,
+      "release_after_polls": 270
+    },
+    "reason": "Walk toward the descending head strike after its distant selection requirement has admitted the action."
+  },
+  "enemy:112:0": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 480,
+      "release_after_polls": 500
+    },
+    "reason": "Step toward the dive after the enemy's ordinary retreat and action admission."
+  },
+  "enemy:202:4": {
+    "surface_gap": 150,
+    "reason": "The first active blade sweep passes in front of a touching recipient; the observed near-ground sweep crosses a recipient at this admitted distance."
+  },
+  "enemy:196:1": {
+    "surface_gap": 150,
+    "reason": "The carried weapon reaches the target plane beyond a touching recipient; this distance intersects its observed active sweep."
+  },
+  "enemy:192:1": {
+    "surface_gap": 400,
+    "reason": "The leaping enemy lands beyond a touching recipient. This admitted distance places the recipient in the observed landing contacts and shockwave."
+  },
+  "enemy:63:4": {
+    "owner_anchor": [
+      400,
+      750
+    ],
+    "reason": "Place the selected pair near the arena edge so its equal approach bounds can finish through the ordinary outward-boundary admission rule."
+  },
+  "enemy:48:2": {
+    "placement": "selection",
+    "surface_gap": 400,
+    "reason": "Start outside the recipient normal attacks while they satisfy the conditional evasion prerequisite, then retain the enemy ordinary approach.",
+    "recipient_input": {
+      "mode": "attack",
+      "press_after_polls": 0,
+      "release_after_polls": 200,
+      "repeat_every_polls": 16
+    }
+  },
+  "enemy:2:2": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 140,
+      "release_after_polls": 340
+    },
+    "reason": "Approach after the distant self-destruct action is admitted, then remain within its authored stationary explosion."
+  },
+  "enemy:60:3": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 164,
+      "release_after_polls": 224
+    },
+    "reason": "Approach the short melee flurry after satisfying its distant selection minimum."
+  },
+  "enemy:250:1": {
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        0,
+        127
+      ],
+      "press_after_polls": 168,
+      "release_after_polls": 200
+    },
+    "reason": "Jump into the rising thrown projectiles after their close-range action is admitted."
+  },
+  "enemy:235:1": {
+    "recipient_approach": true,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1340,
+      "release_after_polls": 1420
+    },
+    "reason": "Walk within selection range after scripted entry under neutral enemy control; preserve the complete passive-effect prelude."
+  },
+  "enemy:235:6": {
+    "recipient_approach": true,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1340,
+      "release_after_polls": 1420
+    },
+    "reason": "Walk within selection range after scripted entry under neutral enemy control; preserve the complete passive-effect prelude."
+  },
+  "enemy:235:7": {
+    "recipient_approach": true,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1340,
+      "release_after_polls": 1420
+    },
+    "reason": "Walk within selection range after scripted entry under neutral enemy control; preserve the complete passive-effect prelude."
+  },
+  "enemy:235:8": {
+    "recipient_approach": true,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1340,
+      "release_after_polls": 1420
+    },
+    "reason": "Walk within selection range after scripted entry under neutral enemy control; preserve the complete passive-effect prelude."
+  },
+  "enemy:235:9": {
+    "recipient_approach": true,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1340,
+      "release_after_polls": 1420
+    },
+    "reason": "Walk within selection range after scripted entry under neutral enemy control; preserve the complete passive-effect prelude."
+  },
+  "enemy:238:1": {
+    "recipient_approach": true,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1460,
+      "release_after_polls": 1540
+    },
+    "reason": "Walk within selection range after scripted entry under neutral enemy control; preserve the complete passive-effect prelude."
+  },
+  "enemy:238:4": {
+    "owner_movement": true,
+    "recipient_input": {
+      "controller": "owner",
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1460,
+      "release_after_polls": 1580
+    },
+    "reason": "Move the owner away from the arena center with ordinary controller input after entry, then restore AI only inside its authored origin-distance interval."
+  },
+  "enemy:238:5": {
+    "owner_movement": true,
+    "recipient_input": {
+      "controller": "owner",
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1460,
+      "release_after_polls": 1580
+    },
+    "reason": "Move the owner away from the arena center with ordinary controller input after entry, then restore AI only inside its authored origin-distance interval."
+  },
+  "enemy:242:1": {
+    "settle_entry": true,
+    "reason": "Finish the scripted entry before arranging distance and origin prerequisites; entry resets actor positions."
+  },
+  "enemy:242:2": {
+    "settle_entry": true,
+    "reason": "Finish the scripted entry before arranging distance and origin prerequisites; entry resets actor positions."
+  },
+  "enemy:242:4": {
+    "settle_entry": true,
+    "reason": "Finish the scripted entry before arranging distance and origin prerequisites; entry resets actor positions."
+  },
+  "enemy:242:5": {
+    "settle_entry": true,
+    "reason": "Finish the scripted entry before arranging distance and origin prerequisites; entry resets actor positions."
+  },
+  "enemy:242:9": {
+    "settle_entry": true,
+    "reason": "Finish the scripted entry before arranging distance and origin prerequisites; entry resets actor positions."
+  },
+  "enemy:219:2": {
+    "settle_entry": true,
+    "minimum_gameplay_tick": 601,
+    "reason": "Wait through the encounter health hold under neutral controls before preparing the low-health weapon replacement."
+  },
+  "enemy:242:10": {
+    "settle_entry": true,
+    "reason": "Finish the scripted entry before arranging distance and origin prerequisites; entry resets actor positions."
+  },
+  "enemy:213:0": {
+    "difficulty": 2,
+    "recipient_anchor": [
+      671,
+      -500
+    ],
+    "reason": "Stand beside the observed deployed arm attachment; hard difficulty admits the complete eight-component encounter.",
+    "placement": "far"
+  },
+  "enemy:213:1": {
+    "difficulty": 2,
+    "recipient_anchor": [
+      671,
+      -500
+    ],
+    "reason": "Stand beside the deployed arm, then step into its approach range after selection; hard difficulty admits the complete encounter.",
+    "surface_gap": 201,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 300,
+      "release_after_polls": 308,
+      "target_slot": 4
+    }
+  },
+  "enemy:213:2": {
+    "difficulty": 2,
+    "recipient_anchor": [
+      671,
+      -500
+    ],
+    "reason": "Stand beside the deployed arm, then step into its approach range after selection; hard difficulty admits the complete encounter.",
+    "surface_gap": 301,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 300,
+      "release_after_polls": 308,
+      "target_slot": 4
+    }
+  },
+  "enemy:213:3": {
+    "difficulty": 2,
+    "recipient_anchor": [
+      671,
+      -500
+    ],
+    "reason": "Stand beside the deployed arm, then step into its approach range after selection; hard difficulty admits the complete encounter.",
+    "surface_gap": 401,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 300,
+      "release_after_polls": 308,
+      "target_slot": 4
+    }
+  },
+  "enemy:213:4": {
+    "difficulty": 2,
+    "recipient_anchor": [
+      671,
+      -500
+    ],
+    "reason": "Stand beside the deployed arm, then step into its approach range after selection; hard difficulty admits the complete encounter.",
+    "surface_gap": 501,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 300,
+      "release_after_polls": 308,
+      "target_slot": 4
+    }
+  },
+  "enemy:242:3": {
+    "settle_entry": true,
+    "reason": "Finish the scripted entry before arranging distance and origin prerequisites; entry resets actor positions."
+  },
+  "enemy:235:2": {
+    "recipient_approach": true,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        127,
+        0
+      ],
+      "press_after_polls": 1340,
+      "release_after_polls": 1420
+    },
+    "reason": "Walk within selection range after scripted entry under neutral enemy control; preserve the complete passive-effect prelude."
+  },
+  "enemy:8:2": {
+    "surface_gap": 400,
+    "reason": "Stand near the returning arc using the observed root placement: gap400 places the recipient at X-505 beside the active crossing at X-522, inside the authored approach interval."
+  },
+  "enemy:9:2": {
+    "surface_gap": 400,
+    "reason": "Stand near the returning arc using the observed root placement: gap400 places the recipient at X-505 beside the active crossing at X-522, inside the authored approach interval."
+  },
+  "enemy:72:3": {
+    "surface_gap": 300,
+    "reason": "Stand on the observed descending dive and landing path, rather than beneath its airborne approach; the gap remains within the authored0..1000 approach interval."
+  },
+  "enemy:110:2": {
+    "surface_gap": 80,
+    "reason": "Stand inside the descending arrow volley rather than beneath its airborne release; preserve the authored close-range admission interval."
+  },
+  "enemy:250:2": {
+    "surface_gap": 80,
+    "reason": "Stand inside the descending arrow volley rather than beneath its airborne release; preserve the authored close-range admission interval."
+  },
+  "enemy:246:0": {
+    "surface_gap": 250,
+    "recipient_input": {
+      "mode": "stick",
+      "stick": [
+        0,
+        127
+      ],
+      "press_after_polls": 296,
+      "release_after_polls": 328
+    },
+    "reason": "Jump into the descending seed volley before its finite contact window closes; keep both launch spread and contact outcomes natural."
+  },
+  "enemy:64:1": {
+    "recipient_z_offset": 40.0,
+    "reason": "Preserve the sword charge contacts and body separation with a non-collinear recipient; avoid amplifying a cardinal-heading arithmetic residual."
+  },
+  "enemy:72:1": {
+    "recipient_z_offset": 40.0,
+    "reason": "Preserve the sword charge contacts and body separation with a non-collinear recipient; avoid amplifying a cardinal-heading arithmetic residual."
+  },
+  "party:6:147": {
+    "target_x": 250.0,
+    "reason": "Preserve three melee hits and the third projectile contact while giving the broad recipient body clearance before the aerial forward motion."
+  }
+}

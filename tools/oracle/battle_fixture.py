@@ -3,9 +3,11 @@ import json
 from hashlib import sha256
 from pathlib import Path
 import struct
+import subprocess
 import time
 
 import effect_workers
+from battle_state import inspect_battle
 from effect_fixture import prepare
 from state import State, digest
 
@@ -29,6 +31,10 @@ PARTY_MEMBER_BYTES = 0x118
 JOIN_CHARACTER_COMMAND = 0x24
 START_BATTLE_COMMAND = 0xCD
 OBSERVATION_POLL_VIS = 30
+FRAME_ADVANCE_RELEASE_SECONDS = 1 / 30
+# The hotkey scheduler starts repeating after 30 polls (nominally 150 ms).
+# Release on the observed frame, or before that repeat threshold if delivery stalls.
+FRAME_ADVANCE_PRESS_SECONDS = 0.1
 
 
 class _BattleValidationError(RuntimeError):
@@ -40,11 +46,12 @@ class BattleFixture(effect_workers.DolphinFixture):
 
     def __init__(self, *args, **kwargs):
         watcher = effect_workers.Watcher
+        project = kwargs.pop("observation_projector", None)
 
         def data_watcher(user, log, locations, *rest, **options):
             excluded = {"focus_patch_word", "secondary_blur_patch_word"}
             return watcher(user, log, {key: label for key, label in locations.items()
-                                      if label not in excluded}, *rest, **options)
+                                      if label not in excluded}, *rest, project=project, **options)
 
         # One worker is constructed at a time within each capture process.
         effect_workers.Watcher = data_watcher
@@ -120,7 +127,7 @@ class BattleFixture(effect_workers.DolphinFixture):
         self.label_capture(target)
         return result
 
-    def observe_until(self, state, target, expected, max_count, done):
+    def observe_until(self, state, target, expected, max_count, done, *, stepped=False):
         """Collect numeric observations until done(rows) or the requested limit.
 
         Load once and pause only at the end. Retain the final paused tail, which
@@ -128,9 +135,9 @@ class BattleFixture(effect_workers.DolphinFixture):
         actual endpoint. A completion predicate is not a fidelity assertion.
         """
         return self._capture(self._observe_until, state, target, expected, max_count,
-                             done=done, minimum_progress=1)
+                             done=done, stepped=stepped, minimum_progress=1)
 
-    def _observe_until(self, state, target, expected, max_count, *, done):
+    def _observe_until(self, state, target, expected, max_count, *, done, stepped=False):
         if self.capture_images or max_count <= 0 or not callable(done):
             raise ValueError("observe_until requires numeric capture, a positive limit and a predicate")
         target.mkdir()
@@ -150,10 +157,14 @@ class BattleFixture(effect_workers.DolphinFixture):
                 self.validate_rows(rows[-1:] + batch, expected)
                 rows.extend(batch)
 
-            self.pause()
+            if not stepped:
+                self.pause()
             try:
                 while True:
-                    self.wait_observations(first_row, min(max_count, len(rows) + OBSERVATION_POLL_VIS))
+                    if stepped:
+                        self.step()
+                    else:
+                        self.wait_observations(first_row, min(max_count, len(rows) + OBSERVATION_POLL_VIS))
                     collect()
                     if done(rows):
                         reason = "predicate"
@@ -169,11 +180,13 @@ class BattleFixture(effect_workers.DolphinFixture):
                     except Exception as pause_error:
                         error.add_note(f"Could not pause failed observation: {pause_error}")
                 raise
-            self.pause()
+            if not self.paused:
+                self.pause()
             collect()
         (target / "observations.json").write_text(json.dumps(rows) + "\n")
         sample = {"state_sha256": digest(state), "observations": len(rows),
                   "max_count": max_count, "completion_reason": reason,
+                  "stepped": stepped,
                   "decision_observations": decision_count, "seconds": time.monotonic() - started,
                   "first_vi_sample": first_row,
                   "observations_sha256": digest(target / "observations.json")}
@@ -185,6 +198,53 @@ class BattleFixture(effect_workers.DolphinFixture):
 
     def warmup(self, state, target, expected, count):
         return self._capture(super().warmup, state, target, expected, count)
+
+    def load(self, state):
+        super().load(state)
+        self._step_loaded_state = (state, self.watcher.rows)
+
+    def step(self):
+        """Advance one presentation while retaining every emitted VI observation."""
+        if not self.paused:
+            raise RuntimeError("frame advance requires a paused fixture")
+        before = self.watcher.rows
+        previous = dict(self.watcher.latest)
+        loaded = getattr(self, "_step_loaded_state", None)
+        if loaded is not None and loaded[1] == before:
+            # Paused state loading does not publish a new observer sample.
+            battle = inspect_battle(State(loaded[0]).ram)
+            previous["battle_presentation_tick_word"] = battle.get("presentation_tick", 0)
+            previous["battle_combat_tick_word"] = battle.get("combat_tick", 0)
+        self._step_loaded_state = None
+        for attempt in range(2):
+            try:
+                subprocess.run(["xdotool", "keydown", "F11"], env=self.env, check=True)
+                deadline = time.monotonic() + FRAME_ADVANCE_PRESS_SECONDS
+                while self.watcher.rows == before and time.monotonic() < deadline:
+                    time.sleep(0.005)
+            finally:
+                subprocess.run(["xdotool", "keyup", "F11"], env=self.env, check=True)
+            try:
+                self.wait_observations(before, 1)
+                break
+            except TimeoutError:
+                if self.watcher.rows > before:
+                    break
+                if attempt:
+                    raise
+                # A short key pulse can be missed under host scheduling contention.
+                # Retry only an unacknowledged request; the clock checks below still
+                # reject an extra game update if the original request arrives late.
+                self.metadata["frame_step_retries"] = self.metadata.get("frame_step_retries", 0) + 1
+                time.sleep(FRAME_ADVANCE_RELEASE_SECONDS)
+        # Let the hotkey poll observe release before the next frame-step press.
+        time.sleep(FRAME_ADVANCE_RELEASE_SECONDS)
+        # A rendered loading frame can contain many field updates before the
+        # battle is initialized. Only the battle clocks bound this entry gate.
+        advances = {key: self.watcher.latest[key] - previous[key]
+                    for key in ("battle_presentation_tick_word", "battle_combat_tick_word")}
+        if self.watcher.rows <= before or any(value not in (0, 1) for value in advances.values()):
+            raise _BattleValidationError(f"frame advance skipped a battle update: {advances}")
 
 
 def neutral_movie(source, target, cursor, button=0, *, polls=12000):

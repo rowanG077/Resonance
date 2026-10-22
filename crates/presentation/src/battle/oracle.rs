@@ -28,12 +28,19 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+mod acid_rain;
+mod attached_effects;
+mod ballistic_particles;
 mod compare;
+mod contact_damage;
 mod effect_inputs;
 mod effect_pitch;
 mod enemy_chain;
+mod fixture_control;
 mod projectile_random;
 mod random_inputs;
+mod reaction;
+mod recoil;
 mod secondary_body;
 mod support;
 mod tests;
@@ -74,6 +81,98 @@ pub(super) struct Trace {
 }
 
 const SACRED_LIGHT: u16 = 222;
+
+/// The shared capture window and each run's finite cleanup have separate ends.
+#[derive(Default, Serialize)]
+struct Cleanup {
+    source_frames: usize,
+    tail_frames: usize,
+    complete: bool,
+    remaining_projectiles: usize,
+    remaining_programs: usize,
+    remaining_particles: usize,
+    budget_exhausted: bool,
+}
+
+impl Cleanup {
+    fn ready(&self, observed_frames: usize, action_complete: bool) -> bool {
+        observed_frames >= self.source_frames
+            && action_complete
+            && self.remaining_projectiles == 0
+            && self.remaining_programs == 0
+            && self.remaining_particles == 0
+    }
+}
+
+#[test]
+fn cleanup_requires_the_native_tail_to_retire() {
+    let mut cleanup = Cleanup {
+        source_frames: 3,
+        remaining_programs: 1,
+        ..Default::default()
+    };
+    // An empty picture between delayed emissions is not completed cleanup.
+    assert!(!cleanup.ready(3, true));
+    cleanup.remaining_programs = 0;
+    cleanup.remaining_particles = 1;
+    assert!(!cleanup.ready(4, true));
+    cleanup.remaining_particles = 0;
+    cleanup.remaining_projectiles = 1;
+    assert!(!cleanup.ready(5, true));
+    cleanup.remaining_projectiles = 0;
+    assert!(!cleanup.ready(5, false));
+    assert!(cleanup.ready(5, true));
+    assert!(!cleanup.ready(2, true));
+
+    // Exhausting the observation budget never converts a live effect to success.
+    cleanup.remaining_particles = 1;
+    cleanup.budget_exhausted = true;
+    assert!(!cleanup.ready(100, true));
+}
+
+fn cleanup_baseline(
+    setup: &Value,
+    banks: &BTreeMap<u32, String>,
+    member: &str,
+) -> Result<BTreeSet<(ActorId, u32, u16)>> {
+    let mut result = BTreeSet::new();
+    for entry in setup["effect_baseline"].as_array().into_iter().flatten() {
+        let owner = ActorId::from_index(field(entry, "owner")?)?;
+        let signature: String = field(entry, "bank")?;
+        let resources: Vec<_> = banks
+            .iter()
+            .filter_map(|(&resource, bank)| (*bank == signature).then_some(resource))
+            .collect();
+        ensure!(
+            !resources.is_empty(),
+            "cleanup baseline has an unprepared effect bank"
+        );
+        for resource in resources {
+            result.insert((owner, resource, field(entry, member)?));
+        }
+    }
+    Ok(result)
+}
+
+fn initial_navigation_target(
+    observed: &Value,
+    roster: &[Value],
+    before_combat: bool,
+) -> Result<Option<ActorId>> {
+    let pointer: u64 = field(observed, "target")?;
+    if pointer == 0 {
+        ensure!(
+            before_combat && observed["action"][0] == 13,
+            "null source target outside encounter entry"
+        );
+        return Ok(None);
+    }
+    let index = roster
+        .iter()
+        .position(|actor| actor["address"].as_u64() == Some(pointer))
+        .context("source initial target is outside its actor roster")?;
+    Ok(Some(ActorId::from_index(index)?))
+}
 
 fn presentation_requirements(
     attack: &resonance_content::battle_action::EnemyAttack,
@@ -177,8 +276,7 @@ fn initial_effect_entry(setup: &Value) -> Result<bool> {
             .and_then(Value::as_array)
             .context("first effect visit lacks observed births")?;
         ensure!(
-            !births.is_empty()
-                && births.iter().all(|birth| birth["age"] == 1)
+            births.iter().all(|birth| birth["age"] == 1)
                 && setup.get("ready_ambient_effect").is_none()
                 && ["ready_attachment_effects", "ready_idle_effects"]
                     .iter()
@@ -279,7 +377,7 @@ impl Oracle {
             || false,
             Diagnostics::new(true),
         )?;
-        let menus: MenuData = retained.json("game/menu-data.json")?;
+        let menus = MenuData::load(&retained)?;
         let mut session: SessionData = retained.json("game/session-data.json")?;
         session.rules = Some(Arc::new(menus.clone()));
         Ok(Self {
@@ -287,7 +385,7 @@ impl Oracle {
             cache,
             menus,
             session,
-            catalogue: retained.json(resonance_content::arte::PATH)?,
+            catalogue: resonance_content::arte::Catalogue::load(&retained)?,
             retained,
         })
     }
@@ -521,12 +619,14 @@ impl Oracle {
         #[derive(Deserialize)]
         struct RecipientInput {
             actor: usize,
+            controller: Option<String>,
             mode: String,
             port: u8,
             press_after_updates: Option<u32>,
             down_after_updates: Option<u32>,
             release_after_updates: u32,
             stick: Option<[i8; 2]>,
+            repeat_every_updates: Option<u32>,
             #[serde(default)]
             stick_intervals: Vec<StickInterval>,
         }
@@ -538,7 +638,18 @@ impl Oracle {
         if let Some(control) = &recipient_input {
             ensure!(
                 matches!(case.binding, Binding::Enemy { .. })
-                    && control.actor == 0
+                    && if control.controller.as_deref() == Some("owner") {
+                        control.actor == field::<usize>(setup, "owner")?
+                            && control.mode == "stick"
+                            && matches!(control.stick, Some([127, 0] | [-127, 0]))
+                            && control.stick_intervals.is_empty()
+                            && control.repeat_every_updates.is_none()
+                            && setup["recipient_input"]["source_slot"]
+                                == setup["source_actor_map"][control.actor]["source_slot"]
+                    } else {
+                        matches!(control.controller.as_deref(), None | Some("recipient"))
+                            && control.actor == 0
+                    }
                     && setup["target"] == 0
                     && control.port == 0
                     && matches!(
@@ -562,7 +673,10 @@ impl Oracle {
                     && (control.mode == "special") == control.down_after_updates.is_some()
                     && control.down_after_updates.is_none_or(|down| {
                         down > 4 && down.saturating_add(2) < control.release_after_updates
-                    }),
+                    })
+                    && control
+                        .repeat_every_updates
+                        .is_none_or(|period| { control.mode == "attack" && period >= 2 }),
                 "invalid bounded recipient input"
             );
             let mut previous_release = control.release_after_updates;
@@ -682,6 +796,7 @@ impl Oracle {
                     )
             });
         let request_delay: u32 = field(&setup["input"], "bound_admission_after_updates")?;
+        let neutral_after_admission = fixture_control::neutral_after_admission(source)?;
         let technique_selection = if matches!(case.binding, Binding::Party { .. })
             && case.context == ContextKind::Attack
             && !support_input
@@ -861,6 +976,7 @@ impl Oracle {
             after_updates: u32,
             actor: usize,
             position: [f32; 3],
+            heading: Option<f32>,
         }
         let entry_placements: Vec<EntryPlacement> = setup
             .get("entry_placements")
@@ -876,6 +992,30 @@ impl Oracle {
             }),
             "source entry placements are outside the noncombat prelude or unordered"
         );
+        for placement in entry_placements
+            .iter()
+            .filter(|placement| placement.heading.is_some())
+        {
+            let heading = placement.heading.unwrap();
+            let observations = setup["entry_placement_observations"]
+                .as_array()
+                .context("source entry heading has no observed boundary")?;
+            ensure!(
+                heading.is_finite()
+                    && observations
+                        .iter()
+                        .filter(|observed| {
+                            observed["presentation_tick"]
+                                == ready_presentation + placement.after_updates
+                                && observed["actor"] == placement.actor
+                                && observed["position"] == json!(placement.position)
+                                && observed["heading"] == json!(heading)
+                        })
+                        .count()
+                        == 1,
+                "source entry heading differs from its observed boundary"
+            );
+        }
         #[derive(Deserialize)]
         struct CarriedClock {
             actor: usize,
@@ -999,6 +1139,7 @@ impl Oracle {
             .transpose()?;
         let options = || -> Result<PrepareOptions> {
             Ok(PrepareOptions {
+                hunting_symbol: None,
                 event_flags: field(setup, "event_flags")?,
                 devils_arms_unlocked: field(setup, "devils_arms_unlocked")?,
                 random_seed: seed,
@@ -1010,7 +1151,7 @@ impl Oracle {
                 overlimit_boost: field(setup, "overlimit_boost")?,
             })
         };
-        let inputs = Inputs::load(
+        let mut inputs = Inputs::load_fixture(
             &self.root,
             &self.retained,
             &self.menus,
@@ -1030,6 +1171,37 @@ impl Oracle {
             &mut self.cache,
             || false,
         )?;
+        #[derive(Deserialize)]
+        struct EntryMotion {
+            actor: usize,
+            clip: u16,
+            motion: random_inputs::Pin,
+        }
+        let entry_motions: Vec<EntryMotion> = setup
+            .get("entry_shared_motions")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or_default();
+        for motion in entry_motions {
+            ensure!(
+                entry_playback
+                    .iter()
+                    .any(|pose| pose.actor == motion.actor && pose.clip == motion.clip)
+                    || setup["ready_models"].as_array().is_some_and(|poses| {
+                        poses.iter().any(|pose| {
+                            pose["actor"].as_u64() == Some(motion.actor as u64)
+                                && pose["clip"].as_u64() == Some(u64::from(motion.clip))
+                        })
+                    }),
+                "shared fixture motion has no observed ready pose or entry transition"
+            );
+            inputs.bind_fixture_party_motion(
+                motion.actor,
+                motion.clip,
+                resonance_content::animation::Motion::decode(&motion.motion.read_bytes()?)?,
+            )?;
+        }
         let completed_events = if let Some(event) = &event_route {
             ensure!(
                 ready_combat > u32::try_from(event.route[2])?,
@@ -1373,6 +1545,7 @@ impl Oracle {
         let mut lifecycle = prepared.lifecycle;
         let mut display = Display;
         let mut core = prepared.core;
+        core.observe_fixture_contact_damage();
         let input_action = input_arte
             .map(|arte| {
                 core.prepared_technique(owner, arte)
@@ -1409,13 +1582,17 @@ impl Oracle {
         );
         let mut input_target = target;
         for (index, observed) in initial_actors.iter().enumerate() {
-            let target: u64 = field(observed, "target")?;
-            let target = initial_actors
-                .iter()
-                .position(|actor| actor["address"].as_u64() == Some(target))
-                .context("source initial target is outside its actor roster")?;
-            if index == owner.index() && support_input && input_action != action {
-                input_target = ActorId::from_index(target)?;
+            let target = initial_navigation_target(
+                observed,
+                initial_actors,
+                setup["initial_battle"]["combat_tick"] == 0,
+            )?;
+            if index == owner.index()
+                && support_input
+                && input_action != action
+                && let Some(target) = target
+            {
+                input_target = target;
             }
             let home = observed
                 .get("return_position")
@@ -1426,11 +1603,7 @@ impl Oracle {
                     ))
                 })
                 .transpose()?;
-            core.restore_fixture_navigation(
-                ActorId::from_index(index)?,
-                ActorId::from_index(target)?,
-                home,
-            )?;
+            core.restore_fixture_navigation(ActorId::from_index(index)?, target, home)?;
         }
         core.set_diagnostics(diagnostics.clone());
         core.suppress_automatic_decisions();
@@ -1466,6 +1639,7 @@ impl Oracle {
             assessment: Value::Null,
             incomplete_observations: Vec::new(),
         };
+        trace.setup["contact_damage_observations"] = json!(true);
         let observe_chain_history = setup.get("chain_history").is_some();
         if observe_chain_history {
             ensure!(
@@ -1483,6 +1657,7 @@ impl Oracle {
         let mut expired = BTreeSet::new();
         let mut onset = None;
         let mut pending_cast_start = None;
+        let mut observed_action = action;
         let mut random_inputs = random_inputs::admit(source)?;
         let mut effect_inputs = effect_inputs::Inputs::admit(source, &banks, &mut effects)?;
         let mut onset_combat = None;
@@ -1511,6 +1686,8 @@ impl Oracle {
         let mut approach_at = None;
         let mut incoming_sent = false;
         let mut departure_fatals = Vec::new();
+        let mut execution_failures = Vec::new();
+        let mut failed_request_window = false;
         if case.context == ContextKind::Departure {
             ensure!(
                 recipient_input
@@ -1542,6 +1719,12 @@ impl Oracle {
         let mut impact_contacts = BTreeMap::new();
         let mut recovery = 0_i64;
         let mut finished = false;
+        let mut cleanup = Cleanup {
+            source_frames: source.frames.len(),
+            ..Default::default()
+        };
+        let baseline_programs = cleanup_baseline(setup, &banks, "program")?;
+        let baseline_particles = cleanup_baseline(setup, &banks, "member")?;
         let mut previous_support: Vec<_> =
             core.actors().iter().map(support::State::observe).collect();
         let mut projectile_actions = BTreeMap::new();
@@ -1581,7 +1764,8 @@ impl Oracle {
             .all(|(_, actor)| support::attributable(actor));
         let mut defeated_observed = false;
         let mut self_interrupted = BTreeSet::new();
-        for _visit in 0..max_updates {
+        for visit in 0..max_updates {
+            cleanup.budget_exhausted = visit + 1 == max_updates;
             let mut input = BattleInput::default();
             if running
                 && core.phase() == BattlePhase::Combat
@@ -1685,10 +1869,18 @@ impl Oracle {
                             control.vertical_pressed = i8::from(elapsed == press && stick[1] > 0);
                         }
                     } else {
-                        control.attack.held =
-                            (press..recipient.release_after_updates).contains(&elapsed);
-                        control.attack.pressed = elapsed == press;
-                        control.attack.released = elapsed == recipient.release_after_updates;
+                        let active = (press..recipient.release_after_updates).contains(&elapsed);
+                        if let Some(period) = recipient.repeat_every_updates {
+                            let phase = elapsed.saturating_sub(press) % period;
+                            control.attack.held = active && phase == 0;
+                            control.attack.pressed = control.attack.held;
+                            control.attack.released =
+                                active && phase == 1 || elapsed == recipient.release_after_updates;
+                        } else {
+                            control.attack.held = active;
+                            control.attack.pressed = elapsed == press;
+                            control.attack.released = elapsed == recipient.release_after_updates;
+                        }
                     }
                 }
                 if let Some(down) = recipient.down_after_updates
@@ -1704,7 +1896,26 @@ impl Oracle {
                         control.stick = interval.stick;
                     }
                 }
-                input.controllers.push(control);
+                if recipient.controller.as_deref() == Some("owner") {
+                    if elapsed <= recipient.release_after_updates {
+                        core.apply_fixture_enemy_stick(
+                            control.actor,
+                            control.stick[0],
+                            elapsed == recipient.release_after_updates,
+                            recipient.port,
+                        )?;
+                        if elapsed == recipient.release_after_updates {
+                            let actor = &core.actors()[recipient.actor];
+                            trace.setup["native_owner_input_release"] = json!({
+                                "actor":recipient.actor,"after_updates":elapsed,
+                                "position":actor.position,"heading":actor.heading,
+                                "control":format!("{:?}",actor.control),
+                                "forward":actor.movement.forward});
+                        }
+                    }
+                } else {
+                    input.controllers.push(control);
+                }
             }
             if running
                 && guard_input
@@ -1805,6 +2016,7 @@ impl Oracle {
                 && technique_selection.is_none()
                 && menu_prelude.is_none()
                 && pending_entry.is_none()
+                && !failed_request_window
                 && request_at.is_some_and(|at| core.ledger().combat_ticks.saturating_add(1) >= at)
                 && onset.is_none()
                 && core.phase() == BattlePhase::Combat
@@ -1824,24 +2036,42 @@ impl Oracle {
                         inputs,
                     )?;
                 }
-                if case.context == ContextKind::Departure {
-                    ensure!(
-                        json!(departure_fatals)
-                            == setup["departure_prerequisite"]["fatal_contacts"]
-                            && departure_companions
-                                .iter()
-                                .all(|&index| core.actors()[index].hp == 0
-                                    && core.actors()[index].availability
-                                        == resonance_battle::ActorAvailability::Dead),
-                        "departure prerequisite was not reproduced by the ordinary attack prelude"
-                    );
+                let departure_ready = case.context != ContextKind::Departure
+                    || departure_companions.iter().all(|&index| {
+                        core.actors()[index].hp == 0
+                            && core.actors()[index].availability
+                                == resonance_battle::ActorAvailability::Dead
+                    });
+                if case.context == ContextKind::Departure
+                    && (!departure_ready
+                        || json!(departure_fatals)
+                            != setup["departure_prerequisite"]["fatal_contacts"])
+                {
+                    execution_failures.push("departure_prerequisite_not_reproduced");
+                    trace.setup["departure_prerequisite_difference"] = json!({
+                        "presentation_tick":core.ledger().elapsed_ticks,
+                        "combat_tick":core.ledger().combat_ticks,
+                        "expected_fatal_contacts":setup["departure_prerequisite"]["fatal_contacts"],
+                        "actual_fatal_contacts":departure_fatals,
+                        "companions":departure_companions.iter().map(|&index| {
+                            let actor = &core.actors()[index];
+                            json!({"actor":index,"hp":actor.hp,
+                                "availability":format!("{:?}",actor.availability),
+                                "activity":format!("{:?}",core.activity(ActorId::from_index(index).unwrap()))})
+                        }).collect::<Vec<_>>()});
                 }
-                input.actions.push(ActionRequest {
-                    actor: owner,
-                    action: input_action,
-                    target: input_target,
-                });
-                requested = true;
+                if departure_ready {
+                    input.actions.push(ActionRequest {
+                        actor: owner,
+                        action: input_action,
+                        target: input_target,
+                    });
+                    requested = true;
+                } else {
+                    // Observe the source window without admitting an action
+                    // whose prerequisite is still unmet in the native run.
+                    failed_request_window = true;
+                }
             }
             if running && case.context == ContextKind::Counter && onset.is_some() && !incoming_sent
             {
@@ -1888,13 +2118,17 @@ impl Oracle {
                     } if *actor == owner => Some(*action),
                     _ => None,
                 }) {
-                    ensure!(
-                        selected == action,
-                        "ordinary input did not produce the observed cast replacement: requested {input_action:?}, selected {selected:?}, expected {action:?}, random {previous_random} -> {}, TP {}, uses {:?}",
-                        core.random_state(),
-                        core.actors()[owner.index()].tp,
-                        core.technique_counts(owner),
-                    );
+                    if selected != action {
+                        execution_failures.push("observed_cast_replacement_not_reproduced");
+                        trace.setup["cast_replacement_difference"] = json!({
+                            "input":input_action.0,"selected":selected.0,"expected":action.0,
+                            "random_before":previous_random,"random_after":core.random_state(),
+                            "tp":core.actors()[owner.index()].tp,"uses":core.technique_counts(owner),
+                        });
+                        // Retain the actual spell and its contacts. A failed
+                        // replacement remains an explicit comparison failure.
+                        observed_action = selected;
+                    }
                     frame.cues.push(Cue::Started {
                         actor: owner,
                         action: pending_cast_start
@@ -2039,6 +2273,11 @@ impl Oracle {
                             actor,
                             loop_start: field(pose, "loop_start")?,
                             secondary,
+                            defeated_hidden: pose
+                                .get("defeated_hidden")
+                                .map(|value| serde_json::from_value(value.clone()))
+                                .transpose()?
+                                .unwrap_or(false),
                             elapsed_updates: if replay_effect_entry {
                                 0
                             } else {
@@ -2094,7 +2333,7 @@ impl Oracle {
                     let actor = ActorId::from_index(visit.actor)?;
                     // Replay the completed visit at its pre-fixture placement.
                     core.restore_fixture_overlimit(actor, field(observed, "overlimit_remaining")?)?;
-                    core.restore_fixture_position(actor, visit.position)?;
+                    core.restore_fixture_placement(actor, visit.position, None)?;
                     frame.actors[visit.actor].state = core.actors()[visit.actor].clone();
                     effects.restore_fixture_actor_clock(
                         actor,
@@ -2112,7 +2351,7 @@ impl Oracle {
                     && !replay_effect_entry,
             )?;
             if replay_effect_entry {
-                for observed in &carried_clocks {
+                for observed in carried_clocks.iter().filter(|_| !initial_effect_entry) {
                     let actor = ActorId::from_index(observed.actor)?;
                     let weapon = frame
                         .weapons
@@ -2145,7 +2384,7 @@ impl Oracle {
                         false,
                     )?;
                 }
-                for observed in &idle_clocks {
+                for observed in idle_clocks.iter().filter(|_| !initial_effect_entry) {
                     effects.restore_fixture_passive_phase(
                         ActorId::from_index(observed.actor)?,
                         None,
@@ -2192,7 +2431,11 @@ impl Oracle {
                         .filter(|placement| placement.after_updates == elapsed)
                     {
                         let actor = ActorId::from_index(placement.actor)?;
-                        core.restore_fixture_position(actor, placement.position)?;
+                        core.restore_fixture_placement(
+                            actor,
+                            placement.position,
+                            placement.heading,
+                        )?;
                         frame.actors[placement.actor].state =
                             core.actors()[placement.actor].clone();
                     }
@@ -2270,9 +2513,10 @@ impl Oracle {
                         "completed ready condition visit did not advance its saved clock"
                     );
                     let actor = ActorId::from_index(visit.actor)?;
-                    core.restore_fixture_position(
+                    core.restore_fixture_placement(
                         actor,
                         field(&setup["actors"][visit.actor], "position")?,
+                        None,
                     )?;
                     frame.actors[visit.actor].state = core.actors()[visit.actor].clone();
                 }
@@ -2302,6 +2546,7 @@ impl Oracle {
                     }
                 }
             }
+            let contact_damage = core.take_fixture_contact_damage();
             for cue in &frame.cues {
                 if case.context == ContextKind::Departure
                     && onset.is_none()
@@ -2350,12 +2595,15 @@ impl Oracle {
                         definition: Some(key),
                         action: id,
                         actor,
-                    } if *actor == owner && (observe_chain_history || *key == action
+                    } if *actor == owner && (observe_chain_history || *key == observed_action
                         && enemy_chain.as_ref().is_none_or(|chain| chain.target(&core))) => {
-                        let selected = *key == action
+                        let selected = *key == observed_action
                             && enemy_chain.as_ref().is_none_or(|chain| chain.target(&core));
                         if selected {
                             core.verify_random_input_admission(*actor, *id)?;
+                            if onset.is_none() && neutral_after_admission {
+                                core.set_fixture_neutral_control(owner)?;
+                            }
                             onset.get_or_insert(presentation);
                             onset_combat.get_or_insert(combat);
                             selected_action.get_or_insert(*id);
@@ -2423,11 +2671,21 @@ impl Oracle {
                             }));
                         }
                         let mut event = json!({"kind":"hit","owner":actor.index(),"target":recipient.index(),"action":contact_action(*source, &actions, &projectile_actions),"projectile":match source { ContactSource::Projectile(id)=>Some(projectiles[id]), _=>None },"hp_change":result.hp_change,"critical":result.critical});
-                        if result.protection == resonance_battle::HitProtection::Avoided
-                            && core.actors()[recipient.index()].reaction.protection.mode
-                                == resonance_battle::ProtectionMode::Recovery
-                        {
-                            event["protection"] = json!("recovery");
+                        let observations: Vec<_> = contact_damage.iter().filter(|input| {
+                            input.source == *source && input.owner_id == *actor && input.target_id == *recipient
+                        }).collect();
+                        ensure!(observations.len() == 1, "native contact lacks its unique pre-damage input observation");
+                        event["damage_inputs"] = contact_damage::observe(observations[0], *result)
+                            .unwrap_or_else(|error| json!({"unsupported":error.to_string()}));
+                        if result.protection == resonance_battle::HitProtection::Avoided {
+                            let target = &observations[0].target;
+                            if target.reaction.protection.mode == resonance_battle::ProtectionMode::Recovery {
+                                event["protection"] = json!("recovery");
+                            } else if target.side == Side::Party
+                                && target.reaction.protection.mode == resonance_battle::ProtectionMode::Down
+                                && target.reaction.stagger.window == 0 {
+                                event["protection"] = json!("down_window_closed");
+                            }
                         }
                         if recipient_input.is_some() {
                             event["guard"] = json!(match result.guard {
@@ -2730,7 +2988,7 @@ impl Oracle {
                     );
                 }
             }
-            if onset.is_some() {
+            if onset.is_some() || failed_request_window {
                 let mut observed_actors = actors(
                     frame.actors.iter().map(|actor| &actor.state),
                     support.is_some(),
@@ -2819,16 +3077,33 @@ impl Oracle {
                 } else {
                     core.activity(owner) == Activity::Idle
                 };
-            if trace.frames.len() == source.frames.len() {
-                finished = returned
+            if trace.frames.len() >= source.frames.len() {
+                cleanup.tail_frames = trace.frames.len() - source.frames.len();
+                cleanup.remaining_projectiles = projectiles
+                    .keys()
+                    .filter(|id| !expired.contains(id))
+                    .count();
+                cleanup.remaining_programs = effects
+                    .active_programs()
+                    .filter(|effect| !baseline_programs.contains(effect))
+                    .count();
+                cleanup.remaining_particles = effects
+                    .live_particles()
+                    .filter(|effect| !baseline_particles.contains(effect))
+                    .count();
+                let action_complete = returned
                     && (!observe_time_stop || core.hourglass_remaining() == 0)
                     && !actions.is_empty()
                     && actions.keys().all(|id| {
                         completed.contains(id)
                             || (self_interrupted.contains(id) && core.action_age(*id).is_none())
-                    })
-                    && projectiles.keys().all(|id| expired.contains(id));
-                break;
+                    });
+                finished = cleanup.ready(trace.frames.len(), action_complete);
+                cleanup.complete = finished;
+                cleanup.budget_exhausted = !finished && visit + 1 == max_updates;
+                if finished || failed_request_window {
+                    break;
+                }
             }
             if frame.outcome.is_some() {
                 break;
@@ -2882,7 +3157,7 @@ impl Oracle {
             }
         }
         trace.assessment = json!({
-            "outcome":case.context,
+            "outcome":case.context, "cleanup":cleanup,
             "trace_schema":3,"declaration_clock":"first_initialized_particle",
             "diagnostics":diagnostics.entries(),"preparation_diagnostics":inputs.files.diagnostics().entries(),
             "raw_events":raw_events,"onset":onset,"requested":requested,"damage":damage,"recovery":recovery,
@@ -2895,14 +3170,20 @@ impl Oracle {
                 .incomplete_observations
                 .push("support_attribution_has_competing_action_or_passive_timer".into());
         }
+        // A fully observed native failure is a comparison result, not a gap
+        // in the instrumentation. Keep these assertions separate and strict.
         if onset.is_none() {
-            trace
-                .incomplete_observations
-                .push("selected_action_never_admitted".into());
+            execution_failures.push("selected_action_never_admitted");
+            trace.setup["unadmitted_action_state"] = json!({
+                "combat_tick":core.ledger().combat_ticks,
+                "actors":core.actors().iter().enumerate().map(|(index, actor)| {
+                    json!({"actor":index,"position":actor.position,"heading":actor.heading,
+                        "activity":format!("{:?}",core.activity(ActorId::from_index(index).unwrap())),
+                        "control":format!("{:?}",actor.control),"hp":actor.hp,"tp":actor.tp,
+                        "forward":actor.movement.forward,"direction":actor.movement.direction})
+                }).collect::<Vec<_>>()});
         } else if !finished {
-            trace
-                .incomplete_observations
-                .push("execution_or_cleanup_not_completed_within_budget".into());
+            execution_failures.push("execution_or_cleanup_not_completed_within_budget");
         }
         let harmful_observed = matches!(case.context, ContextKind::Attack | ContextKind::Aerial)
             && trace.events.iter().try_fold(false, |found, event| {
@@ -2917,25 +3198,17 @@ impl Oracle {
             && !harmful_observed
             && !(setup["self_defeat"]["terminal_only"] == true && defeated_observed)
         {
-            trace
-                .incomplete_observations
-                .push("selected_action_did_not_damage_an_opponent".into());
+            execution_failures.push("selected_action_did_not_damage_an_opponent");
         }
         if matches!(case.context, ContextKind::Support | ContextKind::Revival) && !benefit_observed
         {
-            trace
-                .incomplete_observations
-                .push("support_benefit_not_observed".into());
+            execution_failures.push("support_benefit_not_observed");
         }
         if case.context == ContextKind::Presentation && !compare::presented_during_action(&trace)? {
-            trace
-                .incomplete_observations
-                .push("authored_presentation_not_observed".into());
+            execution_failures.push("authored_presentation_not_observed");
         }
         if case.context == ContextKind::Movement && !compare::moved_during_action(&trace)? {
-            trace
-                .incomplete_observations
-                .push("selected_action_did_not_move_its_owner".into());
+            execution_failures.push("selected_action_did_not_move_its_owner");
         }
         if let Some(kind) = drain_kind
             && !trace.events.iter().any(|event| {
@@ -2947,10 +3220,9 @@ impl Oracle {
                     }
             })
         {
-            trace
-                .incomplete_observations
-                .push("seal_drain_not_observed".into());
+            execution_failures.push("seal_drain_not_observed");
         }
+        trace.assessment["execution_failures"] = json!(execution_failures);
         if case.context == ContextKind::Counter {
             trace
                 .incomplete_observations

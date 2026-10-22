@@ -2,7 +2,8 @@
 
 No debugger, CPU pause, memory write, or game patch is involved. The stream
 contains raw changed words and a sample for every VI, including unchanged ones.
-Only oracle tooling consumes it; the player and importer do not.
+Only oracle tooling consumes it; the player and importer do not. Callers may
+project each complete raw snapshot to a validated typed view before recording.
 """
 import json
 import socket
@@ -13,7 +14,7 @@ MEM1_HEADER = b"# mem1-v2\n1\n"
 MEM1_WORD = struct.Struct(">II")
 # A complete battle object pool with model transforms fits in this bounded
 # Unix datagram. UDP's smaller payload limit does not apply to this socket.
-MEM1_DATAGRAM_BYTES = 128 * 1024
+MEM1_DATAGRAM_BYTES = 192 * 1024
 
 
 LOCATIONS = {
@@ -75,8 +76,9 @@ LOCATIONS = {
 
 
 class Watcher:
-    def __init__(self, user_path, output, extra=None, *, mem1=False):
+    def __init__(self, user_path, output, extra=None, *, mem1=False, project=None):
         self.mem1 = mem1
+        self.project = project
         self.locations = dict(LOCATIONS)
         self.aliases = {}
         for address, name in (extra or {}).items():
@@ -149,10 +151,11 @@ class Watcher:
                     values[self.locations[address]] = value
                     for name in self.aliases.get(address, []):
                         values[name] = value
-                self.log.write(json.dumps({"vi_sample": self.rows, "changes": changes,
-                                           **values}) + "\n")
+                snapshot = self.project(values) if self.project is not None else values
+                self.log.write(json.dumps({"vi_sample": self.rows,
+                    **({"changes": changes} if self.project is None else {}), **snapshot}) + "\n")
                 self.log.flush()
-                self.latest = dict(values)
+                self.latest = dict(snapshot)
                 self.rows += 1
         except Exception as error:
             self.error = str(error)
@@ -167,5 +170,5 @@ class Watcher:
         complete = not self.thread.is_alive() and self.error is None and self.rows > 0
         return {"complete": complete, "vi_samples": self.rows,
                 "locations": self.locations, "aliases": self.aliases, "game_memory_modified": False,
-                "debugger_enabled": False, "error": self.error,
+                "debugger_enabled": False, "error": self.error, "projected": self.project is not None,
                 "address_space": "mem1-v2" if self.mem1 else "effective"}
