@@ -35,7 +35,6 @@ pub struct Diagnostics {
     pub p999_callback_us: u64,
     pub callback_deadline_misses: u64,
     pub backend_delay_ns: u64,
-    pub worker_realtime_priority: Option<bool>,
 }
 pub struct Output {
     queue: ArrayQueue<Frame>,
@@ -55,7 +54,6 @@ pub struct Output {
     callback_histogram: [AtomicU64; 512],
     callback_deadline_misses: AtomicU64,
     backend_delay_ns: AtomicU64,
-    worker_priority: AtomicUsize,
     stopped: AtomicBool,
     retain_state: AtomicBool,
     failure: Mutex<Option<String>>,
@@ -80,7 +78,6 @@ impl Output {
             callback_histogram: std::array::from_fn(|_| AtomicU64::new(0)),
             callback_deadline_misses: AtomicU64::new(0),
             backend_delay_ns: AtomicU64::new(0),
-            worker_priority: AtomicUsize::new(0),
             stopped: AtomicBool::new(false),
             retain_state: AtomicBool::new(false),
             failure: Mutex::new(None),
@@ -114,11 +111,6 @@ impl Output {
             p999_callback_us: p999,
             callback_deadline_misses: self.callback_deadline_misses.load(Ordering::Relaxed),
             backend_delay_ns: self.backend_delay_ns.load(Ordering::Relaxed),
-            worker_realtime_priority: match self.worker_priority.load(Ordering::Acquire) {
-                1 => Some(true),
-                2 => Some(false),
-                _ => None,
-            },
         }
     }
     pub fn check(&self) -> Result<()> {
@@ -248,14 +240,6 @@ impl Callback {
 /// Implemented by the codec adapter. Both conversion and allocations stay on
 /// the mixer worker; the native DSP stream remains separately recordable.
 pub trait Converter: Send {
-    /// Optional worker-local platform setup. The returned guard is created and
-    /// destroyed on that worker, so it does not need to be Send.
-    fn prepare(&mut self) -> Result<Option<Box<dyn std::any::Any>>> {
-        Ok(None)
-    }
-    fn realtime_priority(&self) -> Option<bool> {
-        None
-    }
     fn convert(&mut self, input: &[[f32; 2]], output: &mut Vec<[f32; 2]>) -> Result<()>;
 }
 /// Native PCM history allows a replaced device to resume at the estimated
@@ -312,20 +296,13 @@ impl Worker {
         mut replay: VecDeque<[f32; 2]>,
     ) -> Result<Self> {
         let shared = output.clone();
+        // Source initialization and decoding have no fixed CPU budget. Keep this
+        // buffered producer on ordinary scheduling; only the device callback is real time.
         let worker = thread::Builder::new()
             .name("resonance-audio-mixer".into())
             .spawn(move || {
                 let result =
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
-                        let _worker_setup = converter.prepare()?;
-                        shared.worker_priority.store(
-                            match converter.realtime_priority() {
-                                Some(true) => 1,
-                                Some(false) => 2,
-                                None => 0,
-                            },
-                            Ordering::Release,
-                        );
                         let mut native = [[0.; 2]; SOURCE_BLOCK];
                         let mut converted = Vec::with_capacity(2048);
                         let mut position = 0u64;

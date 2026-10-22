@@ -30,12 +30,13 @@ type AudioBuffer = resonance_playback::Pcm;
 pub(super) struct MovieAudio {
     buffer: Arc<AudioBuffer>,
     mono: bool,
+    gain: f32,
 }
 
 impl Decodable for MovieAudio {
     type Decoder = resonance_playback::PcmSource;
     fn decoder(&self) -> Self::Decoder {
-        self.buffer.source(self.mono)
+        self.buffer.source(self.mono, self.gain)
     }
 }
 
@@ -62,7 +63,6 @@ pub(super) struct Playback {
     prebuffer_started: Option<Instant>,
     completion: Option<resonance_events::Operation>,
     ignore_initial_skip: bool,
-    pub(super) mono: bool,
 }
 
 /// Bounded decoder startup, performed by the field worker before activation.
@@ -129,17 +129,22 @@ impl Playback {
     ) -> Result<()> {
         ensure!(!self.active, "another movie is still playing");
         asset.validate()?;
-        ensure!(
-            asset.width == WIDTH && asset.height == HEIGHT,
-            "movie surface size differs"
-        );
         let texture = self.texture.clone();
         // The preceding movie's final image must not flash while this one
         // prebuffers. Its surface remains black until the first decoded frame.
-        images
+        let mut image = images
             .get_mut(&texture)
-            .context("movie surface is not initialized")?
-            .data = Some(vec![0; WIDTH as usize * HEIGHT as usize * 4]);
+            .context("movie surface is not initialized")?;
+        image.resize(Extent3d {
+            width: asset.width,
+            height: asset.height,
+            depth_or_array_layers: 1,
+        });
+        image
+            .data
+            .as_mut()
+            .context("movie surface has no pixels")?
+            .fill(0);
         *self = Self {
             active: true,
             resource: Some(resource),
@@ -209,6 +214,9 @@ impl Playback {
 #[derive(Component)]
 pub(super) struct MovieCamera;
 
+#[derive(Component)]
+pub(super) struct MovieSurface;
+
 pub(super) fn setup(
     commands: &mut Commands,
     images: &mut Assets<Image>,
@@ -236,7 +244,9 @@ pub(super) fn setup(
     image.sampler = ImageSampler::linear();
     movie.texture = images.add(image);
     commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(width as f32, height as f32))),
+        MovieSurface,
+        Mesh2d(meshes.add(Rectangle::new(1., 1.))),
+        Transform::from_scale(Vec3::new(width as f32, height as f32, 1.)),
         MeshMaterial2d(materials.add(TitleText {
             source: movie.texture.clone(),
             opacity_pulse: Vec4::new(1., 0., 0., 0.),
@@ -312,12 +322,15 @@ pub(super) fn update(
     mut movie: ResMut<Playback>,
     mut pending: ResMut<PendingInput>,
     mut cameras: Query<&mut Camera, With<MovieCamera>>,
+    mut surfaces: Query<&mut Transform, With<MovieSurface>>,
     mut images: ResMut<Assets<Image>>,
     mut audio_assets: ResMut<Assets<MovieAudio>>,
     sinks: Query<&AudioSink>,
     mut exit: MessageWriter<AppExit>,
     ready: Res<super::timing::Ready>,
     boot: Res<super::boot::Playback>,
+    preferences: Option<Res<super::config::Preferences>>,
+    session: Option<Res<super::new_game::Session>>,
 ) {
     if !ready.0 {
         return;
@@ -328,12 +341,27 @@ pub(super) fn update(
     if !movie.active || boot.active() {
         return;
     }
+    if let Some(asset) = &movie.asset {
+        for mut surface in &mut surfaces {
+            surface.scale = Vec3::new(asset.width as f32, asset.height as f32, 1.);
+        }
+    }
+    let settings = session
+        .as_ref()
+        .and_then(|session| session.events().world.party.as_ref())
+        .map(|party| &party.settings.preferences)
+        .or_else(|| {
+            preferences
+                .as_ref()
+                .map(|preferences| &preferences.settings)
+        });
     if let Err(error) = advance(
         &mut movie,
         &mut commands,
         &mut images,
         &mut audio_assets,
         &sinks,
+        settings,
     ) {
         error!("movie playback failed: {error:#}");
         if let Some(completion) = movie.completion.take() {
@@ -361,6 +389,7 @@ fn advance(
     images: &mut Assets<Image>,
     audio_assets: &mut Assets<MovieAudio>,
     sinks: &Query<&AudioSink>,
+    settings: Option<&resonance_content::menu_data::CustomizeSettings>,
 ) -> Result<()> {
     movie.prebuffer_started.get_or_insert_with(Instant::now);
     let asset = movie
@@ -420,7 +449,9 @@ fn advance(
         {
             let audio = MovieAudio {
                 buffer: movie.buffer.clone(),
-                mono: movie.mono,
+                mono: settings.is_some_and(|settings| !settings.stereo),
+                // Movies have one premixed soundtrack, like the credits.
+                gain: settings.map_or(1., |settings| f32::from(settings.volumes.music) / 127.),
             };
             movie.audio_entity = Some(
                 commands

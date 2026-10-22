@@ -6,6 +6,75 @@ use resonance_game::TitleState;
 use std::{path::PathBuf, thread};
 
 #[test]
+#[ignore = "requires cooked opening/classroom movies; no window or audio device"]
+fn movie_soundtrack_respects_music_volume_and_stereo() {
+    use bevy::ecs::system::RunSystemOnce;
+    for (in_game, volume, stereo) in [(false, 127, true), (false, 64, false), (true, 0, true)] {
+        let mut app = if in_game {
+            script_movie_fixture().0
+        } else {
+            fixture()
+        };
+        let mut preferences = crate::config::Preferences::default();
+        preferences.settings.volumes.music = volume;
+        preferences.settings.stereo = stereo;
+        if in_game {
+            // The active party takes precedence over title preferences.
+            let mut session = app.world_mut().resource_mut::<crate::new_game::Session>();
+            let settings = &mut session
+                .events_mut()
+                .world
+                .party
+                .as_mut()
+                .unwrap()
+                .settings
+                .preferences;
+            settings.volumes.music = volume;
+            settings.stereo = stereo;
+            preferences.settings.volumes.music = 127;
+        }
+        app.insert_resource(preferences);
+        let began = Instant::now();
+        let entity = loop {
+            app.world_mut().run_system_once(update).unwrap();
+            if let Some(entity) = app.world().resource::<Playback>().audio_entity {
+                break entity;
+            }
+            assert!(began.elapsed() < Duration::from_secs(30));
+            thread::sleep(Duration::from_millis(1));
+        };
+        let handle = &app
+            .world()
+            .get::<AudioPlayer<MovieAudio>>(entity)
+            .unwrap()
+            .0;
+        let mut audio = app
+            .world()
+            .resource::<Assets<MovieAudio>>()
+            .get(handle)
+            .unwrap()
+            .clone();
+        // Known PCM exposes attenuation even when the movie begins with silence.
+        audio.buffer = Arc::new(AudioBuffer::default());
+        audio.buffer.push(0, vec![0.75, -0.25, -0.5, 0.25]).unwrap();
+        audio.buffer.finish();
+        let samples: Vec<_> = audio.decoder().collect();
+        let gain = f32::from(volume) / 127.;
+        let expected = if stereo {
+            [0.75, -0.25, -0.5, 0.25]
+        } else {
+            [0.25, 0.25, -0.125, -0.125]
+        };
+        assert_eq!(samples, expected.map(|sample| sample * gain));
+        assert_eq!(
+            audio.buffer.buffered(),
+            0,
+            "muting must still consume audio"
+        );
+    }
+}
+
+#[test]
 fn subtitles_follow_media_time_when_video_is_held() {
     let mut movie = Playback {
         active: true,
@@ -110,8 +179,31 @@ pub(crate) fn fixture() -> App {
                 .chain(),
         );
     app.world_mut().spawn((Camera::default(), MovieCamera));
+    app.world_mut().spawn((Transform::default(), MovieSurface));
     crate::audio::validate_startup(&app, true, true).unwrap();
     app
+}
+
+pub(crate) fn verify_surface(app: &mut App) {
+    let movie = app.world().resource::<Playback>();
+    let asset = movie.asset.as_ref().unwrap();
+    let image = app
+        .world()
+        .resource::<Assets<Image>>()
+        .get(&movie.texture)
+        .unwrap();
+    let size = Vec3::new(asset.width as f32, asset.height as f32, 1.);
+    assert_eq!(image.size(), UVec2::new(asset.width, asset.height));
+    assert_eq!(
+        image.data.as_ref().unwrap().len(),
+        asset.width as usize * asset.height as usize * 4
+    );
+    let surface = app
+        .world_mut()
+        .query_filtered::<&Transform, With<MovieSurface>>()
+        .single(app.world())
+        .unwrap();
+    assert_eq!(surface.scale, size);
 }
 
 #[test]

@@ -8,4 +8,3 @@ license.workspace = true
 anyhow.workspace = true
 resonance-playback.workspace = true
 cpal = { version = "=0.17.3", features = ["audio_thread_priority"] }
-audio_thread_priority = "=0.34.0"
