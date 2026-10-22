@@ -800,7 +800,10 @@ impl Frames {
                     EffectCategory::Battle => u16::from(u8::MAX - priority),
                     EffectCategory::System => u16::from(u8::MAX) + 1,
                 });
-                player.volume = f32::from(u16::from(volume) * u16::from(percent) / 100) / 127.;
+                // Cue volume is a note input, so authored pre-fader reverb
+                // follows the same level as the direct sound.
+                player.controls.sound_velocity =
+                    Some((u16::from(volume) * u16::from(percent) / 100) as u8);
                 state.effects.push(player);
                 debug!(
                     source_frame = self.frame,
@@ -826,12 +829,19 @@ impl Frames {
                 let source = match source {
                     Source::Score(score) => {
                         let mut player = ScorePlayer::new(score, false, &self.synth)?;
-                        player.volume = f32::from(level) / 127.;
+                        player.controls.sound_velocity = Some(level);
                         player.controls.pan = Some(pan);
                         VoiceSource::Score(player)
                     }
                     Source::Stream(clip) => {
-                        let gain = gains::for_voice(level, pan, clip.channels);
+                        // Stream settings select the prepared attenuation curve,
+                        // just as spoken event audio does. A score's volume is a
+                        // synth control; PCM needs the resulting amplitude.
+                        let gain = gains::for_voice(
+                            state.assets.mixer.voice_gains[usize::from(level)],
+                            pan,
+                            clip.channels,
+                        );
                         let sampler = pcm::Sampler::new(clip)?;
                         VoiceSource::Stream {
                             gain,
@@ -1321,6 +1331,64 @@ mod tests {
             complete: complete.clone(),
         });
         complete
+    }
+
+    #[test]
+    fn streamed_battle_voices_use_prepared_attenuation_after_spatial_level() -> Result<()> {
+        for channels in [1, 2] {
+            for level in [0, 32, 127] {
+                for x in [None, Some(0.), Some(320.)] {
+                    let (source, _control) = Arc::new(mixer()).session();
+                    let mut frames = source.decoder();
+                    let mut prepared = assets();
+                    let gains = std::array::from_fn(|i| (i as f32 / 127.).powi(2));
+                    Arc::get_mut(&mut Arc::get_mut(&mut prepared).unwrap().mixer)
+                        .unwrap()
+                        .voice_gains = gains;
+                    frames.apply_battle_command(Command::Begin(
+                        prepared,
+                        Settings {
+                            voice: level,
+                            stereo: true,
+                            ..settings()
+                        },
+                        None,
+                    ))?;
+                    frames.apply_battle_command(Command::Voice {
+                        actor: 0,
+                        playback: VoiceId(1),
+                        binding: Sound::Stream(1),
+                        source: Source::Stream(Arc::new(test_clip(
+                            vec![16384; channels * 16],
+                            RATE,
+                            channels,
+                        ))),
+                        x,
+                        complete: Arc::new(AtomicBool::new(false)),
+                    })?;
+                    let (pan, percent) = spatial(x, DEFAULT_VOICE_SPATIAL)?;
+                    let spatial_level = u16::from(level) * u16::from(percent) / 100;
+                    let amplitude = gains[usize::from(spatial_level)];
+                    let mut expected = [[0; 2]; 3];
+                    gains::add(
+                        &mut expected,
+                        [0.5; 2],
+                        gains::for_voice(amplitude, pan, channels),
+                    );
+                    frames.frame()?;
+                    assert_eq!(frames.stream_block[0], expected);
+                    if level == 0 {
+                        assert!(
+                            frames
+                                .stream_block
+                                .iter()
+                                .all(|frame| *frame == [[0; 2]; 3])
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     #[test]
@@ -1995,11 +2063,11 @@ mod tests {
         }
         let effects = &frames.battle.as_ref().unwrap().effects;
         assert_eq!(effects[0].controls.pan, Some(64));
-        assert_eq!(effects[0].volume, f32::from(settings().effects) / 127.);
+        assert_eq!(effects[0].controls.sound_velocity, Some(settings().effects));
         assert_eq!(effects[1].controls.pan, Some(0));
         assert_eq!(
-            effects[1].volume,
-            f32::from(u16::from(settings().battle_effects) * 95 / 100) / 127.
+            effects[1].controls.sound_velocity,
+            Some((u16::from(settings().battle_effects) * 95 / 100) as u8)
         );
         frames.apply_battle_command(sound(&system, EffectCategory::System, 0, None))?;
         let mut pcm = Vec::new();
