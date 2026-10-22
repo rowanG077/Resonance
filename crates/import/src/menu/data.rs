@@ -404,7 +404,17 @@ pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
         .definitions
         .get(..9)
         .context("missing initial character names")?;
-    let (ex_skills, ex_text) = ex_skills::cook(&inputs.ex_skills)?;
+    let (mut ex_skills, ex_text) = ex_skills::cook(&inputs.ex_skills)?;
+    ex_skills.foraging = resonance_content::menu_data::FieldForaging {
+        pools: source.phases.item_finder_pools.clone(),
+        fields: source
+            .phases
+            .records
+            .iter()
+            .filter(|phase| !phase.item_finder_choices.is_empty())
+            .map(|phase| (phase.id as u32, phase.item_finder_choices.clone()))
+            .collect(),
+    };
     let (world_map, map_text, shop_text) = world_map::cook(world, phases, ui)?;
     let (status, status_text) = status::cook(status_ui, &items)?;
     let (strategy, strategy_text) = strategy::cook(strategy_ui)?;

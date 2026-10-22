@@ -135,6 +135,7 @@ pub(super) fn cook(catalogue: &Catalogue) -> Result<(ExSkillData, ExSkillText)> 
         .collect::<Result<_>>()?;
     Ok((
         ExSkillData {
+            foraging: Default::default(),
             skills,
             characters,
             gem_items: [40, 41, 42, 43, 496],
