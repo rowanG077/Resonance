@@ -1,8 +1,14 @@
 //! Field scene instances: shared cooked assets, independent actor state.
 #[path = "field_backdrop.rs"]
 mod backdrop;
+#[path = "field_lighting.rs"]
+mod lighting;
+#[path = "field_panorama.rs"]
+mod panorama;
 #[path = "field_shadow.rs"]
 mod shadows;
+#[path = "field_water.rs"]
+mod water;
 use super::draw_order::DrawOrderPlugin;
 use super::{
     camera::TitleProjection,
@@ -197,6 +203,7 @@ impl Plugin for FieldRendering {
         super::field_refraction::install(app);
         super::menu_backdrop::install(app);
         super::model_preview::install(app);
+        water::install(app);
         app.init_resource::<super::display::Display>()
             .init_resource::<Applied>()
             .init_resource::<super::field_pose::Authored>()
@@ -235,6 +242,8 @@ impl Plugin for FieldRendering {
                     shadows::pose,
                     super::field_effects::render,
                     fog,
+                    water::render,
+                    water::layers,
                     ui,
                 )
                     .chain()
@@ -279,6 +288,7 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
         super::field_model_particles::spawn,
         super::field_model_particles::sync,
         camera,
+        panorama::render,
     )
         .chain()
 }
@@ -306,6 +316,7 @@ struct RetainedFields(
 pub(super) struct Art {
     pub(super) map: u32,
     pub(super) models: BTreeMap<u32, Vec<Part>>,
+    pub(super) environment: resonance_content::field::FieldEnvironment,
     texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
     instances: BTreeMap<i32, Vec<Entity>>,
     pub(super) ready: bool,
@@ -315,6 +326,8 @@ pub(super) struct Art {
     pub(super) toon_ramp: Handle<Image>,
     unlit: bool,
     disabled_shadows: bool,
+    pub(super) panorama: Option<panorama::Artwork>,
+    water: Option<water::Artwork>,
 }
 pub(super) struct Part {
     pub(super) spec: ScenePart,
@@ -702,6 +715,12 @@ pub(super) fn retire_live(world: &mut World) {
     let ui = world.remove_resource::<super::field_ui::Artwork>();
     let effects = world.remove_resource::<super::field_effects::Artwork>();
     if let (Some(mut art), Some(mut ui), Some(mut effects)) = (art, ui, effects) {
+        if let Some(panorama) = &mut art.panorama {
+            panorama.despawn(world);
+        }
+        if let Some(water) = &mut art.water {
+            water.despawn(world);
+        }
         art.shadows.despawn(world);
         for entity in std::mem::take(&mut art.instances).into_values().flatten() {
             world.despawn(entity);
@@ -1306,12 +1325,18 @@ fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
     Art {
         map: manifest.map_id,
         texture_animations: manifest.texture_animations.clone(),
+        environment: manifest.environment.clone(),
         models,
         instances: BTreeMap::new(),
         ready: false,
         loading_since: Instant::now(),
         unlit: false,
         disabled_shadows: false,
+        panorama: manifest
+            .panorama
+            .as_ref()
+            .map(|path| panorama::Artwork::load(path, server, &loads)),
+        water: manifest.water.clone().map(water::Artwork::new),
         shadows: shadows::Artwork::load(&manifest.contact_shadow, server),
         toon_ramp: server
             .load_builder()
@@ -1480,6 +1505,25 @@ fn prepare(
     if stopped {
         return;
     }
+    if let Some(panorama) = &art.panorama {
+        let result = asset_ready(&server, panorama.image.id().untyped()).and_then(|loaded| {
+            let loaded = loaded && images.contains(&panorama.image);
+            ensure!(
+                loaded || !timed_out,
+                "field panorama did not load within 30 seconds"
+            );
+            Ok(loaded)
+        });
+        match result {
+            Ok(loaded) => ready &= loaded,
+            Err(error) => {
+                if !failures.skip("field panorama", error) {
+                    return;
+                }
+                art.panorama = None;
+            }
+        }
+    }
     for (index, (handle, disabled)) in [
         (art.toon_ramp.clone(), art.unlit),
         (art.shadows.texture.clone(), art.disabled_shadows),
@@ -1644,10 +1688,27 @@ fn pose(
     mut applied: ResMut<Applied>,
     effects: Res<super::field_effects::Artwork>,
     mut failures: Failures,
+    mut actor_depths: Local<Vec<(i32, f32)>>,
 ) {
     let session = session.get();
     let world = &session.events.world;
     let tick = session.events.tick();
+    let direction = world.field_camera.as_ref().map_or(Vec3::ZERO, |camera| {
+        Vec3::from_array(camera.target) - Vec3::from_array(camera.position)
+    });
+    actor_depths.clear();
+    actor_depths.extend(world.actor_order().iter().filter_map(|&id| {
+        // Attached models have local coordinates; sort them with their owner.
+        let actor = std::iter::successors(world.actors.get(&id), |actor| {
+            world.actors.get(&actor.attachment.as_ref()?.actor)
+        })
+        .take(world.actors.len())
+        .last()?;
+        Some((id, Vec3::from_array(actor.visual_position()).dot(direction)))
+    }));
+    // Stable ties preserve submission order. Recompute from the live camera
+    // and positions so moving actors and camera cuts update the blend order.
+    actor_depths.sort_by(|a, b| b.1.total_cmp(&a.1));
     for (root, mut instance, mut transform, mut visibility) in &mut roots {
         if instance.disabled {
             *visibility = Visibility::Hidden;
@@ -1762,6 +1823,7 @@ fn pose(
                 Vec4::ONE
             };
         let light = session.character_light(instance.actor);
+        let scenery_lighting = lighting::resolve(&art.environment, world, instance.actor);
         let ambient_color = if let Some(rgba) = echo_color {
             Vec4::new(
                 f32::from(rgba[0]),
@@ -1790,6 +1852,13 @@ fn pose(
             }))
             .extend(1.)
         });
+        transform.scale = Vec3::from_array(
+            wing_echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(tick)),
+        ) * wing_layer.as_ref().map_or(1., |layer| layer.scale);
+        if instance.actor == world.controlled_actor {
+            transform.scale *= world.player_size.model_scale();
+        }
+        let mirrored = transform.scale.element_product() < 0.;
         for (index, material) in part.spec.materials.iter().enumerate() {
             let tint = tint
                 * part
@@ -1842,15 +1911,15 @@ fn pose(
                     }
                 }
             }
-            for animation in &art.texture_animations {
+            for (index, animation) in art.texture_animations.iter().enumerate() {
                 if animation.actor.resolve(&world.texture_bindings) != instance.actor {
                     continue;
                 }
                 let texture = animation.texture.resolve(&world.texture_bindings);
-                let uv = animation.offset(
-                    world.texture_animation_tick,
-                    world.texture_animation_effect_tick,
-                );
+                let uv = world
+                    .texture_animation_states
+                    .get(index)
+                    .map_or([0.; 2], |state| state.offset);
                 for (stage, binding) in [&material.color, &material.multiply]
                     .into_iter()
                     .enumerate()
@@ -1884,7 +1953,13 @@ fn pose(
             {
                 resonance_content::CullFace::None
             } else {
-                material.cull
+                // Reflection reverses triangle winding, including outline geometry.
+                use resonance_content::CullFace;
+                match (material.cull, mirrored) {
+                    (CullFace::Back, true) => CullFace::Front,
+                    (CullFace::Front, true) => CullFace::Back,
+                    (cull, _) => cull,
+                }
             };
             let blend = actor.blend.or_else(|| {
                 if actor.ring_station || (save_point.is_some() && !sealed) {
@@ -1902,6 +1977,7 @@ fn pose(
                     || s.blend != blend
                     || s.field_light != light_position
                     || s.shade_colors != shades
+                    || s.scenery_lighting != scenery_lighting
                     || s.toon_ramp != toon_ramp
                     || s.cull != cull
                     || s.vertex_alpha != actor.ring_station
@@ -1916,6 +1992,7 @@ fn pose(
                 surface.blend = blend;
                 surface.field_light = light_position;
                 surface.shade_colors = shades;
+                surface.scenery_lighting = scenery_lighting;
                 surface.toon_ramp = toon_ramp;
                 surface.cull = cull;
                 surface.vertex_alpha = actor.ring_station;
@@ -1925,12 +2002,6 @@ fn pose(
         transform.translation = Vec3::from_array(
             wing_echo.map_or_else(|| actor.visual_position(), |echo| echo.position),
         );
-        transform.scale = Vec3::from_array(
-            wing_echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(tick)),
-        ) * wing_layer.as_ref().map_or(1., |layer| layer.scale);
-        if instance.actor == world.controlled_actor {
-            transform.scale *= world.player_size.model_scale();
-        }
         let [x, y, z] = wing_echo.map_or_else(
             || {
                 [
@@ -1944,7 +2015,10 @@ fn pose(
         transform.rotation = Quat::from_rotation_z(z.to_radians())
             * Quat::from_rotation_y(y.to_radians())
             * Quat::from_rotation_x(x.to_radians());
-        *visibility = if actor.visible
+        // Fades can stop at one byte of opacity; omit the whole model so it
+        // cannot leave invisible depth coverage behind.
+        *visibility = if tint.w > 1. / 255.
+            && actor.visible
             && world.tick >= actor.visible_from
             && !actor.appearance.model_hidden
             && !actor.animation_culled
@@ -1976,6 +2050,14 @@ fn pose(
                 -2 => Layer::ModelEffects(2 * MODEL_DRAW_SPAN),
                 _ => Layer::Scene(DrawStage::Actors.offset()),
             }
+        };
+        let actor_order = if draw_stage.is_field_actor() {
+            actor_depths
+                .iter()
+                .position(|(id, _)| *id == instance.actor)
+                .unwrap()
+        } else {
+            actor_order
         };
         if !instance.prepared {
             let mut descendants = 0;
@@ -2212,7 +2294,7 @@ fn capture_field_cached(
     let root = fs::canonicalize(root)?;
     let checkpoint = target.scene.checkpoint();
     let scene_entry = matches!(target.scene, FieldScene::Arrival { .. });
-    let (assets, mut session) = if setup_prompt {
+    let (mut assets, mut session) = if setup_prompt {
         let entry = super::new_game::Session::load(&root)?;
         {
             let super::new_game::Scene::Field(field) = entry.scene else {
@@ -2364,6 +2446,13 @@ fn capture_field_cached(
                 Default::default(),
             )?);
         party.settings.preferences = preferences.clone();
+    }
+    if target
+        .sequence
+        .is_some_and(|sequence| sequence.isolation.is_some())
+    {
+        assets.panorama = None;
+        assets.water = None;
     }
     let mut app = App::new();
     super::model_preview::register(&mut app, &root);
