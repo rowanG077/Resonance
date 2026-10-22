@@ -14,9 +14,7 @@ use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldInput, FieldSessio
 use std::{fs, sync::Arc};
 
 fn session_data() -> Arc<SessionData> {
-    let mut data: SessionData = cooked("game/session-data.json");
-    data.rules = Some(Arc::new(cooked("game/menu-data.json")));
-    Arc::new(data)
+    Arc::new(SessionData::load(&menu_files()).unwrap())
 }
 
 fn menu_files() -> Arc<resonance_content::prepared::Files> {
@@ -39,8 +37,8 @@ fn classroom(mut entry: FieldEntry) -> FieldSession {
         .validate()
         .unwrap();
     entry.available_movies.insert(1);
-    entry.menu_data = Some(Arc::new(cooked("game/menu-data.json")));
     entry.menu_files = menu_files();
+    entry.menu_data = Some(Arc::new(MenuData::load(&entry.menu_files).unwrap()));
     entry.text = Arc::new(cooked("game/text.json"));
     let assets: FieldAssets = cooked("fields/map-340.json");
     entry.attachments = resonance_game::field::attachments::prepare(&assets, |path| {
@@ -138,7 +136,7 @@ fn press_menu(menu: &mut resonance_game::menu::Menu, input: FieldInput) -> Optio
     let cue = menu.step(input);
     for _ in 0..40 {
         menu.step(Default::default());
-        if !menu_in_motion(menu) {
+        if menu.closed || !menu_in_motion(menu) {
             return cue;
         }
     }
@@ -2364,6 +2362,7 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     }
     party.formation = vec![1, 2, 3];
     party.members[0].titles.insert(2);
+    party.members[0].costume = 2;
     let mut session = classroom(classroom_entry(&data, party, 2000));
     advance_to(&mut session, FieldSession::player_has_control, |_, _| false);
     let field_tick = session.events.world.tick;
@@ -2448,9 +2447,15 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     assert!(session.player_has_control());
     let saved: FieldCheckpoint = roundtrip(&session.checkpoint().unwrap());
     let assets: FieldAssets = cooked("fields/map-340.json");
-    let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
+    let loaded = classroom(
+        saved
+            .clone()
+            .entry(&assets, data.clone(), [340].into())
+            .unwrap(),
+    );
     let mut party = loaded.events.world.party.clone().unwrap();
     assert_eq!(party.members[0].title, 2);
+    assert_eq!(party.members[0].costume, 0);
     let before = party.members[0].base_stats;
     let growth = menus.titles[0][1].growth;
     party
@@ -2463,6 +2468,65 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
         );
     }
     party.validate(&data).unwrap();
+
+    // Selecting a title replaces the previous outfit, including when the same
+    // title is selected again to repair an older mismatched save.
+    for (angel_progress, presea_recovered) in [(0, false), (1000, true)] {
+        let mut checkpoint = saved.clone();
+        checkpoint.progress.script_globals
+            [usize::from(resonance_content::appearance::ANGEL_PROGRESS / 4)] = angel_progress;
+        checkpoint.progress.event_flags.remove(&28);
+        if presea_recovered {
+            checkpoint.progress.event_flags.insert(28);
+        }
+        checkpoint.progress.party.formation = (1..=9).collect();
+        let mut menu = resonance_game::menu::Menu::new(
+            Page::Titles,
+            Some(resonance_game::Checkpoint::Field(checkpoint)),
+            false,
+        );
+        menu.resources = Some(std::sync::Arc::new(resonance_game::menu::Resources {
+            session: data.clone(),
+            data: std::sync::Arc::new(menus.clone()),
+            files: menu_files(),
+        }));
+        for (index, titles) in menus.titles.iter().enumerate() {
+            menu.character = index;
+            for (row, title) in titles.iter().enumerate() {
+                let id = (row + 1) as u8;
+                let member = &mut menu
+                    .checkpoint
+                    .as_mut()
+                    .unwrap()
+                    .progress_mut()
+                    .party
+                    .members[index];
+                member.titles = [id].into();
+                member.title = id;
+                member.costume = 2;
+                menu.page = Page::Titles;
+                menu.status = resonance_game::menu::status::Status {
+                    title_opacity: 255,
+                    ..Default::default()
+                };
+                assert_eq!(menu.step(Accept.input()), Some(2));
+                let expected = title.costume.map_or(
+                    if index == 1 && angel_progress != 0 || index == 6 && !presea_recovered {
+                        3
+                    } else {
+                        0
+                    },
+                    |costume| costume as u8,
+                );
+                assert_eq!(
+                    menu.member().costume,
+                    expected,
+                    "member {}, title {id}",
+                    index + 1
+                );
+            }
+        }
+    }
 }
 fn ready(session: &FieldSession) -> bool {
     session.dialogue.values().any(readable)

@@ -240,19 +240,31 @@ fn strategy_scroll_keeps_rows_visible_and_preset_cancel_restores_character_focus
 }
 
 #[test]
-fn equipment_accepts_one_edit_and_cancel_while_its_visuals_settle() {
+fn equipment_pages_through_reserves_and_accepts_edits_during_transitions() {
     use menu::equipment::{Equipment, Focus as EquipmentFocus, equipment_items_for};
     use menu_fixture::SPARE_WEAPON;
     let (session, data, mut party) = fixture();
     party.change_item(&session, SPARE_WEAPON, 1).unwrap();
-    let old_weapon = party.members[0].equipment[0];
-    let mut character = 0;
-    let mut state = Equipment {
-        focus: EquipmentFocus::List,
-        scroll: 1,
-        ..Equipment::opening()
-    };
-    state.row = equipment_items_for(&party, &session, &data, 0, &state)
+    let mut character = 3;
+    let mut state = Equipment::opening();
+    for (action, expected) in [
+        (MenuAction::NextTab, 4),
+        (MenuAction::NextTab, 5),
+        (MenuAction::NextTab, 6),
+        (MenuAction::NextTab, 7),
+        (MenuAction::NextTab, 0),
+        (MenuAction::PreviousTab, 7),
+    ] {
+        state
+            .step_shared(Some(action), &mut party, &session, &data, &mut character)
+            .unwrap();
+        assert_eq!(character, expected);
+    }
+    let member = usize::from(party.formation[character] - 1);
+    let old_weapon = party.members[member].equipment[0];
+    state.focus = EquipmentFocus::List;
+    state.scroll = 1;
+    state.row = equipment_items_for(&party, &session, &data, member, &state)
         .iter()
         .position(|&id| id == SPARE_WEAPON)
         .unwrap();
@@ -266,7 +278,7 @@ fn equipment_accepts_one_edit_and_cancel_while_its_visuals_settle() {
         )
         .unwrap();
     assert!(visit.changed);
-    assert_eq!(party.members[0].equipment[0], SPARE_WEAPON);
+    assert_eq!(party.members[member].equipment[0], SPARE_WEAPON);
     assert_ne!(old_weapon, SPARE_WEAPON);
     let committed = serde_json::to_value(&party).unwrap();
     assert!(

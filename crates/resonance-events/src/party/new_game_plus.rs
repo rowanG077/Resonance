@@ -83,7 +83,7 @@ impl Party {
         if has(Benefit::BattleInfo) {
             next.battles = self.battles.clone();
         }
-        for (member, previous) in next.members.iter_mut().zip(&self.members) {
+        for (index, (member, previous)) in next.members.iter_mut().zip(&self.members).enumerate() {
             member.name = previous.name.clone();
             if has(Benefit::ExSkills) {
                 member.ex_skills = previous.ex_skills;
@@ -99,6 +99,22 @@ impl Party {
             if has(Benefit::Titles) {
                 member.title = previous.title;
                 member.titles = previous.titles.clone();
+                member.costume = data
+                    .rules
+                    .as_ref()
+                    .and_then(|rules| rules.titles.get(index))
+                    .and_then(|titles| titles.get(usize::from(member.title - 1)))
+                    .and_then(|title| title.costume)
+                    .map_or_else(
+                        || {
+                            resonance_content::appearance::story_costume(
+                                index as u32 + 1,
+                                0,
+                                &BTreeSet::new(),
+                            )
+                        },
+                        |costume| costume as u8,
+                    );
             }
             if has(Benefit::Tech) {
                 member.techniques = previous.techniques.clone();

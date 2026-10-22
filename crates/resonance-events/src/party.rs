@@ -410,7 +410,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn technique_menu() -> resonance_content::menu_data::MenuData {
+    pub(super) fn technique_menu() -> resonance_content::menu_data::MenuData {
         use resonance_content::menu_data::{Technique, TechniqueUse::*};
         // Field technique operations need only these rules; unrelated page catalogues are empty.
         let techniques: Vec<_> = [
@@ -1091,6 +1091,9 @@ pub struct Party {
     pub strategy_presets: Option<[resonance_content::menu_data::StrategyPreset; 3]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encounter_modifier: Option<EncounterModifier>,
+    /// Movement phase survives field transitions, but is not saved progression.
+    #[serde(skip)]
+    pub(crate) field_steps: u16,
     #[serde(default)]
     pub viewed_skits: BTreeSet<u16>,
     pub members: Vec<Member>,
@@ -1318,6 +1321,7 @@ impl Party {
             battles: BattleStatistics::default(),
             cooking: Cooking::default(),
             encounter_modifier: None,
+            field_steps: 0,
             members: data
                 .characters
                 .iter()
