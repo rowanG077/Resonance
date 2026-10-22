@@ -112,7 +112,11 @@ impl PreparedBattle {
             owner.movement.direction = direction;
             owner.facing_direction = direction;
             owner.reaction.direction = direction.map(|axis| -axis);
-            crate::control::face(owner, direction, 0.);
+            if let Some(station) = self.resources.actor_setup[index].initial_station() {
+                owner.heading = station.heading;
+            } else {
+                crate::control::face(owner, direction, 0.);
+            }
         }
         Ok(self)
     }
@@ -123,6 +127,18 @@ impl Battle {
     #[cfg(feature = "test-support")]
     pub fn suppress_automatic_decisions(&mut self) {
         self.automatic_decisions_suppressed = true;
+    }
+
+    /// Replay a witnessed controller switch without changing the admitted action.
+    #[cfg(feature = "test-support")]
+    pub fn set_fixture_neutral_control(&mut self, actor: ActorId) -> Result<()> {
+        ensure!(
+            self.phase() == crate::BattlePhase::Combat
+                && self.actor(actor)?.side == crate::Side::Enemy,
+            "neutral fixture control requires an enemy in combat"
+        );
+        self.actors[actor.index()].control = crate::Control::Manual;
+        Ok(())
     }
 
     pub(crate) fn initialize_entry_state(&mut self) -> Result<()> {

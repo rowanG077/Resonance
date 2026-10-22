@@ -79,10 +79,24 @@ fn taunt_completes_once_without_waiting_for_artwork() {
         battle.set_diagnostics(Default::default());
         battle.step(input(false, true)).unwrap();
         assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
-        battle.step(input(true, true)).unwrap();
+        let frame = battle.step(input(true, true)).unwrap();
+        assert_eq!(
+            frame
+                .cues
+                .iter()
+                .filter(|cue| matches!(cue, Cue::Taunted { .. }))
+                .count(),
+            1
+        );
         assert_eq!(battle.activity(ActorId(0)), Activity::Taunting);
         for _ in 1..TAUNT_DURATION_TICKS - 1 {
-            battle.step(input(false, true)).unwrap();
+            let frame = battle.step(input(false, true)).unwrap();
+            assert!(
+                !frame
+                    .cues
+                    .iter()
+                    .any(|cue| matches!(cue, Cue::Taunted { .. }))
+            );
         }
         assert_eq!(battle.unison_gauge(), 0);
         battle.step(input(false, true)).unwrap();

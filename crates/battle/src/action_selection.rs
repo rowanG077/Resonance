@@ -23,6 +23,7 @@ pub(crate) struct ComboHistory {
     pub basic: bool,
     pub advanced: bool,
     pub arcane: bool,
+    pub finisher: bool,
     pub ground: bool,
     pub anti_air: bool,
     pub aerial: bool,
@@ -41,6 +42,7 @@ impl ComboHistory {
                 self.basic = true;
                 self.advanced = true;
                 self.arcane = true;
+                self.finisher = true;
             }
             None => {}
         }

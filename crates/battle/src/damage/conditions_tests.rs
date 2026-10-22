@@ -26,6 +26,101 @@ fn hit(kind: DamageKind) -> HitRule {
 }
 
 #[test]
+fn encounter_adjustments_compose_with_conditions_and_magic_resistance() {
+    let mut owner = actor(Side::Party);
+    owner.casting_state.power_percent = 100;
+    owner.equipment.stats = CombatStats {
+        slash: 400,
+        thrust: 300,
+        intelligence: 400,
+        accuracy: 100,
+        ..Default::default()
+    };
+    owner.combat_adjustments = CombatAdjustments {
+        attack: -20,
+        intelligence: 50,
+        ..Default::default()
+    };
+    owner
+        .conditions
+        .apply_stat_condition(Condition::AttackUp, 25, 100, false);
+    let mut target = actor(Side::Party);
+    target.hp = 2000;
+    target.equipment.max_hp = 2000;
+    target.equipment.stats.defense = 40;
+    target.equipment.stats.intelligence = 80;
+    target.equipment.stats.level = 10;
+    target.combat_adjustments = CombatAdjustments {
+        defense: 50,
+        intelligence: -50,
+        ..Default::default()
+    };
+    target
+        .conditions
+        .apply_stat_condition(Condition::DefenseUp, 25, 100, false);
+    for (kind, power, expected) in [
+        (DamageKind::Slash, Power::Normal, 125),
+        (DamageKind::Thrust, Power::Normal, 75),
+        (DamageKind::Magic, Power::Normal, 590),
+        (DamageKind::Magic, Power::Percent(150), 890),
+        (DamageKind::Slash, Power::Fixed(40), 40),
+        (DamageKind::Magic, Power::Fixed(40), 40),
+    ] {
+        let result = resolve(
+            &owner,
+            &mut target.clone(),
+            HitRule { power, ..hit(kind) },
+            100,
+            [0.; 3],
+            &mut |draw| match draw {
+                Draw::MagicResistance => 9,
+                _ => neutral_roll(draw),
+            },
+            false,
+        );
+        assert_eq!(result.amount, expected, "{kind:?} {power:?}");
+    }
+    assert_eq!(owner.equipment.stats.slash, 400);
+    assert_eq!(target.equipment.stats.defense, 40);
+}
+
+#[test]
+fn floor_bonuses_change_attack_defense_and_accuracy_in_the_advertised_direction() {
+    let mut owner = actor(Side::Party);
+    owner.equipment.stats.slash = 400;
+    owner.equipment.stats.accuracy = 40;
+    let mut target = actor(Side::Party);
+    target.hp = 2000;
+    target.equipment.max_hp = 2000;
+    target.equipment.stats.defense = 80;
+    target.equipment.stats.evasion = 40;
+    for (attack, defense, accuracy, expected) in [
+        (0, 0, 0, 104),
+        (1, 0, 0, 147),
+        (-1, 0, 0, 60),
+        (0, 1, 0, 95),
+        (0, -1, 0, 113),
+        (0, 0, 1, 110),
+        (0, 0, -1, 98),
+        (1, 1, 1, 147),
+    ] {
+        owner.combat_adjustments.attack_quarters = attack;
+        target.combat_adjustments.defense_eighths = defense;
+        owner.combat_adjustments.accuracy_quarters = accuracy;
+        let result = resolve(
+            &owner,
+            &mut target.clone(),
+            hit(DamageKind::Slash),
+            100,
+            [0.; 3],
+            &mut neutral_roll,
+            false,
+        );
+        assert_eq!(result.amount, expected);
+    }
+}
+
+#[test]
 fn stat_conditions_change_damage_in_the_expected_direction_without_changing_base_stats() {
     for (kind, condition, magnitude, on_owner, increases) in [
         (DamageKind::Slash, Condition::AttackUp, 10, true, true),

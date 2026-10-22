@@ -433,13 +433,28 @@ impl Contact {
         } else {
             battle.unison_contact_mode(self.owner, source_action)
         };
+        #[cfg(feature = "test-support")]
+        if let Some(observations) = &mut battle.contact_observations {
+            observations.push(crate::contact_observation::ContactObservation {
+                source: self.source,
+                owner_id: self.owner,
+                target_id: actor,
+                owner: battle.actors[self.owner.index()].clone(),
+                target: battle.actors[actor_index].clone(),
+                activity,
+                rule: self.rule,
+                attack_power: power,
+                all_divide: battle.items.all_divide,
+                ordinary_mode: mode == damage::ContactMode::Ordinary,
+            });
+        }
         let [owner, target] = battle
             .actors
             .get_disjoint_mut([self.owner.index(), actor_index])
             .unwrap();
         #[cfg(any(test, feature = "test-support"))]
         let mut input_error = None;
-        let (result, condition_label) = damage::resolve_contact(
+        let (mut result, condition_label) = damage::resolve_contact(
             owner,
             target,
             activity,
@@ -502,6 +517,15 @@ impl Contact {
         if let Some(error) = input_error {
             return Err(error);
         }
+        if battle.instant_kill && target.side == Side::Enemy && result.hp_change < 0 {
+            result.hp_change -= target.hp;
+            result.amount = result.amount.max(-result.hp_change);
+            target.hp = 0;
+            target.guard.active = false;
+            result.guard = crate::GuardResult::None;
+            result.protection = crate::HitProtection::None;
+            result.reaction_suppressed = false;
+        }
         let petrifying = target
             .conditions
             .base()
@@ -527,6 +551,28 @@ impl Contact {
             let nominal = result.amount.max(0);
             battle.runtime[actor_index].recovery.last_hit_damage = nominal;
             battle.runtime[actor_index].recovery.last_hit_recovery = nominal >> 1;
+        }
+        if combat {
+            if result.guard == crate::GuardResult::Broken {
+                let count = &mut battle.ledger.achievements[actor.index()].guard_breaks;
+                *count = count.saturating_add(1);
+            }
+            if battle.actors[self.owner.index()].side == Side::Party {
+                if result.is_damage() && !matches!(mode, crate::damage::ContactMode::Unison { .. })
+                {
+                    battle.ledger.damage_outside_unison = true;
+                }
+                if self.rule.kind == crate::DamageKind::Magic
+                    && matches!(
+                        result.affinity,
+                        crate::Affinity::Resistant
+                            | crate::Affinity::Immune
+                            | crate::Affinity::Absorb
+                    )
+                {
+                    battle.ledger.achievements[self.owner.index()].resisted_spell(source_action);
+                }
+            }
         }
         battle.contact_retaliation(self.owner, actor, result, cues)?;
         let effective_hit = result.amount > 0

@@ -30,6 +30,8 @@ fn prepared_fixture(mode: Control, enabled: bool) -> PreparedBattle {
     let cast = &mut prepared.resources.actions.entries[8];
     let cast = Arc::make_mut(cast);
     cast.execution = crate::ActionExecution::Casting(Arc::new(crate::CastingDefinition {
+        armor: None,
+        incantation_lead: None,
         chant: vec![],
         release_pose: Default::default(),
         hide_primary_weapons: false,
@@ -41,10 +43,7 @@ fn prepared_fixture(mode: Control, enabled: bool) -> PreparedBattle {
         release: Arc::new(crate::tests::volley()),
         threat: None,
     }));
-    prepared.resources.actor_setup[0].spell_charge = Some(crate::SpellChargeDefinition {
-        automatic: true,
-        enabled: true,
-    });
+    prepared.resources.actor_setup[0].spell_charge = None;
     prepared.resources.actor_setup[0].aerial_spells = enabled;
     prepared.resources.actor_setup[0].arte_chain_limit = Some(3);
     prepared

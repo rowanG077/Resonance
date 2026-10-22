@@ -76,8 +76,35 @@ pub(crate) fn prepared() -> Result<PreparedBattle> {
         .collect();
     let mut prepared =
         PreparedBattle::new((actors).into_iter().zip(setup).collect(), actions, 0x3456)?;
-    prepared.resources.actions.insert(crate::tests::cast(30, 0));
+    prepared.resources.actions.insert(recovery_cast(
+        crate::SpellBenefit::Hp(30),
+        crate::RecoveryTargets::Target,
+        0,
+    ));
     Ok(prepared)
+}
+
+fn recovery_cast(
+    benefit: crate::SpellBenefit,
+    targets: crate::RecoveryTargets,
+    cost: u16,
+) -> crate::ActionDefinition {
+    let mut action = crate::tests::cast(30, cost);
+    let crate::ActionExecution::Casting(cast) = &mut action.execution else {
+        unreachable!()
+    };
+    let release = Arc::make_mut(&mut Arc::make_mut(cast).release);
+    release.projectiles.clear();
+    release.recovery = vec![crate::SpellRecovery {
+        at: 0,
+        duration: 1,
+        benefit,
+        targets,
+        effect: None,
+        effect_placement: Default::default(),
+        flash: None,
+    }];
+    action
 }
 
 fn rows(battle: &Battle, choices: [u8; 3]) -> Vec<StrategyRefresh> {
@@ -415,6 +442,148 @@ fn healing_uses_group_spells_for_multiple_wounded_allies() -> Result<()> {
         battle.actors[2].tp = 0;
         assert!(battle.support_choice(owner, 80).is_none());
     }
+    Ok(())
+}
+
+#[test]
+fn companion_cures_removable_ailments_and_does_not_recast() -> Result<()> {
+    use crate::conditions::{Condition, Conditions, Cure, Layers};
+    for (ailment, cure, availability) in [
+        (
+            Condition::PoisonSevere,
+            Cure::Physical,
+            crate::ActorAvailability::Active,
+        ),
+        (
+            Condition::Weak,
+            Cure::AntiMagic,
+            crate::ActorAvailability::Active,
+        ),
+        (
+            Condition::Petrified,
+            Cure::Physical,
+            crate::ActorAvailability::Petrified,
+        ),
+    ] {
+        let mut prepared = prepared()?;
+        let action = prepared.resources.actions.insert(recovery_cast(
+            crate::SpellBenefit::Cure(cure),
+            crate::RecoveryTargets::Target,
+            8,
+        ));
+        let setup = &mut prepared.resources.actor_setup[2];
+        setup.companion.as_mut().unwrap().defaults = [1, 7, 5];
+        setup.techniques = vec![technique(
+            action,
+            101,
+            crate::TechniqueCapabilities {
+                spell: true,
+                target: crate::TechniqueTarget::Ally,
+                ..Default::default()
+            },
+        )];
+        let mut battle = prepared.finish()?;
+        let owner = ActorId(2);
+        battle.actors[0].conditions = Conditions::new(Layers {
+            base: ailment.into(),
+            ..Default::default()
+        });
+        battle.actors[0].availability = availability;
+        // Equipment-owned ailments and enemies must never attract a cure.
+        battle.actors[1].conditions = Conditions::new(Layers {
+            intrinsic: ailment.into(),
+            ..Default::default()
+        });
+        battle.actors[3].conditions = Conditions::new(Layers {
+            base: ailment.into(),
+            ..Default::default()
+        });
+        battle.actors[2].tp = 7;
+        assert!(battle.condition_choice(owner, false).is_none());
+        battle.actors[2].tp = 16;
+        battle.set_technique_enabled(owner, action, false)?;
+        assert!(battle.condition_choice(owner, false).is_none());
+        battle.set_technique_enabled(owner, action, true)?;
+        assert_eq!(
+            battle.condition_choice(owner, false).unwrap().target,
+            ActorId(0)
+        );
+        for _ in 0..150 {
+            battle.step(crate::BattleInput::default())?;
+        }
+        assert!(!battle.actors[0].conditions.needs_cure(cure), "{ailment:?}");
+        assert!(battle.actors[0].available());
+        assert_eq!(battle.actors[2].tp, 8, "cure should be paid once");
+        assert!(battle.condition_choice(owner, true).is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn support_prefers_group_buffs_and_never_uses_revive_as_hp_healing() -> Result<()> {
+    use crate::{
+        RecoveryTargets, SpellBenefit,
+        conditions::{Buff, Condition, Conditions, Layers},
+    };
+    let mut prepared = prepared()?;
+    let stat = SpellBenefit::Stat {
+        condition: Condition::AttackUp,
+        percent: 10,
+        duration: 1800,
+    };
+    let single = prepared
+        .resources
+        .actions
+        .insert(recovery_cast(stat, RecoveryTargets::Target, 8));
+    let group =
+        prepared
+            .resources
+            .actions
+            .insert(recovery_cast(stat, RecoveryTargets::LivingAllies, 16));
+    let revive = prepared.resources.actions.insert(recovery_cast(
+        SpellBenefit::Buff(Buff::Revive),
+        RecoveryTargets::Target,
+        20,
+    ));
+    prepared.resources.actor_setup[2].techniques = [single, group, revive]
+        .into_iter()
+        .enumerate()
+        .map(|(i, action)| {
+            technique(
+                action,
+                107 + i as u16,
+                crate::TechniqueCapabilities {
+                    spell: true,
+                    healing: action == revive,
+                    target: crate::TechniqueTarget::Ally,
+                    ..Default::default()
+                },
+            )
+        })
+        .collect();
+    let mut battle = prepared.finish()?;
+    let owner = ActorId(2);
+    assert!(battle.support_choice(owner, 80).is_none());
+    assert!(battle.condition_choice(owner, false).is_none());
+    assert_eq!(battle.condition_choice(owner, true).unwrap().action, group);
+    for index in [0, 1] {
+        battle.actors[index].conditions = Conditions::new(Layers {
+            base: Condition::AttackUp.into(),
+            ..Default::default()
+        });
+    }
+    let choice = battle.condition_choice(owner, true).unwrap();
+    assert_eq!((choice.action, choice.target), (single, owner));
+    battle.actors[2].conditions = battle.actors[0].conditions.clone();
+    assert_eq!(battle.condition_choice(owner, true).unwrap().action, revive);
+    for index in 0..3 {
+        let actor = &mut battle.actors[index];
+        actor
+            .conditions
+            .prepare_buff(Buff::Revive, false)
+            .commit(actor);
+    }
+    assert!(battle.condition_choice(owner, true).is_none());
     Ok(())
 }
 

@@ -116,6 +116,7 @@ pub fn prepare_resources(
                     duration: *duration,
                 },
                 Event::Turn(value) => AttackEvent::Turn(*value),
+                Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
                 Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {
                     enabled: *enabled,
                     duration: *duration,

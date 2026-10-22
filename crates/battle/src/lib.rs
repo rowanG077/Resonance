@@ -15,6 +15,8 @@ mod spell_charge;
 pub use spell_charge::SpellChargeDefinition;
 pub mod conditions;
 mod contact;
+#[cfg(feature = "test-support")]
+pub mod contact_observation;
 mod contact_recovery;
 pub use contact_recovery::ContactRecovery;
 mod contact_ex;
@@ -78,6 +80,8 @@ mod overlimit;
 mod victory;
 pub use overlimit::OverLimit;
 mod particle;
+#[cfg(feature = "test-support")]
+pub use particle::observed::FixtureParticle;
 mod petrify;
 mod prepare;
 mod projectile;
@@ -120,16 +124,16 @@ mod weapon_flight;
 
 pub use camera::{CameraDefinition, CameraPose, VERTICAL_FOV_DEGREES};
 pub use casting::{
-    CastPhase, CastReleasePose, CastReplacement, CastingDefinition, CastingState, CastingThreat,
-    CastingTraits,
+    CastPhase, CastReleasePose, CastReplacement, CastReplacementTrigger, CastingDefinition,
+    CastingState, CastingThreat, CastingTraits,
 };
 pub use control::{
     ButtonInput, ControlDefinition, ControlInput, ControlMotions, Locomotion, NormalAttack,
     NormalControl, ShortcutEdit, direction_from_heading, project_screen_point, project_screen_x,
 };
 pub use damage::{
-    Affinity, AttackElements, CombatStats, DamageKind, DamageTraits, Element, HitCondition,
-    HitElement, HitResult, HitRule, Power,
+    Affinity, AttackElements, CombatAdjustments, CombatStats, DamageKind, DamageTraits, Element,
+    HitCondition, HitElement, HitResult, HitRule, Power,
 };
 pub use death::ActorAvailability;
 pub use decision::{DecisionDefinition, EntryChoice};
@@ -182,8 +186,7 @@ mod tests;
 #[cfg(feature = "test-support")]
 pub use effect::FixtureEffectBirth;
 pub use effect::{
-    EffectBank, EffectDefinition, EffectFollow, EffectRequest, Effects, MAX_PARTICLES,
-    PassiveEffect,
+    EffectBank, EffectDefinition, EffectFollow, EffectRequest, Effects, PassiveEffect,
 };
 
 pub use weapon_flight::WeaponFlightFrame;

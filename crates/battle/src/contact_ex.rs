@@ -137,9 +137,6 @@ impl Battle {
         }
         let window = (60 - actor.reaction.combo_hits.max(0) / 2).clamp(1, 60) as u8;
         actor.reaction.stagger.window = window;
-        if actor.equipment.reaction_ex.follow_up {
-            actor.reaction.stagger.window = actor.reaction.stagger.window.saturating_add(5);
-        }
         actor.reaction.stagger.initialized = true;
         if actor.equipment.reaction_ex.down_tp
             && self.random.next_u16() % 100 < actor.equipment.luck / 10 + 10

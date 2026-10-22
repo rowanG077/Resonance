@@ -101,6 +101,17 @@ pub struct ActorSetup {
 }
 
 impl ActorSetup {
+    pub(crate) fn initial_station(
+        &self,
+    ) -> Option<&resonance_content::battle_action::EnemyStation> {
+        match self.enemy_decision.as_ref()?.behavior.as_ref()? {
+            crate::EnemyBehavior::HealthStage {
+                initial_station, ..
+            } => Some(initial_station),
+            _ => None,
+        }
+    }
+
     pub(crate) fn turn_ticks(&self) -> Option<u8> {
         self.control
             .as_ref()
@@ -159,6 +170,12 @@ impl PreparedBattle {
         mut self,
         configure: impl FnOnce(&mut [(Actor, ActorSetup)]) -> Result<()>,
     ) -> Result<Self> {
+        let fixed_core = self.resources.defense_system.as_ref().map(|system| {
+            (
+                system.core,
+                self.actors[system.core.index()].movement.steering.home,
+            )
+        });
         let mut participants: Vec<_> = self
             .actors
             .into_iter()
@@ -170,6 +187,10 @@ impl PreparedBattle {
             actor.validate()?;
         }
         crate::steering::return_position::initialize(&mut self.actors);
+        if let Some((core, position)) = fixed_core {
+            // A transient entry pose does not relocate the encounter's fixed anchor.
+            self.actors[core.index()].movement.steering.home = position;
+        }
         Ok(self)
     }
 
@@ -247,13 +268,6 @@ impl PreparedBattle {
                 );
             }
             if setup.aerial_spells {
-                ensure!(
-                    setup
-                        .spell_charge
-                        .as_ref()
-                        .is_some_and(|stored| stored.enabled),
-                    "Aerial Spell needs Spell Charge"
-                );
                 ensure!(
                     setup
                         .techniques
@@ -360,6 +374,14 @@ impl PreparedBattle {
             }
         }
         crate::steering::return_position::initialize(&mut actors);
+        // Keep formation return positions, but place anchored stages before the
+        // opening camera and models can expose a temporary spawn location.
+        for (actor, setup) in actors.iter_mut().zip(&actor_setup) {
+            if let Some(station) = setup.initial_station() {
+                actor.position = station.position;
+                actor.heading = station.heading;
+            }
+        }
         Ok(Self {
             unison: None,
             targets: actors
@@ -444,12 +466,14 @@ impl crate::Battle {
     pub fn restore_fixture_navigation(
         &mut self,
         actor: ActorId,
-        target: ActorId,
+        target: Option<ActorId>,
         home: Option<([f32; 3], [f32; 3])>,
     ) -> Result<()> {
         ensure!(self.update == 0, "fixture navigation must precede updates");
         self.actor(actor)?;
-        self.actor(target)?;
+        if let Some(target) = target {
+            self.actor(target)?;
+        }
         if let Some((position, offset)) = home {
             ensure!(
                 position
@@ -470,10 +494,12 @@ impl crate::Battle {
                 steering.home_offset = offset;
             }
         }
-        if self.actor(actor)?.side == self.actor(target)?.side {
-            self.runtime[actor.index()].support_target = target;
-        } else {
-            self.runtime[actor.index()].set_target(target);
+        if let Some(target) = target {
+            if self.actor(actor)?.side == self.actor(target)?.side {
+                self.runtime[actor.index()].support_target = target;
+            } else {
+                self.runtime[actor.index()].set_target(target);
+            }
         }
         Ok(())
     }

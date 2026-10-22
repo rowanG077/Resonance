@@ -127,6 +127,60 @@ mod tests {
     use crate::{ActionKey, ActionRequest, Activity, Side};
 
     #[test]
+    fn anchored_health_stage_starts_at_its_station_before_entry() -> Result<()> {
+        let mut enemy = crate::tests::actor(Side::Enemy);
+        enemy.position = [350., 0., 0.];
+        enemy.movement.turning_disabled = true;
+        let mut prepared =
+            crate::tests::prepared(vec![crate::tests::actor(Side::Party), enemy], 30);
+        crate::tests::assign_action(&mut prepared, 1, ActionKey(0));
+        let final_action = prepared.resources.actions.insert(crate::tests::action(30));
+        crate::tests::assign_action(&mut prepared, 1, final_action);
+        let station = resonance_content::battle_action::EnemyStation {
+            position: [700., 0., 100.],
+            heading: -90.,
+        };
+        prepared.resources.actor_setup[1]
+            .enemy_decision
+            .as_mut()
+            .unwrap()
+            .behavior = Some(EnemyBehavior::HealthStage {
+            hp_percent: 25,
+            initial_station: station,
+            initial_actions: 0..1,
+            final_actions: 1..2,
+        });
+        let prepared = crate::PreparedBattle::new(
+            prepared
+                .actors
+                .into_iter()
+                .zip(prepared.resources.actor_setup)
+                .collect(),
+            prepared.resources.actions,
+            1,
+        )?
+        .with_entry_choices(
+            (0..2)
+                .map(|index| crate::EntryChoice {
+                    actor: ActorId(index),
+                    strategy: crate::TargetPolicy::Nearest,
+                })
+                .collect(),
+        )?
+        .with_entry();
+        assert_eq!(prepared.actors[1].position, station.position);
+        assert_eq!(prepared.actors[1].heading, station.heading);
+        assert_eq!(prepared.actors[1].movement.steering.home, [350., 0., 0.]);
+        let mut battle = prepared.finish()?;
+        for _ in 0..crate::prepare::ENTRY_RESUME_UPDATE + 1 {
+            let frame = battle.step(crate::BattleInput::default())?;
+            assert_eq!(frame.actors[1].position, station.position);
+            assert_eq!(frame.actors[1].heading, station.heading);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn health_stage_latches_without_interrupting_the_current_action() -> Result<()> {
         let owner = ActorId(1);
         for maximum_hp in [36_000, 72_000] {

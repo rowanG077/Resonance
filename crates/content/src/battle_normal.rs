@@ -38,6 +38,8 @@ pub enum Event {
     Vertical(f32),
     Gravity(f32),
     Turn(f32),
+    /// Suppress hit reactions for this many updates; zero clears the protection.
+    ReactionArmor(u16),
     SecondaryWind {
         enabled: bool,
         duration: u16,

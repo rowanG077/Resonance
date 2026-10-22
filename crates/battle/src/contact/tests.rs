@@ -59,6 +59,53 @@ fn strike(battle: &mut Battle, rule: HitRule) -> Result<Vec<Cue>> {
 }
 
 #[test]
+fn instant_kill_only_finishes_damaging_enemy_contacts() -> Result<()> {
+    for kind in [DamageKind::Slash, DamageKind::Magic] {
+        for (side, affinity, enabled, expected_hp) in [
+            (Side::Enemy, Affinity::Normal, true, 0),
+            (Side::Enemy, Affinity::Normal, false, 490),
+            (Side::Party, Affinity::Normal, true, 490),
+            (Side::Enemy, Affinity::Absorb, true, 510),
+            (Side::Enemy, Affinity::Immune, true, 500),
+        ] {
+            let owner = crate::tests::actor(if side == Side::Enemy {
+                Side::Party
+            } else {
+                Side::Enemy
+            });
+            let mut target = crate::tests::actor(side);
+            target.hp = 500;
+            target.equipment.max_hp = 1000;
+            target.equipment.affinities[0] = affinity;
+            target.body.collider = Some(crate::Collider::sphere(1.));
+            let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
+            battle.set_instant_kill(true);
+            battle.set_instant_kill(enabled);
+            assert_eq!(battle.actors[1].hp, 500);
+            let mut hit = rule(10);
+            hit.kind = kind;
+            let cues = strike(&mut battle, hit)?;
+            assert_eq!(battle.actors[1].hp, expected_hp);
+            assert_eq!(battle.ledger.kills[0], u16::from(expected_hp == 0));
+            assert_eq!(
+                cues.iter()
+                    .any(|c| matches!(c, Cue::Defeated { actor: ActorId(1) })),
+                expected_hp == 0
+            );
+            let result = cues
+                .iter()
+                .find_map(|c| match c {
+                    Cue::Hit { result, .. } => Some(result),
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(result.hp_change, expected_hp - 500);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> Result<()> {
     use resonance_content::animation::{Bone, Transform, TransformChannels};
 
@@ -211,6 +258,10 @@ fn hp_drain_uses_nominal_damage_and_requires_an_unsuppressed_hit() -> Result<()>
                 battle.actors[1].reaction.protection.mode = crate::ProtectionMode::Armor;
             }
             let cues = strike(&mut battle, hit)?;
+            assert_eq!(
+                battle.ledger.achievements[1].guard_breaks,
+                u8::from(guard == GuardResult::Broken && !armored)
+            );
             let eligible = guard == GuardResult::None && !armored;
             assert_eq!(battle.actors[0].hp, if eligible { 1000 } else { 990 });
             assert_eq!(
@@ -333,8 +384,24 @@ fn post_contact_power_preserves_current_damage_guard_and_projectile_ownership() 
     assert_eq!(battle.actors[0].attack_power, 65);
     assert_eq!(battle.projectiles[&id].attack_power, 100);
     let mut battle = fixture(4)?;
+    let sweep = MeleeDefinition {
+        hit,
+        trail: None,
+        volume: crate::MeleeVolume::Fixed {
+            offset: [0.; 3],
+            radius: 20.,
+            half_height: 20.,
+        },
+    };
     for expected in [40, 10, 10] {
-        let cues = strike(&mut battle, hit)?;
+        let mut contacts = Contacts::default();
+        // Each marker hits one victim. An extra overlapping marker must not
+        // hit anyone twice or apply another power adjustment in this update.
+        for _ in 0..5 {
+            contacts.melee(ActorId(0), ActionId(1), &sweep, &[])?;
+        }
+        let mut cues = Vec::new();
+        contacts.resolve(&mut battle, &mut cues, &[])?;
         assert_eq!(
             cues.iter()
                 .filter(|cue| matches!(cue, Cue::Hit { .. }))
@@ -1432,5 +1499,25 @@ fn ailment_ward_reports_feedback_without_erasing_critical_damage() -> Result<()>
         )
     );
     assert_eq!(battle.actors[1].conditions.base(), ConditionSet::EMPTY);
+    Ok(())
+}
+
+#[test]
+fn title_spell_resistance_counts_casts_not_contacts() -> Result<()> {
+    let owner = crate::tests::actor(Side::Party);
+    let mut target = crate::tests::actor(Side::Enemy);
+    target.hp = 1000;
+    target.equipment.max_hp = 1000;
+    target.equipment.affinities[0] = Affinity::Resistant;
+    target.body.collider = Some(crate::Collider::sphere(1.));
+    let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
+    let mut hit = rule(10);
+    hit.kind = DamageKind::Magic;
+    for _ in 0..5 {
+        strike(&mut battle, hit)?;
+    }
+    assert_eq!(battle.ledger.achievements[0].resisted_spells, 1);
+    assert_eq!(battle.ledger.achievements[1].resisted_spells, 0);
+    assert!(battle.ledger.damage_outside_unison);
     Ok(())
 }

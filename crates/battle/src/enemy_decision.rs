@@ -896,6 +896,8 @@ mod tests {
                 tp_cost: 0,
                 execution: crate::ActionExecution::Casting(std::sync::Arc::new(
                     crate::CastingDefinition {
+                        armor: None,
+                        incantation_lead: None,
                         chant: vec![],
                         release_pose: Default::default(),
                         hide_primary_weapons: false,

@@ -220,6 +220,7 @@ fn action(
             .then(|| u16::read(row, 14))
             .transpose()?
             .filter(|&duration| duration != 0),
+        cast_armor: matches!(execution, Some(EnemyExecution::Spell(_))).then_some(row[49]),
         voices: EnemyActionVoices {
             begin: crate::battle_voice::sound(u16::read(row, 60)?),
             release: crate::battle_voice::sound(u16::read(row, 62)?),
@@ -284,6 +285,7 @@ pub(crate) fn read(
         .chunks_exact(68)
         .enumerate()
         .map(|(index, row)| {
+            let mut afflict_at = 120;
             let mut carried_effect_ticks = if policy_source[8] == 18 && (2..=5).contains(&index) {
                 (20..=88).step_by(4).collect::<Vec<u16>>()
             } else {
@@ -293,9 +295,35 @@ pub(crate) fn read(
                 (9, 2) => &mut weapon_change_at[..],
                 (11, 2) => std::slice::from_mut(&mut station_change_at),
                 (18, 2..=5) => &mut carried_effect_ticks,
+                (23, 5) => std::slice::from_mut(&mut afflict_at),
                 _ => &mut [],
             };
             let mut row = action(row, &package, policy_ticks)?;
+            if policy_source[8] == 23 && index == 5 {
+                let Some(EnemyExecution::Attack(attack)) = &mut row.execution else {
+                    anyhow::bail!("opponent affliction requires an attack timeline");
+                };
+                attack.events.push((
+                    // The affliction follows the action clock's update.
+                    afflict_at - 1,
+                    EnemyEvent::AfflictOpponents {
+                        groups: vec![
+                            vec![
+                                Condition::Curse,
+                                Condition::Paralysis,
+                                Condition::PoisonSevere,
+                            ],
+                            vec![
+                                Condition::AttackDown,
+                                Condition::DefenseDown,
+                                Condition::Weak,
+                            ],
+                        ],
+                        dispel: true,
+                    },
+                ));
+                attack.events.sort_by_key(|(at, _)| *at);
+            }
             if !carried_effect_ticks.is_empty() {
                 let Some(EnemyExecution::Attack(attack) | EnemyExecution::Physical { attack, .. }) =
                     &mut row.execution

@@ -342,6 +342,8 @@ impl Battle {
             return;
         }
         self.actors[index].reaction.recoil.kind.finish_impact();
+        let count = &mut self.ledger.achievements[index].knockdowns;
+        *count = count.saturating_add(1);
         let mut damage =
             (i64::from(self.runtime[index].recovery.last_hit_damage) * 25 / 100) as i32;
         if self.actors[index].equipment.control_ex.roll {

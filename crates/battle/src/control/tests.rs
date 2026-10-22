@@ -166,6 +166,110 @@ fn locomotion_reversal_brakes_before_turning_and_quick_turn_releases_stop() -> R
 }
 
 #[test]
+fn held_reversal_resumes_running_after_braking() -> Result<()> {
+    for mode in [Control::Manual, Control::SemiAuto] {
+        let mut battle = battle(mode);
+        for (actor, x) in battle.actors[1..].iter_mut().zip([10_000., 20_000.]) {
+            actor.position[0] = x;
+        }
+        for _ in 0..24 {
+            battle.step(input([80, 0], false))?;
+        }
+        battle.step(input([0, 0], false))?;
+        assert_eq!(battle.actors[0].movement.locomotion, Locomotion::Stop);
+        for _ in 0..3 {
+            battle.step(input([-80, 0], false))?;
+            assert_eq!(battle.actors[0].movement.locomotion, Locomotion::Stop);
+        }
+        for _ in 0..20 {
+            if battle.actors[0].movement.locomotion != Locomotion::Stop {
+                break;
+            }
+            battle.step(input([-80, 0], false))?;
+        }
+        assert_eq!(battle.actors[0].movement.locomotion, Locomotion::Idle);
+        assert_eq!(battle.activity(ActorId(0)), Activity::Recovering);
+        let position = battle.actors[0].position;
+        let hp = battle.actors[0].hp;
+        battle.step(input([-80, 0], false))?;
+        assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+        assert_eq!(battle.actors[0].position, position);
+        assert_eq!(battle.actors[0].hp, hp);
+        battle.step(input([-80, 0], false))?;
+        assert_eq!(battle.actors[0].movement.locomotion, Locomotion::Run);
+        assert!(battle.actors[0].movement.forward > 5.);
+    }
+    Ok(())
+}
+
+#[test]
+fn stopped_speed_waits_for_the_stop_pose_before_idle_initialization() -> Result<()> {
+    let mut prepared = prepared(Control::Manual);
+    let binding = |clip| MotionBinding { model: 7, clip };
+    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).motions =
+        Some(ControlMotions {
+            walk: binding(2),
+            run: binding(19),
+            stop: binding(18),
+            landing: binding(18),
+        });
+    let mut battle = prepared.finish()?;
+    for (actor, x) in battle.actors[1..].iter_mut().zip([10_000., 20_000.]) {
+        actor.position[0] = x;
+    }
+    let mut model = crate::tests::model_definition(7, [(0, 60.), (2, 20.), (18, 20.), (19, 20.)]);
+    model.idle_motions = [Some(0), None];
+    model.reactions.walk = Some(2);
+    model.reactions.run = Some(19);
+    model.reactions.stopping = Some(18);
+    battle.set_models(crate::Models::new(
+        &battle.actors,
+        vec![Some(Arc::new(model)), None, None],
+        Default::default(),
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?);
+    for _ in 0..24 {
+        battle.step(input([80, 0], false))?;
+    }
+    battle.step(input([0, 0], false))?;
+    for _ in 0..32 {
+        battle.step(input([-80, 0], false))?;
+        if battle.actors[0].movement.forward == 0. {
+            break;
+        }
+    }
+    assert_eq!(battle.actors[0].movement.forward, 0.);
+    assert_eq!(battle.actors[0].movement.locomotion, Locomotion::Stop);
+    let position = battle.actors[0].position;
+    let hp = battle.actors[0].hp;
+    let mut completed = false;
+    for _ in 0..60 {
+        battle.step(input([-80, 0], false))?;
+        let pose = battle
+            .models()
+            .unwrap()
+            .main_motion_observation(ActorId(0))
+            .unwrap();
+        assert_eq!(battle.actors[0].position, position);
+        assert_eq!(battle.actors[0].hp, hp);
+        if battle.activity(ActorId(0)) == Activity::Recovering {
+            assert_eq!(pose.clip, 0);
+            completed = true;
+            break;
+        }
+        assert_eq!(pose.clip, 18);
+    }
+    assert!(completed, "finished stop never initialized idle");
+    battle.step(input([-80, 0], false))?;
+    assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+    assert_eq!(battle.actors[0].position, position);
+    battle.step(input([-80, 0], false))?;
+    assert_eq!(battle.actors[0].movement.locomotion, Locomotion::Run);
+    assert!(battle.actors[0].position[0] < position[0]);
+    Ok(())
+}
+
+#[test]
 fn locomotion_keeps_airborne_momentum_and_resumes_run_after_guard() -> Result<()> {
     let mut airborne = battle(Control::Manual);
     airborne.actors[0].position[1] = 100.;
@@ -1313,11 +1417,20 @@ fn recovery_keeps_movement_and_resumes_input_without_repaying() -> Result<()> {
         pending_technique(Control::Manual, false)?,
         pending_technique(Control::Manual, true)?,
     ] {
+        // Recovery follows the real entry visit, which owns no movement.
+        for _ in 0..8 {
+            if battle.action_age(ActionId(1)).is_some_and(|age| age > 0) {
+                break;
+            }
+            battle.step(BattleInput::default())?;
+        }
+        assert!(battle.action_age(ActionId(1)).is_some_and(|age| age > 0));
         let paid_tp = battle.actors[0].tp;
+        let before = battle.actors[0].position;
         battle.sequence_mut(&ActionId(1)).unwrap().execution =
             crate::action::Execution::Recovering { remaining: 5 };
         battle.step(BattleInput::default())?;
-        assert!(battle.actors[0].position[0] > 0.);
+        assert!(battle.actors[0].position[0] > before[0]);
         assert_eq!(battle.actors[0].tp, paid_tp);
         for _ in 0..16 {
             battle.step(BattleInput::default())?;

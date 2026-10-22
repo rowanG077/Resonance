@@ -206,6 +206,15 @@ impl Battle {
                         row.capabilities.revives
                     } else {
                         row.capabilities.healing
+                            && self.prepared.casting(row.action).is_some_and(|cast| {
+                                cast.release.recovery.iter().any(|pulse| {
+                                    matches!(
+                                        pulse.benefit,
+                                        crate::SpellBenefit::Hp(_)
+                                            | crate::SpellBenefit::HpByDistance { .. }
+                                    )
+                                })
+                            })
                     }) && self.usable_companion_technique(owner, row)
                 })
                 .map(|row| {
@@ -231,6 +240,85 @@ impl Battle {
             }
         }
         None
+    }
+
+    fn condition_choice(&self, owner: ActorId, allow_buffs: bool) -> Option<CompanionAction> {
+        use crate::{RecoveryTargets, SpellBenefit, TechniqueTarget};
+        let side = self.actors[owner.index()].side;
+        let mut best = None;
+        let mut best_score = (false, 0, std::cmp::Reverse(u32::MAX));
+        for row in self.companion_techniques(owner).filter(|row| {
+            matches!(
+                row.capabilities.target,
+                TechniqueTarget::Ally | TechniqueTarget::SelfTarget
+            ) && self.usable_companion_technique(owner, row)
+        }) {
+            let Some(cast) = self.prepared.casting(row.action) else {
+                continue;
+            };
+            for pulse in &cast.release.recovery {
+                let needed = |actor: &crate::Actor| {
+                    actor.side == side
+                        && pulse.benefit.accepts(actor)
+                        && match pulse.benefit {
+                            SpellBenefit::Cure(cure) => actor.conditions.needs_cure(cure),
+                            SpellBenefit::Stat { condition, .. } if allow_buffs => {
+                                !actor.conditions.rejects(condition)
+                                    && !actor.conditions.effective().contains(condition)
+                            }
+                            SpellBenefit::Buff(buff) if allow_buffs => {
+                                actor.conditions.needs_buff(buff)
+                            }
+                            _ => false,
+                        }
+                };
+                for (index, actor) in self
+                    .actors
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, actor)| needed(actor))
+                {
+                    let target = ActorId(index as u8);
+                    if (row.capabilities.target == TechniqueTarget::SelfTarget
+                        || pulse.targets == RecoveryTargets::Caster)
+                        && target != owner
+                    {
+                        continue;
+                    }
+                    let recipients = match pulse.targets {
+                        RecoveryTargets::LivingOpponents => continue,
+                        RecoveryTargets::Target | RecoveryTargets::Caster => 1,
+                        RecoveryTargets::LivingAllies => {
+                            self.actors.iter().filter(|ally| needed(ally)).count()
+                        }
+                        RecoveryTargets::Area { radius, inclusive } => self
+                            .actors
+                            .iter()
+                            .filter(|ally| {
+                                let distance = (ally.position[0] - actor.position[0])
+                                    .hypot(ally.position[2] - actor.position[2]);
+                                needed(ally)
+                                    && if inclusive {
+                                        distance <= radius
+                                    } else {
+                                        distance < radius
+                                    }
+                            })
+                            .count(),
+                    };
+                    let score = (
+                        matches!(pulse.benefit, SpellBenefit::Cure(_)),
+                        recipients,
+                        std::cmp::Reverse(self.action_quote(owner, row.action)),
+                    );
+                    if score > best_score {
+                        best = Some(CompanionAction::technique(row, target));
+                        best_score = score;
+                    }
+                }
+            }
+        }
+        best
     }
 
     fn offensive_choice(
@@ -324,7 +412,11 @@ impl Battle {
         self.set_decision_target(owner, target)?;
         let limits = self.companion(owner)?.limits[usize::from(strategy[1])];
         let action = if strategy[1] != 5 {
-            self.support_choice(owner, limits.healing)
+            self.support_choice(owner, limits.healing).or_else(|| {
+                let allow_buffs =
+                    strategy[2] == 6 || self.actors[index].tp_percent() > i16::from(limits.tp);
+                self.condition_choice(owner, allow_buffs)
+            })
         } else {
             None
         };

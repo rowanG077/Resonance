@@ -6,6 +6,14 @@ fn hitstun_modifiers_adjust_recovery_with_a_positive_floor() {
     let mut owner = actor(Side::Party);
     let mut target = actor(Side::Enemy);
     let base = hitstun(&owner, &target, 20);
+    owner.equipment.reaction_ex.follow_up = true;
+    assert_eq!(hitstun(&owner, &target, 20), base + 5);
+    target.equipment.contact.endure = true;
+    assert_eq!(hitstun(&owner, &target, 20), base);
+    target.equipment.contact.endure = false;
+    owner.equipment.reaction_ex.follow_up = false;
+    target.equipment.reaction_ex.follow_up = true;
+    assert_eq!(hitstun(&owner, &target, 20), base);
     owner.equipment.contact.hard_hit = true;
     assert!(hitstun(&owner, &target, 20) > base);
     owner.equipment.contact = Default::default();

@@ -19,13 +19,21 @@ pub struct CastReplacement {
     pub input: crate::ActionKey,
     pub output: crate::ActionKey,
     pub required_uses: &'static [(u16, u16)],
-    pub one_in: u16,
+    pub trigger: CastReplacementTrigger,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CastReplacementTrigger {
+    Chance { one_in: u16 },
+    Overlimit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CastPhase {
-    /// One-time audio at admission; artwork follows the live cast cadence.
+    /// Casting sound at admission; artwork follows the live cast cadence.
     Started,
+    /// Voice timed to finish shortly before casting completes.
+    Incantation,
     Chanting,
     Charged,
     Stored,
@@ -53,6 +61,11 @@ pub(crate) fn step(
                 unreachable!("native cast has a casting definition")
             };
             let actor = sequence.actor;
+            if let Some(threshold) = prepared.armor {
+                let armor = &mut battle.actors[actor.index()].reaction.armor;
+                armor.threshold = threshold;
+                armor.received = 0;
+            }
             let cast = CastRun::new(battle, sequence, Arc::clone(prepared));
             if cast.definition.chant.is_empty() {
                 battle.model_requests.push(crate::ModelRequest::Common {
@@ -127,7 +140,11 @@ pub struct CastingThreat {
 
 #[derive(Debug, Clone)]
 pub struct CastingDefinition {
+    /// Replace the actor's idle hit armor when this cast begins.
+    pub armor: Option<u8>,
     pub duration: u32,
+    /// Remaining cast ticks when the incantation begins, including its quiet tail.
+    pub incantation_lead: Option<u32>,
     /// Ignore casting accelerators and saved progress for an authored fixed clock.
     pub fixed_timing: bool,
     /// Actor timing used by casting skills and Over Limit.
@@ -176,8 +193,16 @@ impl Battle {
                 .required_uses
                 .iter()
                 .any(|&(arte, minimum)| self.technique_uses(actor, arte).unwrap_or(0) < minimum)
-            || !self.random.next_u16().is_multiple_of(rule.one_in)
         {
+            return;
+        }
+        let triggered = match rule.trigger {
+            CastReplacementTrigger::Chance { one_in } => {
+                self.random.next_u16().is_multiple_of(one_in)
+            }
+            CastReplacementTrigger::Overlimit => self.actors[actor.index()].overlimit.is_active(),
+        };
+        if !triggered {
             return;
         }
         if let Some(pending) = self.runtime[actor.index()]
@@ -353,6 +378,7 @@ pub(crate) struct CastRun {
     pub(crate) held: bool,
     pub(crate) remaining: u32,
     rhythm_presses: u8,
+    incantation_pending: bool,
     release_pose: Option<u16>,
     release_pending: bool,
     scene_recovery: Option<u32>,
@@ -376,7 +402,20 @@ impl CastRun {
         }
     }
 
-    fn feedback(&self, sequence: &crate::action::Sequence, cues: &mut Vec<Cue>) {
+    fn feedback(&mut self, sequence: &crate::action::Sequence, cues: &mut Vec<Cue>) {
+        if self.incantation_pending
+            && self
+                .definition
+                .incantation_lead
+                .is_some_and(|lead| self.remaining < lead)
+        {
+            self.incantation_pending = false;
+            cues.push(Cue::Casting {
+                actor: sequence.actor,
+                action: sequence.action,
+                phase: CastPhase::Incantation,
+            });
+        }
         // Admission owns age zero; periodic artwork begins on the first casting update.
         let elapsed = sequence.age.saturating_sub(1);
         for (interval, phase, enabled) in [
@@ -425,13 +464,17 @@ impl CastRun {
         definition: Arc<CastingDefinition>,
     ) -> Self {
         if sequence.unison || definition.fixed_timing || definition.release.summon.is_some() {
+            let remaining = if sequence.unison {
+                UNISON_CHANT_TICKS
+            } else {
+                definition.duration.max(1)
+            };
             return Self {
                 held: false,
-                remaining: if sequence.unison {
-                    UNISON_CHANT_TICKS
-                } else {
-                    definition.duration.max(1)
-                },
+                remaining,
+                incantation_pending: definition
+                    .incantation_lead
+                    .is_some_and(|lead| remaining >= lead),
                 rhythm_presses: 0,
                 release_pose: None,
                 release_pending: false,
@@ -486,6 +529,9 @@ impl CastRun {
         Self {
             held: false,
             remaining: duration,
+            incantation_pending: definition
+                .incantation_lead
+                .is_some_and(|lead| duration >= lead),
             rhythm_presses: 0,
             release_pose: None,
             release_pending: false,
@@ -597,10 +643,28 @@ impl CastRun {
     ) -> Result<Progress> {
         let actor = sequence.actor;
         match self.release_gesture(battle, actor, sequence.unison) {
-            CastReleasePose::Anticipated { .. } => {
+            CastReleasePose::Anticipated {
+                release,
+                release_loop_start,
+            } => {
                 // Stored scenes register on the payment update and own their
                 // transition; resident effects wait for the gesture to finish.
                 if self.definition.release.transition_ticks == 0 {
+                    if battle.actors[actor.index()].side == crate::Side::Enemy
+                        && let Some(pose) = release
+                    {
+                        // Enemies finish chanting before beginning the release gesture.
+                        battle.request_pose(
+                            actor,
+                            Some(pose.motion),
+                            crate::Pose {
+                                frame: 0.,
+                                blend: crate::Pose::default().blend,
+                                loop_start: release_loop_start,
+                                ..pose.playback()
+                            },
+                        );
+                    }
                     self.held = false;
                     self.release_pending = true;
                     return Ok(Progress::Casting);
@@ -633,17 +697,10 @@ impl CastRun {
                 }
             }
         }
-        // Zero-HP revival dispatches while its caster begins the release pose.
-        // Other resident spells wait for that pose; stored scenes own a transition.
+        // Resident spells wait for the release pose; stored scenes own a transition.
         if battle.actors[actor.index()].side == crate::Side::Party
             && self.definition.release.transition_ticks == 0
             && self.definition.release.summon.is_none()
-            && !self
-                .definition
-                .release
-                .recovery
-                .iter()
-                .any(|pulse| matches!(pulse.benefit, crate::SpellBenefit::Resurrect(0)))
         {
             self.release_pose = battle
                 .models
@@ -774,6 +831,8 @@ impl CastRun {
             release: Some(pose),
             release_loop_start,
         } = self.release_gesture(battle, actor, sequence.unison)
+            && (battle.actors[index].side == crate::Side::Party
+                || self.definition.release.transition_ticks > 0)
             && let Some(duration) = battle
                 .models
                 .as_ref()

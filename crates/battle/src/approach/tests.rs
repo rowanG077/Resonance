@@ -239,6 +239,130 @@ fn minimum_range_retreats_and_then_attacks() -> Result<()> {
 }
 
 #[test]
+fn enemy_retreat_checks_stopping_distance_after_acceleration() -> Result<()> {
+    let mut battle = controlled_fixture(118.75, 100., 150., Control::Enemy);
+    step(&mut battle)?;
+    battle.actors[0].movement.forward = 1.;
+    assert_eq!(battle.body_gap(ActorId(0), ActorId(1)), 98.75);
+
+    step(&mut battle)?;
+    assert_eq!(battle.actors[0].position, [-1., 0., 0.]);
+    assert_eq!(battle.actors[0].movement.forward, 1.5);
+    let approach = battle.runtime[0].task().approach().unwrap();
+    // 98.75 is outside the old 100 - 1 threshold, but inside 100 - 1.5.
+    assert!(approach.retreating);
+    assert!(!approach.range_required);
+    assert_eq!(
+        battle.actors[0].movement.locomotion,
+        crate::Locomotion::Action
+    );
+    Ok(())
+}
+
+#[test]
+fn enemy_retreat_becomes_forward_admission_when_target_enters_range() -> Result<()> {
+    let mut battle = controlled_fixture(119., 100., 200., Control::Enemy);
+    let tp = battle.actors[0].tp;
+    step(&mut battle)?;
+    assert_eq!(battle.actors[0].position, [0.; 3]);
+    assert!(battle.runtime[0].task().approach().unwrap().retreating);
+
+    // The next sampled gap is above the retreat threshold before movement.
+    // Finish that walking visit, then face and admit on the following update.
+    battle.actors[1].position[0] = 121.;
+    let frame = step(&mut battle)?;
+    assert!(
+        !frame
+            .cues
+            .iter()
+            .any(|cue| matches!(cue, Cue::Started { .. }))
+    );
+    assert_eq!(battle.actors[0].position, [0.; 3]);
+    assert_eq!(battle.actors[0].movement.direction, [1., 0., 0.]);
+    let approach = battle.runtime[0].task().approach().unwrap();
+    assert!(!approach.retreating);
+    assert!(!approach.range_required);
+
+    let frame = step(&mut battle)?;
+    assert_eq!(
+        frame
+            .cues
+            .iter()
+            .filter(|cue| matches!(cue, Cue::Started { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(battle.actors[0].tp, tp - 7);
+    assert_eq!(battle.actors[0].heading, 90.);
+    Ok(())
+}
+
+#[test]
+fn enemy_retreat_near_arena_edge_finishes_braking_before_admission() -> Result<()> {
+    for start_x in [0., 800.] {
+        let mut battle = controlled_fixture(110., 100., 100., Control::Enemy);
+        let tp = battle.actors[0].tp;
+        step(&mut battle)?;
+        battle.actors[0].position[0] = start_x;
+        battle.actors[1].position[0] += start_x;
+        battle.actors[0].movement.forward = 2.;
+        let frame = step(&mut battle)?;
+        assert!(
+            !frame
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Started { .. }))
+        );
+        let approach = battle.runtime[0].task().approach().unwrap();
+        assert!(approach.retreating);
+        assert_eq!(approach.range_required, start_x == 0.);
+        if start_x == 0. {
+            continue;
+        }
+        let mut started = false;
+        let mut coasted = false;
+        for _ in 0..UPDATE_BUDGET {
+            let position = battle.actors[0].position;
+            started = step(&mut battle)?
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Started { .. }));
+            coasted |= battle.actors[0].position[0] < position[0];
+            if started {
+                break;
+            }
+        }
+        assert!(coasted && started);
+        assert_eq!(battle.actors[0].movement.forward, 0.);
+        assert_eq!(battle.actors[0].tp, tp - 7);
+    }
+    Ok(())
+}
+
+#[test]
+fn enemy_approach_rechecks_retreat_when_target_crosses_a_zero_width_range() -> Result<()> {
+    let mut battle = controlled_fixture(550., 500., 500., Control::Enemy);
+    let tp = battle.actors[0].tp;
+    step(&mut battle)?;
+    assert!(battle.body_gap(ActorId(0), ActorId(1)) > 500.);
+    assert!(!battle.runtime[0].task().approach().unwrap().retreating);
+    // Crossing the entire range does not authorize admission. The current
+    // gap still needs ordinary retreat, even if the previous gap was above it.
+    battle.actors[1].position[0] -= 60.;
+    let frame = step(&mut battle)?;
+    let approach = battle.runtime[0].task().approach().unwrap();
+    assert!(approach.retreating && approach.range_required);
+    assert!(
+        !frame
+            .cues
+            .iter()
+            .any(|cue| matches!(cue, Cue::Started { .. }))
+    );
+    assert_eq!(battle.actors[0].tp, tp);
+    Ok(())
+}
+
+#[test]
 fn opposite_initial_direction_recovers_and_reaches_a_moving_target() -> Result<()> {
     let mut battle = fixture(300., 0., 100.);
     let parameters = battle.runtime[0].task().approach().unwrap().parameters;

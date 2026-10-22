@@ -594,7 +594,12 @@ mod tests {
                 .unwrap()
                 .main_motion_observation(owner)
                 .unwrap();
-            assert_eq!((motion.clip, motion.frame), (0, 0.));
+            // Without a stopping clip the idle motion is already active. Idle
+            // publication turns on looping without restarting its elapsed frame.
+            assert_eq!(
+                (motion.clip, motion.frame, motion.repeat),
+                (0, if has_stop { 0. } else { 2. }, true)
+            );
             stopping.step(crate::BattleInput::default())?;
             assert_eq!(stopping.activity(owner), Activity::Idle);
             assert!(stopping.actor_command_ready(owner));

@@ -4,6 +4,9 @@ use crate::state::ActorTask;
 use crate::{ActionRequest, Activity, ActorId, Battle, Cue, MotionBinding};
 use anyhow::{Context, Result, ensure};
 
+/// Retreat begins braking inside the arena's physical boundary.
+const RETREAT_STOP_RADIUS: f32 = 765.;
+
 #[derive(Debug, Clone, Copy)]
 pub struct ApproachParameters {
     pub minimum: f32,
@@ -49,12 +52,15 @@ impl Battle {
 
     fn approach_in_range(&self, index: usize, approach: Approach) -> bool {
         let gap = self.approach_body_gap(ActorId(index as u8), approach.target);
+        let owner = &self.actors[index];
+        // Retreat stops before the arena edge, independently of the later
+        // physical boundary constraint. It still completes ordinary braking.
+        let retreat_edge = crate::distance::length([owner.position[0], 0., owner.position[2]])
+            > RETREAT_STOP_RADIUS;
         !approach.range_required
             || approach.retreating
-                && gap > approach.parameters.minimum - self.actors[index].movement.forward
+                && (gap > approach.parameters.minimum - owner.movement.forward || retreat_edge)
             || gap >= approach.parameters.minimum && gap <= approach.parameters.maximum
-            || gap < approach.parameters.minimum
-                && self.actors[index].movement.steering.arena_contact() != crate::ArenaContact::None
     }
 
     pub(crate) fn request_approach(
@@ -327,6 +333,12 @@ impl Battle {
         let entry_pending = approach.entry_pending;
         approach.entry_pending = false;
         let gap = self.approach_body_gap(actor, approach.target);
+        // A moving enemy chooses retreat from this visit's gap. A changing pose
+        // or target can enter range before braking begins; only an already
+        // admitted stopping phase keeps its retreat until it finishes facing.
+        if approach.range_required && gap >= approach.parameters.minimum {
+            approach.retreating = false;
+        }
         approach.retreating |= approach.range_required
             && self.actors[index].control == crate::Control::Enemy
             && gap < approach.parameters.minimum;
@@ -367,6 +379,12 @@ impl Battle {
             // Finish this movement visit before admitting an action from its starting gap.
             self.move_approach(actor, approach, gap)?;
         }
+        // Retreat stopping compares the visit's sampled gap with the newly
+        // accelerated speed, after movement.
+        let in_range = in_range
+            || walking
+                && approach.retreating
+                && gap > approach.parameters.minimum - self.actors[index].movement.forward;
         let airborne_selection = entry_pending
             && in_range
             && self.actors[index].airborne()
@@ -511,7 +529,9 @@ impl Battle {
             self.actors[index].position,
             self.actors[index].movement.direction,
         );
-        let destination = if gap < approach.parameters.minimum {
+        let destination = if gap < approach.parameters.minimum
+            && (approach.retreating || self.actors[index].control != crate::Control::Enemy)
+        {
             std::array::from_fn(|axis| {
                 self.actors[index].position[axis] - direction[axis] * approach.parameters.minimum
             })

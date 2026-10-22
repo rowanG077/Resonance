@@ -385,6 +385,11 @@ pub enum EnemyEvent {
         condition: Condition,
         amount: i16,
     },
+    /// Apply one random condition from each group to every living opponent.
+    AfflictOpponents {
+        groups: Vec<Vec<Condition>>,
+        dispel: bool,
+    },
     Stun,
     WeaponVisibility {
         slot: u8,
@@ -463,6 +468,9 @@ pub struct EnemyAction {
     pub required_flag: Option<u16>,
     #[serde(default)]
     pub cast_ticks: Option<u16>,
+    /// Hit armor installed when this spell begins chanting, including zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cast_armor: Option<u8>,
     #[serde(default)]
     pub voices: EnemyActionVoices,
     /// A follow-up selects from the next numbered group.

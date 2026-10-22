@@ -94,6 +94,7 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
                 duration: *duration,
             },
             Event::Turn(value) => AttackEvent::Turn(*value),
+            Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
             Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {
                 enabled: *enabled,
                 duration: *duration,

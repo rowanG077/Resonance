@@ -287,6 +287,131 @@ fn native_armor_survives_two_hits_then_cancels_later_work_and_clears_on_recovery
 }
 
 #[test]
+fn spell_row_armor_exposes_the_correct_contact_and_restores_idle_armor() {
+    for (threshold, spent, protected_hits) in [
+        (Some(0), 0, 0),
+        (Some(4), 0, 4),
+        (Some(5), 0, 5),
+        (Some(4), 3, 4),
+        (None, 3, 3),
+    ] {
+        let mut actors = vec![actor(Side::Party), actor(Side::Enemy)];
+        for actor in &mut actors {
+            actor.body.collider = Some(crate::Collider::sphere(1.));
+        }
+        actors[1].reaction.armor = crate::Armor {
+            base: 6,
+            threshold: 6,
+            received: spent,
+        };
+        actors[1].guard.auto_disabled = true;
+        let mut prepared = crate::PreparedBattle::new(
+            actors
+                .into_iter()
+                .map(|actor| (actor, Default::default()))
+                .collect(),
+            vec![crate::tests::action(80), crate::tests::cast(300, 0)].into(),
+            1,
+        )
+        .unwrap();
+        let mut hit = definition();
+        let rule = &mut Arc::make_mut(&mut hit).hit;
+        rule.reaction.armor_damage = 1;
+        rule.reaction.hitstun = 30;
+        let attack =
+            crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0]));
+        attack.end_at = 80;
+        attack.events = (0..=protected_hits)
+            .map(|index| {
+                (
+                    2 + index * 5,
+                    crate::AttackEvent::Contact {
+                        definition: Arc::clone(&hit),
+                        duration: 1,
+                    },
+                )
+            })
+            .collect();
+        let mut cast = crate::tests::cast(300, 0);
+        let crate::ActionExecution::Casting(definition) = &mut cast.execution else {
+            unreachable!()
+        };
+        Arc::make_mut(definition).armor = threshold;
+        prepared.resources.actions.entries[1] = Arc::new(cast);
+        for index in 0..2 {
+            crate::tests::assign_action(&mut prepared, index, crate::ActionKey(index));
+        }
+        let mut battle = prepared.finish().unwrap();
+        let started = battle
+            .step(BattleInput {
+                actions: vec![
+                    ActionRequest {
+                        actor: ActorId(0),
+                        action: crate::ActionKey(0),
+                        target: ActorId(1),
+                    },
+                    ActionRequest {
+                        actor: ActorId(1),
+                        action: crate::ActionKey(1),
+                        target: ActorId(0),
+                    },
+                ],
+                ..Default::default()
+            })
+            .unwrap();
+        let cast = started
+            .cues
+            .iter()
+            .find_map(|cue| match cue {
+                Cue::Started {
+                    actor: ActorId(1),
+                    action,
+                    ..
+                } => Some(*action),
+                _ => None,
+            })
+            .unwrap();
+        let mut hits = 0;
+        let mut interrupted = false;
+        for _ in 0..200 {
+            let frame = battle.step(BattleInput::default()).unwrap();
+            for cue in &frame.cues {
+                if let Cue::Hit {
+                    actor: ActorId(1),
+                    result,
+                    ..
+                } = cue
+                {
+                    hits += 1;
+                    assert_eq!(
+                        result.protection == crate::HitProtection::Armored,
+                        hits <= protected_hits
+                    );
+                }
+                assert!(!matches!(cue, Cue::Released { action, .. } if *action == cast));
+            }
+            if frame.cues.contains(&Cue::Interrupted { action: cast }) {
+                assert_eq!(hits, protected_hits + 1);
+                interrupted = true;
+            }
+        }
+        assert!(
+            interrupted,
+            "spell with armor {threshold:?} was not interrupted"
+        );
+        assert_eq!(hits, protected_hits + 1);
+        assert_eq!(
+            battle.actors[1].reaction.armor,
+            crate::Armor {
+                base: 6,
+                threshold: 6,
+                received: 0
+            }
+        );
+    }
+}
+
+#[test]
 fn contact_enters_hurt_and_cancels_pending_attack_events() {
     let mut prepared = candidate(vec![actor(Side::Party), actor(Side::Enemy)]);
     let mut hit = definition();

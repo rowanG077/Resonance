@@ -306,6 +306,20 @@ mod tests {
         let prepared = prepared.with_defense_system(definition)?;
         assert_eq!(prepared.targets[0], core);
         assert_eq!(prepared.random_seed, seed);
+        #[cfg(feature = "test-support")]
+        let prepared = {
+            let mut prepared = prepared.configure_fixture(|actors| {
+                actors[core.index()].0.position = [0.; 3];
+                Ok(())
+            })?;
+            assert_eq!(prepared.actors[core.index()].position, [0.; 3]);
+            assert_eq!(
+                prepared.actors[core.index()].movement.steering.home,
+                [850., 0., 0.]
+            );
+            prepared.actors[core.index()].position = [850., 0., 0.];
+            prepared
+        };
         let mut battle = prepared.with_arena_boundary().finish()?;
         assert_eq!(battle.target(ActorId(0)), Some(core));
         for policy in [crate::TargetPolicy::Nearest, crate::TargetPolicy::Spread] {

@@ -59,6 +59,7 @@ impl Battle {
             actor,
             pose: crate::CommonPose::Taunt,
         });
+        self.pending_cues.push(Cue::Taunted { actor });
         Ok(())
     }
 

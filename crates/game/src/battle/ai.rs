@@ -47,20 +47,22 @@ pub fn definition(
             let approach = match row.approach {
                 EnemyApproach::Walk => None,
                 EnemyApproach::Run => Some((
-                    super::model::MotionRole::Run.id(),
+                    super::model::common_motion(model, super::model::MotionRole::Run),
                     0.5,
                     source.profile.run_speed,
                 )),
-                EnemyApproach::Custom { clip, rate, speed } => Some((clip, rate, speed)),
+                EnemyApproach::Custom { clip, rate, speed } => {
+                    Some((super::model::motion(model, clip), rate, speed))
+                }
             };
             choice(
                 row,
                 action,
                 approach.map(
-                    |(clip, motion_rate, speed)| resonance_battle::ApproachParameters {
+                    |(motion, motion_rate, speed)| resonance_battle::ApproachParameters {
                         minimum: f32::from(row.approach_minimum),
                         maximum: f32::from(row.approach_range),
-                        motion: super::model::motion(model, clip),
+                        motion,
                         motion_rate,
                         speed,
                         turn_ticks: source.profile.turn_ticks,
@@ -277,6 +279,7 @@ mod tests {
             weight: 1,
             required_flag: None,
             cast_ticks: None,
+            cast_armor: None,
             chain_group: 1,
             followup_chance: 25,
             target_policy: Some(TargetPolicy::Flying),

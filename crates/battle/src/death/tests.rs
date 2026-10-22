@@ -96,11 +96,44 @@ fn unavailable_members_settle_without_admitting_commands() {
     assert_eq!(battle.actors[0].availability, ActorAvailability::Dead);
     assert!(battle.actors[1].is_petrified());
     assert_eq!(battle.actors[0].position[1], 0.);
-    assert_eq!(battle.actors[4].position[1], 0.);
+    // A pre-existing dead hover has no recoil gravity to pull it down.
+    assert_eq!(battle.actors[4].position[1], 10.);
     assert_eq!(battle.actors[1].position[1], 0.);
     assert_eq!(battle.actors[2].position, absent_position);
     assert_eq!(battle.actors[6].position, fading_position);
     assert!(battle.actors[..3].iter().all(|actor| actor.tp == tp));
+}
+
+#[test]
+fn defeated_airborne_motion_preserves_scripted_and_recoil_gravity() {
+    for gravity in [0., crate::movement::GRAVITY] {
+        let mut owner = crate::tests::actor(Side::Enemy);
+        owner.position = [0., 20., 0.];
+        owner.movement.flying = true;
+        let mut battle = prepared(vec![
+            crate::tests::actor(Side::Party),
+            owner,
+            crate::tests::actor(Side::Enemy),
+        ])
+        .finish()
+        .unwrap();
+        let id = ActorId(1);
+        battle.actors[id.index()].movement.vertical = 0.;
+        battle.actors[id.index()].movement.gravity = gravity;
+        let hp = battle.actors[id.index()].hp;
+        assert!(battle.defeat_actor(id, &mut Vec::new()));
+        for visit in 1..=4 {
+            battle.step(BattleInput::default()).unwrap();
+            let actor = &battle.actors[id.index()];
+            assert_eq!(
+                actor.position[1],
+                20. + gravity * ((visit - 1) * visit / 2) as f32
+            );
+            assert_eq!(actor.movement.gravity, gravity);
+            assert_eq!(actor.hp, hp);
+            assert_eq!(actor.availability, ActorAvailability::Dead);
+        }
+    }
 }
 
 #[test]

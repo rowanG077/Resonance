@@ -84,6 +84,8 @@ pub struct RecoveryTraits {
     /// EX97 Magic Boost: HP recovery chance and magic-damage critical admission.
     pub lucky: bool,
     pub boost: bool,
+    pub life_drain: bool,
+    pub spirit_drain: bool,
     pub common: crate::CommonRecoveryTraits,
     pub lethal: crate::LethalRescueTraits,
 }
@@ -93,6 +95,7 @@ pub struct Actor {
     pub side: Side,
     pub species: u16,
     pub equipment: EquipmentAttributes,
+    pub combat_adjustments: crate::CombatAdjustments,
     pub control: crate::Control,
     /// Prepared local controller slot, independent of character identity.
     pub control_slot: u8,
@@ -344,6 +347,12 @@ pub enum Cue {
     Jumped {
         actor: ActorId,
         position: [f32; 3],
+    },
+    Backstepped {
+        actor: ActorId,
+    },
+    Taunted {
+        actor: ActorId,
     },
     GuardReady {
         actor: ActorId,
@@ -837,6 +846,8 @@ impl ActorRuntime {
 pub struct Battle {
     pub(crate) runtime: Vec<ActorRuntime>,
     #[cfg(feature = "test-support")]
+    pub(crate) contact_observations: Option<Vec<crate::contact_observation::ContactObservation>>,
+    #[cfg(feature = "test-support")]
     pub(crate) automatic_decisions_suppressed: bool,
     #[cfg(feature = "test-support")]
     pub(crate) fixture_enemy_chains:
@@ -852,6 +863,7 @@ pub struct Battle {
     pub(crate) items: crate::item::State,
     pub(crate) diagnostics: resonance_content::diagnostics::Diagnostics,
     pub(crate) diagnostic: bool,
+    pub(crate) instant_kill: bool,
     pub(crate) cast_inputs: [crate::casting::CastInput; 4],
     pub(crate) ledger: crate::Ledger,
     pub(crate) weapon_flights: BTreeMap<(ActorId, u8), crate::weapon_flight::Flight>,
@@ -864,6 +876,8 @@ pub struct Battle {
     pub(crate) actors: Vec<Actor>,
     /// Target centers sampled before each actor's movement visit.
     pub(crate) actor_start_centers: Vec<[f32; 3]>,
+    /// Prior published centers held fixed throughout one actor update.
+    pub(crate) actor_emission_centers: Vec<[f32; 3]>,
     pub(crate) volleys: BTreeMap<ActionId, crate::release::Volley>,
     pub(crate) random: Random,
     pub(crate) model_requests: Vec<crate::ModelRequest>,
@@ -957,11 +971,11 @@ enum ActionTransition {
 
 impl Battle {
     pub(crate) fn from_prepared(mut prepared: PreparedBattle) -> Self {
-        let actors = prepared.actors;
+        let mut actors = prepared.actors;
         let actor_count = actors.len();
         let learning_members = prepared.technique_learning_members;
         let enemy_presentation = crate::enemy_presentation::State::new(
-            &actors,
+            &mut actors,
             &prepared.resources.enemy_presentations,
             prepared.entry_remaining != 0,
         );
@@ -1015,13 +1029,24 @@ impl Battle {
             items: Default::default(),
             diagnostics: resonance_content::diagnostics::Diagnostics::new(true),
             diagnostic: false,
-            ledger: crate::Ledger::new(actor_count, prepared.resources.grade_rank),
+            instant_kill: false,
+            ledger: {
+                let mut ledger = crate::Ledger::new(actor_count, prepared.resources.grade_rank);
+                for (facts, actor) in ledger.achievements.iter_mut().zip(&actors) {
+                    facts.stayed_poisoned = actor
+                        .conditions
+                        .effective()
+                        .intersects(crate::conditions::POISON);
+                }
+                ledger
+            },
             weapon_flights: BTreeMap::new(),
             cast_inputs: Default::default(),
             target_selector: None,
             command_target: None,
             pending_cues: Vec::new(),
             actor_start_centers: actors.iter().map(Actor::effect_origin).collect(),
+            actor_emission_centers: actors.iter().map(Actor::effect_origin).collect(),
             actors,
             random: Random::new(prepared.random_seed),
             model_requests: Vec::new(),
@@ -1030,6 +1055,8 @@ impl Battle {
             entry_remaining,
             #[cfg(feature = "test-support")]
             automatic_decisions_suppressed: false,
+            #[cfg(feature = "test-support")]
+            contact_observations: None,
             #[cfg(feature = "test-support")]
             fixture_enemy_chains: None,
             #[cfg(any(test, feature = "test-support"))]
@@ -1058,6 +1085,11 @@ impl Battle {
 
     pub fn actors(&self) -> &[Actor] {
         &self.actors
+    }
+
+    /// Testing toggle: party damage defeats enemies through the normal contact flow.
+    pub fn set_instant_kill(&mut self, enabled: bool) {
+        self.instant_kill = enabled;
     }
 
     pub fn activity(&self, actor: ActorId) -> crate::Activity {
@@ -1906,6 +1938,13 @@ impl Battle {
         items: &mut dyn crate::item::Provider,
     ) -> Result<ActorSet> {
         let mut knockdown_visits = ActorSet::default();
+        // Aim and target-origin emissions use the previous center publication.
+        // Keep it immutable while movement visits publish the next centers.
+        self.actor_emission_centers
+            .clone_from(&self.actor_start_centers);
+        for volley in self.volleys.values_mut() {
+            volley.projectile_target = self.actor_emission_centers[volley.target.index()];
+        }
         let dead_at_start =
             self.actors
                 .iter()
@@ -1937,31 +1976,24 @@ impl Battle {
                 );
             }
             self.actor_start_centers[index] = self.actors[index].effect_origin();
-            for volley in self
-                .volleys
-                .values_mut()
-                .filter(|volley| volley.actor == actor)
+            if self.unison.target() == Some(actor)
+                || (self.actors[index].available() && self.unison.holds_opening_combo(actor))
             {
-                volley.projectile_target = self.actor_start_centers[volley.target.index()];
+                let owner = &mut self.actors[index];
+                if owner.hit_stop != 0 {
+                    owner.hit_stop -= 1;
+                } else {
+                    owner
+                        .movement
+                        .integrate_along(&mut owner.position, owner.reaction.direction);
+                    owner.movement.brake(owner.position[1], Activity::Hurt);
+                }
+                *body_step = self.actors[index].movement.forward_step;
+                self.constrain_actor(index, Some(before));
+                continue;
             }
-            if self.unison.staged() {
-                if self.unison.target() == Some(actor) {
-                    let owner = &mut self.actors[index];
-                    if owner.hit_stop != 0 {
-                        owner.hit_stop -= 1;
-                    } else {
-                        owner
-                            .movement
-                            .integrate_along(&mut owner.position, owner.reaction.direction);
-                        owner.movement.brake(owner.position[1], Activity::Hurt);
-                    }
-                    *body_step = self.actors[index].movement.forward_step;
-                    self.constrain_actor(index, Some(before));
-                    continue;
-                }
-                if self.unison.holds_actor(actor) {
-                    continue;
-                }
+            if self.unison.staged() && self.unison.holds_actor(actor) {
+                continue;
             }
             if self.phase() == crate::BattlePhase::Entry {
                 self.advance_actor_common(index, cues)?;
@@ -2660,7 +2692,7 @@ impl Battle {
         &mut self,
         request: ActionRequest,
         cues: &mut Vec<Cue>,
-    ) -> Result<()> {
+    ) -> Result<u16> {
         self.start_unison_action(request, true, cues)
     }
 
@@ -2669,7 +2701,7 @@ impl Battle {
         request: ActionRequest,
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
-        self.start_unison_action(request, false, cues)
+        self.start_unison_action(request, false, cues).map(|_| ())
     }
 
     fn start_unison_action(
@@ -2677,7 +2709,7 @@ impl Battle {
         request: ActionRequest,
         arte: bool,
         cues: &mut Vec<Cue>,
-    ) -> Result<()> {
+    ) -> Result<u16> {
         let owner = self.actor(request.actor)?;
         let target = self.actor(request.target)?;
         ensure!(
@@ -2689,16 +2721,26 @@ impl Battle {
                 && target.available(),
             "invalid Unison arte participants"
         );
-        if arte {
+        let (action, variation) = if arte {
             ensure!(
                 self.learned_technique(request.actor, request.action)
                     .is_some_and(|row| row.capabilities.target == crate::TechniqueTarget::Enemy),
                 "Unison arte is not a learned offensive technique"
             );
+            let selected = self.elemental_action(request.actor, request.action, cues);
             self.record_unison_use(request.actor, request.action)?;
+            selected
+        } else {
+            (request.action, None)
+        };
+        let (id, mut sequence) = self.allocate_sequence(action, request.actor, request.target)?;
+        if let Some(definition) = variation {
+            sequence.definition = definition;
         }
-        let (id, mut sequence) =
-            self.allocate_sequence(request.action, request.actor, request.target)?;
+        let duration = match (&sequence.definition.execution, action != request.action) {
+            (crate::ActionExecution::Attack(attack), true) => attack.end_at,
+            _ => 0,
+        };
         sequence.unison = true;
         sequence.combo = None;
         self.cancel_pending_item(request.actor);
@@ -2707,7 +2749,7 @@ impl Battle {
         self.clear_matching_technique_command(request.actor, request.action);
         self.actors[request.actor.index()].proficiency = 0;
         if arte {
-            self.snapshot_technique_proficiency(request.actor, request.action);
+            self.snapshot_technique_proficiency(request.actor, action);
         }
         let index = request.actor.index();
         self.runtime[index].set_target(request.target);
@@ -2716,11 +2758,11 @@ impl Battle {
         self.actors[index].movement.locomotion = crate::Locomotion::Action;
         self.put_sequence(id, sequence);
         cues.push(Cue::Started {
-            definition: Some(request.action),
+            definition: Some(action),
             action: id,
             actor: request.actor,
         });
-        Ok(())
+        Ok(duration)
     }
 
     /// Commit an action immediately after its admission check.
@@ -2729,13 +2771,23 @@ impl Battle {
         request: ActionRequest,
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
-        let mut action = request.action;
+        let (mut action, variation) = self.elemental_action(request.actor, request.action, cues);
+        let selected = action;
         let mut learning = false;
         let debit = if matches!(
             &self.prepared.actions[action].execution,
             crate::ActionExecution::Attack(_)
         ) {
-            if let Some(learned) = self.commit_martial_use(request.actor, action)? {
+            let base_learning = if action != request.action {
+                self.commit_martial_use(request.actor, request.action)?
+            } else {
+                None
+            };
+            let acquired = match base_learning {
+                Some(learned) => Some(learned),
+                None => self.commit_martial_use(request.actor, action)?,
+            };
+            if let Some(learned) = acquired {
                 action = learned;
                 learning = true;
                 0
@@ -2751,6 +2803,11 @@ impl Battle {
             "admitted action exceeds available TP"
         );
         let (id, mut sequence) = self.allocate_sequence(action, request.actor, request.target)?;
+        if action == selected
+            && let Some(definition) = variation
+        {
+            sequence.definition = definition;
+        }
         sequence.learning = learning;
         if learning {
             self.request_timed_hold(crate::casting::LEARNING_HOLD_TICKS, None);
@@ -2785,7 +2842,7 @@ impl Battle {
                 if sequence.definition.normal.is_some() {
                     self.apply_normal_guard(request.actor, attack.end_at);
                 }
-                self.clear_matching_technique_command(request.actor, action);
+                self.clear_matching_technique_command(request.actor, request.action);
                 self.snapshot_technique_proficiency(request.actor, action);
             }
             crate::ActionExecution::Casting(cast) => {
@@ -2802,6 +2859,10 @@ impl Battle {
                 }
             }
         }
+        self.ledger.achievements[index].acted = true;
+        self.ledger.achievements[index].used_arte |= self
+            .technique_catalogue_for_action(request.actor, action)
+            .is_some();
         self.put_sequence(id, sequence);
         self.record_enemy_action(request.actor, action);
         cues.push(Cue::Started {

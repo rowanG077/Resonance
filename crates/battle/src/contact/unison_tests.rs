@@ -140,9 +140,10 @@ fn unison_gain_counts_each_victim_and_ignores_missed_contacts() {
     let mut battle = battle(Side::Party, "ordinary", true, 2);
     battle.unison_gauge = 3170;
     let mut cues = Vec::new();
-    contacts("ordinary", [0.; 3])
-        .resolve(&mut battle, &mut cues, &[])
-        .unwrap();
+    // Separate markers can hit both victims during the same update.
+    let mut simultaneous = contacts("ordinary", [0.; 3]);
+    simultaneous.0.extend(contacts("ordinary", [0.; 3]).0);
+    simultaneous.resolve(&mut battle, &mut cues, &[]).unwrap();
     assert_eq!(
         cues.iter().filter(|c| matches!(c, Cue::Hit { .. })).count(),
         2

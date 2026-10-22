@@ -18,6 +18,7 @@ pub struct EnemyPresentationFrame {
     pub dissolve: u8,
     pub flash: Option<crate::TransitionFrame>,
     pub feedback: Option<UnisonFeedback>,
+    pub letterbox: u16,
 }
 
 /// Prepared resources for an enemy's optional entrance and defeat presentation.
@@ -27,6 +28,8 @@ pub struct EnemyPresentation {
     pub definition: Presentation,
     pub model: u32,
     pub effects: u32,
+    pub speaker: Option<ActorId>,
+    pub speaker_model: Option<u32>,
 }
 
 struct Opening {
@@ -35,6 +38,9 @@ struct Opening {
     model: u32,
     effects: u32,
     anchor: [f32; 3],
+    speaker: Option<ActorId>,
+    speaker_model: Option<u32>,
+    party_anchor: [f32; 3],
     age: u16,
 }
 
@@ -89,22 +95,47 @@ pub(crate) struct State {
 }
 
 impl State {
-    pub(crate) fn new(actors: &[Actor], definitions: &[EnemyPresentation], entry: bool) -> Self {
+    pub(crate) fn new(
+        actors: &mut [Actor],
+        definitions: &[EnemyPresentation],
+        entry: bool,
+    ) -> Self {
         let first_enemy = actors.iter().position(|actor| actor.side == Side::Enemy);
+        let opening = definitions.iter().find_map(|prepared| {
+            let definition = (entry && Some(prepared.actor.index()) == first_enemy)
+                .then_some(prepared.definition.opening.as_ref())
+                .flatten()?;
+            let mut anchor = actors[prepared.actor.index()].effect_origin();
+            if let OpeningDefinition::Entrance(entrance) = definition
+                && let Some(staging) = &entrance.staging
+            {
+                let speaker = prepared.speaker.expect("prepared entrance speaker");
+                actors[speaker.index()].position = staging.party_positions[0];
+                let mut positions = staging.party_positions.iter().skip(1);
+                for (index, actor) in actors.iter_mut().enumerate() {
+                    if actor.side == Side::Party && index != speaker.index() {
+                        actor.position = *positions.next().expect("prepared entrance positions");
+                    }
+                }
+                actors[prepared.actor.index()].position = staging.enemy_position;
+                anchor = staging.enemy_position;
+            }
+            Some(Opening {
+                actor: prepared.actor,
+                definition: definition.clone(),
+                model: prepared.model,
+                effects: prepared.effects,
+                anchor,
+                speaker: prepared.speaker,
+                speaker_model: prepared.speaker_model,
+                party_anchor: prepared
+                    .speaker
+                    .map_or([0.; 3], |id| actors[id.index()].position),
+                age: 0,
+            })
+        });
         Self {
-            opening: definitions.iter().find_map(|prepared| {
-                (entry && Some(prepared.actor.index()) == first_enemy)
-                    .then_some(prepared.definition.opening.as_ref())
-                    .flatten()
-                    .map(|definition| Opening {
-                        actor: prepared.actor,
-                        definition: definition.clone(),
-                        model: prepared.model,
-                        effects: prepared.effects,
-                        anchor: actors[prepared.actor.index()].effect_origin(),
-                        age: 0,
-                    })
-            }),
+            opening,
             enemies: definitions
                 .iter()
                 .map(|prepared| Enemy {
@@ -147,16 +178,38 @@ impl State {
                     )
                 }
                 OpeningDefinition::Entrance(entrance) => {
-                    let camera = entrance.camera;
-                    let age = f32::from(opening.age.saturating_sub(1));
-                    let yaw = camera.yaw + camera.yaw_step * age;
+                    let shot = entrance.staging.as_ref().and_then(|stage| {
+                        stage.shots.iter().rev().find(|(at, _)| *at <= opening.age)
+                    });
+                    let (camera, age, lateral, vertical) = if let Some((at, shot)) = shot {
+                        if shot.party {
+                            focus = opening.party_anchor;
+                        }
+                        let age = f32::from(opening.age.saturating_sub(*at));
+                        (
+                            shot.camera,
+                            age,
+                            shot.lateral + shot.lateral_step * age,
+                            shot.vertical + shot.vertical_step * age,
+                        )
+                    } else {
+                        (
+                            entrance.camera,
+                            f32::from(opening.age.saturating_sub(1)),
+                            0.,
+                            0.,
+                        )
+                    };
+                    focus[2] += lateral;
+                    let yaw = (camera.yaw + camera.yaw_step * age)
+                        .min(camera.maximum_yaw.unwrap_or(f32::INFINITY));
                     let elevation = (camera.elevation + camera.elevation_step * age)
                         .max(camera.minimum_elevation);
-                    focus[1] = camera.focus_height;
+                    focus[1] = camera.focus_height + camera.focus_height_step * age + vertical;
                     (
                         [
                             focus[0] + camera.radius * yaw.to_radians().cos(),
-                            camera.height_radius * elevation.to_radians().sin(),
+                            camera.height_radius * elevation.to_radians().sin() + vertical,
                             focus[2] + camera.radius * yaw.to_radians().sin(),
                         ],
                         yaw,
@@ -177,11 +230,36 @@ impl State {
 
     pub(crate) fn frame(&self) -> Option<EnemyPresentationFrame> {
         (!self.enemies.is_empty()).then_some(EnemyPresentationFrame {
-            hide_party: self.opening(),
-            hide_hud: self.opening(),
+            hide_party: self
+                .opening
+                .as_ref()
+                .is_some_and(|opening| match &opening.definition {
+                    OpeningDefinition::Entrance(entrance) if entrance.staging.is_some() => entrance
+                        .staging
+                        .as_ref()
+                        .unwrap()
+                        .hide_party_at
+                        .is_some_and(|at| opening.age >= at),
+                    OpeningDefinition::Entrance(entrance) => !entrance.show_party,
+                    OpeningDefinition::Voice(_) => true,
+                }),
+            hide_hud: self
+                .opening
+                .as_ref()
+                .is_some_and(|opening| match &opening.definition {
+                    OpeningDefinition::Entrance(entrance) => !entrance.show_hud,
+                    OpeningDefinition::Voice(_) => true,
+                }),
             dissolve: self.dissolve,
             flash: self.opening.as_ref().and_then(Opening::flash),
             feedback: self.feedback,
+            letterbox: self
+                .opening
+                .as_ref()
+                .map_or(0, |opening| match &opening.definition {
+                    OpeningDefinition::Entrance(entrance) => entrance.letterbox.min(opening.age),
+                    OpeningDefinition::Voice(_) => 0,
+                }),
         })
     }
 
@@ -249,6 +327,38 @@ impl crate::PreparedBattle {
                         }),
                 "invalid enemy presentation timing or motion"
             );
+            if let Some(OpeningDefinition::Entrance(entrance)) = &definition.opening
+                && let Some(staging) = &entrance.staging
+            {
+                ensure!(
+                    prepared.speaker.is_some_and(|speaker| self
+                        .actors
+                        .get(speaker.index())
+                        .is_some_and(|actor| actor.side == Side::Party)),
+                    "entrance conversation requires its party speaker"
+                );
+                ensure!(
+                    staging.party_positions.len()
+                        >= self
+                            .actors
+                            .iter()
+                            .filter(|actor| actor.side == Side::Party)
+                            .count()
+                        && staging
+                            .party_positions
+                            .iter()
+                            .flatten()
+                            .chain(staging.enemy_position.iter())
+                            .all(|coordinate| coordinate.is_finite())
+                        && staging.shots.first().is_some_and(|(at, _)| *at == 0)
+                        && staging
+                            .shots
+                            .windows(2)
+                            .all(|shots| shots[0].0 < shots[1].0)
+                        && staging.shots.iter().all(|(at, _)| *at < entrance.ticks),
+                    "invalid entrance conversation staging"
+                );
+            }
         }
         self.resources.enemy_presentations = definitions;
         Ok(self)
@@ -274,6 +384,13 @@ impl Battle {
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
         let id = opening.actor;
+        if opening.age == 0 && entrance.staging.is_some() {
+            let speaker = opening.speaker.expect("prepared entrance speaker");
+            self.model_requests.push(crate::ModelRequest::Common {
+                actor: speaker,
+                pose: crate::CommonPose::Idle,
+            });
+        }
         let actor = &mut self.actors[id.index()];
         if opening.age == 0 {
             actor.movement.gravity = entrance.gravity;
@@ -338,6 +455,9 @@ impl Battle {
                         layers: [expression, 0, 0, 0],
                     })
                 }
+                EntranceCue::ActiveExpression => self
+                    .model_requests
+                    .push(crate::ModelRequest::ActiveExpression { actor: id }),
                 EntranceCue::Effect(member) => {
                     cues.push(Cue::InitializedEffect(crate::EffectRequest {
                         owner: id,
@@ -360,6 +480,45 @@ impl Battle {
                     position: actor.audio_position(),
                     centered: true,
                 }),
+                EntranceCue::PartyVoice(sound) => {
+                    let speaker = opening.speaker.expect("prepared entrance speaker");
+                    cues.push(Cue::Voice {
+                        actor: speaker,
+                        sound,
+                        priority: crate::VoicePriority::Announcement,
+                        position: opening.party_anchor,
+                        centered: true,
+                    });
+                }
+                EntranceCue::PartyActiveExpression => {
+                    self.model_requests
+                        .push(crate::ModelRequest::ActiveExpression {
+                            actor: opening.speaker.expect("prepared entrance speaker"),
+                        })
+                }
+                EntranceCue::PartyPose {
+                    clip,
+                    rate,
+                    repeat,
+                    blend,
+                } => {
+                    self.model_requests.push(crate::ModelRequest::Play {
+                        actor: opening.speaker.expect("prepared entrance speaker"),
+                        motion: crate::MotionBinding {
+                            model: opening
+                                .speaker_model
+                                .expect("prepared entrance speaker model"),
+                            clip,
+                        },
+                        pose: crate::Pose {
+                            rate,
+                            repeat,
+                            blend,
+                            ..Default::default()
+                        },
+                    });
+                }
+                EntranceCue::Dissolve => self.enemy_presentation.dissolve = u8::MAX,
                 EntranceCue::Sound(sound) => cues.push(Cue::Sound {
                     actor: id,
                     sound,
@@ -396,6 +555,10 @@ impl Battle {
             self.clock = BattleClock::Running;
             let end = match &opening.definition {
                 OpeningDefinition::Voice(voice) => {
+                    if opening.age == voice.ticks + OPENING_TAIL {
+                        self.restore_combat_camera()?;
+                        return Ok(false);
+                    }
                     if opening.age == 0
                         && let Some(sound) = voice.sound
                     {
@@ -411,6 +574,12 @@ impl Battle {
                 }
                 OpeningDefinition::Entrance(entrance) => {
                     if opening.age == entrance.ticks {
+                        if let Some(speaker) = opening.speaker {
+                            self.model_requests.push(crate::ModelRequest::Common {
+                                actor: speaker,
+                                pose: crate::CommonPose::Idle,
+                            });
+                        }
                         self.restore_combat_camera()?;
                         return Ok(false);
                     }
@@ -480,6 +649,184 @@ mod tests {
     use resonance_content::battle_voice::TimedVoice;
 
     #[test]
+    fn staged_opening_plays_both_speakers_before_starting_combat() -> Result<()> {
+        use resonance_content::battle_enemy::{EntranceCamera, EntranceShot, EntranceStaging};
+
+        let camera = EntranceCamera {
+            radius: 1150.,
+            height_radius: 1500.,
+            focus_height: 75.,
+            focus_height_step: 0.,
+            yaw: -100.,
+            yaw_step: 0.,
+            maximum_yaw: None,
+            elevation: 5.,
+            elevation_step: 0.,
+            minimum_elevation: 5.,
+        };
+        let entrance = Entrance {
+            ticks: 715,
+            gravity: 0.,
+            letterbox: 0,
+            show_party: false,
+            show_hud: false,
+            flash: None,
+            launches: vec![],
+            cues: vec![
+                (25, EntranceCue::Voice(Sound::Stream(2047))),
+                (300, EntranceCue::Dissolve),
+                (320, EntranceCue::PartyVoice(Sound::Stream(2048))),
+                (320, EntranceCue::PartyActiveExpression),
+                (530, EntranceCue::Voice(Sound::Stream(2049))),
+                (530, EntranceCue::ActiveExpression),
+                (550, EntranceCue::Dissolve),
+            ],
+            camera,
+            staging: Some(EntranceStaging {
+                character: 1,
+                party_positions: vec![[-300., 0., 0.], [-450., 0., 200.]],
+                enemy_position: [300., 0., 0.],
+                hide_party_at: Some(550),
+                fallback: None,
+                shots: vec![
+                    (
+                        0,
+                        EntranceShot {
+                            party: true,
+                            camera,
+                            lateral: 20.,
+                            lateral_step: -0.25,
+                            vertical: 0.,
+                            vertical_step: 0.,
+                        },
+                    ),
+                    (
+                        301,
+                        EntranceShot {
+                            party: false,
+                            camera,
+                            lateral: 20.,
+                            lateral_step: -0.25,
+                            vertical: 0.,
+                            vertical_step: 0.,
+                        },
+                    ),
+                    (
+                        551,
+                        EntranceShot {
+                            party: false,
+                            camera,
+                            lateral: 0.,
+                            lateral_step: 0.,
+                            vertical: 0.,
+                            vertical_step: 0.,
+                        },
+                    ),
+                ],
+            }),
+        };
+        // The speaker is not necessarily the controlled or first party member.
+        let mut battle = PreparedBattle::new(
+            vec![
+                (crate::tests::actor(Side::Party), ActorSetup::default()),
+                (crate::tests::actor(Side::Party), ActorSetup::default()),
+                (crate::tests::actor(Side::Enemy), ActorSetup::default()),
+            ],
+            Default::default(),
+            1,
+        )?
+        .with_enemy_presentations(vec![EnemyPresentation {
+            actor: ActorId(2),
+            definition: Presentation {
+                opening: Some(OpeningDefinition::Entrance(entrance)),
+                defeat: TimedVoice {
+                    sound: None,
+                    ticks: 0,
+                },
+            },
+            model: 0,
+            effects: 0,
+            speaker: Some(ActorId(1)),
+            speaker_model: None,
+        }])?
+        .with_entry()
+        .finish()?;
+        let definitions = [[7, 9, 0, 0], [4, 6, 0, 0], [8, 5, 0, 0]]
+            .map(|expression| {
+                let mut model = crate::tests::model_definition(0, [(0, 60.)]);
+                model.active_expression = expression;
+                Some(std::sync::Arc::new(model))
+            })
+            .into();
+        battle.set_models(crate::Models::new(
+            battle.actors(),
+            definitions,
+            Default::default(),
+            Default::default(),
+        )?);
+        let initial = battle.snapshot();
+        assert_eq!(initial.actors[0].position, [-450., 0., 200.]);
+        assert_eq!(initial.actors[1].position, [-300., 0., 0.]);
+        assert_eq!(initial.actors[2].position, [300., 0., 0.]);
+        assert_eq!(initial.camera.unwrap().focus, [-300., 75., 20.]);
+        let mut voices = Vec::new();
+        for update in 1..=716 {
+            let mut frame = battle.step(BattleInput::default())?;
+            battle.advance_models(&mut frame, crate::BattleClock::Running, true)?;
+            if update == 320 || update == 530 {
+                assert_eq!(frame.models[0].texture_layers, [0; 4]);
+                assert_eq!(frame.models[1].texture_layers, [4, 6, 0, 0]);
+                assert_eq!(
+                    frame.models[2].texture_layers,
+                    if update == 530 { [8, 5, 0, 0] } else { [0; 4] }
+                );
+            }
+            for cue in &frame.cues {
+                if let Cue::Voice {
+                    actor,
+                    sound,
+                    centered: true,
+                    ..
+                } = cue
+                {
+                    voices.push((update, *actor, *sound));
+                }
+            }
+            let presentation = frame.enemy_presentation.unwrap();
+            assert_eq!(frame.combat_active, update == 716);
+            assert_eq!(battle.command_admission_allowed(), update == 716);
+            assert_eq!(presentation.hide_hud, update <= 715);
+            assert_eq!(presentation.hide_party, (550..=715).contains(&update));
+            if update == 300 || update == 550 {
+                assert_eq!(presentation.dissolve, 255);
+            }
+            if update == 301 {
+                assert_eq!(frame.camera.unwrap().focus, [300., 75., 20.]);
+            }
+            if update == 551 {
+                assert_eq!(frame.camera.unwrap().focus, [300., 75., 0.]);
+            }
+            if update == 320 {
+                let paused = battle.step(BattleInput {
+                    paused: true,
+                    ..Default::default()
+                })?;
+                assert_eq!(paused.update, frame.update);
+                assert!(paused.cues.is_empty());
+            }
+        }
+        assert_eq!(
+            voices,
+            vec![
+                (25, ActorId(2), Sound::Stream(2047)),
+                (320, ActorId(1), Sound::Stream(2048)),
+                (530, ActorId(2), Sound::Stream(2049)),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn enemy_opening_and_final_voice_hold_pause_and_finish_once() -> Result<()> {
         let definition = Presentation {
             opening: Some(OpeningDefinition::Voice(TimedVoice {
@@ -505,6 +852,8 @@ mod tests {
                     definition: definition.clone(),
                     model: 0,
                     effects: 0,
+                    speaker: None,
+                    speaker_model: None,
                 },
             ])
         };
@@ -526,8 +875,9 @@ mod tests {
                 .count(),
             1
         );
-        for _ in 1..=2 + OPENING_TAIL {
+        for update in 2..=2 + OPENING_TAIL + 1 {
             let frame = battle.step(BattleInput::default())?;
+            assert_eq!(frame.combat_active, update == 2 + OPENING_TAIL + 1);
             assert!(
                 !frame
                     .cues
@@ -576,6 +926,9 @@ mod tests {
         let entrance = Entrance {
             ticks: 300,
             gravity: crate::movement::GRAVITY,
+            letterbox: 0,
+            show_party: true,
+            show_hud: true,
             flash: None,
             launches: vec![(0, 18.), (15, 18.)],
             cues: vec![
@@ -586,12 +939,15 @@ mod tests {
                 radius: 1750.,
                 height_radius: 1200.,
                 focus_height: 120.,
+                focus_height_step: 0.,
                 yaw: 180.,
                 yaw_step: 0.01,
+                maximum_yaw: None,
                 elevation: 20.,
                 elevation_step: -0.01,
                 minimum_elevation: 16.5,
             },
+            staging: None,
         };
         let mut falling = prepared(false)?;
         falling.resources.enemy_presentations[0].definition.opening =
@@ -599,6 +955,8 @@ mod tests {
         let mut battle = falling.with_entry().finish()?;
         for update in 1..=301 {
             let frame = battle.step(BattleInput::default())?;
+            let presentation = frame.enemy_presentation.as_ref().unwrap();
+            assert!(!presentation.hide_party && !presentation.hide_hud);
             let expected = match update {
                 1 => Some(1000.),
                 41 => Some(1290.),

@@ -53,6 +53,7 @@ fn definition() -> Arc<ModelDefinition> {
         reactions: Default::default(),
         idle_motions: [None; 2],
         idle_expression: [0; 4],
+        active_expression: [0; 4],
         forced_eye_frame: None,
         blink: None,
         resource: 7,
@@ -172,6 +173,57 @@ fn model_playback_loops_freezes_or_finishes_at_its_directional_endpoint() -> Res
     assert!(model.animation.clock.finished);
     assert!(model.set_end(f32::INFINITY).is_err());
     assert!(model.set_end(10_000.).is_err());
+    Ok(())
+}
+
+#[test]
+fn trimmed_body_animation_keeps_components_in_sync_without_trimming_carried_loops() -> Result<()> {
+    let mut definition = (*definition()).clone();
+    definition.initial.rate = 0.5;
+    for (slot, playback) in [
+        WeaponPlayback::Body {
+            offset: 0,
+            initial: definition.initial,
+        },
+        WeaponPlayback::Local(definition.initial),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        definition.weapons.push(Arc::new(WeaponDefinition::new(
+            slot as u8,
+            0,
+            vec![WeaponLayerDefinition {
+                resource: 8 + slot as u32,
+                skeleton: definition.skeleton.clone(),
+                motions: definition.motions.clone(),
+                playback,
+                secondary_motion: vec![],
+                texture_animation: None,
+            }],
+            vec![],
+        )?));
+    }
+    let definition = Arc::new(definition);
+    let actor = actor();
+    for repeat in [false, true] {
+        let mut model = Model::new(Arc::clone(&definition), ActorId(0), &actor)?;
+        model.play(MotionBinding { model: 7, clip: 0 }, 0., 0.5, repeat, 0)?;
+        model.set_end(3.)?;
+        assert!(model.set_end(f32::NAN).is_err());
+        let mut carried_passed_end = false;
+        for _ in 0..20 {
+            model.step(&actor, true)?;
+            let frames = model.weapon_frames();
+            assert_eq!(model.shown.frame, frames[0].frame);
+            assert!(model.shown.frame <= 3.);
+            carried_passed_end |= frames[1].frame > 3.;
+        }
+        assert!(carried_passed_end);
+        if !repeat {
+            assert_eq!(model.shown.frame, 3.);
+        }
+    }
     Ok(())
 }
 

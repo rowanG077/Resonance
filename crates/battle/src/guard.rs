@@ -301,7 +301,7 @@ pub(crate) fn resolve_from(
                 || behind
                 || (kind != DamageKind::Magic
                     && owner.control_ex_state.charge.charged()
-                    && !target.equipment.damage.single_charge_guard));
+                    && owner.equipment.damage.charge_guard_break));
         if broken {
             guard.pressure = guard.break_pressure;
         }

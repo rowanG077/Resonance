@@ -366,6 +366,16 @@ impl Weapon {
         Ok(())
     }
 
+    /// Advance skeletal animation without updating texture or secondary-motion clocks.
+    pub(super) fn advance_pose(&mut self) -> Result<()> {
+        for (layer, definition) in self.layers.iter_mut().zip(&self.definition.layers) {
+            if let Some((clip, animation)) = &mut layer.animation {
+                animation.advance(&definition.skeleton, &definition.motions[clip])?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn new(definition: Arc<WeaponDefinition>, owner: &ModelFrame) -> Result<Self> {
         ensure!(
             definition
@@ -654,6 +664,7 @@ mod tests {
             material: ModelMaterial::Normal,
 
             texture_layers: [0; 4],
+            texture_tick: 0,
             light: None,
             shadow: None,
             resource: 7,

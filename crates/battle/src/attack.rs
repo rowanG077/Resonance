@@ -112,6 +112,19 @@ pub enum AttackEvent {
         heading: Option<f32>,
         height: Option<f32>,
     },
+    /// Fire inward from a randomly selected point on a ring around the live target.
+    ProjectileRing {
+        definition: Arc<crate::ProjectileDefinition>,
+        radius: f32,
+        directions: u16,
+    },
+    /// Choose one appearance and release on a world-space grid around the actor.
+    ScatteredProjectile {
+        choices: Arc<[Arc<crate::ProjectileDefinition>]>,
+        offset: [f32; 3],
+        step: [f32; 3],
+        range: u16,
+    },
     /// Burst once at the last melee victim's current ground position; misses do nothing.
     ContactBurst {
         definition: Arc<crate::ProjectileDefinition>,
@@ -201,6 +214,10 @@ pub enum AttackEvent {
         condition: crate::conditions::Condition,
         amount: i16,
     },
+    AfflictOpponents {
+        groups: Vec<Vec<crate::conditions::Condition>>,
+        dispel: bool,
+    },
     Stun,
     /// Pause event timing until melee contact, without extending a missed action.
     WaitForHit {
@@ -250,6 +267,7 @@ pub enum AttackEvent {
 /// Resolve the live participant or target transform at the event's gameplay age.
 #[derive(Debug, Clone, Copy)]
 pub enum AttackOrigin {
+    World([f32; 3]),
     ActorRoot,
     ActorAim,
     TargetRoot,
@@ -265,6 +283,7 @@ impl AttackOrigin {
         target: crate::ActorId,
     ) -> Result<([f32; 3], Option<crate::EffectFollow>)> {
         Ok(match self {
+            Self::World(position) => (position, None),
             Self::ActorRoot => (
                 battle.actor(actor)?.position,
                 Some(crate::EffectFollow::Actor(actor)),
@@ -462,6 +481,10 @@ impl PreparedAttack {
                         ),
                     "unsupported action stat increase"
                 ),
+                AttackEvent::AfflictOpponents { groups, .. } => ensure!(
+                    !groups.is_empty() && groups.iter().all(|group| !group.is_empty()),
+                    "empty opponent affliction choices"
+                ),
                 AttackEvent::ProjectileAt {
                     definition,
                     heading,
@@ -473,6 +496,33 @@ impl PreparedAttack {
                         heading.is_none_or(f32::is_finite) && height.is_none_or(f32::is_finite),
                         "invalid targeted projectile transform"
                     );
+                }
+                AttackEvent::ProjectileRing {
+                    definition,
+                    radius,
+                    directions,
+                } => {
+                    definition.validate()?;
+                    ensure!(
+                        radius.is_finite() && *radius > 0. && *directions > 0,
+                        "invalid projectile ring"
+                    );
+                }
+                AttackEvent::ScatteredProjectile {
+                    choices,
+                    offset,
+                    step,
+                    range,
+                } => {
+                    ensure!(
+                        !choices.is_empty()
+                            && *range > 0
+                            && offset.iter().chain(step).all(|value| value.is_finite()),
+                        "invalid projectile scatter"
+                    );
+                    for definition in choices.iter() {
+                        definition.validate()?;
+                    }
                 }
                 AttackEvent::EffectAt { heading, scale, .. } => {
                     ensure!(
@@ -569,7 +619,7 @@ fn steal_bonus_count(uses: u16, luck: u16, random: &mut crate::Random) -> u16 {
     }
 }
 
-fn hammer_choice(
+pub(crate) fn hammer_choice(
     uses: u16,
     luck: u16,
     element: Option<crate::Element>,
@@ -590,6 +640,46 @@ pub(crate) enum AttackRun {
     Starting,
     Active { next_event: usize, delay: u32 },
     Settling { recover_at: u32 },
+}
+
+fn advance_contact(
+    id: ActionId,
+    sequence: &mut crate::action::Sequence,
+    contacts: &mut crate::contact::Contacts,
+    cues: &mut Vec<Cue>,
+    highlighted_trail: bool,
+    waiting: bool,
+) -> Result<()> {
+    let actor = sequence.actor;
+    if let Some(window) = &mut sequence.melee {
+        if let Some(slot) = window.definition.trail {
+            cues.push(Cue::WeaponTrail {
+                actor,
+                slot,
+                duration: 1,
+                highlighted: highlighted_trail,
+            });
+        }
+        if waiting {
+            contacts.melee_at(
+                actor,
+                id,
+                &window.definition,
+                &window.struck,
+                Some(&window.positions),
+            )?;
+        } else {
+            window.positions.clear();
+            contacts.melee(actor, id, &window.definition, &window.struck)?;
+        }
+        if !waiting {
+            window.remaining -= 1;
+            if window.remaining == 0 {
+                sequence.melee = None;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn step(
@@ -701,6 +791,7 @@ pub(crate) fn step(
                 }
             }
             if sequence.age < recover_at {
+                advance_contact(id, sequence, contacts, cues, highlighted_trail, false)?;
                 return Ok(None);
             }
             if let AttackEvent::Land {
@@ -1008,7 +1099,7 @@ pub(crate) fn step(
                     {
                         sequence.cyclone_target = None;
                     } else {
-                        let origin = recipient.effect_origin();
+                        let origin = battle.actor_emission_centers[target.index()];
                         battle.emit_at(
                             Arc::clone(definition),
                             id,
@@ -1166,6 +1257,47 @@ pub(crate) fn step(
                     sequence.target,
                     position,
                     heading.unwrap_or(battle.actors[index].heading),
+                )?;
+            }
+            AttackEvent::ProjectileRing {
+                definition,
+                radius,
+                directions,
+            } => {
+                let heading = f32::from(battle.random.next_u16() % directions)
+                    * (360. / f32::from(*directions));
+                let (sin, cos) = heading.to_radians().sin_cos();
+                let [x, y, z] = battle.actor(sequence.target)?.position;
+                battle.emit_at(
+                    Arc::clone(definition),
+                    id,
+                    actor,
+                    sequence.target,
+                    [x - sin * radius, y, z - cos * radius],
+                    heading,
+                )?;
+            }
+            AttackEvent::ScatteredProjectile {
+                choices,
+                offset,
+                step,
+                range,
+            } => {
+                let owner = battle.actor(actor)?;
+                let origin = owner.position;
+                let heading = owner.heading;
+                let position = std::array::from_fn(|axis| {
+                    let sample = i32::from(battle.random.next_u16() as i16) % i32::from(*range);
+                    origin[axis] + offset[axis] + step[axis] * sample as f32
+                });
+                let choice = usize::from(battle.random.next_u16()) % choices.len();
+                battle.emit_at(
+                    Arc::clone(&choices[choice]),
+                    id,
+                    actor,
+                    sequence.target,
+                    position,
+                    heading,
                 )?;
             }
             AttackEvent::ContactBurst {
@@ -1344,7 +1476,8 @@ pub(crate) fn step(
                     }));
                 }
                 if let Some(settle) = settle {
-                    sequence.melee = None;
+                    // Landing changes the pose, not the lifetime of an active strike.
+                    advance_contact(id, sequence, contacts, cues, highlighted_trail, false)?;
                     if battle.runtime[index].body_bypass_ticks == 0 {
                         battle.runtime[index].body_bypass &= attack.events[next_event + 1..]
                             .iter()
@@ -1389,6 +1522,43 @@ pub(crate) fn step(
                     color: [112, 40, 40],
                     fade_first: true,
                 });
+            }
+            AttackEvent::AfflictOpponents { groups, dispel } => {
+                let side = battle.actors[index].side;
+                for target in 0..battle.actors.len() {
+                    if battle.actors[target].side == side
+                        || battle.actors[target].hp == 0
+                        || battle.actors[target].availability == crate::ActorAvailability::Absent
+                    {
+                        continue;
+                    }
+                    let recipient = &mut battle.actors[target];
+                    if *dispel
+                        && recipient
+                            .conditions
+                            .cure(crate::conditions::Cure::AntiMagic)
+                    {
+                        recipient.elements.enchantment = None;
+                    }
+                    let mut label = None;
+                    for group in groups {
+                        let choice = usize::from(battle.random.next_u16()) % group.len();
+                        if let Some(applied) = recipient.conditions.apply_hit(crate::HitCondition {
+                            condition: group[choice],
+                            chance: 100,
+                            value: 0,
+                        }) {
+                            label = Some(applied);
+                        }
+                    }
+                    if let Some(kind) = label {
+                        cues.push(Cue::ConditionLabel {
+                            actor: crate::ActorId(target as u8),
+                            kind,
+                            position: recipient.condition_label_origin(),
+                        });
+                    }
+                }
             }
             AttackEvent::Armor(threshold) => {
                 let armor = &mut battle.actors[index].reaction.armor;
@@ -1493,34 +1663,7 @@ pub(crate) fn step(
     if waiting {
         cues.push(Cue::PauseActionEffects(id));
     }
-    if let Some(window) = &mut sequence.melee {
-        if let Some(slot) = window.definition.trail {
-            cues.push(Cue::WeaponTrail {
-                actor,
-                slot,
-                duration: 1,
-                highlighted: highlighted_trail,
-            });
-        }
-        if waiting {
-            contacts.melee_at(
-                actor,
-                id,
-                &window.definition,
-                &window.struck,
-                Some(&window.positions),
-            )?;
-        } else {
-            window.positions.clear();
-            contacts.melee(actor, id, &window.definition, &window.struck)?;
-        }
-        if !waiting {
-            window.remaining -= 1;
-            if window.remaining == 0 {
-                sequence.melee = None;
-            }
-        }
-    }
+    advance_contact(id, sequence, contacts, cues, highlighted_trail, waiting)?;
     // Feedback and redundant cleanup cannot extend gameplay; contacts and landing can.
     if sequence.age >= u32::from(attack.end_at)
         && sequence.melee.is_none()
@@ -1558,6 +1701,67 @@ pub(crate) fn step(
 mod tests {
     use super::*;
     use crate::{ActorId, ActorSetup, BattleInput, HitCondition, Side, conditions::Condition};
+
+    #[test]
+    fn opponent_affliction_dispels_buffs_but_respects_immunity_and_dead_allies() -> Result<()> {
+        use crate::conditions::{ConditionSet, Conditions, Layers};
+
+        let mut action = crate::tests::action(3);
+        crate::tests::attack_mut(&mut action).events = vec![(
+            1,
+            AttackEvent::AfflictOpponents {
+                groups: vec![vec![Condition::PoisonSevere], vec![Condition::Weak]],
+                dispel: true,
+            },
+        )];
+        let mut protected = crate::tests::actor(Side::Party);
+        protected.conditions = Conditions::new(Layers {
+            base: ConditionSet::of(&[Condition::PhysicalProtection, Condition::DefenseUp]),
+            immunity: Condition::Weak.into(),
+            ..Default::default()
+        });
+        let mut dead = crate::tests::actor(Side::Party);
+        dead.hp = 0;
+        dead.availability = crate::ActorAvailability::Dead;
+        let mut battle = crate::PreparedBattle::new(
+            vec![
+                (crate::tests::actor(Side::Enemy), ActorSetup::default()),
+                (protected, ActorSetup::default()),
+                (crate::tests::actor(Side::Party), ActorSetup::default()),
+                (dead, ActorSetup::default()),
+            ],
+            vec![action].into(),
+            1,
+        )?
+        .finish()?;
+        battle.start_admitted_action(
+            crate::ActionRequest {
+                actor: ActorId(0),
+                action: crate::ActionKey(0),
+                target: ActorId(1),
+            },
+            &mut Vec::new(),
+        )?;
+        battle.step(BattleInput::default())?;
+        assert!(
+            !battle.actors[1]
+                .conditions
+                .base()
+                .contains(Condition::PoisonSevere)
+        );
+        battle.step(BattleInput::default())?;
+        assert_eq!(battle.actors[0].conditions.base(), ConditionSet::EMPTY);
+        assert_eq!(
+            battle.actors[1].conditions.base(),
+            Condition::PoisonSevere.into()
+        );
+        assert_eq!(
+            battle.actors[2].conditions.base(),
+            ConditionSet::of(&[Condition::PoisonSevere, Condition::Weak])
+        );
+        assert_eq!(battle.actors[3].conditions.base(), ConditionSet::EMPTY);
+        Ok(())
+    }
 
     #[test]
     fn self_stun_replaces_the_action_and_counts_its_entry_visit() -> Result<()> {
@@ -2167,6 +2371,113 @@ mod tests {
     }
 
     #[test]
+    fn cyclone_contacts_use_the_prior_center_in_both_roster_orders() {
+        for (owner, target) in [(ActorId(0), ActorId(1)), (ActorId(1), ActorId(0))] {
+            let appearance = crate::EffectAppearance {
+                resource: 1,
+                member: 7,
+            };
+            let mut projectile = crate::tests::contact_projectile(false, true);
+            projectile.contact = None;
+            projectile.clamp_ground = false;
+            projectile.lifetime = Some(1);
+            let projectile = Arc::new(projectile);
+            let mut action = crate::tests::action(8);
+            crate::tests::attack_mut(&mut action).events = vec![
+                (0, AttackEvent::MarkCycloneTarget(appearance)),
+                (
+                    2,
+                    AttackEvent::CycloneContact {
+                        definition: Arc::clone(&projectile),
+                        appearance,
+                        opening: false,
+                    },
+                ),
+                (
+                    4,
+                    AttackEvent::CycloneContact {
+                        definition: projectile,
+                        appearance,
+                        opening: false,
+                    },
+                ),
+            ];
+            let mut actors = vec![
+                (crate::tests::actor(Side::Party), ActorSetup::default()),
+                (crate::tests::actor(Side::Party), ActorSetup::default()),
+            ];
+            actors[target.index()].0.side = Side::Enemy;
+            actors[target.index()].0.control = crate::Control::Manual;
+            actors[target.index()].0.position = [100., 40., 300.];
+            actors[target.index()].0.body.center_offset = [0., 80., 0.];
+            let mut battle = crate::PreparedBattle::new(actors, vec![action].into(), 1)
+                .unwrap()
+                .finish()
+                .unwrap();
+            let mut started = vec![];
+            battle
+                .start_admitted_action(
+                    crate::ActionRequest {
+                        actor: owner,
+                        target,
+                        action: crate::ActionKey(0),
+                    },
+                    &mut started,
+                )
+                .unwrap();
+            let action = started
+                .iter()
+                .find_map(|cue| match cue {
+                    Cue::Started { action, .. } => Some(*action),
+                    _ => None,
+                })
+                .unwrap();
+            let mut contacts = 0;
+            let mut contact_effects = 0;
+            for tick in 0..6 {
+                // Publish distinct centers on consecutive updates, so using the
+                // live recipient or a cache refreshed earlier in roster order fails.
+                battle.actors[target.index()].position =
+                    [200. + 100. * tick as f32, 50. + 10. * tick as f32, 300.];
+                if tick == 2 {
+                    let age = battle.action_age(action);
+                    let centers = battle.actor_emission_centers.clone();
+                    let paused = battle
+                        .step(BattleInput {
+                            paused: true,
+                            ..Default::default()
+                        })
+                        .unwrap();
+                    assert_eq!(battle.action_age(action), age);
+                    assert_eq!(battle.actor_emission_centers, centers);
+                    assert!(
+                        !paused
+                            .cues
+                            .iter()
+                            .any(|cue| matches!(cue, Cue::ProjectileStarted { .. }))
+                    );
+                }
+                let expected = [100. + 100. * tick as f32, 120. + 10. * tick as f32, 300.];
+                let frame = battle.step(BattleInput::default()).unwrap();
+                for cue in &frame.cues {
+                    if let Cue::ProjectileStarted { projectile, .. } = cue {
+                        assert_eq!(battle.projectiles[projectile].frame.position, expected);
+                        contacts += 1;
+                    }
+                    if let Cue::InitializedEffect(effect) = cue
+                        && effect.follow == Some(crate::EffectFollow::Center(target))
+                    {
+                        assert_eq!(effect.origin, expected);
+                        contact_effects += 1;
+                    }
+                }
+            }
+            assert_eq!(contacts, 2);
+            assert_eq!(contact_effects, 2);
+        }
+    }
+
+    #[test]
     fn contact_burst_requires_hit_and_samples_moved_victim_once() {
         for (connects, with_impact) in [(false, false), (false, true), (true, false), (true, true)]
         {
@@ -2492,15 +2803,15 @@ mod tests {
     fn terminal_landing_keeps_action_age_and_settles_before_recovery() {
         let mut owner = crate::tests::actor(Side::Party);
         owner.position[1] = 2000.;
+        let mut target = crate::tests::actor(Side::Enemy);
+        target.position[0] = 1000.;
+        target.body.collider = Some(crate::Collider::sphere(1.));
         let landing_effect = crate::EffectAppearance {
             resource: 7,
             member: 3,
         };
         let mut prepared = crate::PreparedBattle::new(
-            vec![
-                (owner, Default::default()),
-                (crate::tests::actor(Side::Enemy), Default::default()),
-            ],
+            vec![(owner, Default::default()), (target, Default::default())],
             vec![crate::ActionDefinition {
                 normal: None,
                 tp_cost: 8,
@@ -2522,7 +2833,7 @@ mod tests {
                             0,
                             AttackEvent::Contact {
                                 definition: landing_contact(),
-                                duration: 50,
+                                duration: 14,
                             },
                         ),
                         (
@@ -2582,6 +2893,9 @@ mod tests {
         battle.actors[0].position[1] = 0.;
         battle.actors[0].movement.vertical = 0.;
         for elapsed in 0..4 {
+            if elapsed == 1 {
+                battle.actors[1].position = battle.actors[0].position;
+            }
             assert_eq!(battle.action_age(action), Some(landed_age + elapsed));
             battle
                 .step(BattleInput {
@@ -2600,7 +2914,11 @@ mod tests {
                 usize::from(elapsed == 0)
             );
             assert_eq!(battle.activity(ActorId(0)), crate::Activity::Action);
-            assert!(battle.sequence(&action).unwrap().melee.is_none());
+            assert_eq!(
+                battle.sequence(&action).unwrap().melee.is_some(),
+                elapsed < 2
+            );
+            assert_eq!(battle.actors[1].hp, if elapsed == 0 { 50 } else { 49 });
             assert_eq!(
                 battle.bypasses_body_collision(ActorId(0)),
                 landed_age + elapsed < 13

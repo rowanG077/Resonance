@@ -458,14 +458,15 @@ fn guard_modifiers_compose_with_bounded_reduction_and_overlimit() {
 }
 
 #[test]
-fn rear_guard_bypasses_direction_only_and_charge_break_immunity_requires_equipped_trait() {
+fn rear_guard_bypasses_direction_only_and_charge_break_requires_attacker_skill() {
     let mut owner = actor(Side::Enemy);
     for (rear, charge, charge_guard, pressure, unbreakable, forced, blocked) in [
         (false, false, false, 0, false, false, false),
         (true, false, false, 0, false, false, true),
         (true, false, false, 10, false, false, false),
-        (true, true, false, 0, false, false, false),
-        (true, true, true, 0, false, false, true),
+        (true, true, false, 0, false, false, true),
+        (true, true, true, 0, false, false, false),
+        (true, false, true, 0, false, false, true),
         (false, true, false, 10, true, false, true),
         (true, true, true, 0, true, true, false),
     ] {
@@ -473,7 +474,7 @@ fn rear_guard_bypasses_direction_only_and_charge_break_immunity_requires_equippe
         target.guard.active = true;
         target.guard.reduction = 75;
         target.equipment.damage.rear_guard = rear;
-        target.equipment.damage.single_charge_guard = charge_guard;
+        owner.equipment.damage.charge_guard_break = charge_guard;
         owner.control_ex_state.charge = if charge {
             ChargeLevel::Normal
         } else {
