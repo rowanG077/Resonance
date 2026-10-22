@@ -1,6 +1,6 @@
 //! Shared model recipes and reusable render objects for live particles.
 use super::*;
-use resonance_battle::{MAX_PARTICLES, ParticleFrame};
+use resonance_battle::ParticleFrame;
 
 // Optional components cannot appear in an immutable try_query: an entirely
 // rigid asset world has never registered SkinnedMesh, so that query is absent.
@@ -84,6 +84,7 @@ struct Instance {
     style: Option<ModelStyle>,
 }
 
+#[derive(Default)]
 pub(super) struct Pool {
     templates: BTreeMap<u32, Template>,
     instances: Vec<Instance>,
@@ -95,23 +96,6 @@ pub(super) struct Pool {
     warm_joints: Vec<Entity>,
     warm_materials: Vec<Handle<TitleSurface>>,
     held_pose: Vec<(Entity, GlobalTransform)>,
-}
-
-impl Default for Pool {
-    fn default() -> Self {
-        Self {
-            templates: BTreeMap::new(),
-            instances: Vec::with_capacity(MAX_PARTICLES),
-            draws: Vec::new(),
-            joints: Vec::new(),
-            free_draws: Vec::new(),
-            free_joints: Vec::new(),
-            warm_draws: Vec::new(),
-            warm_joints: Vec::new(),
-            warm_materials: Vec::new(),
-            held_pose: Vec::new(),
-        }
-    }
 }
 
 impl Pool {
@@ -361,10 +345,6 @@ impl Pool {
             {
                 index
             } else {
-                ensure!(
-                    self.instances.len() < MAX_PARTICLES,
-                    "model particle pool exceeds the shared particle budget"
-                );
                 self.instances.push(Instance::default());
                 self.instances.len() - 1
             };
@@ -743,7 +723,7 @@ fn appearance(
 mod tests {
     use super::*;
 
-    fn particles() -> Result<Vec<ParticleFrame>> {
+    fn particles(count: usize) -> Result<Vec<ParticleFrame>> {
         use resonance_battle::{
             EffectAppearance, EffectBank, EffectDefinition, Effects, ParticleDefinition,
         };
@@ -769,7 +749,7 @@ mod tests {
             },
         };
         let definition = EffectDefinition {
-            events: vec![birth.clone(), birth],
+            events: vec![birth; count],
             particles: [(0, Arc::new(particle))].into(),
             sounds: BTreeMap::new(),
         };
@@ -791,7 +771,7 @@ mod tests {
         effects.advance(&frame, false)?;
         effects.advance(&frame, false)?;
         let particles = effects.frames();
-        ensure!(particles.len() == 2, "expected two live fixture particles");
+        ensure!(particles.len() == count, "expected every fixture particle");
         Ok(particles)
     }
 
@@ -839,7 +819,7 @@ mod tests {
         let mut pool = Pool::default();
         pool.templates.insert(10, template(style, true));
         pool.templates.insert(11, template(style, false));
-        let mut particles = particles()?;
+        let mut particles = particles(2)?;
         for (index, particle) in particles.iter_mut().enumerate() {
             particle.model = Some(resonance_battle::EffectModelFrame {
                 resource: 10,
@@ -960,6 +940,36 @@ mod tests {
         assert_eq!(pool.stats().active_particles, 1);
         assert_eq!(pool.stats().active_draws, 0);
         assert_eq!(pool.stats().active_joints, 0);
+
+        // Dense overlaps grow the reusable pool instead of dropping model draws.
+        particles[0].model.as_mut().unwrap().resource = 11;
+        let overlapping: Vec<_> = self::particles(300)?
+            .into_iter()
+            .map(|particle| ParticleFrame {
+                id: particle.id,
+                ..particles[0].clone()
+            })
+            .collect();
+        for _ in 0..2 {
+            pool.retain(&[], &mut world.commands(), &mut surfaces);
+            pool.clear_pose();
+            for (order, particle) in overlapping.iter().enumerate() {
+                pool.apply(
+                    particle,
+                    style,
+                    Layer::Effects,
+                    order,
+                    [0.; 3],
+                    &mut world.commands(),
+                    &mut surfaces,
+                )?;
+            }
+            world.flush();
+            assert_eq!(pool.stats().active_particles, overlapping.len());
+            assert_eq!(pool.stats().active_draws, overlapping.len());
+            assert_eq!(pool.stats().created_draws, overlapping.len());
+            assert_eq!(surfaces.len(), overlapping.len());
+        }
         let owned: Vec<_> = pool
             .draws
             .iter()

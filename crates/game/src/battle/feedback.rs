@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 pub struct Feedback {
     pub actors: Vec<ActorFeedback>,
     pub casting: BTreeMap<resonance_battle::ActionKey, CastingFeedback>,
+    /// Catalogue names for actions outside the party's learned-technique list.
+    pub action_catalogues: BTreeMap<resonance_battle::ActionKey, u16>,
     pub unison_ready: Option<Sound>,
     pub overlimit_sound: Option<Sound>,
     pub hammer: Option<EffectAppearance>,

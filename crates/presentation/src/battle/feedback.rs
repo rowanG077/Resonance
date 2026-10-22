@@ -47,37 +47,30 @@ impl Feedback {
                 centered: true,
             });
         }
-        for request in &frame.model_requests {
-            let resonance_battle::ModelRequest::Common { actor, pose } = *request else {
-                continue;
-            };
-            let Some(control) = self.resources.actors.get(actor.index()) else {
-                continue;
-            };
-            let owner = &frame.actors[actor.index()];
-            match pose {
-                resonance_battle::CommonPose::Taunt => {
-                    cues.extend(control.taunt.map(|sound| Cue::Voice {
-                        actor,
-                        sound,
-                        priority: VoicePriority::Action,
-                        position: owner.audio_position(),
-                        centered: false,
-                    }))
-                }
-                resonance_battle::CommonPose::Backstep => {
-                    cues.extend(control.backstep.map(|sound| Cue::Sound {
-                        actor,
-                        sound,
-                        priority: 0,
-                        position: owner.audio_position(),
-                    }))
-                }
-                _ => {}
-            }
-        }
         for cue in &frame.cues {
             match *cue {
+                Cue::Backstepped { actor } | Cue::Taunted { actor } => {
+                    let Some(control) = self.resources.actors.get(actor.index()) else {
+                        continue;
+                    };
+                    let position = frame.actors[actor.index()].audio_position();
+                    if matches!(cue, Cue::Backstepped { .. }) {
+                        cues.extend(control.backstep.map(|sound| Cue::Sound {
+                            actor,
+                            sound,
+                            priority: 0,
+                            position,
+                        }));
+                    } else {
+                        cues.extend(control.taunt.map(|sound| Cue::Voice {
+                            actor,
+                            sound,
+                            priority: VoicePriority::Action,
+                            position,
+                            centered: false,
+                        }));
+                    }
+                }
                 Cue::ResultAdvancement {
                     ref actors,
                     level_up,
@@ -192,15 +185,16 @@ impl Feedback {
                         continue;
                     };
                     let owner = &frame.actors[actor.index()];
-                    if matches!(phase, CastPhase::Started | CastPhase::Chanting)
-                        && !matches!(owner.activity, resonance_battle::Activity::Casting { .. })
+                    if matches!(
+                        phase,
+                        CastPhase::Started | CastPhase::Chanting | CastPhase::Incantation
+                    ) && !matches!(owner.activity, resonance_battle::Activity::Casting { .. })
                     {
                         continue;
                     }
                     let (appearance, sound, voice) = match phase {
-                        CastPhase::Started => {
-                            (cast.chant_effect, cast.start_sound, cast.chant_voice)
-                        }
+                        CastPhase::Started => (cast.chant_effect, cast.start_sound, None),
+                        CastPhase::Incantation => (cast.chant_effect, None, cast.chant_voice),
                         CastPhase::Chanting => (cast.chant_effect, None, None),
                         CastPhase::Charged => (cast.charged_effect, None, None),
                         CastPhase::Stored => (cast.stored_effect, None, None),
@@ -219,7 +213,7 @@ impl Feedback {
                     };
                     let chanting = phase == CastPhase::Chanting;
                     if !summon_release {
-                        if phase != CastPhase::Started {
+                        if !matches!(phase, CastPhase::Started | CastPhase::Incantation) {
                             let request = EffectRequest {
                                 owner: actor,
                                 target: actor,
@@ -580,7 +574,9 @@ impl Feedback {
                     }
                     if let Some(death) = &self.resources.death {
                         if target.side == Side::Enemy {
-                            cues.push(Cue::Effect(attached_effect(
+                            // Confirmed defeats are contact feedback. Their first
+                            // particles appear after the current particle visit.
+                            cues.push(Cue::DeferredEffect(attached_effect(
                                 actor,
                                 target,
                                 death.appearance,
@@ -962,6 +958,88 @@ mod tests {
     use resonance_battle::{BattleResult, CameraDefinition, PreparedBattle};
 
     #[test]
+    fn resolved_battle_voices_reach_the_title_counter_without_audio_playback() -> anyhow::Result<()>
+    {
+        use resonance_battle::{ActionKey, CastPhase, EffectAppearance, Sound};
+        use resonance_game::battle::feedback::{ActorFeedback, CastingFeedback};
+        let mut battle = PreparedBattle::new(
+            [Side::Party, Side::Enemy]
+                .map(|side| {
+                    (
+                        crate::test_support::actor(side, 100, 20),
+                        Default::default(),
+                    )
+                })
+                .into(),
+            Default::default(),
+            1,
+        )?
+        .finish()?;
+        let actor = battle.actor_ids().next().unwrap();
+        let effect = EffectAppearance {
+            resource: 1,
+            member: 1,
+        };
+        let mut feedback = Feedback::new(
+            Resources {
+                actors: vec![ActorFeedback {
+                    taunt: Some(Sound::Stream(1)),
+                    technique_command: Some(Sound::Stream(2)),
+                    overlimit_voice: Some(Sound::Stream(3)),
+                    ..Default::default()
+                }],
+                casting: [(
+                    ActionKey(0),
+                    CastingFeedback {
+                        catalogue: 75,
+                        chant_voice: Some(Sound::Stream(4)),
+                        release_voice: Some(Sound::Stream(5)),
+                        start_sound: None,
+                        release_sound: None,
+                        chant_effect: effect,
+                        charged_effect: effect,
+                        stored_effect: effect,
+                        release_effect: effect,
+                        opening_effect: None,
+                        tint: Default::default(),
+                    },
+                )]
+                .into(),
+                ..Default::default()
+            },
+            1,
+        );
+        for _ in 0..10 {
+            let mut frame = battle.publish(vec![
+                Cue::Taunted { actor },
+                Cue::TechniqueQueued { actor },
+                Cue::OverLimitEntered {
+                    actor,
+                    position: [0.; 3],
+                },
+                Cue::Casting {
+                    actor,
+                    action: ActionKey(0),
+                    phase: CastPhase::Incantation,
+                },
+                Cue::Casting {
+                    actor,
+                    action: ActionKey(0),
+                    phase: CastPhase::Released,
+                },
+            ]);
+            frame.actors[actor.index()].activity =
+                resonance_battle::Activity::Casting { held: false };
+            let core_cues = frame.cues.len();
+            feedback.resolve(&mut frame);
+            battle.record_voice_requests(&frame.cues[core_cues..]);
+        }
+        assert_eq!(battle.ledger().achievements[0].voices, 50);
+        assert_eq!(battle.ledger().achievements[1].voices, 0);
+        Ok(())
+    }
+
+    #[test]
     fn result_advancement_uses_one_fanfare_for_all_awarded_members() -> anyhow::Result<()> {
         let battle = PreparedBattle::new(
             [Side::Party, Side::Party, Side::Enemy]
@@ -1018,6 +1096,55 @@ mod tests {
             matches!(sounds[0], Cue::Sound { actor, sound: emitted, priority: 1, .. }
             if *actor == resonance_battle::ActorId::from_index(1)? && *emitted == sound)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn confirmed_enemy_defeat_defers_its_attached_burst_to_contact_phase() -> anyhow::Result<()> {
+        let battle = PreparedBattle::new(
+            [Side::Party, Side::Enemy]
+                .into_iter()
+                .map(|side| {
+                    (
+                        crate::test_support::actor(side, 100, 20),
+                        Default::default(),
+                    )
+                })
+                .collect(),
+            Default::default(),
+            1,
+        )?
+        .finish()?;
+        let actor = resonance_battle::ActorId::from_index(1)?;
+        let appearance = resonance_battle::EffectAppearance {
+            resource: 1,
+            member: 14,
+        };
+        let mut feedback = Feedback::new(
+            Resources {
+                death: Some(resonance_game::battle::death::Feedback {
+                    appearance,
+                    sound: None,
+                    allies: Vec::new(),
+                }),
+                ..Default::default()
+            },
+            1,
+        );
+        let mut frame = battle.snapshot();
+        let actors = frame.actors.clone();
+        frame.cues.push(Cue::Defeated { actor });
+        feedback.resolve(&mut frame);
+        let effects: Vec<_> = frame
+            .cues
+            .iter()
+            .filter(|cue| matches!(cue, Cue::Effect(_) | Cue::DeferredEffect(_)))
+            .collect();
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(effects[0], Cue::DeferredEffect(request)
+            if request.owner == actor && request.appearance == appearance
+            && request.follow == Some(resonance_battle::EffectFollow::Center(actor))));
+        assert_eq!(frame.actors, actors);
         Ok(())
     }
 
@@ -1558,20 +1685,51 @@ mod tests {
                 tint: Default::default(),
             },
         );
+        for phase in [
+            resonance_battle::CastPhase::Started,
+            resonance_battle::CastPhase::Chanting,
+            resonance_battle::CastPhase::Incantation,
+        ] {
+            let mut frame = base.clone();
+            frame.actors[ids[0].index()].activity =
+                resonance_battle::Activity::Casting { held: false };
+            frame.cues = vec![Cue::Casting {
+                actor: ids[0],
+                action: resonance_battle::ActionKey(0),
+                phase,
+            }];
+            feedback.resolve(&mut frame);
+            assert_eq!(
+                frame.cues.iter().any(|cue| matches!(
+                    cue,
+                    Cue::Voice {
+                        sound: Sound::Stream(26),
+                        ..
+                    }
+                )),
+                phase == resonance_battle::CastPhase::Incantation
+            );
+            assert_eq!(
+                frame.cues.iter().any(|cue| matches!(
+                    cue,
+                    Cue::Sound {
+                        sound: Sound::Cue(109),
+                        ..
+                    }
+                )),
+                phase == resonance_battle::CastPhase::Started
+            );
+            assert_eq!(
+                frame.cues.iter().any(|cue| matches!(cue, Cue::Effect(_))),
+                phase == resonance_battle::CastPhase::Chanting
+            );
+        }
         let mut frame = base.clone();
         let hammer = frame.projectiles[0].id;
         frame.projectiles[0].position = [5., 80., 0.];
-        frame.model_requests.extend([
-            resonance_battle::ModelRequest::Common {
-                actor: ids[0],
-                pose: resonance_battle::CommonPose::Taunt,
-            },
-            resonance_battle::ModelRequest::Common {
-                actor: ids[0],
-                pose: resonance_battle::CommonPose::Backstep,
-            },
-        ]);
         frame.cues.extend([
+            Cue::Taunted { actor: ids[0] },
+            Cue::Backstepped { actor: ids[0] },
             Cue::OverLimitEntered {
                 actor: ids[0],
                 position: [0.; 3],
@@ -1611,6 +1769,7 @@ mod tests {
             tint: [128; 4],
             material: resonance_battle::ModelMaterial::Normal,
             texture_layers: [0; 4],
+            texture_tick: 0,
             light: None,
             shadow: None,
             resource: 1,

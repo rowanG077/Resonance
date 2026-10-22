@@ -582,6 +582,7 @@ impl Artwork {
     pub fn render_transition(
         &mut self,
         frame: Option<&resonance_battle::TransitionFrame>,
+        letterbox: u16,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -602,6 +603,16 @@ impl Artwork {
         let frame = frame.or(flash.as_ref());
         let layer = &mut self.ui.transition;
         let mut batch = Batch::default();
+        if letterbox != 0 {
+            let [left, top, right, bottom] = self.resolution.ui_rect();
+            let height = f32::from(letterbox).min((bottom - top) * 0.5);
+            for bounds in [
+                [left, top, right, top + height],
+                [left, bottom - height, right, bottom],
+            ] {
+                batch.quad(bounds, [0.5; 4], [0., 0., 0., 1.]);
+            }
+        }
         if let Some(frame) = frame.filter(|frame| frame.alpha != 0) {
             let [r, g, b] = frame.color.map(|channel| f32::from(channel) / 255.);
             batch.quad(

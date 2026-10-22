@@ -219,6 +219,7 @@ mod tests {
                 tint: [0; 4],
                 material: ModelMaterial::Normal,
                 texture_layers: [0; 4],
+                texture_tick: 0,
                 light: None,
                 shadow: None,
                 resource: 0,
