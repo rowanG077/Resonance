@@ -54,6 +54,24 @@ fn location_menu_pages_and_shortcuts_select_visible_rows() {
         .release(KeyCode::Enter);
     super::controls(&mut world);
     assert!(!world.resource::<Menu>().blocked());
+
+    world.init_resource::<crate::testing::Controls>();
+    world.resource_mut::<Menu>().state = super::State::Selecting;
+    for expected in [true, false] {
+        world.resource_mut::<ButtonInput<KeyCode>>().reset_all();
+        world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyK);
+        super::controls(&mut world);
+        assert_eq!(
+            world.resource::<crate::testing::Controls>().instant_kill,
+            expected
+        );
+        assert!(world.resource::<Menu>().open());
+    }
+    world.resource_mut::<Menu>().state = super::State::Closed;
+    super::controls(&mut world);
+    assert!(!world.resource::<crate::testing::Controls>().instant_kill);
 }
 
 #[test]
