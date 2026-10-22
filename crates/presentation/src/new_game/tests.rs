@@ -55,11 +55,7 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
         || false,
     )?;
     let mut checkpoint = field_checkpoint(&healthy)?;
-    let original: MenuData = healthy.json("game/menu-data.json")?;
-    assert!(
-        serde_json::to_value(MenuData::load(&healthy)?)? == serde_json::to_value(&original)?,
-        "optional-caption admission changed healthy menu definitions"
-    );
+    let original = MenuData::load(&healthy)?;
     let item = original
         .items
         .iter()

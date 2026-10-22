@@ -294,8 +294,14 @@ impl<'a> Page<'a> {
                             tech.level <= u16::from(member.level)
                                 && match tech.route {
                                     0 => true,
-                                    1 => member.technique_balance <= 0,
-                                    2 => member.technique_balance > 0,
+                                    1 => {
+                                        self.party.settings.preferences.learn_both_arte_paths
+                                            || member.technique_balance <= 0
+                                    }
+                                    2 => {
+                                        self.party.settings.preferences.learn_both_arte_paths
+                                            || member.technique_balance > 0
+                                    }
                                     _ => false,
                                 }
                         })
