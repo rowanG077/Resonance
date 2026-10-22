@@ -294,11 +294,40 @@ impl Session {
         ) else {
             return Ok(false);
         };
+        let mut additional = Vec::new();
+        if self
+            .events
+            .world
+            .party
+            .as_ref()
+            .unwrap()
+            .settings
+            .preferences
+            .combined_battles
+        {
+            for (position, variant) in
+                self.enemies
+                    .neighbors(self.travel.state().position, position, variant)
+            {
+                if let Some(neighbor) = self.assets.rules.lookup(
+                    self.travel.state().world,
+                    position,
+                    self.travel.response(),
+                    variant,
+                    self.events.memory().read(0x40, Width::S32)?,
+                ) {
+                    additional.push(resonance_events::battle::Encounter::Pool(neighbor.group));
+                }
+            }
+        }
         self.begin_battle(
             resonance_events::battle::Encounter::Pool(encounter.group),
             u16::from(encounter.arena),
             None,
         )?;
+        let request = &mut self.battle.as_mut().unwrap().request;
+        request.additional_encounters = additional;
+        self.events.world.battle_request = Some(request.clone());
         Ok(true)
     }
     fn begin_battle(

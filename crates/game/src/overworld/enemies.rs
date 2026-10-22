@@ -3,6 +3,7 @@
 use super::{Position, World, collision, landmarks::Locations, travel::Mount};
 use anyhow::Result;
 use resonance_content::overworld::MovementParameters;
+use resonance_events::{ACTOR_CONTACT_HEIGHT, battle::COMBINED_BATTLE_RADIUS};
 use std::f32::consts::{PI, TAU};
 
 pub const SLOTS: usize = 3;
@@ -71,6 +72,30 @@ impl Symbols {
         self.iter()
             .find(|symbol| symbol.position.distance_to(position) < CONTACT_RADIUS)
             .map(|symbol| (symbol.position, symbol.variant))
+    }
+
+    /// Other symbols within the player's radius and contact height, excluding contact once.
+    pub(super) fn neighbors(
+        &self,
+        player: Position,
+        position: Position,
+        variant: u8,
+    ) -> Vec<(Position, u8)> {
+        let contacting_slot = self.slots.iter().position(|s| {
+            s.as_ref()
+                .is_some_and(|s| s.position == position && s.variant == variant)
+        });
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, symbol)| {
+                let symbol = symbol.as_ref()?;
+                (Some(slot) != contacting_slot
+                    && (symbol.position.map()[2] - player.map()[2]).abs() <= ACTOR_CONTACT_HEIGHT
+                    && symbol.position.distance_to(player) <= COMBINED_BATTLE_RADIUS)
+                    .then_some((symbol.position, symbol.variant))
+            })
+            .collect()
     }
 
     /// A missing neighbor cannot leave half the symbols moved or consume RNG.
@@ -544,6 +569,50 @@ mod tests {
             assert!(symbols.clear_position(player, &context(&ground, &locations, &parameters)));
             symbols.step(context(&ground, &locations, &parameters), &mut seed)?;
             assert!(symbols.get(0).unwrap().position.distance_to(player) < 150.);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn combined_neighbors_use_player_radius_across_the_world_seam() -> Result<()> {
+        let mut symbols = Symbols::default();
+        let player = Position::from_map([0., 100., 0.])?;
+        let positions = [50., -500., 501.].map(|x| Position::from_map([x, 100., 0.]).unwrap());
+        for (slot, position) in positions.into_iter().enumerate() {
+            symbols.slots[slot] = Some(Symbol {
+                position,
+                variant: (slot % 2) as u8,
+                heading: 0.,
+                display_heading: 0.,
+                speed: 0.,
+                animation: 0,
+                home: position,
+                target: position,
+                behavior: Behavior::Guard,
+                pause: 0,
+                returning: false,
+                blocked: 0,
+            });
+        }
+        assert_eq!(
+            symbols.neighbors(player, positions[0], 0),
+            [(positions[1], 1)]
+        );
+        let player = Position::from_map([1., 100., 0.])?;
+        assert_eq!(
+            symbols.neighbors(player, positions[0], 0),
+            [(positions[2], 0)]
+        );
+        let player = Position::from_map([0., 100., 1000.])?;
+        for height in [-200., -151., -150., -100., 0., 100., 150., 151., 200.] {
+            let position = Position::from_map([-500., 100., 1000. + height])?;
+            symbols.slots[1].as_mut().unwrap().position = position;
+            let neighbors = symbols.neighbors(player, positions[0], 0);
+            assert_eq!(
+                neighbors.contains(&(position, 1)),
+                height.abs() <= 150.,
+                "enemy height relative to player: {height}"
+            );
         }
         Ok(())
     }

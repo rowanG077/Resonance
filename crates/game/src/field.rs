@@ -437,7 +437,7 @@ impl FieldSession {
         Ok(())
     }
     fn step_inner(&mut self, input: FieldInput) -> Result<()> {
-        if self.events.world.screen_request.is_some() {
+        if self.events.battle_pending() || self.events.world.screen_request.is_some() {
             return Ok(());
         }
         self.play_time.advance();
@@ -1620,7 +1620,9 @@ fn start_with_entry(
             .snap_follow_view(&world.actors);
     }
     EventRuntime::with_state_policy(
-        Arc::new(Program::decode(script)?),
+        Arc::new(resonance_events::prepare_field_program(Program::decode(
+            script,
+        )?)),
         Arc::new(resources),
         world,
         memory,

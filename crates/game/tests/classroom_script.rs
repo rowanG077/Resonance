@@ -351,8 +351,13 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF menus/classroom; no devices"]
-fn customization_drafts_commit_to_field_but_only_difficulty_is_saved() {
-    use resonance_game::menu::{Page, customize::Focus};
+fn customization_drafts_commit_and_confirm_destructive_changes() {
+    use resonance_content::{
+        arte::elemental,
+        menu_data::{CUSTOMIZE_PATH, FORGET_ARTE_PATHS_CONFIRMATION, FORGET_ARTES_CONFIRMATION},
+    };
+    use resonance_events::party::TechniqueShortcut;
+    use resonance_game::menu::{Menu, Page, customize::Focus};
     let data = session_data();
     let party = Party::new(&data, Default::default()).unwrap();
     let original = party.settings.preferences.clone();
@@ -390,7 +395,39 @@ fn customization_drafts_commit_to_field_but_only_difficulty_is_saved() {
     for key in [Start, Left, Down, Cancel] {
         press(&mut session, key);
     }
+    for key in [Down, Left] {
+        press(&mut session, key);
+    }
+    assert!(
+        session
+            .menu
+            .as_ref()
+            .unwrap()
+            .customize
+            .draft
+            .flexible_battle_party
+    );
+    for key in [Down, Left] {
+        press(&mut session, key);
+    }
+    assert!(
+        session
+            .menu
+            .as_ref()
+            .unwrap()
+            .customize
+            .draft
+            .combined_battles
+    );
+    for key in [Down, Left] {
+        press(&mut session, key);
+    }
+    for key in [Down, Left] {
+        press(&mut session, key);
+    }
     let expected = session.menu.as_ref().unwrap().customize.draft.clone();
+    assert!(expected.learn_elemental_artes);
+    assert!(expected.learn_both_arte_paths);
     expected.validate().unwrap();
     assert_eq!(expected.message_speed, 4);
     assert_eq!(expected.battle_rank, 1);
@@ -418,14 +455,146 @@ fn customization_drafts_commit_to_field_but_only_difficulty_is_saved() {
     let settings = &session.events.world.party.as_ref().unwrap().settings;
     assert_eq!(settings.preferences, expected);
     assert_eq!(settings.battle_controls, [1, 2, 2, 2]);
+    let mut learned = session.events.world.party.as_ref().unwrap().clone();
+    let mut variants = Vec::new();
+    let mut opposite_artes = Vec::new();
+    for (index, (member, character)) in learned.members.iter_mut().zip(&data.characters).enumerate()
+    {
+        for &id in &character.allowed_techniques {
+            if elemental::find(id).is_some() {
+                member.techniques.insert(id);
+                member.technique_uses.insert(id, elemental::LEARNING_USES);
+                member.shortcuts[0] = id;
+                variants.push((index, id));
+            }
+        }
+        let opposite = if member.technique_balance <= 0 { 2 } else { 1 };
+        if let Some(&id) = character
+            .allowed_techniques
+            .iter()
+            .find(|&&id| data.rules.as_ref().unwrap().techniques[usize::from(id)].route == opposite)
+        {
+            member.techniques.insert(id);
+            member.technique_uses.insert(id, 50);
+            member.shortcuts[1] = id;
+            opposite_artes.push((index, id));
+        }
+        member.assist_shortcuts[0] = Some(TechniqueShortcut {
+            character: 0,
+            technique: elemental::LIGHTNING_TIGER,
+        });
+    }
+    for member in &mut learned.members {
+        member.assist_shortcuts[1] = Some(TechniqueShortcut {
+            character: opposite_artes[0].0,
+            technique: opposite_artes[0].1,
+        });
+    }
+    assert!(
+        variants
+            .iter()
+            .any(|&(member, _)| !learned.formation.contains(&(member as u8 + 1)))
+    );
+    let saved: Party = roundtrip(&learned);
+    saved.validate(&data).unwrap();
+    assert!(saved.settings.preferences.learn_both_arte_paths);
+    assert!(
+        variants
+            .iter()
+            .all(|&(member, id)| saved.members[member].techniques.contains(&id))
+    );
+    session.events.world.party = Some(learned.clone());
+    let menu = session.menu.as_mut().unwrap();
+    menu.checkpoint.as_mut().unwrap().progress_mut().party = learned;
     // Restore defaults in the draft, then cancel that reset before committing.
     for key in [Accept, Down, Down, Accept, Up, Right, Accept] {
         press(&mut session, key);
     }
     assert_eq!(session.menu.as_ref().unwrap().customize.draft, original);
+    press(&mut session, Cancel);
+    assert_eq!(
+        session.menu.as_ref().unwrap().customize.focus,
+        Focus::ForgetArtes { yes: false },
+        "restoring defaults must also confirm before forgetting"
+    );
+    assert_eq!(
+        session
+            .menu
+            .as_ref()
+            .unwrap()
+            .customize
+            .forget_confirmation(),
+        Some(FORGET_ARTES_CONFIRMATION)
+    );
+    press(&mut session, Accept);
+    let menu = session.menu.as_ref().unwrap();
+    assert_eq!(menu.customize.focus, Focus::Options);
+    assert!(menu.customize.draft.learn_elemental_artes);
+    assert!(menu.customize.draft.learn_both_arte_paths);
+    let party = session.events.world.party.as_ref().unwrap();
+    assert!(party.settings.preferences.learn_elemental_artes);
+    assert!(
+        variants
+            .iter()
+            .all(|&(member, id)| party.members[member].techniques.contains(&id))
+    );
+    assert!(
+        opposite_artes
+            .iter()
+            .all(|&(member, id)| party.members[member].techniques.contains(&id))
+    );
+    assert!(
+        party
+            .members
+            .iter()
+            .all(|member| member.assist_shortcuts[0].is_some())
+    );
     for key in [Left, Accept, Cancel] {
         press(&mut session, key);
     }
+    for key in [Accept, Down, Down, Accept] {
+        press(&mut session, key);
+    }
+    let state = &mut session.menu.as_mut().unwrap().customize;
+    state.draft.learn_elemental_artes = false;
+    state.draft.learn_both_arte_paths = false;
+    press(&mut session, Cancel);
+    assert_eq!(
+        session.menu.as_ref().unwrap().customize.focus,
+        Focus::ForgetArtes { yes: false }
+    );
+    press(&mut session, Cancel);
+    let state = &mut session.menu.as_mut().unwrap().customize;
+    assert!(state.draft.learn_elemental_artes);
+    assert!(state.draft.learn_both_arte_paths);
+    state.draft.learn_elemental_artes = false;
+    state.draft.learn_both_arte_paths = false;
+    for key in [Cancel, Up, Accept] {
+        press(&mut session, key);
+    }
+    assert_eq!(session.menu.as_ref().unwrap().page, Page::Main);
+    let party = session.events.world.party.as_ref().unwrap();
+    assert!(!party.settings.preferences.learn_elemental_artes);
+    assert!(!party.settings.preferences.learn_both_arte_paths);
+    for &(member, id) in &variants {
+        assert!(!party.members[member].techniques.contains(&id));
+        assert!(!party.members[member].shortcuts.contains(&id));
+        assert_eq!(
+            party.members[member].technique_uses[&id],
+            elemental::LEARNING_USES
+        );
+    }
+    for &(member, id) in &opposite_artes {
+        assert!(!party.members[member].techniques.contains(&id));
+        assert!(!party.members[member].shortcuts.contains(&id));
+        assert_eq!(party.members[member].technique_uses[&id], 50);
+    }
+    assert!(
+        party
+            .members
+            .iter()
+            .all(|member| member.assist_shortcuts == [None; 2])
+    );
     session.step(Cancel.input()).unwrap();
     settle_menu_motion(&mut session);
     let checkpoint = session.checkpoint().unwrap();
@@ -441,6 +610,31 @@ fn customization_drafts_commit_to_field_but_only_difficulty_is_saved() {
         invalid.validate(&data).is_err(),
         "duplicate bindings must be rejected on load"
     );
+
+    // Title preferences also affect existing saves when they are loaded later.
+    let mut title = Menu::title_customize(expected, cooked(CUSTOMIZE_PATH)).unwrap();
+    press_menu(&mut title, Default::default());
+    title.customize.draft.learn_both_arte_paths = false;
+    press_menu(&mut title, Cancel.input());
+    assert_eq!(
+        title.customize.forget_confirmation(),
+        Some(FORGET_ARTE_PATHS_CONFIRMATION)
+    );
+    press_menu(&mut title, Cancel.input());
+    assert!(title.customize.draft.learn_both_arte_paths);
+    title.customize.draft.learn_elemental_artes = false;
+    press_menu(&mut title, Cancel.input());
+    assert_eq!(title.customize.focus, Focus::ForgetArtes { yes: false });
+    press_menu(&mut title, Cancel.input());
+    assert!(title.customize.draft.learn_elemental_artes);
+    assert!(!title.closed);
+    title.customize.draft.learn_elemental_artes = false;
+    for key in [Cancel, Up, Accept] {
+        press_menu(&mut title, key.input());
+    }
+    assert!(title.closed);
+    assert!(!title.customize.draft.learn_elemental_artes);
+    assert!(title.customize.draft.learn_both_arte_paths);
 }
 
 #[test]
