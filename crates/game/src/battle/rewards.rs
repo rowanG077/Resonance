@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, ensure};
 use resonance_battle::ActorAvailability;
 use resonance_content::{
-    arte::Catalogue, menu_data::Title, monster::Monster, session::SessionData,
+    arte::Catalogue, grade::Benefit, menu_data::Title, monster::Monster, session::SessionData,
 };
 use resonance_events::{GameplayRandom, party::Party};
 
@@ -64,9 +64,11 @@ pub struct HappinessAward {
     pub gald: u32,
 }
 
-/// Equipment and skill reward modifiers. Gald Finder applies after equipment multipliers.
+/// Floor, equipment and skill reward modifiers. Gald Finder applies last.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RewardModifiers {
+    pub floor_experience_double: bool,
+    pub floor_gald_double: bool,
     /// Maximum-vital growth for available active members, indexed by character and then HP/TP.
     pub maximum_vital_growth: [[bool; 2]; 9],
     /// Local EX72 or partywide EX92 takes precedence over local EX152.
@@ -134,7 +136,27 @@ pub fn award(
             "invalid reward monster"
         );
     }
-    let rewards = Rewards::calculate(&input, &mut random)?;
+    let mut rewards = Rewards::calculate(&input, &mut random)?;
+    let benefits = &party.new_game_plus.benefits;
+    let (numerator, denominator) = if benefits.contains(&Benefit::HalfExperience) {
+        (1, 2)
+    } else if benefits.contains(&Benefit::DoubleExperience) {
+        (2, 1)
+    } else if benefits.contains(&Benefit::TenfoldExperience) {
+        (10, 1)
+    } else {
+        (1, 1)
+    };
+    rewards.experience = u32::try_from(u64::from(rewards.experience) * numerator / denominator)
+        .context("Grade Shop experience overflow")?;
+    rewards.combo_experience = combo_experience(rewards.experience, &input)?;
+    if benefits.contains(&Benefit::ComboExperience) {
+        rewards.experience = 1;
+        rewards.combo_experience = rewards
+            .combo_experience
+            .checked_mul(10)
+            .context("Grade Shop combo experience overflow")?;
+    }
     let overflow = rewards
         .items
         .iter()
@@ -218,7 +240,7 @@ impl Rewards {
         let RewardInput {
             enemies,
             formation_count,
-            maximum_combo,
+            maximum_combo: _,
             technical_smash_bonus,
             level_difference,
             modifiers,
@@ -295,6 +317,16 @@ impl Rewards {
                 .checked_add(enemy.gald)
                 .context("victory gald overflow")?;
         }
+        for (value, double) in [
+            (&mut reward.experience, modifiers.floor_experience_double),
+            (&mut reward.gald, modifiers.floor_gald_double),
+        ] {
+            if double {
+                *value = value
+                    .checked_mul(2)
+                    .context("floor reward multiplier overflow")?;
+            }
+        }
         if level_difference > 2 {
             let percent = (100 - 10 * (i32::from(level_difference) - 2)).max(50) as u64;
             reward.experience = (u64::from(reward.experience) * percent / 100) as u32;
@@ -305,9 +337,7 @@ impl Rewards {
                 .try_into()
                 .context("combined reward overflow")?;
         }
-        reward.combo_experience = (u64::from(reward.experience) * u64::from(maximum_combo) / 100)
-            .try_into()
-            .context("victory combo experience overflow")?;
+        reward.combo_experience = combo_experience(reward.experience, input)?;
         if modifiers.gald_double {
             reward.gald = reward
                 .gald
@@ -542,6 +572,13 @@ impl Rewards {
     }
 }
 
+/// Technical Smash contributes to both item chances and the EXP bonus.
+fn combo_experience(experience: u32, input: &RewardInput<'_>) -> Result<u32> {
+    let percent = u64::from(input.maximum_combo) + u64::from(input.technical_smash_bonus);
+    u32::try_from(u64::from(experience) * percent / 100)
+        .context("victory combo experience overflow")
+}
+
 /// Only living, active actors with a nonzero maximum TP receive recovery.
 pub fn recover_tp_for_actor(
     current: u16,
@@ -639,6 +676,50 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn grade_shop_experience_reaches_members_and_stacks_with_encounter_bonuses() {
+        let (mut session, techniques, titles, party) = reward_fixture();
+        session.experience = vec![0, 0, 100_000, 300_000];
+        let enemies = [enemy(101, 100)];
+        for (benefit, formations, floor_double, experience, combo, gald) in [
+            (None, 1, false, 101, 14, 100),
+            (Some(Benefit::HalfExperience), 1, false, 50, 7, 100),
+            (Some(Benefit::DoubleExperience), 1, false, 202, 28, 100),
+            (Some(Benefit::TenfoldExperience), 1, false, 1010, 141, 100),
+            (Some(Benefit::ComboExperience), 1, false, 1, 140, 100),
+            (Some(Benefit::HalfExperience), 2, false, 75, 10, 150),
+            (Some(Benefit::DoubleExperience), 3, true, 808, 113, 200),
+            (Some(Benefit::ComboExperience), 3, true, 1, 560, 200),
+        ] {
+            let mut party = party.clone();
+            party.new_game_plus.benefits = benefit.into_iter().collect();
+            let mut request = input(&enemies);
+            request.formation_count = formations;
+            request.modifiers.floor_experience_double = floor_double;
+            request.maximum_combo = 9;
+            request.technical_smash_bonus = 5;
+            let awarded = award(
+                party,
+                &session,
+                &techniques,
+                &titles,
+                request,
+                GameplayRandom::new(1),
+            )
+            .unwrap();
+            assert_eq!(
+                (
+                    awarded.rewards.experience,
+                    awarded.rewards.combo_experience,
+                    awarded.rewards.gald
+                ),
+                (experience, combo, gald),
+                "{benefit:?}, {formations}, {floor_double}"
+            );
+            assert_eq!(awarded.party.members[0].experience, 8 + experience + combo);
+        }
+    }
+
+    #[test]
     fn excluded_enemies_award_nothing_and_consume_no_reward_randomness() {
         let (session, techniques, titles, party) = reward_fixture();
         let random = GameplayRandom::new(1);
@@ -702,6 +783,33 @@ pub(super) mod tests {
                 .count();
             assert_eq!(usize::from(reward.items[0].count), drops);
             assert_eq!(reward.items[0].discoveries.len(), drops);
+            assert_eq!(random, expected_random);
+        }
+    }
+
+    #[test]
+    fn floor_rewards_compose_with_combined_encounters_equipment_and_combo() {
+        let enemies = [EnemyReward {
+            drops: [Some(1), None],
+            drop_chances: [20, 0],
+            ..enemy(91, 127)
+        }];
+        for (formations, experience, gald, chance) in [(2, 244, 762, 82), (3, 326, 1016, 100)] {
+            let mut request = input(&enemies);
+            request.formation_count = formations;
+            request.level_difference = 3;
+            request.maximum_combo = 20;
+            request.modifiers.floor_experience_double = true;
+            request.modifiers.floor_gald_double = true;
+            request.modifiers.gald_double = true;
+            request.modifiers.item_drop_bonus = 25 + 10;
+            let mut random = GameplayRandom::new(1);
+            let reward = Rewards::calculate(&request, &mut random).unwrap();
+            assert_eq!((reward.experience, reward.gald), (experience, gald));
+            assert_eq!(reward.combo_experience, experience / 5);
+            let mut expected_random = GameplayRandom::new(1);
+            let dropped = chance == 100 || expected_random.next_u32() % 100 < chance;
+            assert_eq!(!reward.items.is_empty(), dropped);
             assert_eq!(random, expected_random);
         }
     }
@@ -918,6 +1026,7 @@ pub(super) mod tests {
         };
         let (mut rules, _) = crate::battle::party::projection_tests::fixture().unwrap();
         rules.ex_skills = ExSkillData {
+            foraging: Default::default(),
             skills: [(
                 33,
                 ExSkill {

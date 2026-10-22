@@ -20,6 +20,34 @@ fn edge() -> ButtonInput {
 
 #[test]
 #[ignore = "requires cooked Strategy and encounter assets; CPU only"]
+fn lone_general_records_a_completed_strategy_order_with_only_lloyd_alive() -> Result<()> {
+    let mut f = super::item_tests::prepared_fixture_with_party(&[1, 3], 2, &[], |party, _, _| {
+        party.members[2].hp = 0;
+        Ok(())
+    })?;
+    enter_battle(&mut f.candidate, &mut f.battle)?;
+    let lloyd = f.candidate.setup.actors[0].0;
+    assert!(!f.battle.ledger().achievements[lloyd.index()].commanded_alone);
+    f.lifecycle.step(
+        &mut f.battle,
+        lifecycle::Input {
+            order: Some(1),
+            ..Default::default()
+        },
+        &mut f.candidate,
+        &mut Display,
+    )?;
+    for _ in 0..60 {
+        visit(&mut f, Default::default())?;
+    }
+    let facts = &f.battle.ledger().achievements[lloyd.index()];
+    assert_eq!(facts.strategy_orders, 1);
+    assert!(facts.commanded_alone);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires cooked Strategy and encounter assets; CPU only"]
 fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strategy() -> Result<()>
 {
     let mut f =
@@ -47,9 +75,17 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
         visit(&mut f, Default::default())?;
     }
     assert_eq!(f.candidate.active_order(), 0);
+    assert_eq!(
+        f.battle.ledger().achievements[f.candidate.setup.actors[0].0.index()].strategy_orders,
+        0
+    );
     visit(&mut f, Default::default())?;
     assert_eq!(f.candidate.active_order(), 1);
     f.candidate.finish_strategy(&mut f.battle)?;
+    assert_eq!(
+        f.battle.ledger().achievements[f.candidate.setup.actors[0].0.index()].strategy_orders,
+        1
+    );
     for &(actor, _) in &f.candidate.setup.actors {
         assert_eq!(f.battle.companion_policy(actor).unwrap().choices, [2, 1, 6]);
     }
@@ -69,6 +105,10 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
     for _ in 0..60 {
         visit(&mut f, Default::default())?;
     }
+    assert_eq!(
+        f.battle.ledger().achievements[f.candidate.setup.actors[0].0.index()].strategy_orders,
+        1
+    );
     assert_eq!(f.lifecycle.order_selection(), 0);
     assert_eq!(f.candidate.active_order(), 1);
     visit(
@@ -87,6 +127,10 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
             personal
         );
     }
+    assert_eq!(
+        f.battle.ledger().achievements[f.candidate.setup.actors[0].0.index()].strategy_orders,
+        2
+    );
     assert_eq!(f.candidate.party.strategy_presets, f.field.strategy_presets);
     Ok(())
 }
@@ -516,6 +560,25 @@ fn absent_menu_members_do_not_change_actor_ids_or_saved_formation() -> Result<()
     assert_eq!(
         f.battle.actors()[3].availability,
         ActorAvailability::Petrified
+    );
+    f.candidate.party.formation.extend([5, 6, 7, 8]);
+    let (mut equipment, mut character) = f.candidate.begin_equipment(&mut f.battle, 7)?;
+    assert_eq!(character, 2);
+    assert_eq!(f.candidate.menu_party().formation, [1, 3, 9]);
+    for (action, expected) in [(MenuAction::NextTab, 0), (MenuAction::PreviousTab, 2)] {
+        f.candidate
+            .step_equipment(&mut f.battle, &mut equipment, &mut character, Some(action))?;
+        assert_eq!(character, expected);
+    }
+    super::item_tests::close_equipment(
+        &mut f.candidate,
+        &mut f.battle,
+        &mut equipment,
+        &mut character,
+    )?;
+    assert_eq!(
+        f.candidate.persistent_party().formation,
+        [1, 2, 3, 9, 5, 6, 7, 8]
     );
     Ok(())
 }

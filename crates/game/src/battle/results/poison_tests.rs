@@ -51,6 +51,8 @@ fn saved_poison_roundtrips_through_completion_and_fresh_entry() -> Result<()> {
         )
     };
     let mut f = prepare(None)?;
+    assert!(f.battle.ledger().achievements[0].stayed_poisoned);
+    assert!(!f.battle.ledger().achievements[1].stayed_poisoned);
     let original = serde_json::to_value(&f.field)?;
     let outcome = escape(&mut f.candidate, &mut f.battle)?;
     let completed = f.candidate.finish(&f.battle, &outcome)?;

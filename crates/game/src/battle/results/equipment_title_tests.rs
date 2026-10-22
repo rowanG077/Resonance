@@ -49,10 +49,12 @@ fn wooden_blade_equip_history_commits_only_final_changed_weapon_and_survives_ret
         equip(candidate, 135)
     })?;
     assert!(!fixture.candidate.party.battles.lloyd_non_wooden_blade_used);
+    assert_eq!(fixture.battle.ledger().achievements[0].weapon_changes, 0);
     close_equipment(&mut fixture, |candidate| equip(candidate, 136))?;
     assert!(fixture.candidate.party.battles.lloyd_non_wooden_blade_used);
     close_equipment(&mut fixture, |candidate| equip(candidate, 135))?;
     assert!(fixture.candidate.party.battles.lloyd_non_wooden_blade_used);
+    assert_eq!(fixture.battle.ledger().achievements[0].weapon_changes, 2);
     assert!(!fixture.field.battles.lloyd_non_wooden_blade_used);
     assert_eq!(fixture.field.members[0].equipment[0], 135);
     assert_eq!(fixture.battle.random_state(), random);
@@ -100,6 +102,7 @@ fn rejected_equipment_keeps_party_actors_and_title_history_under_both_error_poli
         assert!(!candidate.party.battles.lloyd_non_wooden_blade_used);
         assert_eq!(battle.actors(), actors.as_slice());
         assert_eq!(battle.random_state(), random);
+        assert_eq!(battle.ledger().achievements[0].weapon_changes, 0);
         assert!(candidate.menu_party.is_none());
         assert_eq!(serde_json::to_value(&field)?, field_before);
     }
