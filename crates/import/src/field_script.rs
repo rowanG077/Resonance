@@ -35,8 +35,14 @@ const NIFLHEIM_SCRIPT: &str = "36e39a2ec87a074e22c2d88f7693e9196af6403e3f59ebb05
 
 /// Keep Niflheim enemies visible at widescreen edges by replacing distance-based
 /// model hiding with the existing ring-contact state used by the same branches.
-/// GameCube used a narrower 4:3 view; keep visible enemies in widescreen.
+/// Also adapt victory bookkeeping for combined battles: award
+/// `10 * formation_count - ticks / 120` Soulfire and count every defeated group.
+/// Counting only one group leaves red floors empty without spawning their exit.
+/// GameCube used a narrower 4:3 view and had no combined encounters; these changes
+/// accommodate widescreen rendering and the added combined-battle feature.
 fn adjust_niflheim(bytes: &[u8]) -> Vec<u8> {
+    use symphonia_script::{NativeCall, scenario};
+
     let mut corrected = bytes.to_vec();
     // The room pauses distant enemies and uses model hiding as its state flag.
     // Its radius falls inside a widescreen view. Use the ring-contact flag,
@@ -45,6 +51,51 @@ fn adjust_niflheim(bytes: &[u8]) -> Vec<u8> {
     for offset in [0x7846, 0x7866, 0x795e, 0x797e] {
         corrected[offset..offset + 2].copy_from_slice(&RING_CONTACT_DISABLED.to_be_bytes());
     }
+    // Award ten Soulfire per formation; the unchanged time cost is ticks / 120.
+    // Red floors count defeated field groups, including every joined formation.
+    const SOULFIRE_BONUS: std::ops::Range<usize> = 0x8a52..0x8a5c;
+    const DEFEATED_GROUPS: std::ops::Range<usize> = 0x8a84..0x8a8c;
+    let header = scenario::parse_header(bytes).expect("known field script");
+    let count = [
+        0x0100,
+        resonance_content::field::BATTLE_FORMATION_COUNT_QUERY,
+        0x3000,
+        0x4000,
+        0x0000,
+        0x3000,
+        0x4000,
+        0x2000 | NativeCall::Unknown92 as u16,
+    ];
+    let mut extra = Vec::new();
+    for (range, prefix, suffix) in [
+        (
+            SOULFIRE_BONUS,
+            &[0x1200, 0x08c0, 0x000a][..],
+            &[0x3033, 0x3011][..],
+        ),
+        (DEFEATED_GROUPS, &[0x1200, 0x09b8][..], &[0x3012][..]),
+    ] {
+        let target = header.auxiliary_words - header.code_base_words + extra.len() as u16;
+        corrected[range.start..range.start + 4].copy_from_slice(
+            &[0x2001, target]
+                .into_iter()
+                .flat_map(u16::to_be_bytes)
+                .collect::<Vec<_>>(),
+        );
+        extra.extend_from_slice(prefix);
+        extra.extend(count);
+        extra.extend_from_slice(suffix);
+        extra.extend([
+            0x3000,
+            0x2001,
+            ((range.end - header.code_base()) / 2) as u16,
+        ]);
+    }
+    corrected[4..6].copy_from_slice(&(header.auxiliary_words + extra.len() as u16).to_be_bytes());
+    corrected.splice(
+        header.auxiliary_offset()..header.auxiliary_offset(),
+        extra.into_iter().flat_map(u16::to_be_bytes),
+    );
     corrected
 }
 
