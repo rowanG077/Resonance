@@ -569,7 +569,7 @@ impl NativeHost<'_> {
                         let bone = model
                             .names
                             .iter()
-                            .position(|n| n.as_bytes() == name)
+                            .position(|n| n == name.as_ref())
                             .ok_or("named door is missing")?
                             as u16;
                         require(
@@ -1234,6 +1234,7 @@ impl NativeHost<'_> {
                             ));
                         } else {
                             adjustment.translation = Some(crate::world::BoneTranslation {
+                                absolute: false,
                                 from: adjustment.translation(self.world.tick),
                                 to: target,
                                 duration_ticks: (a[6] as u32).max(1),
@@ -1270,7 +1271,7 @@ impl NativeHost<'_> {
                 } else if let Some(owner) = self.world.actors.get(&parent) {
                     let bone = self
                         .resources
-                        .model(owner.resource)
+                        .model(owner.model_resource())
                         .and_then(|model| model.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("attachment bone is not cooked")?
                         .clone();
@@ -1298,17 +1299,31 @@ impl NativeHost<'_> {
             NativeCall::MeasureActorGeometry => {
                 // Arguments are operation, first actor, second actor.
                 require((0..=3).contains(&a[0]), "unknown actor geometry query")?;
-                let actor = |id| {
-                    self.world.actors.get(&match id {
+                let position = |id| -> Result<Option<[f32; 3]>, String> {
+                    let id = match id {
                         crate::CONTROLLED_ACTOR => self.world.controlled_actor,
-                        crate::ring::SCRIPT_ACTOR => self.world.ring.bomb()?,
+                        crate::ring::SCRIPT_ACTOR => match self.world.ring.bomb() {
+                            Some(id) => id,
+                            None => return Ok(None),
+                        },
                         _ => id,
-                    })
+                    };
+                    let Some(actor) = self.world.actors.get(&id) else {
+                        return Ok(None);
+                    };
+                    if actor.attachment.is_some() {
+                        // Spatial queries compare positions in the room, not
+                        // offsets in unrelated attachment frames.
+                        self.world
+                            .try_attached_position(self.resources, id)
+                            .map_err(|error| format!("{error:#}"))
+                    } else {
+                        Ok(Some(actor.position))
+                    }
                 };
-                value = Some(match (actor(a[1]), actor(a[2])) {
+                value = Some(match (position(a[1])?, position(a[2])?) {
                     (Some(first), Some(second)) => {
-                        let d: [f32; 3] =
-                            std::array::from_fn(|i| second.position[i] - first.position[i]);
+                        let d: [f32; 3] = std::array::from_fn(|i| second[i] - first[i]);
                         match a[0] {
                             // Coincident points have no direction; signed zero
                             // must not turn this into a half-turn.
@@ -2027,7 +2042,6 @@ impl NativeHost<'_> {
         actor.face(a[6] as f32);
         actor.visible = !locator;
         actor.radius = 32.;
-        actor.turn_speed = 10.;
         // Native B6=6 selects enemy contact; B4 (property 17) is the action
         // label and remains zero. Enemies are not ordinary action targets.
         let behavior = crate::Behavior::enemy(a[11] as u8);
@@ -2043,7 +2057,7 @@ impl NativeHost<'_> {
             normal_speed: a[7].max(0) as f32,
             alert_speed: a[8].max(0) as f32,
             random_turns: a[12] as u8,
-            chase_on_sight: a[13] as u8 != 0,
+            alert_response: a[13] as u8,
             sight_angle: 90.,
             sight_distance: 600.,
             alerted: false,
