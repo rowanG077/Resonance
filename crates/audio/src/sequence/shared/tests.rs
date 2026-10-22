@@ -100,6 +100,148 @@ fn render_block(synth: &Synthesizer, stream: &Stream) -> Result<Vec<BusFrame>> {
 }
 
 #[test]
+fn sound_velocity_scales_dry_and_prefader_sends_before_macros() -> Result<()> {
+    use crate::data::{ControlTarget, Operand};
+    let sound = |level: u8, origin| {
+        configured_fixture(vec![wait(None, false)], true, |resources, score, tables| {
+            tables.mix.volume = std::array::from_fn(|i| (i as f32 / 128.).powi(2));
+            tables.mix.volume_16_scale = 1. / (127. * 65536.);
+            tables.mix.controller_14_scale = 1. / 16383.;
+            resources.programs.get_mut(&1).unwrap().splice(
+                0..0,
+                [
+                    Command::SelectControl {
+                        target: ControlTarget::PreAuxiliaryB,
+                        source: Operand::Constant(0),
+                        scale: 0,
+                    },
+                    Command::SetVolume {
+                        factor: 90,
+                        offset: 0,
+                        curve: None,
+                        from_velocity: true,
+                    },
+                ],
+            );
+            score.origin = origin;
+            let EventKind::Notes { source, voices, .. } = &mut score.first_events[0].kind else {
+                unreachable!()
+            };
+            if origin == ScoreOrigin::SoundEffect {
+                *source = VoiceSource::SoundEffect { id: 54 };
+            }
+            voices[0].max_voices = u8::MAX;
+            voices.push(Note {
+                velocity: 90,
+                ..voices[0]
+            });
+            for note in voices {
+                note.velocity = (u16::from(note.velocity) * u16::from(level) / 127) as u8;
+            }
+        })
+    };
+    let render = |loaded, controls| -> Result<Vec<BusFrame>> {
+        let synth = Synthesizer::default();
+        let stream = synth.start(loaded, false)?;
+        stream.controls([controls; CONTROLS_PER_BLOCK])?;
+        render_block(&synth, &stream)
+    };
+    for level in [0, 32, 127] {
+        let actual = render(
+            sound(127, ScoreOrigin::SoundEffect),
+            LiveControls {
+                sound_velocity: Some(level),
+                ..Default::default()
+            },
+        )?;
+        let expected = render(
+            sound(level, ScoreOrigin::SoundEffect),
+            LiveControls::default(),
+        )?;
+        assert_eq!(actual, expected, "sound level {level}");
+        if level == 0 {
+            assert!(actual.iter().all(|frame| *frame == [[0; 2]; 3]));
+        } else {
+            assert!(
+                actual
+                    .iter()
+                    .any(|frame| frame[0][0] > 0 && frame[2][0] > 0)
+            );
+        }
+        let music = render(
+            sound(127, ScoreOrigin::Sequence),
+            LiveControls {
+                sound_velocity: Some(level),
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(
+            music,
+            render(sound(127, ScoreOrigin::Sequence), LiveControls::default())?
+        );
+    }
+    // A group fader intentionally leaves pre-fader sends intact; using that
+    // control for a muted sound request is the routing error this guards against.
+    let group_muted = render(
+        sound(127, ScoreOrigin::SoundEffect),
+        LiveControls {
+            volume: 0.,
+            ..Default::default()
+        },
+    )?;
+    assert!(
+        group_muted
+            .iter()
+            .any(|frame| frame[0] == [0; 2] && frame[2][0] > 0)
+    );
+    Ok(())
+}
+
+#[test]
+fn live_source_volume_scales_existing_notes_and_prefader_sends() -> Result<()> {
+    use crate::data::{ControlTarget, Operand};
+    let loaded = configured_fixture(vec![wait(None, false)], true, |resources, _, tables| {
+        tables.mix.volume = std::array::from_fn(|i| i as f32 / 128.);
+        tables.mix.volume_16_scale = 1. / (127. * 65536.);
+        tables.mix.controller_14_scale = 1. / 16383.;
+        resources.programs.get_mut(&1).unwrap().insert(
+            0,
+            Command::SelectControl {
+                target: ControlTarget::PreAuxiliaryB,
+                source: Operand::Constant(0),
+                scale: 0,
+            },
+        );
+    });
+    let synth = Synthesizer::default();
+    let stream = synth.start(loaded, false)?;
+    let mut full = None;
+    for level in [1., 0.25, 0., 1.] {
+        stream.controls(
+            [LiveControls {
+                source_volume: level,
+                ..Default::default()
+            }; CONTROLS_PER_BLOCK],
+        )?;
+        let frame = *render_block(&synth, &stream)?.last().unwrap();
+        let reference = *full.get_or_insert(frame);
+        assert!(reference[0][0] > 0 && reference[2][0] > 0);
+        for (bus, reference) in frame.into_iter().zip(reference) {
+            for (actual, full) in bus.into_iter().zip(reference) {
+                assert!(
+                    (actual as f32 - full as f32 * level).abs() <= 2.,
+                    "level {level}: {actual}, full {full}"
+                );
+                if level == 0. {
+                    assert_eq!(actual, 0);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn combat_effects_preserve_sustained_music_and_new_instruments() -> Result<()> {
     let music = fixture(vec![wait(None, false)], true);
     let effect = configured_fixture(vec![wait(None, false)], true, |_, score, _| {

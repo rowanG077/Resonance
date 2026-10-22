@@ -66,11 +66,7 @@ pub(super) fn install(app: &mut App, silent: bool) -> Result<()> {
     let output = device.output();
     let (control, mixer) = Mixer::new(output.clock.clone());
     let converter = resonance_media::output::Resampler::new(device.description.rate)?;
-    let worker = Worker::start(
-        mixer,
-        resonance_audio_device::prioritize(Box::new(converter)),
-        output.clone(),
-    )?;
+    let worker = Worker::start(mixer, Box::new(converter), output.clone())?;
     let start = Instant::now();
     while !output.ready() {
         output.check()?;
@@ -157,7 +153,7 @@ impl Device {
                     let (worker, output) = self.suspended.take().unwrap().resume(
                         device.description.rate,
                         device.description.requested_frames.unwrap_or(2048) as usize,
-                        resonance_audio_device::prioritize(Box::new(converter)),
+                        Box::new(converter),
                     )?;
                     self.worker = Some(worker);
                     self.output = output;

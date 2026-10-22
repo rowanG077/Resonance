@@ -26,7 +26,13 @@ pub(crate) const MESSAGE_BUDGET: usize = 1024;
 
 #[derive(Clone, Copy)]
 pub struct LiveControls {
+    /// Group fader applied after authored pre-fader auxiliary sends.
     pub volume: f32,
+    /// Live source gain, including sends that bypass the group fader.
+    pub source_volume: f32,
+    /// Scale newly started sound-effect notes before their macros and sends.
+    /// Prepared layer velocities retain their balance; music notes are unchanged.
+    pub sound_velocity: Option<u8>,
     pub pan: Option<u8>,
     /// Higher values take precedence; None preserves authored note/macro priority.
     pub priority: Option<u16>,
@@ -37,6 +43,8 @@ impl Default for LiveControls {
     fn default() -> Self {
         Self {
             volume: 1.0,
+            source_volume: 1.0,
+            sound_velocity: None,
             pan: None,
             priority: None,
             mono: false,

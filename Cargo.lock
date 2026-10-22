@@ -4382,7 +4382,6 @@ name = "resonance-audio-device"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "audio_thread_priority",
  "cpal",
  "resonance-playback",
 ]
