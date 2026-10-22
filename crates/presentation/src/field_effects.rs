@@ -17,7 +17,7 @@ use bevy::{
 };
 use resonance_content::{
     effect::{FieldEffects, RefractionRecipe, VerticalAnchor},
-    field::FieldAssets,
+    field::{AmbientEmission, FieldAssets, HeatHaze},
 };
 use resonance_events::effect::{Blend, RotationOrder, SpriteOrientation};
 use std::{collections::BTreeMap, fs, path::Path};
@@ -43,6 +43,8 @@ pub(super) struct Artwork {
     sprite_materials: BTreeMap<u16, SpriteMaterials>,
     overlay_materials: BTreeMap<u32, Vec<SpriteMaterials>>,
     refraction_texture: [Handle<Image>; 2],
+    heat_haze: Option<(HeatHaze, Handle<Image>)>,
+    ambient: super::field_ambient::Ambient,
 }
 impl Artwork {
     pub(super) fn drawn(&self, request: &Request, tick: u32) -> bool {
@@ -59,6 +61,11 @@ impl Artwork {
 
     pub(super) fn palette(&self, index: u8) -> [u8; 4] {
         self.spec.palette[usize::from(index)]
+    }
+    pub(super) fn heat_haze(&self) -> Option<(&HeatHaze, &Handle<Image>)> {
+        self.heat_haze
+            .as_ref()
+            .map(|(recipe, image)| (recipe, image))
     }
     pub(super) fn refraction(
         &self,
@@ -173,11 +180,49 @@ impl Artwork {
                     .collect(),
             );
         }
+        let mut ambient_bindings: Vec<_> = field
+            .environment
+            .particles
+            .iter()
+            .map(|recipe| {
+                let blend = if recipe.sprite.additive {
+                    Blend::Additive
+                } else {
+                    Blend::Alpha
+                };
+                (
+                    recipe.clone(),
+                    register(&recipe.sprite.texture, blend, true),
+                )
+            })
+            .collect();
+        for (recipe, material) in &mut ambient_bindings {
+            if let AmbientEmission::Snow {
+                fog_color,
+                fog_range,
+                ..
+            } = recipe.emission
+            {
+                let mut surface = surfaces.get(&materials[*material]).unwrap().clone();
+                surface.field_fog = false;
+                surface.fog_color = Vec4::from_array(fog_color.map(|v| f32::from(v) / 255.));
+                // Snow fades into exponential fog rather than the scene's lighting.
+                surface.fog_range = Vec4::new(fog_range[0], fog_range[1], 1., 0.);
+                *material = materials.len();
+                materials.push(surfaces.add(surface));
+            }
+        }
+        let ambient = super::field_ambient::Ambient::new(ambient_bindings);
         let refraction_texture = [
             &spec.refraction.sprite.texture,
             &spec.air_refraction.texture,
         ]
         .map(|path| load_image(server, path, false));
+        let heat_haze = field.environment.heat_haze.as_ref().map(|recipe| {
+            let image = load_image(server, &recipe.sprite.texture, false);
+            textures.push(image.clone());
+            (recipe.clone(), image)
+        });
         let warm = Quad::new(
             Vec3::ZERO,
             Quat::IDENTITY,
@@ -197,9 +242,12 @@ impl Artwork {
             sprite_materials,
             overlay_materials,
             refraction_texture,
+            heat_haze,
+            ambient,
         })
     }
     pub fn despawn(&mut self, world: &mut World) {
+        self.ambient.reset();
         for (entity, _) in self.draws.drain(..).flatten() {
             world.despawn(entity);
         }
@@ -357,6 +405,7 @@ pub(super) fn render(
     let forward = Vec3::Z.cross(side);
     let brightness = world.brightness();
     let mut quads = Vec::new();
+    art.ambient.render(world, camera.rotation, &mut quads);
     let mut particles: Vec<_> = world.billboards.iter().collect();
     particles.sort_unstable_by_key(|(_, effect)| effect.draw_order);
     let mut previous_blend = Blend::Additive;

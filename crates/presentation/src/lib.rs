@@ -37,6 +37,7 @@ mod testing;
 pub use display::Resolution;
 mod choice_cursor;
 mod draw_order;
+mod field_ambient;
 mod field_animation;
 mod field_audio;
 #[cfg(test)]
@@ -289,7 +290,7 @@ fn build_app_with_display(
     };
     let music =
         Some(PlaybackAssets::load(&assets, diagnostics.clone())?).filter(|audio| !audio.is_empty());
-    let mut movie = movie::Playback::load(&assets, &options)?;
+    let movie = movie::Playback::load(&assets, &options)?;
     let boot = boot::Playback::load(&assets, &options)?;
     let initial_clock = PresentationClock::new(options.presentation_start.unwrap_or(0));
     let mut app = App::new();
@@ -304,11 +305,6 @@ fn build_app_with_display(
         &options.saves,
         !options.headless() && options.replay.is_none(),
     )?;
-    movie.mono = !app
-        .world()
-        .resource::<config::Preferences>()
-        .settings
-        .stereo;
     loading::install(&mut app, &assets);
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();

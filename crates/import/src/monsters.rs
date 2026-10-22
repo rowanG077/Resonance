@@ -132,9 +132,12 @@ pub(crate) fn publish_metadata(
         let path = format!("monsters/{id:03}.json");
         let previous: serde_json::Value =
             serde_json::from_slice(&std::fs::read(prepared.join(&path))?)?;
-        let preview = serde_json::from_value(previous["preview"].clone())?;
+        let mut preview: resonance_content::model_preview::ModelPreview =
+            serde_json::from_value(previous["preview"].clone())?;
         let bytes = crate::source_assets::enemy_package(&archive, &usual, u16::from(id))?;
-        let monster = metadata(id, source::read(&bytes)?, preview, &catalogue, &ui)?;
+        let record = source::read(&bytes)?;
+        preview::animate_body(&mut preview.parts, record.metadata)?;
+        let monster = metadata(id, record, preview, &catalogue, &ui)?;
         write_atomic(&output.join(&path), &serde_json::to_vec_pretty(&monster)?)?;
         records.push(monster);
     }

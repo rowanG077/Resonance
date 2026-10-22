@@ -1,6 +1,7 @@
 //! Field archive inspection and conversion. All original-format I/O stays here.
 #[path = "field/collision.rs"]
 pub(crate) mod collision_data;
+pub(crate) mod environment;
 
 use crate::read::u32 as word;
 use crate::{digest, write_atomic};
@@ -218,6 +219,9 @@ pub(crate) fn prepare(
         source_sha256: physical.source_sha256.clone(),
         script: script_path.clone(),
         messages: messages_path.clone(),
+        panorama: physical.panorama()?,
+        water: water(map_id),
+        environment: environment::profile(map_id, &shared.effects.environment),
         parts,
         ground: physical
             .section(4)
@@ -263,6 +267,8 @@ pub(crate) fn prepare(
         },
     };
     let mut files: std::collections::BTreeSet<_> = [script_path, messages_path].into();
+    files.extend(assets.panorama.iter().cloned());
+    files.extend(assets.environment.textures().cloned());
     files.extend(overlay_files);
     files.extend(characters.files);
     for part in assets
@@ -276,6 +282,29 @@ pub(crate) fn prepare(
     }
     assets.validate()?;
     Ok((assets, files))
+}
+
+fn water(map: u32) -> Option<resonance_content::field::FieldWater> {
+    const YMIR_FOREST: std::ops::RangeInclusive<u32> = 519..=521;
+    if !YMIR_FOREST.contains(&map) {
+        return None;
+    }
+    let mut reflected_actors = vec![999_997, 3002, 3];
+    if map == 520 {
+        reflected_actors.push(3500);
+    }
+    Some(resonance_content::field::FieldWater {
+        height: -70.,
+        bounds: [[-7000., -4500.], [4100., 7000.]],
+        tint: [
+            128. / 255. * 4.,
+            160. / 255. * 4.,
+            128. / 255. * 4.,
+            64. / 255.,
+        ],
+        reflected_actors,
+        reflection_only_actors: vec![999_980],
+    })
 }
 
 pub(crate) fn publish(output: &Path, assets: &FieldAssets) -> Result<String> {

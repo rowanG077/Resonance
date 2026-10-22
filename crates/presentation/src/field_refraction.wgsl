@@ -7,6 +7,8 @@ struct Settings {
     uv: array<vec4<f32>, 2>,
     parameters: vec4<f32>,
     screen_copy: vec4<f32>,
+    heat_transform: vec4<f32>,
+    heat_uv: vec4<f32>,
 };
 @group(0) @binding(0) var scene: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;
@@ -15,6 +17,8 @@ struct Settings {
 @group(0) @binding(4) var scene_depth: texture_depth_2d;
 @group(0) @binding(5) var air_displacement: texture_2d<f32>;
 @group(0) @binding(6) var<storage, read> pulses: array<Pulse>;
+@group(0) @binding(7) var heat_displacement: texture_2d<f32>;
+@group(0) @binding(8) var repeating_sampler: sampler;
 
 fn scene_texel(pixel: vec2<i32>) -> vec4<f32> {
     let size = vec2<i32>(textureDimensions(scene));
@@ -38,6 +42,17 @@ fn captured_scene(uv: vec2<f32>) -> vec4<f32> {
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     var color = textureSampleLevel(scene, linear_sampler, in.uv, 0.);
+    if settings.heat_transform.w != 0. {
+        let transform = settings.heat_transform;
+        let noise_uv = vec2<f32>(
+            transform.x * in.uv.x - transform.y * in.uv.y + transform.z,
+            transform.y * in.uv.x + transform.x * in.uv.y);
+        let bounds = settings.heat_uv;
+        let sample = floor(textureSampleLevel(heat_displacement, repeating_sampler,
+            mix(bounds.xy, bounds.zw, noise_uv), 0.).ab * 255.);
+        let offset = (sample - vec2<f32>(128.)) * settings.parameters.yz;
+        color = mix(color, captured_scene(in.uv + offset), transform.w);
+    }
     let depth = textureLoad(scene_depth, vec2<i32>(in.position.xy), 0);
     // Enlarged copies with alpha 0x90. Pass B uses LEQUAL,
     // pass A GEQUAL; the scene depth buffer uses the reverse convention.

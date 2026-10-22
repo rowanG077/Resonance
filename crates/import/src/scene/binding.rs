@@ -195,6 +195,31 @@ pub(crate) fn bindings(root: &Path, directory: &str, part: &ScenePart) -> Result
 }
 
 impl<'a> Map<'a> {
+    pub(crate) fn panorama(&self) -> Result<Option<String>> {
+        let Some(bytes) = self.archive.optional_section(15) else {
+            return Ok(None);
+        };
+        let decoded = self.decoded.textures(bytes)?;
+        decoded.validate()?;
+        let mut result = Ok(());
+        decoded.publish(self.root, |_, written| {
+            if result.is_ok() {
+                result = written;
+            }
+        });
+        result?;
+        Ok(Some(
+            decoded
+                .catalogue
+                .textures
+                .first()
+                .and_then(Option::as_ref)
+                .context("field panorama texture is missing")?
+                .image(0)?
+                .path,
+        ))
+    }
+
     pub(crate) fn camera_tracks(
         &self,
     ) -> Result<std::collections::BTreeMap<u32, Vec<resonance_content::CameraKey>>> {
@@ -429,7 +454,9 @@ mod tests {
     #[ignore = "requires original disc 1; no prior cooked assets"]
     fn original_field_layers_need_no_physical_intermediates() -> Result<()> {
         let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
+        let mut panoramas = 0;
         for source in [
+            crate::field::source_for_id(&extracted, 138)?,
             crate::field::source_for_id(&extracted, 332)?,
             crate::field::source_for_id(&extracted, 340)?,
             crate::field::source_for_id(&extracted, 344)?,
@@ -442,6 +469,17 @@ mod tests {
                 b"not a cooked catalogue",
             )?;
             let map = Map::open(output.path(), &source)?;
+            match (map.panorama()?, map.archive.optional_section(15)) {
+                (Some(path), Some(bytes)) => {
+                    let (width, height, rgba) = crate::tpl::decode(bytes)?.remove(0);
+                    let image = crate::texture::pixels(&output.path().join(path))?;
+                    assert_eq!(image.dimensions(), (width, height));
+                    assert_eq!(image.as_raw(), &rgba);
+                    panoramas += 1;
+                }
+                (None, None) => {}
+                _ => panic!("field panorama presence differs from source"),
+            }
             for index in FIELD_LAYERS {
                 if map.archive.optional_section(index).is_none() {
                     continue;
@@ -479,6 +517,7 @@ mod tests {
                 serde_json::to_value(map.messages()?)?
             );
         }
+        assert_eq!(panoramas, 1);
         Ok(())
     }
 

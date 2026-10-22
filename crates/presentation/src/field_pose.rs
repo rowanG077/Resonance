@@ -65,12 +65,11 @@ pub(super) fn bones(
             }
             continue;
         }
-        if actor
-            .appearance
-            .bone_adjustments
-            .values()
-            .any(|a| a.translation.is_some())
-            && let Some(rig) = rig
+        if actor.appearance.bone_adjustments.values().any(|a| {
+            a.translation
+                .as_ref()
+                .is_some_and(|translation| !translation.absolute)
+        }) && let Some(rig) = rig
         {
             for bone in (0..).map_while(|i| rig.bone_at(i)) {
                 affine.translation_boundary(bone);
@@ -162,8 +161,23 @@ pub(super) fn adjust_bone(
             Vec3::from_array(scale.sample(tick, bind_scale.to_array())),
         );
     }
-    if adjustment.translation.is_some() {
-        affine.translate(entity, Vec3::from_array(adjustment.translation(tick)));
+    if let Some(translation) = &adjustment.translation {
+        let position = Vec3::from_array(adjustment.translation(tick));
+        if translation.absolute {
+            let pose = match affine.get(entity, *transform) {
+                Pose::Trs(mut value) => {
+                    value.translation = position;
+                    Pose::Trs(value)
+                }
+                Pose::Affine(mut value) => {
+                    value.translation = position.into();
+                    Pose::Affine(value)
+                }
+            };
+            affine.set(entity, transform, pose);
+        } else {
+            affine.translate(entity, position);
+        }
     }
 }
 

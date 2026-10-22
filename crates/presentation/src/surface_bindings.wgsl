@@ -5,6 +5,13 @@
 #endif
 #endif
 
+struct SceneryLighting {
+    ambient: vec4<f32>,
+    color: vec4<f32>,
+    attenuation: vec4<f32>,
+    positions: array<vec4<f32>, 2>,
+};
+
 struct SurfaceUniform {
     uv_offsets: vec4<f32>,
     uv_scales: vec4<f32>,
@@ -12,6 +19,7 @@ struct SurfaceUniform {
     ambient_color: vec4<f32>,
     field_light: vec4<f32>,
     shade_colors: array<vec4<f32>, 2>,
+    scenery_lighting: SceneryLighting,
     fog_color: vec4<f32>,
     fog_range: vec4<f32>, // XYZ: material start/end/exponent; W: use field view fog.
     alpha_cutoff: f32,

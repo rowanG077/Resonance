@@ -271,6 +271,22 @@ fn begin(
         .id();
     report.expected.insert(backdrop.into());
     entities.push(backdrop);
+    if let Some(panorama) = &art.panorama
+        && let Some(draw) = &panorama.draw
+    {
+        let entity = commands
+            .spawn((
+                Mesh3d(draw.mesh.clone()),
+                MeshMaterial3d(draw.material.clone()),
+                Transform::default(),
+                RenderLayers::layer(LAYER),
+                NoFrustumCulling,
+            ))
+            .id();
+        report.expected.insert(entity.into());
+        report.images.insert(panorama.image.id());
+        entities.push(entity);
+    }
     for (mesh, material, essential) in ui.prepared_layers() {
         // Optional pages may still be loading, or may never be selected. Their
         // missing textures must not enter the mandatory submission fence.
@@ -342,21 +358,16 @@ fn begin(
                 .into_iter()
                 .flat_map(|depth_write| {
                     [false, true].into_iter().flat_map(move |lighting| {
-                        [
-                            (None, false),
-                            (Some(Blend::Alpha), false),
-                            (Some(Blend::Additive), false),
-                            (Some(Blend::Subtractive), false),
-                            (Some(Blend::Alpha), true),
-                            (Some(Blend::Additive), true),
-                            (Some(Blend::Subtractive), true),
-                        ]
-                        .map(|(blend, two_sided)| MaterialVariant::Actor {
-                            depth_write,
-                            lighting,
-                            blend,
-                            two_sided,
-                        })
+                        std::iter::once((None, false))
+                            .chain(Blend::ACTOR_MODES.into_iter().flat_map(|blend| {
+                                [false, true].map(|two_sided| (Some(blend), two_sided))
+                            }))
+                            .map(move |(blend, two_sided)| MaterialVariant::Actor {
+                                depth_write,
+                                lighting,
+                                blend,
+                                two_sided,
+                            })
                     })
                 })
                 .chain(

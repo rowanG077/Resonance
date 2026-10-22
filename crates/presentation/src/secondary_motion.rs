@@ -254,12 +254,9 @@ impl Rig {
                 .copied()
                 .or_else(|| helper.compute_global_transform(bone.parent).ok());
             if let Some(parent) = parent {
-                let terminal = self
-                    .chains
-                    .iter()
-                    .any(|(chain, _)| chain.joints.last().is_some_and(|tip| tip.node == node));
-                let pose = if terminal
-                    || helper.has_world_translation(bone.entity)
+                // Retain the guide's authored position relative to its deformed
+                // parent, so attaching the model also moves the complete chain.
+                let pose = if helper.has_world_translation(bone.entity)
                     || parent.affine().matrix3.determinant() == 0.
                     || world.affine().matrix3.determinant() == 0.
                 {
@@ -419,6 +416,12 @@ pub(super) fn apply(
                 .iter()
                 .map(|(&tick, impulse)| (tick, Vec3::from_array(impulse.acceleration)))
                 .collect();
+            for (&tick, &wind) in &state.get().events.world.environment_wind {
+                let force = rig.impulses.entry(tick).or_default();
+                if *force == Vec3::ZERO {
+                    *force = Vec3::from_array(wind);
+                }
+            }
             let yaw = actor.appearance.fixed_heading.unwrap_or(actor.heading);
             let output = if culled {
                 Some(rig.pose.clone())
@@ -555,6 +558,100 @@ mod tests {
     use super::*;
     use bevy::math::Affine3A;
     use resonance_content::secondary_motion::Joint;
+
+    #[test]
+    fn terminal_joint_follows_the_models_moving_attachment() {
+        use bevy::ecs::system::SystemState;
+        let mut world = World::new();
+        world.init_resource::<Locals>();
+        let root = world.spawn(Transform::IDENTITY).id();
+        let parent = world
+            .spawn((Transform::from_xyz(0., 0., 10.), ChildOf(root)))
+            .id();
+        let tip = world
+            .spawn((Transform::from_xyz(0., 0., 5.), ChildOf(parent)))
+            .id();
+        let rig = Rig {
+            root,
+            bones: [
+                (
+                    0,
+                    Bone {
+                        entity: parent,
+                        parent: root,
+                        authored: Transform::IDENTITY,
+                    },
+                ),
+                (
+                    1,
+                    Bone {
+                        entity: tip,
+                        parent,
+                        authored: Transform::IDENTITY,
+                    },
+                ),
+            ]
+            .into(),
+            authored_nodes: vec![0, 1],
+            chains: vec![(
+                Chain {
+                    joints: (0..2)
+                        .map(|node| Joint {
+                            node,
+                            gravity: 0.,
+                            damping: 0.,
+                        })
+                        .collect(),
+                    attraction: 0.,
+                    preserve_rotation: true,
+                    rotation_locks: [false; 2],
+                    collision_plane: None,
+                },
+                Simulation::default(),
+            )],
+            tick: None,
+            pose: BTreeMap::new(),
+            impulses: BTreeMap::new(),
+            disabled: false,
+        };
+        let poses = [
+            (0, GlobalTransform::from_xyz(2., 0., 10.)),
+            (1, GlobalTransform::from_xyz(0., 0., 15.)),
+        ]
+        .into();
+        let mut helper = SystemState::<TransformHelper>::new(&mut world);
+        let deformations = rig.locals(&helper.get(&world).unwrap(), &poses);
+        world.resource_scope(|world, mut locals: Mut<Locals>| {
+            for (entity, deformation) in deformations {
+                deformation.apply(
+                    entity,
+                    &mut world.get_mut::<Transform>(entity).unwrap(),
+                    &mut locals,
+                );
+            }
+        });
+        for x in [100., 150., 240.] {
+            let attachment =
+                Transform::from_xyz(x, 30., 50.).with_rotation(Quat::from_rotation_z(0.7));
+            world.resource_scope(|world, mut locals: Mut<Locals>| {
+                locals.set(
+                    root,
+                    &mut world.get_mut::<Transform>(root).unwrap(),
+                    Pose::Affine(attachment.compute_affine()),
+                );
+            });
+            let tip_world = helper
+                .get(&world)
+                .unwrap()
+                .compute_global_transform(tip)
+                .unwrap();
+            assert!(
+                tip_world
+                    .translation()
+                    .abs_diff_eq(attachment.transform_point(Vec3::new(0., 0., 15.)), 0.0001)
+            );
+        }
+    }
 
     #[test]
     fn stretched_actor_keeps_secondary_bone_scale_and_world_pose() {

@@ -631,10 +631,11 @@ fn scenery_materials_animate_on_the_visible_objects() -> Result<()> {
         let world = &field.events.world;
         let actor = &world.actors[&target];
         assert!(actor.visible);
-        let track = assets
+        let (index, track) = assets
             .texture_animations
             .iter()
-            .find(|track| track.actor.resolve(&world.texture_bindings) == target)
+            .enumerate()
+            .find(|(_, track)| track.actor.resolve(&world.texture_bindings) == target)
             .context("visible object has no texture animation")?;
         let texture = track.texture.resolve(&world.texture_bindings);
         let parts = assets
@@ -656,12 +657,8 @@ fn scenery_materials_animate_on_the_visible_objects() -> Result<()> {
                 .any(|binding| binding.texture as i32 == texture),
             "animation misses its material"
         );
-        let offset = |field: &FieldSession| {
-            track.offset(
-                field.events.world.texture_animation_tick,
-                field.events.world.texture_animation_effect_tick,
-            )
-        };
+        let offset =
+            |field: &FieldSession| field.events.world.texture_animation_states[index].offset;
         let first = offset(&field);
         let period = match track.motion {
             TextureMotion::Atlas {
