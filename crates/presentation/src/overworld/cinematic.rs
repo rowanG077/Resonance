@@ -24,6 +24,15 @@ pub(super) fn sky_position(playback: &Playback) -> Position {
 pub(super) fn background(id: u16, actor: u8) -> bool {
     matches!(id, 521 | 526) && actor == 1
 }
+pub(super) fn draw_order(id: u16, actor: u8, material: u32) -> super::super::draw_order::DrawOrder {
+    use super::super::draw_order::{DrawOrder, Layer};
+    let layer = if background(id, actor) {
+        Layer::Background
+    } else {
+        Layer::Effects
+    };
+    DrawOrder(layer, usize::from(actor), material)
+}
 pub(super) fn surface(id: u16, actor: u8, surface: &mut TitleSurface) {
     if matches!(
         (id, actor),

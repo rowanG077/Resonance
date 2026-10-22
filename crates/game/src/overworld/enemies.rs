@@ -2,13 +2,16 @@
 //! grace period, and the scene's libc random stream (never formation RNG).
 use super::{Position, World, collision, landmarks::Locations, travel::Mount};
 use anyhow::Result;
-use resonance_content::overworld::{Interaction, MovementParameters};
+use resonance_content::overworld::MovementParameters;
 use std::f32::consts::{PI, TAU};
 
 pub const SLOTS: usize = 3;
 const CONTACT_RADIUS: f32 = 100.;
 const SPAWN_RADIUS: f32 = 1050.;
 const RETIRE_RADIUS: f32 = 1400.;
+const ROAM_SPEED: f32 = 4.;
+const BLOCKED_PURSUIT_LIMIT: u8 = 180;
+const TURN_DEGREES: f32 = 22.;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Behavior {
@@ -24,6 +27,7 @@ pub struct Symbol {
     pub position: Position,
     pub variant: u8,
     pub heading: f32,
+    display_heading: f32,
     pub speed: f32,
     pub animation: u16,
     home: Position,
@@ -31,7 +35,7 @@ pub struct Symbol {
     behavior: Behavior,
     pause: u8,
     returning: bool,
-    blocked: bool,
+    blocked: u8,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -83,6 +87,7 @@ impl Symbols {
             self.clear();
             return Ok(());
         }
+        self.spawn(c, random)?;
         for slot in 0..SLOTS {
             let Some(mut symbol) = self.slots[slot].take() else {
                 continue;
@@ -91,17 +96,29 @@ impl Symbols {
                 continue;
             }
             let previous = symbol.position;
-            symbol.advance(c, random)?;
-            if self.clear_position(symbol.position, c) {
-                self.slots[slot] = Some(symbol);
+            let terrain_clear = symbol.advance(c, random)?;
+            if terrain_clear && self.clear_position(symbol.position, c) {
+                symbol.blocked = 0;
             } else {
                 // Actor/landmark overlap rejects horizontal movement; terrain
                 // resolution and the next wander target still remain valid.
-                symbol.position = previous;
-                symbol.blocked = true;
-                self.slots[slot] = Some(symbol);
+                symbol.position = Position::from_map([
+                    previous.map()[0],
+                    previous.map()[1],
+                    symbol.position.map()[2],
+                ])?;
+                symbol.blocked = symbol.blocked.saturating_add(1).min(BLOCKED_PURSUIT_LIMIT);
+                if symbol.blocked == BLOCKED_PURSUIT_LIMIT
+                    && matches!(symbol.behavior, Behavior::Patrol | Behavior::Guard)
+                {
+                    symbol.behavior = Behavior::Wander;
+                }
             }
+            self.slots[slot] = Some(symbol);
         }
+        Ok(())
+    }
+    fn spawn(&mut self, c: &Context<'_>, random: &mut Random) -> Result<()> {
         if self.grace < 60 {
             self.grace += 1;
             return Ok(());
@@ -146,6 +163,7 @@ impl Symbols {
                 position,
                 variant,
                 heading: heading(position, c.position),
+                display_heading: heading(position, c.position),
                 speed: 0.,
                 animation: 0,
                 home: position,
@@ -153,7 +171,7 @@ impl Symbols {
                 behavior: modified(behavior, c.modifier),
                 pause: 0,
                 returning: false,
-                blocked: false,
+                blocked: 0,
             });
         }
         Ok(())
@@ -162,21 +180,24 @@ impl Symbols {
         !self
             .iter()
             .any(|symbol| symbol.position.distance_to(position) <= CONTACT_RADIUS)
-            && !c.locations.visible(c.world).any(|(landmark, appearance)| {
-                appearance.interaction != Interaction::Disabled
-                    && Position::from_map([landmark.position[0], landmark.position[1], 0.])
-                        .is_ok_and(|p| p.distance_to(position) <= landmark.radius + 50.)
+            && !c.locations.enemy_obstacles(c.world).any(|landmark| {
+                Position::from_map([landmark.position[0], landmark.position[1], 0.])
+                    .is_ok_and(|p| p.distance_to(position) <= landmark.radius + 50.)
             })
     }
 }
 impl Symbol {
-    fn advance(&mut self, c: &Context<'_>, random: &mut Random) -> Result<()> {
+    pub fn display_heading(&self) -> f32 {
+        self.display_heading
+    }
+
+    fn advance(&mut self, c: &Context<'_>, random: &mut Random) -> Result<bool> {
         let behavior = modified(self.behavior, c.modifier);
         if behavior != self.behavior {
             self.behavior = behavior;
             self.speed = 0.;
             self.animation = 0;
-            return Ok(());
+            return Ok(true);
         }
         let distance = self.position.distance_to(c.position);
         self.animation = 0;
@@ -186,23 +207,28 @@ impl Symbol {
             c.parameters.foot_stick_divisor
         };
         let base = c.parameters.stick_maximum / divisor;
-        let mut speed = 4.;
+        let mut speed = ROAM_SPEED;
         let mut moving = true;
         match self.behavior {
             Behavior::Patrol => {
                 if self.pause > 0 {
                     self.pause -= 1;
-                    self.heading = heading(self.position, c.position);
-                    self.animation = 3;
-                    moving = false;
+                    if self.pause == 0 {
+                        moving = self.wander(500., random)?;
+                    } else {
+                        self.heading = heading(self.position, c.position);
+                        self.animation = 3;
+                        moving = false;
+                    }
                 } else if distance > 968. || c.position.distance_to(self.home) > 968. {
                     if !self.returning && distance <= 968. {
                         self.returning = true;
                         self.pause = 120;
+                        self.heading = heading(self.position, c.position);
                         self.animation = 3;
                         moving = false;
                     } else {
-                        self.wander(500., random)?;
+                        moving = self.wander(500., random)?;
                     }
                 } else {
                     self.returning = false;
@@ -223,7 +249,7 @@ impl Symbol {
                     2. * base
                 };
             }
-            Behavior::Wander => self.wander(800., random)?,
+            Behavior::Wander => moving = self.wander(800., random)?,
             Behavior::Watch => {
                 self.heading = heading(self.position, c.position);
                 moving = false;
@@ -232,14 +258,20 @@ impl Symbol {
                 if distance > 500. {
                     if self.returning {
                         self.target = random.around(self.home, 800.)?;
+                        self.blocked = 0;
                     }
                     self.returning = false;
-                    self.wander(800., random)?;
+                    moving = self.wander(800., random)?;
                 } else {
                     self.returning = true;
                     if c.position.distance_to(self.home) > 500. {
-                        self.heading = heading(self.position, self.home);
                         moving = self.position.distance_to(self.home) >= speed;
+                        if moving {
+                            self.heading = heading(self.position, self.home);
+                        } else {
+                            self.position = self.home;
+                            self.heading = heading(self.position, c.position);
+                        }
                     } else {
                         self.heading = (heading(self.position, c.position) + PI).rem_euclid(TAU);
                     }
@@ -250,10 +282,10 @@ impl Symbol {
             moving = false;
         }
         if moving {
+            self.animation = if speed > 0.5 * base { 2 } else { 1 };
             if matches!(self.behavior, Behavior::Patrol | Behavior::Guard) {
                 speed = speed.min(self.speed + 0.75);
             }
-            self.animation = if speed > 0.5 * base { 2 } else { 1 };
         } else {
             speed = 0.;
         }
@@ -262,17 +294,32 @@ impl Symbol {
             .terrain
             .query(self.position, c.parameters.collision_radius)?
             .motion(speed, self.heading, collision::Mode::Ground)?;
-        self.blocked = motion.response.is_none();
         self.position = self.position.translated(motion.delta)?;
-        Ok(())
+        let current = self.display_heading.to_degrees().trunc();
+        let target = self.heading.to_degrees().trunc();
+        let turn = (target - current).rem_euclid(360.);
+        self.display_heading = if turn <= TURN_DEGREES || turn >= 360. - TURN_DEGREES {
+            self.heading
+        } else {
+            (current
+                + if turn > 180. {
+                    -TURN_DEGREES
+                } else {
+                    TURN_DEGREES
+                })
+            .rem_euclid(360.)
+            .to_radians()
+        };
+        Ok(motion.response.is_some())
     }
-    fn wander(&mut self, radius: f32, random: &mut Random) -> Result<()> {
-        if self.blocked || self.position.distance_to(self.target) < 4. {
-            self.target = random.around(self.home, radius)?;
-            self.blocked = false;
-        }
+    fn wander(&mut self, radius: f32, random: &mut Random) -> Result<bool> {
+        let distance = self.position.distance_to(self.target);
         self.heading = heading(self.position, self.target);
-        Ok(())
+        if self.blocked != 0 || distance < ROAM_SPEED {
+            self.target = random.around(self.home, radius)?;
+            self.blocked = 0;
+        }
+        Ok(distance != 0.)
     }
 }
 fn modified(behavior: Behavior, modifier: u8) -> Behavior {
@@ -358,6 +405,147 @@ mod tests {
             locations,
             parameters,
         }
+    }
+
+    fn symbol(position: Position, behavior: Behavior) -> Symbol {
+        Symbol {
+            position,
+            variant: 0,
+            heading: 0.,
+            display_heading: 0.,
+            speed: 0.,
+            animation: 0,
+            home: position,
+            target: position,
+            behavior,
+            pause: 0,
+            returning: false,
+            blocked: 0,
+        }
+    }
+
+    #[test]
+    fn pursuit_turns_the_model_without_delaying_movement_or_run_animation() -> Result<()> {
+        let ground = terrain(1, true);
+        let locations = locations();
+        let parameters = parameters();
+        let c = context(&ground, &locations, &parameters);
+        let mut enemy = symbol(c.position.translated([-200., 0., 0.])?, Behavior::Patrol);
+        let start = enemy.position;
+        let mut random = Random(7);
+        enemy.advance(&c, &mut random)?;
+        assert!(enemy.position.distance_to(c.position) < start.distance_to(c.position));
+        assert_eq!(enemy.speed, 0.75);
+        assert_eq!(enemy.animation, 2);
+        assert!((enemy.heading.to_degrees() - 90.).abs() < 0.001);
+        assert!((enemy.display_heading().to_degrees() - 22.).abs() < 0.001);
+        for _ in 0..4 {
+            enemy.advance(&c, &mut random)?;
+        }
+        assert!((enemy.display_heading() - enemy.heading).abs() < 0.001);
+        Ok(())
+    }
+
+    #[test]
+    fn wandering_retargets_after_steering_and_patrol_resumes_on_pause_completion() -> Result<()> {
+        let ground = terrain(1, true);
+        let locations = locations();
+        let parameters = parameters();
+        let c = context(&ground, &locations, &parameters);
+        let mut enemy = symbol(c.position.translated([600., 0., 0.])?, Behavior::Wander);
+        let start = enemy.position;
+        let mut random = Random(7);
+        enemy.advance(&c, &mut random)?;
+        assert_eq!(enemy.position, start);
+        assert_ne!(enemy.target, start);
+        assert_eq!(enemy.animation, 0);
+        enemy.target = start.translated([3., 0., 0.])?;
+        enemy.advance(&c, &mut random)?;
+        assert!((start.displacement_to(enemy.position)[0] - ROAM_SPEED).abs() < 0.01);
+        assert!(start.displacement_to(enemy.position)[1].abs() < 0.01);
+
+        enemy.behavior = Behavior::Patrol;
+        enemy.pause = 1;
+        enemy.target = enemy.position.translated([100., 0., 0.])?;
+        let start = enemy.position;
+        enemy.advance(&c, &mut random)?;
+        assert_eq!(enemy.pause, 0);
+        assert!(enemy.position.map()[0] > start.map()[0]);
+        assert_eq!(enemy.animation, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn blocked_pursuers_give_up_after_three_seconds_and_keep_ground_height() -> Result<()> {
+        let ground = terrain(1, true);
+        let locations = locations();
+        let parameters = parameters();
+        let mut seed = 7;
+        for behavior in [Behavior::Patrol, Behavior::Guard] {
+            let player = context(&ground, &locations, &parameters).position;
+            let position = player.translated([-200., 0., -20.])?;
+            let mut enemies = Symbols {
+                slots: [
+                    Some(symbol(position, behavior)),
+                    Some(symbol(
+                        position.translated([100., 0., 20.])?,
+                        Behavior::Watch,
+                    )),
+                    Some(symbol(
+                        position.translated([0., 500., 20.])?,
+                        Behavior::Watch,
+                    )),
+                ],
+                ..Default::default()
+            };
+            for _ in 0..BLOCKED_PURSUIT_LIMIT - 1 {
+                enemies.step(context(&ground, &locations, &parameters), &mut seed)?;
+            }
+            let blocked = enemies.get(0).unwrap();
+            assert_eq!(blocked.behavior, behavior);
+            assert_eq!(&blocked.position.map()[..2], &position.map()[..2]);
+            assert_eq!(blocked.position.map()[2], 80.);
+            enemies.step(context(&ground, &locations, &parameters), &mut seed)?;
+            assert_eq!(enemies.get(0).unwrap().behavior, Behavior::Wander);
+            enemies.step(context(&ground, &locations, &parameters), &mut seed)?;
+            assert_eq!(enemies.get(0).unwrap().blocked, 1);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn disabled_landmarks_still_block_enemy_spawning_and_movement() -> Result<()> {
+        use resonance_content::overworld::Marker;
+
+        let ground = terrain(1, true);
+        let parameters = parameters();
+        let mut data = definitions();
+        data.worlds[0][0].position = [3200., 3200.];
+        data.worlds[0][0].radius = 100.;
+        let mut locations = Locations::new(
+            Arc::new(data),
+            Arc::default(),
+            crate::overworld::scripts::fixture(),
+        )?;
+        let mut seed = 7;
+        for marker in [Marker::FieldPoint, Marker::Unmodeled] {
+            locations.appearances.get_mut(&1).unwrap().marker = marker;
+            let player = context(&ground, &locations, &parameters).position;
+            let start = player.translated([150., 0., 0.])?;
+            let mut symbols = Symbols {
+                slots: [Some(symbol(start, Behavior::Guard)), None, None],
+                ..Default::default()
+            };
+            assert!(!symbols.clear_position(player, &context(&ground, &locations, &parameters)));
+            symbols.step(context(&ground, &locations, &parameters), &mut seed)?;
+            assert_eq!(symbols.get(0).unwrap().position, start);
+
+            locations.appearances.get_mut(&1).unwrap().marker = Marker::None;
+            assert!(symbols.clear_position(player, &context(&ground, &locations, &parameters)));
+            symbols.step(context(&ground, &locations, &parameters), &mut seed)?;
+            assert!(symbols.get(0).unwrap().position.distance_to(player) < 150.);
+        }
+        Ok(())
     }
 
     #[test]

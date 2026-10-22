@@ -1,6 +1,23 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
+/// A minimum flight floor above geometry absent from the terrain collision mesh.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "area", rename_all = "snake_case")]
+pub enum FlightZone {
+    Landmark {
+        location: u16,
+        margin: f32,
+        height: f32,
+        active_only: bool,
+    },
+    Circle {
+        position: [f32; 2],
+        radius: f32,
+        height: f32,
+    },
+}
+
 /// Native world movement/camera constants, extracted once with the terrain tables.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MovementParameters {
@@ -18,6 +35,7 @@ pub struct MovementParameters {
     pub altitude_per_pitch: f32,
     pub maximum_altitude: f32,
     pub flight_clearance: f32,
+    pub flight_zones: [Vec<FlightZone>; 2],
     pub turn_limit: f32,
     pub flight_turn_step: f32,
     pub ship_turn_step: f32,
@@ -93,6 +111,43 @@ impl MovementParameters {
                 && self.ship_speed_multiplier * speed >= self.turn_limit * self.altitude_per_pitch,
             "world turning can produce a negative speed"
         );
+        for (world, zones) in self.flight_zones.iter().enumerate() {
+            for zone in zones {
+                let (extent, height) = match *zone {
+                    FlightZone::Landmark {
+                        location,
+                        margin,
+                        height,
+                        ..
+                    } => {
+                        ensure!(
+                            usize::from(location / 256) == world && location % 256 != 0,
+                            "invalid flight landmark"
+                        );
+                        (margin, height)
+                    }
+                    FlightZone::Circle {
+                        position,
+                        radius,
+                        height,
+                    } => {
+                        ensure!(
+                            position.into_iter().all(f32::is_finite),
+                            "invalid flight zone position"
+                        );
+                        (radius, height)
+                    }
+                };
+                ensure!(
+                    extent.is_finite()
+                        && extent > 0.
+                        && height.is_finite()
+                        && height > 0.
+                        && height + self.flight_clearance <= self.maximum_altitude,
+                    "invalid flight zone clearance"
+                );
+            }
+        }
         Ok(())
     }
 }

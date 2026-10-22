@@ -26,6 +26,8 @@ pub struct Package {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Visuals {
+    /// Four dust sprites used by footsteps on sand and snow.
+    pub dust: [String; 4],
     /// Native world actor IDs: party 1..9, encounters 100/101, vehicles 200..216.
     pub actors: BTreeMap<u16, Vec<ScenePart>>,
     pub markers: [BTreeMap<u8, Vec<ScenePart>>; 2],
@@ -215,6 +217,13 @@ impl Package {
             self.visuals.skies.iter().all(|sky| !sky.is_empty()),
             "world sky models are missing"
         );
+        for path in &self.visuals.dust {
+            crate::validate_asset_path(path)?;
+            ensure!(
+                self.files.contains_key(path),
+                "world dust texture is missing"
+            );
+        }
         for part in self
             .visuals
             .actors

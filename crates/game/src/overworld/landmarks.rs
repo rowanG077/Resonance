@@ -1,7 +1,9 @@
 //! World contact and scripted story visibility, evaluated from persistent progress.
 use super::{Position, World, travel::Mount};
-use anyhow::{Result, ensure};
-use resonance_content::overworld::{Guidepost, Interaction, Landmark, Landmarks, Marker};
+use anyhow::{Context, Result, ensure};
+use resonance_content::overworld::{
+    FlightZone, Guidepost, Interaction, Landmark, Landmarks, Marker,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     f32::consts::TAU,
@@ -110,11 +112,80 @@ impl Locations {
                     .then_some((l, state))
             })
     }
+    /// Landmarks keep enemies outside their footprint even after their entrance
+    /// or discovery is disabled. Removing the marker removes the obstacle.
+    pub(super) fn enemy_obstacles(&self, world: World) -> impl Iterator<Item = &Landmark> {
+        self.definitions.worlds[world.index()]
+            .iter()
+            .filter(|landmark| self.appearances[&landmark.id].marker != Marker::None)
+    }
+    pub(super) fn camera_angle_bound(
+        &self,
+        world: World,
+        position: Position,
+        mount: Mount,
+    ) -> Option<f32> {
+        if mount != Mount::Ship {
+            return None;
+        }
+        self.definitions.worlds[world.index()]
+            .iter()
+            .filter_map(|landmark| {
+                let clearance = landmark.ship_camera_clearance?;
+                if self.appearances[&landmark.id].interaction == Interaction::Disabled {
+                    return None;
+                }
+                let center = Position::from_map([landmark.position[0], landmark.position[1], 0.])
+                    .expect("validated landmark");
+                let distance = position.distance_to(center) - landmark.radius;
+                if distance <= clearance.near_margin {
+                    Some(super::camera::MINIMUM_ANGLE)
+                } else if distance <= clearance.far_margin {
+                    Some(std::f32::consts::PI - clearance.height.atan2(distance))
+                } else {
+                    None
+                }
+            })
+            .reduce(f32::min)
+    }
     pub fn reward(&self, id: u16) -> Option<u16> {
         self.definitions.item_rewards.get(&id).copied()
     }
     pub fn guidepost(&self, id: u16) -> Option<&Guidepost> {
         self.guideposts.iter().find(|g| g.location == id)
+    }
+
+    pub(super) fn flight_floor(&self, position: Position, zones: &[FlightZone]) -> Result<f32> {
+        let mut floor = position.map()[2];
+        for zone in zones {
+            let (center, radius, height) = match *zone {
+                FlightZone::Landmark {
+                    location,
+                    margin,
+                    height,
+                    active_only,
+                } => {
+                    let landmark = self
+                        .definition(location)
+                        .context("missing flight landmark")?;
+                    if active_only
+                        && self.appearances[&location].interaction == Interaction::Disabled
+                    {
+                        continue;
+                    }
+                    (landmark.position, landmark.radius + margin, height)
+                }
+                FlightZone::Circle {
+                    position,
+                    radius,
+                    height,
+                } => (position, radius, height),
+            };
+            if Position::from_map([center[0], center[1], 0.])?.distance_to(position) <= radius {
+                floor = floor.max(height);
+            }
+        }
+        Ok(floor)
     }
 
     /// Place a returning ground traveller outside active circular entrances,
