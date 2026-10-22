@@ -44,22 +44,33 @@ impl Technique {
         model: Option<&ModelDefinition>,
         tp_cost: u16,
     ) -> Result<ActionDefinition> {
+        let elemental = resonance_content::arte::elemental::find(self.catalogue);
+        let base = elemental.map_or(self.catalogue, |variant| variant.base);
         let member = resources
             .voices
             .party_table()
             .martial_attacks
             .bindings
-            .get(&self.catalogue)
+            .get(&base)
             .and_then(|characters| characters.get(&(self.character as u8)))
             .context("missing Rising Falcon binding")?
             .member;
         let mut prepare = |variant| -> Result<Arc<ActionDefinition>> {
-            let timeline = resources
+            let mut timeline = resources
                 .voices
                 .party_table()
                 .martial_attacks
                 .variant(resonance_content::battle_martial::Binding { member, variant })?
                 .clone();
+            if let Some(elemental) = elemental {
+                for (_, event) in &mut timeline.events {
+                    if let resonance_content::battle_normal::Event::Contact(contact) = event {
+                        contact.hit.element = resonance_content::battle_action::HitElement::Element(
+                            elemental.element,
+                        );
+                    }
+                }
+            }
             let mut action = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
             let ActionExecution::Attack(attack) = &mut action.execution else {
                 unreachable!("martial preparation produces an attack")
@@ -88,7 +99,7 @@ impl Technique {
                 .max()
                 .context("missing Rising Falcon dive contact")?;
             let landing_at = dive_at.max(contact_at) + 1;
-            // Landing ends contact, while collision bypass keeps its authored lifetime.
+            // Landing changes the pose; the strike and collision bypass keep their own lifetimes.
             attack.events.retain(|(at, event)| {
                 *at < landing_at || matches!(event, AttackEvent::PassThrough { enabled: false, .. })
             });
@@ -100,6 +111,19 @@ impl Technique {
                         .context("Rising Falcon bypass exceeds timeline")?;
                 }
             }
+            attack.events.push((
+                landing_at,
+                AttackEvent::Land {
+                    pose: None,
+                    effect: None,
+                    settle: None,
+                    recovery_pose: None,
+                },
+            ));
+            attack.events.push((
+                landing_at,
+                AttackEvent::Sound((resources.sound)(Sound::Cue(138))?),
+            ));
             attack.events.push((
                 landing_at,
                 AttackEvent::Land {
@@ -120,7 +144,11 @@ impl Technique {
             attack.events.sort_by_key(|(at, _)| *at);
             Ok(Arc::new(action))
         };
-        let variants = [prepare(0)?, prepare(1)?];
+        let variants = if elemental.is_some() {
+            [prepare(2)?, prepare(3)?]
+        } else {
+            [prepare(0)?, prepare(1)?]
+        };
         let mut entry = (*variants[0]).clone();
         let ActionExecution::Attack(attack) = &mut entry.execution else {
             unreachable!("martial preparation produces an attack")

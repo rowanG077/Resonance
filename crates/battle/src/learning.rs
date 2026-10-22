@@ -10,20 +10,37 @@ const BASE_LEARNING_ODDS: u32 = 8;
 const MIN_SUCCESSOR_CHANCE_PERCENT: u32 = 5;
 
 #[derive(Debug, Clone)]
-pub struct LearningCatalogue(Arc<Catalogue>);
+pub struct LearningCatalogue {
+    data: Arc<Catalogue>,
+    learn_elemental_artes: bool,
+    learn_both_arte_paths: bool,
+}
 
 impl LearningCatalogue {
     pub fn new(catalogue: Arc<Catalogue>) -> Self {
-        Self(catalogue)
+        Self {
+            data: catalogue,
+            learn_elemental_artes: false,
+            learn_both_arte_paths: false,
+        }
+    }
+
+    pub fn with_elemental_learning(mut self, enabled: bool) -> Self {
+        self.learn_elemental_artes = enabled;
+        self
+    }
+
+    pub fn with_both_arte_paths(mut self, enabled: bool) -> Self {
+        self.learn_both_arte_paths = enabled;
+        self
     }
 
     pub fn prepare_member(&self, mut entry: LearningEntry) -> Result<LearningMember> {
         let allowed: BTreeSet<u16> = self
-            .0
+            .data
             .validate_learning(entry.character)?
             .iter()
             .copied()
-            .map(u16::from)
             .collect();
         ensure!(
             entry.level != 0 && entry.current.is_subset(&allowed),
@@ -48,7 +65,7 @@ impl LearningCatalogue {
     }
 
     fn row(&self, id: u16) -> &resonance_content::arte::Definition {
-        &self.0.definitions[usize::from(id)]
+        &self.data.definitions[usize::from(id)]
     }
 }
 
@@ -89,9 +106,9 @@ impl LearningMember {
     pub fn current(&self) -> &BTreeSet<u16> {
         &self.entry.current
     }
-    pub fn techniques(&self) -> &[u8] {
+    pub fn techniques(&self) -> &[u16] {
         self.catalogue
-            .0
+            .data
             .learned_by(self.entry.character)
             .expect("validated learning member")
     }
@@ -156,6 +173,14 @@ impl LearningMember {
             if spell != (attempt.mode == LearningMode::Casting) {
                 return Ok(None);
             }
+            if self.catalogue.learn_elemental_artes
+                && resonance_content::arte::elemental::find(current).is_some()
+                && !self.learned(current)
+                && self.count(current) >= resonance_content::arte::elemental::LEARNING_USES
+                && available(current)
+            {
+                return Ok(Some(current));
+            }
             let (next, opposite) = if self.entry.balance <= 0 {
                 (
                     row.learning.technical_successor,
@@ -167,15 +192,26 @@ impl LearningMember {
                     row.learning.technical_successor,
                 )
             };
-            if let Some(next) = next
-                && available(next)
-                && !opposite.is_some_and(|id| self.learned(id))
-                && self.eligible(next, attempt)
-                && self.count(current) >= self.catalogue.row(next).learning.parent_uses
+            let both_paths = self.catalogue.learn_both_arte_paths;
+            for next in [next, opposite.filter(|_| both_paths)]
+                .into_iter()
+                .flatten()
             {
+                let requirements = &self.catalogue.row(next).learning;
+                if !available(next)
+                    || !self.eligible(next, attempt)
+                    || self.count(current) < requirements.parent_uses
+                    || if both_paths {
+                        !self.base_eligible(requirements)
+                    } else {
+                        opposite.is_some_and(|id| self.learned(id))
+                    }
+                {
+                    continue;
+                }
                 let chance = (u32::from(self.entry.balance.unsigned_abs()) / 2)
                     .max(MIN_SUCCESSOR_CHANCE_PERCENT);
-                if random() % 100 < chance {
+                if both_paths || random() % 100 < chance {
                     return Ok(Some(next));
                 }
             }
@@ -189,7 +225,8 @@ impl LearningMember {
                 && row.learning.parent.is_none()
                 && self.eligible(id, attempt)
                 && self.base_eligible(&row.learning)
-                && random().is_multiple_of(BASE_LEARNING_ODDS)
+                && (self.catalogue.learn_both_arte_paths
+                    || random().is_multiple_of(BASE_LEARNING_ODDS))
             {
                 return Ok(Some(id));
             }
@@ -203,8 +240,14 @@ impl LearningMember {
             Some(LearningRoute::Strike) => self.entry.balance > 0,
             None => true,
         };
-        route_matches
-            && !rule.excludes.iter().any(|&id| self.learned(id))
+        (route_matches || self.catalogue.learn_both_arte_paths)
+            && !rule.excludes.iter().any(|&id| {
+                let opposite_path = rule
+                    .route
+                    .zip(self.catalogue.row(id).learning.route)
+                    .is_some_and(|(candidate, excluded)| candidate != excluded);
+                self.learned(id) && !(self.catalogue.learn_both_arte_paths && opposite_path)
+            })
             && rule.prerequisites.iter().all(|group| {
                 group
                     .any_of

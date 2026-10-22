@@ -17,7 +17,9 @@ pub fn read_inputs(
     roster: &[(ActorId, u8)],
     colette_learning_unlocked: bool,
 ) -> Result<Vec<TechniqueLearningMember>> {
-    let policy = LearningCatalogue::new(catalogue.clone());
+    let policy = LearningCatalogue::new(catalogue.clone())
+        .with_elemental_learning(party.settings.preferences.learn_elemental_artes)
+        .with_both_arte_paths(party.settings.preferences.learn_both_arte_paths);
     ensure!(
         (1..=resonance_battle::PARTY_CAPACITY).contains(&roster.len()),
         "learning roster is empty or exceeds party bank"
@@ -198,6 +200,17 @@ mod tests {
             rows[0].member.select_after_count(attempt, |_| true, || 9)?,
             Some(2)
         );
+        party.settings.preferences.learn_both_arte_paths = true;
+        party.members[0].techniques.insert(2);
+        let rows = read_inputs(catalogue(), &party, &admitted, &roster()[..1], true)?;
+        assert_eq!(
+            rows[0]
+                .member
+                .select_after_count(attempt, |_| true, || panic!("random roll"))?,
+            Some(3)
+        );
+        assert_eq!(party.members[0].techniques, [1, 2].into());
+        assert_eq!(party.members[0].technique_uses[&1], 50);
         Ok(())
     }
 }

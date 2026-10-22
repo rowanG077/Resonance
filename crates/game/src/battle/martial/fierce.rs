@@ -12,11 +12,17 @@ impl Technique {
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
+        grave_blade: bool,
     ) -> Result<ActionDefinition> {
+        let base = if self.character == Character::Lloyd {
+            4
+        } else {
+            209
+        };
         let mut timeline = resources
             .voices
             .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
+            .martial_attack(base, self.character as u8)?
             .clone();
         let recipe = timeline
             .fierce_fang
@@ -28,17 +34,16 @@ impl Technique {
         } else {
             5
         };
-        let mut ordinary =
-            self.prepare_authored_attack(resources, model, tp_cost, timeline.clone())?;
-        let mut earth = timeline;
+        let mut earth = timeline.clone();
         earth.effect = Some(11);
+        for (_, event) in &mut earth.events {
+            if let resonance_content::battle_normal::Event::Contact(contact) = event {
+                contact.hit.element = resonance_content::battle_action::HitElement::Element(
+                    resonance_content::menu_data::Element::Earth,
+                );
+            }
+        }
         let mut earth = self.prepare_authored_attack(resources, model, tp_cost, earth)?;
-        let ActionExecution::Attack(attack) = &mut ordinary.execution else {
-            unreachable!()
-        };
-        attack
-            .events
-            .extend(resources.fierce_fang_shockwaves(&recipe.hits[0], 24 + knight_delay)?);
         let row = resources
             .projectiles
             .records
@@ -59,21 +64,29 @@ impl Technique {
         let ActionExecution::Attack(attack) = &mut earth.execution else {
             unreachable!()
         };
-        attack
-            .events
-            .retain(|(_, event)| !matches!(event, AttackEvent::Notice { .. }));
+        if !grave_blade {
+            attack
+                .events
+                .retain(|(_, event)| !matches!(event, AttackEvent::Notice { .. }));
+        }
         for index in 0..5 {
             attack.events.push((
                 22 + knight_delay + index * 3,
                 AttackEvent::Projectile(Arc::clone(&projectile)),
             ));
         }
-        for definition in [&mut ordinary, &mut earth] {
-            let ActionExecution::Attack(attack) = &mut definition.execution else {
-                unreachable!()
-            };
-            attack.events.sort_by_key(|(at, _)| *at);
+        attack.events.sort_by_key(|(at, _)| *at);
+        if grave_blade {
+            return Ok(earth);
         }
+        let mut ordinary = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
+        let ActionExecution::Attack(attack) = &mut ordinary.execution else {
+            unreachable!()
+        };
+        attack
+            .events
+            .extend(resources.fierce_fang_shockwaves(&recipe.hits[0], 24 + knight_delay)?);
+        attack.events.sort_by_key(|(at, _)| *at);
         let mut entry = ordinary.clone();
         let ActionExecution::Attack(attack) = &mut entry.execution else {
             unreachable!()

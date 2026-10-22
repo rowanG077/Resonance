@@ -18,18 +18,19 @@ impl Technique {
                 .tp_cost,
         );
         match self.sequence {
+            Elemental => return self.prepare_elemental(resources, model, tp_cost),
             Authored | RayThrust => {
                 return self.prepare_authored(resources, model, tp_cost);
             }
             Destruction => return self.prepare_destruction(resources, model, tp_cost),
             ItemThief => return self.prepare_steal(resources, model, tp_cost),
-            PowHammer => return self.prepare_hammer(resources, model, tp_cost),
+            PowHammer => return self.prepare_hammer(resources, model, tp_cost, false),
             HammerVolley => return self.prepare_hammer_volley(resources, model, tp_cost),
             ColetteProjectiles => {
                 return self.prepare_colette_projectiles(resources, model, tp_cost);
             }
             TigerBlade => return self.prepare_tiger_blade(resources, model, tp_cost),
-            FierceDemonFang => return self.prepare_fierce_fang(resources, model, tp_cost),
+            FierceDemonFang => return self.prepare_fierce_fang(resources, model, tp_cost, false),
             HurricaneThrust => return self.prepare_hurricane_thrust(resources, model, tp_cost),
             Tempest => return self.prepare_tempest(resources, model, tp_cost),
             LightningBlade => return self.prepare_lightning_blade(resources, model, tp_cost),

@@ -11,11 +11,12 @@ impl Technique {
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
+        ice_hammer: bool,
     ) -> Result<ActionDefinition> {
         let mut source = resources
             .voices
             .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
+            .martial_attack(40, self.character as u8)?
             .clone();
         let hammer = source
             .hammer
@@ -42,6 +43,9 @@ impl Technique {
         };
         let mut variants = Vec::new();
         for (index, hit) in hammer.hits.iter().enumerate() {
+            if ice_hammer && index != 1 {
+                continue;
+            }
             let mut timeline = source.clone();
             if index != 0 {
                 timeline.events.clone_from(alternate_events);
@@ -51,7 +55,7 @@ impl Technique {
             let ActionExecution::Attack(attack) = &mut definition.execution else {
                 unreachable!()
             };
-            if index != 0 {
+            if index != 0 && !ice_hammer {
                 attack
                     .events
                     .retain(|(_, event)| !matches!(event, AttackEvent::Notice { .. }));
@@ -78,6 +82,9 @@ impl Technique {
                 .events
                 .push((RELEASE_TICK, AttackEvent::Projectile(projectile)));
             attack.events.sort_by_key(|(at, _)| *at);
+            if ice_hammer {
+                return Ok(definition);
+            }
             variants.push(Arc::new(definition));
         }
         let variants: [Arc<ActionDefinition>; 3] = variants

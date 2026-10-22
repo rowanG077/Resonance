@@ -5,6 +5,7 @@ mod advanced_seals;
 mod attack;
 mod authored;
 mod colette;
+mod elemental;
 mod fierce;
 mod hammer;
 mod physical;
@@ -54,6 +55,7 @@ pub(crate) fn is_special_guard(character: u8, catalogue: u16) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Sequence {
     SpecialGuard,
+    Elemental,
     Authored,
     TigerBlade,
     Tempest,
@@ -86,6 +88,12 @@ pub struct Technique {
 pub fn technique(character: u8, catalogue: u16) -> Option<Technique> {
     use Character::*;
     use Sequence::*;
+    if let Some(variant) = resonance_content::arte::elemental::find(catalogue) {
+        let mut technique = technique(character, variant.base)?;
+        technique.catalogue = catalogue;
+        technique.sequence = Elemental;
+        return Some(technique);
+    }
     let character = Character::try_from(character).ok()?;
     let sequence = match (character, catalogue) {
         _ if is_special_guard(character as u8, catalogue) => SpecialGuard,

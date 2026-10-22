@@ -27,9 +27,11 @@ fn settings(native: u16) -> Option<Settings> {
     let placements = match native {
         301 => [place(EAST, 130.), None],
         302 => pair([EAST, NORTH], [250.; 2]),
-        303 | 304 => pair([EAST, ANGLED], [250.; 2]),
+        303..=305 => pair([EAST, ANGLED], [250.; 2]),
         307 | 308 => pair([ANGLED, EAST], [250., 50.]),
         309 => pair([EAST, ANGLED], [450.; 2]),
+        310 => pair([EAST, ANGLED], [200.; 2]),
+        311 => pair([EAST, ANGLED], [250.; 2]),
         312 | 315 | 317 => [place(EAST, 100.), None],
         313 => [place(EAST, 200.), None],
         314 => [place(EAST, 50.), None],
@@ -43,6 +45,7 @@ fn settings(native: u16) -> Option<Settings> {
             304 => [48; 3],
             307 => [16, 16, 24],
             308 => [24, 16, 16],
+            305 | 311 => [0; 3],
             _ => [16; 3],
         },
         effect_scale: matches!(native, 307..=309 | 315..=318).then_some(1.),
@@ -67,6 +70,8 @@ fn phase(native: u16, role: usize, character: u8) -> Option<usize> {
         (303 | 304, 0, 6) => Some(1),
         (303 | 304, 0, 9) => Some(2),
         (303 | 304, 1, 5) => Some(3),
+        (305, 0, 2) | (310, 0, 2) => Some(0),
+        (305, 1, 1) | (310, 1, 3 | 6 | 9) => Some(1),
         (307, 0, 3) | (308, 0, 6) => Some(0),
         (307, 0, 6) | (308, 0, 9) => Some(1),
         (307, 0, 9) | (308, 1, 7) => Some(2),
@@ -74,6 +79,8 @@ fn phase(native: u16, role: usize, character: u8) -> Option<usize> {
         (309 | 313 | 315 | 317, 0, 1) | (316, 0, 2) | (318, 0, 6) => Some(0),
         (313 | 315, 1, 3 | 6 | 9) | (317, 1, 6 | 9) | (309 | 316, 1, 4) | (318, 0, 9) => Some(1),
         (318, 1, 4) => Some(2),
+        (311, 0, 3) => Some(0),
+        (311, 1, 4) => Some(1),
         _ => None,
     }
 }
@@ -209,7 +216,9 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
         (304, 1) => Some((2, AttackOrigin::TargetRoot, Some(1.), true)),
         (307 | 308, 1) => Some((1, AttackOrigin::ActorRoot, settings.effect_scale, false)),
         (309 | 316 | 318, 0) => Some((1, AttackOrigin::ActorAim, settings.effect_scale, true)),
+        (310, 0) => Some((1, AttackOrigin::ActorAim, Some(1.), true)),
         (315 | 317, 0) => Some((1, AttackOrigin::ActorRoot, settings.effect_scale, true)),
+        (305 | 311, 0) => Some((1, AttackOrigin::World([0.; 3]), Some(1.), false)),
         _ => None,
     };
     if let Some((member, origin, scale, follow)) = initial {
@@ -257,8 +266,11 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
     let voice = match (native, role) {
         (303, 1) => Some(if combination.id == 3 { 0x879e } else { 0x879f }),
         (304, 1) => Some(0x87a4),
+        (305, 0) => Some(0x87bb),
         (307, 1) => Some(0x87b1),
         (309, 1) => Some(0x879a),
+        (310, 0) => Some(0x87ba),
+        (311, 0) => Some(0x87c3),
         (316 | 318, 1) => Some(0x87b3),
         _ => None,
     };
@@ -295,16 +307,58 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
         ));
     }
     let feedback = match native {
+        305 => Some((40, 140)),
         307 | 308 => Some((30, 130)),
         309 => Some((55, 40)),
+        310 => Some((90, 30)),
+        311 => Some((30, 140)),
         316 | 318 => Some((70, 40)),
         _ => None,
     };
     if let Some((at, duration)) = feedback {
         attack.events.push((
             action::elapsed(source, at)?,
-            AttackEvent::UnisonFeedback { duration, limit: 8 },
+            AttackEvent::UnisonFeedback {
+                duration,
+                limit: if native == 311 { 12 } else { 8 },
+            },
         ));
+    }
+    if native == 305 && role == 0 {
+        attack.events.push((
+            0,
+            AttackEvent::WeaponVisibility(vec![(0, false), (1, false)]),
+        ));
+        let choices = (1..=3)
+            .map(|member| projectile(scene, member, 0, bank, resources))
+            .collect::<Result<Arc<[_]>>>()?;
+        for tick in 30..180 {
+            attack.events.push((
+                action::elapsed(source, tick)?,
+                AttackEvent::ScatteredProjectile {
+                    choices: Arc::clone(&choices),
+                    offset: [0., 600., 0.],
+                    step: [6., 2., 6.],
+                    range: 100,
+                },
+            ));
+        }
+    }
+    if native == 311 && role == 0 {
+        let mut star = projectile(scene, 1, 0, bank, resources)?;
+        Arc::make_mut(&mut star).velocity = [0., 0., 1.];
+        let mut glint = Arc::clone(&star);
+        Arc::make_mut(&mut glint).contact = None;
+        for tick in 30..150 {
+            attack.events.push((
+                action::elapsed(source, tick)?,
+                AttackEvent::ProjectileRing {
+                    definition: Arc::clone(if (tick - 30) % 4 == 0 { &star } else { &glint }),
+                    radius: 800.,
+                    directions: 30,
+                },
+            ));
+        }
     }
     let release = match (native, role) {
         (313, 0) => Some((35, 1, 1)),
@@ -313,43 +367,15 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
         (307, 1) => Some((30, 1, 0)),
         (308, 1) => Some((30, 1, 0)),
         (309, 1) => Some((60, 2, 1)),
+        (310, 0) => Some((42, 1, 0)),
+        (310, 1) => Some((86, 2, 1)),
         (316, 1) => Some((88, 2, 1)),
         (318, 0) => Some((78, 3, 2)),
         (318, 1) => Some((70, 2, 1)),
         _ => None,
     };
     if let Some((tick, member, rule)) = release {
-        let row = scene
-            .projectiles
-            .get(member)
-            .context("missing combination projectile")?;
-        // Callback hit rules are independent of projectile template selectors.
-        let source_rule = row
-            .hits
-            .get(rule)
-            .copied()
-            .flatten()
-            .context("combination callback hit rule is not prepared")?;
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
-        let mut hit = crate::battle::hit::authored(&source_rule, &recoil)?;
-        if let Some(sound) = source_rule.sound {
-            hit.sound = (resources.sound)(Sound::Cue(sound))?;
-        }
-        if let Some(member) = source_rule.effect {
-            action::effect(bank, member, resources)?;
-            hit.effect = Some(appearance(member));
-        }
-        let mut definition = resources.prepared.projectile(
-            resources.files,
-            &row.projectile,
-            hit,
-            &[(0, bank), (6, bank), (1, &resources.techniques)],
-        )?;
-        Arc::make_mut(&mut definition)
-            .contact
-            .as_mut()
-            .context("combination projectile has no contact")?
-            .cooldown = source_rule.cooldown;
+        let definition = projectile(scene, member, rule, bank, resources)?;
         let at = action::elapsed(source, tick)?;
         if native == 313 {
             action::effect(bank, 2, resources)?;
@@ -357,11 +383,19 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
                 .events
                 .push((at, effect(2, AttackOrigin::TargetRoot, None, true)));
         }
+        if native == 310 && role == 1 {
+            action::effect(bank, 4, resources)?;
+            attack
+                .events
+                .push((at, effect(4, AttackOrigin::TargetRoot, Some(1.), false)));
+        }
         attack.events.push((
             at,
             AttackEvent::ProjectileAt {
                 definition,
-                origin: if matches!(native, 313 | 315) {
+                origin: if native == 310 && role == 0 {
+                    AttackOrigin::ActorRoot
+                } else if matches!(native, 310 | 313 | 315) {
                     AttackOrigin::TargetRoot
                 } else {
                     AttackOrigin::TargetAim
@@ -372,4 +406,43 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
         ));
     }
     Ok(())
+}
+
+fn projectile<S: FnMut(Sound) -> Result<Option<Sound>>>(
+    scene: &Scene,
+    member: usize,
+    rule: usize,
+    bank: &EffectResource,
+    resources: &mut Resources<'_, S>,
+) -> Result<Arc<resonance_battle::ProjectileDefinition>> {
+    let row = scene
+        .projectiles
+        .get(member)
+        .context("missing combination projectile")?;
+    // Callback hit rules are independent of projectile template selectors.
+    let rule = row.hit_variant(rule)?;
+    let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+    let mut hit = crate::battle::hit::authored(rule, &recoil)?;
+    if let Some(sound) = rule.sound {
+        hit.sound = (resources.sound)(Sound::Cue(sound))?;
+    }
+    if let Some(member) = rule.effect {
+        action::effect(bank, member, resources)?;
+        hit.effect = Some(EffectAppearance {
+            resource: bank.resource,
+            member,
+        });
+    }
+    let mut definition = resources.prepared.projectile(
+        resources.files,
+        &row.projectile,
+        hit,
+        &[(0, bank), (6, bank), (1, &resources.techniques)],
+    )?;
+    Arc::make_mut(&mut definition)
+        .contact
+        .as_mut()
+        .context("combination projectile has no contact")?
+        .cooldown = rule.cooldown;
+    Ok(definition)
 }
