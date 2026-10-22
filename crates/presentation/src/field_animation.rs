@@ -321,7 +321,13 @@ pub(super) fn blend(
                 .as_ref()
                 .and_then(|w| w.entrance(part.pass, world.tick.saturating_sub(a.start_tick)))
                 .map(|entrance| entrance.weight)
-                .unwrap_or_else(|| a.blend_weight(world.tick))
+                .unwrap_or_else(|| {
+                    if rig.sampled {
+                        a.blend_weight(world.tick)
+                    } else {
+                        1.
+                    }
+                })
         });
         for i in 0..rig.bones.len() {
             let entity = rig.bones[i].0;
@@ -333,10 +339,17 @@ pub(super) fn blend(
                 );
                 let animated = rig.authored_channels[i] != 0;
                 rig.blend_bone(i, &mut pose, weight, animated);
+                // A newly loaded rig has no previous visible pose to blend from.
+                // Retain its first sample even if the clip starts out paused.
+                if !rig.sampled {
+                    rig.from[i] = pose;
+                }
                 affine.set(entity, &mut transform, pose.pose);
             }
         }
-        rig.sampled = true;
+        // Setup can render a rig before its first clip is selected. Its bind
+        // pose must not become the starting pose for that clip's transition.
+        rig.sampled |= rig.authored_channels.iter().any(|&channels| channels != 0);
     }
 }
 

@@ -1,4 +1,4 @@
-//! World-space ripples sample the completed scene before dialogue is composited.
+//! Heat haze and world-space ripples sample the scene before dialogue is composited.
 use super::{
     field_audit::{Applied, Request},
     field_effects::{Artwork, effect_rotation},
@@ -56,11 +56,13 @@ struct Settings {
     uv: [Vec4; 2],
     parameters: Vec4,
     screen_copy: Vec4,
+    heat_transform: Vec4,
+    heat_uv: Vec4,
 }
 #[derive(Component, Clone, ExtractComponent)]
 struct Pulses(Vec<Pulse>);
 #[derive(Component, Clone, ExtractComponent)]
-struct Atlas([Handle<Image>; 2]);
+struct Atlas([Handle<Image>; 3]);
 
 pub(super) fn install(app: &mut App) {
     super::field_capture::install(app);
@@ -111,6 +113,32 @@ fn sync(
     };
     let world = &state.get().events.world;
     let (recipe, air, textures) = art.refraction();
+    let heat = art.heat_haze();
+    let heat_enabled = heat.is_some_and(|(recipe, _)| {
+        recipe.gate.active(
+            world.texture_animation_enabled,
+            &world.texture_bindings,
+            |actor| world.actors.contains_key(&actor),
+        )
+    });
+    let heat_transform = heat
+        .filter(|_| heat_enabled)
+        .map_or(Vec4::ZERO, |(recipe, _)| {
+            let (sin, cos) = recipe.rotation_degrees.to_radians().sin_cos();
+            Vec4::new(
+                cos * recipe.scale,
+                sin * recipe.scale,
+                (f64::from(world.effect_tick)
+                    * f64::from(recipe.scroll_per_tick)
+                    * f64::from(recipe.scale)) as f32,
+                f32::from(recipe.alpha) / 255.,
+            )
+        });
+    let textures = [
+        textures[0].clone(),
+        textures[1].clone(),
+        heat.map_or_else(|| textures[1].clone(), |(_, image)| image.clone()),
+    ];
     let mut settings = Settings {
         uv: [recipe.sprite.uv, air.uv].map(Vec4::from_array),
         parameters: Vec4::new(
@@ -126,6 +154,8 @@ fn sync(
             super::camera::FIELD_NEAR / super::camera::FIELD_FAR,
             0.,
         ),
+        heat_transform,
+        heat_uv: heat.map_or(Vec4::ZERO, |(recipe, _)| Vec4::from_array(recipe.sprite.uv)),
         ..default()
     };
     let camera = world
@@ -186,6 +216,7 @@ fn sync(
 struct Pipeline {
     layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
+    repeating_sampler: Sampler,
     id: CachedRenderPipelineId,
     ripple: CachedRenderPipelineId,
     mesh: CachedRenderPipelineId,
@@ -209,6 +240,8 @@ fn prepare(
                 texture_2d(TextureSampleType::Depth),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 storage_buffer_read_only::<Vec<Pulse>>(false),
+                texture_2d(TextureSampleType::Float { filterable: true }),
+                sampler(SamplerBindingType::Filtering),
             ),
         ),
     );
@@ -254,6 +287,13 @@ fn prepare(
             min_filter: FilterMode::Linear,
             ..default()
         }),
+        repeating_sampler: device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..default()
+        }),
         id,
         ripple,
         mesh,
@@ -262,7 +302,7 @@ fn prepare(
 
 #[derive(Default)]
 struct Bindings {
-    identity: Option<([TextureViewId; 2], BufferId, TextureViewId, BufferId)>,
+    identity: Option<([TextureViewId; 3], BufferId, TextureViewId, BufferId)>,
     views: HashMap<TextureViewId, BindGroup>,
 }
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -301,7 +341,8 @@ fn render(
     let Some(ripple_pipeline) = cache.get_render_pipeline(pipeline.ripple) else {
         return;
     };
-    let [Some(atlas), Some(air)] = atlas.0.each_ref().map(|handle| images.get(handle)) else {
+    let [Some(atlas), Some(air), Some(heat)] = atlas.0.each_ref().map(|handle| images.get(handle))
+    else {
         return;
     };
     let Some(buffer) = uniforms.uniforms().buffer() else {
@@ -313,7 +354,11 @@ fn render(
     }
     pulse_buffer.write_buffer(context.render_device(), &queue);
     let identity = (
-        [atlas.texture_view.id(), air.texture_view.id()],
+        [
+            atlas.texture_view.id(),
+            air.texture_view.id(),
+            heat.texture_view.id(),
+        ],
         buffer.id(),
         depth.view().id(),
         pulse_buffer.buffer().unwrap().id(),
@@ -324,6 +369,7 @@ fn render(
     }
     // Warm both ping-pong bindings before skipping inactive frames.
     if settings.parameters.x == 0.
+        && settings.heat_transform.w == 0.
         && meshes.0.is_empty()
         && settings.screen_copy.x == 0.
         && settings.screen_copy.y == 0.
@@ -347,6 +393,8 @@ fn render(
                     depth.view(),
                     &air.texture_view,
                     pulse_buffer.binding().unwrap(),
+                    &heat.texture_view,
+                    &pipeline.repeating_sampler,
                 )),
             )
         });

@@ -32,6 +32,13 @@ pub(crate) fn profiles(executable: &[u8]) -> Result<BTreeMap<u32, Vec<FieldTextu
     };
     let day = RenderValue::Fixed(resonance_content::field::scenery_actor(2));
     let night = RenderValue::Setting(0);
+    let mut night_tracks = vec![
+        atlas(night.clone(), 1, 0x8035B350)?,
+        atlas(night, 2, 0x8035B35C)?,
+    ];
+    for track in &mut night_tracks {
+        track.clock = TextureClock::Actor;
+    }
     Ok(BTreeMap::from([
         (
             474,
@@ -41,13 +48,7 @@ pub(crate) fn profiles(executable: &[u8]) -> Result<BTreeMap<u32, Vec<FieldTextu
                 atlas(day, 2, 0x8035B368)?,
             ],
         ),
-        (
-            531,
-            vec![
-                atlas(night.clone(), 1, 0x8035B350)?,
-                atlas(night, 2, 0x8035B35C)?,
-            ],
-        ),
+        (531, night_tracks),
     ]))
 }
 
@@ -61,6 +62,7 @@ fn sampled(
         actor,
         texture: RenderValue::Setting(slot),
         clock: TextureClock::Field,
+        control: None,
         motion: TextureMotion::Sampled {
             animation: TextureAnimation {
                 texture: (),

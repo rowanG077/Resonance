@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const FIELD_VERSION: u32 = 11;
+/// Script extension: keep an actor centred on the player while following.
+pub const ANCHORED_PLAYER_BEHAVIOR: u8 = 127;
 /// Reserved resource range for static scenery, separate from character models.
 pub const SCENERY_RESOURCE_BASE: u32 = 0x1000_0000;
 /// Ordinary actor models embedded in a field archive, addressed by signed script IDs.
@@ -99,6 +101,9 @@ pub struct CollisionGroup {
     pub triangles: Vec<[u16; 3]>,
 }
 
+/// Ground that carries the player along a world axis until an obstacle or shore.
+pub const SLIDING_SURFACE: u32 = 1 << 23;
+
 #[derive(Clone, Copy)]
 #[repr(u32)]
 pub enum CollisionQuery {
@@ -147,6 +152,14 @@ pub struct FieldAssets {
     pub source_sha256: String,
     pub script: String,
     pub messages: String,
+    /// Repeating panorama drawn behind the field scenery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panorama: Option<String>,
+    /// Reflective water drawn over the authored lake bed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub water: Option<FieldWater>,
+    #[serde(default, skip_serializing_if = "FieldEnvironment::is_empty")]
+    pub environment: FieldEnvironment,
     pub parts: Vec<ScenePart>,
     pub ground: Vec<CollisionGroup>,
     pub regions: Vec<CollisionGroup>,
@@ -198,8 +211,26 @@ impl RenderValue {
     }
 }
 
+mod environment;
+pub use environment::*;
+
 mod texture_animation;
-pub use texture_animation::{FieldTextureAnimation, FieldTextureWave, TextureClock, TextureMotion};
+pub use texture_animation::{
+    FieldTextureAnimation, FieldTextureWave, TextureAnimationState, TextureClock, TextureControl,
+    TextureMotion,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldWater {
+    pub height: f32,
+    /// Minimum and maximum XY corners in field coordinates.
+    pub bounds: [[f32; 2]; 2],
+    pub tint: [f32; 4],
+    /// Scenery and scripted actors reflected alongside the controlled character.
+    pub reflected_actors: Vec<i32>,
+    /// Scenery authored solely for the reflected view, hidden in the main view.
+    pub reflection_only_actors: Vec<i32>,
+}
 
 /// A scenery hinge and the standing pose used to open it before a field exit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,6 +305,8 @@ impl FieldAssets {
             &self.effects,
         ]
         .into_iter()
+        .chain(self.panorama.iter())
+        .chain(self.environment.textures())
         .chain(self.resource_catalogue.iter())
         .chain(
             self.unbound_geometry
@@ -297,6 +330,22 @@ impl FieldAssets {
 
     pub fn validate(&self) -> Result<()> {
         ensure!(self.version == FIELD_VERSION, "unsupported field assets");
+        if let Some(water) = &self.water {
+            ensure!(
+                water.height.is_finite()
+                    && water
+                        .bounds
+                        .iter()
+                        .flatten()
+                        .chain(&water.tint)
+                        .all(|v| v.is_finite())
+                    && (0..2).all(|i| water.bounds[0][i] < water.bounds[1][i])
+                    && water.tint[..3].iter().all(|v| *v >= 0.)
+                    && (0. ..=1.).contains(&water.tint[3]),
+                "invalid field water plane"
+            );
+        }
+        self.environment.validate()?;
         for animation in &self.texture_animations {
             animation.validate()?;
         }
@@ -365,6 +414,9 @@ impl FieldAssets {
             );
         }
         validate_asset_path(&self.messages)?;
+        if let Some(path) = &self.panorama {
+            validate_asset_path(path)?;
+        }
         if let Some(path) = &self.resource_catalogue {
             validate_asset_path(path)?;
         }

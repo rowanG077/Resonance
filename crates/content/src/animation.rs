@@ -225,13 +225,23 @@ impl Skeleton {
 
     /// Later layers replace only the bones they animate, retaining other branches.
     pub fn sample_layered_matrix(&self, layers: &[(&Motion, f32)], bone: u16) -> Result<Matrix> {
+        self.sample_adjusted_matrix(layers, bone, &|_, _, local| local)
+    }
+
+    /// Apply local joint adjustments before composing the attachment's ancestor chain.
+    pub fn sample_adjusted_matrix(
+        &self,
+        layers: &[(&Motion, f32)],
+        bone: u16,
+        adjust: &impl Fn(u16, &Bone, pose::LocalPose) -> pose::LocalPose,
+    ) -> Result<Matrix> {
         for &(motion, frame) in layers {
             ensure!(
                 frame.is_finite() && frame >= 0. && frame <= motion.duration_frames,
                 "motion frame outside clip"
             );
         }
-        self.sampled_global(layers, bone, 0)
+        self.sampled_global(layers, bone, 0, adjust)
     }
 
     fn sampled_global(
@@ -239,6 +249,7 @@ impl Skeleton {
         layers: &[(&Motion, f32)],
         index: u16,
         depth: usize,
+        adjust: &impl Fn(u16, &Bone, pose::LocalPose) -> pose::LocalPose,
     ) -> Result<Matrix> {
         ensure!(depth < self.bones.len(), "cyclic attachment hierarchy");
         let bone = self
@@ -256,12 +267,13 @@ impl Skeleton {
                     .map(|track| (track, frame))
             })
             .map_or_else(
-                || Ok(bone.bind.matrix()),
-                |(track, frame)| track.sample_matrix(frame, bone.bind),
+                || pose::sample_bone(bone.bind, None, 0.),
+                |(track, frame)| pose::sample_bone(bone.bind, Some(track), frame),
             )?;
+        let local = pose::BonePose::complete(adjust(index, bone, local.value())).matrix();
         match bone.parent {
             Some(parent) => Ok(multiply(
-                self.sampled_global(layers, parent, depth + 1)?,
+                self.sampled_global(layers, parent, depth + 1, adjust)?,
                 local,
             )),
             None => Ok(local),
@@ -595,7 +607,7 @@ fn eased_time(ease: &[[f32; 2]], a: usize, b: usize, t: f32) -> Result<f32> {
     Ok(value)
 }
 
-fn euler_rotation(degrees: [f32; 3]) -> [f32; 4] {
+pub fn euler_rotation(degrees: [f32; 3]) -> [f32; 4] {
     let [x, y, z] = degrees.map(|value| (value.to_radians() * 0.5).sin_cos());
     [
         x.0 * y.1 * z.1 - x.1 * y.0 * z.0,
