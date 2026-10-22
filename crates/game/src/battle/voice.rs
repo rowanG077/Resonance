@@ -113,29 +113,66 @@ impl<'a> Resolver<'a> {
     ) -> Result<Option<Sound>> {
         self.bind(
             || {
-                let character = match actor {
-                    ModelSource::Party(character) => character,
-                    ModelSource::Enemy(_) => return Ok(None),
-                    _ => anyhow::bail!("voice binding requires an actor profile"),
-                };
-                if self.profile(actor)?.voices.is_none() {
-                    return Ok(None);
-                }
-                let policy = self
-                    .party
-                    .voice_sequences
-                    .get(usize::from(character - 1))
-                    .context("missing character voice policy")?;
-                let selected = policy.techniques.get(&technique).unwrap_or(&policy.default);
-                Ok(match phase {
-                    Phase::Chant => selected.chant,
-                    Phase::SelfChant => selected.self_chant,
-                    Phase::Release => selected.release,
-                    Phase::Fallback => selected.fallback,
-                })
+                Ok(self
+                    .sequence(actor, technique)?
+                    .and_then(|selected| match phase {
+                        Phase::Chant => selected.chant,
+                        Phase::SelfChant => selected.self_chant,
+                        Phase::Release => selected.release,
+                        Phase::Fallback => selected.fallback,
+                    }))
             },
             resolve,
         )
+    }
+
+    pub fn chant(
+        &self,
+        actor: ModelSource,
+        technique: u16,
+        mut resolve: impl FnMut(Sound) -> Result<Option<Sound>>,
+    ) -> Result<Option<(Sound, u16)>> {
+        let selected = self
+            .diagnostics
+            .attempt("battle voice selection", self.sequence(actor, technique))?
+            .flatten();
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        for (sound, ticks) in [
+            (selected.chant, selected.chant_ticks),
+            (selected.fallback, selected.fallback_ticks),
+        ] {
+            if let Some(sound) = sound
+                && let Some(sound) = resolve(sound)?
+            {
+                return Ok(Some((sound, ticks)));
+            }
+        }
+        Ok(None)
+    }
+
+    fn sequence(
+        &self,
+        actor: ModelSource,
+        technique: u16,
+    ) -> Result<Option<&battle_profile::VoiceSequence>> {
+        let character = match actor {
+            ModelSource::Party(character) => character,
+            ModelSource::Enemy(_) => return Ok(None),
+            _ => anyhow::bail!("voice binding requires an actor profile"),
+        };
+        if self.profile(actor)?.voices.is_none() {
+            return Ok(None);
+        }
+        let policy = self
+            .party
+            .voice_sequences
+            .get(usize::from(character - 1))
+            .context("missing character voice policy")?;
+        Ok(Some(
+            policy.techniques.get(&technique).unwrap_or(&policy.default),
+        ))
     }
 
     fn bind(

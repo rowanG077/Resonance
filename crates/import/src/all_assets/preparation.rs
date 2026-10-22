@@ -64,7 +64,7 @@ pub(super) fn party<'a>(
             for source in sources {
                 let path = crate::battle_model::party::publish(source, &decoded, output)?;
                 result.files.insert(path.clone());
-                for key in &source.keys {
+                for key in source.source_keys() {
                     result
                         .outputs
                         .entry(key.clone())
@@ -373,12 +373,13 @@ fn original_party_bindings_use_the_production_graph() -> Result<()> {
         || (),
         |completion| {
             if let Ok(party) = completion.result::<PreparedParty>() {
-                assert_eq!(party.files.len(), 9);
-                assert!(sources.iter().all(|source| source.keys.iter().all(|key| {
-                    party.outputs[key].contains(&resonance_content::battle_model::party_path(
-                        source.character,
-                    ))
-                })));
+                assert_eq!(party.files.len(), sources.len());
+                assert!(sources.iter().all(|source| {
+                    source
+                        .keys
+                        .iter()
+                        .all(|key| party.outputs[key].contains(&source.path()))
+                }));
                 complete = true;
             }
         },

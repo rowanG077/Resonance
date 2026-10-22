@@ -67,9 +67,6 @@ fn publish(extracted: &Path, output: &Path, cached: bool) -> Result<Vec<String>>
         crate::write_atomic(&output.join(&path), &serde_json::to_vec(&definition)?)?;
         paths.push(path);
     }
-    if let Some(shared) = shared {
-        shared.publish()?;
-    }
     Ok(paths)
 }
 
@@ -248,7 +245,9 @@ pub(crate) fn read(
         profile,
         weapon_visibility: match enemy {
             105 => [(1, WeaponVisibility::Alternating)].into(),
-            208 | 209 => (0..4).map(|slot| (slot, WeaponVisibility::Hidden)).collect(),
+            208 | 209 => (0..4)
+                .map(|slot| (slot, WeaponVisibility::Hidden))
+                .collect(),
             // Yggdrasill's shared model carries the Eternal Sword, but fights unarmed.
             236..=238 => [(0, WeaponVisibility::Hidden)].into(),
             _ => Default::default(),
@@ -293,7 +292,7 @@ fn presentation(
         .context("missing enemy presentation policy")?;
     if !matches!(
         selector,
-        6 | 8 | 10 | 12 | 13 | 15 | 16 | 18 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27
+        2 | 3 | 6 | 8 | 10 | 12 | 13 | 15 | 16 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27
     ) {
         return Ok(None);
     }
@@ -312,18 +311,403 @@ fn presentation(
     }
     let defeat = timed(profile.voices.as_ref().and_then(|voices| voices.defeat))?;
     let opening = match selector {
+        2 => Some(resonance_content::battle_enemy::Opening::Entrance(
+            sword_dancer_entrance(),
+        )),
         10 => Some(resonance_content::battle_enemy::Opening::Entrance(
             descending_entrance(),
         )),
         12 => Some(resonance_content::battle_enemy::Opening::Entrance(
             falling_entrance(bytes, metadata)?,
         )),
-        20 => Some(resonance_content::battle_enemy::Opening::Voice(timed(
-            crate::battle_voice::sound(half(metadata, 0xf6)?),
-        )?)),
+        15 => Some(resonance_content::battle_enemy::Opening::Entrance(
+            duel_entrance(),
+        )),
+        3 | 6 | 8 | 19 | 20 | 23 | 24 => Some(resonance_content::battle_enemy::Opening::Voice(
+            timed(crate::battle_voice::sound(half(metadata, 0xf6)?))?,
+        )),
+        21 => Some(resonance_content::battle_enemy::Opening::Entrance(
+            confrontation_entrance(),
+        )),
+        22 => Some(resonance_content::battle_enemy::Opening::Entrance(
+            betrayal_entrance(timed(crate::battle_voice::sound(half(metadata, 0xf6)?))?),
+        )),
+        26 => Some(resonance_content::battle_enemy::Opening::Entrance(
+            final_entrance(profile),
+        )),
         _ => None,
     };
     Ok(Some(Presentation { opening, defeat }))
+}
+
+fn confrontation_entrance() -> resonance_content::battle_enemy::Entrance {
+    use resonance_content::battle_enemy::{
+        Entrance, EntranceCamera, EntranceCue as Cue, EntranceShot, EntranceStaging,
+    };
+    use resonance_content::battle_voice::Sound;
+    let camera = |radius, focus_height, yaw| EntranceCamera {
+        radius,
+        height_radius: 1500.,
+        focus_height,
+        focus_height_step: 0.,
+        yaw,
+        yaw_step: 0.,
+        maximum_yaw: None,
+        elevation: 5.,
+        elevation_step: 0.,
+        minimum_elevation: 5.,
+    };
+    let opening = camera(1150., 75., -170.);
+    Entrance {
+        ticks: 715,
+        gravity: 0.,
+        letterbox: 0,
+        show_party: false,
+        show_hud: false,
+        flash: None,
+        launches: vec![],
+        cues: vec![
+            (25, Cue::Voice(Sound::Stream(2047))),
+            (
+                40,
+                Cue::Pose {
+                    clip: 27,
+                    rate: 0.2,
+                    repeat: false,
+                    blend: 10,
+                },
+            ),
+            (300, Cue::Dissolve),
+            (320, Cue::PartyVoice(Sound::Stream(2048))),
+            (320, Cue::PartyActiveExpression),
+            (530, Cue::Voice(Sound::Stream(2049))),
+            (550, Cue::Dissolve),
+            (
+                650,
+                Cue::Feedback {
+                    duration: 50,
+                    limit: 16,
+                    alpha: 160,
+                },
+            ),
+        ],
+        camera: opening,
+        staging: Some(EntranceStaging {
+            character: 1,
+            party_positions: vec![
+                [-300., 0., 0.],
+                [-450., 0., 200.],
+                [-450., 0., 100.],
+                [-600., 0., -200.],
+            ],
+            enemy_position: [300., 0., 0.],
+            hide_party_at: Some(550),
+            fallback: None,
+            shots: vec![
+                (
+                    0,
+                    EntranceShot {
+                        party: true,
+                        camera: opening,
+                        lateral: 20.,
+                        lateral_step: -0.25,
+                        vertical: 0.,
+                        vertical_step: 0.,
+                    },
+                ),
+                (
+                    301,
+                    EntranceShot {
+                        party: false,
+                        camera: camera(1300., 100., -10.),
+                        lateral: 19.75,
+                        lateral_step: -0.25,
+                        vertical: 0.,
+                        vertical_step: 0.,
+                    },
+                ),
+                (
+                    551,
+                    EntranceShot {
+                        party: false,
+                        camera: camera(850., 100., 170.),
+                        lateral: 0.,
+                        lateral_step: 0.,
+                        vertical: 0.,
+                        vertical_step: 0.,
+                    },
+                ),
+            ],
+        }),
+    }
+}
+
+fn sword_dancer_entrance() -> resonance_content::battle_enemy::Entrance {
+    use resonance_content::battle_enemy::{Entrance, EntranceCamera, EntranceCue};
+    Entrance {
+        ticks: 360,
+        gravity: 0.,
+        letterbox: 0,
+        show_party: true,
+        show_hud: true,
+        flash: None,
+        launches: vec![],
+        cues: vec![(
+            280,
+            EntranceCue::Feedback {
+                duration: 175,
+                limit: 8,
+                alpha: 160,
+            },
+        )],
+        camera: EntranceCamera {
+            radius: 2000.,
+            height_radius: 1000.,
+            focus_height: 80.,
+            focus_height_step: 0.,
+            yaw: 0.,
+            yaw_step: 0.46,
+            maximum_yaw: Some(165.),
+            elevation: 70.,
+            elevation_step: -0.175,
+            minimum_elevation: 10.,
+        },
+        staging: None,
+    }
+}
+
+fn duel_entrance() -> resonance_content::battle_enemy::Entrance {
+    use resonance_content::battle_enemy::{
+        Entrance, EntranceCamera, EntranceCue as Cue, EntranceShot, EntranceStaging,
+    };
+    use resonance_content::battle_voice::Sound;
+    let camera = EntranceCamera {
+        radius: 1150.,
+        height_radius: 1500.,
+        focus_height: 100.,
+        focus_height_step: 0.,
+        yaw: -170.,
+        yaw_step: 0.,
+        maximum_yaw: None,
+        elevation: 7.5,
+        elevation_step: 0.,
+        minimum_elevation: 7.5,
+    };
+    Entrance {
+        ticks: 430,
+        gravity: 0.,
+        letterbox: 64,
+        show_party: false,
+        show_hud: false,
+        flash: None,
+        launches: vec![],
+        cues: vec![
+            (
+                5,
+                Cue::Pose {
+                    clip: 23,
+                    rate: 0.65,
+                    repeat: false,
+                    blend: 10,
+                },
+            ),
+            (30, Cue::Voice(Sound::Stream(2008))),
+            (150, Cue::Dissolve),
+            (165, Cue::Voice(Sound::Stream(2009))),
+            (
+                165,
+                Cue::PartyPose {
+                    clip: 100,
+                    rate: 0.5,
+                    repeat: false,
+                    blend: 10,
+                },
+            ),
+            (165, Cue::PartyActiveExpression),
+            (210, Cue::Sound(Sound::Cue(60))),
+            (430, Cue::Dissolve),
+        ],
+        camera,
+        staging: Some(EntranceStaging {
+            character: 1,
+            party_positions: vec![[-300., 0., 0.]],
+            enemy_position: [300., 0., 0.],
+            hide_party_at: None,
+            fallback: None,
+            shots: vec![
+                (
+                    0,
+                    EntranceShot {
+                        party: true,
+                        camera,
+                        lateral: 20.,
+                        lateral_step: -0.25,
+                        vertical: 0.,
+                        vertical_step: 0.,
+                    },
+                ),
+                (
+                    151,
+                    EntranceShot {
+                        party: false,
+                        camera: EntranceCamera {
+                            yaw: -10.,
+                            ..camera
+                        },
+                        lateral: 19.75,
+                        lateral_step: -0.25,
+                        vertical: 0.,
+                        vertical_step: 0.,
+                    },
+                ),
+            ],
+        }),
+    }
+}
+
+fn betrayal_entrance(fallback: TimedVoice) -> resonance_content::battle_enemy::Entrance {
+    use resonance_content::battle_enemy::{
+        Entrance, EntranceCamera, EntranceCue as Cue, EntranceShot, EntranceStaging,
+    };
+    use resonance_content::battle_voice::Sound;
+    let camera = |radius, focus_height, yaw| EntranceCamera {
+        radius,
+        height_radius: 1500.,
+        focus_height,
+        focus_height_step: 0.,
+        yaw,
+        yaw_step: 0.,
+        maximum_yaw: None,
+        elevation: 5.,
+        elevation_step: 0.,
+        minimum_elevation: 5.,
+    };
+    let opening = camera(1150., 75., -170.);
+    Entrance {
+        ticks: 660,
+        gravity: 0.,
+        letterbox: 0,
+        show_party: false,
+        show_hud: false,
+        flash: None,
+        launches: vec![],
+        cues: vec![
+            (
+                2,
+                Cue::Pose {
+                    clip: 0,
+                    rate: 0.4,
+                    repeat: true,
+                    blend: 8,
+                },
+            ),
+            (25, Cue::Voice(Sound::Stream(1998))),
+            (210, Cue::Dissolve),
+            (220, Cue::PartyVoice(Sound::Stream(1999))),
+            (220, Cue::PartyActiveExpression),
+            (330, Cue::Voice(Sound::Stream(2000))),
+            (330, Cue::ActiveExpression),
+            (330, Cue::Dissolve),
+            (
+                450,
+                Cue::Pose {
+                    clip: 27,
+                    rate: 0.3,
+                    repeat: false,
+                    blend: 8,
+                },
+            ),
+            (660, Cue::Dissolve),
+        ],
+        camera: opening,
+        staging: Some(EntranceStaging {
+            character: 1,
+            party_positions: vec![
+                [-300., 0., 0.],
+                [-450., 0., 200.],
+                [-450., 0., 100.],
+                [-600., 0., -200.],
+            ],
+            enemy_position: [300., 0., 0.],
+            hide_party_at: Some(330),
+            fallback: Some(fallback),
+            shots: vec![
+                (
+                    0,
+                    EntranceShot {
+                        party: true,
+                        camera: opening,
+                        lateral: 20.,
+                        lateral_step: -0.25,
+                        vertical: 0.,
+                        vertical_step: 0.,
+                    },
+                ),
+                (
+                    211,
+                    EntranceShot {
+                        party: false,
+                        camera: camera(1000., 100., -10.),
+                        lateral: 19.75,
+                        lateral_step: -0.25,
+                        vertical: 0.,
+                        vertical_step: 0.,
+                    },
+                ),
+                (
+                    331,
+                    EntranceShot {
+                        party: false,
+                        camera: camera(700., 100., 170.),
+                        lateral: 0.,
+                        lateral_step: 0.,
+                        vertical: -49.75,
+                        vertical_step: 0.25,
+                    },
+                ),
+                (
+                    530,
+                    EntranceShot {
+                        party: false,
+                        camera: camera(700., 100., 170.),
+                        lateral: 0.,
+                        lateral_step: 0.,
+                        vertical: 0.,
+                        vertical_step: 0.,
+                    },
+                ),
+            ],
+        }),
+    }
+}
+
+fn final_entrance(
+    profile: &resonance_content::battle_profile::Profile,
+) -> resonance_content::battle_enemy::Entrance {
+    use resonance_content::battle_enemy::{Entrance, EntranceCamera, EntranceCue};
+    Entrance {
+        ticks: 210,
+        gravity: 0.,
+        letterbox: 0,
+        show_party: false,
+        show_hud: false,
+        flash: None,
+        launches: vec![],
+        cues: vec![(210, EntranceCue::Dissolve)],
+        camera: EntranceCamera {
+            radius: 1950.,
+            height_radius: 1500.,
+            focus_height: profile.center_offset[1] * profile.model_scale - 20.,
+            focus_height_step: 0.1,
+            yaw: 180.,
+            yaw_step: 0.,
+            maximum_yaw: None,
+            elevation: 9.,
+            elevation_step: 0.,
+            minimum_elevation: 9.,
+        },
+        staging: None,
+    }
 }
 
 fn falling_entrance(
@@ -348,7 +732,11 @@ fn falling_entrance(
     }
     Ok(Entrance {
         ticks: 300,
+        staging: None,
         gravity: -1.,
+        letterbox: 0,
+        show_party: true,
+        show_hud: true,
         flash: None,
         launches,
         cues: vec![
@@ -408,8 +796,10 @@ fn falling_entrance(
             radius: 1750.,
             height_radius: 1200.,
             focus_height: 120.,
+            focus_height_step: 0.,
             yaw: 180.,
             yaw_step: 0.01,
+            maximum_yaw: None,
             elevation: 20.,
             elevation_step: -0.01,
             minimum_elevation: 16.5,
@@ -424,7 +814,11 @@ fn descending_entrance() -> resonance_content::battle_enemy::Entrance {
     use resonance_content::battle_voice::Sound;
     Entrance {
         ticks: 570,
+        staging: None,
         gravity: 0.,
+        letterbox: 0,
+        show_party: true,
+        show_hud: true,
         launches: vec![],
         flash: Some(EntranceFlash {
             tick: 220,
@@ -483,8 +877,10 @@ fn descending_entrance() -> resonance_content::battle_enemy::Entrance {
             radius: 1750.,
             height_radius: 1000.,
             focus_height: 120.,
+            focus_height_step: 0.,
             yaw: 180.,
             yaw_step: 0.01,
+            maximum_yaw: None,
             elevation: 22.,
             elevation_step: -0.01,
             minimum_elevation: 18.5,

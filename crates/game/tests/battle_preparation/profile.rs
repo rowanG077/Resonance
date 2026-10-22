@@ -15,6 +15,7 @@ pub(super) fn profile() -> battle_profile::Profile {
         body_alpha: 255,
         texture_channels: vec![],
         blink: None,
+        active_expression: [0; 4],
         idle_expression: [0; 4],
         rescue_expression: [0; 4],
         weapon_styles: Default::default(),

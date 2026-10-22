@@ -28,6 +28,10 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
         let mut session: SessionData = files.json("game/session-data.json")?;
         session.rules = Some(Arc::new(menus.clone()));
         let mut party = Party::new(&session, Default::default())?;
+        party.battle_rules.modifiers = 0x0150;
+        party.battle_rules.attack_adjustment = -50;
+        party.battle_rules.defense_adjustment = 50;
+        party.battle_rules.intelligence_adjustment = -25;
         party.formation = vec![1, 3];
         party.members[2].techniques.clear();
         party.members[2].disabled_techniques.clear();
@@ -56,6 +60,7 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
         let result = inputs.prepare(
             &menus,
             PrepareOptions {
+                hunting_symbol: None,
                 event_flags: Default::default(),
                 random_seed: 1234,
                 map: 332,
@@ -70,6 +75,23 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
         )?;
         assert!(!diagnostics.has_errors());
         let mut battle = result.core;
+        for actor in battle.actors() {
+            assert_eq!(
+                actor.combat_adjustments,
+                if actor.side == resonance_battle::Side::Party {
+                    resonance_battle::CombatAdjustments {
+                        attack: -50,
+                        defense: 50,
+                        intelligence: -25,
+                        attack_quarters: 1,
+                        defense_eighths: 1,
+                        accuracy_quarters: 1,
+                    }
+                } else {
+                    Default::default()
+                }
+            );
+        }
         let actor = battle.actor_ids().next().unwrap();
         let supported = battle
             .prepared_technique(actor, 1)

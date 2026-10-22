@@ -79,7 +79,6 @@ pub(crate) fn publish_skill_source(
         &crate::battle_profile::element_contact_sounds(&module)?,
         &mut shared,
     )?;
-    shared.publish()?;
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&scene)?)?;
     Ok(path)
 }
@@ -116,7 +115,6 @@ pub(crate) fn publish_source(
         &crate::battle_profile::element_contact_sounds(&module)?,
         &mut scene,
     )?;
-    shared.publish()?;
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&scene)?)?;
     Ok(path)
 }

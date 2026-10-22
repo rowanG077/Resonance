@@ -77,8 +77,9 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
     );
     for formation in [1, 2] {
         let options = || PrepareOptions {
+            hunting_symbol: None,
             event_flags: if formation == 2 {
-                [29].into()
+                [19, 24, 29].into()
             } else {
                 Default::default()
             },
@@ -148,6 +149,39 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
             (formation == 2).then_some(15),
         );
         assert_eq!(prepared.results.formation, formation);
+        let colette = prepared
+            .core
+            .models()
+            .unwrap()
+            .definition(resonance_battle::ActorId::from_index(1)?)
+            .context("missing Colette model")?;
+        let body = prepared
+            .models
+            .iter()
+            .find(|body| body.resource == colette.resource)
+            .context("missing Colette render model")?;
+        let part = &body.parts[0];
+        let crystal = part
+            .scene
+            .appearance
+            .as_ref()
+            .and_then(|a| a.costume)
+            .context("missing crystal texture selector")?;
+        let material = part
+            .scene
+            .materials
+            .iter()
+            .position(|material| {
+                material
+                    .color
+                    .as_ref()
+                    .is_some_and(|binding| binding.texture == crystal)
+            })
+            .context("missing crystal material")?;
+        assert_eq!(
+            part.uv_offsets[material][1],
+            if formation == 2 { 0.5 } else { 0.75 }
+        );
         assert_eq!(prepared.results.enemies.len(), usize::from(formation));
         let lloyd = prepared
             .core

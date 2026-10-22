@@ -81,10 +81,12 @@ fn main() -> Result<()> {
     }
     if !party_art.is_empty() {
         let library = library.as_ref().unwrap();
-        for character in 1..=9 {
-            let path = resonance_content::battle_model::party_path(character);
+        for (character, costume) in
+            (1..=9).flat_map(|character| (0..5).map(move |costume| (character, costume)))
+        {
+            let path = resonance_content::battle_model::party_costume_path(character, costume);
             let target = output.join(&path);
-            if !target.exists() {
+            if !target.exists() && library.join(&path).exists() {
                 fs::create_dir_all(target.parent().unwrap())?;
                 fs::copy(library.join(path), target)?;
             }

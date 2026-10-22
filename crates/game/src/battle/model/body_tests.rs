@@ -73,6 +73,7 @@ fn profile() -> battle_profile::Profile {
         texture_channels: vec![],
         blink: None,
         idle_expression: [0; 4],
+        active_expression: [0; 4],
         rescue_expression: [0; 4],
         weapon_styles: Default::default(),
         initial_conditions: ConditionSet::EMPTY,

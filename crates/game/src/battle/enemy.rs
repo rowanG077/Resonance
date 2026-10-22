@@ -118,6 +118,7 @@ pub(super) fn actor(
                 .context("negative initial Over Limit charge")?,
         )?,
         proficiency: 0,
+        combat_adjustments: Default::default(),
         input: Default::default(),
         guard: resonance_battle::Guard {
             recovery_bonus: guard_recovery_bonus,
@@ -288,6 +289,7 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                         *technique,
                         metadata.cast_ticks.map(u32::from),
                     )?;
+                    Arc::make_mut(&mut cast).armor = metadata.cast_armor;
                     if cast.release.transition_ticks > 0 && cast.release.summon.is_none() {
                         if body_motion {
                             Arc::make_mut(&mut cast).release_pose =
@@ -329,6 +331,7 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
             };
             let mut events = vec![(0, Event::Armor(attack.armor))];
             if let EnemyExecution::Physical { technique, .. } = execution {
+                events.push((0, Event::Notice { duration: 90 }));
                 let common = self.voices.party_table().martial_attacks.variant(
                     resonance_content::battle_martial::Binding::enemy(*technique),
                 )?;
@@ -754,6 +757,10 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                         condition: *condition,
                         amount: *amount,
                     },
+                    EnemyEvent::AfflictOpponents { groups, dispel } => Event::AfflictOpponents {
+                        groups: groups.clone(),
+                        dispel: *dispel,
+                    },
                     EnemyEvent::Stun => Event::Stun,
                     EnemyEvent::WeaponVisibility { slot, visible } => {
                         Event::WeaponVisibility(vec![(*slot, *visible)])
@@ -843,11 +850,17 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     None,
                 )?;
             }
-            actions.push(bindings.insert(ActionDefinition {
+            let key = bindings.insert(ActionDefinition {
                 normal: None,
                 tp_cost: u16::from(metadata.tp),
                 execution: super::ActionExecution::Attack(prepared),
-            }));
+            });
+            if let EnemyExecution::Physical { technique, .. } = execution {
+                let catalogue = catalogue_id(&placements, *technique)
+                    .context("enemy physical technique has no catalogue binding")?;
+                self.feedback.action_catalogues.insert(key, catalogue);
+            }
+            actions.push(key);
         }
         if let Some(resource) = self
             .enemy_effects

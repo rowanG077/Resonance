@@ -196,7 +196,6 @@ pub(crate) fn prepare(
         println!("Prepared monster {id}: {}", monster.name);
         records.push(monster);
     }
-    shared.publish()?;
     behaviors.finish(crate::model_behavior::Catalogue::Monsters)?;
     book(catalogue, ui, records)
 }

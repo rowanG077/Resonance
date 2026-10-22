@@ -3,14 +3,17 @@ use crate::{
     animation::ModelBindings,
     read::{u16 as half, u32 as word},
     rel::Rel,
-    resource::PartyResource,
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     battle_victory::{Condition, Event, GROUP_COUNT, Group, Ordinary, Performances},
     field_preload::{File, Role},
 };
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 pub fn publish(extracted: &Path, output: &Path) -> Result<String> {
     publish_source(extracted, output, "battle")
@@ -29,11 +32,10 @@ pub fn inputs(extracted: &Path) -> Result<BTreeMap<String, String>> {
         &files,
         &module.text((4, 0x1e4))?,
     )?);
-    for character in 1..=9 {
-        paths.push(crate::field_resources::resolve_path(
-            &files,
-            catalogue.party(PartyResource::Body, character, 0)?,
-        )?);
+    for name in catalogue.party_bodies.iter().flatten().flatten() {
+        if let Some(path) = crate::field_resources::find_path(&files, name)? {
+            paths.push(path);
+        }
     }
     let mut result = paths
         .into_iter()
@@ -60,60 +62,65 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
     let mut ordinary = Vec::new();
     let mut files = BTreeMap::new();
     for character in 1..=9 {
-        let path = crate::field_resources::resolve_path(
-            &paths,
-            catalogue.party(PartyResource::Body, character, 0)?,
-        )?;
-        let original = fs::read(paths.join(path))?;
-        let body_sha256 = crate::digest(&original);
-        let body = crate::compression::payload(original)?;
-        let primary = crate::field::sections(&body)?
-            .into_iter()
-            .next()
+        let bodies = catalogue.party_bodies[usize::from(character - 1)]
+            .iter()
             .flatten()
-            .context("missing victory body")?;
-        let (_, resource) = crate::geometry::model_resource(&body[primary])?;
-        let model =
-            crate::model::Model::parse(&resource[crate::geometry::skeleton_range(resource)?])?;
-        let bindings = ModelBindings::from_model(&model);
-        for selector in 0..5 {
-            let index = usize::from((character - 1) * 5 + selector);
-            let bytes = archive
-                .get(index * 0x38000..(index + 1) * 0x38000)
-                .context("missing victory package")?;
-            ensure!(word(bytes, 0)? == 2, "invalid victory package directory");
-            let start = word(bytes, 4)? as usize;
-            let motion = word(bytes, 8)? as usize;
-            ensure!(
-                start >= 12 && start < motion && motion < bytes.len(),
-                "invalid victory package members"
-            );
-            let clip = crate::animation::read_member(&bytes[motion..])?.motion(&bindings)?;
-            let (timeline, unsupported_reason) =
-                match timeline(&bytes[start..motion], clip.duration_frames) {
-                    Ok(events) => (Some(events), None),
-                    Err(error) => (None, Some(format!("{error:#}"))),
-                };
-            let motion = clip.encode()?;
-            let path = format!("clips/{}.motion", crate::digest(&motion));
-            crate::write_atomic(&output.join(&path), &motion)?;
-            files.insert(
-                path.clone(),
-                File {
-                    sha256: crate::digest(&motion),
-                    bytes: motion.len() as u64,
-                    roles: [Role::Data].into(),
-                },
-            );
-            ordinary.push(Ordinary {
-                character,
-                selector,
-                source_sha256: crate::digest(bytes),
-                body_sha256: body_sha256.clone(),
-                motion: path,
-                timeline,
-                unsupported_reason,
-            });
+            .collect::<BTreeSet<_>>();
+        for name in bodies {
+            let Some(path) = crate::field_resources::find_path(&paths, name)? else {
+                continue;
+            };
+            let original = fs::read(paths.join(path))?;
+            let body_sha256 = crate::digest(&original);
+            let body = crate::compression::payload(original)?;
+            let primary = crate::field::sections(&body)?
+                .into_iter()
+                .next()
+                .flatten()
+                .context("missing victory body")?;
+            let (_, resource) = crate::geometry::model_resource(&body[primary])?;
+            let model =
+                crate::model::Model::parse(&resource[crate::geometry::skeleton_range(resource)?])?;
+            let bindings = ModelBindings::from_model(&model);
+            for selector in 0..5 {
+                let index = usize::from((character - 1) * 5 + selector);
+                let bytes = archive
+                    .get(index * 0x38000..(index + 1) * 0x38000)
+                    .context("missing victory package")?;
+                ensure!(word(bytes, 0)? == 2, "invalid victory package directory");
+                let start = word(bytes, 4)? as usize;
+                let motion = word(bytes, 8)? as usize;
+                ensure!(
+                    start >= 12 && start < motion && motion < bytes.len(),
+                    "invalid victory package members"
+                );
+                let clip = crate::animation::read_member(&bytes[motion..])?.motion(&bindings)?;
+                let (timeline, unsupported_reason) =
+                    match timeline(&bytes[start..motion], clip.duration_frames) {
+                        Ok(events) => (Some(events), None),
+                        Err(error) => (None, Some(format!("{error:#}"))),
+                    };
+                let motion = clip.encode()?;
+                let path = format!("clips/{}.motion", crate::digest(&motion));
+                crate::write_atomic(&output.join(&path), &motion)?;
+                files.insert(
+                    path.clone(),
+                    File {
+                        sha256: crate::digest(&motion),
+                        bytes: motion.len() as u64,
+                        roles: [Role::Data].into(),
+                    },
+                );
+                ordinary.push(Ordinary {
+                    character,
+                    selector,
+                    source_sha256: crate::digest(bytes),
+                    body_sha256: body_sha256.clone(),
+                    motion: path,
+                    timeline,
+                    unsupported_reason,
+                });
+            }
         }
     }
     let groups = (1..=GROUP_COUNT)
@@ -408,7 +415,17 @@ mod tests {
             let path = publish(&extracted, output.path())?;
             let bytes = fs::read(output.path().join(path))?;
             let value: Performances = serde_json::from_slice(&bytes)?;
-            assert_eq!(value.ordinary.len(), 45);
+            let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
+            let mut bodies = 0;
+            for costumes in &catalogue.party_bodies {
+                for name in costumes.iter().flatten().collect::<BTreeSet<_>>() {
+                    bodies += usize::from(
+                        crate::field_resources::find_path(&extracted.join("files"), name)?
+                            .is_some(),
+                    );
+                }
+            }
+            assert_eq!(value.ordinary.len(), bodies * 5);
             assert_eq!(
                 value
                     .groups

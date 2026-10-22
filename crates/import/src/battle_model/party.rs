@@ -1,7 +1,7 @@
 //! Bind party battle animations to decoded body packages.
 use crate::{character::Clip, field::MapArchive, resource::PartyResource, scene::decoded::Package};
 use anyhow::{Context, Result, ensure};
-use resonance_content::battle_model::{Party, party_path};
+use resonance_content::battle_model::{Party, party_costume_path};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -9,15 +9,27 @@ use std::{
     sync::Arc,
 };
 
-const TRANSFORMED_COSTUME: u8 = 3;
-
 pub(crate) struct Source {
     pub character: u8,
+    pub costume: u8,
     pub body: String,
     pub motion: String,
-    pub alternate_motion: Option<String>,
     pub wings: Option<String>,
     pub keys: Vec<String>,
+    extra_sources: Vec<(String, String)>,
+    extra_motions: Vec<(u16, Arc<crate::animation::AuthoredAnimation>)>,
+}
+
+impl Source {
+    pub(crate) fn path(&self) -> String {
+        party_costume_path(self.character, self.costume)
+    }
+
+    pub(crate) fn source_keys(&self) -> impl Iterator<Item = &String> {
+        self.keys
+            .iter()
+            .chain(self.extra_sources.iter().map(|(_, key)| key))
+    }
 }
 
 pub(crate) fn discover(
@@ -49,9 +61,26 @@ fn discover_selected(
         "invalid party character selection"
     );
     let files = extracted.join("files");
-    characters
-        .iter()
-        .map(|&character| {
+    let mut selections = Vec::new();
+    for &character in characters {
+        for (costume, body) in catalogue.party_bodies[usize::from(character - 1)]
+            .iter()
+            .enumerate()
+        {
+            if let Some(body) = body
+                && crate::field_resources::find_path(&files, body)?.is_some()
+            {
+                selections.push((character, costume as u8));
+            }
+        }
+        ensure!(
+            selections.contains(&(character, 0)),
+            "missing default party body for {character}"
+        );
+    }
+    selections
+        .into_iter()
+        .map(|(character, costume)| {
             let mut select = |kind, costume| -> Result<_> {
                 let path = crate::field_resources::resolve_path(
                     &files,
@@ -63,22 +92,9 @@ fn discover_selected(
                 }
                 Ok((path, sources[&label].clone()))
             };
-            let (body, body_key) = select(PartyResource::Body, 0)?;
-            let (motion, motion_key) = select(PartyResource::BattleMotion, 0)?;
+            let (body, body_key) = select(PartyResource::Body, costume)?;
+            let (motion, motion_key) = select(PartyResource::BattleMotion, costume)?;
             let mut keys = vec![body_key, motion_key];
-            // Colette's transformed costume shares the default body.
-            let alternate_motion = if character == 2 {
-                let (alternate_body, _) = select(PartyResource::Body, TRANSFORMED_COSTUME)?;
-                ensure!(
-                    alternate_body == body,
-                    "alternate battle bank uses a different body"
-                );
-                let (path, key) = select(PartyResource::BattleMotion, TRANSFORMED_COSTUME)?;
-                keys.push(key);
-                Some(path)
-            } else {
-                None
-            };
             let wings = if character == 2 {
                 let path = "col_wing.bin".to_owned();
                 let label = format!("disc{disc}/{path}");
@@ -89,13 +105,39 @@ fn discover_selected(
             } else {
                 None
             };
+            let mut extra_sources = Vec::new();
+            let mut extra_motions = Vec::new();
+            if character == 1 {
+                // The duel's party animation is stored alongside its opponent's artwork.
+                let declarations = crate::source_assets::Sources::read(extracted)?;
+                let usual = fs::read(files.join(&declarations.usual))?;
+                let package = crate::source_assets::enemy_package(
+                    &files.join(&declarations.enemy),
+                    &usual,
+                    242,
+                )?;
+                let members = crate::model_preview::PointerMembers::new(&package, 0x18..0x1e8)?;
+                let motion = members
+                    .model(0x20 + 60 * 4)?
+                    .context("missing duel party motion")?;
+                extra_motions.push((100, Arc::new(crate::animation::read_member(motion)?)));
+                for path in [declarations.usual, declarations.enemy] {
+                    let label = format!("disc{disc}/{path}");
+                    if !sources.contains_key(&label) {
+                        sources.insert(label.clone(), crate::media::hash_file(&files.join(&path))?);
+                    }
+                    extra_sources.push((path, sources[&label].clone()));
+                }
+            }
             Ok(Source {
                 character,
+                costume,
                 body,
                 motion,
-                alternate_motion,
                 wings,
                 keys,
+                extra_sources,
+                extra_motions,
             })
         })
         .collect()
@@ -129,7 +171,7 @@ pub(crate) fn publish(source: &Source, decoded: &Package, output: &Path) -> Resu
         .collect::<Vec<_>>();
     let parts = crate::character::cook_source_parts(
         output,
-        &format!("battle/party/{}", source.character),
+        &format!("battle/party/{}-{}", source.character, source.costume),
         &body,
         &clips,
         decoded,
@@ -169,31 +211,45 @@ pub(crate) fn publish(source: &Source, decoded: &Package, output: &Path) -> Resu
         body_sha256: crate::digest(&original),
         motion_sha256: archive.source_sha256,
         null_motions,
-        motion_variants: BTreeMap::new(),
         body: super::rig(&body[primary], super::RigKind::Body)?,
         files: super::files(parts.iter().chain(wings.iter()), output)?,
         parts,
         wings,
     };
-    if let Some(path) = &source.alternate_motion {
-        let alternate = MapArchive::decode(&decoded.source(path)?)?;
-        publish_variant(&body, &alternate, &mut record, output, |bytes| {
-            decoded.animation(bytes)
-        })?;
-    }
-    let path = party_path(source.character);
+    publish_extra_motions(source, &body, &mut record, output)?;
+    let path = source.path();
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&record)?)?;
     Ok(path)
 }
 
-/// Bind a complete alternate bank without publishing body artwork again.
-fn publish_variant(
+fn publish_extra_motions(
+    source: &Source,
     body: &[u8],
-    archive: &MapArchive,
     record: &mut Party,
     output: &Path,
-    mut animation: impl FnMut(&[u8]) -> Result<Arc<crate::animation::AuthoredAnimation>>,
 ) -> Result<()> {
+    if source.extra_motions.is_empty() {
+        return Ok(());
+    }
+    let clips = bind_motions(body, &source.extra_motions, record, output)?;
+    for (part, clips) in record.parts.iter_mut().zip(clips) {
+        part.clips.retain(|clip| {
+            !source
+                .extra_motions
+                .iter()
+                .any(|(slot, _)| *slot == clip.resource_slot)
+        });
+        part.clips.extend(clips);
+    }
+    Ok(())
+}
+
+fn bind_motions(
+    body: &[u8],
+    motions: &[(u16, Arc<crate::animation::AuthoredAnimation>)],
+    record: &mut Party,
+    output: &Path,
+) -> Result<Vec<Vec<resonance_content::SceneClip>>> {
     use resonance_content::field_preload::{File, Role};
     let layers = crate::field::sections(body)?
         .into_iter()
@@ -202,7 +258,7 @@ fn publish_variant(
         .collect::<Vec<_>>();
     ensure!(
         layers.len() == record.parts.len(),
-        "alternate motion body layers differ"
+        "party motion body layers differ"
     );
     let mut clips = Vec::new();
     for (range, part) in layers.into_iter().zip(&record.parts) {
@@ -212,7 +268,7 @@ fn publish_variant(
         let bindings = crate::animation::ModelBindings::from_model(&model);
         ensure!(
             bindings.names.as_ref() == Some(&part.bone_names),
-            "alternate motion body bindings differ"
+            "party motion body bindings differ"
         );
         let mut glb = crate::scene::glb::Glb {
             json: serde_json::Value::Null,
@@ -220,14 +276,11 @@ fn publish_variant(
             motions: Vec::new(),
         };
         let mut layer = Vec::new();
-        for (slot, range) in archive.sections.iter().skip(2).enumerate() {
-            if let Some(range) = range {
-                let motion = animation(&archive.bytes[range.clone()])?.motion(&bindings)?;
-                layer.push(resonance_content::SceneClip {
-                    resource_slot: slot.try_into()?,
-                    ..glb.animate(motion)?
-                });
-            }
+        for (slot, animation) in motions {
+            layer.push(resonance_content::SceneClip {
+                resource_slot: *slot,
+                ..glb.animate(animation.motion(&bindings)?)?
+            });
         }
         for motion in glb.motions {
             crate::write_atomic(&output.join(&motion.path), &motion.bytes)?;
@@ -242,15 +295,7 @@ fn publish_variant(
         }
         clips.push(layer);
     }
-    record.motion_variants.insert(
-        TRANSFORMED_COSTUME,
-        resonance_content::battle_model::PartyMotions {
-            source_sha256: archive.source_sha256.clone(),
-            null_motions: null_motions(archive)?,
-            clips,
-        },
-    );
-    Ok(())
+    Ok(clips)
 }
 
 fn null_motions(archive: &MapArchive) -> Result<BTreeSet<u16>> {
@@ -268,7 +313,7 @@ fn null_motions(archive: &MapArchive) -> Result<BTreeSet<u16>> {
         .collect()
 }
 
-/// Refresh motion metadata and alternate curves while retaining cached artwork.
+/// Refresh motion metadata while retaining cached costume artwork.
 pub fn publish_cached(extracted: &Path, library: &Path, output: &Path) -> Result<Vec<String>> {
     publish_cached_selected(extracted, library, output, &[1, 2, 3, 4, 5, 6, 7, 8, 9])
 }
@@ -285,7 +330,7 @@ pub fn publish_cached_selected(
     sources
         .iter()
         .map(|source| {
-            let path = party_path(source.character);
+            let path = source.path();
             let mut record: Party = serde_json::from_slice(&fs::read(library.join(&path))?)?;
             ensure!(
                 record.body_sha256 == source.keys[0] && record.motion_sha256 == source.keys[1],
@@ -298,14 +343,11 @@ pub fn publish_cached_selected(
                 part.clips
                     .retain(|clip| !record.null_motions.contains(&clip.resource_slot));
             }
-            if let Some(extra) = &source.alternate_motion {
-                let extra = MapArchive::open(&extracted.join("files").join(extra))?;
+            if !source.extra_motions.is_empty() {
                 let body = crate::compression::payload(fs::read(
                     extracted.join("files").join(&source.body),
                 )?)?;
-                publish_variant(&body, &extra, &mut record, output, |bytes| {
-                    Ok(Arc::new(crate::animation::read_member(bytes)?))
-                })?;
+                publish_extra_motions(source, &body, &mut record, output)?;
             }
             ensure!(
                 record
@@ -342,7 +384,6 @@ pub fn publish_selected(
         .flat_map(|source| {
             [&source.body, &source.motion]
                 .into_iter()
-                .chain(source.alternate_motion.as_ref())
                 .chain(source.wings.as_ref())
         })
         .collect::<std::collections::BTreeSet<_>>()
@@ -360,12 +401,13 @@ pub fn publish_selected(
         .iter()
         .map(|source| {
             Ok((
-                publish(source, &decoded, output)
-                    .with_context(|| format!("party {}", source.character))?,
+                publish(source, &decoded, output).with_context(|| {
+                    format!("party {}, costume {}", source.character, source.costume)
+                })?,
                 [&source.body, &source.motion]
                     .into_iter()
-                    .chain(source.alternate_motion.as_ref())
                     .chain(source.wings.as_ref())
+                    .chain(source.extra_sources.iter().map(|(path, _)| path))
                     .cloned()
                     .collect(),
             ))
@@ -378,6 +420,37 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires extracted source assets and cached party artwork"]
+    fn duel_motion_binds_to_party_body_and_cached_refresh_is_idempotent() -> Result<()> {
+        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
+        let extracted = local.join("extracted/disc1");
+        let output = tempfile::tempdir()?;
+        publish_cached_selected(&extracted, &local.join("all-assets"), output.path(), &[1])?;
+        let path = output.path().join(party_costume_path(1, 0));
+        let first = fs::read(&path)?;
+        let record: Party = serde_json::from_slice(&first)?;
+        for part in &record.parts {
+            let clips = part
+                .clips
+                .iter()
+                .filter(|clip| clip.resource_slot == 100)
+                .collect::<Vec<_>>();
+            assert_eq!(clips.len(), 1);
+            let clip = clips[0];
+            assert!((clip.duration_seconds - 11.2).abs() < 0.0001);
+            assert!(record.files.contains_key(&clip.motion));
+            let motion = resonance_content::animation::Motion::decode(&fs::read(
+                output.path().join(&clip.motion),
+            )?)?;
+            assert!(!motion.tracks.is_empty());
+            motion.validate(&record.body.skeleton)?;
+        }
+        publish_cached_selected(&extracted, output.path(), output.path(), &[1])?;
+        assert_eq!(fs::read(path)?, first);
+        Ok(())
+    }
+
+    #[test]
     #[ignore = "requires both extracted original discs; runs shared model/curve publication"]
     fn original_party_banks_keep_native_slots_and_shared_model_bindings() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
@@ -386,9 +459,9 @@ mod tests {
             let extracted = local.join(format!("disc{disc}"));
             let output = tempfile::tempdir()?;
             let paths = publish_all(&extracted, output.path())?;
-            assert_eq!(paths.len(), 9);
             let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
             let sources = discover(&extracted, disc, &catalogue, &mut BTreeMap::new())?;
+            assert_eq!(paths.len(), sources.len());
             let mut records = Vec::new();
             for (source, (path, _)) in sources.iter().zip(paths) {
                 let bytes = fs::read(output.path().join(path))?;
@@ -407,38 +480,15 @@ mod tests {
                         .eq(record.parts[0].bone_names.iter())
                 );
                 let archive = MapArchive::open(&extracted.join("files").join(&source.motion))?;
-                let slots = archive
+                let mut slots = archive
                     .sections
                     .iter()
                     .enumerate()
                     .skip(2)
                     .filter_map(|(member, range)| range.as_ref().map(|_| (member - 2) as u16))
                     .collect::<Vec<_>>();
+                slots.extend(source.extra_motions.iter().map(|(slot, _)| *slot));
                 assert_eq!(record.null_motions, null_motions(&archive)?);
-                if let Some(extra) = &source.alternate_motion {
-                    let extra = MapArchive::open(&extracted.join("files").join(extra))?;
-                    let bank = &record.motion_variants[&TRANSFORMED_COSTUME];
-                    assert_eq!(bank.source_sha256, extra.source_sha256);
-                    assert_eq!(bank.null_motions, null_motions(&extra)?);
-                    assert_eq!(bank.clips.len(), record.parts.len());
-                    let slots = extra
-                        .sections
-                        .iter()
-                        .enumerate()
-                        .skip(2)
-                        .filter_map(|(member, range)| range.as_ref().map(|_| (member - 2) as u16))
-                        .collect::<Vec<_>>();
-                    for layer in &bank.clips {
-                        assert_eq!(
-                            layer
-                                .iter()
-                                .map(|clip| clip.resource_slot)
-                                .collect::<Vec<_>>(),
-                            slots
-                        );
-                    }
-                    assert_ne!(bank.clips[0][0].motion, record.parts[0].clips[0].motion);
-                }
                 assert_eq!(
                     record.parts[0]
                         .clips
@@ -447,12 +497,7 @@ mod tests {
                         .collect::<Vec<_>>(),
                     slots
                 );
-                for clip in record.parts[0].clips.iter().chain(
-                    record
-                        .motion_variants
-                        .values()
-                        .flat_map(|bank| bank.clips[0].iter()),
-                ) {
+                for clip in &record.parts[0].clips {
                     assert!(record.files.contains_key(&clip.motion));
                     resonance_content::animation::Motion::decode(&fs::read(
                         output.path().join(&clip.motion),

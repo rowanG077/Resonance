@@ -73,6 +73,7 @@ pub struct Lifecycle {
     order: u8,
     order_age: u8,
     order_revision: u32,
+    order_issuer: Option<resonance_battle::ActorId>,
     events: Option<super::event::Sequence>,
 }
 
@@ -86,6 +87,7 @@ impl Lifecycle {
             order: 0,
             order_age: ORDER_RESELECT_DELAY,
             order_revision: 0,
+            order_issuer: None,
             events: None,
         }
     }
@@ -200,6 +202,17 @@ impl Lifecycle {
                         if order != self.order {
                             self.command_events.push(command::Event::Cue(1));
                         }
+                        self.order_issuer = battle.actor_ids().find(|id| {
+                            let actor = &battle.actors()[id.index()];
+                            actor.side == resonance_battle::Side::Party
+                                && actor.control_slot == input.command.controller
+                                && actor.available()
+                                && matches!(
+                                    actor.control,
+                                    resonance_battle::Control::Manual
+                                        | resonance_battle::Control::SemiAuto
+                                )
+                        });
                         self.order = order;
                         self.order_age = 0;
                         self.order_revision = self.order_revision.wrapping_add(1);
@@ -224,6 +237,9 @@ impl Lifecycle {
                         && candidate.active_order() != self.order
                     {
                         candidate.apply_order(battle, self.order)?;
+                        if let Some(actor) = self.order_issuer.take() {
+                            battle.record_strategy_order(actor);
+                        }
                     }
                     self.order_age = self.order_age.saturating_add(1).min(ORDER_RESELECT_DELAY);
                 }

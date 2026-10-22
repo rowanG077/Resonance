@@ -80,6 +80,41 @@ pub struct Entrance {
     /// Presentation cues run after movement, indexed by the displayed update.
     pub cues: Vec<(u16, EntranceCue)>,
     pub camera: EntranceCamera,
+    /// Maximum height of each cinematic bar in a 480-pixel viewport.
+    #[serde(default)]
+    pub letterbox: u16,
+    #[serde(default)]
+    pub show_party: bool,
+    #[serde(default)]
+    pub show_hud: bool,
+    /// Optional conversation staging and camera cuts before combat begins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging: Option<EntranceStaging>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntranceStaging {
+    pub character: u8,
+    /// The speaker, followed by the remaining party members in formation order.
+    pub party_positions: Vec<[f32; 3]>,
+    pub enemy_position: [f32; 3],
+    pub hide_party_at: Option<u16>,
+    /// A short introduction when the conversation's party speaker is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<crate::battle_voice::TimedVoice>,
+    pub shots: Vec<(u16, EntranceShot)>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct EntranceShot {
+    pub party: bool,
+    pub camera: EntranceCamera,
+    pub lateral: f32,
+    pub lateral_step: f32,
+    #[serde(default)]
+    pub vertical: f32,
+    #[serde(default)]
+    pub vertical_step: f32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -95,8 +130,12 @@ pub struct EntranceCamera {
     pub radius: f32,
     pub height_radius: f32,
     pub focus_height: f32,
+    #[serde(default)]
+    pub focus_height_step: f32,
     pub yaw: f32,
     pub yaw_step: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum_yaw: Option<f32>,
     pub elevation: f32,
     pub elevation_step: f32,
     pub minimum_elevation: f32,
@@ -124,8 +163,18 @@ pub enum EntranceCue {
         alpha: u8,
     },
     Expression(u8),
+    ActiveExpression,
     Effect(u16),
     Voice(crate::battle_voice::Sound),
+    PartyVoice(crate::battle_voice::Sound),
+    PartyActiveExpression,
+    PartyPose {
+        clip: u16,
+        rate: f32,
+        repeat: bool,
+        blend: u8,
+    },
+    Dissolve,
     Sound(crate::battle_voice::Sound),
     Shake {
         duration: u32,

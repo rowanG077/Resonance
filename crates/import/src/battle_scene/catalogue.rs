@@ -164,7 +164,6 @@ pub(crate) fn publish_all_source(
         };
         catalogue.entries.insert(path, entry);
     }
-    shared.publish()?;
     crate::write_atomic(
         &output.join(&inventory_path),
         &serde_json::to_vec_pretty(&catalogue)?,

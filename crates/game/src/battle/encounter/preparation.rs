@@ -20,6 +20,7 @@ const COLETTE_WING_CENTER_RISE: f32 = 10.;
 /// battle seed is captured once; preparation may be retried without new draws.
 pub struct PrepareOptions {
     pub event_flags: BTreeSet<u16>,
+    pub hunting_symbol: Option<u32>,
     /// Saved event flag 0x3FA; story acquisition remains field-owned.
     pub devils_arms_unlocked: bool,
     pub random_seed: u64,
@@ -996,6 +997,34 @@ impl Inputs {
             {
                 body.suppressed_nodes.insert(node);
             }
+            let costume_frame = resonance_content::appearance::costume_frame(
+                u32::from(character),
+                &options.event_flags,
+            );
+            if let Some(body) = prepared
+                .models
+                .iter_mut()
+                .find(|body| body.resource == resource)
+            {
+                for part in &mut body.parts {
+                    let Some(texture) = part.scene.appearance.as_ref().and_then(|a| a.costume)
+                    else {
+                        continue;
+                    };
+                    part.uv_offsets.resize(part.scene.materials.len(), [0.; 4]);
+                    for (offset, material) in part.uv_offsets.iter_mut().zip(&part.scene.materials)
+                    {
+                        for (stage, binding) in [&material.color, &material.multiply]
+                            .into_iter()
+                            .enumerate()
+                        {
+                            if binding.as_ref().is_some_and(|b| b.texture == texture) {
+                                offset[stage * 2 + 1] += f32::from(costume_frame) / 4.;
+                            }
+                        }
+                    }
+                }
+            }
             if character == battle::party::Character::Colette as u8 && options.colette_state != 0 {
                 prepared.actor.body.center_offset[1] += COLETTE_WING_CENTER_RISE;
             }
@@ -1041,6 +1070,7 @@ impl Inputs {
                 model: member.model,
                 setup: resonance_battle::ActorSetup {
                     spell_charge,
+                    aerial_spells: member.loadout.aerial_spells,
                     ..Default::default()
                 },
             });
@@ -1458,6 +1488,11 @@ impl Inputs {
         let mut resources = Resources {
             files: &self.files,
             catalogue,
+            party_null_motions: self
+                .party_actors
+                .iter()
+                .filter_map(|actor| Some((actor.character, &actor.source.as_ref()?.null_motions)))
+                .collect(),
             projectiles: self
                 .files
                 .json(resonance_content::battle_projectile::PATH)?,
@@ -1537,7 +1572,24 @@ impl Inputs {
                                 (HOLY_SONG, TRAINED_SPELL_USES),
                                 (JUDGMENT, TRAINED_SPELL_USES),
                             ],
-                            one_in: HOLY_JUDGMENT_ONE_IN,
+                            trigger: resonance_battle::CastReplacementTrigger::Chance {
+                                one_in: HOLY_JUDGMENT_ONE_IN,
+                            },
+                        });
+                    } else if character == battle::party::Character::Genis as u8 {
+                        use battle::elemental_spells::{INDIGNATION, INDIGNATION_JUDGMENT};
+                        const TRAINED_SPELL_USES: u16 = 50;
+                        row.setup.cast_replacement = Some(resonance_battle::CastReplacement {
+                            input: *actions
+                                .techniques
+                                .get(&INDIGNATION)
+                                .context("Indignation is not prepared")?,
+                            output: *actions
+                                .techniques
+                                .get(&INDIGNATION_JUDGMENT)
+                                .context("Indignation Judgment is not prepared")?,
+                            required_uses: &[(INDIGNATION, TRAINED_SPELL_USES)],
+                            trigger: resonance_battle::CastReplacementTrigger::Overlimit,
                         });
                     }
                     row.actions = Some(actions);
@@ -1824,6 +1876,28 @@ impl Inputs {
             };
             if let Some(mut presentation) = self.enemy_definitions[&enemy].presentation.clone() {
                 use resonance_content::battle_enemy::{EntranceCue, Opening};
+                let speaker_source = match &presentation.opening {
+                    Some(Opening::Entrance(entrance)) => entrance
+                        .staging
+                        .as_ref()
+                        .map(|staging| model::ModelSource::Party(staging.character)),
+                    _ => None,
+                };
+                let speaker = speaker_source
+                    .and_then(|speaker| sources.iter().position(|source| *source == speaker))
+                    .map(|index| ids[index]);
+                if speaker_source.is_some() && speaker.is_none() {
+                    presentation.opening = match &presentation.opening {
+                        Some(Opening::Entrance(entrance)) => entrance
+                            .staging
+                            .as_ref()
+                            .and_then(|staging| staging.fallback.clone())
+                            .map(Opening::Voice),
+                        _ => None,
+                    };
+                }
+                let speaker_model =
+                    speaker.and_then(|speaker| rows[speaker.index()].model.as_ref());
                 match &mut presentation.opening {
                     Some(Opening::Voice(opening)) => {
                         opening.sound = voices.absolute(source, opening.sound, &mut sound)?;
@@ -1836,6 +1910,16 @@ impl Inputs {
                                         .absolute(source, Some(*line), &mut sound)?
                                         .context("entrance voice is unavailable")?
                                 }
+                                EntranceCue::PartyVoice(line) => {
+                                    *line = voices
+                                        .absolute(
+                                            speaker_source
+                                                .context("entrance speaker is missing")?,
+                                            Some(*line),
+                                            &mut sound,
+                                        )?
+                                        .context("entrance party voice is unavailable")?
+                                }
                                 EntranceCue::Sound(line) => {
                                     *line =
                                         sound(*line)?.context("entrance sound is unavailable")?
@@ -1846,6 +1930,11 @@ impl Inputs {
                                         .as_ref()
                                         .is_some_and(|model| model.motions.contains_key(clip)),
                                     "entrance motion {clip} is unavailable"
+                                ),
+                                EntranceCue::PartyPose { clip, .. } => ensure!(
+                                    speaker_model
+                                        .is_some_and(|model| model.motions.contains_key(clip)),
+                                    "entrance party motion {clip} is unavailable"
                                 ),
                                 _ => {}
                             }
@@ -1862,15 +1951,12 @@ impl Inputs {
                         .context("enemy presentation model is missing")?
                         .resource,
                     effects: enemy_effects[&enemy].resource,
+                    speaker,
+                    speaker_model: speaker_model.map(|model| model.resource),
                 });
             }
         }
-        let enemy_opening = self.events.is_none()
-            && enemy_presentations.iter().any(|prepared| {
-                prepared.actor.index() == self.party_actors.len()
-                    && prepared.definition.opening.is_some()
-            });
-        if self.enemies.settings.entry_voice && !enemy_opening {
+        if self.enemies.settings.entry_voice && self.events.is_none() {
             let mut choices = Vec::new();
             let major = rows
                 .iter()
@@ -1947,10 +2033,11 @@ impl Inputs {
             .enemy_definitions
             .values()
             .any(|enemy| enemy.actions.policy.items_forbidden);
-        let mut enabled =
-            command::enabled_rows(self.enemies.settings.escape_restricted, options.story)
-                & !party.battle_rules.disabled_commands;
-        if items_forbidden {
+        let mut enabled = command::enabled_rows(
+            self.enemies.settings.escape_restricted || party.battle_rules.coliseum,
+            options.story,
+        ) & !party.battle_rules.disabled_commands;
+        if items_forbidden || party.battle_rules.coliseum {
             enabled &= !command::Command::Items.mask();
         }
         let hover_bobbing = rows
@@ -2024,7 +2111,11 @@ impl Inputs {
                     effect.resource,
                     source,
                     &effect.members,
-                    tints.as_ref(),
+                    // Elemental attack, casting and seal feedback use resident banks.
+                    // Other banks retain the palettes selected by their programs.
+                    tints.as_ref().filter(|_| {
+                        effect.resource == common_id || effect.resource == techniques_id
+                    }),
                     self.files.diagnostics(),
                 )?;
                 if effect.resource == common_id && stun_particle.is_some() {
@@ -2086,6 +2177,7 @@ impl Inputs {
             ids[..self.party_actors.len()].to_vec(),
             enabled,
             core.initial_actors(),
+            party.battle_rules.coliseum,
         )?));
         core = core.with_escape(battle::escape::prepare(
             &voices,
@@ -2180,6 +2272,7 @@ impl Inputs {
             actors: party_roster,
             formation: self.setup.formation()?,
             formation_count: self.setup.formations()?.len(),
+            hunting_symbol: options.hunting_symbol,
             style,
             story: options
                 .story
