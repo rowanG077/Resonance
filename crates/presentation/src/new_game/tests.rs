@@ -1830,21 +1830,37 @@ fn clear_save_runs_grade_shop_and_starts_a_fresh_story() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires cooked Iselia escape movies; no window or audio device"]
+#[ignore = "requires all cooked movies and the Mana Cannon field; no window or audio device"]
 fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
     use bevy::ecs::system::RunSystemOnce;
     let mut app = super::super::movie::tests::fixture();
     let root = app.world().resource::<RunOptions>().assets.clone();
     app.world_mut().resource_mut::<movie::Playback>().active = false;
     let session = Session::load(&root)?;
-    let package = Arc::new(FieldPackage::prepare(
-        &root,
-        80,
-        &mut Default::default(),
-        || false,
-    )?);
+    let mut package = FieldPackage::prepare(&root, 80, &mut Default::default(), || false)?;
     app.insert_resource(session);
-    for playback in 0..2 {
+    let mut resources = std::fs::read_dir(root.join("movies"))?
+        .map(|entry| {
+            let path = entry?.path();
+            path.file_stem()
+                .and_then(|s| s.to_str())
+                .context("invalid movie metadata path")?
+                .parse::<u32>()
+                .context("invalid movie resource")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    resources.sort_unstable();
+    for &resource in &resources {
+        let path = resonance_content::movie::metadata_path(resource);
+        Arc::make_mut(&mut package.files)
+            .insert(path.clone(), std::fs::read(root.join(path))?.into());
+    }
+    let package = Arc::new(package);
+    // Play the scene's own movie completely, check every movie on that same
+    // request path, then return to it after resizing for other formats.
+    resources.insert(0, 4);
+    resources.push(4);
+    for (playback, resource) in resources.into_iter().enumerate() {
         {
             let mut session = app.world_mut().resource_mut::<Session>();
             let mut entry = FieldEntry {
@@ -1883,11 +1899,23 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
                     .resource,
                 4
             );
+            session
+                .field_mut()
+                .events
+                .world
+                .movie
+                .as_mut()
+                .unwrap()
+                .resource = resource;
         }
         let start = std::time::Instant::now();
         let (mixer, mut output) = resonance_playback::Offline::new();
         while !app.world().resource::<movie::Playback>().active {
             app.world_mut().run_system_once(super::advance).unwrap();
+            ensure!(
+                app.should_exit().is_none(),
+                "movie {resource} failed to start"
+            );
             ensure!(
                 start.elapsed() < std::time::Duration::from_secs(30),
                 "field movie did not start"
@@ -1906,7 +1934,10 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
             .operation
             .clone();
         assert!(!app.world().resource::<Session>().ready_for_field);
-        assert_eq!(app.world().resource::<movie::Playback>().resource, Some(4));
+        assert_eq!(
+            app.world().resource::<movie::Playback>().resource,
+            Some(resource)
+        );
         while app.world().resource::<movie::Playback>().active {
             app.world_mut().run_system_once(movie::controls).unwrap();
             app.world_mut().run_system_once(movie::update).unwrap();
@@ -1918,7 +1949,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
                     output.next().context("offline movie output stopped")?;
                 }
             }
-            if playback == 1 && movie.presented_frame.is_some() {
+            if playback > 0 && movie.presented_frame.is_some() {
                 break;
             }
             ensure!(
@@ -1927,6 +1958,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
             );
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
+        super::super::movie::tests::verify_surface(&mut app);
         if playback == 0 {
             let movie = app.world().resource::<movie::Playback>();
             assert!(movie.completed_naturally);
