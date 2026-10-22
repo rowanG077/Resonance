@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 pub const FIELD_VERSION: u32 = 11;
 /// Script extension: keep an actor centred on the player while following.
 pub const ANCHORED_PLAYER_BEHAVIOR: u8 = 127;
+/// Field-system query extension: number of formations in the last battle.
+pub const BATTLE_FORMATION_COUNT_QUERY: u16 = 0x100;
 /// Reserved resource range for static scenery, separate from character models.
 pub const SCENERY_RESOURCE_BASE: u32 = 0x1000_0000;
 /// Ordinary actor models embedded in a field archive, addressed by signed script IDs.

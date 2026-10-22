@@ -322,7 +322,7 @@ mod tests {
             target: [100., 210., 0.],
             speed: 10.,
         });
-        owner.step_motion();
+        owner.step_motion(false);
         owner.step_heading(false, true);
         assert_eq!(owner.position, [100., 210., 0.]);
         assert_eq!(owner.heading, 180.);

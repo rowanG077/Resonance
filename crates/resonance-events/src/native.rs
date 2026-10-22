@@ -16,6 +16,7 @@ mod field;
 mod menu;
 mod party;
 mod skit;
+mod stage;
 mod wait;
 
 pub(crate) struct EventCommand {
@@ -1199,12 +1200,17 @@ impl NativeHost<'_> {
                     .resources
                     .clips(resource, source)
                     .ok_or("animation resource missing")?;
-                let requested =
-                    u16::try_from(a[2].max(12)).map_err(|_| "invalid animation slot")?;
-                let slot = if clips.contains_key(&requested) {
-                    requested
+                let slot = if self.world.battle_event.is_some() {
+                    // Battle banks address motion slots directly, including slot zero.
+                    u16::try_from(a[2]).map_err(|_| "invalid battle animation slot")?
                 } else {
-                    12
+                    let requested =
+                        u16::try_from(a[2].max(12)).map_err(|_| "invalid animation slot")?;
+                    if clips.contains_key(&requested) {
+                        requested
+                    } else {
+                        12
+                    }
                 };
                 require(clips.contains_key(&slot), "animation slot is not cooked")?;
                 require(

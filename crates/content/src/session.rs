@@ -107,6 +107,9 @@ impl SessionData {
         let rules = crate::menu_data::MenuData::load(files)?;
         rules.validate_gameplay()?;
         let mut data: Self = files.json("game/session-data.json")?;
+        for character in &mut data.characters {
+            crate::arte::elemental::extend_learning(&mut character.allowed_techniques);
+        }
         data.rules = Some(std::sync::Arc::new(rules));
         data.validate()?;
         Ok(data)

@@ -516,7 +516,7 @@ impl EventRuntime {
         if self.exploration_error.is_some() {
             return Ok(false);
         }
-        if !self.world.input_enabled || self.interaction.is_some() {
+        if !self.world.input_enabled || self.interaction.is_some() || self.battle_pending() {
             return Ok(false);
         }
         if kind != 0
@@ -764,7 +764,10 @@ impl EventRuntime {
     ) -> Result<()> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
         self.world.reap_authored_resources();
-        if self.world.blocked_by_movie() || self.world.screen_request.is_some() {
+        if self.world.blocked_by_movie()
+            || self.battle_pending()
+            || self.world.screen_request.is_some()
+        {
             return Ok(());
         }
         self.world.actors.retain(|_, actor| !actor.retiring);
@@ -824,6 +827,9 @@ impl EventRuntime {
             {
                 dialogue.opening_actor = None;
             }
+        }
+        if let Some(stage) = &mut self.world.battle_event {
+            stage.step();
         }
         // The view follows the pose presented by the preceding actor update.
         let tracked_actor = self.world.field_camera.as_ref().map(|rig| {
@@ -948,13 +954,19 @@ impl EventRuntime {
                             )
                     })
                 });
+            let battle_space = self.world.battle_event.is_some();
             if !ambient.paused {
-                actor.step_motion();
+                actor.step_motion(battle_space);
             }
             resolve(&prepared, *id, actor, previous);
             actor.step_heading(
                 self.world.input_enabled && *id == self.world.controlled_actor,
-                actor.motion.is_some() || actor.position[..2] != previous[..2],
+                actor.motion.is_some()
+                    || if battle_space {
+                        actor.position != previous
+                    } else {
+                        actor.position[..2] != previous[..2]
+                    },
             );
             if !actor.scripted_animation
                 && !ambient.selecting
@@ -1148,6 +1160,7 @@ impl EventRuntime {
                     || self.world.field_transition.is_some()
                     || self.world.world_transition.is_some()
                     || self.world.field_exit.is_some()
+                    || self.battle_pending()
             }) {
                 if let Some(Wait::Tick(wake)) = &mut instance.wait {
                     *wake = wake.checked_add(1).context("paused event clock overflow")?;
@@ -1184,6 +1197,7 @@ impl EventRuntime {
                 continue;
             }
             if let Some(wait) = instance.wait.take() {
+                let battle_completed = matches!(&wait, Wait::Battle(_));
                 if matches!(wait, Wait::ControlHandoff(_)) {
                     self.world.input_enabled = true;
                 }
@@ -1251,6 +1265,12 @@ impl EventRuntime {
                     None
                 };
                 instance.vm.complete(result, &mut self.memory)?;
+                if battle_completed && !self.world.restore_battle_music {
+                    // Live combat publishes its result before resuming the caller.
+                    // A debug bypass has no scene handoff and resumes immediately.
+                    self.instances[slot] = Some(instance);
+                    continue;
+                }
             }
             let mut commands = Vec::new();
             let mut spawns = Vec::new();
