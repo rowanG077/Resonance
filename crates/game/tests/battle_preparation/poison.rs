@@ -38,6 +38,7 @@ fn saved_poison_emits_scene_feedback_that_expires() -> Result<()> {
             music: None,
         },
         PrepareOptions {
+            hunting_symbol: None,
             event_flags: Default::default(),
             devils_arms_unlocked: false,
             victory_story_flags: [false; 2],

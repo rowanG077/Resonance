@@ -53,6 +53,7 @@ fn fallen_companion_results_place_speak_and_preserve_party_state() -> Result<()>
             defeat: DefeatPolicy::GameOver,
         },
         PrepareOptions {
+            hunting_symbol: None,
             event_flags: Default::default(),
             random_seed: 4,
             map: 332,

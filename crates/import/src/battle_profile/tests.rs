@@ -36,6 +36,7 @@ fn profiles_decode_movement_expressions_and_all_attachment_slots() -> Result<()>
     bytes[0xe8] = 60;
     bytes[0xe9] = 1;
     bytes[0xd7..0xdb].copy_from_slice(&[1, 2, 3, 4]);
+    bytes[0xdb..0xdf].copy_from_slice(&[6, 7, 8, 9]);
     bytes[0xdf..0xe3].copy_from_slice(&[4, 3, 2, 1]);
     let flags = [0, 1, 2, 0x10, 0x80, 0x11, 0x82, 0x92];
     for (slot, value) in flags.into_iter().enumerate() {
@@ -96,7 +97,12 @@ fn profiles_decode_movement_expressions_and_all_attachment_slots() -> Result<()>
             &profile.rescue_expression[..count],
             &bytes[0xdf..0xdf + count]
         );
+        assert_eq!(
+            &profile.active_expression[..count],
+            &bytes[0xdb..0xdb + count]
+        );
         assert!(profile.idle_expression[count..].iter().all(|&v| v == 0));
+        assert!(profile.active_expression[count..].iter().all(|&v| v == 0));
         assert!(profile.rescue_expression[count..].iter().all(|&v| v == 0));
         assert_eq!(profile.weapon_styles, styles);
     }
@@ -311,6 +317,8 @@ fn imports_party_profiles_and_battle_entry_settings() -> Result<()> {
         table.voice_sequences[3].techniques.get(&237),
         Some(&VoiceSequence {
             chant: Some(resonance_content::battle_voice::Sound::Stream(458)),
+            chant_ticks: 62,
+            fallback_ticks: 41,
             self_chant: Some(resonance_content::battle_voice::Sound::Stream(369)),
             release: Some(resonance_content::battle_voice::Sound::Stream(423)),
             fallback: Some(resonance_content::battle_voice::Sound::Cue(870)),

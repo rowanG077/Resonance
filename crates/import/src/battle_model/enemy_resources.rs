@@ -29,9 +29,11 @@ pub(super) fn carried_motions(
             _ => None,
         })
         .collect();
-    let mut slots = requested
-        .iter()
-        .map(|&(slot, _)| slot)
+    let mut slots = source
+        .attachments
+        .keys()
+        .copied()
+        .chain(requested.iter().map(|&(slot, _)| slot))
         .collect::<std::collections::BTreeSet<_>>();
     if let Some(EnemyBehavior::CarriedAnimationRate { slot, .. }) = &actions.policy.behavior {
         slots.insert(*slot);
@@ -389,12 +391,17 @@ pub(super) fn weapon_variants(
         ensure!(count != 0, "weapon variant has no equipped attachment");
         let metadata = crate::source_assets::section(package, 0)?;
         let model = crate::source_assets::section(package, 1)?;
+        let animation = crate::field::sections(package)?
+            .get(3)
+            .and_then(Clone::clone)
+            .map(|range| crate::animation::read_member(&package[range]))
+            .transpose()?;
         let mut layers = Vec::new();
         crate::model_preview::layers(
             crate::model_preview::Layer {
                 model,
                 outline: None,
-                animation: None,
+                animation: animation.as_ref(),
                 attached_to: None,
                 additive: bytes[profile + 0x124] & 0x10 != 0,
             },

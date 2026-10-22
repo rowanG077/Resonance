@@ -77,9 +77,11 @@ pub struct VoicePolicy {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VoiceSequence {
     pub chant: Option<Sound>,
+    pub chant_ticks: u16,
     pub self_chant: Option<Sound>,
     pub release: Option<Sound>,
     pub fallback: Option<Sound>,
+    pub fallback_ticks: u16,
 }
 
 /// Neutral party and elemental contact cue tables.
@@ -204,6 +206,8 @@ pub struct Profile {
     pub blink: Option<Blink>,
     /// Resting facial expressions; undeclared channels are zero.
     pub idle_expression: [u8; 4],
+    /// Engaged facial expression used by authored actions and conversations.
+    pub active_expression: [u8; 4],
     /// Facial expressions restored after lethal rescue.
     pub rescue_expression: [u8; 4],
     /// Styles for every attachment slot, including those enabled by equipment.

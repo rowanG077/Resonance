@@ -70,6 +70,9 @@ pub(crate) fn read(
         idle_expression: std::array::from_fn(
             |index| if index < channels { b[0xd7 + index] } else { 0 },
         ),
+        active_expression: std::array::from_fn(
+            |index| if index < channels { b[0xdb + index] } else { 0 },
+        ),
         rescue_expression: std::array::from_fn(
             |index| if index < channels { b[0xdf + index] } else { 0 },
         ),
@@ -320,6 +323,7 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
             .map(|character| {
                 voice_sequence(
                     &module,
+                    &voices,
                     character,
                     u32::read(bytes, character * BYTES + 0x104)?,
                 )
@@ -438,7 +442,12 @@ fn entry(module: &Rel) -> Result<resonance_content::battle_profile::Entry> {
     })
 }
 
-fn voice_sequence(module: &Rel, character: usize, base: u32) -> Result<VoicePolicy> {
+fn voice_sequence(
+    module: &Rel,
+    voices: &crate::battle_voice::Source,
+    character: usize,
+    base: u32,
+) -> Result<VoicePolicy> {
     use resonance_content::battle_voice::Sound;
     let default = if base == 0 {
         VoiceSequence::default()
@@ -447,9 +456,11 @@ fn voice_sequence(module: &Rel, character: usize, base: u32) -> Result<VoicePoli
         ensure!(index < 0x8000, "chant voice exceeds source domain");
         VoiceSequence {
             chant: Some(Sound::Stream(index)),
+            chant_ticks: voices.duration(Sound::Stream(index))?,
             self_chant: Some(Sound::Stream(index)),
             release: None,
             fallback: Some(Sound::Cue(index + 501)),
+            fallback_ticks: voices.duration(Sound::Cue(index + 501))?,
         }
     };
     let mut policy = VoicePolicy {
@@ -470,6 +481,10 @@ fn voice_sequence(module: &Rel, character: usize, base: u32) -> Result<VoicePoli
                 technique,
                 VoiceSequence {
                     chant,
+                    chant_ticks: chant
+                        .map(|sound| voices.duration(sound))
+                        .transpose()?
+                        .unwrap_or(0),
                     self_chant: if character == 1 {
                         chant
                     } else {
@@ -477,6 +492,7 @@ fn voice_sequence(module: &Rel, character: usize, base: u32) -> Result<VoicePoli
                     },
                     release: crate::battle_voice::sound(u16::read(row, 4)?),
                     fallback: default.fallback,
+                    fallback_ticks: default.fallback_ticks,
                 },
             );
         }
@@ -489,11 +505,9 @@ fn voice_sequence(module: &Rel, character: usize, base: u32) -> Result<VoicePoli
     }
     if character == 1 && base != 0 {
         for (technique, stream) in [(268, 232), (269, 231)] {
-            policy
-                .techniques
-                .entry(technique)
-                .or_insert(default)
-                .fallback = Some(Sound::Stream(stream));
+            let sequence = policy.techniques.entry(technique).or_insert(default);
+            sequence.fallback = Some(Sound::Stream(stream));
+            sequence.fallback_ticks = voices.duration(Sound::Stream(stream))?;
         }
     }
     Ok(policy)

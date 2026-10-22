@@ -196,12 +196,12 @@ pub fn construct_result_actors(
 pub fn load(
     root: &Path,
     files: Files,
-    characters: &[u8],
+    bodies: &[(u8, &str)],
     cache: &mut Cache,
     cancelled: impl Fn() -> bool,
 ) -> Result<(Files, Performances)> {
     use serde_json::Value;
-    if characters.is_empty() {
+    if bodies.is_empty() {
         return Ok((files, Performances::default()));
     }
     let diagnostics = files.diagnostics();
@@ -265,10 +265,9 @@ pub fn load(
         .files
         .iter()
         .filter(|(path, _)| {
-            performances
-                .ordinary
-                .iter()
-                .any(|row| characters.contains(&row.character) && row.motion == **path)
+            performances.ordinary.iter().any(|row| {
+                bodies.contains(&(row.character, row.body_sha256.as_str())) && row.motion == **path
+            })
         })
         .map(|(path, row)| (path.clone(), row.clone()))
         .collect();
@@ -292,7 +291,7 @@ pub fn prepare(
     for row in source
         .ordinary
         .iter()
-        .filter(|row| row.character == character)
+        .filter(|row| row.character == character && row.body_sha256 == body.body_sha256)
     {
         let prepared = (|| {
             ensure!(row.selector < 5, "unknown victory selector");
@@ -300,14 +299,12 @@ pub fn prepare(
                 source
                     .ordinary
                     .iter()
-                    .filter(|other| other.character == character && other.selector == row.selector)
+                    .filter(|other| other.character == character
+                        && other.body_sha256 == body.body_sha256
+                        && other.selector == row.selector)
                     .count()
                     == 1,
                 "duplicate victory selector"
-            );
-            ensure!(
-                row.body_sha256 == body.body_sha256,
-                "victory body identity differs from actor"
             );
             let dependency = source
                 .files

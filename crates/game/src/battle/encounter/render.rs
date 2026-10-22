@@ -742,6 +742,15 @@ mod tests {
             ))
             .unwrap(),
         );
+        // A tint-capable particle still uses its authored palette when the
+        // effect is spawned without elemental feedback.
+        if let resonance_content::battle_effect::declaration::Declaration::Particle {
+            template,
+            ..
+        } = &mut source.actors[0]
+        {
+            template.element_tint = true;
+        }
         source.programs.push(vec![ScheduledEvent {
             at: 0,
             operation: EffectOperation::Spawn {

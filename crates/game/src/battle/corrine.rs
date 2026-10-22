@@ -12,7 +12,9 @@ pub const CORRINE: u16 = 139;
 pub const HEART: u16 = 245;
 pub const SCENE: u16 = 282;
 const APPEAR_TICK: u16 = 11;
-const DEPARTURE_TAIL: u16 = 25;
+// Corrine and Heart initialize the same independent scene timer. Projectile
+// appearance, flight and departure do not determine when that scene retires.
+const ACTIVE_SCENE_TICKS: u16 = 210;
 
 pub(super) fn prepare(
     files: &Files,
@@ -57,15 +59,6 @@ pub(super) fn prepare(
         repeat: true,
         blend_ticks: 4,
     });
-    let projectile_lifetime = u16::try_from(
-        source
-            .projectile
-            .lifetime
-            .context("Corrine requires a bounded departure lifetime")?,
-    )?;
-    let lifetime = projectile_lifetime
-        .checked_add(APPEAR_TICK + DEPARTURE_TAIL)
-        .context("Corrine scene lifetime overflow")?;
     Ok(PreparedSpell {
         policy: Default::default(),
         summon: None,
@@ -77,9 +70,9 @@ pub(super) fn prepare(
         recovery: vec![],
         origin: SpellOrigin::SceneAboveTarget,
         transition_ticks: TRANSITION_TICKS,
-        stage_tint: stored_spells::stage_tint(scene.stage_color, lifetime)?,
-        camera: stored_spells::scene_camera(scene.camera, lifetime)?,
-        duration: TRANSITION_TICKS + lifetime + SCENE_BOUNDARY_TICKS,
+        stage_tint: stored_spells::stage_tint(scene.stage_color, ACTIVE_SCENE_TICKS)?,
+        camera: stored_spells::scene_camera(scene.camera, ACTIVE_SCENE_TICKS)?,
+        duration: TRANSITION_TICKS + ACTIVE_SCENE_TICKS + SCENE_BOUNDARY_TICKS,
         startup: None,
         sound: None,
     })

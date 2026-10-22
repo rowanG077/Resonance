@@ -11,6 +11,7 @@ use std::{
 pub(crate) struct Resources<'a, S> {
     pub files: &'a Files,
     pub catalogue: &'a resonance_content::arte::Catalogue,
+    pub party_null_motions: BTreeMap<u8, &'a BTreeSet<u16>>,
     pub projectiles: resonance_content::battle_projectile::Table,
     pub tints: Option<&'a battle_effect::Tints>,
     pub voices: &'a battle::voice::Resolver<'a>,
@@ -297,16 +298,18 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
         let spell = self.spell(technique)?;
         let rule = self.catalogue.definition(usize::from(technique))?;
         let profile = self.voices.profile(source)?;
-        let mut voice = |phase| -> Result<_> {
-            if matches!(source, battle::model::ModelSource::Enemy(_)) {
-                return Ok(None);
-            }
-            self.voices
-                .technique(source, voice_technique, phase, &mut self.sound)
-        };
-        let chant_voice =
-            voice(battle::voice::Phase::Chant)?.or(voice(battle::voice::Phase::Fallback)?);
-        let release_voice = voice(battle::voice::Phase::Release)?;
+        let chant = self
+            .voices
+            .chant(source, voice_technique, &mut self.sound)?;
+        let chant_voice = chant.map(|(sound, _)| sound);
+        const INCANTATION_TAIL_TICKS: u32 = 20;
+        let incantation_lead = chant.map(|(_, ticks)| u32::from(ticks) + INCANTATION_TAIL_TICKS);
+        let release_voice = self.voices.technique(
+            source,
+            voice_technique,
+            battle::voice::Phase::Release,
+            &mut self.sound,
+        )?;
         let [chant, release] = rule.casting.effects.members();
         let opening = (spell.transition_ticks > 0).then(|| rule.casting.effects.opening_member());
         let charged = 6;
@@ -341,6 +344,8 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
         }
         Ok((
             Arc::new(resonance_battle::CastingDefinition {
+                armor: None,
+                incantation_lead,
                 chant: vec![],
                 duration: cast_ticks.unwrap_or_else(|| {
                     (i64::from(profile.cast_ticks) + i64::from(rule.cast_time_adjustment)).max(0)
@@ -385,7 +390,6 @@ pub(super) fn party_techniques(
         .learned_by(character)?
         .iter()
         .copied()
-        .map(u16::from)
         .chain([guard.catalogue])
         .filter_map(|id| battle::martial::technique(character, id).map(|technique| (id, technique)))
         .collect())

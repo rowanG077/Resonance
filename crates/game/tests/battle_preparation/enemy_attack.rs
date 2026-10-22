@@ -65,6 +65,7 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
             music: None,
         },
         PrepareOptions {
+            hunting_symbol: None,
             event_flags: Default::default(),
             random_seed: SEED,
             map: 332,

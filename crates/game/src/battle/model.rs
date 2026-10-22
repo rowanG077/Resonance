@@ -360,6 +360,7 @@ pub(super) fn body(
             ]
         },
         idle_expression: profile.idle_expression,
+        active_expression: profile.active_expression,
         forced_eye_frame: None,
         blink,
         shadow: if actor.side == resonance_battle::Side::Enemy && profile.traits.hide_enemy_shadow {

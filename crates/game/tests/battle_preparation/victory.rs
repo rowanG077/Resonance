@@ -15,7 +15,19 @@ fn every_character_can_play_a_prepared_celebration() -> Result<()> {
         .map(|&id| battle::model::ModelSource::Party(id))
         .collect();
     let files = battle::model::load_files(&root, field, &sources, &mut cache, || false)?;
-    let (files, source) = battle::victory::load(&root, files, &characters, &mut cache, || false)?;
+    let bodies = characters
+        .iter()
+        .map(|&character| {
+            let body: resonance_content::battle_model::Party =
+                files.json(&resonance_content::battle_model::party_path(character))?;
+            Ok((character, body.body_sha256))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let selected: Vec<_> = bodies
+        .iter()
+        .map(|(character, hash)| (*character, hash.as_str()))
+        .collect();
+    let (files, source) = battle::victory::load(&root, files, &selected, &mut cache, || false)?;
     for character in characters {
         let member = single_party_fixture(
             &files,

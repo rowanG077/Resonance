@@ -97,10 +97,18 @@ pub fn enemy_effects_path(id: u8) -> String {
 }
 
 pub fn party_path(character: u8) -> String {
-    format!("battle/party/{character:02}.json")
+    party_costume_path(character, 0)
 }
 
-/// The ordinary costume's body and independent battle motion bank. Party
+pub fn party_costume_path(character: u8, costume: u8) -> String {
+    if costume == 0 {
+        format!("battle/party/{character:02}.json")
+    } else {
+        format!("battle/party/{character:02}-{costume}.json")
+    }
+}
+
+/// A costume's body and independent battle motion bank. Party
 /// statistics and actor templates have their existing session/table owners.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Party {
@@ -109,22 +117,11 @@ pub struct Party {
     /// Explicit empty entries in the authored body animation table.
     #[serde(default)]
     pub null_motions: BTreeSet<u16>,
-    /// Complete costume-selected banks sharing the ordinary body's geometry.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub motion_variants: BTreeMap<u8, PartyMotions>,
     pub body: Rig,
     pub parts: Vec<crate::ScenePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wings: Option<crate::ScenePart>,
     pub files: BTreeMap<String, crate::field_preload::File>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PartyMotions {
-    pub source_sha256: String,
-    pub null_motions: BTreeSet<u16>,
-    /// One clip table per body layer, in the same order as `Party::parts`.
-    pub clips: Vec<Vec<crate::SceneClip>>,
 }
 
 /// Optional body and carried artwork. Enemy gameplay has its own definition.

@@ -222,6 +222,7 @@ fn actor() -> Actor {
         availability: Default::default(),
         overlimit: Default::default(),
         proficiency: 0,
+        combat_adjustments: Default::default(),
         input: Default::default(),
         guard: Default::default(),
         hp: 10,

@@ -12,12 +12,20 @@ use resonance_game::battle::encounter::{Assets, PrepareOptions};
 use std::sync::Arc;
 
 /// A saved EX29 gem/skill row must retain Fire Ball's spell-charge definition
-/// even when catalogue66 is dormant. The real learning owner activates the
+/// even when the spell is dormant. The real learning owner activates the
 /// prepared action first; the real battle callback then stores the native
 /// Fire Ball on a fresh Manual attack.
 #[test]
-#[ignore = "requires current cooked Genis EX29/common50/Fire Ball publications; CPU preparation and store execution"]
+#[ignore = "requires current party EX29/common50/Fire Ball publications; CPU preparation and store execution"]
 fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> Result<()> {
+    for (character, catalogue) in [(3, 66), (6, 213), (9, 213)] {
+        stores_dormant_fire_ball(character, catalogue)
+            .with_context(|| format!("Spell Charge for character {character}"))?;
+    }
+    Ok(())
+}
+
+fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
     use resonance_battle::{BattleInput, ControlInput, Element};
 
     let root = super::common::asset_root();
@@ -30,8 +38,8 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
         retained.json("game/session-data.json")?;
     data.rules = Some(Arc::new(menus.clone()));
     let mut party = Party::new(&data, Default::default()).map_err(anyhow::Error::msg)?;
-    party.formation = vec![3];
-    party.field_leader = 3;
+    party.formation = vec![character];
+    party.field_leader = character;
     // Party defaults slot0 to SemiAuto; this fixture explicitly exercises the
     // Manual fresh-Attack store route.
     party.settings.battle_controls[0] = 0;
@@ -39,16 +47,17 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
     for member in &mut party.members {
         member.assist_shortcuts = [None; 2];
     }
-    let genis = &mut party.members[2];
-    genis.ex_gems = [0, 0, 0, 4];
-    genis.ex_skills = [0, 0, 0, 29];
-    genis.techniques.clear();
-    genis.disabled_techniques.clear();
-    genis.shortcuts = [0; 4];
+    let member_index = usize::from(character - 1);
+    let member = &mut party.members[member_index];
+    member.ex_gems = [0, 0, 0, 4];
+    member.ex_skills = [0, 0, 0, 29];
+    member.techniques.clear();
+    member.disabled_techniques.clear();
+    member.shortcuts = [0; 4];
     party.validate(&data)?;
-    assert!(!party.members[2].techniques.contains(&66));
-    assert_eq!(party.members[2].ex_gems[3], 4);
-    assert_eq!(party.members[2].ex_skills[3], 29);
+    assert!(!party.members[member_index].techniques.contains(&catalogue));
+    assert_eq!(party.members[member_index].ex_gems[3], 4);
+    assert_eq!(party.members[member_index].ex_skills[3], 29);
 
     let (assets, prepared) = Assets::load(
         &root,
@@ -64,6 +73,7 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
             music: None,
         },
         PrepareOptions {
+            hunting_symbol: None,
             event_flags: Default::default(),
             devils_arms_unlocked: false,
             victory_story_flags: [false; 2],
@@ -77,20 +87,17 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
         &mut cache,
         || false,
     )?;
-    let catalogue = &assets.catalogue;
-    let element = usize::from(catalogue.definition(66)?.element);
+    let element = usize::from(assets.catalogue.definition(usize::from(catalogue))?.element);
     assert_eq!(element, 3);
 
     let actor = prepared.results.actors[0].0;
     assert!(
-        prepared.core.technique_is_current(actor, 66) == Some(false),
+        prepared.core.technique_is_current(actor, catalogue) == Some(false),
         "Fire Ball must remain dormant until the live learning owner acquires it"
     );
 
-    // This render assertion proves the dormant preparation retained the
-    // common50 dependency without confusing program50 with a particle member:
-    // both common6 and common50 emit particle82, while the latter is selected
-    // only when spell_charge_slots is populated.
+    // Dormant spells must retain their storage artwork and elemental palette,
+    // even before learning activates the action.
     let common = prepared
         .effects
         .iter()
@@ -128,7 +135,7 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
             .all(|actor| actor.equipment.base_element != Some(Element::Fire))
     );
     super::enter_battle(&mut active)?;
-    assert_eq!(active.technique_is_current(actor, 66), Some(false));
+    assert_eq!(active.technique_is_current(actor, catalogue), Some(false));
     assert!(
         active
             .shortcuts(actor)
@@ -137,22 +144,22 @@ fn cooked_dormant_ex29_fire_ball_acquires_and_stores_with_prepared_charge() -> R
             .all(|&catalogue| catalogue == 0)
     );
     let random = active.random_state();
-    let action = active.record_technique_acquisition(actor, 66)?;
+    let action = active.record_technique_acquisition(actor, catalogue)?;
     assert_eq!(active.random_state(), random);
-    assert_eq!(active.technique_is_current(actor, 66), Some(true));
+    assert_eq!(active.technique_is_current(actor, catalogue), Some(true));
     let shortcuts = active
         .shortcuts(actor)
         .context("prepared actor shortcuts after acquisition")?;
-    assert_eq!(shortcuts[0], 66);
+    assert_eq!(shortcuts[0], catalogue);
     let event = active
         .technique_acquisitions()
         .last()
         .context("acquisition event")?;
     ensure!(
-        (event.actor, event.catalogue, event.action) == (actor, 66, action),
+        (event.actor, event.catalogue, event.action) == (actor, catalogue, action),
         "live acquisition published the wrong dormant action"
     );
-    assert!(!party.members[2].techniques.contains(&66));
+    assert!(!party.members[member_index].techniques.contains(&catalogue));
     assert!(!active.is_diagnostic());
 
     // Entry setup already supplies a retained movement direction. Exercise

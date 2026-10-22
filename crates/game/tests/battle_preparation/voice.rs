@@ -19,6 +19,8 @@ fn snapshot(paranoid: bool) -> (Files, battle_profile::Table) {
     let mut voice_sequences = vec![battle_profile::VoicePolicy::default(); 2];
     voice_sequences[0].default = battle_profile::VoiceSequence {
         chant: Some(Sound::Stream(1)),
+        chant_ticks: 75,
+        fallback_ticks: 60,
         self_chant: Some(Sound::Stream(1)),
         fallback: Some(Sound::Cue(509)),
         release: None,
@@ -71,6 +73,16 @@ fn prepared_lines_use_supplied_profiles_and_spell_overrides_without_reloading() 
         assert_eq!(resolver.select(source, |v| v.guard, resolve)?, None);
     }
     let speaker = ModelSource::Party(1);
+    assert_eq!(
+        resolver.chant(speaker, 42, resolve)?,
+        Some((Sound::Stream(1), 75))
+    );
+    assert_eq!(
+        resolver.chant(speaker, 42, |sound| Ok(
+            matches!(sound, Sound::Cue(_)).then_some(sound)
+        ))?,
+        Some((Sound::Cue(509), 60))
+    );
     assert_eq!(resolver.absolute(speaker, None, resolve)?, None);
     assert_eq!(
         resolver.absolute(ModelSource::Party(2), Some(Sound::Cue(510)), resolve)?,

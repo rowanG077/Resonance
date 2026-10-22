@@ -127,6 +127,32 @@ impl Assets {
 }
 
 impl Inputs {
+    /// Replay externally selected choreography without changing ordinary encounter assets.
+    #[cfg(feature = "test-support")]
+    pub fn bind_fixture_party_motion(
+        &mut self,
+        actor: usize,
+        clip: u16,
+        motion: resonance_content::animation::Motion,
+    ) -> Result<()> {
+        let input = self
+            .party_actors
+            .get_mut(actor)
+            .context("fixture motion party actor is absent")?;
+        let source = input
+            .source
+            .as_ref()
+            .context("fixture motion party body is absent")?;
+        ensure!(clip >= 100, "fixture motion must use an external slot");
+        ensure!(
+            !input.motions.contains_key(&clip),
+            "fixture motion slot is already bound"
+        );
+        motion.validate(&source.body.skeleton)?;
+        input.motions.insert(clip, motion);
+        Ok(())
+    }
+
     /// Descriptors must already belong to the field snapshot.
     /// Their inventories extend this candidate with complete model/audio/art bytes;
     /// the caller still prepares actions, playback and GPU resources before entry.
@@ -143,6 +169,47 @@ impl Inputs {
         setup: Setup,
         cache: &mut Cache,
         cancelled: impl Fn() -> bool,
+    ) -> Result<Self> {
+        Self::load_inner(
+            root, retained, menus, session, party, setup, cache, cancelled, false,
+        )
+    }
+
+    /// Prepare an isolated action observation, without requiring its story event.
+    #[cfg(feature = "test-support")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Matches ordinary encounter loading."
+    )]
+    pub fn load_fixture(
+        root: &Path,
+        retained: &Files,
+        menus: &MenuData,
+        session: &SessionData,
+        party: &Party,
+        setup: Setup,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self> {
+        Self::load_inner(
+            root, retained, menus, session, party, setup, cache, cancelled, true,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Shared ordinary and isolated-fixture loader."
+    )]
+    fn load_inner(
+        root: &Path,
+        retained: &Files,
+        menus: &MenuData,
+        session: &SessionData,
+        party: &Party,
+        setup: Setup,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool,
+        isolated_fixture: bool,
     ) -> Result<Self> {
         let event_scenes = if setup.route == [0; 5] {
             Vec::new()
@@ -177,13 +244,6 @@ impl Inputs {
                 })
                 .collect::<Result<Vec<_>>>()?
         };
-        ensure!(
-            !party.battle_rules.coliseum
-                && party.battle_rules.attack_adjustment == 0
-                && party.battle_rules.defense_adjustment == 0
-                && party.battle_rules.intelligence_adjustment == 0,
-            "battle rules require unsupported combat adjustments"
-        );
         let enemies = enemies(
             retained,
             menus.monsters()?,
@@ -290,19 +350,8 @@ impl Inputs {
                     items.insert(item, kind);
                 }
             }
-            let mut source: battle_model::Party =
-                retained.json(&battle_model::party_path(character))?;
-            if let Some(bank) = source.motion_variants.remove(&member.costume) {
-                ensure!(
-                    bank.clips.len() == source.parts.len(),
-                    "costume motion bank has different body layers"
-                );
-                source.motion_sha256 = bank.source_sha256;
-                source.null_motions = bank.null_motions;
-                for (part, clips) in source.parts.iter_mut().zip(bank.clips) {
-                    part.clips = clips;
-                }
-            }
+            let source: battle_model::Party =
+                retained.json(&battle_model::party_costume_path(character, member.costume))?;
             party_actors.push(PartyInput {
                 character,
                 position,
@@ -357,9 +406,10 @@ impl Inputs {
             }
         }
         ensure!(
-            enemy_definitions
-                .values()
-                .all(|enemy| !enemy.actions.policy.event_hp_hold || !event_scenes.is_empty()),
+            isolated_fixture
+                || enemy_definitions
+                    .values()
+                    .all(|enemy| !enemy.actions.policy.event_hp_hold || !event_scenes.is_empty()),
             "enemy requires a prepared battle event route"
         );
         let mut files =
@@ -385,17 +435,15 @@ impl Inputs {
             inventory = candidate_inventory;
         }
         let (files, stage) = stage::prepare(root, files, setup.arena, cache, &cancelled)?;
-        let (mut files, victory) = crate::battle::victory::load(
-            root,
-            files,
-            if enemies.settings.celebrate {
-                &party.formation[..party_actors.len()]
-            } else {
-                &[]
-            },
-            cache,
-            &cancelled,
-        )?;
+        let victory_bodies: Vec<_> = party_actors
+            .iter()
+            .filter(|_| enemies.settings.celebrate)
+            .filter_map(|actor| {
+                Some((actor.character, actor.source.as_ref()?.body_sha256.as_str()))
+            })
+            .collect();
+        let (mut files, victory) =
+            crate::battle::victory::load(root, files, &victory_bodies, cache, &cancelled)?;
         let game_over = if setup.defeat == resonance_events::battle::DefeatPolicy::GameOver {
             let (candidate, art) = crate::game_over::Assets::load(root, files, cache, &cancelled)?;
             files = candidate;
@@ -404,7 +452,7 @@ impl Inputs {
             None
         };
         let ui = Art::load(&files)?;
-        let catalogue = Arc::new(files.json(arte::PATH)?);
+        let catalogue = Arc::new(arte::Catalogue::load(&files)?);
         let unison: resonance_content::battle_unison::Catalogue =
             files.json(resonance_content::battle_unison::PATH)?;
         unison.validate()?;
