@@ -44,6 +44,13 @@ impl Battle {
             .find(|row| row.actor == actor)?
             .member
             .record_use(catalogue)?;
+        let elements = self
+            .prepared
+            .technique(actor, action)
+            .map_or(0, |row| row.element);
+        self.ledger.achievements[actor.index()].acted = true;
+        self.ledger.achievements[actor.index()].used_arte = true;
+        self.ledger.achievements[actor.index()].technique(catalogue, elements, casting);
         Some(catalogue)
     }
 
@@ -53,6 +60,13 @@ impl Battle {
         actor: ActorId,
         action: crate::ActionKey,
     ) -> Result<()> {
+        // Elemental variants track ordinary uses for permanent learning.
+        if self
+            .technique_catalogue_for_action(actor, action)
+            .is_some_and(|id| resonance_content::arte::elemental::find(id).is_some())
+        {
+            return Ok(());
+        }
         let casting = matches!(
             &self.prepared.actions[action].execution,
             crate::ActionExecution::Casting(_)
@@ -133,6 +147,8 @@ impl Battle {
         let Some(catalogue) = self.technique_catalogue_for_action(actor, action) else {
             return;
         };
+        let catalogue = resonance_content::arte::elemental::find(catalogue)
+            .map_or(catalogue, |variant| variant.base);
         self.actors[actor.index()].proficiency =
             (self.technique_uses(actor, catalogue).unwrap_or(0) / 50).min(5) as u8;
     }

@@ -195,13 +195,11 @@ impl Technique {
             let event = match event {
                 Event::Pose(source) => {
                     if !model.motions.contains_key(&source.clip) {
-                        let party: resonance_content::battle_model::Party =
-                            resources
-                                .files
-                                .json(&resonance_content::battle_model::party_path(
-                                    self.character as u8,
-                                ))?;
-                        if party.null_motions.contains(&source.clip) {
+                        if resources
+                            .party_null_motions
+                            .get(&(self.character as u8))
+                            .is_some_and(|slots| slots.contains(&source.clip))
+                        {
                             // An authored empty slot keeps the current pose.
                             continue;
                         }
@@ -274,6 +272,7 @@ impl Technique {
                 Event::Braking(value) => AttackEvent::Braking(*value),
                 Event::AnimationRate(value) => AttackEvent::AnimationRate(*value),
                 Event::Turn(degrees) => AttackEvent::Turn(*degrees),
+                Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
                 Event::CameraDistance { distance, duration } => AttackEvent::CameraDistance {
                     distance: *distance,
                     duration: *duration,

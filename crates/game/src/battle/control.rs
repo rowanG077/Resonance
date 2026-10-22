@@ -42,7 +42,7 @@ pub fn techniques(
         .iter()
         .map(|(&id, &action)| {
             ensure!(
-                learned_by.iter().any(|&learned| u16::from(learned) == id),
+                learned_by.contains(&id),
                 "prepared technique has no character catalogue entry"
             );
             let descriptor = catalogue.definition(usize::from(id))?;

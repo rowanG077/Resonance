@@ -42,6 +42,137 @@ fn attempt(current: Option<u16>) -> LearningAttempt {
 }
 
 #[test]
+fn both_paths_learn_the_missing_successor_on_the_next_eligible_use() -> Result<()> {
+    let mut data = catalogue();
+    data.definitions[2].learning.route = Some(LearningRoute::Technical);
+    let other = &mut data.definitions[3];
+    other.required_level = 11;
+    other.learning.route = Some(LearningRoute::Strike);
+    other.learning.requires_story_unlock = true;
+    other.learning.excludes = vec![2];
+    other.learning.prerequisites = vec![LearningPrerequisite {
+        any_of: vec![2],
+        minimum_uses: 25,
+    }];
+    for balance in [-40, 40] {
+        let mut learner = member(data.clone(), &[1, 2], balance, &[(1, 50), (2, 25)]);
+        learner.catalogue = learner.catalogue.with_both_arte_paths(true);
+        let select = |learner: &LearningMember| {
+            learner.select_after_count(
+                attempt(Some(1)),
+                |_| true,
+                || panic!("learning both paths must not wait for a random roll"),
+            )
+        };
+        assert_eq!(learner.current(), &[1, 2].into());
+        assert_eq!(select(&learner)?, None);
+        learner.entry.level = 11;
+        learner.entry.story_unlocked = false;
+        assert_eq!(select(&learner)?, None);
+        learner.entry.story_unlocked = true;
+        learner.entry.counts.insert(1, 49);
+        assert_eq!(select(&learner)?, None);
+        learner.record_use(1);
+        learner.entry.counts.insert(2, 24);
+        assert_eq!(select(&learner)?, None);
+        learner.record_use(2);
+        assert_eq!(
+            learner.select_after_count(attempt(Some(1)), |_| false, || 0)?,
+            None
+        );
+        assert_eq!(
+            learner.select_after_count(
+                LearningAttempt {
+                    airborne: true,
+                    ..attempt(Some(1))
+                },
+                |_| true,
+                || 0
+            )?,
+            None
+        );
+        assert_eq!(select(&learner)?, Some(3));
+        assert_eq!(learner.count(1), 50);
+        assert_eq!(learner.count(2), 25);
+        learner.mark_acquired(3)?;
+        assert_eq!(select(&learner)?, None);
+    }
+    Ok(())
+}
+
+#[test]
+fn both_paths_only_relax_opposing_path_exclusions() -> Result<()> {
+    for excluded_route in [
+        None,
+        Some(LearningRoute::Strike),
+        Some(LearningRoute::Technical),
+    ] {
+        let mut data = catalogue();
+        data.definitions[1].learning.route = Some(LearningRoute::Strike);
+        data.definitions[1].learning.excludes = vec![2];
+        data.definitions[1].learning.prerequisites = vec![LearningPrerequisite {
+            any_of: vec![2],
+            minimum_uses: 50,
+        }];
+        data.definitions[2].learning.route = excluded_route;
+        let mut learner = member(data, &[2], -40, &[(2, 49)]);
+        assert_eq!(
+            learner.select_after_count(attempt(None), |_| true, || 0)?,
+            None
+        );
+        learner.catalogue = learner.catalogue.with_both_arte_paths(true);
+        assert_eq!(
+            learner.select_after_count(attempt(None), |_| true, || 0)?,
+            None
+        );
+        learner.record_use(2);
+        assert_eq!(
+            learner.select_after_count(attempt(None), |_| true, || panic!("random roll"))?,
+            (excluded_route == Some(LearningRoute::Technical)).then_some(1)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn elemental_variant_learns_on_its_fiftieth_use_only_when_enabled() -> Result<()> {
+    use resonance_content::arte::elemental::{LEARNING_USES, LIGHTNING_TIGER};
+    let mut data = Catalogue {
+        definitions: vec![Definition::default(); usize::from(LIGHTNING_TIGER) + 1],
+        learning: vec![vec![6, LIGHTNING_TIGER]],
+    };
+    data.definitions[6].required_level = 1;
+    let data = Arc::new(data);
+    for enabled in [false, true] {
+        let mut learner = LearningCatalogue::new(data.clone())
+            .with_elemental_learning(enabled)
+            .prepare_member(LearningEntry {
+                character: 1,
+                level: 1,
+                balance: 0,
+                story_unlocked: false,
+                current: [6].into(),
+                counts: [(6, 999), (LIGHTNING_TIGER, LEARNING_USES - 1)].into(),
+            })?;
+        let select = |learner: &LearningMember| {
+            learner.select_after_count(
+                attempt(Some(LIGHTNING_TIGER)),
+                |_| true,
+                || panic!("elemental learning must not depend on chance"),
+            )
+        };
+        assert_eq!(select(&learner)?, None);
+        learner.record_use(LIGHTNING_TIGER);
+        assert_eq!(select(&learner)?, enabled.then_some(LIGHTNING_TIGER));
+        if enabled {
+            learner.mark_acquired(LIGHTNING_TIGER)?;
+            assert_eq!(select(&learner)?, None);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn learns_bases_and_successors_from_eligible_usage() -> Result<()> {
     let mut data = catalogue();
     data.definitions[2].learning.requires_story_unlock = true;
