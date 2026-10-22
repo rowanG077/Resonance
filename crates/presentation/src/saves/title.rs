@@ -69,15 +69,17 @@ fn advance(
     mut pending: ResMut<PendingInput>,
     sounds: Res<audio::MenuSounds>,
     mut preferences: ResMut<Preferences>,
+    scenario: Option<ResMut<ScenarioInput>>,
 ) {
     let Some(menu) = &mut menu else {
         return;
     };
     let input = controls.consume();
-    if art.is_none_or(|art| !art.ready(&images))
-        || menu.0.page == Page::Customize && menu.0.resources.is_none()
-    {
+    if art.is_none_or(|art| !art.ready(&images)) {
         return;
+    }
+    if let Some(mut scenario) = scenario {
+        scenario.acknowledge_input();
     }
     let closing = menu.0.customize.transition.page_closing;
     let cue = menu.0.step(input);

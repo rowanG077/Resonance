@@ -17,19 +17,19 @@ struct Args {
     #[arg(long)]
     quick_slot: Option<String>,
     /// Start from a free-exploration save, without replaying the opening.
-    #[arg(long, conflicts_with_all = ["record_music", "record_playthrough", "replay"])]
+    #[arg(long, conflicts_with_all = ["record_music", "record_playthrough"])]
     load: Option<PathBuf>,
     /// Temporary playground: start above Sylvarant on unlocked Rheairds.
-    #[arg(long, conflicts_with_all = ["record_music", "record_playthrough", "replay"])]
+    #[arg(long, conflicts_with_all = ["record_music", "record_playthrough"])]
     test_overworld: bool,
     /// Resolve battles as victories for replay testing until combat is implemented.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     skip_battles: bool,
     /// Fixed render resolution for this session (default 640x480); restart to change it.
-    #[arg(long, conflicts_with_all = ["capture", "record_music", "record_playthrough", "replay"])]
+    #[arg(long, conflicts_with_all = ["capture", "record_music", "record_playthrough"])]
     resolution: Option<resonance_presentation::Resolution>,
     /// Record the player's music/cue source to WAV without any window/audio device.
-    #[arg(long, conflicts_with_all = ["capture", "tick", "movie_frame", "replay"])]
+    #[arg(long, conflicts_with_all = ["capture", "tick", "movie_frame"])]
     record_music: Option<PathBuf>,
     /// Record rendered movie/title checkpoints and their mixed audio, without devices.
     #[arg(long, conflicts_with_all = ["record_music", "capture", "tick", "movie_frame", "reveal", "selected"])]
