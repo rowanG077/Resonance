@@ -317,12 +317,20 @@ impl Program {
             self.code.get_mut(&pc).unwrap().0 = Op::Native(to);
         }
     }
-    /// Strings use the resource's auxiliary offset table, not host pointers.
-    pub fn string(&self, index: u16) -> Option<&[u8]> {
+    /// Decode identifiers from the resource's auxiliary table into host text.
+    pub fn string(&self, index: u16) -> Option<std::borrow::Cow<'_, str>> {
+        if let Some(module) = &self.authored {
+            return module
+                .strings
+                .get(usize::from(index))
+                .map(|s| s.as_str().into());
+        }
         let offset = usize::from(index) * 4;
         let start =
             u32::from_be_bytes(self.auxiliary.get(offset..offset + 4)?.try_into().ok()?) as usize;
         let bytes = self.auxiliary.get(start..)?;
-        Some(&bytes[..bytes.iter().position(|b| *b == 0)?])
+        let bytes = &bytes[..bytes.iter().position(|b| *b == 0)?];
+        let (text, _, invalid) = encoding_rs::SHIFT_JIS.decode(bytes);
+        (!invalid).then_some(text)
     }
 }

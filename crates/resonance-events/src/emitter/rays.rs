@@ -521,7 +521,7 @@ impl Bloom {
         &self,
         center: [f32; 3],
         born: u32,
-        speed: f32,
+        actor: &crate::Actor,
         rng: &mut u32,
         out: &mut super::Births,
     ) {
@@ -534,9 +534,15 @@ impl Bloom {
             p.recipe = STREAK_SPRITE;
             p.orientation = SpriteOrientation::World;
             p.rotation = [90., angle, 0.];
-            p.velocity = [sin * speed, 0., cos * speed];
+            p.velocity = [
+                sin * actor.movement_speed(),
+                0.,
+                cos * actor.movement_speed(),
+            ];
             p.size = size;
             p.rgba[3] = 150;
+            p.fade = Fade::Linear(-1.);
+            super::inherit(&mut p, actor);
             out.push(p);
         }
     }

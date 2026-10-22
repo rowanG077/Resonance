@@ -162,9 +162,9 @@ impl Blocks {
                 .get(&grip.player)
                 .is_some_and(|a| a.instance == grip.player_instance);
         let release = !valid
+            || world.mapped_input_disabled
             || (matches!(grip.phase, Phase::Holding)
                 && (!world.input.held.contains(Button::Accept)
-                    || world.mapped_input_disabled
                     || !mesh.block_supported(&world.actors[&grip.block])));
         if release {
             if let Some(player) = world
@@ -172,11 +172,20 @@ impl Blocks {
                 .get_mut(&grip.player)
                 .filter(|a| a.instance == grip.player_instance)
             {
-                player.scripted_animation = false;
+                // A room event may already own the player's hit animation and
+                // retreat motion. Release only the animation supplied by grip.
+                if player.animation.as_ref().is_some_and(|animation| {
+                    animation.resource
+                        == resonance_content::field::FIELD_SERVICE_MOTION_RESOURCE_BASE
+                            + player.resource
+                        && [HOLD_CLIP, PUSH_CLIP, PULL_CLIP].contains(&animation.slot)
+                }) {
+                    player.scripted_animation = false;
+                }
             }
             self.grip = None;
             world.grabbed_block = None;
-            world.input_enabled = true;
+            world.input_enabled = !world.mapped_input_disabled;
             return;
         }
         world.input_enabled = false;
@@ -356,6 +365,41 @@ mod tests {
             step(events, mesh, blocks, held(direction));
         }
     }
+    #[test]
+    fn anchored_followers_stay_centred_while_pushing_and_releasing_blocks() {
+        for direction in [[0., -1.], [0., 1.]] {
+            let (mut events, mesh, mut blocks) = room();
+            let mut follower = Actor::new(3, [50., 100., 0.]);
+            follower.autonomy = Some(resonance_events::Autonomy::new(
+                resonance_events::Behavior::AnchoredToPlayer,
+                0.,
+                follower.position,
+            ));
+            events.world.insert_actor(3, follower);
+            grab(&mut events, &mesh, &mut blocks);
+            assert_eq!(events.world.grabbed_block, Some(2));
+            assert_eq!(
+                events.world.actors[&3].position,
+                events.world.actors[&1].position
+            );
+            let start = events.world.actors[&1].position;
+            for _ in 0..MOVE_UPDATES {
+                step(&mut events, &mesh, &mut blocks, held(direction));
+                assert_eq!(
+                    events.world.actors[&3].position,
+                    events.world.actors[&1].position
+                );
+            }
+            assert_ne!(events.world.actors[&1].position, start);
+            step(&mut events, &mesh, &mut blocks, FieldInput::default());
+            assert_eq!(events.world.grabbed_block, None);
+            assert_eq!(
+                events.world.actors[&3].position,
+                events.world.actors[&1].position
+            );
+        }
+    }
+
     #[test]
     fn pushing_and_pulling_select_the_native_motion_banks() {
         for (direction, slot, displacement) in [([0., -1.], 36, -150.), ([0., 1.], 40, 150.)] {
@@ -772,7 +816,36 @@ mod tests {
             step(&mut events, &mesh, &mut blocks, held([0., -1.]));
             assert_eq!(events.world.grabbed_block, None);
             assert!(!blocks.active());
-            assert!(events.world.input_enabled);
+            assert_eq!(events.world.input_enabled, replace);
         }
+    }
+
+    #[test]
+    fn room_hit_interrupts_a_moving_grip_and_preserves_script_recovery() {
+        let (mut events, mesh, mut blocks) = room();
+        grab(&mut events, &mesh, &mut blocks);
+        step(&mut events, &mesh, &mut blocks, held([0., -1.]));
+        let block_position = events.world.actors[&2].position;
+        events.world.mapped_input_disabled = true;
+        events.world.input_enabled = false;
+        let player = events.world.actors.get_mut(&1).unwrap();
+        player.animation = Some(Animation::new(1, 44, 30, events.world.tick));
+        player.scripted_animation = true;
+        player.motion = Some(resonance_events::ActorMotion {
+            target: [0., 222., 0.],
+            speed: 12.,
+        });
+        let retreat = player.position;
+        step(&mut events, &mesh, &mut blocks, held([0., -1.]));
+        assert!(!blocks.active());
+        assert_eq!(events.world.grabbed_block, None);
+        assert!(!events.world.input_enabled);
+        assert_eq!(events.world.actors[&2].position, block_position);
+        let player = &events.world.actors[&1];
+        assert!(player.position[1] > retreat[1]);
+        assert!(player.motion.is_some());
+        assert!(player.scripted_animation);
+        assert_eq!(player.animation.as_ref().unwrap().resource, 1);
+        assert_eq!(player.animation.as_ref().unwrap().slot, 44);
     }
 }

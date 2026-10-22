@@ -383,8 +383,40 @@ impl EventRuntime {
         self.start_foreground(0, key, actor as i16)
     }
 
+    /// Advance exploration-only EX effects when the player walks or runs.
+    pub fn step_field_movement(&mut self) -> Result<()> {
+        let Some(party) = &mut self.world.party else {
+            return Ok(());
+        };
+        party.step_encounter_modifier(self.world.tick);
+        let Some(data) = &self.resources.session_data else {
+            return Ok(());
+        };
+        let Some(field) = self.world.current_field else {
+            return Ok(());
+        };
+        if party
+            .step_field_ex(data, field, &mut || {
+                crate::world::random(&mut self.world.random_state)
+            })
+            .map_err(anyhow::Error::msg)?
+            .is_some()
+        {
+            self.world.audio_commands.push(crate::AudioCommand::Sound {
+                id: resonance_content::field_audio::ServiceCue::TreasureReward as i16,
+                volume: 127,
+                pan: 64,
+                slot: None,
+            });
+        }
+        Ok(())
+    }
+
     /// Enemy contact invokes its configured interaction and supplies the symbol ID.
     pub fn contact_enemy(&mut self, actor: i32) -> Result<bool> {
+        if self.world.enemy_encounter_cooldown != 0 {
+            return Ok(false);
+        }
         let Some(enemy) = self.world.actors.get(&actor).and_then(|a| a.enemy.as_ref()) else {
             return Ok(false);
         };
@@ -392,19 +424,26 @@ impl EventRuntime {
             return Ok(false);
         }
         let key = u32::from(enemy.event);
+        if let (Some(party), Some(data)) = (
+            self.world.party.as_ref(),
+            self.resources
+                .session_data
+                .as_ref()
+                .and_then(|data| data.rules.as_ref()),
+        ) && party.evade_field_encounter(data, &mut || {
+            crate::world::random(&mut self.world.random_state)
+        }) {
+            self.world.enemy_encounter_cooldown = 30;
+            self.world
+                .emit_encounter_evasion()
+                .map_err(anyhow::Error::msg)?;
+            return Ok(false);
+        }
         if !self.start_foreground(0, key, actor as i16)? {
             return Ok(false);
         }
         self.memory
             .write(0x24, symphonia_script::Width::S32, actor)?;
-        self.world
-            .actors
-            .get_mut(&actor)
-            .unwrap()
-            .enemy
-            .as_mut()
-            .unwrap()
-            .pause_ticks = 60;
         Ok(true)
     }
     pub(crate) fn queue_ring_callback(
@@ -706,6 +745,7 @@ impl EventRuntime {
         self.step_with_motion(
             self.world.tick.saturating_add(1),
             |_| Ok(()),
+            |_, _| true,
             |_, _, _, _| {},
             |_| Ok(()),
         )
@@ -718,6 +758,7 @@ impl EventRuntime {
         &mut self,
         effect_tick: u32,
         prepare: impl FnOnce(&mut Self) -> Result<T>,
+        mut floor: impl FnMut(&T, [f32; 3]) -> bool,
         mut resolve: impl FnMut(&T, i32, &mut crate::Actor, [f32; 3]),
         services: impl FnOnce(&mut Self) -> Result<()>,
     ) -> Result<()> {
@@ -738,6 +779,25 @@ impl EventRuntime {
             self.world.texture_animation_tick += 1;
             self.world.texture_animation_effect_tick = effect_tick;
         }
+        self.world
+            .texture_animation_states
+            .resize_with(self.resources.texture_animations.len(), Default::default);
+        for (animation, state) in self
+            .resources
+            .texture_animations
+            .iter()
+            .zip(&mut self.world.texture_animation_states)
+        {
+            state.advance(
+                animation,
+                self.world.texture_animation_enabled,
+                self.world.texture_animation_tick,
+                self.world.effect_tick,
+                &self.world.texture_bindings,
+                |actor| self.world.actors.contains_key(&actor),
+            );
+        }
+        crate::environment::wind(&mut self.world, self.resources.field_wind.as_ref());
         if self
             .world
             .party
@@ -745,15 +805,6 @@ impl EventRuntime {
             .is_some_and(|p| !p.settings.preferences.rumble)
         {
             self.world.rumble = None;
-        }
-        if !self.world.external_encounter_clock
-            && let Some(party) = &mut self.world.party
-            && let Some(modifier) = &mut party.encounter_modifier
-        {
-            modifier.remaining -= 1;
-            if modifier.remaining == 0 {
-                party.encounter_modifier = None;
-            }
         }
         if let Some(scene) = &mut self.world.skit {
             scene.step(
@@ -824,6 +875,18 @@ impl EventRuntime {
         self.world.sync_actor_order();
         let actor_order = self.world.actor_order.clone();
         let conversation_active = self.interaction.is_some();
+        let encounter_cooldown = self.world.enemy_encounter_cooldown != 0;
+        self.world.enemy_encounter_cooldown = self.world.enemy_encounter_cooldown.saturating_sub(1);
+        let enemy_speed = if self.world.party.as_ref().is_some_and(|party| {
+            party
+                .encounter_modifier
+                .as_ref()
+                .is_some_and(|modifier| modifier.rate == 2)
+        }) {
+            2.
+        } else {
+            1.
+        };
         for id in &actor_order {
             if self.world.overlays.contains_key(id) {
                 continue;
@@ -840,7 +903,7 @@ impl EventRuntime {
                         && !actor.appearance.model_hidden
                         && self.world.field_camera.is_some()
                 })
-                .map(|_| self.world.attached_culling_position(&self.resources, *id))
+                .map(|_| self.world.try_attached_position(&self.resources, *id))
                 .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
             // Temporary flashes clear each update; custom lighting stays scripted.
@@ -848,7 +911,7 @@ impl EventRuntime {
                 actor.tint = [crate::effect::NEUTRAL_TINT; 3];
             }
             let previous = actor.position;
-            let ambient = if actor.motion.is_none()
+            let offscreen_enemy = actor.motion.is_none()
                 && actor
                     .enemy
                     .as_ref()
@@ -857,26 +920,34 @@ impl EventRuntime {
                     .world
                     .field_camera
                     .as_ref()
-                    .is_some_and(|camera| !camera.enemy_active(actor.position))
-            {
-                crate::autonomy::AmbientMotion {
-                    paused: true,
-                    ..Default::default()
-                }
-            } else {
-                actor.step_autonomy(
-                    self.world.input_enabled,
-                    conversation_active,
-                    player_position,
-                    &mut || crate::world::random(&mut self.world.random_state),
-                )
-            };
+                    .is_some_and(|camera| !camera.enemy_active(actor.position));
+            let ambient = actor.step_autonomy(
+                self.world.input_enabled
+                    && !offscreen_enemy
+                    && !(encounter_cooldown && actor.enemy.is_some()),
+                conversation_active,
+                player_position,
+                &mut || crate::world::random(&mut self.world.random_state),
+                &mut |point| floor(&prepared, point),
+                enemy_speed,
+            );
             let turn = actor.turn_direction();
             let movement_speed = actor
                 .motion
                 .as_ref()
                 .map(|motion| motion.speed)
-                .or_else(|| ambient.walking.then(|| actor.autonomy.unwrap().speed));
+                .or_else(|| {
+                    ambient.walking.then(|| {
+                        actor
+                            .enemy
+                            .as_ref()
+                            .filter(|enemy| enemy.behavior != 4)
+                            .map_or_else(
+                                || actor.autonomy.unwrap().speed,
+                                |enemy| enemy.normal_speed * enemy_speed,
+                            )
+                    })
+                });
             if !ambient.paused {
                 actor.step_motion();
             }
@@ -922,6 +993,9 @@ impl EventRuntime {
                 );
             }
         }
+        // Blocks can move the player before this update. Use the final position
+        // so every source of movement carries followers before contact checks.
+        self.world.anchor_followers_to_player();
         self.world.update_collision_attachments(&self.resources)?;
         self.world.step_enemy_sources();
         self.world.step_model_particles();
@@ -970,6 +1044,8 @@ impl EventRuntime {
                 self.world.step_eyes(&self.resources, colette_progress)
             })
             .and_then(|()| {
+                // Apply new pickups and scripted player relocations immediately.
+                self.world.anchor_followers_to_player();
                 self.world.update_collision_attachments(&self.resources)?;
                 // Birth poses are ready for presentation after this update's
                 // scripts and emitters have consumed their random inputs.
@@ -1065,6 +1141,8 @@ impl EventRuntime {
                 continue;
             }
             if instance.background.as_ref().is_some_and(|b| {
+                // Entry fades and task ownership withhold player control without
+                // pausing the camera and ambient setup scripts.
                 b.paused
                     || b.require_control && self.world.mapped_input_disabled
                     || self.world.field_transition.is_some()

@@ -36,6 +36,89 @@ fn controlled_world() -> GameWorld {
     world
 }
 
+#[test]
+fn node_position_queries_and_setters_use_local_coordinates_and_preserve_rotation() {
+    use resonance_content::animation::{Bone, Skeleton, Transform, TransformChannels};
+    let mut code = Vec::new();
+    let cases = [
+        (0, [0, 0, 0], [10, -20, 30]),
+        (1, [4, 5, 6], [10, -20, 30]),
+        (3, [0, 90, 0], [0, 0, 0]),
+        (0, [0, 0, 0], [4, 5, 6]),
+        (1, [7, 8, 9], [4, 5, 6]),
+        (2, [0, 0, 0], [0, 90, 0]),
+    ];
+    for (case, &(operation, target, _)) in cases.iter().enumerate() {
+        native(
+            &mut code,
+            Call::TransformActorNode,
+            &[operation, 1, 1, target[0], target[1], target[2]],
+        );
+        for axis in 0..3 {
+            code.extend([0x1200, 0x100 + (case * 12 + axis * 4) as u16]);
+            native(&mut code, Call::ReadCoordinateRegister, &[axis as i32]);
+            code.extend([0x3010, 0x3000]);
+        }
+    }
+    code.push(0x20ff);
+    let skeleton = Skeleton {
+        bones: vec![
+            Bone {
+                name: "root".into(),
+                parent: None,
+                bind_channels: TransformChannels(0),
+                bind: Transform {
+                    translation: [100.; 3],
+                    ..Default::default()
+                },
+            },
+            Bone {
+                name: "section".into(),
+                parent: Some(0),
+                bind_channels: TransformChannels(0),
+                bind: Transform {
+                    translation: [10.75, -20.5, 30.9],
+                    ..Default::default()
+                },
+            },
+        ],
+    };
+    let resources = ResourceLibrary {
+        models: [(
+            1,
+            ModelResource {
+                names: vec!["root".into(), "section".into()],
+                attachments: ModelAttachments {
+                    skeleton: Some(Arc::new(skeleton)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = controlled_world();
+    world.insert_actor(1, Actor::new(1, [1000.; 3]));
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    events.step().unwrap();
+    for (case, &(_, _, expected)) in cases.iter().enumerate() {
+        for (axis, value) in expected.into_iter().enumerate() {
+            assert_eq!(
+                events
+                    .memory()
+                    .read((0x100 + case * 12 + axis * 4) as u16, Width::S32)
+                    .unwrap(),
+                value
+            );
+        }
+    }
+    let adjustment = &events.world.actors[&1].appearance.bone_adjustments[&1];
+    assert!(adjustment.translation.as_ref().unwrap().absolute);
+    assert_eq!(adjustment.translation(events.tick()), [7., 8., 9.]);
+    assert_eq!(adjustment.sample(events.tick()), [0., 90., 0.]);
+}
+
 fn interactive_effect(setup: &[u16], interaction: &[u16]) -> EventRuntime {
     let world = controlled_world();
     runtime(program(setup, interaction), Default::default(), world)
@@ -454,6 +537,42 @@ fn empty_slots_in_party_reunion_do_not_abort_the_event() {
 }
 
 #[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
+fn rebuilding_the_party_restores_its_leader_before_returning_field_control() {
+    let session = Arc::new(cooked::<resonance_content::session::SessionData>(
+        "session-data.json",
+    ));
+    let mut party = party::Party::new(&session, Default::default()).unwrap();
+    party.formation = vec![1, 4];
+    party.field_leader = 4;
+    let mut world = GameWorld::default();
+    world.party = Some(party);
+    world.controlled_actor = 1;
+    world.insert_actor(1, Actor::new(1, [20., 30., 40.]));
+    let resources = ResourceLibrary {
+        session_data: Some(session),
+        models: [(3, model([animation::slot::IDLE], 60))].into(),
+        ..Default::default()
+    };
+    let setup = script(&[
+        (Call::RemovePartyMember, &[1]),
+        (Call::RemovePartyMember, &[4]),
+        (Call::AddPartyMember, &[0]),
+        (Call::AddPartyMember, &[3]),
+        (Call::AddPartyMember, &[1]),
+        (Call::SelectPartyMember, &[CONTROLLED_ACTOR]),
+        (Call::SetEventBit, &[123]),
+    ]);
+    let events = runtime(program(&setup, &[0x20ff]), resources, world);
+    let party = events.world.party.as_ref().unwrap();
+    assert_eq!(party.formation, [3, 1]);
+    assert_eq!(party.field_leader, 3);
+    assert_eq!(events.world.controlled_actor, 3);
+    assert_eq!(events.world.actors[&3].position, [20., 30., 40.]);
+    assert!(events.world.event_flags.contains(&123));
+}
+
+#[test]
 fn scripted_enemy_reaction_returns_the_previous_mode_and_reads_its_current_value() {
     let main = script(&[
         (
@@ -518,6 +637,33 @@ fn offscreen_enemy_activity_pauses_but_scripted_movement_can_finish() {
 }
 
 #[test]
+fn actor_blend_properties_preserve_all_modes_and_particle_inheritance() {
+    use effect::Blend;
+    let particle_modes = [
+        Some(Blend::Alpha),
+        Some(Blend::Additive),
+        Some(Blend::Subtractive),
+        None,
+        Some(Blend::Alpha),
+        Some(Blend::Additive),
+        Some(Blend::Subtractive),
+        Some(Blend::Previous),
+    ];
+    for mode in 0..8 {
+        let mut world = GameWorld::default();
+        world.actors.insert(102, Actor::new(0, [0.; 3]));
+        let main = script(&[
+            (Call::SetActorProperty, &[102, 45, mode + 8]),
+            (Call::GetActorProperty, &[102, 45]),
+        ]);
+        let events = runtime(program(&main, &[0x20ff]), ResourceLibrary::default(), world);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), mode);
+        let blend = events.world.actors[&102].blend.unwrap();
+        assert_eq!(blend.particle_override(), particle_modes[mode as usize]);
+    }
+}
+
+#[test]
 fn enemy_properties_update_patrol_and_preserve_script_flags() {
     for (property, value, previous, stored) in [
         (23, 3, 2, 3),
@@ -544,8 +690,10 @@ fn enemy_properties_update_patrol_and_preserve_script_flags() {
             26 => {
                 assert_eq!(
                     actor.autonomy.as_ref().unwrap().behavior,
-                    Behavior::FollowPath
+                    Behavior::Enemy(3)
                 );
+                actor.heading = 90.;
+                actor.target_heading = 90.;
                 actor.path.count = 1;
                 actor.path.points[0] = [100., 0., 0.];
             }
@@ -653,6 +801,66 @@ fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values(
             );
             assert!(events.contact_enemy(90).unwrap());
         }
+    }
+}
+
+#[test]
+fn named_nodes_use_the_active_costume_for_visibility_and_attachments() {
+    for (name, encoded) in [
+        ("sword", b"sword".as_slice()),
+        ("ｵﾌﾞｼﾞｪｸﾄ04", b"\xb5\xcc\xde\xbc\xde\xaa\xb8\xc404".as_slice()),
+    ] {
+        let mut code = vec![0x1200, 0x100];
+        native(&mut code, Call::FindActorNode, &[9, 0]);
+        code.extend([0x3010, 0x3000]);
+        arg(&mut code, 9);
+        code.extend([0x1200, 0x100, 0x3000, 0x4000]);
+        arg(&mut code, 0);
+        code.push(0x2000 | Call::SetActorAnimation as u16);
+        arg(&mut code, 10);
+        arg(&mut code, 9);
+        code.extend([0x1200, 0x100, 0x3000, 0x4000]);
+        code.push(0x2000 | Call::AttachActorToMember as u16);
+        code.push(0x20ff);
+        let mut bytes: Vec<_> = [4, 0, (4 + code.len()) as u16, 0]
+            .into_iter()
+            .chain(code)
+            .flat_map(u16::to_be_bytes)
+            .collect();
+        bytes.extend(4_u32.to_be_bytes());
+        bytes.extend(encoded);
+        bytes.push(0);
+
+        let mut actor = Actor::new(9, [0.; 3]);
+        actor.appearance.costume = 1;
+        let resources = ResourceLibrary {
+            models: [
+                (
+                    9,
+                    ModelResource {
+                        names: vec!["root".into(), "coat".into(), name.into()],
+                        ..Default::default()
+                    },
+                ),
+                (
+                    actor.model_resource(),
+                    ModelResource {
+                        names: vec!["root".into(), name.into()],
+                        ..Default::default()
+                    },
+                ),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        let mut world = GameWorld::default();
+        world.insert_actor(9, actor);
+        world.insert_actor(10, Actor::new(99, [0.; 3]));
+        let events = runtime(Arc::new(Program::decode(&bytes).unwrap()), resources, world);
+        assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), 1);
+        let attachment = events.world.actors[&10].attachment.as_ref().unwrap();
+        assert_eq!(attachment.actor, 9);
+        assert_eq!(attachment.bone, name);
     }
 }
 
@@ -880,7 +1088,7 @@ fn skit_prompt_control_survives_save_and_follows_control_handoff() {
 fn field_countdown_runs_during_pause_and_reentry_preserves_countdown_and_conditions() {
     const CONDITIONS: i32 = 100;
     const KNOCKED_OUT: u32 = 0x8000_0000;
-    const PARALYSIS: u32 = 0x20;
+    const PARALYSIS: u32 = 0x80;
     const STATUS: i32 = (KNOCKED_OUT | PARALYSIS) as i32;
     let setup = script(&[
         (Call::SetFieldCountdown, &[4]),
@@ -929,6 +1137,81 @@ fn field_countdown_runs_during_pause_and_reentry_preserves_countdown_and_conditi
     assert!(restored.trigger(42, true).unwrap());
     restored.step().unwrap();
     assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 0);
+}
+
+#[test]
+fn anchored_followers_stay_centred_across_movement_and_can_be_released() {
+    const PLAYER: i32 = 1;
+    const FOLLOWER: i32 = 2;
+    const BEHAVIOR: i32 = 34;
+    let follow = script(&[(
+        Call::SetActorProperty,
+        &[
+            FOLLOWER,
+            BEHAVIOR,
+            i32::from(Behavior::AnchoredToPlayer.code()),
+        ],
+    )]);
+    let release = script(&[(Call::SetActorProperty, &[FOLLOWER, BEHAVIOR, 0])]);
+    let mut world = controlled_world();
+    world.controlled_actor = PLAYER;
+    // Update the follower first to catch a one-frame lag behind the player.
+    world.insert_actor(FOLLOWER, Actor::new(1, [30., -20., 5.]));
+    world.insert_actor(PLAYER, Actor::new(1, [0.; 3]));
+    let mut events = runtime(program(&follow, &release), Default::default(), world);
+    events.step().unwrap();
+    assert_eq!(
+        events.world.actors[&FOLLOWER].autonomy.unwrap().behavior,
+        Behavior::AnchoredToPlayer
+    );
+    assert_eq!(events.world.actors[&FOLLOWER].position, [0.; 3]);
+
+    // Block controls and moving scenery can displace the player before the
+    // scheduler starts. Their movement must not accumulate follower separation.
+    for position in [[10., 20., 30.], [25., -60., 80.], [4., 2., 1.]] {
+        events.world.actors.get_mut(&PLAYER).unwrap().position = position;
+        events.step().unwrap();
+        assert_eq!(events.world.actors[&FOLLOWER].position, position);
+    }
+
+    let move_player = |events: &mut EventRuntime, destination: [f32; 3]| {
+        events
+            .step_with_motion(
+                0,
+                |_| Ok(()),
+                |_, _| true,
+                |_, id, actor, _| {
+                    if id == PLAYER {
+                        // This is the final position after collision and grounding.
+                        actor.position = destination;
+                    }
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+    };
+    for position in [[8., 0., 2.], [8., 0., 2.], [8., -12., 9.], [-4., -12., -6.]] {
+        move_player(&mut events, position);
+        assert_eq!(events.world.actors[&FOLLOWER].position, position);
+    }
+
+    // A cutscene may move followers separately, then hold their final pose.
+    events.world.input_enabled = false;
+    events.world.actors.get_mut(&FOLLOWER).unwrap().position = [50., 60., 70.];
+    events.step().unwrap();
+    assert_eq!(events.world.actors[&FOLLOWER].position, [50., 60., 70.]);
+    events.world.input_enabled = true;
+    events.step().unwrap();
+    assert_eq!(
+        events.world.actors[&FOLLOWER].position,
+        events.world.actors[&PLAYER].position
+    );
+
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    let released = events.world.actors[&FOLLOWER].position;
+    move_player(&mut events, [100., 200., 300.]);
+    assert_eq!(events.world.actors[&FOLLOWER].position, released);
 }
 
 #[test]
@@ -1011,33 +1294,45 @@ fn fire_keeps_emitting_with_changed_size_after_a_phase_write() {
 
 #[test]
 fn travelling_effect_arrives_and_leaves_a_finite_tail() {
-    let resources = ResourceLibrary {
-        bindings: [(100, (ResourceKind::Model, 100))].into(),
-        models: [(100, model([], 1))].into(),
-        ..Default::default()
-    };
-    let setup = script(&[(
-        Call::CreateEffectEmitter,
-        &[
-            500, 0, 0, 0, 100, 46, 0, 30, 52, 75, 25, -35, 120, 0, 0, 0, 0, 0,
-        ],
-    )]);
-    let remove = script(&[(Call::DespawnActor, &[500])]);
-    let world = controlled_world();
-    let mut events = runtime(program(&setup, &remove), resources, world);
-    for _ in 0..30 {
-        events.step().unwrap();
-        if events.world.actors[&500].position == [120., 0., 0.] {
-            break;
+    for (kind, color) in [(46, 52), (46, 108), (47, 52), (47, 108), (47, 109)] {
+        let resources = ResourceLibrary {
+            bindings: [(100, (ResourceKind::Model, 100))].into(),
+            models: [(100, model([], 1))].into(),
+            ..Default::default()
+        };
+        let setup = script(&[(
+            Call::CreateEffectEmitter,
+            &[
+                500, 0, 0, 0, 100, kind, 0, 30, color, 75, 25, -35, 120, 0, 0, 0, 0, 0,
+            ],
+        )]);
+        let remove = script(&[(Call::DespawnActor, &[500])]);
+        let mut world = controlled_world();
+        for (index, color) in world.effect_palette.0.iter_mut().enumerate() {
+            *color = [index as u8; 4];
         }
+        let mut events = runtime(program(&setup, &remove), resources, world);
+        for _ in 0..30 {
+            events.step().unwrap();
+            if events.world.actors[&500].position == [120., 0., 0.] {
+                break;
+            }
+        }
+        assert_eq!(events.world.actors[&500].position, [120., 0., 0.]);
+        assert_eq!(events.world.model_particles.is_empty(), kind != 46);
+        assert!(!events.world.billboards.is_empty());
+        for particle in events.world.billboards.values() {
+            if kind == 47 && color == 108 {
+                assert!([104, 88, 76, 92, 80, 100, 96].contains(&particle.rgba[0]));
+            } else {
+                assert_eq!(particle.rgba[0], color as u8);
+            }
+        }
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        assert_eq!(events.world.model_particles.is_empty(), kind != 46);
+        finish_effects(&mut events);
     }
-    assert_eq!(events.world.actors[&500].position, [120., 0., 0.]);
-    assert!(!events.world.model_particles.is_empty());
-    assert!(!events.world.billboards.is_empty());
-    assert!(events.trigger(42, true).unwrap());
-    events.step().unwrap();
-    assert!(!events.world.model_particles.is_empty());
-    finish_effects(&mut events);
 }
 
 #[test]
@@ -1261,6 +1556,106 @@ fn rheaird_crash_debris_moves_without_spinning_and_expires() {
             events.step().unwrap();
         }
         assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
+fn scattering_particles_preserve_dark_blending_and_release_expanding_rings() {
+    use resonance_events::effect::Blend;
+    for phase in 0..=2 {
+        for override_blend in [false, true] {
+            let args = emitter(13, 8, &[32, 25, 25, 10, 15, 600, 150]);
+            let mode = [500, 33, phase];
+            let mut calls = vec![
+                (Call::CreateEffectEmitter, args.as_slice()),
+                (Call::SetActorProperty, mode.as_slice()),
+            ];
+            if override_blend {
+                calls.push((Call::SetActorProperty, &[500, 45, 0]));
+            }
+            let mut events = interactive_effect(&script(&calls), &[0x20ff]);
+            for (index, color) in events.world.effect_palette.0.iter_mut().enumerate() {
+                *color = [index as u8; 4];
+            }
+            steps(&mut events, 3);
+            let mut counts = [0; 2];
+            for particle in events.world.billboards.values() {
+                let glow = particle.recipe == resonance_content::effect::sprite::GLOW_SPRITE;
+                counts[usize::from(glow)] += 1;
+                let expected = match (glow, override_blend) {
+                    (true, true) => Some(Blend::Alpha),
+                    (true, false) => Some(Blend::Additive),
+                    (false, true) => Some(Blend::Subtractive),
+                    (false, false) => None,
+                };
+                assert_eq!(particle.blend, expected);
+                if glow {
+                    assert_eq!(&particle.rgba[..3], &[32; 3]);
+                    assert_eq!(particle.rgba[3], if phase == 2 { 50 } else { 125 });
+                } else if override_blend {
+                    if phase == 0 {
+                        assert!([104, 88, 76, 92, 80, 100, 96].contains(&particle.rgba[0]));
+                    } else {
+                        assert_eq!(&particle.rgba[..3], &[36; 3]);
+                    }
+                } else {
+                    assert!([32, 39, 46, 53].contains(&particle.rgba[0]));
+                }
+                if phase == 2 && glow {
+                    let radius = particle.position[0].hypot(particle.position[2]);
+                    assert!((radius - (1 + events.tick() - particle.born) as f32).abs() < 0.001);
+                    assert_eq!(particle.position[1], 0.);
+                    assert_eq!(particle.size_delta, 0.25);
+                }
+            }
+            assert_eq!(counts, [1, if phase == 2 { 5 } else { 3 }]);
+        }
+    }
+}
+
+#[test]
+fn layered_orbs_and_radial_bursts_inherit_scripted_appearance() {
+    use resonance_events::effect::Blend;
+    for (kind, parameters, count) in [
+        (14, vec![32, 40, 0, 0, 0, 0, 0, 0, 0, 0], 7),
+        (14, vec![32, 40, 0, 0, 0, 0, 0, 0, 0, 1], 7),
+        (34, vec![32, 210, 5, 4, 1, 75, 100], 5),
+    ] {
+        for override_blend in [false, true] {
+            let args = emitter(kind, 100, &parameters);
+            let mut calls = vec![(Call::CreateEffectEmitter, args.as_slice())];
+            if override_blend {
+                calls.extend([
+                    (Call::SetActorProperty, [500, 45, 2].as_slice()),
+                    (Call::SetActorProperty, [500, 8, 91].as_slice()),
+                    (Call::SetActorProperty, [500, 14, 1].as_slice()),
+                    (Call::SetActorProperty, [500, 42, 17].as_slice()),
+                ]);
+            }
+            let mut events = interactive_effect(&script(&calls), &[0x20ff]);
+            events.step().unwrap();
+            assert_eq!(events.world.billboards.len(), count);
+            let expected = if override_blend {
+                Some(Blend::Subtractive)
+            } else if kind == 14 && parameters[9] == 1 {
+                Some(Blend::Alpha)
+            } else {
+                None
+            };
+            for particle in events.world.billboards.values() {
+                assert_eq!(particle.blend, expected);
+                if override_blend {
+                    assert_eq!(particle.rgba[0], 17);
+                    assert_eq!(particle.rgba[3], 91);
+                }
+                if kind == 34 {
+                    assert_eq!(
+                        particle.alpha(particle.born + 30),
+                        f32::from(particle.rgba[3]) - 30.
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -1607,6 +2002,69 @@ fn actor_heading_queries_handle_coincident_points_and_cardinal_directions() {
         let code = script(&[(Call::MeasureActorGeometry, &[0, 1, second])]);
         let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
         assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), expected);
+    }
+}
+
+#[test]
+fn actor_geometry_resolves_attachments_without_changing_script_coordinates() {
+    use resonance_content::animation::{Bone, Skeleton, Transform, TransformChannels};
+    let resources = ResourceLibrary {
+        models: [(
+            1,
+            ModelResource {
+                names: vec!["root".into()],
+                attachments: ModelAttachments {
+                    skeleton: Some(Arc::new(Skeleton {
+                        bones: vec![Bone {
+                            name: "root".into(),
+                            parent: None,
+                            bind_channels: TransformChannels(0),
+                            bind: Transform::default(),
+                        }],
+                    })),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = GameWorld::default();
+    world.actors.insert(1, Actor::new(0, [0.; 3]));
+    world.actors.insert(10, Actor::new(1, [300., 0., 400.]));
+    let mut attached = Actor::new(0, [0.; 3]);
+    attached.attachment = Some(Attachment {
+        actor: 10,
+        bone: "root".into(),
+    });
+    world.actors.insert(2, attached);
+    world.controlled_actor = 2;
+    let queries: [(Call, &[i32], i32); 7] = [
+        (Call::MeasureActorGeometry, &[0, 1, CONTROLLED_ACTOR], 90),
+        (Call::MeasureActorGeometry, &[1, 1, CONTROLLED_ACTOR], 300),
+        (Call::MeasureActorGeometry, &[2, 1, CONTROLLED_ACTOR], 400),
+        (Call::MeasureActorGeometry, &[3, 1, CONTROLLED_ACTOR], 500),
+        (Call::GetActorProperty, &[CONTROLLED_ACTOR, 1], 0),
+        (Call::GetActorProperty, &[CONTROLLED_ACTOR, 2], 0),
+        (Call::GetActorProperty, &[CONTROLLED_ACTOR, 3], 0),
+    ];
+    let mut code = Vec::new();
+    for (index, &(call, args, _)) in queries.iter().enumerate() {
+        code.extend([0x1200, 0x100 + index as u16 * 4]);
+        native(&mut code, call, args);
+        code.extend([0x3010, 0x3000]);
+    }
+    code.push(0x20ff);
+    let events = runtime(program(&code, &[0x20ff]), resources, world);
+    for (index, &(_, _, expected)) in queries.iter().enumerate() {
+        assert_eq!(
+            events
+                .memory()
+                .read(0x100 + index as u16 * 4, Width::S32)
+                .unwrap(),
+            expected
+        );
     }
 }
 
@@ -2133,6 +2591,27 @@ fn inactive_ambient_modes_still_accept_scripted_movement() {
 }
 
 #[test]
+fn despawned_models_stop_existing_before_their_final_presentation() {
+    let setup = script(&[
+        (Call::SpawnActor, &[500, 0, 0, 0, 0, 1, 0, 0]),
+        (Call::ActorExists, &[500]),
+    ]);
+    let remove = script(&[(Call::DespawnActor, &[500]), (Call::ActorExists, &[500])]);
+    let mut events = runtime(
+        program(&setup, &remove),
+        enemy_resources(),
+        controlled_world(),
+    );
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert!(events.world.actors.contains_key(&500));
+    events.step().unwrap();
+    assert!(!events.world.actors.contains_key(&500));
+}
+
+#[test]
 fn scene_script_keys_address_the_first_instance_and_despawn_every_copy() {
     let create = script(&[
         (Call::CreateSceneActor, &[1010, 10, 20, 30, 0, 24, 0, 0]),
@@ -2169,35 +2648,100 @@ fn scene_script_keys_address_the_first_instance_and_despawn_every_copy() {
 
 #[test]
 fn field_texture_clock_pauses_resumes_and_resets_through_native_commands() {
-    let command = |world, selector, value| {
+    use resonance_content::field::{
+        FieldTextureAnimation, RenderValue, TextureClock, TextureControl, TextureMotion,
+    };
+    let track = |texture, clock, velocity, control| FieldTextureAnimation {
+        actor: RenderValue::Fixed(1),
+        texture: RenderValue::Setting(texture),
+        clock,
+        motion: TextureMotion::Scroll {
+            velocity,
+            wave: None,
+            restart_ticks: None,
+        },
+        control,
+    };
+    let animations = vec![
+        track(
+            0,
+            TextureClock::Field,
+            [0.25, 0.],
+            Some(TextureControl::ResetUnless { setting: 1 }),
+        ),
+        track(
+            3,
+            TextureClock::Field,
+            [0., 0.5],
+            Some(TextureControl::ResetUnless { setting: 2 }),
+        ),
+        track(4, TextureClock::UnconditionalActor, [-0.125, 0.], None),
+    ];
+    let command = |world, settings: &[(i32, i32)]| {
+        let mut code = Vec::new();
+        for &(selector, value) in settings {
+            native(&mut code, Call::ConfigureRendering, &[selector, value]);
+        }
+        code.push(0x20ff);
         runtime(
-            program(
-                &script(&[(Call::ConfigureRendering, &[selector, value])]),
-                &[0x20ff],
-            ),
-            Default::default(),
+            program(&code, &[0x20ff]),
+            ResourceLibrary {
+                texture_animations: animations.clone(),
+                ..Default::default()
+            },
             world,
         )
     };
-    let mut events = command(GameWorld::default(), 128, 1);
-    steps(&mut events, 7);
-    assert_eq!(events.world.texture_animation_tick, 7);
-    assert_eq!(events.world.texture_animation_effect_tick, 7);
-    let mut events = command(events.world, 128, 0);
-    steps(&mut events, 3);
-    assert_eq!(events.world.texture_animation_tick, 7);
-    assert_eq!(events.world.effect_tick, 10);
-    assert_eq!(events.world.texture_animation_effect_tick, 7);
-    let mut events = command(events.world, 128, 1);
+    let offsets = |events: &EventRuntime| {
+        events
+            .world
+            .texture_animation_states
+            .iter()
+            .map(|state| state.offset)
+            .collect::<Vec<_>>()
+    };
+    let mut world = GameWorld::default();
+    world.insert_actor(1, Actor::new(1, [0.; 3]));
+    let mut events = command(
+        world,
+        &[(0, 11), (1, 1), (2, 0), (3, 22), (4, 33), (128, 1)],
+    );
+    steps(&mut events, 4);
+    assert_eq!(offsets(&events), [[1., 0.], [0., 0.], [-0.5, 0.]]);
+
+    let mut events = command(events.world, &[(0, 77), (2, 1)]);
+    steps(&mut events, 2);
+    assert_eq!(offsets(&events), [[1.5, 0.], [0., 1.], [-0.75, 0.]]);
+    let mut events = command(events.world, &[(1, 0)]);
     events.step().unwrap();
+    assert_eq!(offsets(&events), [[0., 0.], [0., 1.5], [-0.875, 0.]]);
+    assert_eq!(events.world.texture_animation_tick, 7);
+    assert_eq!(events.world.texture_animation_effect_tick, 7);
+
+    let mut events = command(events.world, &[(128, 0)]);
+    steps(&mut events, 2);
+    assert_eq!(offsets(&events), [[0., 0.], [0., 1.5], [-1.125, 0.]]);
+    assert_eq!(events.world.texture_animation_tick, 7);
+    assert_eq!(events.world.effect_tick, 9);
+    assert_eq!(events.world.texture_animation_effect_tick, 7);
+    let mut events = command(events.world, &[(1, 1), (128, 1)]);
+    events.step().unwrap();
+    assert_eq!(offsets(&events), [[0.25, 0.], [0., 2.], [-1.25, 0.]]);
     assert_eq!(events.world.texture_animation_tick, 8);
-    assert_eq!(events.world.texture_animation_effect_tick, 11);
-    let mut events = command(events.world, 129, 0);
+    assert_eq!(events.world.texture_animation_effect_tick, 10);
+
+    let mut events = command(events.world, &[(129, 0)]);
+    assert_eq!(offsets(&events), [[0.; 2]; 3]);
     assert_eq!(events.world.texture_animation_tick, 0);
-    assert_eq!(events.world.texture_animation_effect_tick, 11);
+    assert_eq!(events.world.texture_animation_effect_tick, 10);
+    assert_eq!(
+        events.world.texture_bindings,
+        [(0, 77), (1, 1), (2, 1), (3, 22), (4, 33)].into()
+    );
     events.step().unwrap();
+    assert_eq!(offsets(&events), [[0.25, 0.], [0., 0.5], [-0.125, 0.]]);
     assert_eq!(events.world.texture_animation_tick, 1);
-    assert_eq!(events.world.texture_animation_effect_tick, 12);
+    assert_eq!(events.world.texture_animation_effect_tick, 11);
 }
 
 #[test]
@@ -3899,6 +4443,39 @@ fn particles_retire_before_presenting_negative_size_or_opacity() {
 }
 
 #[test]
+fn reversed_laser_strips_present_their_birth_before_size_retirement() {
+    // The room rebuilds these short-lived strips every update. Opposite beam
+    // directions use opposite signed dimensions around the same midpoint.
+    for (property, width, height) in [(123, -650., 15.), (124, 15., -730.)] {
+        let code = script(&[
+            (
+                Call::CreateParticle,
+                &[70, 1, 0, 0, 135, 0, 0, 0, 1, 30, 0, 0, 0],
+            ),
+            (Call::SetEffectProperty, &[1, 123, width as i32]),
+            (Call::SetEffectProperty, &[1, 124, height as i32]),
+            (Call::SetEffectProperty, &[1, 144, 0]),
+        ]);
+        let mut events = runtime(
+            program(&code, &[0x20ff]),
+            Default::default(),
+            Default::default(),
+        );
+        events.step().unwrap();
+        let effect = &events.world.billboards[&1];
+        assert_eq!(effect.born, events.tick());
+        assert_eq!(
+            effect.size,
+            [width, height],
+            "dimension property {property}"
+        );
+        assert!(effect.alpha(events.tick()) > 0.);
+        events.step().unwrap();
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
 fn billboard_angle_is_absolute_and_independent_of_spin_and_growth() {
     for angle in [10000, -4525] {
         let code = script(&[
@@ -4072,6 +4649,29 @@ fn unknown_native_stops_with_event_and_pc_context() {
 }
 
 #[test]
+fn scene_actor_lighting_persists_until_the_script_restores_automatic_lighting() {
+    let main = script(&[
+        (Call::CreateSceneActor, &[77, 0, 0, 0, 0, 1234, 0, 0]),
+        (Call::SetActorProperty, &[77, 42, 16]),
+        (Call::SetActorProperty, &[77, 43, 255]),
+        (Call::SetActorProperty, &[77, 44, 16]),
+        (Call::YieldCommand, &[0, 3]),
+        (Call::SetActorProperty, &[77, 14, 0]),
+        (Call::YieldCommand, &[0, 1]),
+    ]);
+    let mut resources = ResourceLibrary::default();
+    resources.bindings.insert(1234, (ResourceKind::Model, 99));
+    resources.models.insert(99, model([], 30));
+    let mut events = runtime(program(&main, &[0x20ff]), resources, Default::default());
+    for _ in 0..3 {
+        assert_eq!(events.world.actors[&77].tint, [16, 255, 16]);
+        events.step().unwrap();
+    }
+    events.step().unwrap();
+    assert_eq!(events.world.actors[&77].tint, [64; 3]);
+}
+
+#[test]
 fn script_lighting_persists_only_when_the_actor_requests_it() {
     // Both flags disable culling, but only custom lighting retains colour.
     for property in [13, 14] {
@@ -4228,11 +4828,13 @@ fn dialogue_completion_resumes_only_its_caller_and_cannot_fire_twice() {
 #[test]
 fn choices_return_the_selected_line_and_completion_reason_once() {
     use resonance_events::dialogue::ChoiceExit;
-    for (reason, flags, expected_reason, page_break) in [
-        (ChoiceExit::Confirm, 0x104, 0, false),
-        (ChoiceExit::Cancel, 4, 1, false),
-        (ChoiceExit::Timeout, 0x104, -1, false),
-        (ChoiceExit::Confirm, 0x104, 0, true),
+    for (reason, flags, expected_reason, page_break, last) in [
+        (ChoiceExit::Confirm, 0x104, 0, false, 5),
+        (ChoiceExit::Cancel, 4, 1, false, 5),
+        (ChoiceExit::Timeout, 0x104, -1, false, 5),
+        (ChoiceExit::Confirm, 0x104, 0, true, 5),
+        (ChoiceExit::Confirm, 0x108, 0, false, 8),
+        (ChoiceExit::Confirm, 0x108, 0, true, 8),
     ] {
         let page_start = if page_break { 2 } else { 0 };
         let mut code = Vec::new();
@@ -4241,9 +4843,8 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
             Call::ConfigureDialogue,
             &[1, 0, -2, 7, 0, 0, 0, 1],
         );
-        // Select lines 3..5, with line 4 initially selected. First line is
-        // deliberately not 1, and therefore cannot be mistaken for a default.
-        native(&mut code, Call::ShowChoice, &[1, 3, 5, 30, flags]);
+        // Start at line 3 and include requests extending beyond the text.
+        native(&mut code, Call::ShowChoice, &[1, 3, last, 30, flags]);
         code.extend([0x3000, 0x1200, 0x100, 0x1200, 0x20, 0x3010, 0x3000]);
         native(&mut code, Call::ConfigureRendering, &[0, 42]);
         code.push(0x20ff);
@@ -4268,7 +4869,12 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
                 .lines()
                 .unwrap()
                 .selected_line,
-            3 - page_start
+            ((flags & 0xff) as u8).min(5) - 1 - page_start
+        );
+        let lines = events.world.choices[&1].selection.lines().unwrap();
+        assert_eq!(
+            (lines.first_line, lines.last_line),
+            (2 - page_start, 4 - page_start)
         );
         steps(&mut events, 4);
         assert!(events.world.texture_bindings.is_empty());
@@ -5406,10 +6012,52 @@ fn enemy_contact_uses_its_event_key_and_publishes_the_symbol_identity_once() {
     let mut events = runtime(program_kind(&main, &child, 0), resources, world);
     assert!(events.contact_enemy(90).unwrap());
     assert!(!events.contact_enemy(90).unwrap());
+    // Contact already owns the foreground event; it must not fabricate a ring stun.
+    let enemy = events.world.actors[&90].enemy.as_ref().unwrap();
+    assert_eq!(enemy.pause_ticks, 0);
+    assert!(enemy.stun_effect().is_none());
     assert_eq!(events.memory().read(0x24, Width::S32).unwrap(), 90);
     events.step().unwrap();
     assert!(events.world.event_flags.contains(&123));
     assert!(!events.player_has_control());
+}
+
+#[test]
+#[ignore = "requires cooked party and EX skill definitions; no devices"]
+fn sheena_personal_delays_contact_without_stunning_or_dispatching_the_enemy() {
+    let mut data: resonance_content::session::SessionData = cooked("session-data.json");
+    data.rules = Some(Arc::new(cooked("menu-data.json")));
+    let mut world = controlled_world();
+    world.controlled_actor = 1;
+    world.insert_actor(1, Actor::new(1, [0.; 3]));
+    let mut party = party::Party::new(&data, Default::default()).unwrap();
+    party.formation = vec![1, 5];
+    party.members[4].ex_skills = [34, 0, 0, 0];
+    party.members[4].luck = 151;
+    world.party = Some(party);
+    let mut resources = enemy_resources();
+    resources.session_data = Some(Arc::new(data));
+    let main = script(&[(
+        Call::SpawnEnemyActor,
+        &[90, 0, 0, 50, 0, 0, 0, 2, 4, 42, 1, 0, 1, 1, 600, 0],
+    )]);
+    let child = script(&[(Call::SetEventBit, &[123]), (Call::YieldCommand, &[0, 2])]);
+    let mut events = runtime(program_kind(&main, &child, 0), resources, world);
+    assert!(!events.contact_enemy(90).unwrap());
+    assert!(!events.world.billboards.is_empty());
+    assert!(events.player_has_control());
+    events.world.party.as_mut().unwrap().formation = vec![1];
+    for _ in 0..30 {
+        assert!(!events.contact_enemy(90).unwrap());
+        events.step().unwrap();
+    }
+    assert!(!events.world.event_flags.contains(&123));
+    let enemy = events.world.actors[&90].enemy.as_ref().unwrap();
+    assert_eq!(enemy.pause_ticks, 0);
+    assert!(enemy.stun_effect().is_none());
+    assert!(events.contact_enemy(90).unwrap());
+    events.step().unwrap();
+    assert!(events.world.event_flags.contains(&123));
 }
 
 #[test]

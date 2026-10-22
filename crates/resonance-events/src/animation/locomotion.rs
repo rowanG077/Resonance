@@ -30,7 +30,7 @@ impl Actor {
             release,
         } = state;
         let requested = if let Some(speed) = movement_speed {
-            let running = !walking && speed > 7.;
+            let running = (!walking || self.enemy.is_some()) && speed > 7.;
             let event_gait = if running {
                 slot::EVENT_RUN
             } else {
@@ -43,7 +43,8 @@ impl Actor {
             } else {
                 slot::WALK
             }
-        } else if turn != 0. && model.clips.contains_key(&slot::TURN_RIGHT) {
+        } else if self.enemy.is_none() && turn != 0. && model.clips.contains_key(&slot::TURN_RIGHT)
+        {
             if turn < 0. {
                 slot::TURN_LEFT
             } else {

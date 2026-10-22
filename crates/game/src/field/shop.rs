@@ -14,7 +14,6 @@ pub const VISIBLE_ITEMS: usize = 7;
 pub(super) const SLIDE_STEP: u8 = 25;
 pub(super) const OPENING_FADE: u8 = 231;
 const REGAL: u8 = 8;
-const PERSONAL: u8 = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -153,10 +152,10 @@ impl Shop {
         }
     }
     pub fn unit_price(&self, id: u16, party: &Party) -> u32 {
-        let personal = party.formation.contains(&REGAL)
-            && party.members[usize::from(REGAL - 1)]
-                .ex_skills
-                .contains(&PERSONAL);
+        let personal = party.has_ex_skill(
+            REGAL,
+            resonance_content::menu_data::ex_effect::SHOP_DISCOUNT,
+        );
         self.resources.data.items[usize::from(id)].shop_price(self.trade(), personal)
     }
     pub fn total(&self, party: &Party) -> u32 {

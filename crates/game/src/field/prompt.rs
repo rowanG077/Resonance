@@ -64,6 +64,30 @@ impl FieldAction {
 }
 
 impl super::FieldSession {
+    /// Scripted perches can lie outside the walking floor and use an explicit
+    /// climb/jump interaction to leave. They are valid navigation destinations.
+    pub(super) fn has_traversal_exit(&self) -> bool {
+        let world = &self.events.world;
+        let traversal = |label| {
+            [FieldAction::Climb, FieldAction::Descend, FieldAction::Jump]
+                .iter()
+                .any(|action| *action as u32 == label)
+        };
+        self.interaction_target()
+            .is_some_and(|id| traversal(world.actors[&id].interaction_label as u32))
+            || world
+                .actors
+                .get(&world.controlled_actor)
+                .is_some_and(|player| {
+                    world.triggers.iter().any(|trigger| {
+                        trigger
+                            .transition
+                            .is_some_and(|[label, _, _]| traversal(label))
+                            && trigger.touches(player.position, player.radius)
+                    })
+                })
+    }
+
     pub(super) fn interaction_action(&self) -> Result<Option<FieldAction>> {
         if super::save_point::SavePoints::sealed_target(&self.events.world).is_some() {
             return Ok(Some(FieldAction::Examine));
