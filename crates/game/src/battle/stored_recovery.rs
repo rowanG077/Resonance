@@ -159,7 +159,8 @@ pub(super) fn prepare(
         effects: vec![],
         projectiles: Vec::new(),
         recovery,
-        origin: if catalogue == 121 {
+        // Ground circles and their upper layers must share the same floor origin.
+        origin: if matches!(catalogue, 117 | 118 | 120 | 121) {
             SpellOrigin::TargetGround
         } else {
             SpellOrigin::Target

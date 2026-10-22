@@ -505,6 +505,18 @@ fn attack(
                     ensure!(braking >= 0., "negative martial braking");
                     (Event::Braking(braking), 6)
                 }
+                12 => {
+                    let enabled = operand(4)?;
+                    let duration = operand(6)? as i16;
+                    ensure!(
+                        enabled <= 1 && duration >= 0,
+                        "invalid martial reaction armor"
+                    );
+                    (
+                        Event::ReactionArmor(if enabled == 0 { 0 } else { duration as u16 }),
+                        8,
+                    )
+                }
                 13 => (
                     Event::Trail {
                         slot: operand(4)?

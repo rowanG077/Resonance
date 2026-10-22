@@ -30,25 +30,29 @@ fn target() -> Actor {
 }
 
 #[test]
-fn variable_increases_physical_damage_as_hp_falls() {
+fn variable_uses_hp_quarters_before_proficiency() {
     let mut owner = actor(Side::Party);
     owner.equipment.damage.variable_attack = true;
     owner.equipment.max_hp = 2000;
     owner.equipment.stats.slash = 200;
-    let mut previous = 0;
-    for hp in [2000, 1000, 1] {
+    for (hp, expected) in [
+        (2000, 200),
+        (1500, 200),
+        (1499, 216),
+        (1000, 216),
+        (999, 232),
+        (500, 232),
+        (499, 248),
+        (1, 248),
+    ] {
         owner.hp = hp;
-        let hit = resolve(
-            &owner,
-            &mut target(),
-            rule(DamageKind::Slash, Power::Normal),
-            100,
-            [0.; 3],
-            &mut neutral_roll,
-            false,
+        owner.proficiency = 0;
+        assert_eq!(physical_attack(&owner, DamageKind::Slash), expected);
+        owner.proficiency = 10;
+        assert_eq!(
+            physical_attack(&owner, DamageKind::Slash),
+            expected * 110 / 100
         );
-        assert!(hit.amount > previous);
-        previous = hit.amount;
     }
 }
 

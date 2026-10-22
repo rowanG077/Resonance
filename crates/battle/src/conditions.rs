@@ -261,6 +261,11 @@ impl Conditions {
     pub fn needs_cure(&self, cure: Cure) -> bool {
         cure.eligible_base(self.base())
     }
+    pub(crate) fn needs_buff(&self, buff: Buff) -> bool {
+        self.prepare_buff(buff, false)
+            .effect
+            .is_some_and(|effect| !self.effective().contains(effect.condition))
+    }
     pub fn effective(&self) -> ConditionSet {
         self.base()
             .union(self.profile_intrinsic)

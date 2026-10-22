@@ -95,14 +95,25 @@ pub(crate) fn prepare_host<S: FnMut(Sound) -> Result<Option<Sound>>>(
             if rule.capabilities.target != resonance_content::arte::TechniqueTarget::Enemy {
                 continue;
             }
+            let elemental = resonance_content::arte::elemental::find(catalogue_id);
             let placement = catalogue
                 .placements
-                .get(usize::from(catalogue_id))
+                .get(usize::from(
+                    elemental.map_or(catalogue_id, |variant| variant.base),
+                ))
                 .context("missing Unison arte placement")?;
+            let duration = if elemental.is_some()
+                && let resonance_battle::ActionExecution::Attack(attack) =
+                    &actions[action].execution
+            {
+                placement.duration.max(attack.end_at)
+            } else {
+                placement.duration
+            };
             artes.push(UnisonArte {
                 action,
                 native_id: placement.native_id,
-                duration: placement.duration,
+                duration,
                 distance: f32::from(placement.distance),
                 altitude: placement.altitude as f32,
             });

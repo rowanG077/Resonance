@@ -3,11 +3,15 @@ use crate::conditions::{ConditionSet, PHYSICAL_AILMENTS};
 use crate::{ActorId, Battle, BattlePhase, PreparedBattle, Side};
 use anyhow::{Result, ensure};
 
+mod achievements;
+pub use achievements::ActorAchievements;
+
 const FINISHER_GRADE_BONUS: i64 = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ledger {
-    pub assist_commands: u8,
+    pub achievements: Vec<ActorAchievements>,
+    pub damage_outside_unison: bool,
     pub escape_cancellations: u8,
     pub ordinary_escape: Option<ActorId>,
     /// Advances through the ending until results stop updates.
@@ -42,7 +46,8 @@ pub struct Ledger {
 impl Ledger {
     pub(crate) fn new(actors: usize, rank: u8) -> Self {
         Self {
-            assist_commands: 0,
+            achievements: vec![ActorAchievements::default(); actors],
+            damage_outside_unison: false,
             escape_cancellations: 0,
             ordinary_escape: None,
             elapsed_ticks: 0,
@@ -105,6 +110,7 @@ impl Ledger {
     }
 
     pub(crate) fn death(&mut self, actor: ActorId, first_party_slot: bool) {
+        self.achievements[actor.index()].stayed_poisoned = false;
         self.deaths[actor.index()] = self.deaths[actor.index()].saturating_add(1).min(250);
         self.adjust(if first_party_slot { -100 } else { -50 });
     }

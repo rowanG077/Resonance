@@ -144,6 +144,11 @@ impl Battle {
             loan.consume();
             false
         };
+        // Bottles and regional potions count for their recipient, not the thrower.
+        if (14..=21).contains(&request.item) {
+            let count = &mut self.ledger.achievements[request.target.index()].potions;
+            *count = count.saturating_add(1);
+        }
         self.ledger.item_consumed(user);
         self.ledger.item_effect();
         self.items.cooldown = ITEM_COOLDOWN_TICKS;

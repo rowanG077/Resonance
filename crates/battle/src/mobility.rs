@@ -287,6 +287,7 @@ impl Battle {
                     actor,
                     pose: CommonPose::Backstep,
                 });
+                cues.push(Cue::Backstepped { actor });
                 let owner = &mut self.actors[index];
                 self.runtime[index].combo = Default::default();
                 owner.guard.active = false;

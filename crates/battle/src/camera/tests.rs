@@ -75,7 +75,7 @@ fn controlled_camera_initializes_before_first_tracking_update() -> Result<()> {
     actors[1].position = [350., 0., 0.];
     let mut camera = camera(&actors, true);
     let observed_heights = [
-        575.79181, 611.79181, 640.5918, 663.6318, 682.0638, 695.79181,
+        575.791_8, 611.791_8, 640.5918, 663.6318, 682.0638, 695.791_8,
     ];
     for (update, expected) in observed_heights.into_iter().enumerate() {
         if update != 0 {

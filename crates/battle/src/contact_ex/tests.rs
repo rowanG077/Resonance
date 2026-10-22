@@ -286,7 +286,7 @@ fn hurt_exit_recovers_attributed_vitals_and_clears_contributions() -> Result<()>
 }
 
 #[test]
-fn knockdown_initialization_bounds_follow_up_and_recovers_tp_once() -> Result<()> {
+fn knockdown_initialization_ignores_offensive_traits_and_recovers_tp_once() -> Result<()> {
     let mut actor = crate::tests::actor(Side::Party);
     actor.reaction.combo_hits = 120;
     actor.equipment.reaction_ex.follow_up = true;
@@ -297,7 +297,7 @@ fn knockdown_initialization_bounds_follow_up_and_recovers_tp_once() -> Result<()
     let mut battle = battle(vec![actor, crate::tests::actor(Side::Enemy)]);
     let mut cues = vec![];
     battle.initialize_knockdown_window(0, &mut cues);
-    assert_eq!(battle.actors[0].reaction.stagger.window, 6);
+    assert_eq!(battle.actors[0].reaction.stagger.window, 1);
     assert_eq!(battle.actors[0].tp, 1);
     battle.initialize_knockdown_window(0, &mut cues);
     assert_eq!(battle.actors[0].tp, 1);

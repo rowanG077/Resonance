@@ -105,6 +105,7 @@ pub enum ModelRequest {
         loop_start: f32,
         elapsed_updates: u32,
         secondary: Option<(u16, Pose)>,
+        defeated_hidden: bool,
     },
     Hurt {
         actor: ActorId,
@@ -117,6 +118,9 @@ pub enum ModelRequest {
     Expression {
         actor: ActorId,
         layers: [u8; 4],
+    },
+    ActiveExpression {
+        actor: ActorId,
     },
     Tint {
         actor: ActorId,
@@ -193,6 +197,7 @@ impl ModelRequest {
             | Self::Hurt { actor, .. }
             | Self::Common { actor, .. }
             | Self::Expression { actor, .. }
+            | Self::ActiveExpression { actor }
             | Self::Tint { actor, .. }
             | Self::Weapon { actor, .. }
             | Self::MoveWeapon { actor, .. }
@@ -656,6 +661,11 @@ impl Models {
             }
             let slot = &mut self.models[index];
             let Some(model) = slot else { continue };
+            #[cfg(feature = "test-support")]
+            if model.fixture_defeated_hidden && actor.availability == ActorAvailability::Active {
+                model.fixture_defeated_hidden = false;
+                model.shown.visible = true;
+            }
             let result = (|| {
                 let settle = settle
                     && (actor.activity != Activity::Recovering
@@ -699,7 +709,7 @@ impl Models {
                 {
                     model.sample_main(true)?;
                     for weapon in &mut model.weapons {
-                        weapon.advance_body_pose()?;
+                        weapon.advance_pose()?;
                     }
                 }
                 // Cinematic pose requests precede this update's animation visit.
@@ -900,8 +910,17 @@ impl Models {
                 loop_start,
                 elapsed_updates,
                 secondary,
+                defeated_hidden,
                 ..
             } => {
+                ensure!(
+                    !defeated_hidden
+                        || (actors[actor.index()].availability == ActorAvailability::Dead
+                            && actors[actor.index()].hp == 0),
+                    "hidden defeated fixture requires a dead actor"
+                );
+                model.fixture_defeated_hidden = defeated_hidden;
+                model.shown.visible = !defeated_hidden;
                 model.set_loop_start(loop_start)?;
                 for _ in 0..elapsed_updates {
                     model.animation.clock.step();
@@ -999,6 +1018,9 @@ impl Models {
                 }
             }
             Expression { layers, .. } => model.shown.texture_layers = layers,
+            ActiveExpression { .. } => {
+                model.shown.texture_layers = model.definition.active_expression;
+            }
             Tint { color, .. } => model.tint_flash = Some(color),
             Weapon { slot, visible, .. } => model.weapon_visible(slot, visible)?,
             MoveWeapon {

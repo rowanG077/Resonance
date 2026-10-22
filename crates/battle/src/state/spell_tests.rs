@@ -212,6 +212,8 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
         normal: None,
         tp_cost: 7,
         execution: crate::ActionExecution::Casting(Arc::new(crate::CastingDefinition {
+            armor: None,
+            incantation_lead: None,
             chant: vec![],
             release_pose: Default::default(),
             hide_primary_weapons: false,
@@ -471,6 +473,8 @@ fn healing_cast_pays_once_and_recovers_a_living_ally_at_its_current_position() {
             normal: None,
             tp_cost: 8,
             execution: crate::ActionExecution::Casting(Arc::new(crate::CastingDefinition {
+                armor: None,
+                incantation_lead: None,
                 chant: vec![],
                 release_pose: Default::default(),
                 hide_primary_weapons: false,
@@ -699,7 +703,7 @@ fn target_spells_retain_the_next_update_origin_through_the_authored_duration() {
                     assert_eq!(projectile.position[0], origin[0]);
                     assert_eq!(projectile.position[2], origin[2]);
                     let aim = battle.projectiles[&projectile.id].target_point;
-                    let target_x = if elapsed == 2 && owner.index() < target.index() {
+                    let target_x = if elapsed == 2 {
                         origin[0]
                     } else {
                         origin[0] + 500.
@@ -711,6 +715,72 @@ fn target_spells_retain_the_next_update_origin_through_the_authored_duration() {
             }
             assert_eq!(births, [(2, origin[1]), (4, origin[1] + 12.)]);
         }
+    }
+}
+
+#[test]
+fn released_volley_aim_uses_the_prior_center_in_both_roster_orders() {
+    for (owner, target) in [(ActorId(0), ActorId(1)), (ActorId(1), ActorId(0))] {
+        let mut battle = battle();
+        battle.actors[target.index()].body.center_offset = [0., 80., 0.];
+        battle.actors[target.index()].position = [100., 0., 200.];
+        battle.actors[owner.index()].position = [-500., 0., 0.];
+        battle.step(BattleInput::default()).unwrap();
+
+        let mut definition = crate::tests::volley();
+        definition.origin = crate::SpellOrigin::SceneFixed { position: [0.; 3] };
+        definition.duration = 4;
+        let mut projectile = definition.projectiles[0].definition.as_ref().clone();
+        projectile.motion.aim_at_target = true;
+        projectile.contact = None;
+        definition.projectiles = vec![crate::SpellProjectile::new(2, Arc::new(projectile))];
+        let resident = battle
+            .release_volley(
+                Arc::new(definition),
+                owner,
+                target,
+                SpellSlot::Primary,
+                None,
+                &mut vec![],
+            )
+            .unwrap()
+            .unwrap();
+        battle.step(BattleInput::default()).unwrap();
+        battle.actors[target.index()].position = [200., 0., 300.];
+        battle.actors[owner.index()].hit_stop = 3;
+        let age = battle.volleys[&resident].age;
+        let aim = battle.volleys[&resident].projectile_target;
+        let centers = battle.actor_start_centers.clone();
+        battle
+            .step(BattleInput {
+                paused: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(battle.volleys[&resident].age, age);
+        assert_eq!(battle.volleys[&resident].projectile_target, aim);
+        assert_eq!(battle.actor_start_centers, centers);
+
+        battle.step(BattleInput::default()).unwrap();
+        battle.actors[target.index()].position = [300., 0., 400.];
+        let frame = battle.step(BattleInput::default()).unwrap();
+        let id = frame
+            .cues
+            .iter()
+            .find_map(|cue| match cue {
+                Cue::ProjectileStarted {
+                    projectile, action, ..
+                } if *action == resident => Some(*projectile),
+                _ => None,
+            })
+            .unwrap();
+        let projectile = &battle.projectiles[&id];
+        assert_eq!(projectile.target_point, [200., 80., 300.]);
+        assert_eq!(
+            projectile.velocity,
+            crate::distance::normalize([200., 80., 300.])
+        );
+        assert!(battle.actors[owner.index()].hit_stop > 0);
     }
 }
 

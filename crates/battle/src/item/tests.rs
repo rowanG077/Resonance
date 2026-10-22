@@ -92,10 +92,32 @@ fn enemy_item_benefits_reuse_recovery_without_party_inventory_or_accounting() ->
     assert_eq!(battle.ledger(), &ledger);
     assert_eq!(battle.item_cooldown(), 0);
     assert!(battle.pending_item().is_none());
-    assert!(
-        !cues
-            .iter()
-            .any(|cue| matches!(cue, Cue::ItemReleased { .. } | Cue::ItemNotice { .. }))
+    assert!(!cues.iter().any(|cue| matches!(cue, Cue::ItemNotice { .. })));
+    let releases: Vec<_> = cues
+        .iter()
+        .filter_map(|cue| match cue {
+            Cue::ItemReleased {
+                user,
+                target,
+                effect,
+                discovered,
+            } => Some((*user, *target, *effect, *discovered)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        releases,
+        [
+            (owner, target, Effect::Revive, false),
+            (owner, target, Effect::Recover { hp: 0, tp: 60 }, false),
+            (
+                owner,
+                target,
+                Effect::Buff(crate::conditions::Buff::Flare),
+                false
+            ),
+            (owner, ActorId(0), Effect::Hourglass, false),
+        ]
     );
     Ok(())
 }
@@ -1059,3 +1081,21 @@ fn buff_faults_preserve_conditions_inventory_and_usage() {
 
 #[path = "cure_tests.rs"]
 mod cures;
+
+#[test]
+fn potion_title_counts_the_recipient_only_after_release() {
+    for item in 14..=21 {
+        let mut battle = battle();
+        let mut storage = Storage::new(item, 1);
+        before_release(&mut battle, &mut storage, request(item, 1));
+        assert_eq!(battle.ledger.achievements[1].potions, 0);
+        step(&mut battle, &mut storage);
+        assert_eq!(battle.ledger.achievements[0].potions, 0);
+        assert_eq!(battle.ledger.achievements[1].potions, 1);
+        assert_eq!(battle.ledger.items[0], 1);
+        for _ in 0..10 {
+            step(&mut battle, &mut storage);
+        }
+        assert_eq!(battle.ledger.achievements[1].potions, 1);
+    }
+}

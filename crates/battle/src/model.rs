@@ -342,6 +342,7 @@ pub struct ModelDefinition {
     /// Ordinary idle and optional party low-health idle.
     pub idle_motions: [Option<u16>; 2],
     pub idle_expression: [u8; 4],
+    pub active_expression: [u8; 4],
     /// Story-selected eyes take precedence over expressions and blinking.
     pub forced_eye_frame: Option<u8>,
     pub blink: Option<resonance_content::battle_profile::Blink>,
@@ -663,6 +664,8 @@ pub struct ModelFrame {
     pub material: ModelMaterial,
     /// Expression atlas frame indices for prepared profile channels.
     pub texture_layers: [u8; 4],
+    /// Elapsed body presentation updates, independent of the current skeletal clip.
+    pub texture_tick: u64,
     /// Model light position; None uses the prepared stage light.
     pub light: Option<[f32; 3]>,
     pub shadow: Option<ActorShadowFrame>,
@@ -948,6 +951,8 @@ pub(crate) struct Model {
     pub shown: ModelFrame,
     weapons: Vec<weapon::Weapon>,
     in_results: bool,
+    #[cfg(feature = "test-support")]
+    fixture_defeated_hidden: bool,
     tint_flash: Option<[u8; 3]>,
     defeat_alpha: Option<u8>,
     preserve_pose_update: Option<u64>,
@@ -1040,6 +1045,8 @@ impl Model {
             blink_ticks: (actor_id.index() as u32 * BLINK_STAGGER_TICKS) % BLINK_PERIOD_TICKS,
             weapons: Vec::new(),
             in_results: false,
+            #[cfg(feature = "test-support")]
+            fixture_defeated_hidden: false,
             tint_flash: None,
             defeat_alpha: None,
             preserve_pose_update: None,
@@ -1055,6 +1062,7 @@ impl Model {
                 material: ModelMaterial::Normal,
 
                 texture_layers: definition.idle_expression,
+                texture_tick: 0,
                 light: None,
                 shadow: None,
                 resource: definition.resource,
@@ -1550,19 +1558,31 @@ impl Model {
     }
 
     pub fn set_end(&mut self, end: f32) -> Result<()> {
-        let clock = &mut self.animation.clock;
         // Playback intervals may span more than one cycle of their motion curves.
-        Clock::new(
-            Playback {
-                clip: self.clip,
-                frame: clock.frame,
-                rate: clock.rate,
-                repeat: clock.repeat,
-            },
-            end,
-            clock.blend,
-        )?;
-        clock.end = end;
+        for clock in std::iter::once(&mut self.animation.clock).chain(
+            self.weapons
+                .iter_mut()
+                .flat_map(weapon::Weapon::body_clocks),
+        ) {
+            Clock::new(
+                Playback {
+                    clip: self.clip,
+                    frame: clock.frame,
+                    rate: clock.rate,
+                    repeat: clock.repeat,
+                },
+                end,
+                clock.blend,
+            )?;
+        }
+        self.animation.clock.end = end;
+        for clock in self
+            .weapons
+            .iter_mut()
+            .flat_map(weapon::Weapon::body_clocks)
+        {
+            clock.end = end;
+        }
         Ok(())
     }
 
@@ -1728,6 +1748,9 @@ impl Model {
     ) -> Result<()> {
         if advance_presentation && actor.available() {
             self.blink_ticks = (self.blink_ticks + 1) % BLINK_PERIOD_TICKS;
+        }
+        if advance_presentation {
+            self.shown.texture_tick += 1;
         }
         self.sample_pose(advance_pose)?;
         self.present(actor, advance_presentation, carried_advance)

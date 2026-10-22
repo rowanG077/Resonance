@@ -78,9 +78,30 @@ fn contact(battle: &mut Battle, stun_chance: u8) -> HitResult {
 fn backstep_starts_moving_with_optional_armor() {
     for enabled in [false, true] {
         let mut battle = guarding(enabled, Control::Manual);
+        let mut model = crate::tests::model_definition(1, [(0, 30.), (1, 30.)]);
+        model.reactions.backstep = Some(1);
+        battle.set_models(
+            crate::Models::new(
+                battle.actors(),
+                vec![Some(Arc::new(model)), None],
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
 
         let position = battle.actors[0].position;
-        begin(&mut battle);
+        let frame = begin(&mut battle);
+        assert!(frame.model_requests.is_empty());
+        assert_eq!(
+            frame
+                .cues
+                .iter()
+                .filter(|cue| matches!(cue, Cue::Backstepped { actor: ActorId(0) }))
+                .count(),
+            1,
+            "audio feedback survives contact-pose preparation"
+        );
         let owner = &battle.actors[0];
         assert!(owner.position[0] < position[0]);
         assert!(owner.position[1] > position[1]);
@@ -92,6 +113,13 @@ fn backstep_starts_moving_with_optional_armor() {
             } else {
                 ProtectionMode::None
             }
+        );
+        let next = battle.step(input([-70, 0], true, 0)).unwrap();
+        assert!(
+            !next
+                .cues
+                .iter()
+                .any(|cue| matches!(cue, Cue::Backstepped { .. }))
         );
     }
 }

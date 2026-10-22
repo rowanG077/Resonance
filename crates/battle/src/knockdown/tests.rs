@@ -813,3 +813,20 @@ fn contact_down_retains_existing_guard_profile_and_protection_gates() {
     battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.activity(ActorId(1)), Activity::Hurt);
 }
+
+#[test]
+fn pratfall_counts_ground_impacts_once_and_not_airborne_knockdowns() {
+    let mut target = actor(Side::Party);
+    target.position[1] = 10.;
+    let mut battle = contact_battle(target);
+    battle.actors[1].reaction.recoil.kind = crate::RecoilKind::Launched;
+    let id = ActorId(1);
+    let mut cues = Vec::new();
+    battle.apply_knockdown_impact(id, &mut cues);
+    assert_eq!(battle.ledger.achievements[1].knockdowns, 0);
+    battle.actors[1].position[1] = 0.;
+    battle.apply_knockdown_impact(id, &mut cues);
+    assert_eq!(battle.ledger.achievements[1].knockdowns, 1);
+    battle.apply_knockdown_impact(id, &mut cues);
+    assert_eq!(battle.ledger.achievements[1].knockdowns, 1);
+}

@@ -111,6 +111,7 @@ fn equipment_refresh_preserves_live_vitals_and_condition_base() {
     current.hp = 37;
     current.tp = 9;
     current.species = 6;
+    current.combat_adjustments.attack = -50;
     current.equipment.damage.weapon_species = Some(2);
     current.equipment.damage.critical_chance_bonus = 1;
     current.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
@@ -147,6 +148,7 @@ fn equipment_refresh_preserves_live_vitals_and_condition_base() {
         (37, 9, 200, 80)
     );
     assert_eq!(live.species, 6);
+    assert_eq!(live.combat_adjustments.attack, -50);
     assert_eq!(live.equipment.damage.weapon_species, Some(9));
     assert_eq!(live.equipment.damage.critical_chance_bonus, 7);
     assert_eq!(live.conditions.base(), ConditionSet::of(&[Condition::Weak]));
@@ -249,6 +251,7 @@ pub(super) fn actor(side: Side) -> Actor {
         elements: Default::default(),
         attack_power: 100,
         proficiency: 0,
+        combat_adjustments: Default::default(),
         input: Default::default(),
         conditions: Default::default(),
         position: [0.; 3],
@@ -319,6 +322,7 @@ pub(crate) fn model_definition(
         reactions: Default::default(),
         idle_motions: [None; 2],
         idle_expression: [0; 4],
+        active_expression: [0; 4],
         forced_eye_frame: None,
         blink: None,
         weapons: vec![],
@@ -352,6 +356,8 @@ pub(crate) fn cast(duration: u32, cost: u16) -> ActionDefinition {
         normal: None,
         tp_cost: cost,
         execution: ActionExecution::Casting(Arc::new(CastingDefinition {
+            armor: None,
+            incantation_lead: None,
             chant: vec![],
             duration,
             profile_ticks: i16::try_from(duration).unwrap(),
@@ -1422,11 +1428,7 @@ pub(crate) fn counted_techniques(
         .collect();
     let catalogue = resonance_content::arte::Catalogue {
         definitions: vec![Default::default(); usize::from(ids.last().copied().unwrap_or(0)) + 1],
-        learning: vec![
-            ids.into_iter()
-                .map(|id| u8::try_from(id).unwrap())
-                .collect(),
-        ],
+        learning: vec![ids.into_iter().collect()],
     };
     crate::learning::TechniqueLearningMember {
         actor,

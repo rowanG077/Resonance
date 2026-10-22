@@ -12,6 +12,11 @@ const ARRIVAL_DISTANCE: f32 = 8.;
 const ARENA_RADIUS: f32 = 850.;
 const ENEMY_ARENA_MARGIN: f32 = 35.;
 const ARENA_TARGET_LINE_LIMIT: f32 = 552.5;
+const DETOUR_DISTANCE: f32 = 300.;
+const DETOUR_CORRIDOR: f32 = 400.;
+const DETOUR_MARGIN: f32 = 50.;
+const DETOUR_EDGE_RADIUS: f32 = ARENA_RADIUS * 0.75;
+const MAX_DETOUR_VISITS: usize = 11;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ArenaContact {
@@ -101,62 +106,74 @@ impl Battle {
             destination.iter().all(|v| v.is_finite()),
             "invalid steering destination"
         );
-        let delta = [
-            destination[0] - actor.position[0],
-            0.,
-            destination[2] - actor.position[2],
-        ];
-        let length = planar_length(delta);
-        if actor.control == Control::Manual || length <= f32::EPSILON {
+        if actor.control == Control::Manual {
             return Ok(destination);
         }
-        let direction = delta.map(|v| v / length);
-        let normal = [-direction[2], 0., direction[0]];
-        let blocker = self
-            .actors
-            .iter()
-            .enumerate()
-            .filter_map(|(index, obstacle)| {
-                if index == owner.index()
-                    || target.is_some_and(|id| id.index() == index)
-                    || !obstacle.available()
-                    || obstacle.movement.fixed_height
-                    || actor.control == Control::SemiAuto && actor.side == obstacle.side
-                    || actor.side == obstacle.side
-                        && actor.movement.steering.passes_allied_obstacles
-                        && obstacle.movement.steering.passable_for_allies
-                {
-                    return None;
-                }
-                let relative = [
-                    obstacle.position[0] - actor.position[0],
-                    0.,
-                    obstacle.position[2] - actor.position[2],
-                ];
-                let along = distance::dot(relative, direction);
-                let across = distance::dot(relative, normal);
-                let clearance = recovery_position::clearance(actor, obstacle);
-                (along > 0. && along < length && across.abs() < clearance)
-                    .then_some((along, across, clearance, obstacle))
-            })
-            .min_by(|a, b| a.0.total_cmp(&b.0));
-        let Some((_, across, clearance, obstacle)) = blocker else {
-            return Ok(destination);
-        };
-        let side = match actor.movement.steering.side {
-            DetourSide::Left => 1.,
-            DetourSide::Right => -1.,
-            DetourSide::Automatic => {
-                if across > 0. {
-                    -1.
-                } else {
-                    1.
-                }
+        let mut destination = destination;
+        // The controller revisits the first obstructing actor in roster order.
+        // Bound cyclic detours even when successive waypoints remain obstructed.
+        for _ in 0..MAX_DETOUR_VISITS {
+            let delta = [
+                destination[0] - actor.position[0],
+                0.,
+                destination[2] - actor.position[2],
+            ];
+            let length = planar_length(delta);
+            if length <= f32::EPSILON {
+                break;
             }
-        };
-        Ok(std::array::from_fn(|axis| {
-            obstacle.position[axis] - direction[axis] * clearance + normal[axis] * clearance * side
-        }))
+            let direction = delta.map(|value| value / length);
+            let normal = [-direction[2], 0., direction[0]];
+            let blocker = [Side::Party, Side::Enemy].into_iter().find_map(|side| {
+                self.actors
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, obstacle)| {
+                        if obstacle.side != side
+                            || index == owner.index()
+                            || target.is_some_and(|id| id.index() == index)
+                            || !obstacle.available()
+                            || obstacle.movement.fixed_height
+                            || actor.control == Control::SemiAuto && actor.side == obstacle.side
+                            || actor.side == obstacle.side
+                                && actor.movement.steering.passes_allied_obstacles
+                                && obstacle.movement.steering.passable_for_allies
+                        {
+                            return None;
+                        }
+                        let relative = [
+                            obstacle.position[0] - actor.position[0],
+                            0.,
+                            obstacle.position[2] - actor.position[2],
+                        ];
+                        let across = distance::dot(relative, normal);
+                        let in_bounds = [0, 2].into_iter().all(|axis| {
+                            (actor.position[axis].min(destination[axis]) - DETOUR_MARGIN
+                                ..=actor.position[axis].max(destination[axis]) + DETOUR_MARGIN)
+                                .contains(&obstacle.position[axis])
+                        });
+                        (across.abs() < DETOUR_CORRIDOR && in_bounds).then_some((across, obstacle))
+                    })
+            });
+            let Some((across, obstacle)) = blocker else {
+                break;
+            };
+            let side = match actor.movement.steering.side {
+                DetourSide::Left => 1.,
+                DetourSide::Right => -1.,
+                DetourSide::Automatic => {
+                    if across <= 0. {
+                        1.
+                    } else {
+                        -1.
+                    }
+                }
+            };
+            destination = std::array::from_fn(|axis| {
+                obstacle.position[axis] + normal[axis] * DETOUR_DISTANCE * side
+            });
+        }
+        Ok(destination)
     }
 
     /// Keep the body on the floor and inside the arena. A placement without a
@@ -234,7 +251,7 @@ impl Battle {
 }
 
 fn approach_side(actor: &Actor, target: [f32; 3]) -> DetourSide {
-    if actor.control == Control::SemiAuto {
+    if actor.control == Control::SemiAuto || planar_length(actor.position) < DETOUR_EDGE_RADIUS {
         return DetourSide::Automatic;
     }
     let normal = [
@@ -243,9 +260,7 @@ fn approach_side(actor: &Actor, target: [f32; 3]) -> DetourSide {
         target[0] - actor.position[0],
     ];
     let outward = distance::dot(actor.position, normal);
-    if outward.abs() <= f32::EPSILON {
-        DetourSide::Automatic
-    } else if outward < 0. {
+    if outward < 0. {
         DetourSide::Left
     } else {
         DetourSide::Right

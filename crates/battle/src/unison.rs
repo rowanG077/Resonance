@@ -246,6 +246,7 @@ struct Run {
     geometric_contact: Option<ActorId>,
     effective_contact: Option<ActorId>,
     opener_action: Option<ActionId>,
+    opening_combo_target: Option<ActorId>,
     target: Option<ActorId>,
     selections: Vec<Selection>,
     placements: Vec<Placement>,
@@ -319,6 +320,12 @@ impl State {
             .as_ref()
             .filter(|_| self.staged())
             .and_then(|run| run.target)
+    }
+
+    pub(crate) fn holds_opening_combo(&self, actor: ActorId) -> bool {
+        self.run.as_ref().is_some_and(|run| {
+            run.phase == UnisonPhase::Opening && run.opening_combo_target == Some(actor)
+        })
     }
 
     pub(crate) fn camera(&self) -> Option<CameraPose> {
@@ -524,10 +531,6 @@ impl Battle {
                     ensure!(
                         definition.combination_prelude.is_some(),
                         "Unison combination has no prelude"
-                    );
-                    ensure!(
-                        !matches!(recipe.id, 6 | 7 | 11 | 12),
-                        "unsupported Unison combination"
                     );
                     for role in &execution.roles {
                         let mut bound = BTreeSet::new();
@@ -917,12 +920,9 @@ impl State {
                 owner.control,
                 crate::Control::Manual | crate::Control::SemiAuto
             )
-            || battle.runtime[actor.index()]
-                .task()
-                .action()
-                .is_some_and(|(_, sequence)| {
-                    sequence.definition.normal == Some(crate::NormalAttack::Finisher)
-                })
+            // Finisher artes lock the rest of their chain. The final normal
+            // strike remains cancellable into the opening team attack.
+            || battle.runtime[actor.index()].combo.history.finisher
             || matches!(
                 battle.activity(actor),
                 crate::Activity::Hurt
@@ -955,6 +955,15 @@ impl State {
         if !definition.retain_gauge || battle.random.next_u16() % 100 >= RETAIN_GAUGE_PERCENT {
             battle.unison_gauge = 0;
         }
+        // Accepted activation hands the selected opponent's live combo to the
+        // opener. Its recovery resumes on a miss; an already ended combo is not
+        // revived, and geometric contact cannot transfer this ownership.
+        let opening_combo_target = battle.target(actor).filter(|target| {
+            let opponent = &battle.actors[target.index()];
+            opponent.available()
+                && opponent.reaction.combo_hits > 0
+                && !definition.immune_targets.contains(target)
+        });
         battle.interrupt_actor(actor, cues);
         battle.request_pose(actor, Some(member.windup_motion), member.windup_pose);
         if let Some(voice) = member.windup_voice {
@@ -976,6 +985,8 @@ impl State {
             position: battle.actors[actor.index()].position,
             priority: 2,
         });
+        let starts = &mut battle.ledger.achievements[actor.index()].unison_starts;
+        *starts = starts.saturating_add(1);
         battle.ledger.adjust(START_GRADE);
         self.generation += 1;
         self.feedback_generation += 1;
@@ -989,6 +1000,7 @@ impl State {
             geometric_contact: None,
             effective_contact: None,
             opener_action: None,
+            opening_combo_target,
             target: None,
             selections: Vec::new(),
             placements: Vec::new(),
@@ -1076,7 +1088,7 @@ impl Run {
             gap,
             selection.arte.altitude,
         )?;
-        battle.start_unison_arte(
+        let duration = battle.start_unison_arte(
             ActionRequest {
                 actor: member.actor,
                 action: selection.arte.action,
@@ -1084,9 +1096,10 @@ impl Run {
             },
             cues,
         )?;
-        self.deadline = self
-            .deadline
-            .max(self.elapsed.saturating_add(selection.arte.duration));
+        self.deadline = self.deadline.max(
+            self.elapsed
+                .saturating_add(selection.arte.duration.max(duration)),
+        );
         Ok(())
     }
 
@@ -1316,7 +1329,16 @@ impl Run {
             actor.hit_stop = 0;
             battle.runtime[index].target = saved.target;
             if actor.available() {
-                battle.enter_idle(ActorId(index as u8));
+                let id = ActorId(index as u8);
+                if Some(id) == self.target && actor.reaction.profile.can_knock_down {
+                    // The surviving victim leaves the scene in its authored
+                    // down recovery. Entering idle here would end the received
+                    // combo before ordinary recovery or a follow-up contact.
+                    battle.enter_knockdown(id, cues);
+                    battle.initialize_knockdown_window(index, cues);
+                } else {
+                    battle.enter_idle(id);
+                }
             }
         }
     }

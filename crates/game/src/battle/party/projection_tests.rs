@@ -58,6 +58,7 @@ pub(in crate::battle) fn fixture() -> Result<(MenuData, Member)> {
             shops: vec![],
         },
         ex_skills: ExSkillData {
+            foraging: Default::default(),
             skills: Default::default(),
             characters: vec![
                 CharacterExSkills {
@@ -88,6 +89,18 @@ pub(in crate::battle) fn fixture() -> Result<(MenuData, Member)> {
     member.tp = 9;
     member.luck = 1;
     Ok((menus, member))
+}
+
+#[test]
+fn costume_titles_do_not_prevent_battle_loadouts() -> Result<()> {
+    let (mut menus, mut member) = fixture()?;
+    menus.titles[0][usize::from(member.title - 1)].costume =
+        Some(resonance_content::menu_data::Costume::Variant2);
+    member.costume = 2;
+    loadout(&menus, &member, 0)?;
+    member.title = u8::MAX;
+    assert!(loadout(&menus, &member, 0).is_err());
+    Ok(())
 }
 
 #[test]
@@ -217,6 +230,56 @@ fn equipped_compounds_supply_critical_and_cost_traits_without_learned_history() 
     let removed = loadout(&menus, &member, 0)?;
     assert!(!removed.attributes.tp_cost_reduction);
     assert_eq!(removed.attributes.damage.critical_chance_bonus, 92);
+    Ok(())
+}
+
+#[test]
+fn spell_charge_is_available_to_each_character_that_equips_it() -> Result<()> {
+    let (mut menus, mut member) = fixture()?;
+    menus
+        .ex_skills
+        .skills
+        .insert(ex::SPELL_CHARGE, menus.ex_skills.skills[&1].clone());
+    member.ex_skills = [0, 0, 0, ex::SPELL_CHARGE];
+    for character in [Character::Genis, Character::Zelos, Character::Kratos] {
+        assert!(loadout(&menus, &member, character as usize - 1)?.spell_charge);
+    }
+    Ok(())
+}
+
+#[test]
+fn seal_and_aerial_compounds_follow_equipped_recipes_without_spell_charge() -> Result<()> {
+    let (mut menus, mut member) = fixture()?;
+    for skill in [
+        ex::LIFE_DRAIN,
+        ex::SPIRIT_DRAIN,
+        ex::AERIAL_SPELL,
+        ex::CHARGE_GUARD_BREAK,
+    ] {
+        menus
+            .ex_skills
+            .skills
+            .insert(skill, menus.ex_skills.skills[&1].clone());
+        menus.ex_skills.characters[0]
+            .compounds
+            .push(CompoundExSkill {
+                skill,
+                required: vec![1, 2],
+            });
+    }
+    member.ex_skills = [1, 2, 0, 0];
+    let equipped = loadout(&menus, &member, 0)?;
+    assert!(equipped.attributes.recovery.life_drain);
+    assert!(equipped.attributes.recovery.spirit_drain);
+    assert!(equipped.aerial_spells);
+    assert!(equipped.attributes.damage.charge_guard_break);
+    assert!(!equipped.spell_charge);
+    member.ex_skills[1] = 0;
+    let removed = loadout(&menus, &member, 0)?;
+    assert!(!removed.attributes.recovery.life_drain);
+    assert!(!removed.attributes.recovery.spirit_drain);
+    assert!(!removed.aerial_spells);
+    assert!(!removed.attributes.damage.charge_guard_break);
     Ok(())
 }
 
@@ -398,12 +461,14 @@ fn actor_projection_keeps_saved_overlimit_and_clamps_negative_luck() -> Result<(
             stat: resonance_content::menu_data::ExStat::Luck,
             percent: 10,
         });
-    assert_eq!(loadout(&menus, &member, 1)?.attributes.luck, 5);
+    assert_eq!(loadout(&menus, &member, 1)?.attributes.luck, 7);
     member.compound_ex_skills.insert(0);
     let saved = serde_json::to_value(&member)?;
     assert!(loadout(&menus, &member, 0).is_err());
     assert_eq!(loadout(&menus, &member, 1)?.attributes.luck, 7);
     assert_eq!(serde_json::to_value(&member)?, saved);
+    member.ex_skills[1] = 0;
+    assert_eq!(loadout(&menus, &member, 1)?.attributes.luck, 5);
     Ok(())
 }
 

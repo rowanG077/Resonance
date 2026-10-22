@@ -63,12 +63,24 @@ pub struct CombatStats {
     pub level: u8,
 }
 
+/// Encounter percentages applied after live stat conditions, independently of equipment.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CombatAdjustments {
+    pub attack: i8,
+    pub defense: i8,
+    pub intelligence: i8,
+    /// Floor bonuses, expressed as signed fractions of the conditioned stat.
+    pub attack_quarters: i8,
+    pub defense_eighths: i8,
+    pub accuracy_quarters: i8,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DamageTraits {
     /// Normal guard also blocks attacks from behind.
     pub rear_guard: bool,
-    /// Charged physical attacks do not break this actor’s guard.
-    pub single_charge_guard: bool,
+    /// Charged physical attacks break normal guard.
+    pub charge_guard_break: bool,
     /// Deal 15 percentage points more damage through normal physical guard.
     pub guard_damage_boost: bool,
     /// Special Guard takes 15% damage instead of 20%.
@@ -206,6 +218,10 @@ fn percentage(amount: i64, percent: i64) -> i64 {
     amount.saturating_mul(percent) / 100
 }
 
+fn adjusted(amount: i64, adjustment: i8) -> i64 {
+    amount + percentage(amount, i64::from(adjustment))
+}
+
 fn vary(amount: i64, roll: &mut dyn FnMut(Draw) -> u16) -> i64 {
     let variation = (roll(Draw::Variance) as i16) % VARIANCE_SPREAD;
     percentage(amount, 100 + i64::from(variation))
@@ -220,14 +236,13 @@ fn physical_attack(owner: &Actor, kind: DamageKind) -> i32 {
         DamageKind::Slash => owner.equipment.stats.slash,
         _ => owner.equipment.stats.thrust,
     };
-    // Variable gains up to 25% attack as HP falls; proficiency adds its own percentage.
+    // Each HP quarter below 75% adds 8%; proficiency applies afterward.
     let variable = if owner.equipment.damage.variable_attack {
-        25 * i64::from((owner.equipment.max_hp - owner.hp).max(0))
-            / i64::from(owner.equipment.max_hp)
+        i64::from((3 - owner.hp_percent() / 25).max(0)) * 8
     } else {
         0
     };
-    proficient(stat, i64::from(owner.proficiency) + variable)
+    proficient(proficient(stat, variable), i64::from(owner.proficiency))
 }
 
 fn physical_bonuses(
@@ -299,6 +314,12 @@ fn calculate_amount(
             let defense = target
                 .conditions
                 .defense_with_conditions(target.equipment.stats.defense);
+            let attack = i64::from(attack)
+                + i64::from(attack / 4) * i64::from(owner.combat_adjustments.attack_quarters);
+            let defense = i64::from(defense)
+                + i64::from(defense / 8) * i64::from(target.combat_adjustments.defense_eighths);
+            let attack = adjusted(attack, owner.combat_adjustments.attack);
+            let defense = adjusted(defense, target.combat_adjustments.defense);
             let mut accuracy = owner.conditions.accuracy_with_conditions(proficient(
                 owner.equipment.stats.accuracy,
                 i64::from(owner.proficiency),
@@ -306,15 +327,17 @@ fn calculate_amount(
             if attacking.contains(Condition::Acuity) {
                 accuracy = proficient(accuracy, 20);
             }
+            let accuracy = i64::from(accuracy)
+                + i64::from(accuracy / 4) * i64::from(owner.combat_adjustments.accuracy_quarters);
             let evasion = target
                 .conditions
                 .evasion_with_conditions(target.equipment.stats.evasion);
             let accuracy_percent = if activity == crate::Activity::Stunned {
                 100
             } else {
-                90 + ((i64::from(accuracy) - i64::from(evasion) - 5) >> 1).clamp(-10, 10)
+                90 + ((accuracy - i64::from(evasion) - 5) >> 1).clamp(-10, 10)
             };
-            let base = ((i64::from(attack) >> 1) - i64::from(defense)).max(1);
+            let base = ((attack >> 1) - defense).max(1);
             let base = percentage(base, i64::from(attack_power));
             let mut base = vary(base, roll);
             if attacking.contains(Condition::Flare) {
@@ -359,9 +382,13 @@ fn calculate_amount(
                 owner.equipment.stats.intelligence,
                 i64::from(owner.proficiency),
             );
+            let intelligence = adjusted(
+                i64::from(intelligence),
+                owner.combat_adjustments.intelligence,
+            );
             let intelligence = match rule.power {
-                Power::Percent(percent) => percentage(i64::from(intelligence), i64::from(percent)),
-                _ => i64::from(intelligence),
+                Power::Percent(percent) => percentage(intelligence, i64::from(percent)),
+                _ => intelligence,
             };
             let level = u16::from(target.equipment.stats.level);
             let resistance = (i64::from(target.equipment.stats.intelligence) >> 3)
@@ -370,6 +397,7 @@ fn calculate_amount(
                 } else {
                     i64::from(roll(Draw::MagicResistance) % level)
                 };
+            let resistance = adjusted(resistance, target.combat_adjustments.intelligence);
             percentage(
                 intelligence - resistance,
                 i64::from(owner.casting_state.power_percent),

@@ -1265,6 +1265,7 @@ impl Battle {
                 control.run_ticks = 0;
             }
             Locomotion::Run => {
+                self.ledger.achievements[index].ran = true;
                 if control.run_ticks == 0 {
                     actor.movement.forward = definition.walk_speed;
                 }
@@ -1349,8 +1350,32 @@ impl Battle {
         let actor = &mut self.actors[index];
         actor.movement.integrate(&mut actor.position);
         // Entering the stop pose retains this visit's running momentum.
-        if already_stopping && actor.movement.brake(actor.position[1], Activity::Idle) {
+        let stopped = already_stopping && actor.movement.brake(actor.position[1], Activity::Idle);
+        let pose_finished = self
+            .models
+            .as_ref()
+            .is_none_or(|models| models.stop_finished_this_update(ActorId(index as u8), true));
+        if stopped && pose_finished {
             self.actors[index].movement.locomotion = Locomotion::Idle;
+            // The completed stop binds idle, then initializes ordinary control
+            // on its next visit before accepting another ground command.
+            self.set_task(
+                index,
+                ActorTask::Recovering {
+                    remaining: 0,
+                    after_hit: false,
+                    idle_pose: None,
+                },
+            );
+            self.model_requests.push(crate::ModelRequest::Common {
+                actor: ActorId(index as u8),
+                pose: crate::CommonPose::Idle,
+            });
+            self.runtime[index]
+                .control
+                .as_mut()
+                .unwrap()
+                .resume_ground_input();
         }
         Ok(true)
     }
@@ -1589,6 +1614,93 @@ fn turn_heading(heading: f32, wanted: f32, step: f32, running: bool) -> (f32, bo
     let ready = step == 0. || delta.abs() <= step + 180. * f32::EPSILON;
     let turn = if ready { delta } else { delta.signum() * step };
     (wrap(heading + turn), ready)
+}
+
+#[cfg(feature = "test-support")]
+impl Battle {
+    /// Replay an idle flying enemy's physical stick without party action bindings.
+    /// The ordinary actor update still owns movement, hovering, and collision.
+    pub fn apply_fixture_enemy_stick(
+        &mut self,
+        actor: ActorId,
+        stick: i8,
+        released: bool,
+        port: u8,
+    ) -> Result<()> {
+        let index = actor.index();
+        let state = self.actor(actor)?;
+        ensure!(
+            self.phase() == crate::BattlePhase::Combat
+                && state.side == crate::Side::Enemy
+                && state.available()
+                && state.movement.flying
+                && self.activity(actor) == Activity::Idle
+                && self.runtime[index].control.is_none()
+                && matches!(stick, -127 | 0 | 127)
+                && (!released || stick == 0),
+            "invalid idle flying enemy input"
+        );
+        let definition = self.prepared.actor_setup[index]
+            .enemy_decision
+            .as_ref()
+            .context("fixture input requires an enemy movement profile")?;
+        let speed = self.runtime[index]
+            .enemy_walk_override
+            .unwrap_or(definition.walk_speed);
+        let turn = 180. / f32::from(definition.turn_ticks);
+        let walk_motion = definition.walk_motion;
+        let state = &mut self.actors[index];
+        let locomotion = if stick == 0 {
+            Locomotion::Idle
+        } else {
+            Locomotion::Walk
+        };
+        let changed = state.movement.locomotion != locomotion;
+        state.movement.locomotion = locomotion;
+        state.control = if released {
+            Control::Enemy
+        } else {
+            Control::Manual
+        };
+        state.control_slot = port;
+        state.movement.forward = if stick == 0 {
+            0.
+        } else {
+            state.walk_speed(speed, state.body.scale, state.conditions.effective())
+        };
+        if stick != 0 {
+            let direction = [f32::from(stick.signum()), 0., 0.];
+            state.movement.direction = direction;
+            state.facing_direction = direction;
+            // Manual flight turns even while its ordinary hover is settling.
+            let heading = direction[0].atan2(direction[2]).to_degrees();
+            state.heading = turn_heading(state.heading, heading, turn, false).0;
+        }
+        // Physical enemy input also selects its ordinary movement pose. Without
+        // these transitions an action blends from an uninterrupted idle clock,
+        // even though the fixture actually walked and returned to idle first.
+        if changed {
+            if locomotion == Locomotion::Walk {
+                let rate = state.motion_rate(MOVEMENT_PLAYBACK_RATE, state.conditions.effective());
+                self.request_pose(
+                    actor,
+                    walk_motion,
+                    crate::Pose {
+                        rate,
+                        repeat: true,
+                        blend: 4,
+                        ..Default::default()
+                    },
+                );
+            } else {
+                self.model_requests.push(crate::ModelRequest::Common {
+                    actor,
+                    pose: crate::CommonPose::Idle,
+                });
+            }
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn snap_heading(actor: &mut crate::Actor, direction: [f32; 3]) {

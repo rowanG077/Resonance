@@ -17,7 +17,7 @@ fn at(side: Side, x: f32, z: f32) -> Actor {
 }
 
 #[test]
-fn avoidance_uses_nearest_blocking_body_and_excludes_the_target() -> Result<()> {
+fn avoidance_revisits_blocking_bodies_in_roster_order_and_excludes_the_target() -> Result<()> {
     let mut battle = battle(vec![
         at(Side::Party, -600., 0.),
         at(Side::Party, -200., 0.),
@@ -26,17 +26,51 @@ fn avoidance_uses_nearest_blocking_body_and_excludes_the_target() -> Result<()> 
     ]);
     let destination = battle.actors[3].position;
     let waypoint = battle.steer_approach(ActorId(0), ActorId(3), destination)?;
-    assert!(waypoint[0] < -400. && waypoint[2].abs() >= 50.);
+    assert!((waypoint[0] + 621.14624).abs() < 0.001);
+    assert!((waypoint[2] - 202.71739).abs() < 0.001);
     battle.actors.swap(1, 2);
-    assert_eq!(
-        battle.steer_approach(ActorId(0), ActorId(3), destination)?,
-        waypoint
-    );
+    let reordered = battle.steer_approach(ActorId(0), ActorId(3), destination)?;
+    assert!((reordered[0] + 649.6151).abs() < 0.001);
+    assert!((reordered[2] - 166.41006).abs() < 0.001);
     battle.actors[1].availability = crate::ActorAvailability::Dead;
     battle.actors[2].movement.fixed_height = true;
     assert_eq!(
         battle.steer_approach(ActorId(0), ActorId(3), destination)?,
         destination
+    );
+    Ok(())
+}
+
+#[test]
+fn central_retreat_routes_away_from_an_obstacle_with_fixed_lateral_clearance() -> Result<()> {
+    let mut battle = battle(vec![
+        at(Side::Party, 200., -150.),
+        at(Side::Enemy, 300., -200.),
+        at(Side::Enemy, 400., -225.),
+    ]);
+    let owner = ActorId(1);
+    battle.actors[1].control = Control::Enemy;
+    battle.begin_approach_steering(owner, ActorId(0))?;
+    assert_eq!(
+        battle.actors[1].movement.steering.side,
+        DetourSide::Automatic
+    );
+    let direction = distance::planar_direction(
+        battle.actors[1].position,
+        battle.actors[0].position,
+        [1., 0., 0.],
+    );
+    let destination =
+        std::array::from_fn(|axis| battle.actors[1].position[axis] + direction[axis] * 200.);
+    let waypoint = battle.steer_approach(owner, ActorId(0), destination)?;
+    assert!((waypoint[0] - 265.83594).abs() < 0.001);
+    assert!((waypoint[2] + 493.32816).abs() < 0.001);
+    // Navigation uses its own corridor, independent of contact-sphere size.
+    battle.actors[1].body.collider = Some(crate::Collider::sphere(200.));
+    battle.actors[2].body.collider = Some(crate::Collider::sphere(1.));
+    assert_eq!(
+        battle.steer_approach(owner, ActorId(0), destination)?,
+        waypoint
     );
     Ok(())
 }

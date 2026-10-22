@@ -8,6 +8,24 @@ fn read(
 }
 
 #[test]
+fn spell_rows_keep_their_authored_armor_including_zero() -> Result<()> {
+    let mut bytes = package();
+    bytes[580..582].copy_from_slice(&204_u16.to_be_bytes());
+    for threshold in [0, 4, 5, 9] {
+        bytes[516 + 49] = threshold;
+        let actions = read(&bytes, &[])?;
+        let row = &actions.rows[0];
+        assert!(matches!(row.execution, Some(EnemyExecution::Spell(204))));
+        assert_eq!(row.cast_armor, Some(threshold));
+        let decoded: EnemyActions = serde_json::from_slice(&serde_json::to_vec(&actions)?)?;
+        assert_eq!(decoded.rows[0].cast_armor, Some(threshold));
+    }
+    bytes[580..582].fill(0);
+    assert_eq!(read(&bytes, &[])?.rows[0].cast_armor, None);
+    Ok(())
+}
+
+#[test]
 fn completed_enemy_pose_keeps_its_final_sample_and_then_blends_to_the_next_pose() -> Result<()> {
     let mut bytes = package();
     bytes[693] = 4;

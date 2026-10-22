@@ -5,6 +5,138 @@ use crate::{
     tests::actor,
 };
 
+#[cfg(feature = "test-support")]
+#[test]
+fn fixture_hidden_defeat_requires_death_and_ends_on_revival() -> Result<()> {
+    let mut battle = crate::tests::prepared(vec![actor(Side::Enemy)], 1).finish()?;
+    let mut models = Models::new(
+        battle.actors(),
+        vec![Some(Arc::new(crate::tests::model_definition(
+            7,
+            [(0, 100.)],
+        )))],
+        BTreeMap::new(),
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let restore = ModelRequest::FixtureClock {
+        actor: ActorId(0),
+        loop_start: 0.,
+        elapsed_updates: 0,
+        secondary: None,
+        defeated_hidden: true,
+    };
+    let mut frame = battle.publish(Vec::new());
+    frame.model_requests.push(restore.clone());
+    assert!(
+        models
+            .advance(&mut frame, BattleClock::Held, false)
+            .is_err()
+    );
+    frame.actors[0].state.hp = 0;
+    frame.actors[0].state.availability = ActorAvailability::Dead;
+    frame.model_requests.push(restore);
+    for _ in 0..10 {
+        frame.update += 1;
+        models.advance(&mut frame, BattleClock::Running, false)?;
+        assert!(!frame.models[0].visible);
+        assert!(!models.models[0].as_ref().unwrap().in_results);
+    }
+    frame.actors[0].state.hp = 1;
+    frame.actors[0].state.availability = ActorAvailability::Active;
+    frame.update += 1;
+    models.advance(&mut frame, BattleClock::Running, false)?;
+    assert!(frame.models[0].visible);
+    Ok(())
+}
+
+#[test]
+fn spell_release_animates_caster_attachments_without_advancing_textures_or_peers() -> Result<()> {
+    let mut battle = crate::tests::prepared(vec![actor(Side::Enemy); 2], 1).finish()?;
+    let mut definition = crate::tests::model_definition(7, [(0, 100.)]);
+    let initial = definition.initial;
+    for (slot, playback) in [
+        crate::WeaponPlayback::Local(initial),
+        crate::WeaponPlayback::Owner {
+            offset: 0,
+            fallback: 0,
+            initial,
+        },
+        crate::WeaponPlayback::Body { offset: 0, initial },
+        crate::WeaponPlayback::Rigid,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        definition
+            .weapons
+            .push(Arc::new(crate::WeaponDefinition::new(
+                slot as u8,
+                0,
+                vec![crate::WeaponLayerDefinition {
+                    resource: 8 + slot as u32,
+                    skeleton: definition.skeleton.clone(),
+                    motions: definition.motions.clone(),
+                    playback,
+                    secondary_motion: vec![],
+                    texture_animation: Some(crate::WeaponTextureAnimation::Scroll {
+                        texture: 0,
+                        initial: [0, 0],
+                        step: [1, 0],
+                    }),
+                }],
+                vec![],
+            )?));
+    }
+    let mut models = Models::new(
+        battle.actors(),
+        vec![Some(Arc::new(definition)); 2],
+        BTreeMap::new(),
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )?;
+    let mut frame = battle.publish(Vec::new());
+    models.advance(&mut frame, BattleClock::Held, false)?;
+    let bodies = frame.models.clone();
+    let attachments = frame.weapons.clone();
+    for tick in 1..=3 {
+        frame.update += 1;
+        for _ in 0..2 {
+            models.advance_with_release(
+                &mut frame,
+                BattleClock::SpellTransition,
+                false,
+                Some(ActorId(0)),
+                &[],
+            )?;
+            assert_eq!(
+                frame.models[0].frame,
+                bodies[0].frame + tick as f32 * initial.rate
+            );
+            assert_eq!(frame.models[1].frame, bodies[1].frame);
+            for (weapon, before) in frame.weapons.iter().zip(&attachments) {
+                let expected = before.frame
+                    + if weapon.owner == ActorId(0) && weapon.slot < 3 {
+                        tick as f32 * initial.rate
+                    } else {
+                        0.
+                    };
+                assert_eq!(
+                    weapon.frame, expected,
+                    "attachment {} of {:?}",
+                    weapon.slot, weapon.owner
+                );
+                assert_eq!(weapon.texture_scroll, before.texture_scroll);
+            }
+        }
+    }
+    frame.update += 1;
+    models.advance(&mut frame, BattleClock::Running, false)?;
+    for (weapon, before) in frame.weapons.iter().zip(&attachments) {
+        let (texture, [u, v]) = before.texture_scroll.unwrap();
+        assert_eq!(weapon.texture_scroll, Some((texture, [u + 0.001, v])));
+    }
+    Ok(())
+}
+
 #[test]
 fn action_tint_restores_stage_color_during_hit_stop_but_not_global_pause() -> Result<()> {
     let mut battle = crate::tests::prepared(vec![actor(Side::Party)], 1).finish()?;

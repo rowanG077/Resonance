@@ -10,6 +10,10 @@ impl Battle {
         if actor.conditions.retain_petrified() {
             actor.elements.enchantment = None;
         }
+        self.ledger.achievements[target.index()].stayed_poisoned &= actor
+            .conditions
+            .effective()
+            .intersects(crate::conditions::POISON);
         actor.availability = ActorAvailability::Petrified;
         actor.guard.active = false;
         actor.guard.recovery = 0;
@@ -27,6 +31,10 @@ impl Battle {
         if actor.conditions.cure(cure) {
             actor.elements.enchantment = None;
         }
+        self.ledger.achievements[target.index()].stayed_poisoned &= actor
+            .conditions
+            .effective()
+            .intersects(crate::conditions::POISON);
     }
 
     pub(crate) fn advance_petrified(&mut self, index: usize) {

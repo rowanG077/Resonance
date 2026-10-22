@@ -88,6 +88,19 @@ pub(super) fn prepare_actor(
         _ => anyhow::bail!("invalid battle control for slot {slot}"),
     };
     let mut actor = actor(loadout, member, control, position, heading)?;
+    use resonance_events::battle::Rules;
+    let floor_bonus = |increase, decrease| {
+        i8::from(party.battle_rules.modifiers & increase != 0)
+            - i8::from(party.battle_rules.modifiers & decrease != 0)
+    };
+    actor.combat_adjustments = resonance_battle::CombatAdjustments {
+        attack: party.battle_rules.attack_adjustment,
+        defense: party.battle_rules.defense_adjustment,
+        intelligence: party.battle_rules.intelligence_adjustment,
+        attack_quarters: floor_bonus(Rules::ATTACK_UP, Rules::ATTACK_DOWN),
+        defense_eighths: floor_bonus(Rules::DEFENSE_UP, Rules::DEFENSE_DOWN),
+        accuracy_quarters: floor_bonus(Rules::ACCURACY_UP, Rules::ACCURACY_DOWN),
+    };
     actor.body.collider = Some(match Character::try_from(character)? {
         Character::Genis | Character::Presea => resonance_battle::Collider::standing(24., 110.),
         _ => resonance_battle::Collider::standing(30., 150.),
@@ -116,15 +129,11 @@ fn validate_member(menus: &MenuData, member: &Member, character: usize) -> Resul
         member.overlimit <= 100,
         "saved Over Limit percentage exceeds 100"
     );
-    let title = member
+    member
         .title
         .checked_sub(1)
         .and_then(|index| menus.titles.get(character)?.get(usize::from(index)))
         .context("missing party title")?;
-    ensure!(
-        title.costume.is_none(),
-        "battle title costume is not prepared"
-    );
     let rules = menus
         .ex_skills
         .characters
@@ -134,11 +143,6 @@ fn validate_member(menus: &MenuData, member: &Member, character: usize) -> Resul
         ensure!(
             menus.ex_skills.skills.contains_key(&id),
             "missing EX skill {id}"
-        );
-        ensure!(
-            id != ex::SPELL_CHARGE || character + 1 == Character::Genis as usize,
-            "Spell Charge resources are not prepared for character {}",
-            character + 1
         );
     }
     for &index in &member.compound_ex_skills {
@@ -168,6 +172,7 @@ pub struct Loadout {
     conditions: resonance_battle::conditions::Traits,
     guard_reduction_bonus: u8,
     pub spell_charge: bool,
+    pub aerial_spells: bool,
     pub quick_item: bool,
     pub extended_overlimit: bool,
     pub(super) happiness: bool,
@@ -272,7 +277,7 @@ pub fn loadout(menus: &MenuData, member: &Member, character: usize) -> Result<Lo
                 weapon_species,
                 alone: member.ex_skills.contains(&ex::ALONE),
                 rear_guard: member.ex_skills.contains(&ex::REAR_GUARD),
-                single_charge_guard: member.ex_skills.contains(&ex::SINGLE_CHARGE_GUARD),
+                charge_guard_break: compound(ex::CHARGE_GUARD_BREAK),
                 guard_damage_boost: compound(ex::GUARD_DAMAGE_BOOST),
                 special_guard_reduction: compound(ex::SPECIAL_GUARD_REDUCTION),
                 low_hp_special_guard: compound(ex::LOW_HP_SPECIAL_GUARD),
@@ -322,6 +327,8 @@ pub fn loadout(menus: &MenuData, member: &Member, character: usize) -> Result<Lo
             recovery: resonance_battle::RecoveryTraits {
                 boost: member.ex_skills.contains(&ex::BOOST),
                 lucky: compound(ex::LUCKY_RECOVERY),
+                life_drain: compound(ex::LIFE_DRAIN),
+                spirit_drain: compound(ex::SPIRIT_DRAIN),
                 lethal: resonance_battle::LethalRescueTraits {
                     resurrect: member.ex_skills.contains(&ex::RESURRECT),
                     angel_tear: compound(ex::ANGEL_TEAR),
@@ -392,6 +399,7 @@ pub fn loadout(menus: &MenuData, member: &Member, character: usize) -> Result<Lo
         },
 
         spell_charge: member.ex_skills.contains(&ex::SPELL_CHARGE),
+        aerial_spells: compound(ex::AERIAL_SPELL),
         quick_item: member.ex_skills.contains(&ex::QUICK_ITEM),
         extended_overlimit: compound(ex::EXTENDED_OVERLIMIT),
         happiness: happiness(member),
@@ -490,6 +498,7 @@ pub(super) fn actor(
         },
         overlimit: resonance_battle::OverLimit::new(u16::from(member.overlimit) * 10)?,
         proficiency: 0,
+        combat_adjustments: Default::default(),
         input: Default::default(),
         guard: Default::default(),
         hp: i32::from(member.hp),

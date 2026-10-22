@@ -33,6 +33,7 @@ pub struct TechTarget {
 }
 
 const UNISON_UNLOCK_STORY: i32 = 1_403_000;
+const COLISEUM_EQUIPMENT_CHANGE_TICKS: u32 = 300;
 
 pub fn enabled_rows(escape_restricted: bool, story: i32) -> u8 {
     let mut enabled = 0xff;
@@ -45,17 +46,20 @@ pub fn enabled_rows(escape_restricted: bool, story: i32) -> u8 {
     enabled
 }
 
-/// Formation order and capability are prepared once; actor eligibility is live.
+/// Formation order and base capabilities are prepared once; eligibility and
+/// the coliseum equipment deadline are sampled when opening the menu.
 #[derive(Debug, Clone)]
 pub struct Setup {
     actors: Vec<ActorId>,
     enabled: u8,
+    coliseum: bool,
 }
 impl Setup {
     pub fn new(
         actors: Vec<ActorId>,
         enabled: u8,
         roster: &[resonance_battle::Actor],
+        coliseum: bool,
     ) -> Result<Self> {
         ensure!(
             (1..=resonance_battle::PARTY_CAPACITY).contains(&actors.len()),
@@ -70,7 +74,11 @@ impl Setup {
                 "invalid command party actor"
             );
         }
-        Ok(Self { actors, enabled })
+        Ok(Self {
+            actors,
+            enabled,
+            coliseum,
+        })
     }
 
     pub fn admission(&self, battle: &Battle, controller: u8) -> Result<Option<Admission>> {
@@ -80,6 +88,10 @@ impl Setup {
         );
         if !battle.command_admission_allowed() {
             return Ok(None);
+        }
+        let mut enabled = self.enabled;
+        if self.coliseum && battle.ledger().elapsed_ticks >= COLISEUM_EQUIPMENT_CHANGE_TICKS {
+            enabled &= !Command::Equipment.mask();
         }
         Ok(self.actors.iter().find_map(|&id| {
             let actor = battle.actors().get(id.index())?;
@@ -92,7 +104,7 @@ impl Setup {
             Some(Admission {
                 actor: id,
                 controller: slot,
-                enabled: self.enabled,
+                enabled,
             })
         }))
     }
@@ -644,6 +656,7 @@ mod tests {
             control_slot: 0,
             overlimit: Default::default(),
             proficiency: 0,
+            combat_adjustments: Default::default(),
             input: Default::default(),
             elements: Default::default(),
             attack_power: 100,
@@ -672,6 +685,7 @@ mod tests {
             Setup {
                 actors: vec![id],
                 enabled: 0xdd,
+                coliseum: false,
             },
         )
     }
@@ -720,6 +734,7 @@ mod tests {
         let setup = Setup {
             actors: vec![id],
             enabled: 0xdd,
+            coliseum: false,
         };
         let mut battle = prepared.finish().unwrap();
         assert!(setup.admission(&battle, 1).unwrap().is_none());
@@ -745,6 +760,7 @@ mod tests {
             let setup = Setup {
                 actors: vec![id],
                 enabled: 0xdd,
+                coliseum: false,
             };
             let battle = prepared.finish().unwrap();
             assert_eq!(setup.admission(&battle, 1).unwrap().is_some(), allowed);
@@ -756,14 +772,40 @@ mod tests {
     fn command_setup_rejects_invalid_rosters_before_admission() {
         let (battle, setup) = battle();
         let actor = setup.actors[0];
-        assert!(Setup::new(vec![], 0xff, battle.actors()).is_err());
-        assert!(Setup::new(vec![actor, actor], 0xff, battle.actors()).is_err());
-        assert!(Setup::new(vec![actor], 0xff, &[]).is_err());
+        assert!(Setup::new(vec![], 0xff, battle.actors(), false).is_err());
+        assert!(Setup::new(vec![actor, actor], 0xff, battle.actors(), false).is_err());
+        assert!(Setup::new(vec![actor], 0xff, &[], false).is_err());
         let mut enemy = battle.actors()[0].clone();
         enemy.side = Side::Enemy;
-        assert!(Setup::new(vec![actor], 0xff, &[enemy]).is_err());
-        let prepared = Setup::new(vec![actor], 0xff, battle.actors()).unwrap();
+        assert!(Setup::new(vec![actor], 0xff, &[enemy], false).is_err());
+        let prepared = Setup::new(vec![actor], 0xff, battle.actors(), false).unwrap();
         assert!(prepared.admission(&battle, 4).is_err());
         assert!(prepared.admission(&battle, 0).unwrap().is_some());
+    }
+
+    #[test]
+    fn coliseum_equipment_deadline_excludes_paused_updates() {
+        let (mut battle, mut setup) = battle();
+        setup.coliseum = true;
+        let equipment_enabled = |battle: &Battle, setup: &Setup| {
+            setup.admission(battle, 0).unwrap().unwrap().enabled & Command::Equipment.mask() != 0
+        };
+        for _ in 1..COLISEUM_EQUIPMENT_CHANGE_TICKS {
+            battle.step(Default::default()).unwrap();
+        }
+        assert!(equipment_enabled(&battle, &setup));
+        for _ in 0..60 {
+            battle
+                .step(resonance_battle::BattleInput {
+                    paused: true,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        assert!(equipment_enabled(&battle, &setup));
+        battle.step(Default::default()).unwrap();
+        assert!(!equipment_enabled(&battle, &setup));
+        setup.coliseum = false;
+        assert!(equipment_enabled(&battle, &setup));
     }
 }

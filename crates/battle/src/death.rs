@@ -45,8 +45,8 @@ impl Battle {
     pub(crate) fn advance_dead(&mut self, index: usize) {
         let actor = &mut self.actors[index];
         if !self.prepared.actor_setup[index].stationary_defeat {
-            // Retained bodies fall even when their living controller was hovering.
-            actor.movement.gravity = crate::movement::GRAVITY;
+            // Defeat retains the motion established by the last action or recoil.
+            // In particular, scripted airborne defeat can keep zero gravity.
             actor
                 .movement
                 .integrate_along(&mut actor.position, actor.reaction.direction);

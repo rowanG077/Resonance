@@ -109,9 +109,17 @@ impl Battle {
         Ok(())
     }
 
-    pub fn restore_fixture_position(&mut self, actor: ActorId, position: [f32; 3]) -> Result<()> {
+    pub fn restore_fixture_placement(
+        &mut self,
+        actor: ActorId,
+        position: [f32; 3],
+        heading: Option<f32>,
+    ) -> Result<()> {
         let mut observed = FixtureMotion::observe(self.actor(actor)?);
         observed.position = position;
+        if let Some(heading) = heading {
+            observed.heading = heading;
+        }
         self.restore_fixture_motion(actor, observed)
     }
 

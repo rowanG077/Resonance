@@ -242,6 +242,9 @@ pub(crate) fn respond(
 
 fn hitstun(owner: &Actor, target: &Actor, base: u8) -> u32 {
     let mut duration = i64::from(base);
+    if owner.equipment.reaction_ex.follow_up {
+        duration += 5;
+    }
     if target
         .conditions
         .effective()
