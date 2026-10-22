@@ -473,7 +473,7 @@ impl Actor {
         let delta = self.heading_delta();
         if delta == 0. { 0. } else { delta.signum() }
     }
-    pub(crate) fn step_motion(&mut self) {
+    pub(crate) fn step_motion(&mut self, battle_space: bool) {
         let speed = self.movement_speed();
         self.set_movement_speed(speed);
         let Some(motion) = &self.motion else {
@@ -481,14 +481,15 @@ impl Actor {
         };
         let mut delta: [f32; 3] = std::array::from_fn(|i| motion.target[i] - self.position[i]);
         if self.grounded {
-            delta[2] = 0.;
+            delta[if battle_space { 1 } else { 2 }] = 0.;
         }
         let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
         if distance < 1. {
             self.motion = None;
             return;
         }
-        self.target_heading = delta[0].atan2(-delta[1]).to_degrees().rem_euclid(360.);
+        let forward = if battle_space { delta[2] } else { -delta[1] };
+        self.target_heading = delta[0].atan2(forward).to_degrees().rem_euclid(360.);
         let fraction = (motion.speed / distance).min(1.);
         for (i, delta) in delta.into_iter().enumerate() {
             self.position[i] += delta * fraction;
@@ -669,6 +670,8 @@ pub struct GameWorld {
     pub voice: Option<VoicePlayback>,
     pub voice_durations: std::sync::Arc<BTreeMap<u32, u32>>,
     pub field_camera: Option<crate::camera::CameraRig>,
+    /// Present only in the encounter-owned event runtime.
+    pub battle_event: Option<crate::battle_event::State>,
     pub input_enabled: bool,
     pub menu_disabled: bool,
     pub input: crate::input::Input,

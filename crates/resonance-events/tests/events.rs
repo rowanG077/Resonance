@@ -4378,6 +4378,38 @@ fn animation_release_rebinds_the_same_slot_with_the_requested_blend() {
 }
 
 #[test]
+fn battle_animation_loops_from_the_requested_tail_without_changing_field_units() {
+    for (battle, loop_start) in [(true, 2000), (false, 10)] {
+        let code = script(&[
+            (Call::ConfigureActorAnimation, &[17, -1, 34, 1, 1]),
+            (Call::SetActorAnimationProperty, &[17, 6, loop_start]),
+        ]);
+        let mut resources = ResourceLibrary::default();
+        resources.models.insert(17, model([34], 44));
+        let mut world = GameWorld::default();
+        world.actors.insert(17, Actor::new(17, [0.; 3]));
+        if battle {
+            world.battle_event = Some(battle_event::State::new(45.).unwrap());
+        }
+        let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+        assert_eq!(
+            events.world.actors[&17]
+                .animation
+                .as_ref()
+                .unwrap()
+                .loop_start,
+            20.
+        );
+        steps(&mut events, 45);
+        for _ in 0..100 {
+            events.step().unwrap();
+            let animation = events.world.actors[&17].animation.as_ref().unwrap();
+            assert!((20. ..=44.).contains(&animation.sample(events.tick(), 0, 44.)));
+        }
+    }
+}
+
+#[test]
 fn eraser_rate_preserves_the_scripted_impact_cue() {
     // Play slot 80 at rate 50, wait 40 updates, then emit the impact cue.
     // The rate advances a quarter source frame per update; immediate binding

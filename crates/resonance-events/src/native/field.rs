@@ -28,6 +28,7 @@ enum FieldSystemCommand {
     SetMonsterBookComplete = 10,
     SetFigurineBookComplete = 11,
     LastBattleDuration = 12,
+    LastBattleFormationCount = resonance_content::field::BATTLE_FORMATION_COUNT_QUERY as i32,
     FieldLeader = 13,
     SetFieldLeader = 14,
     SuppressTransitionFade = 15,
@@ -55,6 +56,9 @@ impl TryFrom<i32> for FieldSystemCommand {
             10 => Ok(Self::SetMonsterBookComplete),
             11 => Ok(Self::SetFigurineBookComplete),
             12 => Ok(Self::LastBattleDuration),
+            n if n == i32::from(resonance_content::field::BATTLE_FORMATION_COUNT_QUERY) => {
+                Ok(Self::LastBattleFormationCount)
+            }
             13 => Ok(Self::FieldLeader),
             14 => Ok(Self::SetFieldLeader),
             15 => Ok(Self::SuppressTransitionFade),
@@ -389,6 +393,19 @@ impl NativeHost<'_> {
                                 .ok_or("party is not initialized")?
                                 .battles
                                 .combat_ticks as i32,
+                        );
+                    }
+                    FieldSystemCommand::LastBattleFormationCount => {
+                        let count = self
+                            .world
+                            .party
+                            .as_ref()
+                            .ok_or("party is not initialized")?
+                            .battles
+                            .formation_count;
+                        value = Some(
+                            i32::try_from(count.max(1))
+                                .map_err(|_| "invalid battle formation count")?,
                         );
                     }
                     FieldSystemCommand::SetSkitPrompts => {
@@ -1083,7 +1100,12 @@ impl NativeHost<'_> {
             }
             NativeCall::SetActorAnimationProperty => {
                 require((0..=6).contains(&a[1]), "unknown animation property")?;
-                let position_units_per_tick = 0.5;
+                // Battle scenes use hundredths of a tick; field scenes use 30-Hz frames.
+                let position_units_per_tick = if self.world.battle_event.is_some() {
+                    100.
+                } else {
+                    0.5
+                };
                 let mut previous = 0.;
                 if let Some(animation) = self
                     .world

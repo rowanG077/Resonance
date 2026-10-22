@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 pub mod motion;
 mod playback;
 mod shake;
+pub mod stage;
 use motion::{FovTween, MotionCamera, Tween};
 pub use shake::Shake;
 

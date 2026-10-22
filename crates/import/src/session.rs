@@ -126,7 +126,7 @@ pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path)
         for (slot, &id) in list.iter().enumerate() {
             // Owner masks number bits from the least significant bit.
             if row.learned_techniques & (1u64 << slot) != 0 {
-                techniques.push(u16::from(id));
+                techniques.push(id);
             }
             let tech = arte_catalogue.definition(usize::from(id))?;
             let required = tech.required_level;
@@ -136,10 +136,7 @@ pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path)
                 && tech.learning.parent.is_none()
                 && tech.learning.prerequisites.is_empty()
             {
-                level_techniques
-                    .entry(required as u8)
-                    .or_default()
-                    .push(u16::from(id));
+                level_techniques.entry(required as u8).or_default().push(id);
             }
         }
         let gains = &defaults.growth[index];
@@ -177,7 +174,7 @@ pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path)
             overlimit: row.overlimit,
             equipment: [0, 1, 2, 4, 5, 3].map(|slot| row.equipment[slot] as u16),
             techniques,
-            allowed_techniques: list.iter().map(|id| u16::from(*id)).collect(),
+            allowed_techniques: list.to_vec(),
             shortcuts: row.shortcuts.map(|id| id as u16),
             growth: std::array::from_fn(|i| StatGrowth {
                 base: gains[i].base,
