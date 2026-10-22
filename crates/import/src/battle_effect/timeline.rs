@@ -1037,7 +1037,13 @@ mod tests {
                 ],
             ),
         ]);
-        let events = decode(&records, &[declaration.clone()], &[true], &modifiers, &[]);
+        let events = decode(
+            &records,
+            std::slice::from_ref(&declaration),
+            &[true],
+            &modifiers,
+            &[],
+        );
         let EffectOperation::Spawn { birth, .. } = &events[0].operation else {
             panic!("model birth expected")
         };

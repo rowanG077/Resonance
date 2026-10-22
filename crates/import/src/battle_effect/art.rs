@@ -56,6 +56,38 @@ pub(super) fn publish(
     for (bank, strides) in banks.iter_mut().zip(palette_strides) {
         bind_palettes(bank, strides, &mut textures)?;
     }
+    // Dependent banks may use wider strides. Finish their selector tables before
+    // publishing shared artwork; consumers must never rewrite resident banks.
+    let mut bindings = BTreeMap::new();
+    for (bank, strides) in banks.iter().zip(palette_strides) {
+        for (actor, &stride) in bank.actors.iter().zip(strides) {
+            if let Ok(visual) = actor.particle_visual()
+                && let Some(slot) = visual.texture.slot()
+                && stride != 0
+            {
+                bindings.insert((slot, stride), visual.texture.palette_set());
+            }
+        }
+    }
+    for (&slot, textures) in &mut textures {
+        for stride in 1..=u8::MAX {
+            let Some((&(_, step), &set)) = bindings.iter().find(|((source_slot, step), _)| {
+                *source_slot == slot && stride.is_multiple_of(*step)
+            }) else {
+                continue;
+            };
+            let maps = textures
+                .iter()
+                .map(|texture| {
+                    super::palettes::resample(
+                        &texture.effect.palette_sets[usize::from(set)],
+                        stride / step,
+                    )
+                })
+                .collect();
+            intern_palettes(textures, maps)?;
+        }
+    }
     let textures: BTreeMap<_, _> = textures
         .into_iter()
         .map(|(slot, textures)| {
@@ -183,29 +215,33 @@ pub(crate) fn bind_palettes(
             .iter()
             .map(|texture| texture.selectors(stride))
             .collect();
-        let existing = (0..textures[0].effect.palette_sets.len()).find(|&set| {
-            textures
-                .iter()
-                .zip(&maps)
-                .all(|(texture, map)| texture.effect.palette_sets.get(set) == Some(map))
-        });
-        let set = if let Some(set) = existing {
-            set
-        } else {
-            let set = textures[0].effect.palette_sets.len();
-            for (texture, map) in textures.iter_mut().zip(maps) {
-                texture.effect.palette_sets.push(map);
-            }
-            set
-        };
+        let set = intern_palettes(textures, maps)?;
         match &mut visual.texture {
             ParticleTexture::Atlas { palette_set, .. } => {
-                *palette_set = set.try_into().context("too many effect palette sets")?;
+                *palette_set = set;
             }
             ParticleTexture::Untextured => {}
         }
     }
     Ok(())
+}
+
+fn intern_palettes(textures: &mut [PublishedTexture], maps: Vec<Vec<Option<usize>>>) -> Result<u8> {
+    let first = textures.first().context("empty effect texture slot")?;
+    let existing = (0..first.effect.palette_sets.len()).find(|&set| {
+        textures
+            .iter()
+            .zip(&maps)
+            .all(|(texture, map)| texture.effect.palette_sets.get(set) == Some(map))
+    });
+    let set = existing.unwrap_or(first.effect.palette_sets.len());
+    let id = u8::try_from(set).context("too many effect palette sets")?;
+    if existing.is_none() {
+        for (texture, map) in textures.iter_mut().zip(maps) {
+            texture.effect.palette_sets.push(map);
+        }
+    }
+    Ok(id)
 }
 
 pub(crate) fn textures_from_source(bytes: &[u8], output: &Path) -> Result<Vec<PublishedTexture>> {
