@@ -531,6 +531,13 @@ fn action_effects_pause_births_with_the_actor_but_keep_particles_running() -> Re
     let frozen = effects.frames();
     effects.advance(&frame, true)?;
     assert_eq!(effects.frames(), frozen);
+    frame.clock = crate::BattleClock::SpellTransition;
+    for _ in 0..60 {
+        effects.advance(&frame, false)?;
+        assert_eq!(effects.frames(), frozen);
+        assert_eq!(effects.particles.len(), 1);
+    }
+    frame.clock = crate::BattleClock::Running;
     frame.paused_actors.push(ActorId(0));
     for remaining in [1, 0] {
         frame.actors[0].hit_stop = remaining;
@@ -1206,9 +1213,10 @@ fn birth_variation_faults_and_pool_pressure_do_not_damage_other_feedback() -> Re
     }
     let mut effects = effects(vec![emit(0, birth)], false);
     let mut frame = frame();
-    frame.cues = vec![Cue::Effect(request()); MAX_PARTICLES + 1];
+    let overlapping_births = 400;
+    frame.cues = vec![Cue::Effect(request()); overlapping_births];
     effects.advance(&frame, false)?;
-    assert_eq!(effects.frames().len(), MAX_PARTICLES);
+    assert_eq!(effects.frames().len(), overlapping_births);
     assert!(effects.diagnostics.entries().is_empty());
     let held = effects.frames();
     frame.cues.clear();
@@ -1583,6 +1591,51 @@ fn floor_bounces_emit_prepared_children_once_per_crossing() -> Result<()> {
         .velocity[1] = -1.;
     effects.advance(&frame, false)?;
     assert_eq!(effects.particles.len(), 3);
+    Ok(())
+}
+
+#[test]
+fn spell_openings_preserve_existing_effect_schedules() -> Result<()> {
+    let mut effects = effects(
+        [0, 4, 8].map(|at| emit(at, Default::default())).into(),
+        false,
+    );
+    let mut frame = frame();
+    frame.cues = vec![Cue::Effect(request())];
+    effects.advance(&frame, false)?;
+    frame.cues = vec![
+        Cue::Casting {
+            actor: ActorId(1),
+            action: crate::ActionKey(0),
+            phase: crate::CastPhase::SceneOpening,
+        },
+        Cue::InitializedEffect(EffectRequest {
+            owner: ActorId(1),
+            ..request()
+        }),
+    ];
+    effects.advance(&frame, false)?;
+    frame.cues.clear();
+    frame.clock = crate::BattleClock::Held;
+    effects.advance(&frame, true)?;
+    frame.clock = crate::BattleClock::SpellTransition;
+    for _ in 0..60 {
+        effects.advance(&frame, false)?;
+    }
+    let births = |effects: &Effects, owner| {
+        effects
+            .particles
+            .values()
+            .filter(|p| p.frame.owner == owner)
+            .count()
+    };
+    assert_eq!(births(&effects, ActorId(0)), 1);
+    assert_eq!(births(&effects, ActorId(1)), 3);
+    frame.clock = crate::BattleClock::Running;
+    for _ in 0..3 {
+        effects.advance(&frame, false)?;
+    }
+    assert_eq!(births(&effects, ActorId(0)), 2);
     Ok(())
 }
 

@@ -25,14 +25,18 @@ pub(super) struct Births {
 impl Births {
     pub(super) fn take(
         &mut self,
-        owner: ActorId,
-        appearance: EffectAppearance,
-        spawn: usize,
+        active: &Active,
         particle: u8,
-        first_draw: usize,
         birth: &ParticleBirth,
-        heading: f32,
     ) -> Result<Option<FixtureEffectBirth>> {
+        let owner = active.actor;
+        let appearance = EffectAppearance {
+            resource: active.resource,
+            member: active.program,
+        };
+        let spawn = active.spawned.len();
+        let first_draw = active.samples.len();
+        let heading = active.heading;
         if !self
             .scopes
             .contains(&(owner, appearance.resource, appearance.member, particle))

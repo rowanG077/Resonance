@@ -116,20 +116,18 @@ fn spawn(effects: &mut Effects, actor: u8) -> Result<ParticleId> {
     else {
         anyhow::bail!("fixture needs model particle")
     };
-    let particle = effects
-        .spawn_particle(
-            Arc::new(ParticleDefinition {
-                resource: 17,
-                member: u16::from(actor),
-                model: Some(*binding),
-                data: source.particle(usize::from(actor))?.clone(),
-            }),
-            ActorId(0),
-            ActorId(1),
-            [10., 20., 30.],
-            90.,
-        )?
-        .unwrap();
+    let particle = effects.spawn_particle(
+        Arc::new(ParticleDefinition {
+            resource: 17,
+            member: u16::from(actor),
+            model: Some(*binding),
+            data: source.particle(usize::from(actor))?.clone(),
+        }),
+        ActorId(0),
+        ActorId(1),
+        [10., 20., 30.],
+        90.,
+    )?;
     effects.particles.get_mut(&particle).unwrap().follow =
         Some(EffectFollow::Projectile(ProjectileId(1)));
     Ok(particle)
@@ -214,27 +212,25 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
     data.state.offset = [2., 3., 4.];
     data.state.angles = [0., 0., 90.];
     data.state.angular_velocity = [0., 10., 0.];
-    let id = effects
-        .spawn_particle(
-            Arc::new(ParticleDefinition {
-                resource: 17,
-                member: 1,
-                model: Some(resonance_content::battle_effect::ModelBinding {
-                    slot: 0,
-                    animation: None,
-                    repeat: false,
-                    reverse_at: None,
-                    program_animation: true,
-                    attachment: None,
-                }),
-                data,
+    let id = effects.spawn_particle(
+        Arc::new(ParticleDefinition {
+            resource: 17,
+            member: 1,
+            model: Some(resonance_content::battle_effect::ModelBinding {
+                slot: 0,
+                animation: None,
+                repeat: false,
+                reverse_at: None,
+                program_animation: true,
+                attachment: None,
             }),
-            ActorId(0),
-            ActorId(1),
-            [400.; 3],
-            90.,
-        )?
-        .unwrap();
+            data,
+        }),
+        ActorId(0),
+        ActorId(1),
+        [400.; 3],
+        90.,
+    )?;
     assert_eq!(effects.particles[&id].frame.state.angles, [0., 0., 90.]);
     let mut frame = frame();
     let mut owner = crate::model::Model::new(
@@ -772,15 +768,13 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     assert!(effects.particles.is_empty());
     for (followed, frames) in [(true, [0., 0.5]), (false, [0.5, 1.])] {
         ordinary.data.follow_origin = followed;
-        let ordinary = effects
-            .spawn_particle(
-                Arc::new(ordinary.clone()),
-                ActorId(0),
-                ActorId(0),
-                [0.; 3],
-                0.,
-            )?
-            .unwrap();
+        let ordinary = effects.spawn_particle(
+            Arc::new(ordinary.clone()),
+            ActorId(0),
+            ActorId(0),
+            [0.; 3],
+            0.,
+        )?;
         for expected in frames {
             effects.advance_particles(&frame)?;
             assert_eq!(

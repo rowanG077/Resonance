@@ -506,18 +506,7 @@ impl Active {
                         self.origin
                     };
                 #[cfg(feature = "test-support")]
-                let recorded = effects.recorded_births.take(
-                    self.actor,
-                    EffectAppearance {
-                        resource: self.resource,
-                        member: self.program,
-                    },
-                    self.spawned.len(),
-                    *particle,
-                    self.samples.len(),
-                    birth,
-                    self.heading,
-                )?;
+                let recorded = effects.recorded_births.take(self, *particle, birth)?;
                 #[cfg(feature = "test-support")]
                 let first_draw = self.samples.len();
                 for _ in 0..birth.random_draws {
@@ -534,18 +523,13 @@ impl Active {
                     origin,
                     self.heading,
                 )?;
-                self.spawned.push(handle);
+                self.spawned.push(Some(handle));
                 #[cfg(feature = "test-support")]
                 if let Some(recorded) = recorded {
-                    let handle =
-                        handle.context("recorded effect birth exceeded particle capacity")?;
                     if let Some(ordinal) = recorded.model_ordinal {
                         effects.recorded_births.identities.insert(handle, ordinal);
                     }
                 }
-                let Some(handle) = handle else {
-                    return Ok(());
-                };
                 let result = (|| {
                     let particle = effects.particles.get_mut(&handle).unwrap();
                     if particle.frame.owner_bone.is_some()

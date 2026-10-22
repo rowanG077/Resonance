@@ -7,9 +7,6 @@ use std::{
     collections::{BTreeMap, VecDeque},
     sync::Arc,
 };
-/// Shared animation and rendering budget. Excess cosmetic births are dropped;
-/// existing particles keep their lifetime and gameplay is unaffected.
-pub const MAX_PARTICLES: usize = 256;
 const HOLY_SONG_INTERVAL: u16 = 180;
 const HOLY_SONG_PHASE: u16 = 120;
 const ACTOR_EFFECT_CYCLE: u16 = 360;
@@ -184,6 +181,7 @@ pub(crate) struct Active {
     ambient: bool,
     passive: bool,
     during_pause: bool,
+    paused_by_spell: bool,
     after_particles: bool,
     samples: Vec<f32>,
     spawned: Vec<Option<ParticleId>>,
@@ -223,6 +221,7 @@ impl Active {
             ambient: false,
             passive: false,
             during_pause: false,
+            paused_by_spell: false,
             after_particles: false,
             samples: Vec::with_capacity(samples),
             spawned: Vec::with_capacity(spawns),
@@ -393,6 +392,26 @@ impl Effects {
     #[cfg(feature = "test-support")]
     pub fn started_programs(&self) -> &[EffectRequest] {
         &self.started_programs
+    }
+
+    /// Live emitters, including waits before a later scheduled birth.
+    #[cfg(feature = "test-support")]
+    pub fn active_programs(&self) -> impl Iterator<Item = (ActorId, u32, u16)> + '_ {
+        self.emitters
+            .iter()
+            .map(|active| (active.actor, active.resource, active.program))
+    }
+
+    /// Allocated particles, including those awaiting their first visible update.
+    #[cfg(feature = "test-support")]
+    pub fn live_particles(&self) -> impl Iterator<Item = (ActorId, u32, u16)> + '_ {
+        self.particles.values().map(|particle| {
+            (
+                particle.frame.owner,
+                particle.frame.resource,
+                particle.frame.member,
+            )
+        })
     }
 
     pub fn new(
@@ -991,6 +1010,22 @@ impl Effects {
     pub fn advance(&mut self, frame: &BattleFrame, paused: bool) -> Result<Vec<Cue>> {
         #[cfg(feature = "test-support")]
         self.started_programs.clear();
+        let opening = frame.cues.iter().any(|cue| {
+            matches!(
+                cue,
+                Cue::Casting {
+                    phase: crate::CastPhase::SceneOpening,
+                    ..
+                }
+            )
+        });
+        if opening {
+            // Existing effects wait with combat. The opening's new emitters
+            // still run, and join combat when the transition finishes.
+            for active in &mut self.emitters {
+                active.paused_by_spell = true;
+            }
+        }
         for bank in self.banks.values_mut() {
             let Some(binding) = &bank.weapon_model else {
                 continue;
@@ -1179,16 +1214,7 @@ impl Effects {
         }
         let only_pause_effects = paused || cinematic || held;
         // Opening emitters keep running while ordinary particles wait for the scene.
-        let transition = frame.clock == crate::BattleClock::SpellTransition
-            || frame.cues.iter().any(|cue| {
-                matches!(
-                    cue,
-                    Cue::Casting {
-                        phase: crate::CastPhase::SceneOpening,
-                        ..
-                    }
-                )
-            });
+        let transition = frame.clock == crate::BattleClock::SpellTransition || opening;
         let only_pause_particles = only_pause_effects || transition;
         self.update_stun(frame, only_pause_particles, stun::StunPhase::Existing)?;
         if (!paused || timed_hold) && phase != Some(crate::UnisonPhase::Selecting) {
@@ -1210,6 +1236,8 @@ impl Effects {
                     if active.after_particles != after_particles
                         || (only_pause_effects && !active.during_pause)
                         || (transition && (active.passive || active.ambient))
+                        || (frame.clock == crate::BattleClock::SpellTransition
+                            && active.paused_by_spell)
                     {
                         self.emitters.push(active);
                         continue;
@@ -1222,7 +1250,8 @@ impl Effects {
                         active.origin = origin;
                     }
                     let result = if active.action.is_some_and(|action| {
-                        frame.paused_actors.contains(&active.actor)
+                        frame.clock == crate::BattleClock::SpellTransition
+                            || frame.paused_actors.contains(&active.actor)
                             || frame.cues.contains(&Cue::PauseActionEffects(action))
                     }) {
                         Ok(true)
