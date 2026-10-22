@@ -252,7 +252,7 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
             let values: Vec<u16> = serde_json::from_value(row["values"].clone())?;
             ensure!(
                 count > 0
-                    && count % 2 == 0
+                    && count.is_multiple_of(2)
                     && values.len() == count
                     && all.get(..count) == Some(values.as_slice()),
                 "positioning inputs differ from their attributed source prefix"

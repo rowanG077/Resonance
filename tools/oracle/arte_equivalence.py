@@ -12,17 +12,26 @@ import math
 from pathlib import Path
 import shutil
 import struct
+import subprocess
+import traceback
 from types import SimpleNamespace
 
 import battle_artes
 import battle_geometry
+from battle_geometry import model_world as static_model_world
 import damage_envelope
 import enemy_artes
+import enemy_prerequisites
+import effect_entry
+import effect_model_joints
+import entry_history
+import entry_motions
 import support_outcomes
 import secondary_bodies
+import single_action_fixture
 from battle_fixture import BattleFixture, DTM_BUTTONS, neutral_movie
 from battle_state import presentation_locations, watch_locations
-from enemy_catalogue import PACKAGE_HEADER_BYTES, build_catalogue, section as enemy_section
+from enemy_catalogue import COMMON_SPELL_START, PACKAGE_HEADER_BYTES, build_catalogue, section as enemy_section
 from memory_watch import LOCATIONS, MEM1_DATAGRAM_BYTES, MEM1_HEADER, MEM1_WORD
 from state import State, digest, inspect
 
@@ -33,13 +42,62 @@ ACTORS, STRIDE = enemy_artes.ACTORS, enemy_artes.ACTOR_BYTES
 PROJECTILES, PROGRAMS, PARTICLES = 16, 4, 12
 BODY_CONTROLLERS = 4
 ACTOR_CONTACT_CAPACITY = 16
+PROJECTILE_CONTACT_WORDS = (("16c 0", "rule_flags_element"), ("16c 4", "rule_timing"),
+    ("16c 8", "rule_conditions"), ("16c c", "rule_power"), ("170 8", "contact_kind"),
+    ("c8", "cooldown_0"), ("cc", "cooldown_1"), ("15c", "last_target"))
 OBJECT_POOL_CAPACITY, OBJECT_BYTES, OBJECT_FREE_HEAD = 416, 0x288, 0x754a4
 MENU_ACTIVE = 0x80000000
 STUN_ACTION, STUN_DECLARATION = 15, 19
+PARTY_FIXTURE_RADIUS = 850.0
+MAX_RECIPIENT_POLLS = 2 * 3600  # Two controller polls per update, within the capture budget.
+ENEMY_ENGAGEMENT_DISTANCE = 300.0
 
 
 def read(path):
     return json.loads(Path(path).read_text())
+
+
+def read_capture_observations(receipt_path):
+    """Verify complete raw samples, including consecutive single-action segments."""
+    receipt_path = Path(receipt_path)
+    receipt = read(receipt_path)
+    observations = receipt_path.with_name("observations.json")
+    try:
+        data = observations.read_bytes()
+    except FileNotFoundError:
+        data = subprocess.check_output(["zstd", "-q", "-d", "-c", str(observations) + ".zst"])
+    rows = json.loads(data)
+    if not receipt.get("complete") or not rows:
+        raise ValueError("raw observation receipt is incomplete")
+    signature = hashlib.sha256(data).hexdigest()
+    if "combined_observations_sha256" in receipt:
+        if (signature != receipt["combined_observations_sha256"]
+                or len(rows) != receipt["combined_observations"]):
+            raise ValueError("combined observation receipt differs")
+        segments = receipt.get("segments")
+        if segments:
+            offset = 0
+            for path in segments:
+                segment = read_capture_observations(path)
+                if rows[offset:offset + len(segment)] != segment:
+                    raise ValueError("combined observations differ from their source segment")
+                offset += len(segment)
+            if offset != len(rows):
+                raise ValueError("combined observation count differs from its source segments")
+        else:
+            samples = receipt.get("samples", [])
+            if len(samples) != 1 or signature != samples[0]["observations_sha256"]:
+                raise ValueError("raw observation receipt differs")
+    else:
+        samples = receipt.get("samples", [])
+        if (len(samples) != 1 or signature != samples[0]["observations_sha256"]
+                or len(rows) != samples[0]["observations"]):
+            raise ValueError("raw observation receipt differs")
+    if any(row["presentation_counter"] != previous["presentation_counter"] + 1
+           or row["case_marker"] != previous["case_marker"]
+           for previous, row in zip(rows, rows[1:])):
+        raise ValueError("raw observations are not consecutive within one fixture")
+    return rows
 
 
 def write(path, value):
@@ -48,6 +106,12 @@ def write(path, value):
 
 def pin(path):
     return {"path": str(Path(path).resolve()), "sha256": digest(path)}
+
+
+def observation_pin(path):
+    """Retain provenance for either plain or losslessly compressed samples."""
+    path = Path(path)
+    return pin(path if path.exists() else Path(str(path) + ".zst"))
 
 
 def f32(word):
@@ -141,6 +205,8 @@ def resolve_cases(assets, descriptors):
     """Resolve authored payloads for the single Rust-generated selection."""
     techniques = read(assets / "game/techniques.json")
     placements = read(assets / "battle/unison.json")["placements"]
+    contact_fixtures = read(Path(__file__).with_name("fixtures") / "enemy_contacts.json")
+    items = None
     result = []
     for descriptor in descriptors:
         binding = descriptor["binding"]
@@ -163,7 +229,21 @@ def resolve_cases(assets, descriptors):
             resolved = dict(id=f"enemy:{enemy}:{row}", enemy=enemy, action_row=row, definition=definition)
             execution = definition.get("execution")
             execution = execution if isinstance(execution, dict) else {}
+            if "spell" in execution and any(
+                    item["capabilities"]["healing"] and placements[arte]["native_id"] == execution["spell"]
+                    for arte, item in enumerate(techniques["definitions"])):
+                resolved["healing"] = True
             attack = execution.get("attack", execution.get("physical", {}).get("attack", {}))
+            for _, event in attack.get("events", []):
+                if isinstance(event, dict) and "use_item" in event:
+                    if items is None:
+                        items = read(assets / "game/menu-data.json")["items"]
+                    item = items[event["use_item"]["item"]]["field_use"]
+                    if item and item["kind"] == "recover":
+                        if item["hp"]:
+                            resolved["healing"] = True
+                        if item["tp"]:
+                            resolved["restores_tp"] = True
             if any("defeat" in event for _, event in attack.get("events", [])):
                 resolved["self_defeat"] = dict(retain_body=enemy_definition["profile"]["traits"]["retain_defeated_body"])
             if any(event == "stun" for _, event in attack.get("events", [])):
@@ -173,6 +253,8 @@ def resolve_cases(assets, descriptors):
         if descriptor["id"] != resolved["id"]:
             raise ValueError("case ID disagrees with its binding")
         resolved["context"] = descriptor["context"]
+        if fixture := contact_fixtures.get(resolved["id"]):
+            resolved["contact_fixture"] = fixture
         if resolved["context"] == "departure" and definition.get("execution") != "leave_arena":
             raise ValueError("departure context requires an authored leave-arena action")
         if resolved["context"] == "presentation":
@@ -215,7 +297,8 @@ def selected_cases(args):
 def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJECTILES,
               alternate_count=8, pool_base=None, *, program_count=PROGRAMS, contact_count=4,
               particle_transforms=True, particle_addresses=None, secondary_slots=(),
-              knockdown_impacts=False, contact_slot=None):
+              knockdown_impacts=False, contact_slot=None, owner_bones=None, object_addresses=None,
+              model_joint_plan=()):
     if particle_addresses is not None and (pool_base is None or len(particle_addresses) != particle_count):
         raise ValueError("fixed particle slots require their initialized pool and exact capacity")
     actor_slots = list(range(12)) if actor_slots is None else actor_slots
@@ -242,6 +325,7 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
             context = ACTORS + contact_slot * STRIDE + 0x1184 + index * 0x38
             prefix = f"actor_{contact_slot}_contact_{index}"
             for suffix, label in (("4", "rule"), ("8", "template"), ("34", "nominal"),
+                                  ("c", "x_bits"), ("10", "y_bits"), ("14", "z_bits"),
                                   ("4 0", "rule_flags_element"), ("4 8", "rule_conditions"),
                                   ("4 c", "rule_power"),
                                   ("8 8", "contact_kind")):
@@ -256,6 +340,7 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
                              (0x19d4, "capture_attachment"), (0x19d8, "captured_recipient"),
                              (0x198c, "support_target"), (0x16bc, "spell_support_target"),
                              (0x19a0, "effective_target"), (0x106c, "attack_power_word"),
+                             (0x18ac, "target_distance_bits"),
                              (0x10c4, "proficiency_word"), (0x1a10, "cast_strength_word"),
                              (0x1b0, "target_state_word"), (0x10a8, "overlimit_gauge_word"),
                              (0x117c, "fresh_contact_word"), (0x1c4, "protection_window_word"),
@@ -265,6 +350,8 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
             result[f"{POOL} {base + 4:x} {offset:x}"] = f"actor_{slot}_condition_{offset:x}"
         for offset in (0x1d0, 0x1d4, 0x1e0, 0x1e4, 0x280, 0x1aa8):
             result[f"{POOL} {base + offset:x}"] = f"actor_{slot}_raw_{offset:x}"
+        for index, offset in enumerate((0x1a14, 0x1a18)):
+            result[f"{POOL} {base + offset:x}"] = f"actor_{slot}_stat_adjustment_{index}"
         controller = f"{POOL} {base + 0x2b0:x} 5fc"
         for link in range(BODY_CONTROLLERS):
             node = controller + " 2c" * link
@@ -273,6 +360,13 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
                 result[f"{node} {offset:x}"] = prefix + "_" + name
             result[node + " 30 0"] = prefix + "_child_resource"
             result[node + " 30 8"] = prefix + "_child_frame_bits"
+            if slot < 4:
+                for offset, name in ((0, "header"), (4, "descriptor"), (8, "duration")):
+                    result[f"{node} 0 {offset:x}"] = prefix + "_motion_" + name
+                    result[f"{node} 30 0 {offset:x}"] = prefix + "_child_motion_" + name
+            for offset, name in entry_history.CONTROLLER_FIELDS:
+                result[f"{node} {offset:x}"] = prefix + "_" + name + "_word"
+                result[f"{node} 30 {offset:x}"] = prefix + "_child_" + name + "_word"
             if knockdown_impacts:
                 result[node + " 20"] = prefix + "_impact_state_word"
         if knockdown_impacts:
@@ -280,6 +374,18 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
             result[f"{POOL} {base + 0x2ac:x}"] = f"actor_{slot}_last_damage_word"
         for offset, label in ((0x38, "bank"), (0x44, "program"), (0x34, "clock_word"), (0x8c, "cursor")):
             result[f"{POOL} {base + 0x15b4 + offset:x}"] = f"actor_{slot}_effect_{label}"
+    for slot, bones in (owner_bones or {}).items():
+        base = ACTORS + slot * STRIDE
+        for bone in bones:
+            matrix = f"{POOL} {base + 0x2b0:x} 0 18 {bone * 4:x} 84"
+            for word in range(12):
+                result[f"{matrix} {word * 4:x}"] = f"actor_{slot}_bone_{bone}_{word}"
+    result.update(effect_model_joints.locations(POOL, model_joint_plan))
+    retained_slots = effect_model_joints.retained_slots(model_joint_plan)
+    for slot in actor_slots:
+        for retained in retained_slots:
+            offset = ACTORS + slot * STRIDE + 0x15b4 + 0x98 + retained * 8
+            result[f"{POOL} {offset:x}"] = f"actor_{slot}_retained_{retained}"
     result.update(secondary_bodies.locations(POOL, ACTORS, STRIDE, secondary_slots))
     groups = [("projectile", 0x75c44, projectile_count,
                (0x10, 0x14, 0x28, 0x2c, 0x30, *range(0x40, 0x58, 4), 0xac, 0xd8, 0x144, 0x16c, 0x170, 0x19c, 0x278, 0x280)),
@@ -288,13 +394,35 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
                (0x10, 0x1c, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c,
                 0x5c, 0x60, 0x64, 0x80, 0x84, 0x88, 0xb4, 0xd8, 0xdc, 0xe0, 0xfc,
                 0x100, 0x108, 0x134, 0x13c, 0x168,
-                0x16c, 0x170, 0x174, 0x178, 0x184, 0x278))]
+                0x16c, 0x170, 0x174, 0x178, 0x180, 0x184, 0x278))]
     if not particle_transforms:
         label, head, count, _ = groups[2]
         groups[2] = (label, head, count,
                      (0x10, 0x1c, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c, 0xfc, 0x184, 0x278))
     alternate_offsets = sorted(set(groups[1][3]) | set(groups[2][3]))
     groups.append(("alternate", 0x76664, alternate_count, alternate_offsets))
+    if object_addresses is not None:
+        if pool_base is None or len(object_addresses) != OBJECT_POOL_CAPACITY:
+            raise ValueError("complete object observation requires the verified full pool")
+        offsets = sorted({0, 4} | {at for _, _, _, fields in groups for at in fields}
+                         | {0xc0 + retained * 8 for retained in retained_slots})
+        for index, address in enumerate(object_addresses):
+            for offset in offsets:
+                result[f"{address + offset:x}"] = f"object_{index}_{offset:x}"
+        for label, head, _, _ in groups:
+            result[f"0{pool_base + head:x}"] = label + "_head"
+            result[f"0{pool_base + head - 4:x}"] = label + "_tail"
+        # Only initialized projectile nodes use these rule/template pointers.
+        # Observe both ends and require coverage of every live projectile.
+        for index in range(projectile_count):
+            head = 0x75c44
+            node = (f"{POOL} {head:x}" + " 4" * index if index < (projectile_count + 1) // 2
+                    else f"{POOL} {head - 4:x}" + " 0" * (projectile_count - 1 - index))
+            prefix = f"projectile_rule_{index}"
+            result[node] = prefix + "_address"
+            for suffix, name in PROJECTILE_CONTACT_WORDS:
+                result[f"{node} {suffix}"] = prefix + "_" + name
+        groups = []
     for label, head, count, offsets in groups:
         if label == "particle" and particle_addresses is not None:
             result[f"{pool_base + head:x}"] = "particle_head"
@@ -327,10 +455,8 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
                 result[f"{node} 184 44"] = prefix + "_parent_program"
                 result[f"{node} 184 4"] = prefix + "_parent_owner"
             elif label == "projectile":
-                result[f"{node} 16c 0"] = prefix + "_rule_flags_element"
-                result[f"{node} 16c 8"] = prefix + "_rule_conditions"
-                result[f"{node} 16c c"] = prefix + "_rule_power"
-                result[f"{node} 170 8"] = prefix + "_contact_kind"
+                for suffix, name in PROJECTILE_CONTACT_WORDS:
+                    result[f"{node} {suffix}"] = prefix + "_" + name
     # Retain the head also for normalization of older head-only observations.
     if not alternate_count:
         result[f"{POOL} 76664"] = "effect_alternate_head"
@@ -350,7 +476,8 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
 
 
 def observer_plan(slots, pool_base=None, capacities=None, *, particle_transforms=True,
-                  particle_addresses=None, secondary_slots=(), knockdown_impacts=False, contact_slot=None):
+                  particle_addresses=None, secondary_slots=(), knockdown_impacts=False, contact_slot=None,
+                  owner_bones=None, object_addresses=None, model_joint_plan=()):
     """Allocate within the existing transport; every bounded list has overflow checks."""
     def plan(projectiles, programs, particles, alternates, contacts):
         counts = dict(projectile=projectiles, program=programs, particle=particles,
@@ -361,15 +488,21 @@ def observer_plan(slots, pool_base=None, capacities=None, *, particle_transforms
                           program_count=programs, contact_count=contacts,
                           particle_transforms=particle_transforms, particle_addresses=particle_addresses,
                           secondary_slots=secondary_slots, knockdown_impacts=knockdown_impacts,
-                          contact_slot=contact_slot)
-        return watch, dict(packet_budget(watch), capacities=counts, list_layout="head_and_tail",
+                          contact_slot=contact_slot, owner_bones=owner_bones, object_addresses=object_addresses,
+                          model_joint_plan=model_joint_plan)
+        return watch, dict(packet_budget(watch), capacities=counts, list_layout="complete_object_pool" if object_addresses is not None else "head_and_tail",
                            particle_transforms=particle_transforms, secondary_slots=list(secondary_slots),
                            knockdown_impacts=knockdown_impacts, contact_slot=contact_slot,
+                           **({"model_joints": model_joint_plan} if model_joint_plan else {}),
+                           **({"object_addresses": object_addresses}
+                              if object_addresses is not None else {}),
                            **({"particle_addresses": particle_addresses, "particle_layout": "fixed_pool"}
                               if particle_addresses is not None else {}))
 
     if capacities is not None:
         return plan(*capacities)
+    if object_addresses is not None:
+        return plan(64, OBJECT_POOL_CAPACITY, OBJECT_POOL_CAPACITY, OBJECT_POOL_CAPACITY, 40)
     for alternate_count in (12, 8, 4, 2):
         for particle_count in ([len(particle_addresses)] if particle_addresses is not None else range(32, 3, -1)):
             try:
@@ -425,6 +558,88 @@ def fixed_particle_slots(state, pool, count):
                 addresses=(live + free)[:count])
 
 
+def object_pool_projection(addresses, pool):
+    """Publish complete typed live lists from direct, bounded pool reads.
+
+    Freed union storage has no observable meaning. Keep every live node and
+    copied parent binding, so snapshots stay small without hiding list overflow.
+    """
+    indices = {address: index for index, address in enumerate(addresses)}
+    if len(indices) != OBJECT_POOL_CAPACITY:
+        raise ValueError("object projection requires the complete verified pool")
+    sentinels = {"projectile": 0x75c40, "program": 0x75ec8,
+                 "particle": 0x763d8, "alternate": 0x76660}
+    groups = {label: ((offset - OBJECT_FREE_HEAD - 4) // OBJECT_BYTES, offset)
+              for label, offset in sentinels.items()}
+    cached = None
+
+    def project(values):
+        nonlocal cached
+        if cached is None:
+            cached = dict(fields=tuple(key[len("object_0_"):] for key in values if key.startswith("object_0_")),
+                ordinary=tuple(key for key in values if not key.startswith(("object_", "projectile_rule_"))),
+                rules=tuple(key[:-len("_address")] for key in values
+                            if key.startswith("projectile_rule_") and key.endswith("_address")),
+                actors=tuple(int(key.split("_")[1]) for key in values
+                             if key.startswith("actor_") and key.endswith("_effect_bank")))
+        row = {key: values[key] for key in cached["ordinary"]}
+        row["object_lists"] = {label: [] for label in groups}
+        if values.get("battle_pool") != pool:
+            row["object_pool_error"] = "initialized battle object pool is not active"
+            return row
+        rules = {}
+        for prefix in cached["rules"]:
+            address = values[prefix + "_address"]
+            fields = {name: values[prefix + "_" + name] for _, name in PROJECTILE_CONTACT_WORDS
+                      if prefix + "_" + name in values}
+            if address in rules and rules[address] != fields:
+                raise ValueError("duplicate projectile rule observations differ")
+            rules[address] = fields
+        claimed = set()
+        for label, (group, offset) in groups.items():
+            sentinel = pool + offset
+            previous, address = sentinel, values[label + "_head"]
+            while address != sentinel:
+                if address not in indices or address in claimed:
+                    raise ValueError("live object list is cyclic, shared or outside the verified pool")
+                index = indices[address]
+                raw = f"object_{index}_"
+                if values[raw + "0"] != previous or (values[raw + "10"] >> 16) & 255 != group:
+                    raise ValueError("live object list backlink or group differs")
+                claimed.add(address)
+                prefix = f"{label}_{index}"
+                row[prefix + "_address"] = address
+                row[prefix + "_prev"] = previous
+                row[prefix + "_next"] = values[raw + "4"]
+                row["object_lists"][label].append([index, address])
+                row.update({prefix + "_" + field: values[raw + field] for field in cached["fields"]})
+                kind = values[raw + "10"] >> 24
+                if label == "projectile":
+                    if address not in rules:
+                        raise ValueError("live projectile lacks its observed rule/template words")
+                    row.update({prefix + "_" + name: value for name, value in rules[address].items()})
+                elif kind == 1:
+                    parent = values[raw + "184"]
+                    parent_index = indices.get(parent - 0x28)
+                    if parent_index is not None and values[f"object_{parent_index}_10"] >> 24 == 0:
+                        signature = tuple(values[f"object_{parent_index}_{at:x}"] for at in (0x60, 0x6c, 0x2c))
+                    else:
+                        signature = (0, 0, 0)
+                        for slot in cached["actors"]:
+                            actor_address = pool + ACTORS + slot * STRIDE
+                            if parent == actor_address + 0x15b4:
+                                signature = (values[f"actor_{slot}_effect_bank"],
+                                             values[f"actor_{slot}_effect_program"], actor_address)
+                                break
+                    for name, value in zip(("bank", "program", "owner"), signature):
+                        row[prefix + "_parent_" + name] = value
+                previous, address = address, values[raw + "4"]
+            if values[label + "_tail"] != previous:
+                raise ValueError("live object list tail differs")
+        return row
+    return project
+
+
 def observed_body(row, slot, resources, initial_override=None):
     clip = (row[f"battle_actor_{slot}_body_clip_word"] >> 8) & 255
     expected = resources.get(str(clip))
@@ -459,22 +674,33 @@ def projectile_contact(get):
     return age, active, disarmed
 
 
-def static_model_world(origin, offset, angles, scale, flags, elevation):
-    """Ordinary model instance TRS; shared displayed scene matrices are not instances."""
-    if flags & (0x40000000 | 0x20000):
-        return None
-    position = [a + b for a, b in zip(origin, offset)]
-    if flags & 0x1000:
-        position[1] = offset[1]
-    if flags & 2:
-        position[1] += elevation
-    x, y, z = map(math.radians, angles)
-    sx, sy, sz, cx, cy, cz = math.sin(x), math.sin(y), math.sin(z), math.cos(x), math.cos(y), math.cos(z)
-    rotation = [[cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
-                [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
-                [-sy, cy * sx, cy * cx]]
-    return [value for i in range(3) for value in
-            [*[rotation[i][j] * scale[j] for j in range(3)], position[i]]]
+
+def ready_owner_bones(snapshot, battle, banks):
+    """Watch only authored attachment joints with initialized evaluated matrices."""
+    bones = sorted({member["template"]["owner_bone"] for bank in banks.values()
+                    for member in bank["metadata"]["actors"]
+                    if member.get("kind") == "model_particle"
+                    and member.get("template", {}).get("owner_bone") is not None})
+    result = {}
+    for actor in battle["actors"]:
+        if not bones:
+            break
+        descriptor = snapshot.read(actor["address"] + 0x2b0)
+        scene = snapshot.read(descriptor)
+        count, table = snapshot.read(scene + 6, "H"), snapshot.read(scene + 0x18)
+        if not 0 < count <= 256 or not 0x80000000 <= table <= 0x81800000 - count * 4:
+            raise ValueError("attachment joint table is not initialized")
+        selected = [bone for bone in bones if bone < count]
+        for bone in selected:
+            joint = snapshot.read(table + bone * 4)
+            if not 0x80000000 <= joint <= 0x81800000 - 0x88:
+                raise ValueError("attachment joint is outside memory")
+            matrix = snapshot.read(joint + 0x84)
+            if not 0x80000000 <= matrix <= 0x81800000 - 48 or matrix & 3:
+                raise ValueError("attachment joint matrix is not initialized")
+        if selected:
+            result[actor["slot"]] = selected
+    return result
 
 
 def observed_effect_animation(get, binding):
@@ -493,6 +719,10 @@ def observed_effect_animation(get, binding):
         # starts. The controller still belongs to the declaration's model.
         descriptor += (binding["slot"] - (get(0xfc) >> 24)) * 0x7e0
     resource = get(controller)
+    # A program may start an animation later; an empty instance controller
+    # currently displays the model's bind pose.
+    if not resource and binding.get("animation") is None:
+        return None, None
     # Motion resources are entries in this model's descriptor, not shared mesh data.
     offset = resource - descriptor - 0x640
     if (descriptor & 3 or not 0x80000000 <= descriptor <= 0x81800000 - 0x7e0
@@ -636,14 +866,32 @@ def detached_contact_bindings(state, usual, enemy_packages=()):
     count = struct.unpack_from(">I", directory)[0]
     offsets = struct.unpack_from(f">{count}I", directory, 4)
     memory, records = bytes(state.ram), {}
-    def bind(raw, base, rule, template):
-        record = dict(rule=base + rule, template=base + template,
-            rule_flags_element=struct.unpack_from(">I", raw, rule)[0],
-            rule_conditions=struct.unpack_from(">I", raw, rule + 8)[0],
-            rule_power=struct.unpack_from(">I", raw, rule + 12)[0],
+    def bind(raw, base, rule, template, *, rule_raw=None, rule_base=None):
+        rule_raw = raw if rule_raw is None else rule_raw
+        rule_base = base if rule_base is None else rule_base
+        record = dict(rule=rule_base + rule, template=base + template,
+            rule_flags_element=struct.unpack_from(">I", rule_raw, rule)[0],
+            rule_conditions=struct.unpack_from(">I", rule_raw, rule + 8)[0],
+            rule_power=struct.unpack_from(">I", rule_raw, rule + 12)[0],
             contact_kind=struct.unpack_from(">I", raw, template + 8)[0])
-        if records.setdefault(base + template, record) != record:
+        if records.setdefault((record["rule"], record["template"]), record) != record:
             raise ValueError("conflicting authored body-center contact identity")
+
+    common_rules = {}
+    def loaded_common_rules(native):
+        if native not in common_rules:
+            start = offsets[native]
+            end = min([offset for offset in offsets if offset > start] + [len(directory)])
+            raw = directory[start:end]
+            rules, contacts = struct.unpack_from(">2I", raw)
+            if not 16 <= rules <= contacts <= len(raw):
+                raise ValueError("invalid common action rule section")
+            bases, cursor = [], 0
+            while (address := memory.find(raw, cursor)) >= 0:
+                bases.append(address + 0x80000000)
+                cursor = address + len(raw)
+            common_rules[native] = raw, rules, contacts, bases
+        return common_rules[native]
 
     for start in sorted(set(offsets) - {0, len(directory)}):
         end = min([offset for offset in offsets if offset > start] + [len(directory)])
@@ -691,6 +939,31 @@ def detached_contact_bindings(state, usual, enemy_packages=()):
             if rule + 28 > rules + len(rule_bytes):
                 raise ValueError("enemy body-center rule exceeds its authored section")
             bind(raw, base, rule, at + 8)
+        # A shared technique can use the enemy's authored body contacts while
+        # retaining the common technique's damage rules.
+        actions, action_bytes = enemy_section(raw, 10)
+        if len(action_bytes) % enemy_artes.ACTION_BYTES:
+            raise ValueError("invalid authored enemy action section")
+        for action in range(actions, actions + len(action_bytes), enemy_artes.ACTION_BYTES):
+            native = struct.unpack_from(">H", raw, action + 64)[0]
+            if not 0 < native < min(count, COMMON_SPELL_START):
+                continue
+            contact_index = struct.unpack_from(">H", raw, action + 28)[0]
+            if (memory[address + action + 64:address + action + 66] != raw[action + 64:action + 66]
+                    or memory[address + action + 28:address + action + 30] != raw[action + 28:action + 30]):
+                raise ValueError("enemy common action binding differs from authored bytes")
+            common, common_start, common_end, common_bases = loaded_common_rules(native)
+            at = contacts + contact_index * 32
+            while at + 32 <= contacts + len(contact_bytes):
+                if struct.unpack_from(">h", raw, at)[0] < 0:
+                    break
+                if raw[at + 2] < 128 and raw[at + 4] == 255:
+                    rule = common_start + raw[at + 18] * 28
+                    if rule + 28 > common_end:
+                        raise ValueError("enemy body-center rule exceeds its common action section")
+                    for common_base in common_bases:
+                        bind(raw, base, rule, at + 8, rule_raw=common, rule_base=common_base)
+                at += 32
         sources.append(dict(package=pin(path), address=base,
             rules=[rules, rules + len(rule_bytes)], contacts=[contacts, contacts + len(contact_bytes)]))
     result = dict(source=pin(usual), records=list(records.values()))
@@ -823,6 +1096,9 @@ def owned_stored_pause(row, setup):
 
 
 def tracked_list(row, label, count, particle_addresses=None):
+    if "object_lists" in row:
+        records = row["object_lists"].get(label, [])
+        return [tuple(record) for record in records], not row.get("object_pool_error")
     nodes, seen = [], set()
     sentinel = row.get("battle_pool", 0) + {"projectile": 0x75c40,
                                            "program": 0x75ec8, "particle": 0x763d8,
@@ -885,6 +1161,8 @@ def tracked_list(row, label, count, particle_addresses=None):
 
 
 def observation_counts(row):
+    if "object_lists" in row:
+        return {label: OBJECT_POOL_CAPACITY for label in ("projectile", "program", "particle", "alternate")}
     return {label: sum(k.startswith(label + "_") and k.endswith(
                 "_10" if label == "particle" and "particle_head" in row else "_address") for k in row)
             for label in ("projectile", "program", "particle", "alternate")}
@@ -1098,16 +1376,17 @@ def baseline_tail(row, counts, baseline, programs, particles, particle_addresses
 
 def completion_observer(source_owner, expected, normalize_tail=None, *, particle_addresses=None,
                         departure=False):
-    """Check the first return for a persistent baseline, then wait for an empty tail.
+    """Wait for an empty tail or a positively observed persistent baseline.
 
     Full final normalization remains authoritative at the bounded capture end.
-    Repeating it during playback makes long-lived effects quadratic to observe.
+    Doubling the interval between baseline checks keeps total work linear while
+    allowing a recurring baseline to become identifiable after the first return.
     """
-    checked, admitted, counts, inspected_return = 0, False, None, False
+    checked, admitted, counts, next_baseline_check = 0, False, None, 0
     departure_hp = None
 
     def done(rows):
-        nonlocal checked, admitted, counts, inspected_return, departure_hp
+        nonlocal checked, admitted, counts, next_baseline_check, departure_hp
         if rows and counts is None:
             counts = observation_counts(rows[0])
         for row in rows[checked:]:
@@ -1134,16 +1413,16 @@ def completion_observer(source_owner, expected, normalize_tail=None, *, particle
             if admitted and (departed or (not departure and action >> 24 == 3)):
                 if observation_tail_empty(row, counts, particle_addresses):
                     return True
-                if normalize_tail is not None and not inspected_return:
-                    inspected_return = True
+                if normalize_tail is not None and checked >= next_baseline_check:
+                    next_baseline_check = 2 * checked
                     if normalize_tail(rows[:checked]):
                         return True
             elif not departure and admitted and action >> 24 == 18 and normalize_tail is not None:
                 if primary >> 24 == 2:
                     if observation_tail_empty(row, counts, particle_addresses):
                         return True
-                    if not inspected_return:
-                        inspected_return = True
+                    if checked >= next_baseline_check:
+                        next_baseline_check = 2 * checked
                         if normalize_tail(rows[:checked]):
                             return True
         return False
@@ -1183,12 +1462,13 @@ def observed_birth_tick(row, previous, prefix, signature, setup, prior_particles
             or row["battle_presentation_tick_word"] != previous["battle_presentation_tick_word"] + 1):
         return None
     parent = row[prefix + "_184"]
-    if observer.get("particle_layout") == "fixed_pool":
-        address = observer["particle_addresses"][int(prefix.split("_")[1])]
+    if observer.get("particle_layout") == "fixed_pool" or "object_lists" in row:
+        address = (row[prefix + "_address"] if "object_lists" in row else
+                   observer["particle_addresses"][int(prefix.split("_")[1])])
         changed = (address not in prior_particles
             or any(row[f"{prefix}_{at:x}"] != previous[f"{prefix}_{at:x}"]
                    for at in (*range(0x28, 0x40, 4), 0x184))
-            or signed16(previous[prefix + "_278"] >> 16) > 1)
+            or signed16(previous[prefix + "_278"] >> 16) != 1)
     else:
         # Linked-list indices can move; only an absent-to-present node proves a birth.
         address = row.get(prefix + "_address")
@@ -1214,7 +1494,8 @@ def observed_birth_tick(row, previous, prefix, signature, setup, prior_particles
 
 
 def declaration_matches(bank, copied, parent_root, *, model_binding=None, initialized=False, age=0,
-                        birth_tick=None, size=None, owner_bone=None, angles=None):
+                        birth_tick=None, size=None, owner_bone=None, angles=None, offset=None, heading=None,
+                        model_attachment=None):
     """Exact copied prefix, including supported authored birth overrides."""
     retained = int.from_bytes(copied[20:24], "big") & 0x40000
     if retained and copied[5] not in (*range(8), 255):
@@ -1232,6 +1513,16 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
         return bytes(prefix)
     actual = signature(copied)
 
+    def first_sprite_uv(member):
+        raw = bank["declarations"][member]
+        if not (initialized and age == 1 and raw[0] != 3 and len(raw) > 0x32 and raw[0x32] < 128):
+            return None
+        at = raw[0x32] * 10
+        descriptor = bank.get("uv_descriptors", b"")[at:at + 10]
+        if len(descriptor) == 10 and 1 <= descriptor[0] < 128 and descriptor[2:4] != b"\x83\0":
+            return descriptor[2:10]
+        return None
+
     def matches_integer(value, number, size):
         low, high, step = value["min"], value["max"], value.get("step", 0)
         if not all(math.isfinite(v) and float(v).is_integer() for v in (low, high, step)):
@@ -1241,17 +1532,86 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
         distance = high - number if value.get("reverse", False) else number - low
         return low == high or bool(step and distance % step == 0)
 
+    def matches_integer_sums(sums, choices):
+        """Solve authored integer sums without dropping shared random choices."""
+        if not sums:
+            return True
+        number, terms = sums[0]
+
+        def assign(index, remainder, selected):
+            if index == len(terms):
+                return remainder == 0 and matches_integer_sums(sums[1:], selected)
+            term = terms[index]
+            low, high, step = term["min"], term["max"], term.get("step", 0)
+            if (not all(math.isfinite(v) and float(v).is_integer() for v in (low, high, step))
+                    or low > high or low != high and (step <= 0 or (high - low) % step)):
+                return False
+            count = int((high - low) / step) if low != high else 0
+            prior = selected.get(term.get("draw")) if "draw" in term and count else None
+            if prior is not None and prior[0] != count:
+                return False
+            indices = [int(prior[1])] if prior is not None else range(count + 1)
+            remaining = terms[index + 1:]
+            minimum = sum(value["min"] for value in remaining)
+            maximum = sum(value["max"] for value in remaining)
+            for choice in indices:
+                value = high - step * choice if term.get("reverse", False) else low + step * choice
+                if not minimum <= remainder - value <= maximum:
+                    continue
+                next_choices = selected
+                if "draw" in term and count and prior is None:
+                    next_choices = selected.copy()
+                    next_choices[term["draw"]] = (count, choice)
+                if assign(index + 1, remainder - value, next_choices):
+                    return True
+            return False
+        return assign(0, number, choices)
+
     def matches_member(member, expected, *, uv_override=False, model_override=None, animation_override=None,
                        size_override=(), palette_override=None, angles_override=(), angular_velocity_override=(),
-                       yaw_heading=0):
+                       yaw_heading=0, animation_starts=None, attachment_bone=None, motion_birth=None):
         raw = bank["declarations"][member]
+        if model_attachment is not None:
+            actors = bank.get("metadata", {}).get("actors", [])
+            metadata = actors[member] if member < len(actors) else {}
+            attachment = metadata.get("binding", {}).get("attachment")
+            if attachment is None or (attachment["joint"], attachment["retained"]) != model_attachment:
+                return False
+        rectangle = first_sprite_uv(member)
+        if rectangle is not None:
+            # The first UV frame replaces even an authored birth override.
+            expected = bytearray(expected)
+            expected[8:16] = rectangle
         if owner_bone is not None:
             actors = bank.get("metadata", {}).get("actors", [])
             metadata = actors[member] if member < len(actors) else {}
             template = metadata.get("template", {})
             template = template.get("template", template)
-            if template.get("owner_bone") != owner_bone:
+            expected_bone = template.get("owner_bone") if attachment_bone is None else attachment_bone
+            if expected_bone != owner_bone:
                 return False
+        if offset is not None and heading is not None and initialized and age == 1 and raw[0] != 3:
+            actors = bank.get("metadata", {}).get("actors", [])
+            metadata = actors[member] if member < len(actors) else {}
+            template = metadata.get("template", {})
+            template = template.get("template", template)
+            state = template.get("state", {})
+            birth = motion_birth or {}
+            overridden = any(birth.get(key) for key in ("offset", "velocity", "polar_offset", "polar_velocity"))
+            overridden |= any(value["field"]["kind"] in ("offset", "velocity") for value in birth.get("sums", []))
+            if (not overridden and owner_bone is None
+                    and all(template.get(key) is None for key in ("owner_bone", "follow_bone"))
+                    and not any(template.get(key) for key in
+                    ("origin_motion", "ground_clamp", "ground_restitution"))
+                    and len(state.get("offset", [])) == len(state.get("velocity", [])) == 3):
+                sine, cosine = math.sin(math.radians(heading)), math.cos(math.radians(heading))
+                local = [offset[0] * cosine - offset[2] * sine, offset[1],
+                         offset[0] * sine + offset[2] * cosine]
+                # Opposite authored directions distinguish mirrored births
+                # without requiring identical trigonometric rounding.
+                for observed, start, velocity in zip(local, state["offset"], state["velocity"]):
+                    if start * velocity >= 0 and observed * (start + velocity) < 0:
+                        return False
         if (len(raw) > 0x32 and raw[0x32] >= 128
                 and not int.from_bytes(raw[20:24], "big") & 0x400000):
             # Untinted declarations without a UV track keep their birth palette.
@@ -1309,7 +1669,8 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
             if initialized:
                 # Holding an existing frame keeps its controller; only a new
                 # animation switches to the other controller slot.
-                binding[2] = int(animation_override is not None and animation_override.get("rate") != 0)
+                binding[2] = (int(animation_override is not None and animation_override.get("rate") != 0)
+                              if animation_starts is None else animation_starts % 2)
                 if animation_override is not None and model_binding >> 24 != animation_override["model"]:
                     return False
             if int.from_bytes(binding, "big") != model_binding:
@@ -1324,12 +1685,7 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
         if len(descriptor) != 10:
             return False
         if not model:
-            # The first sprite update installs its authored UV frame immediately.
-            if age != 1 or not 1 <= descriptor[0] < 128 or descriptor[2:4] == b"\x83\0":
-                return False
-            expected = bytearray(expected)
-            expected[8:16] = descriptor[2:10]
-            return signature(expected) == actual
+            return False
         if model_binding is None or descriptor[:2] != b"\x80\0":
             return False
         step_x, step_y, width, height = struct.unpack_from(">4h", descriptor, 2)
@@ -1348,12 +1704,31 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
     if parent_root not in bank["roots"]:
         return sorted(matches)
     commands = bank["metadata"]["programs"][bank["roots"].index(parent_root)]
+    spawn_times, birth_motions = [], {}
+    for command in commands:
+        op = command["operation"]
+        if op["kind"] == "spawn":
+            spawn_times.append(command.get("at"))
+        elif (op["kind"] == "set_motion" and "animation" in op
+              and command.get("at") is not None and op["spawn"] < len(spawn_times)
+              and spawn_times[op["spawn"]] == command["at"]):
+            birth_motions.setdefault(op["spawn"], []).append(op["animation"])
     matches = set()
+    spawn_index = -1
     for command in commands:
         op = command["operation"]
         if op["kind"] != "spawn":
             continue
+        spawn_index += 1
         member, birth = op["particle"], op.get("birth", {})
+        animations = ([birth["animation"]] if "animation" in birth else []) + birth_motions.get(spawn_index, [])
+        rectangle = first_sprite_uv(member)
+        uv_sums = [value for value in birth.get("sums", [])
+                   if value["field"]["kind"] == "uv" and rectangle is None]
+        size_overrides = list(birth.get("size", [None] * 3))
+        for value in birth.get("sums", []):
+            if value["field"]["kind"] == "size":
+                size_overrides[value["field"]["axis"]] = value
         expected = bytearray(bank["declarations"][member][:24])
         if op.get("blend") is not None:
             if op["blend"] not in (0, 1):
@@ -1363,7 +1738,8 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
             expected[20] |= 0x10
         if birth.get("ribbon_depth"):
             expected[23] |= 0x20
-        changes = [(8 + axis * 2,2,value) for axis,value in enumerate(birth.get("uv", [])) if value]
+        changes = [(8 + axis * 2,2,value) for axis,value in enumerate(birth.get("uv", []))
+                   if value and rectangle is None]
         if birth.get("lifetime"):
             duration = dict(birth["lifetime"])
             # Finite lifetimes store the final active age in the copied header.
@@ -1378,8 +1754,8 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
         if birth.get("palette"):
             changes.append((3,1,birth["palette"]))
         choices = {}
-        for offset, width, value in changes:
-            number = int.from_bytes(copied[offset:offset + width], "big")
+        for byte_offset, width, value in changes:
+            number = int.from_bytes(copied[byte_offset:byte_offset + width], "big")
             if not matches_integer(value, number, width):
                 break
             if "draw" in value and value["min"] != value["max"]:
@@ -1387,13 +1763,25 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
                 choice = ((value["max"] - value["min"]) / value["step"], distance / value["step"])
                 if choices.setdefault(value["draw"], choice) != choice:
                     break
-            expected[offset:offset + width] = number.to_bytes(width,"big")
+            expected[byte_offset:byte_offset + width] = number.to_bytes(width,"big")
         else:
-            if matches_member(member, expected, uv_override=bool(birth.get("uv")),
-                              model_override=birth.get("model"), animation_override=birth.get("animation"),
-                              size_override=birth.get("size", ()), angles_override=birth.get("angles", ()),
+            sums = []
+            for value in uv_sums:
+                byte_offset = 8 + value["field"]["axis"] * 2
+                number = int.from_bytes(copied[byte_offset:byte_offset + 2], "big")
+                expected[byte_offset:byte_offset + 2] = copied[byte_offset:byte_offset + 2]
+                sums.append((number, value["terms"]))
+            if not matches_integer_sums(sums, choices):
+                continue
+            if matches_member(member, expected, uv_override=bool(birth.get("uv") or uv_sums),
+                              model_override=birth.get("model"),
+                              animation_override=animations[-1] if animations else None,
+                              animation_starts=sum(animation.get("rate") != 0 for animation in animations),
+                              size_override=size_overrides, angles_override=birth.get("angles", ()),
                               angular_velocity_override=birth.get("angular_velocity", ()),
                               yaw_heading=birth.get("yaw_heading", 0),
+                              attachment_bone=birth.get("attachment_bone"),
+                              motion_birth=birth,
                               palette_override=copied[3] if birth.get("palette") else op.get("palette")):
                 matches.add(member)
     if len(matches) > 1 and birth_tick is not None:
@@ -1513,25 +1901,62 @@ def contact_guard(row, previous, setup, target):
 
 
 def contact_protection_shift(row, previous, contact, setup, target):
-    """Bind a stable knockdown window before applying its exact damage reduction."""
+    """Bind the recipient's protection at contact, including a witnessed landing."""
     slot = setup["source_actor_map"][target]["source_slot"]
     prefix = f"actor_{slot}_"
     before, after = ((observed[prefix + "raw_280"] >> 28) & 7
                      for observed in (previous, row))
     if before in (0, 1) and after in (0, 1):
         return 0
+    window = prefix + "protection_window_word"
     if (before in (0, 1) and after == 2
             and row[f"battle_actor_{slot}_action"] >> 24 == 14
             and previous[f"battle_actor_{slot}_action"] >> 24 != 14
             and row[f"battle_actor_{slot}_hp"] < previous[f"battle_actor_{slot}_hp"]):
-        # This hit entered knockdown after taking unprotected damage.
-        return 0
+        if window not in previous or window not in row:
+            raise damage_envelope.UnsupportedDamage("knockdown entry window was not observed")
+        initialized = (row[window] >> 16) & 255
+        if not row[window] >> 24 and initialized == 0:
+            # The contact entered knockdown; its down callback has not run yet.
+            return 0
+        if (previous[f"battle_actor_{slot}_action"] >> 24 == 9
+                and previous[prefix + "target_state_word"] >> 24 == 13
+                and row[prefix + "target_state_word"] >> 24 == 15
+                and previous.get(prefix + "recoil_word", 0) & 3
+                and previous[f"battle_actor_{slot}_y_bits"] == 0
+                and row[f"battle_actor_{slot}_y_bits"] == 0
+                and previous[window] >> 16 == 0
+                and row[window] >> 24 and initialized == 1
+                and row["battle_combat_tick_word"] == previous["battle_combat_tick_word"] + 1):
+            # Hurt movement landed and initialized the down window before this
+            # update's contact pass. The new hit did not create that protection.
+            return 0 if (contact["rule_flags_element"] >> 16) & 0x40 else 3
+        raise damage_envelope.UnsupportedDamage("knockdown entry order is unverified")
     if before != 2 or after != 2:
         raise damage_envelope.UnsupportedDamage("contact protection is not a stable knockdown")
-    window = prefix + "protection_window_word"
     if any(window not in observed or not observed[window] >> 24 for observed in (previous, row)):
         raise damage_envelope.UnsupportedDamage("knockdown contact window is not observed active")
     return 0 if (contact["rule_flags_element"] >> 16) & 0x40 else 3
+
+
+def hostile_condition_outcome(setup, events):
+    """Recognize an attributed harmful condition as an offensive outcome."""
+    owner = setup["owner"]
+    actions = {event["action"] for event in events
+               if event["kind"] == "started" and event.get("owner") == owner}
+    return any(event["kind"] == "condition_changed" and event.get("owner") == owner
+               and event.get("action") in actions
+               and type(event.get("target")) is int
+               and 0 <= event["target"] < len(setup["actors"])
+               and setup["actors"][event["target"]]["side"] != setup["actors"][owner]["side"]
+               and (set(event["after"]) - set(event["before"]))
+                   & (support_outcomes.AILMENTS | {"recovery_down"})
+               for event in events)
+
+
+def observed_outcome(context, setup, events):
+    """An observed owned affliction supersedes an obsolete presentation label."""
+    return "attack" if context == "presentation" and hostile_condition_outcome(setup, events) else context
 
 
 def recovery_protected_contact(row, previous, setup, owner, target):
@@ -1560,6 +1985,59 @@ def recovery_protected_contact(row, previous, setup, owner, target):
                 damage_branches=dict(ordinary=[0, 0], critical=None))
 
 
+def protected_projectile_contact(row, previous, setup, owner, target, projectile_ids):
+    """Bind a fresh zero-HP projectile collision to observed party protection."""
+    slot = setup["source_actor_map"][target]["source_slot"]
+    prefix = f"actor_{slot}_"
+    if (setup["actors"][target]["side"] != 0
+            or setup["actors"][owner]["side"] == 0
+            or row[f"battle_actor_{slot}_hp"] <= 0
+            or row[f"battle_actor_{slot}_hp"] != previous[f"battle_actor_{slot}_hp"]
+            or row.get(prefix + "fresh_contact_word", 0) >> 24 != 1
+            or row["battle_combat_tick_word"] != previous["battle_combat_tick_word"] + 1):
+        return None
+    modes = [((sample[prefix + "raw_280"] >> 28) & 7) for sample in (previous, row)]
+    if modes == [2, 2] and all(prefix + "protection_window_word" in sample
+            and sample[prefix + "protection_window_word"] >> 24 == 0
+            for sample in (previous, row)):
+        protection = "down_window_closed"
+    elif modes == [4, 4]:
+        protection = "recovery"
+    else:
+        return None
+    contact = queued_contact(row, setup, owner, target, previous)
+    if contact is None or not contact["projectile"]:
+        return None
+    address = contact["projectile"] - 0x28
+    pid = projectile_ids.get(address)
+    if pid is None:
+        raise damage_envelope.UnsupportedDamage("protected projectile has no observed identity")
+    victim = setup["initial_battle"]["actors"][target]["address"]
+    recipient = (row[prefix + "control_word"] >> 24) & 7
+    cooldown, shift = f"cooldown_{recipient // 4}", 24 - recipient % 4 * 8
+    duration = contact.get("rule_timing", 0) >> 24
+    nodes, complete = tracked_list(previous, "projectile", observation_counts(previous)["projectile"])
+    before = [f"projectile_{index}" for index, at in nodes if at == address]
+    if not complete or len(before) != 1:
+        raise damage_envelope.UnsupportedDamage("protected projectile lacks its adjacent live observation")
+    old = before[0]
+    if (previous[old + "_14"] >> 24 != 1
+            or previous[old + "_28"] != contact["owner"]
+            or previous[old + "_16c"] != contact["rule"]
+            or previous[old + "_170"] != contact["template"]
+            or signed16(previous[old + "_278"] >> 16) + 1 != contact["projectile_age"]
+            or contact.get("last_target") != victim
+            or contact["projectile_result"] not in (1, 17)
+            or not contact["nominal"]
+            or duration <= 1 or cooldown not in contact or old + "_" + cooldown not in previous
+            or (contact[cooldown] >> shift) & 255 != duration
+            or (previous[old + "_" + cooldown] >> shift) & 255 > 1):
+        raise damage_envelope.UnsupportedDamage("protected projectile lacks a fresh recipient cooldown reset")
+    return dict(kind="hit", owner=owner, target=target, action=1, projectile=pid,
+                hp_change=0, protection=protection, damage_range=[0, 0], critical=False,
+                damage_branches=dict(ordinary=[0, 0], critical=None))
+
+
 def contact_damage_range(row, previous, contact, setup, owner, target, previous_hp, strength, *, critical=None):
     contexts = setup.get("damage_context")
     if not contexts:
@@ -1570,24 +2048,57 @@ def contact_damage_range(row, previous, contact, setup, owner, target, previous_
         guarded = None
     protection_shift = contact_protection_shift(row, previous, contact, setup, target)
     applied = contact_condition(row, previous, contact, setup, owner, target)
+    magic = (contact["contact_kind"] >> 16) & 255 == 2
+    stat_adjustments, magic_modifiers = [0, 0, 0, 0], []
+    physical_stats = {"attack_up", "attack_down", "defense_up", "defense_down",
+                      "accuracy_up", "accuracy_down", "evasion_down"}
     for actor in (owner, target):
         p = f"actor_{slots[actor]}_"
         if contexts[actor]["blocked"]:
             raise damage_envelope.UnsupportedDamage("; ".join(contexts[actor]["blocked"]))
         # A contact applies its ailment after calculating this hit's damage.
         mutable = previous if actor == target and applied is not None else row
-        # Poison changes HP periodically, but does not modify contact damage.
-        conditions = [mutable[p + "condition_10"], mutable[p + "condition_14"] & ~3]
-        conditions += [row[p + "condition_38"], row[p + "condition_3c"] & ~3]
-        conditions += [row[p + f"raw_{offset:x}"] for offset in (0x1d0,0x1d4)]
-        if (contact["contact_kind"] >> 16) & 255 == 2:
-            # Holy Song changes physical attack/defense, not magical damage.
-            holy_song_high_bit = 1 << (next(bit for bit, name in
-                support_outcomes.CONDITION_BITS.items() if name == "holy_song") - 32)
-            conditions[::2] = [value & ~holy_song_high_bit for value in conditions[::2]]
+        flags = ((mutable[p + "condition_10"] << 32) | mutable[p + "condition_14"]
+                 | (row[p + "condition_38"] << 32) | row[p + "condition_3c"]
+                 | (row[p + "raw_1d0"] << 32) | row[p + "raw_1d4"])
+        # Conditions are role-sensitive: a caster's barrier cannot change its
+        # outgoing hit, and physical stat buffs do not scale magical damage.
+        admitted = {"poison_mild", "poison_severe", "paralysis", "movement_boost", "heavy",
+                    "reduce_item_effect"}
+        if actor == owner:
+            admitted.update(("physical_barrier", "magical_barrier", "defense_up", "defense_down",
+                             "magic_defense_up", "magic_defense_down", "evasion_down"))
+        else:
+            admitted.update(("attack_up", "attack_down", "accuracy_up", "accuracy_down",
+                             "magic_attack_up", "magic_attack_down"))
+        if magic:
+            admitted.update(physical_stats | {"holy_song"})
+            modifiers = (("magic_attack_up", "magic_attack_down", "physical_protection", "magical_protection")
+                         if actor == owner else ("magic_defense_down", "magic_defense_up"))
+            for name in modifiers:
+                if any(flags & (1 << bit) for bit, condition in support_outcomes.CONDITION_BITS.items()
+                       if condition == name):
+                    magic_modifiers.append(name)
+            admitted.update(modifiers)
+        else:
+            admitted.update(("magic_attack_up", "magic_attack_down", "magic_defense_up", "magic_defense_down"))
+            bindings = ((0, ("attack_up", "attack_down"), 0, 16),
+                        (2, ("accuracy_up", "accuracy_down"), 1, 16)) if actor == owner else (
+                        (1, ("defense_up", "defense_down"), 0, 0),
+                        (3, ("evasion_down",), 1, 0))
+            for index, names, word, shift in bindings:
+                if any(flags & (1 << bit) for bit, name in support_outcomes.CONDITION_BITS.items()
+                       if name in names):
+                    key = p + f"stat_adjustment_{word}"
+                    if key not in row:
+                        raise damage_envelope.UnsupportedDamage("live physical stat adjustment was not observed")
+                    stat_adjustments[index] = signed16((row[key] >> shift) & 65535)
+                admitted.update(names)
+        observed = sum(1 << bit for bit, name in support_outcomes.CONDITION_BITS.items() if name in admitted)
+        conditions = flags & ~observed
         # The pending charge flag needs an equipped compound EX skill to alter
         # damage; the context check above excludes those skills already.
-        if any(conditions) or row[p + "raw_1aa8"] & 0x03000040 or row[p + "control_word"] & 0xe0:
+        if conditions or row[p + "raw_1aa8"] & 0x03000040 or row[p + "control_word"] & 0xe0:
             raise damage_envelope.UnsupportedDamage("live condition/equipment/charge modifier")
         if (((row[p + "raw_280"] >> 8) & 0x41) and (actor != target or guarded is None)
                 or actor == target and ((row[p + "control_word"] >> 16) & 7) == 4):
@@ -1628,13 +2139,19 @@ def contact_damage_range(row, previous, contact, setup, owner, target, previous_
         adjusted = before + signed16(power_word & 65535)
         fresh = sum(value >> 24 == 1 for key, value in row.items()
                     if key.startswith("actor_") and key.endswith("_fresh_contact_word"))
-        if (kind == "magic" or contact.get("projectile") != 0
+        bound = queued_contact(row, setup, owner, target, previous)
+        projectile = bool(contact.get("projectile"))
+        bound_matches = (bound is not None and all(bound.get(key) == value for key, value in contact.items()))
+        if (kind == "magic" or not bound_matches
                 or row["battle_combat_tick_word"] != previous["battle_combat_tick_word"] + 1
-                or fresh != 1 or queued_contact(row, setup, owner, target, previous) != contact
+                or fresh != 1
                 or not 10 <= before <= 32767 or not -32768 <= adjusted <= 32767
-                or after != max(10, adjusted) or strength != after):
+                or after != max(10, adjusted)
+                or strength != (contact.get("projectile_strength") if projectile else after)):
             raise damage_envelope.UnsupportedDamage("post-contact power adjustment is not uniquely observed")
-        strength, power = before, "normal"
+        # A projectile retains its launch strength. The adjustment changes
+        # only its owner's later attacks, even if launch and hit power differ.
+        strength, power = strength if projectile else before, "normal"
     weapon_species = contexts[owner].get("weapon_species")
     species_match = False
     if kind != "magic" and weapon_species is not None:
@@ -1648,7 +2165,8 @@ def contact_damage_range(row, previous, contact, setup, owner, target, previous_
         {0: "normal", 1: "weak", 2: "resistant"}.get(affinity, "unsupported"), (), True,
         weapon_species_match=species_match, guard=guarded,
         guard_reduction=contexts[target]["guard_reduction"] if guarded == "normal" else None,
-        protection_shift=protection_shift)
+        protection_shift=protection_shift, stat_adjustments=tuple(stat_adjustments),
+        magic_modifiers=tuple(magic_modifiers))
     bounds = damage_envelope.envelope(dict(kind=kind, power=power), setup["actors"][owner], setup["actors"][target], context)
     bounds = damage_envelope.hp_loss_bounds(bounds, previous_hp, prevents_defeat=False)
     return [bounds["minimum"], bounds["maximum"]]
@@ -1659,6 +2177,9 @@ def contact_fields(row, prefix):
               for name in ("rule_flags_element", "rule_power", "contact_kind")}
     if prefix + "_rule_conditions" in row:
         fields["rule_conditions"] = row[prefix + "_rule_conditions"]
+    if prefix.startswith("projectile_"):
+        fields.update(projectile=row[prefix + "_address"] + 0x28,
+                      projectile_strength=row[prefix + "_144"] >> 16)
     return fields
 
 
@@ -1672,7 +2193,8 @@ def contact_condition(row, previous, contact, setup, owner, target):
     if before == after:
         return None
     mask = contact.get("rule_conditions", 0)
-    if (before != (0, 0) or after != (0, mask) or not mask or mask & (mask - 1)
+    if (not mask or mask & (mask - 1) or before[0] != after[0]
+            or before[1] & mask or after[1] != before[1] | mask
             or not contact["rule_power"] >> 24
             or row[prefix + "fresh_contact_word"] >> 24 != 1
             or row[f"actor_{source}_contact_target"] != setup["initial_battle"]["actors"][target]["address"]
@@ -1683,7 +2205,8 @@ def contact_condition(row, previous, contact, setup, owner, target):
     if name not in support_outcomes.AILMENTS:
         raise damage_envelope.UnsupportedDamage("contact condition is not a supported ailment")
     return dict(kind="condition_changed", owner=owner, target=target, action=1,
-                before=[], after=[name])
+                before=support_outcomes.conditions(*before),
+                after=support_outcomes.conditions(*after))
 
 
 def projectile_damage_range(row, previous, prefix, setup, owner, target, previous_hp):
@@ -1738,7 +2261,11 @@ def queue_context(row, setup, prefix):
         source = matches[0]
         entry.update(rule=row[source + "_16c"], template=row[source + "_170"],
                      nominal=row[source + "_19c"],
+                     projectile_result=row[source + "_280"] & 255,
                      projectile_age=signed16(row[source + "_278"] >> 16))
+        for name in ("cooldown_0", "cooldown_1", "last_target", "rule_timing"):
+            if source + "_" + name in row:
+                entry[name] = row[source + "_" + name]
     else:
         actors = [actor for actor in setup["initial_battle"]["actors"]
                   if actor["address"] == entry["owner"]]
@@ -1802,11 +2329,38 @@ def queued_contact(row, setup, owner, target, previous=None):
     candidates = {(entry["rule"], entry["template"], entry["projectile"]): entry for entry in current}
     if len(candidates) == 1:
         return next(iter(candidates.values()))
+    # A fresh victim hit may repeat the same nominal damage and result latch.
+    # If every other queued projectile still has its cleared collision result,
+    # exactly one live context can own that hit; no changed-number assumption is needed.
+    if candidates and all(entry["projectile"] and entry["projectile_result"] in (0, 1, 17)
+                          for entry in candidates.values()):
+        connected = [entry for entry in candidates.values() if entry["projectile_result"]]
+        if len(connected) == 1:
+            return connected[0]
     if previous is None or not candidates:
         return None
     prior_entries = entries(previous)
     if prior_entries is None:
         return None
+    # A per-recipient cooldown reset proves a fresh projectile collision even
+    # when its damage roll and collision latch equal their previous values.
+    if row["battle_combat_tick_word"] == previous["battle_combat_tick_word"] + 1:
+        recipient = (row[f"actor_{target_slot}_control_word"] >> 24) & 7
+        cooldown_word, shift = f"cooldown_{recipient // 4}", 24 - recipient % 4 * 8
+        reset = []
+        for entry in candidates.values():
+            if not entry["projectile"] or entry.get("last_target") != victim:
+                continue
+            duration = entry.get("rule_timing", 0) >> 24
+            before = [old for old in prior_entries if all(old.get(field) == entry.get(field)
+                for field in ("context", "owner", "rule", "template", "projectile"))]
+            if (len(before) == 1 and cooldown_word in entry and cooldown_word in before[0]
+                    and 0 < before[0]["projectile_age"] < entry["projectile_age"]
+                    and duration > 1 and (entry[cooldown_word] >> shift) & 255 == duration
+                    and (before[0][cooldown_word] >> shift) & 255 <= 1):
+                reset.append(entry)
+        if len(reset) == 1:
+            return reset[0]
     # Several contexts may share owner/victim. A changed nominal result or a
     # newly allocated node's collision result must identify exactly one.
     fields = ("context", "owner", "rule", "template", "projectile")
@@ -1863,7 +2417,7 @@ def queued_contact(row, setup, owner, target, previous=None):
 
 def knockdown_impact(row, previous, setup, owner, target, events, common):
     """Bind a consumed landing impulse, separately from a new attack contact."""
-    if not setup.get("knockdown_impacts"):
+    if not (setup.get("knockdown_impacts") or setup.get("observer", {}).get("knockdown_impacts")):
         return None
     slot = setup["source_actor_map"][target]["source_slot"]
     prefix, body = f"actor_{slot}_", f"battle_actor_{slot}_"
@@ -1922,7 +2476,8 @@ def poison_pulse(row, previous, setup, owner, target, events, common):
         return None
     condition = "poison_severe" if before & 2 else "poison_mild"
     applied = next((event for event in reversed(events)
-                    if event["kind"] == "condition_changed" and event["target"] == target), None)
+                    if event["kind"] == "condition_changed" and event["target"] == target
+                    and (condition in event["before"]) != (condition in event["after"])), None)
     if (applied is None or applied["owner"] != owner or condition not in applied["after"]
             or condition in applied["before"]):
         return None
@@ -1957,7 +2512,37 @@ def enemy_pending_entry(rows, setup, expected, onset):
         return None
     recipient = setup.get("recipient_input", {})
     host = recipient.get("target_slot")
-    if recipient.get("mode") == "attack" and host is not None and host < slot:
+    prerequisites = setup.get("assistance", {}).get("preparation", {}).get("prerequisites", {})
+    if recipient.get("controller") == "owner":
+        if (recipient.get("actor") != owner or recipient.get("source_slot") != slot
+                or recipient.get("mode") != "stick" or recipient.get("port") != 0
+                or not prerequisites.get("owner_control") or not prerequisites.get("origin_bounds")
+                or first == 0 or not single_action_fixture.prerequisite_ready(rows[first - 1], slot, prerequisites)):
+            raise ValueError("owner movement lacks its routed input and observed origin prerequisite")
+        press, release = recipient["press_after_updates"], recipient["release_after_updates"]
+        walking = [row for row in rows[:first]
+                   if press <= row["battle_combat_tick_word"] - setup["initial_battle"]["combat_tick"] < release]
+        if (len(walking) < 2 or any(row[prefix + "action"] >> 24 not in (3, 4) for row in walking)
+                or any((row[f"actor_{slot}_control_word"] >> 24) & 0x38
+                       or (row[f"actor_{slot}_control_word"] >> 16) & 0xc0 for row in walking)
+                or all(row[prefix + "x_bits"] == walking[0][prefix + "x_bits"]
+                       and row[prefix + "z_bits"] == walking[0][prefix + "z_bits"] for row in walking)):
+            raise ValueError("owner movement lacks ordinary manual walking observations")
+        return rows[first]["battle_combat_tick_word"] - setup["initial_battle"]["combat_tick"]
+    if deployment := prerequisites.get("defense_deployment"):
+        core = deployment["core"]
+        initial_core = next(actor for actor in setup["initial_battle"]["actors"] if actor["slot"] == core)
+        if (setup.get("defense_deployed") is not False or deployment["initial_phase"] != 0
+                or initial_core["hp"] * 100 > initial_core["max_hp"] * deployment["hp_percent"]
+                or not any(observed_body(row, core, setup["body_resources"][str(core)])[0] == 32
+                           for row in rows[:first])):
+            raise ValueError("attached action lacks its observed core deployment prelude")
+        # The ordinary encounter controller moves the attached arm throughout
+        # deployment. Replay that controller, then the witnessed selection;
+        # no resulting arm position or pose is restored during combat.
+        return rows[first]["battle_combat_tick_word"] - setup["initial_battle"]["combat_tick"]
+    if (recipient.get("mode") == "attack" and host is not None
+            and prerequisites.get("release_host") == host):
         # Replay the physical host hit and complete recovery before selection;
         # do not restore the carried actor's resulting position or facing.
         releases = [index for index in range(1, first)
@@ -1975,22 +2560,51 @@ def enemy_pending_entry(rows, setup, expected, onset):
             raise ValueError("participant release lacks observed host damage and recovery")
         return rows[first]["battle_combat_tick_word"] - setup["initial_battle"]["combat_tick"]
     ready = setup["actors"][owner]
-    headings = [f32(row[prefix + "heading_bits"]) for row in rows[:onset + 1]]
+    # Entry initialization may place and orient actors before combat starts.
+    # Later motion is checked against that last observed noncombat boundary.
+    entry = [row for row in rows[:first]
+             if row["battle_combat_tick_word"] == setup["initial_battle"]["combat_tick"]]
+    heading = f32(entry[-1][prefix + "heading_bits"]) if entry else ready["heading"]
+    combat_rows = [(index, row) for index, row in enumerate(rows[:onset + 1])
+                   if row["battle_combat_tick_word"] > setup["initial_battle"]["combat_tick"]]
+    if (combat_rows and combat_rows[0][0] < first
+            and combat_rows[0][1]["battle_combat_tick_word"] == setup["initial_battle"]["combat_tick"] + 1
+            and f32(combat_rows[0][1][prefix + "heading_bits"]) == ready["heading"]):
+        # Some entry poses temporarily face a fixed direction, then restore
+        # the exact ready facing at the first ordinary combat visit.
+        heading = ready["heading"]
+    headings = [f32(row[prefix + "heading_bits"]) for _, row in combat_rows]
     hovering = all(row.get(f"actor_{slot}_condition_5c", 0) & 3 == 3
                    and row.get(f"actor_{slot}_raw_280", 0) & 0xe00000
                    for row in rows[first:onset + 1])
     approaching = any(row[prefix + "action"] == 4 << 24 for row in rows[first:onset])
-    if all(heading == ready["heading"] for heading in headings) and not hovering and not approaching:
+    if all(value == heading for value in headings) and not hovering and not approaching:
         return None
-    if any(heading != ready["heading"] for heading in headings[:first]):
+    if any(f32(row[prefix + "heading_bits"]) != heading
+           for index, row in combat_rows if index < first):
         raise ValueError("enemy facing changed before its observed pending entry")
     # Settled floating actors bob during selection, then hold their height once
     # the action binds. Replay that observed input phase, without restoring Y.
-    axes = (0, 2) if hovering else (0, 1, 2)
+    phase = prerequisites.get("health_phase")
+    height = prerequisites.get("hover_height")
+    if phase is not None and ready["hp"] * 100 <= ready["max_hp"] * phase["hp_percent"]:
+        height = phase["hover_height"]
+    # Noncombat placement is replayed through its observed entry history.
+    # Use its final position as the origin of subsequent ordinary movement.
+    origin = ([f32(entry[-1][prefix + axis + "_bits"]) for axis in "xyz"]
+              if entry else ready["position"])
+    rising = False
+    if height is not None:
+        heights = [f32(row[prefix + "y_bits"]) for index, row in combat_rows if index < first]
+        rising = (bool(heights) and all(value is not None and min(origin[1], height) <= value <= max(origin[1], height)
+                                      for value in heights)
+                  and any(row.get(f"actor_{slot}_condition_5c", 0) & 0x100001 == 0x100001
+                          for index, row in combat_rows if index < first))
+    axes = (0, 2) if hovering or rising else (0, 1, 2)
     # A contiguous selected walk is itself the observed input. Native replay
     # starts that approach at its first update and still checks bound admission.
-    stationary = rows[:first] if approaching else rows[:onset + 1]
-    if any(any(f32(row[prefix + "xyz"[axis] + "_bits"]) != ready["position"][axis]
+    stationary = [row for index, row in combat_rows if not approaching or index < first]
+    if any(any(f32(row[prefix + "xyz"[axis] + "_bits"]) != origin[axis]
                for axis in axes) for row in stationary):
         raise ValueError("enemy pending entry has an unsupported movement prelude")
     delay = rows[first]["battle_combat_tick_word"] - setup["initial_battle"]["combat_tick"]
@@ -1999,24 +2613,50 @@ def enemy_pending_entry(rows, setup, expected, onset):
     return delay
 
 
-def bind_action_target(row, setup, events=()):
+def enemy_approach_targets(rows, setup, delay, onset):
+    """Retain target choices made before a hostile action binds."""
+    owner = setup["owner"]
+    if setup["actors"][setup["target"]]["side"] == setup["actors"][owner]["side"]:
+        return []
+    slot = setup["source_actor_map"][owner]["source_slot"]
+    initial = setup["initial_battle"]["combat_tick"]
+    selected = [row for row in rows[:onset]
+                if initial + delay <= row["battle_combat_tick_word"]]
+    if not selected or selected[0]["battle_combat_tick_word"] != initial + delay:
+        raise ValueError("enemy approach target lacks its first selected update")
+    addresses = {actor["address"]: index
+                 for index, actor in enumerate(setup["initial_battle"]["actors"])}
+    changes = []
+    for row in selected:
+        target = addresses.get(row[f"battle_actor_{slot}_target"])
+        if target is None or setup["actors"][target]["side"] == setup["actors"][owner]["side"]:
+            raise ValueError("enemy approach target is not an observed opponent")
+        if not changes or changes[-1]["target"] != target:
+            changes.append(dict(after_updates=row["battle_combat_tick_word"] - initial, target=target))
+    if changes[-1]["target"] != setup["target"]:
+        raise ValueError("enemy target changed at bound admission without an observed approach choice")
+    return changes
+
+
+def bind_action_target(row, setup, events=(), *, allied_spell=False):
     """Use the admitted action's observed selection, before any contact outcome."""
     slot = setup["source_actor_map"][setup["owner"]]["source_slot"]
     support_item = any("use_item" in event and not event["use_item"]["party"]
                        for _, event in events)
-    source_field = f"actor_{slot}_support_target" if support_item else f"battle_actor_{slot}_target"
+    support_target = support_item or allied_spell
+    source_field = f"actor_{slot}_support_target" if support_target else f"battle_actor_{slot}_target"
     pointer = row[source_field]
     recipient = next((index for index, actor in enumerate(setup["initial_battle"]["actors"])
                       if actor["address"] == pointer), None)
     if recipient is None:
         raise ValueError("admitted action target is not an observed actor")
-    if support_item and setup["actors"][recipient]["side"] != setup["actors"][setup["owner"]]["side"]:
-        raise ValueError("item support recipient is not an allied actor")
+    if support_target and setup["actors"][recipient]["side"] != setup["actors"][setup["owner"]]["side"]:
+        raise ValueError("support recipient is not an allied actor")
     setup.setdefault("requested_target", setup["target"])
     setup["action_target_observation"] = dict(recipient=recipient, pointer=pointer,
         combat_tick=row["battle_combat_tick_word"],
         presentation_tick=row["battle_presentation_tick_word"])
-    if support_item:
+    if support_target:
         setup["action_target_observation"]["source_field"] = source_field
     setup["target"] = recipient
     return recipient
@@ -2039,6 +2679,8 @@ def normalize(case, rows, setup, banks, expected, images):
     setup.pop("effect_baseline", None)
     setup.pop("chance_effects", None)
     setup.pop("immediate_end_programs", None)
+    setup.pop("pre_admission_actors", None)
+    setup.pop("effect_model_parents", None)
     source_owner = setup["source_actor_map"][owner]["source_slot"]
     addresses = {a["address"]: i for i, a in enumerate(setup["initial_battle"]["actors"])}
     slots = [a["slot"] for a in setup["initial_battle"]["actors"]]
@@ -2047,10 +2689,13 @@ def normalize(case, rows, setup, banks, expected, images):
         if setup.get(key):
             missing.add(setup[key])
     start_tick, selected_tick, returned, action = None, None, False, 0
+    other_selection = None
     ordinal, previous_nodes, serial = {}, {}, Counter()
     previous_age, particle_identity, observed_particle_births, projectile_births = {}, {}, set(), set()
+    previous_particle_signature = {}
     previous_result, live_programs_old, program_serial, declaration_seen = {}, {}, 0, set()
     model_counts, model_ordinals, semantics = Counter(), {}, []
+    unobserved_model_births = set()
     diagnostics = {"Body bone0 world is the last completed display publication with an unobserved timestamp; body bone geometry is outside this test. Actor placement, bound clip/frame and deterministic effect transforms remain observed separately."}
     recovery_seen, program_history = False, {}
     baseline, retired = [], False
@@ -2058,7 +2703,12 @@ def normalize(case, rows, setup, banks, expected, images):
     scenery_frozen, scenery_pause = 0, None
     support = setup.get("support")
     recipient_input = setup.get("recipient_input")
+    if recipient_input is not None:
+        # Movie polls are sampled after the battle update. The corresponding
+        # input is consumed by the following update, not the sampled one.
+        recipient_input["poll_to_update_offset"] = 2
     recipient_guard_seen = False
+    target_attack_checked = False
     self_defeated, handler_started = False, False
     counts = observation_counts(rows[0]) if rows else {}
     particle_addresses = setup.get("observer", {}).get("particle_addresses")
@@ -2086,11 +2736,14 @@ def normalize(case, rows, setup, banks, expected, images):
         return {"kind": "unresolved"}
 
 
-    def identity(label, address, present, age):
+    def identity(label, address, present, age, signature=None):
         key = (label, address)
-        if address not in previous_nodes.get(label, set()) or age < previous_age.get(key, age):
+        changed = signature is not None and previous_particle_signature.get(address, signature) != signature
+        if address not in previous_nodes.get(label, set()) or age < previous_age.get(key, age) or changed:
             serial[label] += 1
             ordinal[key] = serial[label]
+        if signature is not None:
+            previous_particle_signature[address] = signature
         previous_age[key] = age
         present.add(address)
         return ordinal[key]
@@ -2112,6 +2765,10 @@ def normalize(case, rows, setup, banks, expected, images):
                 if clock in row and clock in rows[index - 1] and row[clock] >> 16 == rows[index - 1][clock] >> 16:
                     frozen_updates[actor_id] += 1
         # Later pauses cannot change an already completed physical input interval.
+        if (recipient_input is not None and recipient_input.get("repeat_every_updates")
+                and combat == setup["initial_battle"]["combat_tick"]
+                and row["battle_actor_0_action"] >> 24 in (5, 10)):
+            missing.add("repeated recipient input admitted an attack before combat")
         if (recipient_input is not None and combat > setup["initial_battle"]["combat_tick"]
                 and presentation - setup["initial_battle"]["presentation_tick"]
                 <= recipient_input["release_after_polls"] // 2 + 1):
@@ -2121,12 +2778,29 @@ def normalize(case, rows, setup, banks, expected, images):
                                    ("down_after_polls", "down_after_updates"),
                                    ("release_after_polls", "release_after_updates")):
                 count = recipient_input.get(polls)
-                delay = None if count is None else count // 2 - entry_vis + 1
+                delay = None if count is None else count // 2 - entry_vis + 2
+                if (polls == "press_after_polls" and delay is not None and delay <= 0
+                        and (period := recipient_input.get("repeat_every_updates")) is not None):
+                    # Keep the original poll interval as evidence. Entry blocks
+                    # attacks; replay begins with its first post-entry press.
+                    delay += ((1 - delay + period - 1) // period) * period
                 if delay is not None and delay <= 0:
                     missing.add("recipient input was scheduled before combat")
                 if updates in recipient_input and recipient_input[updates] != delay:
                     missing.add("recipient input interval crossed an unobserved combat pause")
                 recipient_input[updates] = delay
+        if recipient_input is not None and combat > setup["initial_battle"]["combat_tick"]:
+            elapsed = presentation - setup["initial_battle"]["presentation_tick"]
+            entry_vis = elapsed - (combat - setup["initial_battle"]["combat_tick"])
+            for interval in recipient_input.get("stick_intervals", []):
+                if elapsed > interval["release_after_polls"] // 2 + 1:
+                    continue
+                for edge in ("press", "release"):
+                    key = f"{edge}_after_updates"
+                    delay = interval[f"{edge}_after_polls"] // 2 - entry_vis + 2
+                    if delay <= 0 or key in interval and interval[key] != delay:
+                        missing.add("recipient movement interval crossed an unobserved combat pause")
+                    interval[key] = delay
         common = dict(presentation_tick=presentation, combat_tick=combat)
         actors, body_models, secondary_models = [], [], []
         for actor_id, slot in enumerate(slots):
@@ -2183,6 +2857,15 @@ def normalize(case, rows, setup, banks, expected, images):
                 missing.add(f"secondary body observation unavailable: {error}")
         observed = {key: row[f"actor_{source_owner}_{key}"] & (65535 if key == "native" else 0xffffffff) for key in expected}
         action_word = row[f"battle_actor_{source_owner}_action"]
+        if (other_selection is None and start_tick is None and "selected" in expected
+                and action_word >> 24 in (4, 5, 10) and observed["selected"] != expected["selected"]):
+            target_slot = slots[setup["target"]]
+            other_selection = dict(combat_tick=combat, presentation_tick=presentation,
+                owner_action=action_word >> 24, owner_phase=action_word >> 16 & 255,
+                selected=observed["selected"], expected=expected["selected"],
+                target_distance=f32(row.get(f"actor_{source_owner}_target_distance_bits", 0)),
+                target_action=row[f"battle_actor_{target_slot}_action"] >> 24,
+                target_phase=row[f"actor_{target_slot}_target_state_word"] >> 24)
         if (start_tick is None and "selected" in expected and action_word >> 24 == 5 and
                 ((action_word >> 16) & 255) != 0 and
                 observed["selected"] != expected["selected"]):
@@ -2200,7 +2883,13 @@ def normalize(case, rows, setup, banks, expected, images):
             and observed.get("native") == setup["input"]["selection_native"])
         if input_selected and selected_tick is None:
             selected_tick = combat
+        pending_selected = ("selected" in expected and action_word >> 24 in (4, 10)
+                            and observed["selected"] == expected["selected"])
+        if (input_selected or pending_selected) and not target_attack_checked:
+            target_attack_checked = True
             if "target_attacking" in case.get("definition", {}).get("requirements", {}).get("predicates", []):
+                # This is a selection prerequisite. A following approach may
+                # finish after the opponent's attack has already ended.
                 target_slot = slots[setup["target"]]
                 target_action = row[f"battle_actor_{target_slot}_action"] >> 24
                 target_phase = row[f"actor_{target_slot}_target_state_word"] >> 24
@@ -2215,7 +2904,9 @@ def normalize(case, rows, setup, banks, expected, images):
         if active and start_tick is None:
             if "selected" in expected:
                 try:
-                    target = bind_action_target(row, setup, attack.get("events", []))
+                    target = bind_action_target(row, setup, attack.get("events", []),
+                        allied_spell=isinstance(execution, dict) and "spell" in execution
+                            and case.get("definition", {}).get("target_allies", False))
                 except (KeyError, ValueError) as error:
                     missing.add(str(error))
             baseline = recurring_effects(semantics, banks)
@@ -2390,6 +3081,7 @@ def normalize(case, rows, setup, banks, expected, images):
         particle_records += [(f"alternate_{i}",address) for i,address in alternate_nodes if row[f"alternate_{i}_10"] >> 24 == 1]
         complete_particles &= complete_alternate
         present, effect_models, particle_ages = set(), [], []
+        model_parent_observations, model_parent_transitions = [], []
         fixed_program_bindings = {
             address: tuple(row[f"particle_{i}_{at:x}"] for at in (0x60, 0x6c, 0x2c))
             for i, address in enumerate(particle_addresses or []) if row[f"particle_{i}_10"] >> 24 == 0
@@ -2403,11 +3095,15 @@ def normalize(case, rows, setup, banks, expected, images):
             particle_age = signed16(get(0x278) >> 16) if initialized else 0
             # Do not let stale allocator age create a second generation when
             # this same copied declaration initializes on the next update.
-            pid = identity("particle", address, present, particle_age)
             parent = get(0x184)
+            # An allocation can be reused between samples without an age drop.
+            # Declaration type, bank slot and owning scheduler stay fixed for
+            # a live particle, including its pending initialization sample.
+            pid = identity("particle", address, present, particle_age,
+                           (copied[0], copied[2], parent))
             embedded = next((a for a in setup["initial_battle"]["actors"]
                              if a["address"] + 0x15b4 == parent), None)
-            if particle_addresses is not None or prefix.startswith("alternate_"):
+            if particle_addresses is not None or (prefix.startswith("alternate_") and "object_lists" not in row):
                 # Pool and alternate entries share storage with other node types.
                 # Join typed words instead of following an unchecked union pointer.
                 binding = program_now.get(parent - 0x28)
@@ -2428,15 +3124,25 @@ def normalize(case, rows, setup, banks, expected, images):
                     slot = embedded["slot"]
                     parent_live = bool(row[f"actor_{slot}_effect_program"] and
                         (row[f"actor_{slot}_effect_bank"], row[f"actor_{slot}_effect_program"]) == signature[:2])
+            completed_birth = effect_entry.completed_condition_birth(
+                setup, index, presentation, address, parent, copied, particle_age)
+            if completed_birth is not None:
+                # The scheduler slot may already be free or reused. Its exact
+                # ready birth binds this particle independently of that slot.
+                signature, parent_live = completed_birth, True
             base, root, parent_owner = signature
             bank = banks.get(base)
             owner_bone = ((get(0xb4) >> 24) if initialized and get(0x3c) & 0x40000000
                           and prefix + "_b4" in row else None)
+            model_attachment = ((get(0xb4) >> 24, (get(0xb4) >> 16) & 255)
+                                if initialized and copied[0] == 3 and get(0x3c) & 0x20000
+                                and prefix + "_b4" in row else None)
             matches = declaration_matches(bank, copied, root - base,
                 model_binding=row.get(prefix + "_fc"), initialized=initialized, age=particle_age,
-                owner_bone=owner_bone,
+                owner_bone=owner_bone, model_attachment=model_attachment,
                 angles=[f32(get(at)) for at in (0x80, 0x84, 0x88)]
-                    if all(prefix + "_" + format(at, "x") in row for at in (0x80, 0x84, 0x88)) else None) if bank else []
+                    if all(prefix + "_" + format(at, "x") in row for at in (0x80, 0x84, 0x88)) else None
+                ) if bank and pid not in particle_identity else []
             if len(matches) > 1 and initialized and parent_live:
                 birth_tick = observed_birth_tick(row, rows[index - 1] if index else None,
                     prefix, signature, setup, previous_nodes.get("particle", set()),
@@ -2444,8 +3150,12 @@ def normalize(case, rows, setup, banks, expected, images):
                 matches = declaration_matches(bank, copied, root - base,
                     model_binding=row.get(prefix + "_fc"), initialized=True,
                     age=particle_age, birth_tick=birth_tick, owner_bone=owner_bone,
+                    model_attachment=model_attachment,
                     size=[f32(get(at)) for at in (0xd8, 0xdc, 0xe0)]
-                        if setup.get("observer", {}).get("particle_transforms", True) else None)
+                        if setup.get("observer", {}).get("particle_transforms", True) else None,
+                    offset=[f32(get(at)) for at in (0x5c, 0x60, 0x64)]
+                        if prefix + "_180" in row else None,
+                    heading=f32(get(0x180)) if prefix + "_180" in row else None)
             member = matches[0] if len(matches) == 1 else None
             if pid not in particle_identity and bank is not None and member is not None and parent_live:
                 if root - base in bank["roots"]:
@@ -2487,16 +3197,31 @@ def normalize(case, rows, setup, banks, expected, images):
                 except ValueError as error:
                     missing.add(str(error))
                 if transforms:
+                    parent_transform = None
+                    if get(0x3c) & 0x20000:
+                        observed_parent = effect_model_joints.observed(row, prefix, bank["source_sha256"], binding,
+                            setup.get("observer", {}).get("model_joints", []),
+                            program_records + particle_records, setup["initial_battle"]["actors"], f32, relation=True)
+                        if observed_parent is not None:
+                            parent_transform = observed_parent["world"]
+                            model_parent_observations.append((pid, observed_parent))
+                    elif get(0x3c) & 0x40000000 and particle_owner is not None:
+                        bone = get(0xb4) >> 24
+                        parent_prefix = f"actor_{slots[particle_owner]}_bone_{bone}_"
+                        if all(parent_prefix + str(word) in row for word in range(12)):
+                            parent_transform = [f32(row[parent_prefix + str(word)]) for word in range(12)]
+                            if any(value is None for value in parent_transform):
+                                parent_transform = None
                     model["world"] = static_model_world(origin, offset,
                         [f32(get(at)) for at in (0x80, 0x84, 0x88)],
-                        [f32(get(at)) for at in (0xd8, 0xdc, 0xe0)], get(0x3c), f32(get(0x16c)))
+                        [f32(get(at)) for at in (0xd8, 0xdc, 0xe0)], get(0x3c), f32(get(0x16c)), parent_transform)
                 else:
                     missing.add("sprite-only observer encountered an effect model")
                 if model["world"] is None:
                     missing.add("attached particle model requires its additional transform observation")
             attachment = (follow(row.get(prefix + "_1c"), projectile_addresses)
                           if get(0x3c) & 0x400 else None)
-            if get(0x3c) & 0x20000000:
+            if get(0x3c) & (0x20000000 | 0x40000000):
                 bone = row.get(prefix + "_b4")
                 attachment = (dict(kind="bone", actor=particle_owner, bone=bone >> 24)
                               if bound and particle_owner is not None and bone is not None
@@ -2506,8 +3231,11 @@ def normalize(case, rows, setup, banks, expected, images):
                     key = (particle_owner, bank["source_sha256"], member)
                     model_counts[key] += 1
                     model_ordinals[pid] = model_counts[key]
-                    if particle_age > 1:
-                        missing.add("deterministic model birth was not observed")
+                    if particle_age > 1 and not effect_entry.retained_birth(
+                            setup, index, presentation, address, parent, copied, signature, particle_age):
+                        unobserved_model_births.add(pid)
+                if start_tick is not None and pid in unobserved_model_births:
+                    missing.add("deterministic model birth was not observed")
                 if isinstance(attachment, dict) and attachment["kind"] in ("unobserved", "unresolved"):
                     missing.add("deterministic model attachment incomplete")
                 effect_models.append(dict(owner=particle_owner, bank=bank["source_sha256"], member=member,
@@ -2515,11 +3243,49 @@ def normalize(case, rows, setup, banks, expected, images):
             particles.append(dict(id=pid, owner=particle_owner if bound else None,
                 bank=bank["source_sha256"] if bank else None, member=member,
                 initialized=initialized, age=particle_age, origin=origin, offset=offset,
+                angles=([f32(get(at)) for at in (0x80, 0x84, 0x88)]
+                        if initialized and transforms else None),
+                model_slot=(get(0xfc) >> 24) if model is not None else None,
                 owner_bone=(get(0xb4) >> 24) if initialized and transforms and get(0x3c) & 0x40000000 else None, model=model))
             particle_ages.append((particles[-1], particle_age))
+        # Resolve after enumeration: a child's live parent can appear later in the list.
+        for child, observation in model_parent_observations:
+            parent_id = ordinal.get(("particle", observation["parent"]))
+            if observation["parent"] not in present or parent_id not in model_ordinals:
+                missing.add("attached model parent has no current initialized identity")
+                continue
+            def model_key(pid):
+                bank, member, actor = particle_identity[pid]
+                return dict(owner=actor, bank=bank["source_sha256"], member=member,
+                            ordinal=model_ordinals[pid])
+            relation = dict(child=model_key(child), parent=model_key(parent_id), joint=observation["joint"],
+                            child_particle=child, parent_particle=parent_id)
+            relations = setup.setdefault("effect_model_parents", [])
+            prior = [item for item in relations if item["child"] == relation["child"]]
+            if prior and prior != [relation]:
+                missing.add("attached model changed its live parent identity")
+            elif not prior:
+                relations.append(relation)
+            parent_model = next((item for item in effect_models
+                if all(item[key] == value for key, value in relation["parent"].items())), None)
+            previous_model = next((item for item in frames[-1]["effect_models"]
+                if all(item[key] == value for key, value in relation["parent"].items())), None) if frames else None
+            if (parent_model is not None and previous_model is not None
+                    and parent_model["model"]["clip"] != previous_model["model"]["clip"]):
+                outgoing = [pose for pose in observation["controllers"]
+                            if pose["clip"] == previous_model["model"]["clip"]]
+                if len(outgoing) == 1:
+                    model_parent_transitions.append(dict(child=relation["child"],
+                        model=observation["model"], outgoing=outgoing[0]))
         # An incomplete prefix cannot establish death; retain generation identity.
         previous_nodes["particle"] = present if complete_particles else previous_nodes.get("particle", set()) | present
         if index and start_tick is not None:
+            if active:
+                try:
+                    semantics.extend(support_outcomes.enemy_debuffs(
+                        case, rows[index - 1], row, setup, semantics, common, start_tick))
+                except (KeyError, ValueError) as error:
+                    missing.add(f"enemy debuff attribution unavailable: {error}")
             # Exact owner contact target plus the recipient's HP transition.
             # A simultaneous competing attacker makes attribution ambiguous.
             for recipient in actors:
@@ -2562,6 +3328,14 @@ def normalize(case, rows, setup, banks, expected, images):
                             owner=owner, target=recipient["actor"], common=common))
                     except (KeyError, ValueError) as error:
                         missing.add(f"support transition unavailable: {error}")
+                if (case["id"] == "party:5:136" and recipient["actor"] == owner
+                        and recipient["tp"] > (rows[index - 1][f"battle_actor_{slot}_tp_word"] & 65535)):
+                    try:
+                        drain = support_outcomes.seal_drain(row, rows[index - 1], setup, events, common, "tp")
+                        if drain is not None:
+                            semantics.append(drain)
+                    except (KeyError, ValueError) as error:
+                        missing.add(str(error))
                 if loss > 0:
                     if not competitors:
                         pulse = poison_pulse(row, rows[index - 1], setup, owner,
@@ -2650,10 +3424,15 @@ def normalize(case, rows, setup, banks, expected, images):
                         if applied is not None:
                             semantics.append(dict(common, **applied))
                     events.append(event)
-                elif loss == 0 and latch:
+                elif loss == 0:
                     try:
-                        protected = recovery_protected_contact(row, rows[index - 1], setup,
-                                                               owner, recipient["actor"])
+                        protected = protected_projectile_contact(row, rows[index - 1], setup,
+                            owner, recipient["actor"],
+                            {row[prefix + "_address"]: pid
+                             for pid, prefix in projectile_prefixes.items()})
+                        if protected is None and latch:
+                            protected = recovery_protected_contact(row, rows[index - 1], setup,
+                                                                  owner, recipient["actor"])
                         if protected is not None:
                             events.append(dict(common, **protected))
                     except (damage_envelope.UnsupportedDamage, KeyError) as error:
@@ -2661,7 +3440,7 @@ def normalize(case, rows, setup, banks, expected, images):
                 elif loss < 0:
                     if case["id"] == "party:5:135" and recipient["actor"] == owner:
                         try:
-                            drain = support_outcomes.hp_drain(row, rows[index - 1], setup, events, common)
+                            drain = support_outcomes.seal_drain(row, rows[index - 1], setup, events, common, "hp")
                             if drain is not None:
                                 semantics.append(drain)
                                 continue
@@ -2681,6 +3460,7 @@ def normalize(case, rows, setup, banks, expected, images):
             actors=actors, models=models, projectiles=projectiles, particles=particles,
             **({"secondary_models": secondary_models} if "secondary_bodies" in setup else {}),
             effect_models=effect_models, programs=programs,
+            **({"model_parent_transitions": model_parent_transitions} if model_parent_transitions else {}),
             authored_action_clock=row[f"actor_{source_owner}_clock"],
             source_random_state=row["battle_random_state_word"],
             image=images[index] if images else None)
@@ -2722,16 +3502,35 @@ def normalize(case, rows, setup, banks, expected, images):
                          defeated_terminal or departed_terminal) and retired:
             break
     started = next((event for event in events if event["kind"] == "started"), None)
+    history, history_gaps = entry_history.observe(rows, setup, started)
+    setup.update(history)
+    missing.update(history_gaps)
     if started is not None:
         # Keep preroll in raw observations. The shared comparison starts once,
         # at the witnessed requested action, without per-event realignment.
         first = next(i for i, frame in enumerate(frames) if
                      frame["presentation_tick"] == started["presentation_tick"])
+        if first and frames[first - 1]["presentation_tick"] + 1 == started["presentation_tick"]:
+            previous = frames[first - 1]
+            setup["pre_admission_actors"] = dict(
+                presentation_tick=previous["presentation_tick"],
+                combat_tick=previous["combat_tick"],
+                actors=[{key: actor[key] for key in ("actor", "position", "heading")}
+                        for actor in previous["actors"]])
+        if departure:
+            try:
+                setup["departure_prerequisite"] = enemy_prerequisites.departure_observation(rows[:first + 1], setup)
+            except (KeyError, ValueError) as error:
+                missing.add(f"departure prerequisite unavailable: {error}")
         setup["input"].pop("pending_entry_after_updates", None)
+        setup.pop("approach_target_changes", None)
         try:
             pending_entry = enemy_pending_entry(rows, setup, expected, first)
             if pending_entry is not None:
                 setup["input"]["pending_entry_after_updates"] = pending_entry
+                changes = enemy_approach_targets(rows, setup, pending_entry, first)
+                if changes:
+                    setup["approach_target_changes"] = changes
         except ValueError as error:
             missing.add(str(error))
         frames = frames[first:]
@@ -2769,9 +3568,15 @@ def normalize(case, rows, setup, banks, expected, images):
         semantics.extend(condition_changes)
     except (KeyError, ValueError) as error:
         missing.add(f"seal branch attribution unavailable: {error}")
+    try:
+        semantics.extend(support_outcomes.spell_debuffs(case, rows, setup, frames, semantics))
+    except (KeyError, ValueError) as error:
+        missing.add(f"spell debuff attribution unavailable: {error}")
     limits = set(missing)
     if case["id"] == "party:5:135" and not any(event["kind"] == "hp_drained" for event in semantics):
         limits.add("Life Seal drain was not observed")
+    if case["id"] == "party:5:136" and not any(event["kind"] == "tp_drained" for event in semantics):
+        limits.add("Spirit Seal drain was not observed")
     if recipient_input is not None and recipient_input["mode"] in ("normal", "special") and not recipient_guard_seen:
         limits.add("requested recipient guard was never observed")
     if setup.get("opponent_control", {}).get("mode") != "manual":
@@ -2788,7 +3593,7 @@ def normalize(case, rows, setup, banks, expected, images):
                    "requested action did not return to idle")
     if rows and not retired:
         limits.add("capture ended before complete projectile/effect retirement; no persistent baseline was established")
-    outcome = case.get("context", "attack")
+    outcome = observed_outcome(case.get("context", "attack"), setup, semantics)
     required = ("hit" if outcome in ("attack", "aerial", "capture") else
                 "revived" if outcome == "revival" else
                 "departed" if outcome == "departure" else
@@ -2801,10 +3606,7 @@ def normalize(case, rows, setup, banks, expected, images):
                     for _, event in authored)):
         required = "self_defeated"
         setup["self_defeat"] = dict(scripted_defeat, terminal_only=True)
-    if required == "hit" and any(event["kind"] == "condition_changed" and event["owner"] == owner and
-            setup["actors"][event["target"]]["side"] != setup["actors"][owner]["side"] and
-            (set(event["after"]) - set(event["before"])) & (support_outcomes.AILMENTS | {"recovery_down"})
-            for event in semantics):
+    if required == "hit" and hostile_condition_outcome(setup, semantics):
         required = None
     if required and not any(e["kind"] == required for e in semantics):
         limits.add(f"intended {outcome} outcome was not attributed to the requested action")
@@ -2869,8 +3671,9 @@ def normalize(case, rows, setup, banks, expected, images):
         limits.add("selected contextual outcome has no implemented source observer")
     return dict(case=case["id"], setup=setup, frames=frames,
         events=sorted(semantics, key=lambda e: (e["clock"], e["presentation_clock"])),
-        assessment=dict(outcome=case.get("context", "attack"), rng_streams_matched=False,
+        assessment=dict(outcome=outcome, rng_streams_matched=False,
                         diagnostic_limits=sorted(diagnostics), trace_schema=3,
+                        **({"other_selection": other_selection} if other_selection is not None else {}),
                         declaration_clock="first_initialized_particle", retirement_complete=retired,
                         terminal_complete=returned),
         incomplete_observations=sorted(limits))
@@ -2883,6 +3686,18 @@ def party_case(case):
         raise ValueError("catalogue binding requires an unavailable ordinary-input context")
     if capabilities["revives"]:
         result["target_dead"] = True
+        result["cycle_support_target"] = True
+    if (case["character"], case["arte"]) == (5, 135):
+        result["owner_missing_hp"] = True
+    if (case["character"], case["arte"]) == (5, 143):
+        # Cyclone needs an ordinary launchable recipient, not the heavy dummy.
+        result["formation"] = 0
+    if (case["character"], case["arte"]) == (3, 84):
+        # Give the surrounding lances a broad-bodied ordinary recipient.
+        result["formation"] = 120
+        # The first lance begins at x=100. Keep a nonzero planar aim vector
+        # instead of exercising the source's undefined coincident aim case.
+        result["contact_fixture"] = dict(case.get("contact_fixture", {}), target_x=400.0)
     if case.get("context") == "aerial":
         result["input"] = "aerial"
     if case["character"] == 2:
@@ -2893,6 +3708,13 @@ def party_case(case):
     if (case["character"], case["arte"]) == (3, 248):
         result["input_arte"] = 80
         result["technique_uses"] = {80: 50}
+    if (case["character"], case["arte"]) == (2, 251):
+        result["input_arte"] = 57
+        result["technique_uses"] = {57: 50, 58: 50}
+        # Exercise the trained cast replacement through its ordinary input.
+        # The two runtimes have independent random streams.
+        result["casting_random_state"] = 0
+        result["native_seed"] = 12
     if case.get("context") == "support":
         if capabilities["target"] not in ("ally", "party", "self_target"):
             raise ValueError("support fixture has no supported ordinary recipient selection")
@@ -2944,6 +3766,15 @@ def prepare_party_ready(worker, output, record, packages):
         battle = inspect(state, battle=True)["battle"]
         owner = next(a for a in battle["actors"] if a["slot"] == 0)
         if battle["phase"] == 3 and not battle["pause_flags"] and not battle["menu_flags"] & MENU_ACTIVE and owner["action"][0] == 3:
+            # A peer's entry controller can still be preparing after the owner
+            # becomes idle. Let that ordinary transition finish before taking
+            # a checkpoint whose model controllers must all be reproducible.
+            try:
+                ready_models(state, battle)
+            except ValueError as error:
+                if str(error) == "ready animation requires unsupported pending preparation":
+                    continue
+                raise
             break
     else:
         raise ValueError("ordinary combat idle was not attained after entry")
@@ -2961,18 +3792,96 @@ def manual_opponents(state, battle, owner=0):
             state.write(at + 0x107d, "B", (state.read(at + 0x107d, "B") & 0x3f) | 0xc0)
 
 
-def prepare_recipient_input(state, path, battle, specification, learning):
+def settle_enemy_entry(worker, output, record, base, initialized, max_vis, *, minimum_gameplay_tick=0):
+    """Finish scripted entry under neutral controls before arranging a fixture."""
+    battle, owner = initialized["battle"], initialized["actor"]
+    at = owner["address"]
+    control = (base.read(at + 0x107c, "B") & 0x38,
+               base.read(at + 0x107d, "B") & 0xc0)
+    state = base.fork()
+    manual_opponents(state, battle, owner=-1)
+    neutral = output / "neutral-entry.s01"
+    state.save(neutral)
+    shutil.copyfile(str(output / "initialized.s01") + ".dtm", str(neutral) + ".dtm")
+    changes = state.changes
+    slots = record["expected_slots"]
+    def idle(row):
+        return (row["battle_combat_tick_word"] > 0
+                and row["battle_gameplay_tick_word"] >= minimum_gameplay_tick
+                and all(row[f"battle_actor_{slot}_action"] >> 24 == 3 for slot in slots))
+    marker = record["fixture"]["case_marker"]
+    rows = worker.observe_until(neutral, output / "settled-entry", marker,
+                               max_vis, lambda observed: idle(observed[-1]))
+    if not idle(rows[-1]):
+        raise ValueError("neutral scripted entry did not reach ordinary idle combat")
+    settled = output / "settled-entry.s01"
+    worker.snapshot(settled)
+    state = State(settled)
+    current = inspect(state, battle=True)["battle"]
+    actor = next(actor for actor in current["actors"] if actor["slot"] == owner["slot"])
+    at = actor["address"]
+    state.write(at + 0x107c, "B", state.read(at + 0x107c, "B") & ~0x38 | control[0])
+    state.write(at + 0x107d, "B", state.read(at + 0x107d, "B") & 0x3f | control[1])
+    state.save(settled)
+    record["settled_entry"] = dict(capture=pin(output / "settled-entry/capture.json"),
+        neutral_controls=changes, restored_owner_control=state.changes,
+        minimum_gameplay_tick=minimum_gameplay_tick,
+        observed_gameplay_tick=current["gameplay_tick"], observed_owner_hp=actor["hp"],
+        scope="Unchanged entry and any required neutral combat updates complete before fixture preparation; no action, timer or animation is forced.")
+    write(output / "fixture.json", record)
+    return settled, enemy_artes.initialized_state(settled, output, record, idle=True)
+
+
+def refresh_enemy_placement(worker, output, record, state, state_path, battle, owner):
+    """Publish relocated geometry and then its distances before the first AI choice."""
+    actor = next(actor for actor in battle["actors"] if actor["slot"] == owner)
+    at = actor["address"]
+    control = (state.read(at + 0x107c, "B") & 0x38,
+               state.read(at + 0x107d, "B") & 0xc0)
+    neutral = state.fork()
+    manual_opponents(neutral, battle, owner=-1)
+    neutral_path = output / "neutral-placement.s01"
+    neutral.save(neutral_path)
+    shutil.copyfile(str(state_path) + ".dtm", str(neutral_path) + ".dtm")
+    # Distance uses the previous display publication and is updated after
+    # control input. Publish the moved body, then refresh its distance while
+    # the controller is still neutral.
+    refreshed_tick = battle["combat_tick"] + 2
+    rows = worker.observe_until(neutral_path, output / "placement-refresh",
+        record["fixture"]["case_marker"], 3,
+        lambda observed: observed[-1]["battle_combat_tick_word"] >= refreshed_tick, stepped=True)
+    if (rows[-1]["battle_combat_tick_word"] != refreshed_tick
+            or rows[-1][f"battle_actor_{owner}_action"] >> 24 != 3):
+        raise ValueError("idle fixture geometry and distances did not publish during two neutral combat updates")
+    worker.snapshot(state_path)
+    refreshed = State(state_path)
+    refreshed.write(at + 0x107c, "B", refreshed.read(at + 0x107c, "B") & ~0x38 | control[0])
+    refreshed.write(at + 0x107d, "B", refreshed.read(at + 0x107d, "B") & 0x3f | control[1])
+    refreshed.save(state_path)
+    return refreshed, dict(capture=pin(output / "placement-refresh/capture.json"),
+        neutral_controls=neutral.changes, restored_owner_control=refreshed.changes,
+        combat_tick=rows[-1]["battle_combat_tick_word"],
+        scope="Two ordinary neutral updates publish placed geometry and its distances before AI selection; no distance cache, action or timer is assigned.")
+
+
+def prepare_recipient_input(state, path, battle, specification, learning, *, owner=None):
     """Prepare physical input; contacts remain ordinary gameplay."""
     mode, release, down = specification["mode"], specification["release_after_polls"], specification.get("down_after_polls")
     press = specification.get("press_after_polls")
     stick = specification.get("stick")
+    repeat = specification.get("repeat_every_polls")
+    intervals = specification.get("stick_intervals", [])
     if battle["combat_tick"] != 0 or battle["party_order"] != [1, 0, 0, 0]:
         raise ValueError("recipient input requires Lloyd before combat")
-    if mode not in ("none", "normal", "special", "attack", "stick") or type(release) is not int or not 0 < release <= 1000 or release % 2:
+    if mode not in ("none", "normal", "special", "attack", "stick") or type(release) is not int or not 0 < release <= MAX_RECIPIENT_POLLS or release % 2:
         raise ValueError("recipient input mode/release interval is invalid")
-    if ((mode in ("attack", "stick") and (type(press) is not int or press % 2 or not 0 < press < release))
+    if ((mode in ("attack", "stick") and (type(press) is not int or press % 2
+                                           or not (0 if repeat is not None else 1) <= press < release))
             or mode not in ("attack", "stick") and press is not None):
         raise ValueError("recipient input needs one bounded press interval")
+    if repeat is not None and (mode != "attack" or type(repeat) is not int
+                               or repeat < 4 or repeat % 2 or repeat > release - press):
+        raise ValueError("recipient attack repetition needs an even bounded poll interval")
     if ((mode == "stick" and stick not in ([127, 0], [-127, 0], [0, 127], [127, 127], [-127, 127]))
             or mode != "stick" and stick is not None):
         raise ValueError("recipient stick input requires a horizontal direction or upward jump")
@@ -2983,14 +3892,27 @@ def prepare_recipient_input(state, path, battle, specification, learning):
     if target_slot is not None and (mode not in ("attack", "stick") or type(target_slot) is not int
             or not any(a["slot"] == target_slot and a["side"] == 1 for a in battle["actors"])):
         raise ValueError("recipient attack target is not an observed enemy")
-    actor = next(a for a in battle["actors"] if a["slot"] == 0)
+    previous_release = release
+    for interval in intervals:
+        begin, end = interval["press_after_polls"], interval["release_after_polls"]
+        if (type(begin) is not int or type(end) is not int or begin % 2 or end % 2
+                or not previous_release <= begin < end <= MAX_RECIPIENT_POLLS
+                or interval["stick"] not in ([127, 0], [-127, 0])):
+            raise ValueError("recipient movement intervals must be bounded and consecutive")
+        previous_release = end
+    controller = specification.get("controller", "recipient")
+    if controller not in ("recipient", "owner") or controller == "owner" and (mode != "stick" or owner is None):
+        raise ValueError("owner fixture input requires an observed owner and bounded stick movement")
+    actor_slot = owner if controller == "owner" else 0
+    actor_index, actor = next((index, actor) for index, actor in enumerate(battle["actors"])
+                             if actor["slot"] == actor_slot)
     at = actor["address"]
     if state.read(at + 0x282, "B") & 1:
         raise ValueError("recipient already guards before input")
     state.write(at + 0x107c, "B", state.read(at + 0x107c, "B") & ~0x38)
     state.write(at + 0x107d, "B", state.read(at + 0x107d, "B") & 0x3f)
     member = battle_artes.member(state, 1)
-    if state.read(at) != member:
+    if controller == "recipient" and state.read(at) != member:
         raise ValueError("recipient persistent record is not Lloyd")
     if mode not in ("attack", "stick"):
         learned = state.read(member + 0x70, "Q")
@@ -3003,6 +3925,8 @@ def prepare_recipient_input(state, path, battle, specification, learning):
     if mode not in ("none", "stick"):
         button = "a" if mode == "attack" else "x"
         for poll in range(cursor + (press or 0), cursor + release):
+            if repeat is not None and (poll - cursor - press) % repeat >= 2:
+                continue
             struct.pack_into("<H", data, 256 + poll * 8, 0x4000 | DTM_BUTTONS[button])
     if stick is not None:
         for poll in range(cursor + press, cursor + release):
@@ -3010,13 +3934,20 @@ def prepare_recipient_input(state, path, battle, specification, learning):
     if down is not None:
         for poll in range(cursor + down, cursor + down + 4):
             data[256 + poll * 8 + 5] = 0
+    for interval in intervals:
+        for poll in range(cursor + interval["press_after_polls"], cursor + interval["release_after_polls"]):
+            data[256 + poll * 8 + 4:256 + poll * 8 + 6] = bytes(value + 128 for value in interval["stick"])
     movie.unlink()
     movie.write_bytes(data)
     temporary.unlink()
-    return dict(actor=0, mode=mode, port=0, release_after_polls=release,
+    return dict(actor=actor_index, source_slot=actor_slot, controller=controller,
+                mode=mode, port=0, release_after_polls=release,
                 down_after_polls=down, press_after_polls=press,
+                **({"repeat_every_polls": repeat, "repeat_every_updates": repeat // 2}
+                   if repeat is not None else {}),
                 **({"stick": stick} if stick is not None else {}),
                 **({"target_slot": target_slot} if target_slot is not None else {}),
+                **({"stick_intervals": [dict(interval) for interval in intervals]} if intervals else {}),
                 **({"learned_arte": 34} if mode not in ("attack", "stick") else {}),
                 scope="Physical recipient input with observed admission; no forced action or contact result.")
 
@@ -3046,6 +3977,8 @@ def arrange_party(path, record, case):
     if (battle["mode"] != 9 or battle["phase"] != 3 or battle["pause_flags"] or battle["menu_flags"] & MENU_ACTIVE):
         raise ValueError("source is not ordinary unpaused combat before input")
     owner = next(a for a in battle["actors"] if a["slot"] == 0)
+    if case.get("owner_missing_hp"):
+        state.write(owner["vitals_address"] + 0x24, "I", owner["max_hp"] // 2)
     opponents = [a for a in battle["actors"] if a["side"] == 1]
     if len(opponents) != 1 or owner["action"][0] not in (2, 3):
         raise ValueError("generic party fixture requires one opponent and an idle owner")
@@ -3072,15 +4005,26 @@ def arrange_party(path, record, case):
             for actor in battle["actors"]:
                 if actor["side"] == owner["side"] and actor["slot"] != owner["slot"]:
                     state.write(actor["vitals_address"] + 0x2a, "H", actor["max_tp"] // 2)
+    bystanders = [a["slot"] for a in battle["actors"] if a["slot"] not in (owner["slot"], target["slot"])]
+    target_x = case.get("contact_fixture", {}).get("target_x", 100.0)
+    if not math.isfinite(target_x):
+        raise ValueError("party contact fixture target position is not finite")
     for actor in battle["actors"]:
-        x = 0.0 if actor["slot"] == 0 else 100.0 if actor["slot"] == target["slot"] else 1800.0
+        # Keep the whole fixture inside the arena. Parking idle actors beyond
+        # its boundary adds a clamp/steering transition before the arte starts.
+        x = 0.0 if actor["slot"] == owner["slot"] else target_x if actor["slot"] == target["slot"] else 600.0
+        z = (200.0 * (bystanders.index(actor["slot"]) - (len(bystanders) - 1) / 2)
+             if actor["slot"] in bystanders else 0.0)
         if support and actor["side"] == owner["side"]:
-            x = 0.0 if actor["slot"] == owner["slot"] else 300.0 if actor["slot"] == target["slot"] else -300.0 * actor["slot"]
-        for offset, value in ((0x18c0, x), (0x18c8, 0.0),
+            x = 0.0 if actor["slot"] == owner["slot"] else 300.0 if actor["slot"] == target["slot"] else -200.0 * actor["slot"]
+            z = 0.0
+        for offset, value in ((0x18c0, x), (0x18c8, z),
                               (0x195c, actor["center"][0] + x - actor["position"][0]),
-                              (0x1964, actor["center"][2] - actor["position"][2])):
+                              (0x1964, actor["center"][2] + z - actor["position"][2])):
             state.write(actor["address"] + offset, "f", value)
     state.write(owner["address"] + 0x1990, "I", target["address"])
+    if "casting_random_state" in case:
+        state.write(battle["pool"] + 0x7a670, "I", case["casting_random_state"])
     state.save(path)
     # The input window is relative to the observed state, not a guessed entry duration.
     cursor = inspect(state)["movie"]["input_count"]
@@ -3102,10 +4046,16 @@ def arrange_party(path, record, case):
             data[256 + poll * 8 + 5] = 0
         else:
             struct.pack_into("<H", data, 256 + poll * 8, 0x4000 | DTM_BUTTONS["b"])
+    if case.get("cycle_support_target"):
+        # The control stick selects an ally while the caster is stationary.
+        for poll in range(press + 16, press + 20):
+            data[256 + poll * 8 + 4] = 255
     movie.unlink()
     movie.write_bytes(data)
     temporary.unlink()
     inputs = dict(press_poll=press, button="guard_down" if guard_down else "b", polls=4)
+    if case.get("cycle_support_target"):
+        inputs["support_cycle_after_polls"] = 16
     if case.get("input") == "aerial":
         inputs.update(aerial_lead_polls=40, aerial_up_polls=32)
     if guard_down:
@@ -3139,50 +4089,230 @@ def clear_enemy_anchor(geometry, positions, owner, separation, anchor):
     raise ValueError("bounded body exclusion translation did not converge")
 
 
+def in_arena_recipient_gap(enemy, party, anchor, minimum, gap):
+    """Keep the recipient inside the arena without leaving the authored interval."""
+    if abs(anchor[2]) >= PARTY_FIXTURE_RADIUS:
+        raise ValueError("selected pair's depth leaves no room for a party recipient")
+    edge = -math.sqrt(PARTY_FIXTURE_RADIUS ** 2 - anchor[2] ** 2)
+    separation = battle_geometry.separation_for_gap(enemy, party, gap)
+    if anchor[0] - separation >= edge:
+        return gap, separation
+    available = battle_geometry.surface_gap(enemy, party, [anchor[0], anchor[2]], [edge, anchor[2]])
+    if available <= minimum:
+        raise ValueError("authored minimum distance cannot fit the recipient inside the arena")
+    gap = (minimum + min(gap, available)) / 2
+    return gap, battle_geometry.separation_for_gap(enemy, party, gap)
+
+
+def origin_bounded_anchor(anchor, minimum, maximum):
+    """Fit radial selection bounds while preserving the selected front rank."""
+    distance = math.hypot(anchor[0], anchor[2])
+    if minimum <= distance <= maximum:
+        return anchor
+    lower = min(minimum + 1.0, maximum)
+    upper = max(maximum - 1.0, lower)
+    radius = max(lower, min(distance, upper))
+    if distance < minimum:
+        # Increasing depth preserves the admission rank along X.
+        depth = math.sqrt(max(0.0, radius * radius - anchor[0] * anchor[0]))
+        return [anchor[0], anchor[1], math.copysign(depth, anchor[2])]
+    return [anchor[0] * radius / distance, anchor[1], anchor[2] * radius / distance]
+
+
+def enemy_placement_interval(row):
+    """Selection precedes approach; their distance bounds need not intersect."""
+    minimum = max(0, row["range"][0])
+    maximum = row["range"][1] or math.inf
+    if maximum < minimum:
+        raise ValueError("authored enemy selection distance interval is empty")
+    approach_minimum, approach_maximum = row.get("approach_minimum", 0), row.get("approach_range", 0)
+    if approach_maximum > 0:
+        # Reversed approach bounds intentionally require an ordinary retreat.
+        start = max(minimum, approach_minimum if approach_minimum <= approach_maximum else 0)
+        end = min(maximum, approach_maximum)
+        if start < end:
+            return start, end
+    # Start at a selectable distance, then retain the observed approach. A
+    # zero approach maximum disables that distance gate entirely.
+    return minimum, maximum
+
+
+def enemy_contact_gap(attack, enemy, party, minimum, maximum, attacking_target):
+    """Choose an admitted distance which the authored contact can actually reach."""
+    contacts = [event["contact"] for _, event in attack.get("events", []) if "contact" in event]
+    # A positive selection minimum must survive ordinary idle-pose movement.
+    # Reserve one contact radius inside that interval, rather than placing the
+    # pair at an almost exact boundary that can select a fallback action.
+    clearance = min((maximum - minimum) / 2,
+                    min((contact["radius"] for contact in contacts),
+                        default=min(body["radius"] for body in party["spheres"]))
+                    if minimum > 0 else 1.0)
+    gap = maximum - clearance if attacking_target and math.isfinite(maximum) else minimum + clearance
+    if attacking_target:
+        return gap
+    for _, event in attack.get("events", []):
+        projectile = event.get("projectile", {}).get("definition")
+        if not projectile:
+            continue
+        motion = projectile["motion"]
+        velocity, acceleration = projectile["velocity"], projectile["acceleration"]
+        if (motion["origin"] != "actor" or motion.get("steering")
+                or velocity[1] <= 0 or acceleration[1] >= 0
+                or velocity[2] <= 0 or acceleration[0] != 0 or acceleration[2] != 0):
+            continue
+        # Lobbed projectiles pass above a touching recipient. Place the target
+        # on the descending nominal arc, using its initialized body center.
+        # Jitter and actual contact remain observed, never assumed to hit.
+        body = party["spheres"][0]
+        position = list(projectile["spawn_offset"])
+        speed = list(velocity)
+        contact = projectile["contact"]
+        active = projectile["active"] or [0, projectile["lifetime"]]
+        for tick in range(active[1] + 1):
+            position = [p + v for p, v in zip(position, speed)]
+            speed = [v + a for v, a in zip(speed, acceleration)]
+            if (tick < active[0] or speed[1] >= 0
+                    or position[1] + contact["offset"][1] > body["root_offset"][1]):
+                continue
+            separation = position[2] + contact["offset"][2] + body["root_offset"][0]
+            desired = battle_geometry.surface_gap(enemy, party, [separation, 0], [0, 0])
+            return max(minimum + clearance, min(desired, maximum - clearance))
+    return gap
+
+
 def arrange_enemy_contact(base, path, initialized, case, assets):
+    """Place the selected pair, optionally away from a collinear collision normal."""
+    result = _arrange_enemy_contact(base, path, initialized, case, assets)
+    offset = case.get("contact_fixture", {}).get("recipient_z_offset")
+    if offset is None:
+        return result
+    if result is None or not math.isfinite(offset):
+        raise ValueError("lateral fixture requires bounded authored placement and finite offset")
+    state = State(path)
+    target = next(actor for actor in inspect(state, battle=True)["battle"]["actors"] if actor["slot"] == 0)
+    state.write(target["address"] + 0x18c8, "f", target["position"][2] + offset)
+    state.write(target["address"] + 0x1964, "f", target["center"][2] + offset)
+    state.save(path)
+    actors = {actor["slot"]: actor for actor in inspect(State(path), battle=True)["battle"]["actors"]}
+    owner, recipient = actors[initialized["actor"]["slot"]], actors[0]
+    gap = battle_geometry.surface_gap(result["owner_geometry"], result["target_geometry"],
+        [owner["position"][0], owner["position"][2]],
+        [recipient["position"][0], recipient["position"][2]])
+    lower, upper = result["placement_interval"]
+    if not lower < gap or (upper is not None and not gap < upper):
+        raise ValueError("lateral fixture body gap is outside the authored interval")
+    if math.hypot(recipient["position"][0], recipient["position"][2]) >= 850:
+        raise ValueError("lateral fixture recipient is outside the arena interior")
+    result["lateral_fixture"] = dict(recipient_z_offset=offset, observed_body_gap=gap,
+        changes=state.changes, proof=enemy_placement_proof(base, path, initialized, assets),
+        scope="Only initial recipient root/center Z changes. Ordinary updates publish geometry and target direction before AI admission; authored actions, contacts and timing remain live.")
+    return result
+
+
+def _arrange_enemy_contact(base, path, initialized, case, assets):
     """Place a selected pair within its authored distance and origin bounds."""
     row = case["definition"]
+    battle, owner = initialized["battle"], initialized["actor"]
+    neutral_enemies = [actor for actor in battle["actors"]
+                       if actor["side"] == 1 and actor["slot"] != owner["slot"]]
+    admission_slots = min(3, sum(actor["side"] == 0 for actor in battle["actors"]) + 1)
+    behind_front_rank = sum(actor["position"][0] < owner["position"][0]
+                            for actor in neutral_enemies) >= admission_slots
     execution = row.get("execution", {})
     if not isinstance(execution, dict):
         return None
     attack = execution.get("attack", execution.get("physical", {}).get("attack", {}))
     spell = "spell" in execution and case.get("context") == "attack"
-    if case.get("context") != "movement" and not spell and not any("contact" in event or "projectile" in event
+    if not behind_front_rank and not any(row["range"]) and case.get("context") != "movement" and not spell and not any("contact" in event or "projectile" in event
                              for _, event in attack.get("events", [])):
         return None
-    minimum = max(row["range"][0], row.get("approach_minimum", 0))
-    maxima = [v for v in (row["range"][1], row.get("approach_range", 0)) if v > 0]
-    if not maxima or min(maxima) < minimum:
-        raise ValueError("offensive action has no bounded authored placement interval")
-    maximum = min(maxima)
-    battle, owner = initialized["battle"], initialized["actor"]
+    minimum, maximum = enemy_placement_interval(row)
     target = next(a for a in battle["actors"] if a["slot"] == 0)
-    # These matrices precede fixture position edits. A ready state's matrices
-    # can still reflect its prior placement and must not supply root offsets.
+    # Bind the unedited body poses. Geometry resolves their published model
+    # transform before applying the current actor transform.
     enemy = battle_geometry.read_initialized_body(base, owner, assets / f"battle/enemies/{case['enemy']:03}.json")
     party = battle_geometry.read_initialized_body(base, target, assets / f"battle/party/{battle['party_order'][0]:02}.json")
     # Leave room for the required opponent attack to miss while the selected
     # enemy remains within its authored approach interval.
     attacking_target = "target_attacking" in row["requirements"]["predicates"]
-    gap = maximum - min(1.0, (maximum - minimum) / 2) if attacking_target else (minimum + maximum) / 2
+    # An admission radius is not the reach of the emitted contact. Start near
+    # its close edge so stationary recipients are inside short melee/projectile
+    # paths, without changing an action's selection or movement rules.
+    gap = enemy_contact_gap(attack, enemy, party, minimum, maximum, attacking_target)
+    fixture = case.get("contact_fixture", {})
+    if fixture.get("placement") == "selection":
+        # Conditional actions can need a physical prerequisite while outside
+        # melee reach. Their subsequent approach is still observed normally.
+        minimum, maximum = max(0, row["range"][0]), row["range"][1] or math.inf
+    if fixture.get("placement") == "far":
+        if not math.isfinite(maximum):
+            raise ValueError("far contact fixture requires a bounded approach interval")
+        gap = maximum - min(1.0, (maximum - minimum) / 2)
+    if "surface_gap" in fixture:
+        gap = fixture["surface_gap"]
+    # Keep the same facing arrangement if the requested body gap would put
+    # the recipient behind the owner's root. A forward body may still have
+    # a valid close placement even when coincident roots are far apart.
+    try:
+        battle_geometry.separation_for_gap(enemy, party, gap)
+    except ValueError as error:
+        if str(error) != "right-hand placement requires a negative root separation":
+            raise
+        root_clearance = min(e["radius"] + p["radius"]
+                             for e in enemy["spheres"] for p in party["spheres"])
+        separated_gap = battle_geometry.surface_gap(enemy, party, [root_clearance, 0], [0, 0])
+        gap = min(separated_gap, maximum - min(1.0, (maximum - minimum) / 2))
+    if not minimum <= gap <= maximum or not math.isfinite(gap):
+        raise ValueError("contact fixture distance is outside its authored placement interval")
     separation = battle_geometry.separation_for_gap(enemy, party, gap)
     state = State(path)
     current = {a["slot"]:a for a in inspect(state, battle=True)["battle"]["actors"]}
     prepared_positions = {slot: actor["position"] for slot, actor in current.items()}
-    # Keep the owner's authored encounter anchor and place its recipient from it.
-    anchor = list(owner["position"])
+    if "recipient_anchor" in fixture:
+        # Attached actors move with their ordinary encounter controller. Place
+        # only the recipient beside the witnessed settled anchor.
+        x, z = fixture["recipient_anchor"]
+        if not all(math.isfinite(value) for value in (x, z)):
+            raise ValueError("contact fixture recipient anchor is not finite")
+        gap, separation = in_arena_recipient_gap(enemy, party, [x, 0, z], minimum, gap)
+        actor = current[target["slot"]]
+        x -= separation
+        for offset, value in ((0x18c0, x), (0x18c8, z),
+                              (0x195c, actor["center"][0] + x - actor["position"][0]),
+                              (0x1964, actor["center"][2] + z - actor["position"][2])):
+            state.write(actor["address"] + offset, "f", value)
+        # Undo the generic row fixture's owner translation; the attachment
+        # begins exactly where the initialized encounter placed it.
+        for offset, value in ((0x18c0, owner["position"][0]), (0x18c8, owner["position"][2]),
+                              (0x195c, owner["center"][0]), (0x1964, owner["center"][2])):
+            state.write(owner["address"] + offset, "f", value)
+        state.save(path)
+        return dict(placement_interval=[minimum, maximum if math.isfinite(maximum) else None],
+            target_surface_gap=gap, root_separation=separation,
+            recipient_anchor=fixture["recipient_anchor"], owner_geometry=enemy, target_geometry=party,
+            changes=state.changes, scope="Recipient placement beside an observed attachment anchor; owner deployment remains ordinary.")
+    # Station policies replace the encounter position before choosing an action.
+    policy = read(assets / f"battle/enemies/{case['enemy']:03}/definition.json")["actions"]["policy"]
+    behavior = policy.get("behavior") or {}
+    stations = (behavior.get("three_stations") or {}).get("stations")
+    health_stage = behavior.get("health_stage") or {}
+    initial_station = stations[0] if stations else health_stage.get("initial_station")
+    anchor = list(initial_station["position"] if initial_station else owner["position"])
+    initial_actions = health_stage.get("initial_actions")
+    fixed_heading = initial_actions is None or initial_actions["start"] <= case["action_row"] < initial_actions["end"]
+    if initial_station and fixed_heading:
+        state.write(owner["address"] + 0x18d0, "f", initial_station["heading"])
     origin_bounds = [predicate["origin_distance"] for predicate in row["requirements"]["predicates"]
                      if isinstance(predicate, dict) and "origin_distance" in predicate]
     origin_minimum = max([0] + [bounds["minimum"] for bounds in origin_bounds if bounds["minimum"] is not None])
     origin_maximum = min([math.inf] + [bounds["maximum"] for bounds in origin_bounds if bounds["maximum"] is not None])
-    distance = math.hypot(anchor[0], anchor[2])
-    if not origin_minimum <= distance <= origin_maximum:
-        # Stay inside the interval instead of depending on distance rounding at
-        # an exact boundary. A single-unit margin also clears body tangencies.
-        lower = min(origin_minimum + 1.0, origin_maximum)
-        upper = max(origin_maximum - 1.0, lower)
-        distance = max(lower, min(distance, upper))
-        anchor[0], anchor[2] = distance, 0.0
+    if "owner_anchor" in fixture:
+        x, z = fixture["owner_anchor"]
+        if not all(math.isfinite(value) for value in (x, z)):
+            raise ValueError("contact fixture owner anchor is not finite")
+        anchor = [x, anchor[1], z]
+    anchor = origin_bounded_anchor(anchor, origin_minimum, origin_maximum)
+    gap, separation = in_arena_recipient_gap(enemy, party, anchor, minimum, gap)
     for slot, x, z in ((owner["slot"], anchor[0], anchor[2]),
                        (target["slot"], anchor[0] - separation, anchor[2])):
         actor = current[slot]
@@ -3191,12 +4321,17 @@ def arrange_enemy_contact(base, path, initialized, case, assets):
                               (0x1964,actor["center"][2]+z-actor["position"][2])):
             state.write(actor["address"]+offset,"f",value)
     state.save(path)
-    placement = dict(selection_approach_intersection=[minimum,maximum], target_surface_gap=gap,
+    placement = dict(placement_interval=[minimum,maximum if math.isfinite(maximum) else None], target_surface_gap=gap,
                 root_separation=separation, owner_geometry=enemy, target_geometry=party,
                 changes=state.changes, scope="Initialized body-distance placement only; actual contact must still be observed.")
+    # Neutral enemies still occupy the front rank used by ordinary admission.
+    # Keep the selected pair ahead of that rank, rather than disabling the
+    # source's admission rules or waiting for neutral actors to attack.
+    behind_front_rank = (separation > ENEMY_ENGAGEMENT_DISTANCE and
+                        sum(actor["position"][0] < anchor[0] for actor in neutral_enemies) >= admission_slots)
     try:
         enemy_placement_proof(base, path, initialized, assets)
-        if not attacking_target or len(battle["actors"]) == 2:
+        if not behind_front_rank and (not attacking_target or len(battle["actors"]) == 2):
             return placement
     except ValueError as error:
         if str(error) != "selected fixture placement overlaps an untouched encounter actor":
@@ -3210,14 +4345,26 @@ def arrange_enemy_contact(base, path, initialized, case, assets):
         descriptor = (f"enemies/{identities[slot]:03}.json" if slot >= 4
                       else f"party/{battle['party_order'][slot]:02}.json")
         geometry[slot] = battle_geometry.read_initialized_body(base, actor, assets / "battle" / descriptor)
-    prepared_anchor = anchor if origin_bounds else prepared_positions[owner["slot"]]
-    if attacking_target:
+    prepared_anchor = anchor if origin_bounds or initial_station or "owner_anchor" in fixture else prepared_positions[owner["slot"]]
+    if attacking_target or behind_front_rank:
         # Put the required attack beyond the neutral encounter actors as well.
         # The same body exclusions choose the nearest clear position.
         prepared_anchor = list(prepared_anchor)
         prepared_anchor[0] = min(position[0] for slot, position in prepared_positions.items()
                                  if slot not in (owner["slot"], target["slot"]))
-    chosen, exclusions = clear_enemy_anchor(geometry, prepared_positions, owner["slot"], separation, prepared_anchor)
+    for _ in range(len(prepared_positions) + 1):
+        chosen, exclusions = clear_enemy_anchor(geometry, prepared_positions, owner["slot"], separation, prepared_anchor)
+        bounded = origin_bounded_anchor(chosen, origin_minimum, origin_maximum)
+        if bounded != chosen:
+            prepared_anchor = bounded
+            continue
+        fitted_gap, fitted_separation = in_arena_recipient_gap(enemy, party, chosen, minimum, gap)
+        if fitted_separation == separation:
+            break
+        gap, separation = fitted_gap, fitted_separation
+        prepared_anchor = chosen
+    else:
+        raise ValueError("body clearance and arena placement did not converge")
     distance = math.hypot(chosen[0], chosen[2])
     for predicate in row["requirements"]["predicates"]:
         if isinstance(predicate, dict) and "origin_distance" in predicate:
@@ -3236,9 +4383,10 @@ def arrange_enemy_contact(base, path, initialized, case, assets):
     state.save(path)
     proof = enemy_placement_proof(base, path, initialized, assets)
     placement["changes"].extend(state.changes)
+    placement.update(target_surface_gap=gap, root_separation=separation)
     placement["clear_anchor_fixture"] = dict(rejected_anchor=anchor, prepared_anchor=prepared_anchor,
-        selected_anchor=chosen, forbidden_anchor_intervals=exclusions, unchanged_body_gap=gap, proof=proof,
-        scope="Translate only the selected pair before combat; preserve heights, headings, authored tracks, body gap and neutral positions.")
+        selected_anchor=chosen, forbidden_anchor_intervals=exclusions, selected_body_gap=gap, proof=proof,
+        scope="Place only the selected pair before combat within the authored distance interval and party arena; preserve heights, headings, authored tracks and neutral positions.")
     return placement
 
 
@@ -3289,7 +4437,7 @@ def ready_models(snapshot, battle):
         address = actor["address"]
         clip = snapshot.read(address + 0x1046, "B")
         body_clip = clip
-        table = snapshot.read(address + (0x1010 if clip < 100 else 0x1018))
+        table = snapshot.read(address + 0x1010) if clip < 100 else address + 0x1018
         resource = table + (clip if clip < 100 else clip - 100) * 20
         scene = snapshot.read(address + 0x2b0)
         controller, seen = snapshot.read(scene + 0x5fc), set()
@@ -3307,7 +4455,7 @@ def ready_models(snapshot, battle):
         if snapshot.read(controller) != resource and not child:
             profile = snapshot.read(address + 4)
             initial, override = snapshot.read(profile + 0x97, "B"), snapshot.read(profile + 0xc1, "B")
-            table = snapshot.read(address + (0x1010 if override < 100 else 0x1018))
+            table = snapshot.read(address + 0x1010) if override < 100 else address + 0x1018
             override_resource = table + (override if override < 100 else override - 100) * 20
             if override and clip == initial and snapshot.read(controller) == override_resource:
                 clip, resource = override, override_resource
@@ -3316,12 +4464,20 @@ def ready_models(snapshot, battle):
             raise ValueError("ready animation requires unsupported pending preparation")
         if not all(math.isfinite(v) for v in fields.values()):
             raise ValueError("ready animation contains nonfinite values")
+        status = snapshot.read(address + 0x280, "B")
+        defeated_hidden = bool(status & 4) and actor["hp"] <= 0 and (
+            snapshot.read(address + 0x107d, "B") & 7 == 2
+            and snapshot.read(address + 0x1ac, "B") == 18
+            and snapshot.read(address + 0x1b0, "B") == 16)
         models.append(dict(actor=index, clip=clip, frame=fields["frame"],
                            rate=0.0 if flags & 2 else fields["rate"], repeat=not bool(flags & 8),
-                           loop_start=fields["loop_start"]))
+                           loop_start=fields["loop_start"], defeated_hidden=defeated_hidden))
         proof.append(dict(actor=index, source_slot=actor["slot"], controller=controller,
                           resource=resource, flags=flags, child=child, body_clip=body_clip,
-                          initial_override=initial_override, **fields))
+                          initial_override=initial_override, status=status, **fields))
+        if actor["side"] == 0 and clip >= 100:
+            proof[-1]["source_motion"] = dict(header=snapshot.read(resource),
+                descriptor=snapshot.read(resource + 4), duration=snapshot.read(resource + 8, "f"))
     return models, proof
 
 
@@ -3452,6 +4608,9 @@ def setup_record(case, state, battle, owner, target, assistance, inputs, entry_p
         members.append(dict(character=character, level=snapshot.read(at + 0x10, "B"),
             costume=snapshot.read(at + 0x11, "B"),
             techniques=techniques,
+            technique_uses={arte: snapshot.read(at + 0x88 + index * 2, "H")
+                            for index, arte in enumerate(learning[character - 1])
+                            if arte and snapshot.read(at + 0x88 + index * 2, "H")},
             equipment=[snapshot.read(at + offset, "H") for offset in (0x4a, 0x4c, 0x4e, 0x52, 0x54, 0x50)],
             base_stats=[snapshot.read(at + offset, "H") for offset in (0x26, 0x28, 0x2a, 0x2c, 0x34, 0x32, 0x30)],
             luck=snapshot.read(at + 0x2e, "H") // 10,
@@ -3475,6 +4634,7 @@ def setup_record(case, state, battle, owner, target, assistance, inputs, entry_p
         if layered or mutable and not support:
             raise ValueError("initial nonzero condition fields need typed normalization before native replay")
         observed_support = None
+        observed_time_stop = None
         if support:
             slot, address = actor["slot"], actor["address"]
             observed_support = support_outcomes.snapshot({
@@ -3485,6 +4645,12 @@ def setup_record(case, state, battle, owner, target, assistance, inputs, entry_p
                 f"battle_actor_{slot}_tp_word": snapshot.read(vitals + 0x28),
             }, slot)
             support_outcomes.validate_initial(observed_support, caster=slot == owner)
+            observed_time_stop = support_outcomes.time_stop({
+                "battle_time_stop_word": snapshot.read(battle["pool"] + 0x15718),
+                f"actor_{slot}_time_stop_flags": snapshot.read(address + 0x1180),
+            }, slot)
+            if observed_time_stop:
+                raise ValueError("support fixture begins during an existing time stop")
         stats = {name: snapshot.read(vitals + offset, "H") for name, offset in
                  (("slash", 0x2c), ("thrust", 0x2e), ("defense", 0x30),
                   ("intelligence", 0x32), ("accuracy", 0x34), ("evasion", 0x36))}
@@ -3503,7 +4669,8 @@ def setup_record(case, state, battle, owner, target, assistance, inputs, entry_p
             reaction_direction=[snapshot.read(actor["address"] + 0x1944 + axis * 4, "f") for axis in range(3)],
             **({"movement_speed": movement_speed} if movement_speed != 0 else {}),
             stats=stats, conditions=observed_support["conditions"] if support else [],
-            **({"support": observed_support} if support else {}), overlimit_charge=0 if active_overlimit else overlimit,
+            **({"support": observed_support, "time_stop": observed_time_stop} if support else {}),
+            overlimit_charge=0 if active_overlimit else overlimit,
             effect_clock=snapshot.read(actor["address"] + 0x1bc, "H"),
             **({"overlimit_remaining": overlimit} if active_overlimit else {}),
             source_vitals=bytes(snapshot.ram[actor["vitals_address"] - 0x80000000:actor["vitals_address"] - 0x80000000 + 128]).hex()))
@@ -3515,7 +4682,7 @@ def setup_record(case, state, battle, owner, target, assistance, inputs, entry_p
                  for a in battle["actors"] if a["slot"] != owner)
     body_resources = {}
     for a in battle["actors"]:
-        normal, shared = snapshot.read(a["address"] + 0x1010), snapshot.read(a["address"] + 0x1018)
+        normal, shared = snapshot.read(a["address"] + 0x1010), a["address"] + 0x1018
         body_resources[str(a["slot"])] = {str(clip): (normal + clip * 20 if clip < 100 else shared + (clip - 100) * 20)
                                          for clip in range(256)}
     poses, pose_proof = ready_models(snapshot, battle)
@@ -3523,13 +4690,17 @@ def setup_record(case, state, battle, owner, target, assistance, inputs, entry_p
     if "character" in case and inputs.get("button") == "b":
         shortcut = snapshot.read(battle_artes.member(snapshot, case["character"]) + battle_artes.SHORTCUT, "H")
         inputs.update(selection_arte=shortcut, selection_native=snapshot.read(0x80202f90 + shortcut * 88, "H"))
+    native_seed = party_case(case).get("native_seed") if "character" in case else None
     return dict(case=case["id"], owner=canonical[owner], target=canonical[target], formation=battle["formation"],
         arena=battle["arena"], initial_battle=battle, seed=battle["random_state"]["entry_seed"],
+        **({"native_seed": native_seed} if native_seed is not None else {}),
         party=party, party_members=members, learned_technique_observations=learned_proof,
         actors=actors, source_actor_map=source_actor_map,
-        **({"support": {"terminal": "self_defeated" if (case.get("character"), case.get("arte")) == (2, 59)
+        **({"support": {"time_stop": True,
+                       "terminal": "self_defeated" if (case.get("character"), case.get("arte")) == (2, 59)
                        else "returned"}} if support else {}),
         body_resources=body_resources, ready_models=poses, ready_model_observations=pose_proof,
+        **effect_entry.observe(snapshot, battle),
         secondary_bodies=secondary_bodies.ready(snapshot, battle),
         ready_attachment_effects=ready_attachment_effects(snapshot, battle),
         ready_passive_effects=ready_passive_effects(snapshot, battle),
@@ -3632,6 +4803,9 @@ def run(args):
                         raise ValueError("selected row has no supported living HP fixture")
                     options = SimpleNamespace(case=[source_id], enemy=None, output=destination,
                         capture_vis=args.max_vis, manifest=assets / f"battle/enemies/{case['enemy']:03}/definition.json",
+                        difficulty=case.get("contact_fixture", {}).get("difficulty"),
+                        formation=case.get("contact_fixture", {}).get("formation"),
+                        party_minimum=case.get("contact_fixture", {}).get("party_minimum"),
                         images=False, retain_states=True, guard=False, enemy_x=100.0, enemy_hp_percent=hp_percent)
                     enemy_artes.prepare(options, enemy_manifest)
                     record = read(destination / "fixture.json")
@@ -3649,13 +4823,20 @@ def run(args):
                 slots = ([a["slot"] for a in inspect(State(args.resume_ready), battle=True)["battle"]["actors"]]
                          if args.resume_ready else list(range(len(record["party"]))) + [4]
                          if "character" in case else record["expected_slots"])
+                preparation_watch, budget = observer_plan(slots)
+                # Entry preparation needs actor state, not effect-parent unions.
+                # The complete typed pool observer is installed after ready.
+                preparation_watch = {address: name for address, name in preparation_watch.items()
+                                     if "_parent_" not in name}
+                budget.update(packet_budget(preparation_watch))
                 if worker is not None and (slots != watched_slots or
+                    watch != preparation_watch or
                     digest(destination / "input.dtm") != worker.metadata["movie_sha256"]):
                     worker.close(complete=False)
                     worker = None
                 if worker is None:
                     marker = current_marker
-                    watch, budget = observer_plan(slots)
+                    watch = preparation_watch
                     watched_slots = slots
                     write(destination / "locations.json", watch)
                     write(destination / "observer.json", budget)
@@ -3713,7 +4894,12 @@ def run(args):
                             write(destination / "fixture.json", record)
                     else:
                         base, initialized = enemy_artes.ready(worker, destination, record)
-                    record["initialized_state"] = str(destination / "initialized.s01")
+                    initialized_path = destination / "initialized.s01"
+                    if case.get("contact_fixture", {}).get("settle_entry") and not initialized.get("settled_idle"):
+                        initialized_path, (base, initialized) = settle_enemy_entry(
+                            worker, destination, record, base, initialized, args.max_vis,
+                            minimum_gameplay_tick=case["contact_fixture"].get("minimum_gameplay_tick", 0))
+                    record["initialized_state"] = str(initialized_path)
                     child = destination / "row"
                     child.mkdir()
                     chosen = record["cases"][0]
@@ -3734,23 +4920,38 @@ def run(args):
                             animation=fixture["expected"]["animation_pointer"], commands=fixture["expected"]["command_pointer"]))
                     inputs, assistance = dict(button="neutral"), dict(selection=fixture["changes"],
                         contact_placement=geometry, placement=placement)
+                    if fixture.get("tp_budget") is not None:
+                        assistance["tp_budget"] = fixture["tp_budget"]
                     enemy_ids = [p["enemy"] for p in record["packages"]]
                     del base
                 state = State(state_path)
+                if "enemy" in case:
+                    assistance["prerequisites"] = enemy_prerequisites.prepare(
+                        state, battle, initialized, case, assets)
                 manual_opponents(state, battle, owner)
-                recipient = (prepare_recipient_input(state, state_path, battle, recipient_input,
-                    read(assets / "game/techniques.json")["learning"]) if recipient_input is not None else None)
+                recipient_specification = enemy_prerequisites.recipient_input(
+                    case, recipient_input or case.get("contact_fixture", {}).get("recipient_input"),
+                    assistance.get("prerequisites") if "enemy" in case else None)
+                recipient = (prepare_recipient_input(state, state_path, battle, recipient_specification,
+                    read(assets / "game/techniques.json")["learning"], owner=owner) if recipient_specification is not None else None)
                 if recipient is not None and recipient["mode"] in ("attack", "stick"):
                     recipient_actor = next(a for a in battle["actors"] if a["slot"] == target)
                     input_target = recipient.get("target_slot", owner)
                     selected_actor = next(a for a in battle["actors"] if a["slot"] == input_target)
                     state.write(recipient_actor["address"] + 0x1990, "I", selected_actor["address"])
+                if "enemy" in case:
+                    assistance["target_normalization"] = single_action_fixture.normalize_fixture_targets(
+                        state, battle)
                 if args.offense is not None:
                     actor = next(a for a in battle["actors"] if a["slot"] == owner)
                     for offset in (0x2c, 0x2e, 0x32):
                         state.write(actor["vitals_address"] + offset, "H", args.offense)
                 fixture_changes = list(state.changes)
                 state.save(state_path)
+                if "enemy" in case and geometry is not None and initialized.get("settled_idle"):
+                    state, assistance["placement_refresh"] = refresh_enemy_placement(
+                        worker, destination, record, state, state_path,
+                        inspect(state, battle=True)["battle"], owner)
                 battle = inspect(state, battle=True)["battle"]
                 assistance = dict(preparation=assistance, neutral_and_offense_changes=fixture_changes,
                                   offensive_stat_preset=args.offense)
@@ -3758,6 +4959,20 @@ def run(args):
                 setup = setup_record(case, state_path, battle, owner, target, assistance, inputs,
                     entry_path,
                     read(assets / "game/techniques.json")["learning"])
+                if "character" in case and not args.resume_ready:
+                    warm_path = destination / "warm.s01"
+                    warm = State(warm_path)
+                    warm_battle = inspect(warm, battle=True)["battle"]
+                    if any(warm_battle[key] != battle[key] for key in
+                           ("presentation_tick", "combat_tick")):
+                        raise ValueError("ready condition history advanced during fixture placement")
+                    visits, proof = effect_entry.completed_condition_visits(warm, warm_battle, banks)
+                    if visits:
+                        setup["ready_condition_visits"] = visits
+                        setup["ready_condition_history"] = dict(snapshot=pin(warm_path), observations=proof)
+                    del warm
+                if "enemy" in case and assistance["preparation"].get("prerequisites", {}).get("defense_deployment"):
+                    setup["defense_deployed"] = False
                 ready_stage_effect(state, assets, setup, banks)
                 setup["detached_contacts"] = detached_contact_bindings(state, args.usual,
                     [args.packages / f"{enemy:03}.bin" for enemy in enemy_ids])
@@ -3768,25 +4983,28 @@ def run(args):
                 setup["common_effect_bank"] = next(b["source_sha256"] for b in banks.values()
                     if Path(b["path"]).name == "common.json")
                 setup["catalogue"] = pin(assets / ("game/techniques.json" if "character" in case else f"battle/enemies/{case['enemy']:03}/definition.json"))
-                if args.observe_knockdown_impacts:
-                    setup["knockdown_impacts"] = True
-                particle_pool = fixed_particle_slots(state, battle["pool"], args.particle_pool_slots) if args.particle_pool_slots else None
+                setup["knockdown_impacts"] = True
+                object_pool = fixed_particle_slots(state, battle["pool"], OBJECT_POOL_CAPACITY)
+                owner_bones = ready_owner_bones(state, battle, banks)
+                model_joint_plan = effect_model_joints.prepare(
+                    dict(case, native=expected.get("native", case.get("native"))), assets)
                 del state
                 gc.collect()
-                particle_addresses = particle_pool["addresses"] if particle_pool else None
+                particle_addresses = None
                 execution_watch, execution_budget = observer_plan(slots, setup["initial_battle"]["pool"],
                     args.observer_capacities, particle_transforms=not args.sprite_only,
                     particle_addresses=particle_addresses,
                     secondary_slots=[b["source_slot"] for b in setup["secondary_bodies"]],
-                    knockdown_impacts=args.observe_knockdown_impacts, contact_slot=owner)
-                if particle_pool:
-                    execution_budget["particle_pool"] = {key: value for key, value in particle_pool.items() if key != "addresses"}
+                    knockdown_impacts=True, contact_slot=owner,
+                    object_addresses=object_pool["addresses"],
+                    owner_bones=owner_bones, model_joint_plan=model_joint_plan)
+                execution_budget["object_pool"] = {key: value for key, value in object_pool.items() if key != "addresses"}
                 setup["observer"] = execution_budget
                 write(destination / "setup.json", setup)
                 write(destination / "execution-locations.json", execution_watch)
                 write(destination / "execution-observer.json", dict(execution_budget,
                     initialized_pool=setup["initial_battle"]["pool"],
-                    scope="Fixed verified pool anchor; linked nodes and owned pointers remain dynamic; every observed pool value must match."))
+                    scope="Read every verified object-pool slot directly; retain complete typed live lists, parent bindings and observed projectile rules."))
                 # Dolphin retains its boot movie input buffer across F1 state
                 # loads. A changed sidecar alone is not an input replacement.
                 if execution_watch != watch or digest(Path(str(state_path) + ".dtm")) != worker.metadata["movie_sha256"]:
@@ -3799,14 +5017,23 @@ def run(args):
                     watch = execution_watch
                     worker = BattleFixture(args.disc, Path(str(state_path) + ".dtm"), state_path,
                         destination / "execution-worker", marker, watch,
-                        disc_sha256=profile["inputs"]["disc_sha256"], capture_images=False)
+                        disc_sha256=profile["inputs"]["disc_sha256"], capture_images=False,
+                        observation_projector=object_pool_projection(object_pool["addresses"], battle["pool"]))
                 capture = destination / "capture"
                 def completed_tail(captured):
                     assessment = normalize(case, captured, setup, banks, expected, None)["assessment"]
                     return assessment["retirement_complete"] and assessment["terminal_complete"]
-                worker.observe_until(state_path, capture, record["fixture"]["case_marker"], args.max_vis,
-                    completion_observer(owner, expected, completed_tail, particle_addresses=particle_addresses,
-                                        departure=case["context"] == "departure"))
+                completed = completion_observer(owner, expected, completed_tail,
+                    particle_addresses=particle_addresses, departure=case["context"] == "departure")
+                if "enemy" in case:
+                    prerequisites = setup["assistance"]["preparation"].get("prerequisites")
+                    preparation = ({"prerequisites": prerequisites}
+                                   if prerequisites and prerequisites.get("owner_control") else {})
+                    single_action_fixture.capture(worker, state_path, capture,
+                        record["fixture"]["case_marker"], args.max_vis, owner, expected, completed,
+                        departure=case["context"] == "departure", **preparation)
+                else:
+                    worker.observe_until(state_path, capture, record["fixture"]["case_marker"], args.max_vis, completed)
                 worker.snapshot(destination / "terminal.s01")
                 rows = read(capture / "observations.json")
                 try:
@@ -3819,6 +5046,12 @@ def run(args):
                         [("ready", State(setup["ready_state"]["path"])),
                          ("terminal", State(destination / "terminal.s01"))], assets)
                 trace = normalize(case, rows, setup, banks, expected, None)
+                try:
+                    entry_motions.register(trace, destination / "terminal.s01", args.packages,
+                        enemy_ids, args.extracted, ROOT / "target/debug/resonance-import")
+                except (OSError, ValueError, KeyError, struct.error, subprocess.CalledProcessError) as error:
+                    detail = error.stderr.strip() if isinstance(error, subprocess.CalledProcessError) else str(error)
+                    trace["incomplete_observations"].append(f"external entry motion setup unavailable: {detail}")
                 trace["setup"]["capture"] = pin(capture / "capture.json")
                 write(destination / "trace.json", trace)
                 from projectile_launches import register as register_projectile_launches
@@ -3829,14 +5062,15 @@ def run(args):
             except Exception as error:
                 destination.mkdir(parents=True, exist_ok=True)
                 failure = dict(case=case["id"], setup={}, frames=[], events=[],
-                    assessment=dict(outcome=case["context"], error=str(error)),
+                    assessment=dict(outcome=case["context"], error=str(error), traceback=traceback.format_exc()),
                     incomplete_observations=[str(error)])
                 write(destination / "trace.json", failure)
                 outcomes.append(dict(case=case["id"], fixture_complete=False, error=str(error)))
-                # Broken registration/process is not reusable. A setup failure
-                # before playback may still leave a usable paused resident.
+                # Keep failures local to one case. A broken worker cannot be
+                # reused, but independent cases can start a fresh one.
                 if worker is not None and (worker.process.poll() is not None or worker.watcher.error or not worker.paused):
-                    break
+                    worker.close(complete=False)
+                    worker = None
     finally:
         if worker is not None:
             worker.close(complete=False)
@@ -3860,8 +5094,6 @@ def main():
                         help="explicit per-list execution capacities; oversized packets fail")
     parser.add_argument("--sprite-only", action="store_true",
                         help="omit cosmetic sprite transforms; any observed effect model remains incomplete")
-    parser.add_argument("--particle-pool-slots", type=int,
-                        help="observe a ready-proven fixed pool prefix; live list closure still rejects overflow")
     parser.add_argument("--observe-knockdown-impacts", action="store_true",
                         help="observe landing impulse consumption and its separate nonlethal damage")
     parser.add_argument("--offense", type=int, help="shared initialized slash/thrust/intelligence fixture value")
@@ -3876,6 +5108,8 @@ def main():
     parser.add_argument("--resume-enemy-idle", type=Path,
                         help="reuse an idle enemy encounter with its actual positions, vitals and clocks")
     parser.add_argument("--packages", type=Path, default=ROOT / "local/battle-actions-recovery-20261011/input")
+    parser.add_argument("--extracted", type=Path, default=ROOT / "local/extracted/disc1",
+                        help="authored party bodies for observed external entry motions")
     parser.add_argument("--usual", type=Path, default=ROOT / "local/extracted/disc1/files/BTL/BTLusual.dat")
     args = parser.parse_args()
     if args.list:

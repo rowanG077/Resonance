@@ -119,6 +119,9 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
         # Some arena variants have no TP despite sharing a spell catalogue.
         spell_fixture = min(spell_candidates,
             key=lambda f: (f["actor_count"], f["target_count"], f["formation"])) if spell_candidates else fixture
+        row_variants = {row: int(variant)
+                        for variant, bindings in profile.get("enemy_variant_rows", {}).get(str(enemy), {}).items()
+                        for row in bindings}
         enemies.append({"enemy": enemy, "name": monster["name"],
                         "package": {"path": str(raw_path), "sha256": package_sha},
                         "definition": pinned(definition_path), "monster": pinned(monster_path),
@@ -133,6 +136,23 @@ def build_catalogue(packages: Path, assets: Path, formations_manifest: Path) -> 
             native = struct.unpack_from(">H", data, 64)[0] or None
             kind = "common_spell" if native and native >= COMMON_SPELL_START else "enemy_sequence"
             selected_fixture = spell_fixture if kind == "common_spell" else fixture
+            minimum_variant, required_tp = row_variants.get(index, 0), row["tp"]
+            if minimum_variant or required_tp:
+                # Some encounter variants disable entire action groups at entry.
+                # Choose an actual encounter that keeps the requested row available.
+                available = []
+                for candidate in authored or candidates:
+                    formation = formations["records"][candidate["formation"]]
+                    variants = [actor["variant"] for actor in formation["actors"]
+                                if formation["resources"][actor["resource"]]["enemy"] == enemy]
+                    if candidate["arena_cooked"] and all(
+                            minimum_variant <= variant < len(monster["statistics"])
+                            and monster["statistics"][variant]["tp"] >= required_tp
+                            for variant in variants):
+                        available.append(candidate)
+                if available:
+                    selected_fixture = min(available,
+                        key=lambda f: (f["actor_count"], f["target_count"], f["formation"]))
             # The complete package pins commands, animations, contacts and body
             # context. Include the complete row, even selection-only fields, so
             # grouping cannot erase an authored execution difference.

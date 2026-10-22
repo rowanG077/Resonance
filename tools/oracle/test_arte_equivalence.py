@@ -1,13 +1,82 @@
 """Focused offline assertions for the source bridge; never launches Dolphin."""
 import copy
 import struct
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
 import arte_equivalence as bridge
+import enemy_artes
+import single_action_fixture
 
 
 class ArteTraceTests(unittest.TestCase):
+    def test_completed_ready_condition_birth_requires_exact_continuation(self):
+        copied = bytes(range(24))
+        setup = dict(initial_battle=dict(presentation_tick=114),
+            ready_condition_history=dict(observations=[dict(particle=0x81000000,
+                parent=0x81000100, age=1, copied=copied.hex(), signature=[1, 2, 3])]))
+        arguments = [0, 115, 0x81000000, 0x81000100, copied, 2]
+        self.assertEqual(bridge.effect_entry.completed_condition_birth(setup, *arguments), (1, 2, 3))
+        for index, value in enumerate([1, 116, 0x81000004, 0x81000200, bytes(24), 3]):
+            changed = arguments.copy()
+            changed[index] = value
+            self.assertIsNone(bridge.effect_entry.completed_condition_birth(setup, *changed))
+
+    def test_attached_pending_entry_requires_observed_deployment(self):
+        setup = dict(owner=1, source_actor_map=[dict(source_slot=0), dict(source_slot=5)],
+            initial_battle=dict(combat_tick=0, actors=[dict(slot=4, hp=66, max_hp=100)]),
+            defense_deployed=False, body_resources={"4": {}},
+            assistance=dict(preparation=dict(prerequisites=dict(
+                defense_deployment=dict(core=4, hp_percent=66, initial_phase=0)))))
+        rows = [dict(battle_actor_5_action=action, actor_5_selected=42,
+                     battle_combat_tick_word=tick)
+                for action, tick in [(13 << 24, 0), (3 << 24, 79),
+                                     (4 << 24, 80), ((5 << 24) | (1 << 16), 95)]]
+        with patch.object(bridge, "observed_body", return_value=(32, 15)):
+            self.assertEqual(bridge.enemy_pending_entry(rows, setup, dict(selected=42), 3), 80)
+            setup["initial_battle"]["actors"][0]["hp"] = 67
+            with self.assertRaisesRegex(ValueError, "deployment prelude"):
+                bridge.enemy_pending_entry(rows, setup, dict(selected=42), 3)
+        setup["initial_battle"]["actors"][0]["hp"] = 66
+        with patch.object(bridge, "observed_body", return_value=(0, 1)):
+            with self.assertRaisesRegex(ValueError, "deployment prelude"):
+                bridge.enemy_pending_entry(rows, setup, dict(selected=42), 3)
+
+    def test_ground_release_prepares_distinct_party_recipients(self):
+        ground = dict(events=[[29, dict(ground_projectiles=dict(definitions=[{}, {}]))]])
+        self.assertEqual(enemy_artes.distinct_ground_targets([
+            dict(execution=None), dict(execution="leave_arena"),
+            dict(execution=dict(attack=dict(events=[])))]), 1)
+        for execution in [dict(attack=ground), dict(physical=dict(attack=ground))]:
+            self.assertEqual(enemy_artes.distinct_ground_targets([dict(execution=execution)]), 2)
+
+    def test_enemy_approach_replays_observed_selection_instead_of_initial_target(self):
+        setup = dict(owner=2, target=1, requested_target=0,
+            actors=[dict(side=0), dict(side=0), dict(side=1)],
+            source_actor_map=[dict(source_slot=0), dict(source_slot=1), dict(source_slot=4)],
+            initial_battle=dict(combat_tick=0, actors=[dict(address=100), dict(address=200), dict(address=300)]))
+        rows = [dict(battle_combat_tick_word=tick, battle_actor_4_target=target)
+                for tick, target in [(32,100),(33,200),(34,200)]]
+        self.assertEqual(bridge.enemy_approach_targets(rows,setup,33,2),
+                         [dict(after_updates=33,target=1)])
+        rows[1]["battle_actor_4_target"] = 300
+        with self.assertRaisesRegex(ValueError,"observed opponent"):
+            bridge.enemy_approach_targets(rows,setup,33,2)
+        rows[1]["battle_actor_4_target"] = 100
+        with self.assertRaisesRegex(ValueError,"bound admission"):
+            bridge.enemy_approach_targets(rows,setup,33,2)
+
+    def test_wrong_admission_requires_a_bound_different_enemy_row(self):
+        row = dict(battle_actor_4_action=(5 << 24) | (1 << 16), actor_4_selected=42)
+        self.assertTrue(single_action_fixture.wrong_admission(row, 4, dict(selected=41)))
+        self.assertFalse(single_action_fixture.wrong_admission(row, 4, dict(selected=42)))
+        self.assertFalse(single_action_fixture.wrong_admission(row, 4, dict(native=41)))
+        for action in (3 << 24, 4 << 24, 5 << 24, (20 << 24) | (1 << 16)):
+            self.assertFalse(single_action_fixture.wrong_admission(
+                dict(row, battle_actor_4_action=action), 4, dict(selected=41)))
+
     def test_clear_enemy_anchor_preserves_pair_spacing_and_clears_neutral_bodies(self):
         geometry = {slot: dict(spheres=[dict(root_offset=[0, 0, 0], radius=10)])
                     for slot in (0, 4, 5, 6)}
@@ -23,7 +92,8 @@ class ArteTraceTests(unittest.TestCase):
         owner, target = 0x81000000, 0x81002000
         setup = dict(owner=0, target=1, actors=[dict(actor=0, side=0), dict(actor=1, side=1)],
             source_actor_map=[dict(actor=0, source_slot=0), dict(actor=1, source_slot=4)],
-            input={}, initial_battle=dict(combat_tick=0, actors=[dict(slot=0, address=owner), dict(slot=4, address=target)]))
+            input={}, initial_battle=dict(combat_tick=0, presentation_tick=0,
+                actors=[dict(slot=0, address=owner), dict(slot=4, address=target)]))
         # Retained captures used a head-only observer; preserve that schema here.
         row = {name: 0 for name in bridge.locations(contact_slot=0).values() if not name.endswith("_prev")}
         row["battle_pool"] = 0x80900000
@@ -38,6 +108,38 @@ class ArteTraceTests(unittest.TestCase):
 
     def trace(self, setup, rows):
         return bridge.normalize(dict(id="party:2:35"), rows, setup, {}, dict(native=35), None)
+
+    def test_spell_debuff_requires_owned_scene_and_observed_opponent_change(self):
+        setup, row, _ = self.fixture()
+        setup["opponent_control"] = dict(mode="manual")
+        setup["stored_scenes"] = dict(registrations=[dict(native=265,
+            owner=setup["initial_battle"]["actors"][0]["address"], bank_sha256="rain")])
+        row["actor_0_native"] = 265
+        after = dict(row, actor_4_condition_14=1 << 18,
+                     battle_combat_tick_word=2, battle_presentation_tick_word=2)
+        frames = [dict(combat_tick=1, presentation_tick=1, programs=[]),
+                  dict(combat_tick=2, presentation_tick=2,
+                       programs=[dict(id=7, age=1, owner=0, bank="rain", program=1)])]
+        events = [dict(kind="started", owner=0, action=1)]
+        case = dict(definition=dict(execution=dict(spell=265)))
+        observe = bridge.support_outcomes.spell_debuffs
+        self.assertEqual(observe(case, [row, after], setup, frames, events),
+            [dict(kind="condition_changed", owner=0, target=1, action=1,
+                  before=[], after=["defense_down"], clock=1, presentation_clock=1)])
+        for change in (dict(battle_actor_4_hp=99), dict(actor_0_native=264),
+                       dict(actor_4_condition_14=1 << 17), dict(battle_actor_4_action=5 << 24)):
+            with self.assertRaises(ValueError):
+                observe(case, [row, dict(after, **change)], setup, frames, events)
+        with self.assertRaises(ValueError):
+            observe(case, [row, after], setup,
+                    [frames[0], dict(frames[1], programs=[])], events)
+        released = dict(row, battle_combat_tick_word=2, battle_presentation_tick_word=2)
+        lingering = dict(after, actor_0_native=0, battle_actor_0_action=3 << 24,
+                         battle_combat_tick_word=3, battle_presentation_tick_word=3)
+        later = dict(frames[1], combat_tick=3, presentation_tick=3,
+                     programs=[dict(frames[1]["programs"][0], age=2)])
+        applied = observe(case, [row, released, lingering], setup, frames + [later], events)
+        self.assertEqual((applied[0]["clock"], applied[0]["after"]), (2, ["defense_down"]))
 
     def test_unattributed_hp_loss_and_wrong_action_never_become_arte_hit(self):
         setup, row, _ = self.fixture()
@@ -66,6 +168,50 @@ class ArteTraceTests(unittest.TestCase):
         self.assertIsNone(bridge.poison_pulse(after, row, setup, 0, 1, events[1:], common))
         after["battle_actor_4_hp"] = 100
         self.assertIsNone(bridge.poison_pulse(after, row, setup, 0, 1, events, common))
+
+    def test_poison_pulse_preserves_attribution_across_other_condition_changes(self):
+        setup, row, _ = self.fixture()
+        setup["common_effect_bank"] = "common"
+        setup["actors"][1]["max_hp"] = 9999
+        before = dict(row, actor_4_condition_14=3, battle_actor_4_hp=9000)
+        after = dict(before, battle_actor_4_hp=8801)
+        common = dict(combat_tick=94, presentation_tick=94)
+        applied = dict(kind="condition_changed", owner=0, target=1, action=1,
+                       before=[], after=["poison_severe"], combat_tick=33, presentation_tick=33)
+        later = dict(applied, before=["poison_severe"], after=["poison_mild", "poison_severe"],
+                     combat_tick=77, presentation_tick=77)
+        emission = dict(common, kind="program_started", owner=1, bank="common", program=44)
+        events = [applied, later, emission]
+        pulse = bridge.poison_pulse(after, before, setup, 0, 1, events, common)
+        self.assertEqual((pulse["condition"], pulse["amount"]), ("poison_severe", 199))
+        for changed in (dict(later, after=["poison_mild"]),
+                        dict(later, owner=1, before=["poison_mild"])):
+            self.assertIsNone(bridge.poison_pulse(after, before, setup, 0, 1,
+                                               [applied, changed, emission], common))
+
+    def test_direct_enemy_ailments_require_the_owned_callback_and_two_groups(self):
+        setup, row, _ = self.fixture()
+        setup["opponent_control"] = dict(mode="manual")
+        row.update(battle_actor_0_cast_clock_word=119, actor_0_target_state_word=3 << 24)
+        after = dict(row, battle_combat_tick_word=2, battle_actor_0_cast_clock_word=120,
+                     actor_4_condition_14=(1 << 1) | (1 << 17))
+        case = dict(enemy=239, action_row=5)
+        programs = [dict(kind="program_started", owner=0, program=7, bank="owned", combat_tick=1)]
+        common = dict(combat_tick=2, presentation_tick=2)
+        observe = bridge.support_outcomes.enemy_debuffs
+        expected = dict(common, kind="condition_changed", owner=0, target=1, action=1,
+                        before=[], after=["attack_down", "poison_severe"])
+        self.assertEqual(observe(case, row, after, setup, programs, common, 1), [expected])
+        self.assertEqual(observe(dict(enemy=239, action_row=4), row, after,
+                                 setup, programs, common, 1), [])
+        for change in (dict(battle_actor_4_hp=99), dict(actor_4_condition_14=2 | 8),
+                       dict(actor_4_fresh_contact_word=1 << 24),
+                       dict(actor_0_target_state_word=2 << 24),
+                       dict(battle_actor_4_action=5 << 24)):
+            with self.assertRaises(ValueError):
+                observe(case, row, dict(after, **change), setup, programs, common, 1)
+        with self.assertRaises(ValueError):
+            observe(case, row, after, setup, [dict(programs[0], owner=1)], common, 1)
 
     def test_contact_target_transition_keeps_canonical_owner_and_recipient(self):
         setup, row, target = self.fixture()
@@ -118,10 +264,17 @@ class ArteTraceTests(unittest.TestCase):
         after = dict(row, actor_0_contact_target=target, actor_4_fresh_contact_word=1 << 24,
                      battle_actor_4_hp=80)
         ordinary = bridge.contact_damage_range(after, row, contact, setup, 0, 1, 100, 100)
-        for poison in (1, 2, 3):
-            poisoned = dict(after, actor_4_condition_14=poison)
-            self.assertEqual(bridge.contact_damage_range(poisoned,
-                dict(row, actor_4_condition_14=poison), contact, setup, 0, 1, 100, 100), ordinary)
+        for condition in (1, 2, 3, 8, 1 << 8):
+            affected = dict(after, actor_4_condition_14=condition)
+            self.assertEqual(bridge.contact_damage_range(affected,
+                dict(row, actor_4_condition_14=condition), contact, setup, 0, 1, 100, 100), ordinary)
+        for changes in (dict(actor_0_condition_10=(1 << 24) | 2 | 4),
+                        dict(actor_4_condition_10=1 << 24)):
+            self.assertEqual(bridge.contact_damage_range(dict(after, **changes), dict(row, **changes),
+                contact, setup, 0, 1, 100, 100), ordinary)
+        for changes in (dict(actor_4_condition_10=2), dict(actor_0_condition_14=1 << 30)):
+            with self.assertRaisesRegex(bridge.damage_envelope.UnsupportedDamage, "modifier"):
+                bridge.contact_damage_range(dict(after, **changes), dict(row, **changes), contact, setup, 0, 1, 100, 100)
         adjusted_contact = dict(contact, rule_power=4 << 16 | 65531, projectile=0)
         before_adjustment = dict(row, actor_0_attack_power_word=100)
         after_adjustment = dict(after, actor_0_attack_power_word=95, contact_queue_counts=1 << 16,
@@ -153,6 +306,22 @@ class ArteTraceTests(unittest.TestCase):
             with self.assertRaises(bridge.damage_envelope.UnsupportedDamage):
                 bridge.contact_damage_range(after_adjustment, before_adjustment, changed,
                                             setup, 0, 1, 100, 95)
+        node = 0x81090000
+        projectile_hit = dict(after_adjustment, actor_0_attack_power_word=75,
+            contact_queue_0_0_projectile=node + 0x28, contact_queue_0_0_context=node + 0x168,
+            projectile_0_address=node, projectile_0_next=row["battle_pool"] + 0x75c40,
+            projectile_0_14=1 << 24, projectile_0_28=0x81000000,
+            projectile_0_16c=0x81080000, projectile_0_170=0x81080100,
+            projectile_0_144=100 << 16, projectile_0_19c=20,
+            projectile_0_rule_flags_element=contact["rule_flags_element"],
+            projectile_0_rule_power=4 << 16 | 65531,
+            projectile_0_rule_conditions=contact["rule_conditions"], projectile_0_contact_kind=0)
+        before_projectile = dict(row, actor_0_attack_power_word=80)
+        self.assertEqual(bridge.projectile_damage_range(projectile_hit, before_projectile,
+            "projectile_0", setup, 0, 1, 100), ordinary)
+        with self.assertRaisesRegex(bridge.damage_envelope.UnsupportedDamage, "unique live projectile"):
+            bridge.projectile_damage_range(dict(projectile_hit, contact_queue_0_0_projectile=node + 0x30),
+                before_projectile, "projectile_0", setup, 0, 1, 100)
         charged = dict(after, actor_0_raw_1aa8=0x20)
         self.assertEqual(bridge.contact_damage_range(charged, row, contact, setup, 0, 1, 100, 100), ordinary)
         for flag in (0x40, 0x01000000, 0x02000000):
@@ -172,6 +341,22 @@ class ArteTraceTests(unittest.TestCase):
                                (row, dict(after, actor_4_condition_38=1))):
             with self.assertRaises(bridge.damage_envelope.UnsupportedDamage):
                 bridge.contact_damage_range(current, prior, contact, setup, 0, 1, 100, 100)
+
+    def test_contact_ailment_preserves_existing_poison(self):
+        setup, row, _ = self.fixture()
+        contact = dict(rule_conditions=1, rule_power=(50 << 24) | (1 << 16) | 100)
+        before = dict(row, actor_4_condition_14=2)
+        after = dict(before, actor_4_condition_14=3, actor_4_fresh_contact_word=1 << 24,
+                     actor_0_contact_target=setup["initial_battle"]["actors"][1]["address"],
+                     battle_actor_4_hp=90)
+        applied = bridge.contact_condition(after, before, contact, setup, 0, 1)
+        self.assertEqual(applied["before"], ["poison_severe"])
+        self.assertEqual(applied["after"], ["poison_mild", "poison_severe"])
+        for changed in (dict(after, actor_4_condition_14=1),
+                        dict(after, actor_4_condition_14=3 | (1 << 7)),
+                        dict(after, actor_4_fresh_contact_word=0)):
+            with self.assertRaises(bridge.damage_envelope.UnsupportedDamage):
+                bridge.contact_condition(changed, before, contact, setup, 0, 1)
 
     def test_knockdown_damage_requires_observed_active_window(self):
         setup, row, _ = self.fixture()
@@ -194,6 +379,27 @@ class ArteTraceTests(unittest.TestCase):
         self.assertEqual(bridge.contact_protection_shift(launched, row, contact, setup, 1), 0)
         with self.assertRaises(bridge.damage_envelope.UnsupportedDamage):
             bridge.contact_protection_shift(dict(launched, battle_actor_4_hp=100), row, contact, setup, 1)
+
+    def test_knockdown_landing_precedes_the_next_contact(self):
+        setup, row, _ = self.fixture()
+        contact = dict(rule_flags_element=0x00040023)
+        before = dict(row, battle_actor_4_action=9 << 24,
+                      actor_4_target_state_word=0x0d000300, actor_4_recoil_word=2,
+                      actor_4_protection_window_word=0x00001800)
+        after = dict(before, battle_combat_tick_word=before["battle_combat_tick_word"] + 1,
+                     battle_actor_4_action=14 << 24, battle_actor_4_hp=74,
+                     actor_4_target_state_word=0x0f000900, actor_4_raw_280=0x21000000,
+                     actor_4_protection_window_word=0x3b010800)
+        self.assertEqual(bridge.contact_protection_shift(after, before, contact, setup, 1), 3)
+        bypass = dict(contact, rule_flags_element=contact["rule_flags_element"] | (0x40 << 16))
+        self.assertEqual(bridge.contact_protection_shift(after, before, bypass, setup, 1), 0)
+        for changed in (dict(before, actor_4_recoil_word=0),
+                        dict(before, actor_4_protection_window_word=0x00011800),
+                        dict(before, battle_actor_4_y_bits=0x3f800000),
+                        dict(before, battle_combat_tick_word=after["battle_combat_tick_word"]),
+                        dict(before, actor_4_target_state_word=17 << 24)):
+            with self.assertRaises(bridge.damage_envelope.UnsupportedDamage):
+                bridge.contact_protection_shift(after, changed, contact, setup, 1)
 
     def test_overflow_and_menu_are_explicit_observation_failures(self):
         setup, row, _ = self.fixture()
@@ -262,6 +468,33 @@ class ArteTraceTests(unittest.TestCase):
         world = bridge.static_model_world([10,20,30], [1,2,3], [0,0,0], [2,3,4], 0, 0)
         self.assertEqual(world, [2,0,0,11, 0,3,0,22, 0,0,4,33])
         self.assertIsNone(bridge.static_model_world([0]*3,[0]*3,[0]*3,[1]*3,0x40000000,0))
+        parent = [0., 0., 1., 100., 0., 1., 0., 200., -1., 0., 0., 300.]
+        attached = bridge.static_model_world([900., 0., 0.], [1., 2., 3.],
+            [0., 0., 0.], [2., 3., 4.], 0x40000000, 0., parent)
+        self.assertEqual(attached, [0., 0., 4., 103., 0., 3., 0., 202., -2., 0., 0., 299.])
+        self.assertEqual(bridge.static_model_world([900.]*3, [1.]*3,
+            [10.]*3, [2.]*3, 0x20000, 0., parent), parent)
+
+    def test_model_joint_requires_the_live_retained_parent_descriptor(self):
+        plan = [dict(bank="bank", retained=[0], joints=[dict(model=0, joint=1, bone=73)])]
+        binding = dict(attachment=dict(retained=0, joint=1))
+        row = dict(child_b4=0x01000000, child_184=0x81001028,
+            program_10=0, program_c0=0x81002028, parent_10=0x01000000,
+            parent_28=0x03010000, parent_184=0x81001028,
+            parent_168=0x81200000, parent_fc=0, model_bank_6=0x81200000,
+            model_joint_6_0_73_cache=0x81400000)
+        matrix = [0., 0., 1., 100., 0., 1., 0., 200., -1., 0., 0., 300.]
+        row.update({f"model_joint_6_0_73_{i}": struct.unpack(">I", struct.pack(">f", value))[0]
+                    for i, value in enumerate(matrix)})
+        records = [("program", 0x81001000), ("parent", 0x81002000)]
+        observe = lambda: bridge.effect_model_joints.observed(
+            row, "child", "bank", binding, plan, records, [], bridge.f32)
+        self.assertEqual(observe(), matrix)
+        row["program_c0"] += 0x288
+        self.assertIsNone(observe())
+        row["program_c0"] -= 0x288
+        row["parent_168"] += 0x7e0
+        self.assertIsNone(observe())
 
     def test_observer_fits_existing_datagram_receiver(self):
         for slots in ([0, 4], [0,1,2,3,4], list(range(12))):
@@ -293,8 +526,59 @@ class ArteTraceTests(unittest.TestCase):
             self.assertEqual(watch[f"{address + 0x170:x}"], f"particle_{index}_170")
             self.assertEqual(watch[f"{address + 0x134:x}"], f"particle_{index}_134")
         with self.assertRaisesRegex(ValueError, "exceeds"):
-            bridge.observer_plan(list(range(12)), 0x812c1020, (32,32,416,32,32),
-                particle_addresses=addresses, contact_slot=0)
+            bridge.packet_budget({f"{0x81000000 + index * 4:x}": f"word_{index}"
+                                 for index in range(bridge.MEM1_DATAGRAM_BYTES // bridge.MEM1_WORD.size)})
+
+    def test_combined_observations_retain_verified_source_segments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = [dict(presentation_counter=clock, case_marker=42) for clock in range(4)]
+            segments = []
+            for name, part in (("admission", rows[:1]), ("tail", rows[1:])):
+                output = root / name
+                output.mkdir()
+                bridge.write(output / "observations.json", part)
+                bridge.write(output / "capture.json", dict(complete=True, samples=[dict(
+                    observations=len(part), observations_sha256=bridge.digest(output / "observations.json"))]))
+                segments.append(str(output / "capture.json"))
+            bridge.write(root / "observations.json", rows)
+            bridge.write(root / "capture.json", dict(complete=True, segments=segments,
+                combined_observations=len(rows),
+                combined_observations_sha256=bridge.digest(root / "observations.json")))
+            self.assertEqual(bridge.read_capture_observations(root / "capture.json"), rows)
+            bridge.write(root / "tail" / "observations.json", rows[2:])
+            with self.assertRaisesRegex(ValueError, "receipt differs"):
+                bridge.read_capture_observations(root / "capture.json")
+
+    def test_complete_pool_projection_keeps_all_live_nodes_and_rejects_broken_links(self):
+        pool = 0x80800000
+        addresses = [0x81000000 + index * bridge.OBJECT_BYTES for index in range(bridge.OBJECT_POOL_CAPACITY)]
+        watch, budget = bridge.observer_plan([0, 4], pool, object_addresses=addresses, contact_slot=0)
+        self.assertLessEqual(budget["maximum_bytes"], bridge.MEM1_DATAGRAM_BYTES)
+        self.assertFalse(any(" 184 " in address for address in watch))
+        values = {name: 0 for name in watch.values()}
+        values["battle_pool"] = pool
+        for label, offset in (("projectile", 0x75c40), ("program", 0x75ec8),
+                              ("particle", 0x763d8), ("alternate", 0x76660)):
+            values[label + "_head"] = values[label + "_tail"] = pool + offset
+        # Every pool slot may be a live particle; the list is never a sampled prefix.
+        sentinel = pool + 0x763d8
+        values["particle_head"], values["particle_tail"] = addresses[0], addresses[-1]
+        for index, address in enumerate(addresses):
+            values[f"object_{index}_0"] = addresses[index - 1] if index else sentinel
+            values[f"object_{index}_4"] = addresses[index + 1] if index + 1 < len(addresses) else sentinel
+            values[f"object_{index}_10"] = (1 << 24) | (6 << 16)
+            values[f"object_{index}_184"] = 0xdeadbeef  # Untyped parents are retained, never dereferenced.
+        project = bridge.object_pool_projection(addresses, pool)
+        row = project(values)
+        self.assertEqual(bridge.tracked_list(row, "particle", bridge.OBJECT_POOL_CAPACITY),
+                         (list(enumerate(addresses)), True))
+        self.assertEqual(row["particle_0_184"], 0xdeadbeef)
+        self.assertEqual(row["particle_0_parent_bank"], 0)
+        self.assertFalse(any(key.startswith("object_") for key in row if key != "object_lists"))
+        values["object_12_4"] = addresses[10]
+        with self.assertRaisesRegex(ValueError, "cyclic"):
+            project(values)
 
     def test_pending_clip_never_inherits_outgoing_controller_frame(self):
         row = dict(battle_actor_0_body_clip_word=43 << 8,
@@ -381,6 +665,14 @@ class ArteTraceTests(unittest.TestCase):
                 dict(released, actor_0_support_target=enemy, actor_0_spell_support_target=enemy)],
                 setup, dict(native=35), result["frames"], result["events"])
 
+        setup["actors"][1]["side"] = setup["actors"][0]["side"]
+        selected = bridge.support_outcomes.cast_recipient(
+            [dict(row, battle_actor_0_target=enemy),
+             dict(released, battle_actor_0_target=enemy, actor_0_spell_support_target=enemy)],
+            setup, dict(native=35), result["frames"], result["events"])
+        self.assertEqual((selected["recipient"], selected["selected_field"]),
+                         (1, "battle_actor_0_target"))
+
         setup, row, _ = self.fixture()
         after = dict(row, actor_4_condition_14=1 << 19,
                      battle_combat_tick_word=2, battle_presentation_tick_word=2)
@@ -459,9 +751,24 @@ class ArteTraceTests(unittest.TestCase):
         moved_before_selection = dict(walking[0], battle_actor_0_action=3 << 24)
         with self.assertRaises(ValueError):
             bridge.enemy_pending_entry([moved_before_selection, *walking], setup, {"selected": 123}, 2)
+        entry_heading = dict(walking[0], battle_combat_tick_word=0,
+                             battle_actor_0_action=3 << 24, battle_actor_0_heading_bits=0x41100000)
+        initialized = dict(entry_heading, battle_combat_tick_word=1)
+        selected = dict(walking[0], battle_combat_tick_word=2,
+                        battle_actor_0_heading_bits=0x41100000)
+        bound_after_entry = dict(walking[1], battle_combat_tick_word=3)
+        self.assertEqual(bridge.enemy_pending_entry(
+            [entry_heading, initialized, selected, bound_after_entry], setup, {"selected": 123}, 3), 2)
+        restored = [entry_heading, dict(initialized, battle_actor_0_heading_bits=0),
+                    dict(selected, battle_actor_0_heading_bits=0), bound_after_entry]
+        self.assertEqual(bridge.enemy_pending_entry(restored, setup, {"selected": 123}, 3), 2)
+        restored.insert(2, dict(initialized, battle_combat_tick_word=2))
+        with self.assertRaisesRegex(ValueError, "facing changed"):
+            bridge.enemy_pending_entry(restored, setup, {"selected": 123}, 4)
         carried = copy.deepcopy(setup)
         carried["source_actor_map"][0]["source_slot"] = 4
         carried["recipient_input"] = dict(mode="attack", target_slot=0)
+        carried["assistance"] = dict(preparation=dict(prerequisites=dict(release_host=0)))
         def carried_row(tick, action, flags, host_hp):
             return dict(battle_combat_tick_word=tick, battle_actor_4_action=action << 24,
                 actor_4_selected=123, actor_4_raw_280=flags, battle_actor_0_hp=host_hp,
@@ -493,6 +800,10 @@ class ArteTraceTests(unittest.TestCase):
                                       item_setup, item_events)
         self.assertEqual(bridge.bind_action_target(item_row, item_setup,
             [[28, dict(use_item=dict(item=39, party=True))]]), 1)
+        self.assertEqual(bridge.bind_action_target(item_row, item_setup, allied_spell=True), 0)
+        with self.assertRaisesRegex(ValueError, "not an allied actor"):
+            bridge.bind_action_target(dict(item_row, actor_0_support_target=bound["battle_actor_0_target"]),
+                                      item_setup, allied_spell=True)
         earlier = dict(pending, actor_0_selected=122, battle_actor_0_action=(5 << 24) | (1 << 16))
         result = bridge.normalize(dict(id="enemy:209:1"), [earlier, bound], setup, {}, {"selected": 123}, None)
         self.assertIn("owner admitted another action before the requested row; single-action fixture is incomplete",
@@ -641,6 +952,30 @@ class ArteTraceTests(unittest.TestCase):
         self.assertIsNone(bridge.queued_contact(row, setup, 0, 1))
         previous = row.copy()
         self.assertIsNone(bridge.queued_contact(row, setup, 0, 1, previous))
+        # Equal repeated rolls remain attributable when all other queued
+        # projectiles have an observed cleared collision result.
+        row["projectile_0_280"] = previous["projectile_0_280"] = 1
+        self.assertEqual(bridge.queued_contact(row, setup, 0, 1, previous)["projectile"], node + 0x28)
+        row["projectile_1_280"] = 1
+        self.assertIsNone(bridge.queued_contact(row, setup, 0, 1, previous))
+        repeated = dict(row, battle_combat_tick_word=2,
+                        projectile_0_278=8 << 16, projectile_1_278=14 << 16,
+                        projectile_0_last_target=target, projectile_1_last_target=target,
+                        projectile_0_rule_timing=5 << 24, projectile_1_rule_timing=5 << 24,
+                        projectile_0_cooldown_0=5 << 24, projectile_1_cooldown_0=2 << 24)
+        before_repeat = dict(repeated, battle_combat_tick_word=1,
+                             projectile_0_278=7 << 16, projectile_1_278=13 << 16,
+                             projectile_0_cooldown_0=1 << 24, projectile_1_cooldown_0=3 << 24)
+        self.assertEqual(bridge.queued_contact(repeated, setup, 0, 1, before_repeat)["projectile"],
+                         node + 0x28)
+        for current in (dict(repeated, projectile_0_last_target=owner),
+                        dict(repeated, projectile_0_cooldown_0=0),
+                        dict(repeated, battle_combat_tick_word=3)):
+            self.assertIsNone(bridge.queued_contact(current, setup, 0, 1, before_repeat))
+        before_repeat["projectile_1_cooldown_0"] = 1 << 24
+        repeated["projectile_1_cooldown_0"] = 5 << 24
+        self.assertIsNone(bridge.queued_contact(repeated, setup, 0, 1, before_repeat))
+        row["projectile_0_280"] = row["projectile_1_280"] = previous["projectile_0_280"] = 0
         row["projectile_1_19c"] = 21
         self.assertEqual(bridge.queued_contact(row, setup, 0, 1, previous)["projectile"], second + 0x28)
         row["projectile_0_19c"] = 22
@@ -784,6 +1119,7 @@ class ArteTraceTests(unittest.TestCase):
             dict(operation=dict(kind="spawn",particle=0,birth=dict(uv=[dict(min=288,max=288),None,None,None],geometry_count=dict(min=4,max=4))))]]))
         live=bytearray(raw);live[8:10]=(288).to_bytes(2,"big");live[18]=4
         self.assertEqual(bridge.declaration_matches(bank,live,100),[0])
+
         live[18]=5
         self.assertEqual(bridge.declaration_matches(bank,live,100),[])
         birth = bank["metadata"]["programs"][0][0]["operation"]["birth"]
@@ -867,6 +1203,16 @@ class ArteTraceTests(unittest.TestCase):
         for value in (3 << 24, (3 << 24) | 0x200, (5 << 24) | 0x100):
             self.assertEqual(bridge.declaration_matches(bank,model[:24],100,
                 model_binding=value,initialized=True,age=1),[])
+        spawn = bank["metadata"]["programs"][0][0]
+        spawn["at"] = 20
+        animation = birth.pop("animation")
+        motion = dict(at=20, operation=dict(kind="set_motion", spawn=0, animation=animation))
+        bank["metadata"]["programs"][0].append(motion)
+        self.assertEqual(bridge.declaration_matches(bank,model[:24],100,
+            model_binding=(3 << 24) | 0x100,initialized=True,age=1),[0])
+        motion["at"] = 21
+        self.assertEqual(bridge.declaration_matches(bank,model[:24],100,
+            model_binding=(3 << 24) | 0x100,initialized=True,age=1),[])
         descriptor = 0x81330000
         words = {0xfc: 0x100, 0x168: descriptor,
                  0x100: descriptor + 0x640 + 2 * 20, 0x108: 0x40000000,
@@ -894,6 +1240,37 @@ class ArteTraceTests(unittest.TestCase):
             dict(slot=1, animation=0)), (0, 0.5))
         with self.assertRaises(ValueError):
             bridge.observed_effect_animation(words.__getitem__, dict(slot=2, animation=0))
+        words[0xfc], words[0x134] = 0, 0
+        self.assertEqual(bridge.observed_effect_animation(words.__getitem__, binding), (None, None))
+
+    def test_authored_uv_sums_preserve_ranges_and_shared_draws(self):
+        terms = [dict(min=1, max=97, step=32, draw=1),
+                 dict(min=0, max=96, step=32, draw=2)]
+        birth = dict(sums=[dict(field=dict(kind="uv", axis=0), terms=terms)])
+        bank = dict(declarations=[bytes(24)], roots=[100], metadata=dict(programs=[[
+            dict(operation=dict(kind="spawn", particle=0, birth=birth))]]))
+        live = bytearray(24)
+        for value in (1, 33, 97, 129, 193):
+            live[8:10] = value.to_bytes(2, "big")
+            self.assertEqual(bridge.declaration_matches(bank, live, 100), [0])
+        for value in (0, 2, 192, 225):
+            live[8:10] = value.to_bytes(2, "big")
+            self.assertEqual(bridge.declaration_matches(bank, live, 100), [])
+        terms[1]["draw"] = 1
+        for value, expected in ((33, []), (65, [0]), (97, []), (193, [0])):
+            live[8:10] = value.to_bytes(2, "big")
+            self.assertEqual(bridge.declaration_matches(bank, live, 100), expected)
+        raw = bytearray(352)
+        raw[0] = 5
+        rectangle = struct.pack(">4H", 1, 161, 30, 30)
+        bank["declarations"] = [raw]
+        bank["uv_descriptors"] = bytes([4, 0]) + rectangle
+        birth["uv"] = [dict(min=97, max=97)]
+        live = raw[:24]
+        live[8:16] = rectangle
+        self.assertEqual(bridge.declaration_matches(bank, live, 100, initialized=True, age=1), [0])
+        live[10:12] = (129).to_bytes(2, "big")
+        self.assertEqual(bridge.declaration_matches(bank, live, 100, initialized=True, age=1), [])
 
     def test_identical_prefix_is_disambiguated_only_by_observed_parent_program(self):
         raw = bytes(24)
@@ -905,6 +1282,9 @@ class ArteTraceTests(unittest.TestCase):
         boned["metadata"]["actors"] = [dict(template=dict(owner_bone=bone)) for bone in (76, 98)]
         for bone, expected in ((None, [0, 1]), (76, [0]), (98, [1]), (111, [])):
             self.assertEqual(bridge.declaration_matches(boned, raw, 999, owner_bone=bone), expected)
+        boned["metadata"]["programs"][0][0]["operation"]["birth"] = dict(attachment_bone=11)
+        self.assertEqual(bridge.declaration_matches(boned, raw, 100, owner_bone=11), [1])
+        self.assertEqual(bridge.declaration_matches(boned, raw, 100, owner_bone=98), [])
         timed = dict(bank, metadata=dict(programs=[[
             dict(at=5, operation=dict(kind="spawn", particle=0)),
             dict(at=8, operation=dict(kind="spawn", particle=1))]]))
@@ -913,6 +1293,27 @@ class ArteTraceTests(unittest.TestCase):
         timed["metadata"]["programs"][0][1]["at"] = 5
         self.assertEqual(bridge.declaration_matches(timed,raw,100,birth_tick=5), [0,1])
         self.assertEqual(bridge.declaration_matches(timed,raw,999,birth_tick=5), [0,1])
+        attached = copy.deepcopy(timed)
+        attached["metadata"]["actors"] = [dict(binding=dict(attachment=dict(retained=0, joint=joint)))
+                                            for joint in (2, 3)]
+        for attachment, expected in (((2, 0), [0]), ((3, 0), [1]), ((2, 1), [])):
+            self.assertEqual(bridge.declaration_matches(attached, raw, 100,
+                model_attachment=attachment), expected)
+        mirrored = copy.deepcopy(timed)
+        mirrored["metadata"]["actors"] = [dict(template=dict(state=dict(
+            offset=[16 * sign, 0, 0], velocity=[sign, 0, 0]))) for sign in (-1, 1)]
+        self.assertEqual(bridge.declaration_matches(mirrored, raw, 100, initialized=True, age=1,
+            offset=[0, 0, 17], heading=-90), [1])
+        self.assertEqual(bridge.declaration_matches(mirrored, raw, 100, initialized=True, age=1,
+            offset=[0, 0, -17], heading=-90), [0])
+        for command in mirrored["metadata"]["programs"][0]:
+            command["operation"]["birth"] = dict(uv=[dict(min=0, max=0)])
+        self.assertEqual(bridge.declaration_matches(mirrored, raw, 100, initialized=True, age=1,
+            offset=[0, 0, 17], heading=-90), [1])
+        for command in mirrored["metadata"]["programs"][0]:
+            command["operation"]["birth"] = dict(offset=[dict(min=-30, max=30), None, None])
+        self.assertEqual(bridge.declaration_matches(mirrored, raw, 100, initialized=True, age=1,
+            offset=[0, 0, 17], heading=-90), [0, 1])
         timed["metadata"]["actors"] = [dict(template=dict(state=dict(geometry=dict(Size=dict(
             value=[0, 0, width], velocity=[10, 0, 0], acceleration=[0, 0, 0])))))
             for width in (128, 224)]
@@ -1172,6 +1573,15 @@ class ArteTraceTests(unittest.TestCase):
         attacking = dict(bound, battle_actor_4_action=5 << 24, actor_4_target_state_word=3 << 24)
         trace = bridge.normalize(attack_case, [attacking, idle], setup, {}, dict(selected=123), None)
         gap = "required target attack was not observed at row selection"
+        self.assertNotIn(gap, trace["incomplete_observations"])
+        self.assertEqual(trace["setup"]["target_attack_admission"]["phase"], 3)
+        approach = dict(attacking, battle_actor_0_action=4 << 24)
+        ended_attack = dict(attacking, battle_combat_tick_word=2, battle_presentation_tick_word=2,
+                            battle_actor_4_action=3 << 24, actor_4_target_state_word=0)
+        approached_setup = copy.deepcopy(setup)
+        approached_setup["actors"][0].update(heading=0.0, position=[0.0, 0.0, 0.0])
+        trace = bridge.normalize(attack_case, [approach, ended_attack, idle],
+                                 approached_setup, {}, dict(selected=123), None)
         self.assertNotIn(gap, trace["incomplete_observations"])
         self.assertEqual(trace["setup"]["target_attack_admission"]["phase"], 3)
         attacking["actor_4_target_state_word"] = 0

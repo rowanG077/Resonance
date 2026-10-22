@@ -1,8 +1,10 @@
 """Offline damage-scale and unsupported-input checks; no emulator required."""
-from dataclasses import replace
+from dataclasses import asdict, replace
+from copy import deepcopy
 import unittest
 
-from damage_envelope import Context, UnsupportedDamage, envelope, hp_loss_bounds
+from damage_envelope import (Context, UnsupportedDamage, envelope, hp_loss_bounds,
+                             native_contact_branches, normalize_native_trace)
 
 
 class DamageEnvelopeTests(unittest.TestCase):
@@ -12,6 +14,46 @@ class DamageEnvelopeTests(unittest.TestCase):
         self.target = dict(conditions=[], stats=dict(slash=100, thrust=100, defense=50,
             intelligence=160, accuracy=80, evasion=85, level=11))
         self.context = Context(85, (0, 0, 0), 100, None, False, "normal", (), True)
+
+    def test_native_contact_uses_observed_stun_and_protection(self):
+        owner, target = deepcopy(self.owner), deepcopy(self.target)
+        owner["stats"].update(slash=400, accuracy=66)
+        target["stats"].update(defense=30, evasion=66)
+        event = dict(kind="hit", hp_change=-52, critical=False, damage_inputs=dict(
+            rule=dict(kind="slash", power=dict(percent=30)), attacker=owner, defender=target,
+            context=asdict(replace(self.context, strength_percent=100, target_accuracy_override=True)),
+            avoided_protection=None, hp_before=9999, prevents_defeat=False))
+        self.assertEqual(native_contact_branches(event)["damage_branches"],
+                         dict(ordinary=[48, 52], critical=[73, 79]))
+        event["damage_inputs"]["context"]["target_accuracy_override"] = False
+        self.assertEqual(native_contact_branches(event)["damage_branches"],
+                         dict(ordinary=[42, 45], critical=[63, 68]))
+        event["damage_inputs"]["context"]["protection_shift"] = 3
+        self.assertEqual(native_contact_branches(event)["damage_branches"],
+                         dict(ordinary=[5, 5], critical=[7, 8]))
+        for field, value in (("target_accuracy_override", None), ("protection_shift", 1),
+                             ("modifiers_verified", False)):
+            wrong = deepcopy(event)
+            wrong["damage_inputs"]["context"][field] = value
+            with self.assertRaises(UnsupportedDamage):
+                native_contact_branches(wrong)
+        event["damage_inputs"]["context"]["protection_shift"] = 0
+        event["hp_change"] = 0
+        for protection in ("recovery", "down_window_closed"):
+            event["protection"] = event["damage_inputs"]["avoided_protection"] = protection
+            self.assertEqual(native_contact_branches(event)["damage_branches"],
+                             dict(ordinary=[0, 0], critical=None))
+            wrong = deepcopy(event)
+            wrong["hp_change"] = -1
+            with self.assertRaises(UnsupportedDamage):
+                native_contact_branches(wrong)
+        trace = dict(setup=dict(contact_damage_observations=True), events=[event], incomplete_observations=[])
+        normalize_native_trace(trace)
+        self.assertEqual(trace["incomplete_observations"], [])
+        self.assertTrue(trace["setup"]["contact_damage_normalized"])
+        del event["damage_inputs"]
+        normalize_native_trace(trace)
+        self.assertEqual(len(trace["incomplete_observations"]), 1)
 
     def test_physical_integer_stages_and_independent_critical(self):
         rule = dict(kind="slash", power={"percent": 130})
@@ -67,6 +109,25 @@ class DamageEnvelopeTests(unittest.TestCase):
         self.target["stats"]["intelligence"] = 5000
         bounds = envelope(rule, self.owner, self.target, context)
         self.assertEqual((bounds["minimum"], bounds["maximum"]), (1, 1))
+
+    def test_observed_conditions_change_their_specific_damage_terms(self):
+        owner = dict(conditions=[], stats=dict(slash=200, thrust=200, defense=20,
+            intelligence=100, accuracy=100, evasion=100, level=1))
+        target = dict(conditions=[], stats=dict(slash=200, thrust=200, defense=20,
+            intelligence=0, accuracy=100, evasion=100, level=0))
+        context = replace(self.context, strength_percent=100, proficiency=(0, 0, 0),
+                          familiarity_percent=100, critical=False)
+        for modifiers, expected in (((), (96, 104)),
+                (("magic_attack_up",), (115, 124)),
+                (("magic_attack_down",), (79, 86)),
+                (("magic_attack_up", "magic_defense_up"), (96, 104)),
+                (("physical_protection", "magic_attack_up", "magical_protection"), (92, 99))):
+            bounds = envelope(dict(kind="magic", power="normal"), owner, target,
+                              replace(context, magic_modifiers=modifiers))
+            self.assertEqual((bounds["minimum"], bounds["maximum"]), expected)
+        bounds = envelope(dict(kind="slash", power="normal"), owner, target,
+                          replace(context, stat_adjustments=(0, -20, 0, 0)))
+        self.assertEqual((bounds["minimum"], bounds["maximum"]), (69, 75))
 
     def test_floor_hit_and_unknown_modifiers_are_distinct(self):
         self.owner["stats"].update(slash=102, accuracy=65)

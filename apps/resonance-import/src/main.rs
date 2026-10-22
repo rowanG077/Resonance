@@ -11,6 +11,21 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Bind one authored package motion to a party body for an isolated replay fixture.
+    BindFixtureMotion {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long)]
+        package: PathBuf,
+        #[arg(long)]
+        package_clip: u16,
+        #[arg(long)]
+        character: u8,
+        #[arg(long, default_value_t = 0)]
+        costume: u8,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Cook every asset from the supplied discs; no resource selection.
     CookAll {
         /// Parallel asset workers; codecs run within this worker limit.
@@ -143,6 +158,25 @@ enum Action {
 
 fn main() -> anyhow::Result<()> {
     match Args::parse().command {
+        Action::BindFixtureMotion {
+            extracted,
+            package,
+            package_clip,
+            character,
+            costume,
+            output,
+        } => {
+            let receipt = resonance_import::battle_model::bind_party_motion(
+                &extracted,
+                &package,
+                package_clip,
+                character,
+                costume,
+                &output,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
+            Ok(())
+        }
         Action::CookAll {
             jobs,
             extracted,
