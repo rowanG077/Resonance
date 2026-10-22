@@ -59,7 +59,7 @@ impl Cloud {
             glow.owner = (phase == 0).then_some(owner);
             glow.recipe = GLOW_SPRITE;
             glow.field_fog = false;
-            glow.blend = Some(actor.blend.unwrap_or(Blend::Additive));
+            glow.blend = Some(actor.particle_blend().unwrap_or(Blend::Additive));
             glow.size = [self.size[usize::from(release)]; 2];
             glow.rgba[3] = if release {
                 50
@@ -109,7 +109,7 @@ impl Cloud {
         if release {
             self.turn += 4.;
         }
-        let color = if actor.blend.is_some() {
+        let color = if actor.particle_blend().is_some() {
             super::palette(108, rng)
         } else {
             self.palette + (random(rng) % 4) as u16
@@ -132,7 +132,7 @@ impl Cloud {
         } else {
             self.alpha[1].min(255) as u8
         };
-        mote.blend = actor.blend.map(|_| Blend::Subtractive);
+        mote.blend = actor.particle_blend().map(|_| Blend::Subtractive);
         let direction = direction(rng);
         let sample = random(rng);
         mote.controller = Some(match phase {

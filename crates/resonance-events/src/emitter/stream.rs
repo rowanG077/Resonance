@@ -326,7 +326,11 @@ impl Stream {
                 let mut p = particle(center, born, *palette, (*size).max(60) + 1);
                 p.owner = Some(owner);
                 p.recipe = crate::effect::GLOW_SPRITE;
-                p.blend = Some(actor.blend.unwrap_or(crate::effect::Blend::Additive));
+                p.blend = Some(
+                    actor
+                        .particle_blend()
+                        .unwrap_or(crate::effect::Blend::Additive),
+                );
                 p.size = [(*size + random(rng) % 16) as f32; 2];
                 p.size_delta = -1.;
                 p.velocity = [

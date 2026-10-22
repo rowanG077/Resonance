@@ -13,6 +13,7 @@ fn variation(random: &mut u32, choices: u32) -> f32 {
 
 const PROJECTILE_GLOW_UV: [f32; 4] = [0., 64. / 256., 64. / 256., 128. / 256.];
 const PULSE_INTERVAL: u32 = 4;
+const MIN_DARKNESS_IMPACT_SIZE: f32 = 64.;
 
 enum Visual {
     Sprite(BillboardEffect),
@@ -216,8 +217,12 @@ impl Visuals {
             (false, false) => 60,
             _ => 120,
         };
+        let mut size = age as f32 * 2.;
+        if dark && impact {
+            // A nearby obstacle can end the flight before the mist has grown.
+            size = size.max(MIN_DARKNESS_IMPACT_SIZE);
+        }
         for _ in 0..4 {
-            let size = age as f32 * 2.;
             let mut dot = sprite(super::GLOW_SPRITE, size, lifetime + 1);
             dot.blend = Some(crate::effect::Blend::Alpha);
             dot.position = std::array::from_fn(|_| variation(random, 32) - 15.);
@@ -333,6 +338,7 @@ impl Visuals {
                 ),
             ]
         } else {
+            // Activation scripts pause the orb lifetime, but its light keeps moving.
             &[
                 (
                     self.clock.is_multiple_of(PULSE_INTERVAL),
@@ -344,7 +350,7 @@ impl Visuals {
                     224,
                 ),
                 (
-                    age.is_multiple_of(2),
+                    self.clock.is_multiple_of(2),
                     super::ELECTRIC_ARC_SPRITE,
                     100.,
                     32,

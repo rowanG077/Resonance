@@ -2,10 +2,14 @@
 use crate::Actor;
 use serde::{Deserialize, Serialize};
 
+mod enemy;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Behavior {
     Stationary,
+    /// Field enemies have their own decisions, independent of NPC roaming.
+    Enemy(u8),
     Wander,
     WanderNearHome,
     FollowPath,
@@ -14,23 +18,18 @@ pub enum Behavior {
     ApproachPlayer,
     Player,
     ChasePlayer,
+    AnchoredToPlayer,
     /// An unassigned movement selector leaves movement entirely to scripts.
     ScriptOnly(u8),
 }
 impl Behavior {
     pub(crate) fn enemy(mode: u8) -> Self {
-        match mode {
-            0 => Self::WanderNearHome,
-            1 | 2 => Self::Wander,
-            3 => Self::FollowPath,
-            4 | 5 => Self::ApproachPlayer,
-            6 => Self::RandomPath,
-            _ => Self::Wander,
-        }
+        Self::Enemy(if mode <= 6 { mode } else { 2 })
     }
+
     pub fn code(self) -> u8 {
         match self {
-            Self::Stationary => 0,
+            Self::Stationary | Self::Enemy(_) => 0,
             Self::Wander => 1,
             Self::WanderNearHome => 2,
             Self::FollowPath => 3,
@@ -39,6 +38,7 @@ impl Behavior {
             Self::Player => 10,
             Self::RandomPath => 11,
             Self::ChasePlayer => 12,
+            Self::AnchoredToPlayer => resonance_content::field::ANCHORED_PLAYER_BEHAVIOR,
             Self::ScriptOnly(code) => code,
         }
     }
@@ -55,6 +55,7 @@ impl From<u8> for Behavior {
             5 => Self::ApproachPlayer,
             10 => Self::Player,
             12 => Self::ChasePlayer,
+            resonance_content::field::ANCHORED_PLAYER_BEHAVIOR => Self::AnchoredToPlayer,
             _ => Self::ScriptOnly(value),
         }
     }
@@ -133,13 +134,41 @@ pub(crate) struct AmbientMotion {
     pub paused: bool,
     pub selecting: bool,
 }
+impl crate::GameWorld {
+    pub(crate) fn anchor_followers_to_player(&mut self) {
+        // Cutscenes can direct followers to their own destinations. Block grips
+        // also disable ordinary input, but remain player-controlled movement.
+        if !self.input_enabled && self.grabbed_block.is_none() {
+            return;
+        }
+        let Some(position) = self.actors.get(&self.controlled_actor).map(|a| a.position) else {
+            return;
+        };
+        for (&id, actor) in &mut self.actors {
+            if id != self.controlled_actor && actor.anchored_to_player() {
+                actor.position = position;
+            }
+        }
+    }
+}
+
 impl Actor {
+    /// Scripted destinations temporarily take priority over following.
+    pub fn anchored_to_player(&self) -> bool {
+        self.motion.is_none()
+            && self
+                .autonomy
+                .is_some_and(|ai| ai.behavior == Behavior::AnchoredToPlayer)
+    }
+
     pub(crate) fn step_autonomy(
         &mut self,
         free_control: bool,
         conversation_active: bool,
         player: Option<[f32; 3]>,
         random: &mut impl FnMut() -> u32,
+        floor: &mut impl FnMut([f32; 3]) -> bool,
+        speed_multiplier: f32,
     ) -> AmbientMotion {
         let mut intent = AmbientMotion::default();
         if self.pushable {
@@ -148,28 +177,19 @@ impl Actor {
         let Some(ai) = &mut self.autonomy else {
             return intent;
         };
-        if matches!(ai.behavior, Behavior::ScriptOnly(_)) {
+        if matches!(
+            ai.behavior,
+            Behavior::ScriptOnly(_) | Behavior::AnchoredToPlayer
+        ) {
             return intent;
         }
         if let Some(enemy) = &mut self.enemy {
             if enemy.pause_ticks != 0 {
-                if free_control && enemy.pause_ticks > 0 {
+                if enemy.pause_ticks > 0 {
                     enemy.pause_ticks -= 1;
                 }
                 intent.paused = true;
                 return intent;
-            }
-            let alert = enemy.alerted;
-            ai.speed = if alert {
-                enemy.alert_speed
-            } else {
-                enemy.normal_speed
-            };
-            if alert
-                && enemy.chase_on_sight
-                && let Some(p) = player
-            {
-                self.target_heading = heading(self.position, p);
             }
         }
         if self.motion.is_some() {
@@ -185,6 +205,17 @@ impl Actor {
             // Conversation leaves the decision timer alone. Resume through a
             // separate selection update before initializing another activity.
             return intent;
+        }
+        if let Behavior::Enemy(mode) = ai.behavior {
+            return enemy::step(
+                self,
+                mode,
+                free_control,
+                player,
+                random,
+                floor,
+                speed_multiplier,
+            );
         }
         if matches!(ai.behavior, Behavior::FollowPath | Behavior::RandomPath) {
             let path = &mut self.path;
@@ -285,10 +316,6 @@ impl Actor {
                             .map(|(a, b)| (a - b).powi(2))
                             .sum::<f32>()
                             > ai.radius * ai.radius);
-                if self.enemy.is_some() && outside_home {
-                    ai.remaining = 120;
-                    self.target_heading = heading(self.position, ai.home);
-                }
                 ai.remaining -= 1;
                 if ai.remaining < -1 {
                     if random() & 15 == 0 {
@@ -300,16 +327,7 @@ impl Actor {
                         self.target_heading += if ai.remaining & 1 != 0 { 90. } else { -90. };
                         ai.remaining = (random() & 31) as i32 + 8;
                     } else {
-                        let mask = if self
-                            .enemy
-                            .as_ref()
-                            .is_some_and(|enemy| enemy.behavior == 1 && enemy.random_turns == 0)
-                        {
-                            127
-                        } else {
-                            63
-                        };
-                        self.target_heading += (random() & mask) as f32 - (mask / 2 + 1) as f32;
+                        self.target_heading += (random() & 63) as f32 - 32.;
                         match ai.behavior {
                             Behavior::WanderNearHome if outside_home => {
                                 ai.remaining = 60;
@@ -329,12 +347,7 @@ impl Actor {
                         }
                     }
                 }
-                let angle = if self.enemy.is_some() {
-                    self.heading
-                } else {
-                    self.target_heading
-                }
-                .to_radians();
+                let angle = self.target_heading.to_radians();
                 let mut delta = [angle.sin() * ai.speed, -angle.cos() * ai.speed];
                 if self.heading.trunc() != self.target_heading.trunc() {
                     delta = delta.map(|v| (f64::from(v) / 1.5) as f32);
@@ -358,53 +371,6 @@ mod path_tests {
     use super::*;
 
     #[test]
-    fn enemy_returns_home_before_its_random_turn_timer_expires() {
-        let mut actor = Actor::new(164, [301., 0., 0.]);
-        actor.face(90.);
-        actor.turn_speed = 10.;
-        let mut ai = Autonomy::new(Behavior::WanderNearHome, 3., [0.; 3]);
-        ai.radius = 300.;
-        ai.activity = Activity::Walk;
-        ai.initialized = true;
-        ai.remaining = 500;
-        actor.autonomy = Some(ai);
-        actor.enemy = Some(crate::world::Enemy {
-            event: 0,
-            behavior: 0,
-            normal_speed: 3.,
-            alert_speed: 6.,
-            random_turns: 0,
-            chase_on_sight: false,
-            sight_angle: 90.,
-            sight_distance: 600.,
-            alerted: false,
-            event_parameters: [0; 2],
-            pause_ticks: 0,
-            pause_outside_view: false,
-            script_flag: false,
-            reaction: crate::effect::StunEffect::None,
-        });
-        let mut seed = 1;
-        let mut random = || crate::world::random(&mut seed);
-        for _ in 0..120 {
-            actor.step_autonomy(true, false, None, &mut random);
-            actor.step_heading(false, true);
-        }
-        assert!(actor.position[0].hypot(actor.position[1]) < 300.);
-        let before = actor.position;
-        actor.step_autonomy(false, false, None, &mut random);
-        assert_eq!(actor.position, before);
-        actor.enemy.as_mut().unwrap().pause_ticks = 60;
-        for _ in 0..120 {
-            actor.step_autonomy(false, false, None, &mut random);
-        }
-        assert_eq!(actor.position, before);
-        assert_eq!(actor.enemy.as_ref().unwrap().pause_ticks, 60);
-        actor.step_autonomy(true, false, None, &mut random);
-        assert_eq!(actor.enemy.as_ref().unwrap().pause_ticks, 59);
-    }
-
-    #[test]
     fn patrol_reverses_at_end_and_pauses_for_dialogue() {
         let mut actor = Actor::new(1, [0.; 3]);
         actor.autonomy = Some(Autonomy::new(Behavior::FollowPath, 2., actor.position));
@@ -413,12 +379,12 @@ mod path_tests {
         actor.path.points[1] = [8., 0., 0.];
         actor.path.reverse_at_end = true;
         let mut random = || panic!("a fixed patrol must not consume random state");
-        actor.step_autonomy(true, false, None, &mut random);
+        actor.step_autonomy(true, false, None, &mut random, &mut |_| true, 1.);
         assert_eq!(actor.position[0], 2.);
-        actor.step_autonomy(false, true, None, &mut random);
+        actor.step_autonomy(false, true, None, &mut random, &mut |_| true, 1.);
         assert_eq!(actor.position[0], 2.);
         for _ in 0..8 {
-            actor.step_autonomy(true, false, None, &mut random);
+            actor.step_autonomy(true, false, None, &mut random, &mut |_| true, 1.);
         }
         assert!(actor.path.reverse);
         assert_eq!(actor.position[0], 4.);

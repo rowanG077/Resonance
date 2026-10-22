@@ -16,6 +16,8 @@ pub struct MemoryCircleText {
 }
 #[derive(Default)]
 pub struct ResourceLibrary {
+    pub texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
+    pub field_wind: Option<resonance_content::field::FieldWind>,
     pub rising_light_destination: Option<[f32; 3]>,
     pub memory_circle_text: MemoryCircleText,
     pub station_script: Option<std::sync::Arc<symphonia_script::Program>>,
@@ -122,6 +124,64 @@ impl ResourceLibrary {
         ))
     }
 
+    /// Local node position, independent of the actor's placement and its parents.
+    pub(crate) fn node_translation(
+        &self,
+        actor: &crate::Actor,
+        name: &str,
+        tick: u32,
+    ) -> anyhow::Result<[f32; 3]> {
+        use anyhow::Context;
+        let model = self
+            .model(actor.model_resource())
+            .context("node model missing")?;
+        let skeleton = model
+            .attachments
+            .skeleton
+            .as_ref()
+            .context("node skeleton missing")?;
+        let bone = skeleton.bone(name).context("node missing")?;
+        let bind = skeleton.bones[usize::from(bone)].bind;
+        let mut position = bind.translation;
+        for animation in actor
+            .animation
+            .iter()
+            .chain(actor.scenery_animations.values())
+            .rev()
+        {
+            let pose = self
+                .attachment_animation_pose(actor, animation)
+                .context("node animation pose missing")?;
+            if let Some(track) = pose.motion.tracks.iter().find(|track| track.bone == bone) {
+                let clip = self
+                    .animation(animation)
+                    .context("node animation missing")?;
+                let elapsed = animation.sample(
+                    tick,
+                    model.attachment_pose_delay,
+                    clip.duration_ticks as f32,
+                );
+                position = track.sample(pose.frame(elapsed), bind)?.translation;
+                break;
+            }
+        }
+        for adjustment in actor.appearance.bone_adjustments.values() {
+            let matches = match &adjustment.bone {
+                crate::BoneTarget::Name(target) => target == name,
+                crate::BoneTarget::Index(target) => *target == bone,
+            };
+            if matches
+                && adjustment
+                    .translation
+                    .as_ref()
+                    .is_some_and(|translation| translation.absolute)
+            {
+                position = adjustment.translation(tick);
+            }
+        }
+        Ok(position)
+    }
+
     pub(crate) fn bone_matrix(
         &self,
         actor: &crate::Actor,
@@ -132,57 +192,84 @@ impl ResourceLibrary {
         let model = self
             .model(actor.model_resource())
             .context("attachment model is missing")?;
-        if let Some(layer) = actor.scenery_animations.values().next() {
-            let skeleton = &self
-                .attachment_animation_pose(actor, layer)
-                .context("attachment pose is not prepared")?
-                .skeleton;
-            let bone = skeleton.bone(name).context("attachment bone is missing")?;
-            let layers = actor
-                .animation
-                .iter()
-                .chain(actor.scenery_animations.values())
-                .map(|animation| {
-                    let clip = self
-                        .animation(animation)
-                        .context("attachment clip is missing")?;
-                    let pose = self
-                        .attachment_animation_pose(actor, animation)
-                        .context("attachment pose is not prepared")?;
-                    let tick = animation.sample(
-                        tick,
-                        model.attachment_pose_delay,
-                        clip.duration_ticks as f32,
-                    );
-                    Ok((pose.motion.as_ref(), pose.frame(tick)))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            return skeleton.sample_layered_matrix(&layers, bone);
-        }
-        if let Some(animation) = &actor.animation {
-            let clip = self
-                .animation(animation)
-                .context("attachment clip is missing")?;
-            let pose = self
-                .attachment_pose(actor)
-                .context("attachment pose is not prepared")?;
-            pose.sample_matrix(
-                name,
-                animation.sample(
-                    tick,
-                    model.attachment_pose_delay,
-                    clip.duration_ticks as f32,
-                ),
-            )
-        } else {
-            let skeleton = model
+        let skeleton = match actor
+            .scenery_animations
+            .values()
+            .next()
+            .or(actor.animation.as_ref())
+        {
+            Some(animation) => {
+                &self
+                    .attachment_animation_pose(actor, animation)
+                    .context("attachment pose is not prepared")?
+                    .skeleton
+            }
+            None => model
                 .attachments
                 .skeleton
                 .as_ref()
-                .context("attachment rest pose is not prepared")?;
-            let bone = skeleton.bone(name).context("attachment bone is missing")?;
-            Ok(skeleton.bind_pose()?.global[usize::from(bone)])
-        }
+                .context("attachment rest pose is not prepared")?,
+        };
+        let bone = skeleton.bone(name).context("attachment bone is missing")?;
+        let layers = actor
+            .animation
+            .iter()
+            .chain(actor.scenery_animations.values())
+            .map(|animation| {
+                let clip = self
+                    .animation(animation)
+                    .context("attachment clip is missing")?;
+                let pose = self
+                    .attachment_animation_pose(actor, animation)
+                    .context("attachment pose is not prepared")?;
+                let elapsed = animation.sample(
+                    tick,
+                    model.attachment_pose_delay,
+                    clip.duration_ticks as f32,
+                );
+                Ok((pose.motion.as_ref(), pose.frame(elapsed)))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        skeleton.sample_adjusted_matrix(&layers, bone, &|index, bone, mut local| {
+            use resonance_content::animation::{euler_rotation, pose::LocalPose};
+            for adjustment in actor
+                .appearance
+                .bone_adjustments
+                .values()
+                .filter(|adjustment| match &adjustment.bone {
+                    crate::BoneTarget::Name(name) => name == &bone.name,
+                    crate::BoneTarget::Index(target) => *target == index,
+                })
+            {
+                let angles = adjustment.sample(tick);
+                let rotation = euler_rotation(angles);
+                if adjustment.absolute_rotation {
+                    let mut value = match local {
+                        LocalPose::Trs(value) => value,
+                        LocalPose::Affine(_) => bone.bind,
+                    };
+                    value.rotation = rotation;
+                    local = LocalPose::Trs(value);
+                } else if angles != [0.; 3] {
+                    local = local.rotate(rotation);
+                }
+                if let Some(scale) = &adjustment.scale {
+                    local = local.with_scale(scale.sample(tick, bone.bind.scale));
+                }
+                if adjustment
+                    .translation
+                    .as_ref()
+                    .is_some_and(|translation| translation.absolute)
+                {
+                    let position = adjustment.translation(tick);
+                    match &mut local {
+                        LocalPose::Trs(value) => value.translation = position,
+                        LocalPose::Affine(matrix) => matrix[3][..3].copy_from_slice(&position),
+                    }
+                }
+            }
+            local
+        })
     }
 
     pub fn attachment_pose(&self, actor: &crate::Actor) -> Option<&AttachmentPose> {

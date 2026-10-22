@@ -19,7 +19,9 @@ const MUZZLE_HEIGHT: f32 = 100.;
 const CONTACT_RADIUS: f32 = 20.;
 const ORB_FLIGHT_TICKS: u32 = 20;
 const ORB_RADIUS: f32 = 30.;
-const SUNLIGHT_EXPOSURE_TICKS: u32 = 240;
+const SUNLIGHT_EXPOSURE: u32 = 240;
+// Each obstacle reserves eight actor IDs for its light-contact markers.
+const SUNLIGHT_TARGET_GROUP_SIZE: i32 = 8;
 const SUNLIGHT_MUZZLE_OFFSET: [f32; 3] = [0., -20., 0.];
 const BUBBLE_RISE_TICKS: u32 = 60;
 const BUBBLE_OPACITY: f32 = 96.;
@@ -65,8 +67,16 @@ enum Phase {
     BombBlast(i32),
     RadarScan(i32),
     RadarFade(i32),
-    SunlightBeam(Option<(i32, u32)>),
+    SunlightBeam(SunlightExposure),
     SunlightFade(u32),
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+struct SunlightExposure {
+    group: Option<i32>,
+    charge: u32,
+    hit: bool,
+    cleared: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -190,7 +200,15 @@ fn projectile(ability: Ability) -> Option<Projectile> {
 impl EventRuntime {
     /// Activate from field input; saved party state is the only ability selection.
     pub fn activate_ring(&mut self, pressed: bool) -> Result<()> {
-        if !self.player_has_control() {
+        if !self.player_has_control()
+            || self
+                .world
+                .actors
+                .get(&self.world.controlled_actor)
+                .is_some_and(|actor| {
+                    actor.ground_attributes & resonance_content::field::SLIDING_SURFACE != 0
+                })
+        {
             return Ok(());
         }
         let held = self.world.input.held.contains(crate::input::Button::Ring);
@@ -533,13 +551,6 @@ impl Cast {
                     }
                     let hit = contact(events, &mut self.shot)?;
                     let stopped = hit.is_some() || self.age >= ORB_FLIGHT_TICKS;
-                    if stopped {
-                        let mut visuals = Visuals::new(&self.shot, &self.operation, &events.world);
-                        visuals.electric(false, 0, &mut events.world.random_state);
-                        visuals
-                            .publish(&mut events.world)
-                            .map_err(anyhow::Error::msg)?;
-                    }
                     if hit.is_none() {
                         self.shot.advance();
                     }
@@ -606,7 +617,7 @@ impl Cast {
                 self.finish(&mut events.world);
                 self.restore_pose(&mut events.world);
             }
-            Phase::SunlightBeam(previous) => {
+            Phase::SunlightBeam(mut exposure) => {
                 let height = muzzle_height(
                     &events.world,
                     &events.resources,
@@ -614,23 +625,23 @@ impl Cast {
                     SUNLIGHT_MUZZLE_OFFSET,
                 )?;
                 self.follow(&events.world, height);
-                let target = target_ahead(&events.world, &self.shot, 200., 100.);
-                let exposure = target.map(|id| {
-                    (
-                        id,
-                        previous
-                            .filter(|(old, _)| *old == id)
-                            .map_or(1, |(_, age)| age + 1),
-                    )
-                });
-                self.phase = Phase::SunlightBeam(exposure);
-                if let Some((id, age)) = exposure {
-                    for (index, duration) in [1, SUNLIGHT_EXPOSURE_TICKS].into_iter().enumerate() {
-                        if age == duration {
-                            self.callback(events, Hit::Actor(id as i16), index == 1)?;
-                        }
+                if let Some((id, contacts)) = target_ahead(&events.world, &self.shot, 200., 100.) {
+                    let group = id.div_euclid(SUNLIGHT_TARGET_GROUP_SIZE);
+                    if exposure.group != Some(group) {
+                        exposure.group = Some(group);
+                        exposure.charge = 0;
+                    }
+                    exposure.charge = exposure.charge.saturating_add(contacts);
+                    if !exposure.hit {
+                        self.callback(events, Hit::Actor(id as i16), false)?;
+                        exposure.hit = true;
+                    }
+                    if exposure.charge >= SUNLIGHT_EXPOSURE && !exposure.cleared {
+                        self.callback(events, Hit::Actor(id as i16), true)?;
+                        exposure.cleared = true;
                     }
                 }
+                self.phase = Phase::SunlightBeam(exposure);
             }
             Phase::BubbleRising if self.age >= BUBBLE_RISE_TICKS => {
                 self.transition(Phase::BubbleFloating);
@@ -741,7 +752,7 @@ impl Cast {
                 self.phase = Phase::BombFuse(id);
                 sound(world, ServiceCue::RingBombPlace, 127);
             }
-            Ability::Sunlight => self.phase = Phase::SunlightBeam(None),
+            Ability::Sunlight => self.phase = Phase::SunlightBeam(SunlightExposure::default()),
             Ability::Bubble(_) => {
                 self.phase = Phase::BubbleRising;
                 sound(world, ServiceCue::RingBubble, 127);
@@ -835,9 +846,7 @@ impl Cast {
         }
         let mut visuals = Visuals::new(&self.shot, &self.operation, world);
         match self.phase {
-            Phase::OrbHeld(_) if self.age > 0 => {
-                visuals.electric(false, self.age, &mut world.random_state)
-            }
+            Phase::OrbHeld(_) => visuals.electric(false, self.age, &mut world.random_state),
             Phase::BombBlast(_) if (1..=21).contains(&self.age) => {
                 visuals.bomb(self.age == 1, &mut world.random_state)
             }
@@ -1128,7 +1137,7 @@ fn contact(events: &mut EventRuntime, shot: &mut Shot) -> Result<Option<Option<i
     }
     Ok(None)
 }
-fn target_ahead(world: &GameWorld, shot: &Shot, distance: f32, radius: f32) -> Option<i32> {
+fn target_ahead(world: &GameWorld, shot: &Shot, distance: f32, radius: f32) -> Option<(i32, u32)> {
     let actor = &world.actors[&shot.source];
     let (sin, cos) = actor.heading.to_radians().sin_cos();
     let position = [
@@ -1136,22 +1145,26 @@ fn target_ahead(world: &GameWorld, shot: &Shot, distance: f32, radius: f32) -> O
         shot.position[1] - cos * distance,
         shot.position[2],
     ];
-    world
+    let targets = world
         .actors
         .iter()
         .filter(|(_, a)| a.role == crate::ActorRole::Interaction && a.projectile_target())
-        .filter(|(_, a)| a.projectile_contact(position, [0.; 3], radius).is_some())
-        .min_by(|(_, a), (_, b)| {
-            let distance = |a: &Actor| {
-                a.position
-                    .iter()
-                    .zip(position)
-                    .map(|(a, b)| (a - b).powi(2))
-                    .sum::<f32>()
-            };
-            distance(a).total_cmp(&distance(b))
-        })
-        .map(|(&id, _)| id)
+        .filter(|(_, a)| a.projectile_contact(position, [0.; 3], radius).is_some());
+    let (&id, _) = targets.clone().min_by(|(_, a), (_, b)| {
+        let distance = |a: &Actor| {
+            a.position
+                .iter()
+                .zip(position)
+                .map(|(a, b)| (a - b).powi(2))
+                .sum::<f32>()
+        };
+        distance(a).total_cmp(&distance(b))
+    })?;
+    let group = id.div_euclid(SUNLIGHT_TARGET_GROUP_SIZE);
+    let contacts = targets
+        .filter(|(id, _)| id.div_euclid(SUNLIGHT_TARGET_GROUP_SIZE) == group)
+        .count();
+    Some((id, contacts as u32))
 }
 fn muzzle_height(
     world: &GameWorld,
