@@ -999,9 +999,13 @@ impl DialogueDraw<'_> {
             {
                 // Capture head height once, then follow the actor’s ground position.
                 // Following animated head XY makes dialogue drift during turns.
+                let position = self
+                    .attached_positions
+                    .get(&id)
+                    .copied()
+                    .unwrap_or_else(|| Vec3::from_array(actor.position));
                 self.head_heights.entry(request.operation.id()).or_insert(
-                    ((*head - Vec3::from_array(actor.position)).dot(camera.up)).trunc()
-                        + HEAD_ANCHOR_PADDING,
+                    ((*head - position).dot(camera.up)).trunc() + HEAD_ANCHOR_PADDING,
                 );
             }
         }
