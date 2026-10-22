@@ -86,6 +86,7 @@ impl Entry {
             Encounter::Combined(selected)
         };
         let options = encounter::PrepareOptions {
+            hunting_symbol: request.hunting_symbol,
             event_flags: events.world.event_flags.clone(),
             random_seed: gameplay_random.next_u64(),
             map: u16::try_from(session.map_id())?,
@@ -642,6 +643,12 @@ fn action_names(
         .map(|prepared| (prepared.action, prepared.catalogue))
         .chain(
             feedback
+                .action_catalogues
+                .iter()
+                .map(|(&action, &catalogue)| (action, catalogue)),
+        )
+        .chain(
+            feedback
                 .casting
                 .iter()
                 .map(|(&action, cast)| (action, cast.catalogue)),
@@ -1183,6 +1190,7 @@ fn dispose(world: &mut World, mut owner: Owner, audio_return: Option<bool>) {
 fn advance(
     owner: Option<ResMut<Owner>>,
     mut controls: ResMut<input::Controls>,
+    testing: Option<Res<super::testing::Controls>>,
     playback: Option<ResMut<super::battle_audio::Playback>>,
     mut session: Option<ResMut<super::new_game::Session>>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
@@ -1215,6 +1223,9 @@ fn advance(
         controls.discard();
         return;
     }
+    scene
+        .core
+        .set_instant_kill(testing.is_some_and(|testing| testing.instant_kill));
     let _audio_owner = debug_span!(
         "battle_audio_owner",
         request,
@@ -1286,7 +1297,9 @@ fn advance(
             resonance_battle::BattlePhase::Entry | resonance_battle::BattlePhase::Combat
         );
         if scene.lifecycle.event().is_none() {
+            let core_cues = frame.cues.len();
             scene.feedback.resolve(&mut frame);
+            scene.core.record_voice_requests(&frame.cues[core_cues..]);
         }
         scene.core.advance_models(&mut frame, clock, settle)?;
         if let Some(event) = scene.lifecycle.event() {
@@ -1777,6 +1790,11 @@ fn render(
                             .as_ref()
                     })
                     .or(scene.core.transition()),
+                scene
+                    .frame
+                    .as_ref()
+                    .and_then(|frame| frame.enemy_presentation.as_ref())
+                    .map_or(0, |opening| opening.letterbox),
                 &mut commands,
                 &mut meshes,
             ),
@@ -1850,6 +1868,7 @@ pub(crate) mod tests {
                 music: None,
             },
             encounter::PrepareOptions {
+                hunting_symbol: None,
                 event_flags: Default::default(),
                 devils_arms_unlocked: false,
                 victory_story_flags: [false; 2],

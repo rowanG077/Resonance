@@ -244,6 +244,8 @@ impl Owner {
             })),
             "strategy_party": strategy_party,
             "enemy_presentation": frame.enemy_presentation.as_ref().map(|opening| json!({
+                "hide_hud": opening.hide_hud, "hide_party": opening.hide_party,
+                "letterbox": opening.letterbox,
                 "flash": opening.flash.as_ref().map(|flash| json!({"color":flash.color,"alpha":flash.alpha})),
                 "feedback": opening.feedback.map(|feedback| json!({"remaining":feedback.remaining,"expansion":feedback.expansion,"alpha":feedback.alpha})),
             })),

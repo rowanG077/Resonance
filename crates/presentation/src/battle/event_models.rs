@@ -159,6 +159,7 @@ impl State {
                     reactions: Default::default(),
                     idle_motions: [None; 2],
                     idle_expression: [0; 4],
+                    active_expression: [0; 4],
                     forced_eye_frame: None,
                     blink: None,
                     weapons: vec![],

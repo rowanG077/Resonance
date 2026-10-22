@@ -25,6 +25,7 @@ struct Row {
 #[derive(Default)]
 pub(super) struct State {
     generation: Option<u64>,
+    phase: Option<UnisonPhase>,
     rows: Vec<Row>,
     combination_names: BTreeMap<u8, String>,
 }
@@ -94,14 +95,43 @@ impl Artwork {
         action_names: &BTreeMap<ActionKey, String>,
         paused: bool,
     ) -> Result<()> {
+        let battle = frame;
         let Some(frame) = frame.unison.as_ref() else {
             self.unison.generation = None;
+            self.unison.phase = None;
             self.unison.rows.clear();
             return Ok(());
         };
         if self.unison.generation != Some(frame.generation) || !rows_visible(frame) {
             self.unison.rows.clear();
             self.unison.generation = Some(frame.generation);
+            self.unison.phase = None;
+        }
+        if self.unison.phase != Some(frame.phase) {
+            self.unison.phase = Some(frame.phase);
+            if let Some(combination) = &frame.combination {
+                let notice = match frame.phase {
+                    UnisonPhase::CombinationPose => Some(("-Compound Special Attack-".into(), 60)),
+                    UnisonPhase::Combined => Some((
+                        self.unison
+                            .combination_names
+                            .get(&combination.id)
+                            .context("Unison combination name is not prepared")?
+                            .clone(),
+                        180,
+                    )),
+                    _ => None,
+                };
+                if let Some((name, duration)) = notice {
+                    self.notice_with_icon(
+                        combination.actors[0].index(),
+                        &name,
+                        duration,
+                        battle,
+                        notice::Icon::Arte,
+                    )?;
+                }
+            }
         }
         let expected = frame
             .selected_actions

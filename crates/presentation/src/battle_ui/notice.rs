@@ -519,6 +519,44 @@ mod tests {
         assert!(remaining[ENEMY_NOTICE + FRAME].indices.is_empty());
         assert_eq!(remaining[FRAME].positions, paired[FRAME].positions);
         assert_eq!(remaining[FRAME].colors, paired[FRAME].colors);
+
+        let catalogue = serde_json::from_slice(&std::fs::read(
+            fixtures::asset_root().join(resonance_content::battle_unison::PATH),
+        )?)?;
+        hud.configure_unison_names(&catalogue)?;
+        let actor = resonance_battle::ActorId::from_index(0)?;
+        frame.unison = Some(resonance_battle::UnisonFrame {
+            generation: 1,
+            phase: resonance_battle::UnisonPhase::CombinationPose,
+            initiator: actor,
+            target: None,
+            elapsed: 1,
+            blocked_slots: 0,
+            selected: vec![],
+            selected_actions: vec![],
+            hidden: vec![],
+            stage_color: None,
+            completion: None,
+            combination: Some(resonance_battle::UnisonCombinationFrame {
+                id: 12,
+                native_id: 311,
+                actors: [actor; 2],
+            }),
+            feedback: None,
+        });
+        let names = BTreeMap::new();
+        hud.advance_unison(&frame, &names, false)?;
+        assert_eq!(hud.party_notice_text(), Some("-Compound Special Attack-"));
+        frame.unison.as_mut().unwrap().phase = resonance_battle::UnisonPhase::Combined;
+        hud.advance_unison(&frame, &names, false)?;
+        assert_eq!(hud.party_notice_text(), Some("Prism Stars"));
+        hud.notices.advance(&frame, 12);
+        hud.advance_unison(&frame, &names, false)?;
+        assert_eq!(
+            hud.notices.messages[0].as_ref().unwrap().age,
+            12,
+            "remaining in the combined phase must not restart its banner"
+        );
         Ok(())
     }
 }

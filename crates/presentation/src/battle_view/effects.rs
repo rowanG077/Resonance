@@ -1,4 +1,4 @@
-//! A fixed pool of draws with every material and pipeline prepared before entry.
+//! Reusable draws with every material and pipeline prepared before entry.
 //! Particle state and submission order are supplied by the scene animation owner.
 use resonance_events::effect::Blend;
 #[path = "effects_geometry.rs"]
@@ -16,7 +16,7 @@ use bevy::{
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
 };
-use resonance_battle::{BattleFrame, MAX_PARTICLES, ParticleFrame};
+use resonance_battle::{BattleFrame, ParticleFrame};
 use resonance_content::{
     TextureBinding, TextureWrap,
     battle_effect::EffectTexture as Texture,
@@ -397,11 +397,11 @@ impl Effects {
             self.warm.push(entity);
         }
         if let Some((_, surface)) = self.materials.first_key_value() {
-            // The final two draws batch ordinary and additive ground shadows.
+            // Shadows and wing sparkles have fixed slots; particles grow after them.
             let wing_draws = self
                 .wing_resource
                 .map_or(0, |_| WingAccessory::SPARKLE_PALETTES.len());
-            for _ in 0..MAX_PARTICLES + 2 + wing_draws {
+            for _ in 0..2 + wing_draws {
                 let mesh = meshes.add(warm_mesh());
                 let entity = spawn(commands, mesh.clone(), surface.clone());
                 self.draws.push(Draw { entity, mesh });
@@ -450,15 +450,13 @@ impl Effects {
         commands: &mut Commands,
         actor_order: &ActorOrder,
     ) -> Result<super::scene_sample::Draws> {
-        ensure!(
-            particles.len() <= MAX_PARTICLES,
-            "particle snapshot exceeds scene budget"
-        );
         for draw in &self.draws {
             commands.entity(draw.entity).insert(Visibility::Hidden);
         }
         let mut scene_samples = super::scene_sample::Draws::default();
-        let mut count = 0;
+        let mut count = 2 + self
+            .wing_resource
+            .map_or(0, |_| WingAccessory::SPARKLE_PALETTES.len());
         for (order, particle) in particles.iter().enumerate() {
             let result = (|| -> Result<()> {
                 let bank = self
@@ -488,16 +486,25 @@ impl Effects {
                         Ok(Mat4::from_cols_array_2d(&model.world) * Mat4::from_cols_array_2d(bone))
                     })
                     .transpose()?;
-                let draw = self
-                    .draws
-                    .get(count)
-                    .context("battle particles exceeded prepared draw capacity")?;
+                let scene_sample = declaration.particle_visual()?.scene_sample;
+                if scene_sample.is_none() && count == self.draws.len() {
+                    let surface = self
+                        .materials
+                        .get(&key)
+                        .context("particle selected an unprepared material")?;
+                    let mesh = meshes.add(warm_mesh());
+                    let entity = spawn(commands, mesh.clone(), surface.clone());
+                    commands
+                        .entity(entity)
+                        .insert((RenderLayers::layer(super::LAYER), Visibility::Hidden));
+                    self.draws.push(Draw { entity, mesh });
+                }
                 let mut mesh_asset;
-                let mesh: &mut Mesh = if declaration.particle_visual()?.scene_sample.is_some() {
+                let mesh: &mut Mesh = if scene_sample.is_some() {
                     &mut self.sample_mesh
                 } else {
                     mesh_asset = meshes
-                        .get_mut(&draw.mesh)
+                        .get_mut(&self.draws[count].mesh)
                         .context("missing prepared particle mesh")?;
                     &mut mesh_asset
                 };
@@ -549,7 +556,7 @@ impl Effects {
                 if !visible {
                     return Ok(());
                 }
-                if let Some(offset) = declaration.particle_visual()?.scene_sample {
+                if let Some(offset) = scene_sample {
                     let alpha = key.alpha.context("scene particle has no opacity palette")?;
                     let mask = bank.textures[&key.slot][1].images[&alpha].clone();
                     scene_samples.push(
@@ -566,7 +573,7 @@ impl Effects {
                     .context("particle selected an unprepared material")?;
                 let visual = declaration.particle_visual()?;
                 let major = actor_order.effect(particle.draw_after, visual.after_actor)?;
-                commands.entity(draw.entity).insert((
+                commands.entity(self.draws[count].entity).insert((
                     MeshMaterial3d(surface.clone()),
                     Visibility::Inherited,
                     DrawOrder(major, order, 0),
@@ -594,7 +601,7 @@ impl Effects {
                 if sparkles.peek().is_none() {
                     continue;
                 }
-                let draw = &self.draws[MAX_PARTICLES + 2 + index];
+                let draw = &self.draws[2 + index];
                 let mut mesh = meshes
                     .get_mut(&draw.mesh)
                     .context("missing wing sparkle mesh")?;
@@ -610,7 +617,7 @@ impl Effects {
                 commands.entity(draw.entity).insert((
                     MeshMaterial3d(material.clone()),
                     Visibility::Inherited,
-                    DrawOrder(Layer::Effects, MAX_PARTICLES + index, 0),
+                    DrawOrder(Layer::Effects, particles.len() + index, 0),
                 ));
             }
         }
@@ -635,7 +642,7 @@ impl Effects {
             if footprints.peek().is_none() {
                 continue;
             }
-            let draw = &self.draws[MAX_PARTICLES + usize::from(additive)];
+            let draw = &self.draws[usize::from(additive)];
             let mut mesh = meshes
                 .get_mut(&draw.mesh)
                 .context("missing prepared shadow mesh")?;

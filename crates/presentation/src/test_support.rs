@@ -96,6 +96,7 @@ pub(crate) fn actor(side: Side, hp: i32, tp: u16) -> Actor {
         stored_spell: None,
         overlimit: Default::default(),
         proficiency: 0,
+        combat_adjustments: Default::default(),
         input: Default::default(),
         control_slot: 0,
         elements: Default::default(),

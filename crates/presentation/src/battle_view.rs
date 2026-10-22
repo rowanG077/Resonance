@@ -493,10 +493,9 @@ impl View {
                                 || part.scene.bone_names.len() == model.skeleton.bones.len(),
                             "battle model skeleton differs from geometry"
                         );
-                        ensure!(
-                            part.scene.texture_animations.is_empty(),
-                            "battle model texture animation is not prepared"
-                        );
+                        for animation in &part.scene.texture_animations {
+                            animation.validate()?;
+                        }
                         Ok(())
                     })();
                     if diagnostics
@@ -1017,10 +1016,8 @@ impl View {
             .collect::<Result<BTreeMap<_, _>>>()?;
         let order = ActorOrder::new(frame)?;
         let scenery_elapsed = self.scenery_tick - previous_scenery_tick;
-        let view_direction = Vec2::new(
-            camera.eye[0] - camera.focus[0],
-            camera.eye[2] - camera.focus[2],
-        );
+        let camera_position = Vec2::new(camera.eye[0], camera.eye[2]);
+        let camera_focus = Vec2::new(camera.focus[0], camera.focus[2]);
         for (slot, part) in &self.scenery {
             let result = (|| -> Result<()> {
                 let attachment = match self.stage.scenery_bones.get(slot) {
@@ -1035,11 +1032,13 @@ impl View {
                     && let Some(&minimum) = fade.minimum_alpha.get(slot)
                 {
                     let anchor = world.transform_point3(Vec3::ZERO);
-                    let from_focus =
-                        Vec2::new(anchor.x - camera.focus[0], anchor.z - camera.focus[2]);
-                    // Keep the arena's far side intact while clearing foreground
-                    // scenery between the camera and the combat focus.
-                    let target = if from_focus.dot(view_direction) > 0. {
+                    // Only nearer scenery can obscure the combat focus. Off-axis
+                    // scenery may be in front of the focus but still farther away.
+                    let target = if scenery_in_foreground(
+                        camera_position,
+                        camera_focus,
+                        Vec2::new(anchor.x, anchor.z),
+                    ) {
                         minimum
                     } else {
                         u8::MAX
@@ -1163,7 +1162,7 @@ impl View {
                 model.depth_write,
                 &model.world,
                 &model.bones,
-                Some(model.texture_layers),
+                Some((model.texture_layers, model.texture_tick)),
                 model.light,
                 None,
                 &order,
@@ -1361,7 +1360,7 @@ impl View {
         depth_write: bool,
         world: &Matrix,
         bones: &[Matrix],
-        texture_layers: Option<[u8; 4]>,
+        texture_layers: Option<([u8; 4], u64)>,
         light: Option<[f32; 3]>,
         texture_scroll: Option<(usize, [f32; 2])>,
         actor_order: &ActorOrder,
@@ -1418,10 +1417,11 @@ impl View {
                     if let Some((texture, uv)) = texture_scroll {
                         part.scroll_uv(material, depth_write, Some(texture), uv, surfaces)?;
                     }
-                    if let Some(layers) = texture_layers {
+                    if let Some((layers, tick)) = texture_layers {
                         part.expression(
                             &model.texture_channels,
                             layers,
+                            tick,
                             material,
                             depth_write,
                             surfaces,
@@ -2048,6 +2048,7 @@ impl Part {
         &self,
         channels: &[resonance_content::battle_profile::TextureChannel],
         layers: [u8; 4],
+        tick: u64,
         appearance: ModelMaterial,
         depth_write: bool,
         surfaces: &mut Assets<TitleSurface>,
@@ -2059,6 +2060,22 @@ impl Part {
         {
             let material = &self.spec.scene.materials[index];
             let mut uv = self.spec.uv_offsets.get(index).copied().unwrap_or([0.; 4]);
+            for (channel, binding) in [&material.color, &material.multiply]
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(animation) = binding.as_ref().and_then(|binding| {
+                    self.spec
+                        .scene
+                        .texture_animations
+                        .iter()
+                        .find(|animation| animation.texture == binding.texture)
+                }) {
+                    let offset = animation.offset(tick);
+                    uv[channel * 2] += offset[0];
+                    uv[channel * 2 + 1] += offset[1];
+                }
+            }
             for (layer, channel) in channels.iter().enumerate() {
                 for (binding, axis) in [(&material.color, 1), (&material.multiply, 3)] {
                     if binding
@@ -2245,6 +2262,11 @@ fn stage_world(stage: &Stage) -> Mat4 {
         yaw * Vec3::from_array(stage.translation),
     )
 }
+
+fn scenery_in_foreground(camera: Vec2, focus: Vec2, scenery: Vec2) -> bool {
+    camera.distance_squared(scenery) < camera.distance_squared(focus)
+}
+
 #[derive(Debug, Clone)]
 struct BattleProjection(crate::camera::TitleProjection);
 impl BattleProjection {
@@ -2315,6 +2337,21 @@ pub(super) fn activate_camera(
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn scenery_fade_preserves_distant_side_pillars() {
+        let eye = Vec2::new(0., -2500.);
+        let focus = Vec2::ZERO;
+        assert!(scenery_in_foreground(eye, focus, Vec2::new(0., -500.)));
+        for pillar in [
+            Vec2::new(-1600., -200.),
+            Vec2::new(1600., -200.),
+            Vec2::new(0., 500.),
+            focus,
+        ] {
+            assert!(!scenery_in_foreground(eye, focus, pillar));
+        }
+    }
 
     #[test]
     fn failed_image_recovery_keeps_source_ids_unavailable_to_other_owners() -> Result<()> {
@@ -2967,6 +3004,7 @@ mod tests {
             part.expression(
                 &channels,
                 [2, 3, 0, 0],
+                0,
                 ModelMaterial::Normal,
                 false,
                 &mut surfaces,
@@ -2996,6 +3034,7 @@ mod tests {
         primary_part.expression(
             &channels,
             [1, 2, 0, 0],
+            0,
             ModelMaterial::Normal,
             true,
             &mut surfaces,
@@ -3089,7 +3128,7 @@ mod tests {
                 depth,
                 &mut surfaces,
             )?;
-            primary_part.expression(&channels, [2, 3, 0, 0], material, depth, &mut surfaces)?;
+            primary_part.expression(&channels, [2, 3, 0, 0], 0, material, depth, &mut surfaces)?;
             let handle = &primary_part.appearance_materials(material, depth)?[0];
             let surface = surfaces.get(handle).unwrap();
             assert_eq!(surface.red_channel, material == ModelMaterial::RedChannel);
@@ -3110,6 +3149,39 @@ mod tests {
         let outline = surfaces.get(&alternate_depth).unwrap();
         assert!(!outline.red_channel);
         assert_eq!(outline.tint, Vec4::new(0., 0., 0., 38. / 255.));
+
+        // Animated body textures compose with both expressions and base UV offsets.
+        Arc::make_mut(&mut primary_part.spec)
+            .scene
+            .texture_animations = vec![
+            resonance_content::TextureAnimation {
+                texture: 0,
+                delay_ticks: 0,
+                loop_start: 0,
+                offsets: vec![[0.; 2], [0.125, 0.25]],
+            },
+            resonance_content::TextureAnimation {
+                texture: 1,
+                delay_ticks: 0,
+                loop_start: 0,
+                offsets: vec![[0.; 2], [0.25, 0.5]],
+            },
+        ];
+        for tick in [1, 1, 3] {
+            primary_part.expression(
+                &channels,
+                [2, 3, 0, 0],
+                tick,
+                ModelMaterial::Normal,
+                false,
+                &mut surfaces,
+            )?;
+            assert_eq!(
+                surfaces.get(&primary_depth).unwrap().uv_offsets,
+                Vec4::new(0.25, 1., 0.625, 1.375)
+            );
+            assert_eq!(surfaces.len(), prepared_count);
+        }
 
         // Carried parts have a single depth recipe, preserving weapon blend flags.
         let weapon_handle = surfaces.add(TitleSurface {
