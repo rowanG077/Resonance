@@ -67,6 +67,7 @@ pub(super) fn model_preview_depth() -> f32 {
 const ATLAS: MaterialKey = MaterialKey::Texture(MenuArt::ATLAS_TEXTURE);
 const PORTRAITS: usize = MenuArt::PORTRAIT_TEXTURES.start;
 const WORLD_MAPS: usize = MenuArt::WORLD_MAP_TEXTURES.start;
+type WorldHudArt = (Handle<Surface>, [u32; 2], Vec<[u32; 4]>);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum MaterialKey {
@@ -316,7 +317,7 @@ impl MenuArtwork {
         (material.material.clone(), material.size)
     }
 
-    pub(super) fn world_hud_art(&self) -> Result<(Handle<Surface>, [u32; 2], Vec<[u32; 4]>)> {
+    pub(super) fn world_hud_art(&self) -> Result<WorldHudArt> {
         let atlas = &self.materials[&ATLAS];
         Ok((
             atlas.material.clone(),

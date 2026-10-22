@@ -441,7 +441,19 @@ pub(super) fn black_hold(
         || pending.is_some()
         || field.is_some()
         || session.is_some() && !resident.active.load(Ordering::Acquire) && !battle_visible;
-    super::materials::TitleOutput::update(&mut outputs, |b| b.z = f32::from(held));
+    let portal = title_return.is_none()
+        && session
+            .as_ref()
+            .and_then(|s| s.overworld())
+            .is_some_and(|scene| scene.session.portal().is_some());
+    super::materials::TitleOutput::update(&mut outputs, |b| {
+        b.z = f32::from(held && !portal);
+        if held && portal {
+            // Keep the portal's whiteout while the destination artwork loads.
+            b.x = 0.;
+            b.y = 1.;
+        }
+    });
 }
 
 #[cfg(test)]

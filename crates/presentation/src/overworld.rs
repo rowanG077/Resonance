@@ -8,6 +8,7 @@ use resonance_events::effect::Blend;
 mod capture;
 mod cinematic;
 mod effects;
+mod particles;
 use anyhow::{Context, Result};
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 pub use capture::{Probe, capture_overworld};
@@ -20,6 +21,8 @@ use std::{
     collections::BTreeMap,
     sync::{Arc, atomic::Ordering},
 };
+
+const FOG_COLOR: Vec4 = Vec4::new(208. / 255., 208. / 255., 224. / 255., 1.);
 
 #[derive(bevy::ecs::system::SystemParam)]
 struct State<'w> {
@@ -56,7 +59,7 @@ struct MountAnimation {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Model {
-    Sky,
+    Sky(usize),
     Tile(usize),
     Actor(u16),
     Marker(u8),
@@ -94,9 +97,10 @@ impl Scene {
             );
         }
         let story = persistent.memory.read(0x40, symphonia_script::Width::S32)?;
+        let sky = usize::from(story >= 22_605_000);
         models.insert(
-            Model::Sky,
-            package.definition.visuals.skies[usize::from(story >= 22_605_000)].clone(),
+            Model::Sky(sky),
+            package.definition.visuals.skies[sky].clone(),
         );
         let terrain = package.assets(world, &persistent)?.terrain.clone();
         let mut landmarks = BTreeMap::new();
@@ -141,7 +145,14 @@ impl Scene {
             self.session.travel.finish_animation(animation.token);
             self.animation = None;
         }
-        for cue in self.session.step(input)? {
+        let cues = self.session.step(input)?;
+        if previous_tick != self.session.events.tick() {
+            self.effects.step(&self.session, &self.models)?;
+        }
+        for cue in cues {
+            if let game::travel::Cue::Barrier { position, heading } = cue {
+                self.effects.hit_barrier(position, heading);
+            }
             if let game::travel::Cue::Animation { token, mounting } = cue {
                 let slot = if mounting { 4 } else { 5 };
                 let clip = self.models[&Model::Actor(self.leader())]
@@ -156,9 +167,6 @@ impl Scene {
                     duration: clip.duration_ticks(),
                 });
             }
-        }
-        if previous_tick != self.session.events.tick() {
-            self.effects.step(&self.session, &self.models)?;
         }
         Ok(())
     }
@@ -204,6 +212,7 @@ impl Plugin for OverworldPlugin {
                     pose,
                     terrain_order,
                     camera,
+                    particles::render,
                     ui,
                 )
                     .chain()
@@ -333,9 +342,11 @@ struct Art {
     loads: super::loading::LoadTasks,
     ready: bool,
     spawned: bool,
+    barriers: usize,
     landmarks: std::collections::BTreeSet<(u16, Model)>,
     since: std::time::Instant,
     ui: Option<super::field_ui::WorldArtwork>,
+    particles: particles::Artwork,
 }
 #[derive(Component)]
 struct Instance {
@@ -345,9 +356,11 @@ struct Instance {
     enemy: Option<usize>,
     flight: Option<usize>,
     wake: Option<usize>,
+    barrier: Option<usize>,
     instantiated: bool,
     prepared: bool,
     materials: Vec<Handle<TitleSurface>>,
+    draws: Vec<(Entity, usize)>,
     binding: sparse_animation::Binding,
     clip: Option<(u16, u32)>,
 }
@@ -379,10 +392,11 @@ fn retire(world: &mut World) {
     for entity in entities {
         world.despawn(entity);
     }
-    if let Some(art) = world.remove_resource::<Art>()
-        && let Some(ui) = art.ui
-    {
-        ui.despawn(world);
+    if let Some(art) = world.remove_resource::<Art>() {
+        art.particles.despawn(world);
+        if let Some(ui) = art.ui {
+            ui.despawn(world);
+        }
     }
 }
 fn load(mut commands: Commands, owner: State, art: Option<Res<Art>>, server: Res<AssetServer>) {
@@ -410,9 +424,15 @@ fn load(mut commands: Commands, owner: State, art: Option<Res<Art>>, server: Res
                 )
             })
             .collect(),
+        particles: particles::Artwork::load(
+            &scene.package.definition.visuals.dust,
+            &server,
+            &loads,
+        ),
         loads,
         ready: false,
         spawned: false,
+        barriers: 0,
         landmarks: Default::default(),
         since: std::time::Instant::now(),
         ui: None,
@@ -433,7 +453,7 @@ fn prepare(
         return;
     }
     let result = (|| -> Result<()> {
-        let mut ready = art.loads.complete();
+        let mut ready = art.loads.complete() && art.particles.ready(&images);
         for part in art.models.values_mut().flatten() {
             if let Some(error) = part.load_error(&server) {
                 anyhow::bail!("{error}");
@@ -488,7 +508,7 @@ fn instances(
             }
         }
     }
-    let mut spawn = |model: Model, landmark, enemy, flight, wake| {
+    let mut spawn = |model: Model, landmark, enemy, flight, wake, barrier| {
         let Some(parts) = art.models.get(&model) else {
             return;
         };
@@ -498,9 +518,17 @@ fn instances(
                 .into_iter()
                 .map(|mut s| {
                     s.field_fog = false;
-                    if matches!(model, Model::Actor(203 | 213 | 214)) {
+                    if matches!(
+                        model,
+                        Model::Actor(
+                            203 | 213 | 214 | effects::BARRIER_MODEL | effects::PORTAL_MODEL
+                        )
+                    ) {
                         s.blend = Some(Blend::Additive);
                         s.depth_write = false;
+                    }
+                    if model == Model::Actor(effects::BARRIER_MODEL) {
+                        s.depth_equal = true;
                     }
                     if matches!(model, Model::Marker(1 | 17)) {
                         // Draw portals and discovery circles
@@ -530,9 +558,11 @@ fn instances(
                         enemy,
                         flight,
                         wake,
+                        barrier,
                         instantiated: false,
                         prepared: false,
                         materials: surfaces,
+                        draws: Vec::new(),
                         binding: Default::default(),
                         clip: None,
                     },
@@ -549,26 +579,38 @@ fn instances(
     };
     if !art.spawned {
         for &model in art.models.keys() {
-            if matches!(model, Model::Sky | Model::Tile(_) | Model::Cinematic(_) | Model::Actor(1..=9 | 201..=202 | 204..=212 | 214))
+            if matches!(model, Model::Sky(_) | Model::Tile(_) | Model::Cinematic(_) | Model::Actor(1..=9 | 201..=202 | 204..=212 | 214))
             {
-                spawn(model, None, None, None, None);
+                spawn(model, None, None, None, None, None);
             }
         }
         for member in 0..4 {
-            for id in [200, 203] {
-                spawn(Model::Actor(id), None, None, Some(member), None);
+            for id in [200, 203, effects::PORTAL_MODEL] {
+                spawn(Model::Actor(id), None, None, Some(member), None, None);
             }
         }
         // Both appearances for each stable simulation slot are resident before
         // activation. Spawning or changing a symbol never starts asset loading.
         for slot in 0..game::enemies::SLOTS {
             for id in 100..=101 {
-                spawn(Model::Actor(id), None, Some(slot), None, None);
+                spawn(Model::Actor(id), None, Some(slot), None, None, None);
             }
         }
         for index in 0..effects::WAKE_COUNT {
-            spawn(Model::Actor(213), None, None, None, Some(index));
+            spawn(Model::Actor(213), None, None, None, Some(index), None);
         }
+    }
+    // Prepare the first impact on entry and reuse slots after their effects expire.
+    let barriers = art.barriers.max(scene.effects.barriers.len()).max(1);
+    for index in art.barriers..barriers {
+        spawn(
+            Model::Actor(effects::BARRIER_MODEL),
+            None,
+            None,
+            None,
+            None,
+            Some(index),
+        );
     }
     let mut added = Vec::new();
     for &id in scene.landmarks.keys() {
@@ -581,11 +623,12 @@ fn instances(
             _ => continue,
         };
         if !art.landmarks.contains(&(id, model)) {
-            spawn(model, Some(id), None, None, None);
+            spawn(model, Some(id), None, None, None, None);
             added.push((id, model));
         }
     }
     art.landmarks.extend(added);
+    art.barriers = barriers;
     art.spawned = true;
 }
 #[allow(clippy::too_many_arguments)]
@@ -607,7 +650,10 @@ fn bind(
     let mut ready = art.ui.as_ref().is_some_and(|ui| ui.ready(&images));
     for (root, mut instance) in &mut roots {
         if !instance.instantiated {
-            ready = false;
+            // Cosmetic impacts may grow their draw pool while travel continues.
+            if instance.barrier.is_none() {
+                ready = false;
+            }
             continue;
         }
         if instance.prepared {
@@ -621,27 +667,37 @@ fn bind(
                 &children,
                 &nodes,
             )?;
+            instance.draws.clear();
             for entity in children.iter_descendants(root) {
                 if let Ok(slot) = meshes.get(entity) {
                     let slot = slot.index(instance.materials.len())?;
-                    commands.entity(entity).insert((
-                        MeshMaterial3d(instance.materials[slot].clone()),
+                    if matches!(instance.model, Model::Actor(1..=9 | 204..=212)) {
+                        instance.draws.push((entity, slot));
+                    }
+                    let order = if let Model::Cinematic(actor) = instance.model {
+                        // Complete the terrain and water before drawing the scene's
+                        // actors, preserving each actor's own material sequence.
+                        cinematic::draw_order(
+                            art.cinematic.unwrap(),
+                            actor,
+                            part.spec.materials[slot].draw_order,
+                        )
+                    } else {
                         super::draw_order::DrawOrder(
                             super::draw_order::Layer::Scene(
                                 part.spec.materials[slot].draw_order
                                     + match instance.model {
-                                        Model::Sky => 0,
-                                        Model::Cinematic(actor)
-                                            if art.cinematic.is_some_and(|id| {
-                                                cinematic::background(id, actor)
-                                            }) =>
-                                        {
-                                            0
-                                        }
+                                        Model::Sky(_) => 0,
                                         // Water follows opaque scenery and actors.
                                         // Vehicle effects must follow water so it
                                         // cannot paint over their additive light.
-                                        Model::Actor(203 | 213 | 214) => 4 << 20,
+                                        Model::Actor(
+                                            203
+                                            | 213
+                                            | 214
+                                            | effects::BARRIER_MODEL
+                                            | effects::PORTAL_MODEL,
+                                        ) => 4 << 20,
                                         Model::Tile(_) if part.spec.resource == 2 => 3 << 20,
                                         Model::Tile(_) => 1 << 20,
                                         _ => 2 << 20,
@@ -649,8 +705,11 @@ fn bind(
                             ),
                             instance.landmark.map_or(0, usize::from),
                             0,
-                        ),
-                    ));
+                        )
+                    };
+                    commands
+                        .entity(entity)
+                        .insert((MeshMaterial3d(instance.materials[slot].clone()), order));
                     if let Model::Tile(tile) = instance.model {
                         let material = part.spec.materials[slot].draw_order;
                         anyhow::ensure!(material < 4096, "world tile draw order exceeds its span");
@@ -659,17 +718,6 @@ fn bind(
                             material,
                             secondary: part.spec.resource == 2,
                         });
-                    }
-                    // Optional field weapons are geometry on kk nodes, not
-                    // bones to remove from the animated skeleton.
-                    if matches!(instance.model, Model::Actor(1..=9 | 204..=212))
-                        && part.spec.material_nodes.get(slot).is_some_and(|nodes| {
-                            nodes.iter().any(|&node| {
-                                part.spec.bone_names[usize::from(node)].starts_with("kk")
-                            })
-                        })
-                    {
-                        commands.entity(entity).insert(Visibility::Hidden);
                     }
                 }
             }
@@ -741,6 +789,7 @@ fn pose(
     art: Option<Res<Art>>,
     mut roots: Query<(&mut Instance, &mut Transform, &mut Visibility)>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
+    mut draws: Query<&mut Visibility, Without<Instance>>,
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -754,12 +803,49 @@ fn pose(
     let tick = session.events.tick();
     let formation = &session.events.world.party.as_ref().unwrap().formation;
     let cinema = session.cinematic.as_ref();
+    let portal = session.portal();
+    let portal_age = portal.and_then(game::Portal::effect_ticks);
     let origin = cinema.map_or(state.position, cinematic::origin);
+    let angel_progress = session
+        .events
+        .memory()
+        .read(
+            resonance_content::appearance::ANGEL_PROGRESS,
+            symphonia_script::Width::S32,
+        )
+        .expect("angel progress is a valid global");
     for (mut instance, mut transform, mut visibility) in &mut roots {
         if !instance.prepared {
             continue;
         }
         let part = &art.models[&instance.model][instance.part];
+        let character = match instance.model {
+            Model::Actor(id @ 1..=9) => Some(u32::from(id)),
+            Model::Actor(id @ 204..=212) => Some(u32::from(id - 203)),
+            _ => None,
+        };
+        if let Some(character) = character {
+            let hidden = resonance_content::appearance::hidden_accessory(
+                character,
+                &session.events.world.event_flags,
+            );
+            for &(entity, slot) in &instance.draws {
+                // Hide accessory geometry without removing its animated bones.
+                let hide = part.spec.material_nodes.get(slot).is_some_and(|nodes| {
+                    nodes.iter().any(|&node| {
+                        let name = part.spec.bone_names[usize::from(node)].as_str();
+                        name.starts_with("kk") || hidden == Some(name)
+                    })
+                });
+                if let Ok(mut visibility) = draws.get_mut(entity) {
+                    *visibility = if hide {
+                        Visibility::Hidden
+                    } else {
+                        Visibility::Inherited
+                    };
+                }
+            }
+        }
         let mut visible = true;
         let mut slot = None;
         let mut heading = 0.;
@@ -767,7 +853,16 @@ fn pose(
         let mut uv_offset = 0.;
         let mut brightness = 1.;
         let mut alpha = 1.;
-        let position = if let Some(index) = instance.wake {
+        let position = if let Some(index) = instance.barrier {
+            if let Some(barrier) = scene.effects.barriers.get(index).and_then(Option::as_ref) {
+                heading = barrier.heading;
+                uv_offset = barrier.uv_offset();
+                barrier.position
+            } else {
+                visible = false;
+                state.position
+            }
+        } else if let Some(index) = instance.wake {
             if let Some(wake) = &scene.effects.wakes[index] {
                 let fraction = wake.age as f32 / wake.duration as f32;
                 scale = Vec3::splat(0.6 * (1. + fraction));
@@ -784,7 +879,11 @@ fn pose(
             visible = mount == Mount::Rheairds && member < formation.len();
             let (position, lift) = flight_position(session, member);
             scale = Vec3::splat(lift);
-            if instance.model == Model::Actor(203) {
+            if instance.model == Model::Actor(effects::PORTAL_MODEL) {
+                visible &= portal_age.is_some();
+                scale = Vec3::ONE;
+                slot = portal_age.map(|_| 0);
+            } else if instance.model == Model::Actor(203) {
                 let fraction = session.travel.speed_fraction();
                 scale *= Vec3::new(
                     0.5 + 0.5 * fraction,
@@ -801,7 +900,7 @@ fn pose(
         } else if let Some(index) = instance.enemy {
             if let Some(symbol) = session.enemies.get(index) {
                 visible = instance.model == Model::Actor(100 + u16::from(symbol.variant));
-                heading = symbol.heading;
+                heading = symbol.display_heading();
                 slot = Some(symbol.animation);
                 symbol.position
             } else {
@@ -846,7 +945,7 @@ fn pose(
             }
         } else {
             match instance.model {
-                Model::Sky => {
+                Model::Sky(_) => {
                     visible = cinema.is_none_or(|c| !matches!(c.id, 521 | 526));
                     cinema.map_or_else(
                         || Position::from_map([origin.map()[0], origin.map()[1], -100.]).unwrap(),
@@ -938,6 +1037,11 @@ fn pose(
                 Model::Marker(_) => unreachable!(),
             }
         };
+        let fading_vehicle = matches!(instance.model, Model::Actor(200 | 203 | 204..=212));
+        if fading_vehicle {
+            alpha *= portal.map_or(1., |p| f32::from(p.vehicle_opacity()) / 255.);
+            visible &= alpha > 0.;
+        }
         let delta = origin.displacement_to(position);
         if instance.model == Model::Actor(99) {
             // Keep discoveries visible across the same ground horizon as other
@@ -973,7 +1077,44 @@ fn pose(
                     0.
                 },
             );
-            if instance.model == Model::Marker(17) {
+            if let Some(character) = character
+                && let Some(channels) = &part.spec.appearance
+            {
+                for (stage, texture) in [&binding.color, &binding.multiply].into_iter().enumerate()
+                {
+                    let Some(texture) = texture else { continue };
+                    if channels.costume == Some(texture.texture) {
+                        offset[stage * 2 + 1] +=
+                            f32::from(resonance_content::appearance::costume_frame(
+                                character,
+                                &session.events.world.event_flags,
+                            )) / 4.;
+                    }
+                    if channels.eyes == Some(texture.texture) {
+                        offset[stage * 2 + 1] += f32::from(
+                            resonance_content::appearance::forced_face(character, angel_progress)
+                                .unwrap_or(0),
+                        ) / 16.;
+                    }
+                }
+            }
+            if let Model::Sky(variant) = instance.model {
+                let uv = [&binding.color, &binding.multiply].map(|binding| {
+                    binding.as_ref().map_or(0., |binding| {
+                        effects::sky_scroll(variant, binding.texture, tick)
+                    })
+                });
+                offset = Vec4::new(uv[0], 0., uv[1], 0.);
+            } else if instance.model == Model::Actor(effects::PORTAL_MODEL) {
+                let uv = [&binding.color, &binding.multiply].map(|binding| {
+                    binding.as_ref().map_or(0., |b| {
+                        effects::portal_uv(portal_age.unwrap_or(0), b.texture)
+                    })
+                });
+                offset = Vec4::new(0., uv[0], 0., uv[1]);
+            } else if instance.model == Model::Actor(effects::BARRIER_MODEL) {
+                offset = Vec4::new(0., uv_offset, 0., 0.);
+            } else if instance.model == Model::Marker(17) {
                 let scroll = (tick & 127) as f32 / 128.;
                 offset = Vec4::new(scroll, 0., scroll, 0.);
             } else if let Model::Cinematic(actor) = instance.model {
@@ -1000,7 +1141,7 @@ fn pose(
             let tint = part.spec.outline_color_for(binding).map_or(Vec4::ONE, |c| {
                 Vec4::from_array(c.map(|v| f32::from(v) / 255.))
             }) * Vec4::new(brightness, brightness, brightness, alpha);
-            let background = instance.model == Model::Sky
+            let background = matches!(instance.model, Model::Sky(_))
                 || matches!(instance.model, Model::Cinematic(actor)
                     if cinematic::background(cinema.unwrap().id, actor));
             let fog_range = if !background {
@@ -1013,17 +1154,30 @@ fn pose(
             } else {
                 Vec4::ZERO
             };
+            let vehicle_blend = if instance.model == Model::Actor(203) {
+                Some(Blend::Additive)
+            } else {
+                (alpha < 1. || binding.blend).then_some(Blend::Alpha)
+            };
             if surfaces.get(handle).is_some_and(|s| {
-                s.uv_offsets != offset || s.tint != tint || s.fog_range != fog_range
+                s.uv_offsets != offset
+                    || s.tint != tint
+                    || s.fog_range != fog_range
+                    || (fading_vehicle && s.blend != vehicle_blend)
             }) {
                 let mut surface = surfaces.get_mut(handle).unwrap();
                 surface.uv_offsets = offset;
                 surface.tint = tint;
-                surface.fog_color = Vec4::new(208. / 255., 208. / 255., 224. / 255., 1.);
+                surface.fog_color = FOG_COLOR;
                 surface.fog_range = fog_range;
+                if fading_vehicle {
+                    surface.blend = vehicle_blend;
+                }
             }
         }
-        transform.rotation = if instance.landmark.is_none()
+        transform.rotation = if instance.barrier.is_some() {
+            Quat::from_rotation_z(heading)
+        } else if instance.landmark.is_none()
             && instance.enemy.is_none()
             && matches!(instance.model, Model::Actor(_))
         {
@@ -1120,6 +1274,13 @@ fn animate(
                 .unwrap()
                 .seconds()
                 .min(duration)
+        } else if instance.model == Model::Actor(effects::PORTAL_MODEL) {
+            scene
+                .session
+                .portal()
+                .and_then(game::Portal::effect_ticks)
+                .unwrap_or(0) as f32
+                / resonance_content::ANIMATION_HZ
         } else if let Some(index) = instance.wake {
             let Some(wake) = &scene.effects.wakes[index] else {
                 continue;
@@ -1218,11 +1379,15 @@ fn camera(
         }));
     }
     TitleOutput::update(&mut outputs, |brightness| {
-        let (fade, white) = scene
-            .session
-            .cinematic
-            .as_ref()
-            .map_or((0., false), |c| c.fade());
+        let (fade, white) = if let Some(portal) = scene.session.portal() {
+            (f32::from(portal.fade()) / 255., true)
+        } else {
+            scene
+                .session
+                .cinematic
+                .as_ref()
+                .map_or((0., false), |c| c.fade())
+        };
         *brightness = Vec4::new(1. - fade, if white { fade } else { 0. }, 0., 0.)
     });
 }
