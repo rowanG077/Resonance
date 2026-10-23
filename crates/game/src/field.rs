@@ -1152,6 +1152,7 @@ impl FieldSession {
                     .filter(|d| d.operation.id() == p.operation.id())
                     .and_then(|d| d.speaker_actor)
             })
+            .flat_map(|speaker| self.events.world.scene_actor_ids(speaker))
             .collect();
         self.talking.retain(|actor, _| speakers.contains(actor));
         for actor in speakers {
@@ -1852,6 +1853,66 @@ mod tests {
         assert_eq!(field.dialogue[&1].opening_fraction(), Some(0.5));
         field.step(FieldInput::default()).unwrap();
         assert!(!field.dialogue[&0].operation.is_pending());
+    }
+
+    #[test]
+    fn dialogue_animates_visible_duplicates_of_a_hidden_speaker() {
+        let mut code = vec![4, 0, 0, 0];
+        native(
+            &mut code,
+            NativeCall::SpawnActor,
+            &[202, 0, 0, 0, 0, 1, 0, 0],
+        );
+        native(&mut code, NativeCall::SetActorProperty, &[202, 12, 1]);
+        for id in [202, 203] {
+            native(
+                &mut code,
+                NativeCall::SpawnActor,
+                &[id, 0, 0, 0, 0, 1, 0, 0],
+            );
+        }
+        native(
+            &mut code,
+            NativeCall::ConfigureDialogue,
+            &[0, 0, -1, 202, 0, 0, 0, 1],
+        );
+        code.push(0x20ff);
+        let resources = ResourceLibrary {
+            bindings: [(1, (ResourceKind::Model, 1))].into(),
+            messages: ["Mithos", "Everyone should become lifeless beings."]
+                .into_iter()
+                .map(|text| Message {
+                    tokens: vec![Token::Text { text: text.into() }],
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let mut field = session(runtime(code, resources));
+        let duplicate = *field
+            .events
+            .world
+            .actors
+            .keys()
+            .find(|id| **id != 202 && **id != 203)
+            .unwrap();
+        assert!(field.events.world.actors[&202].appearance.model_hidden);
+        assert!(
+            !field.events.world.actors[&duplicate]
+                .appearance
+                .model_hidden
+        );
+        let mut started = None;
+        for _ in 0..300 {
+            field.step(FieldInput::default()).unwrap();
+            if field.dialogue[&0].is_talking() {
+                let start = *started.get_or_insert(field.talking[&202]);
+                assert_eq!(field.talking, [(202, start), (duplicate, start)].into());
+            } else if started.is_some() {
+                assert!(field.talking.is_empty());
+                return;
+            }
+        }
+        panic!("dialogue did not start and finish speaking");
     }
 
     #[test]
