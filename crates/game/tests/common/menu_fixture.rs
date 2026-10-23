@@ -118,6 +118,7 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
             shops: vec![],
         },
         ex_skills: ExSkillData {
+            foraging: Default::default(),
             skills: Default::default(),
             characters: vec![],
             gem_items: [0; 5],

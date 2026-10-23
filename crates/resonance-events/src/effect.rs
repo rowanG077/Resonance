@@ -1,4 +1,5 @@
 //! Billboard effects expressed as ordinary position, size, rotation and lifetime.
+pub use crate::emitter::fire::sprites as fire_sprites;
 pub(crate) mod emission;
 pub(crate) mod property;
 pub(crate) mod ring;
@@ -25,6 +26,13 @@ pub enum Blend {
     Alpha,
     Additive,
     Subtractive,
+    /// Weight source RGB by the destination color.
+    DestinationColor,
+    InverseDestinationColor,
+    /// Weight destination RGB by the source color, retaining source opacity.
+    SourceColor,
+    InverseSourceColor,
+    AdditiveUnscaled,
     Previous,
 }
 impl TryFrom<i32> for Blend {
@@ -40,6 +48,28 @@ impl TryFrom<i32> for Blend {
 }
 impl Blend {
     pub const ALL: [Self; 3] = [Self::Alpha, Self::Additive, Self::Subtractive];
+    pub const ACTOR_MODES: [Self; 8] = [
+        Self::Alpha,
+        Self::Additive,
+        Self::Subtractive,
+        Self::DestinationColor,
+        Self::InverseDestinationColor,
+        Self::SourceColor,
+        Self::InverseSourceColor,
+        Self::AdditiveUnscaled,
+    ];
+
+    /// Emitters copy a two-bit particle mode; actor mode 3 leaves it unchanged.
+    pub fn particle_override(self) -> Option<Self> {
+        match self {
+            Self::DestinationColor => None,
+            Self::InverseDestinationColor => Some(Self::Alpha),
+            Self::SourceColor => Some(Self::Additive),
+            Self::InverseSourceColor => Some(Self::Subtractive),
+            Self::AdditiveUnscaled => Some(Self::Previous),
+            mode => Some(mode),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +164,25 @@ impl RefractionPulse {
 }
 
 impl crate::GameWorld {
+    pub(crate) fn emit_encounter_evasion(&mut self) -> Result<(), String> {
+        let Some(actor) = self.actors.get(&self.controlled_actor) else {
+            return Ok(());
+        };
+        let mut position = actor.position;
+        position[2] += 100.;
+        self.emit_billboard(BillboardEffect {
+            recipe: STAR_SPRITE,
+            born: self.tick,
+            lifetime: 8,
+            position,
+            size: [372.; 2],
+            fade: Fade::Linear(-32.),
+            blend: Some(Blend::Additive),
+            ..Default::default()
+        })?;
+        Ok(())
+    }
+
     pub(crate) fn emit_stun_effect(
         &mut self,
         id: i32,
@@ -155,7 +204,7 @@ impl crate::GameWorld {
             return Ok(());
         }
         let node = self.random() as usize % count;
-        let position = resources.attachment_point(&self.actors[&id], node, self.tick)?;
+        let position = self.attachment_point(resources, id, node)?;
         const SPARK_LIFETIME: u32 = 9;
         let width = (16 + (self.random() & 15)) as f32;
         // Sparks extend downward from their attachment point.
@@ -759,8 +808,13 @@ impl BillboardEffect {
     }
     fn alive(&self, tick: u32) -> bool {
         tick.saturating_sub(self.born) < self.lifetime
-            && self.size.iter().all(|s| *s >= 0.)
+            && self.size_alive(tick)
             && self.alpha(tick) >= 0.
+    }
+    fn size_alive(&self, tick: u32) -> bool {
+        // Scripted strips can reverse their quad with a signed dimension. The
+        // birth is presented before motion performs its size retirement check.
+        tick <= self.born || self.size.iter().all(|size| *size >= 0.)
     }
     pub fn alpha(&self, tick: u32) -> f32 {
         if let Some((at, alpha)) = self.alpha_override
@@ -937,7 +991,7 @@ impl crate::GameWorld {
             effect.step();
         }
         self.billboards
-            .retain(|_, effect| effect.size.iter().all(|size| *size >= 0.));
+            .retain(|_, effect| effect.size_alive(self.tick));
     }
 
     pub(crate) fn emit_orbit_trails(&mut self) -> Result<(), String> {

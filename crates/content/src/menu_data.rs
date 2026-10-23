@@ -184,7 +184,9 @@ impl MenuData {
     pub const VERSION: u32 = 34;
     /// Admit optional labels independently while keeping gameplay records typed.
     pub fn load(files: &crate::prepared::Files) -> Result<Self> {
-        Self::decode(&files.read("game/menu-data.json")?, files.diagnostics())
+        let mut data = Self::decode(&files.read("game/menu-data.json")?, files.diagnostics())?;
+        crate::arte::elemental::extend_menu(&mut data)?;
+        Ok(data)
     }
 
     pub fn decode(bytes: &[u8], diagnostics: &crate::diagnostics::Diagnostics) -> Result<Self> {

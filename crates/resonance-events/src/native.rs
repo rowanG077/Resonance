@@ -16,6 +16,7 @@ mod field;
 mod menu;
 mod party;
 mod skit;
+mod stage;
 mod wait;
 
 pub(crate) struct EventCommand {
@@ -125,12 +126,12 @@ impl NativeHost<'_> {
             .unwrap_or_else(|| self.resources.resolve(script_id, kind))
     }
     fn attachment(&self, id: i32, node: i32) -> Result<[i32; 3], String> {
-        let Some(actor) = self.world.actors.get(&id) else {
+        if !self.world.actors.contains_key(&id) {
             return Ok([0; 3]);
-        };
+        }
         let node = usize::try_from(node).map_err(|_| "invalid bone index")?;
-        self.resources
-            .attachment_point(actor, node, self.world.tick)
+        self.world
+            .attachment_point(self.resources, id, node)
             .map(|point| point.map(|v| v.trunc() as i32))
     }
     fn dispatch(
@@ -224,7 +225,12 @@ impl NativeHost<'_> {
             }
             NativeCall::ActorExists => {
                 value = Some(i32::from(self.world.skit.as_ref().map_or_else(
-                    || self.world.actors.contains_key(&a[0]),
+                    || {
+                        self.world
+                            .actors
+                            .get(&a[0])
+                            .is_some_and(|actor| !actor.retiring)
+                    },
                     |s| s.portraits.values().any(|p| p.id == a[0]),
                 )))
             }
@@ -809,8 +815,8 @@ impl NativeHost<'_> {
                         }
                         46 => actor.depth_write = a[2] & 1 == 0,
                         45 => {
-                            require(a[2] & 7 <= 2, "actor blend mode is not implemented")?;
-                            actor.blend = Some((a[2] & 7).try_into()?);
+                            actor.blend =
+                                Some(crate::effect::Blend::ACTOR_MODES[(a[2] & 7) as usize]);
                         }
                         30..=32 => {
                             if self.world.tick >= actor.first_update_tick {
@@ -875,6 +881,14 @@ impl NativeHost<'_> {
                 }
                 129 => {
                     self.world.texture_animation_tick = 0;
+                    for (animation, state) in self
+                        .resources
+                        .texture_animations
+                        .iter()
+                        .zip(&mut self.world.texture_animation_states)
+                    {
+                        state.reset(animation, self.world.texture_animation_effect_tick);
+                    }
                 }
                 _ => return Err("render configuration command is not implemented".into()),
             },
@@ -995,7 +1009,6 @@ impl NativeHost<'_> {
                 )?;
                 require((0..=32767).contains(&a[3]), "invalid choice timeout")?;
                 require(a[4] & !choice_flags::ALL == 0, "unsupported choice flags")?;
-                let initial = ((a[4] & choice_flags::INITIAL_LINE) - 1).clamp(first, last);
                 // Script lines span the whole message; the cursor belongs to its final page.
                 let mut line = 0;
                 let mut page_start = 0;
@@ -1011,10 +1024,13 @@ impl NativeHost<'_> {
                         }
                     }
                 }
+                // Some menus request more rows than their current text supplies.
+                let last = last.min(line);
                 require(
-                    first >= page_start && last <= line,
+                    first >= page_start && first <= last,
                     "choice is outside the final message page",
                 )?;
+                let initial = ((a[4] & choice_flags::INITIAL_LINE) - 1).clamp(first, last);
                 let choice = crate::dialogue::Choice {
                     operation: self.world.operations.begin()?,
                     selection: crate::dialogue::Selection::Lines(crate::dialogue::LineSelection {
@@ -1184,12 +1200,17 @@ impl NativeHost<'_> {
                     .resources
                     .clips(resource, source)
                     .ok_or("animation resource missing")?;
-                let requested =
-                    u16::try_from(a[2].max(12)).map_err(|_| "invalid animation slot")?;
-                let slot = if clips.contains_key(&requested) {
-                    requested
+                let slot = if self.world.battle_event.is_some() {
+                    // Battle banks address motion slots directly, including slot zero.
+                    u16::try_from(a[2]).map_err(|_| "invalid battle animation slot")?
                 } else {
-                    12
+                    let requested =
+                        u16::try_from(a[2].max(12)).map_err(|_| "invalid animation slot")?;
+                    if clips.contains_key(&requested) {
+                        requested
+                    } else {
+                        12
+                    }
                 };
                 require(clips.contains_key(&slot), "animation slot is not cooked")?;
                 require(
@@ -1277,6 +1298,8 @@ impl NativeHost<'_> {
                         heading: (a[4] as f32).rem_euclid(360.),
                         target_heading: (a[4] as f32).rem_euclid(360.),
                         cull_outside_view: false,
+                        // Scene objects retain authored lighting until the script opts out.
+                        culling_flags: [None, (!interaction).then_some(true)],
                         grounded: false,
                         collidable: !interaction && !locator,
                         casts_shadow: false,
@@ -1336,7 +1359,7 @@ impl NativeHost<'_> {
                 };
                 if let Some(actor) = self.world.actors.get_mut(&id) {
                     require(
-                        matches!(a[0], 2 | 3),
+                        matches!(a[0], 0..=3),
                         "node transform operation is not implemented",
                     )?;
                     let model = self
@@ -1349,26 +1372,50 @@ impl NativeHost<'_> {
                     };
                     let slot =
                         u8::try_from(a[2]).map_err(|_| "node transform slot exceeds range")?;
-                    let old = actor
-                        .appearance
-                        .bone_adjustments
-                        .get(&slot)
-                        .map_or([0.; 3], |v| v.sample(self.world.tick));
+                    let old = if a[0] < 2 {
+                        self.resources
+                            .node_translation(actor, name, self.world.tick)
+                            .map_err(|error| format!("{error:#}"))?
+                    } else {
+                        actor
+                            .appearance
+                            .bone_adjustments
+                            .get(&slot)
+                            .map_or([0.; 3], |v| v.sample(self.world.tick))
+                    };
                     self.registers[..3].copy_from_slice(&old.map(|v| v as i32));
-                    if a[0] == 3 {
-                        actor.appearance.bone_adjustments.insert(
-                            slot,
-                            crate::BoneAdjustment {
+                    if matches!(a[0], 1 | 3) {
+                        let adjustment = actor
+                            .appearance
+                            .bone_adjustments
+                            .entry(slot)
+                            .or_insert_with(|| crate::BoneAdjustment {
                                 bone: crate::BoneTarget::Name(name.clone()),
-                                absolute_rotation: true,
-                                angles: [a[3] as f32, a[4] as f32, a[5] as f32],
-                                from: old,
+                                absolute_rotation: false,
+                                angles: [0.; 3],
+                                from: [0.; 3],
                                 duration_ticks: 1,
                                 start_tick: self.world.tick,
                                 translation: None,
                                 scale: None,
-                            },
-                        );
+                            });
+                        let target = [a[3] as f32, a[4] as f32, a[5] as f32];
+                        adjustment.bone = crate::BoneTarget::Name(name.clone());
+                        if a[0] == 1 {
+                            adjustment.translation = Some(crate::world::BoneTranslation {
+                                absolute: true,
+                                from: old,
+                                to: target,
+                                duration_ticks: 1,
+                                start_tick: self.world.tick,
+                            });
+                        } else {
+                            adjustment.absolute_rotation = true;
+                            adjustment.angles = target;
+                            adjustment.from = old;
+                            adjustment.duration_ticks = 1;
+                            adjustment.start_tick = self.world.tick;
+                        }
                     }
                 }
             }
@@ -1381,8 +1428,8 @@ impl NativeHost<'_> {
                     .world
                     .actors
                     .get(&a[0])
-                    .and_then(|a| self.resources.model(a.resource))
-                    .and_then(|m| m.names.iter().position(|n| n.as_bytes() == name));
+                    .and_then(|a| self.resources.model(a.model_resource()))
+                    .and_then(|m| m.names.iter().position(|n| n == name.as_ref()));
                 value = Some(result.map_or(-1, |i| i as i32));
             }
             NativeCall::ReadCoordinateRegister => {

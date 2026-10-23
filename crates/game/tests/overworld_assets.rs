@@ -497,9 +497,9 @@ fn original_world_enemy_symbols_spawn_and_publish_native_encounters() -> Result<
         assert!(session.encounter_symbol(symbol.position, symbol.variant)?);
         let request = session.events.world.battle_request.take().unwrap();
         assert_eq!(
-            (request.setup.encounter, request.setup.arena),
+            (&request.setup.encounter, request.setup.arena),
             (
-                resonance_events::battle::Encounter::Pool(expected.group),
+                &resonance_events::battle::Encounter::Pool(expected.group),
                 u16::from(expected.arena)
             )
         );

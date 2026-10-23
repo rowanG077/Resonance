@@ -169,6 +169,16 @@ pub fn install_surface_material(app: &mut App) {
     embed_shaders(app);
 }
 
+/// Shared scenery illumination from up to two independently moving sources.
+#[derive(Debug, Clone, Copy, Default, PartialEq, ShaderType)]
+pub struct SceneryLighting {
+    pub ambient: Vec4,
+    pub color: Vec4,
+    pub attenuation: Vec4,
+    /// World-space positions; W is the light's intensity, or zero when absent.
+    pub positions: [Vec4; 2],
+}
+
 /// Unlit scene surface with an optional second, independently mapped texture.
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 #[bind_group_data(SurfaceKey)]
@@ -197,6 +207,7 @@ pub struct TitleSurface {
     /// World-space light position and channel strength (0..255).
     pub field_light: Vec4,
     pub shade_colors: [Vec4; 2],
+    pub scenery_lighting: SceneryLighting,
     /// Scene fog: RGB color, depth start/end, and nonlinear exponent (zero is linear).
     pub fog_color: Vec4,
     pub fog_range: Vec4,
@@ -237,6 +248,7 @@ impl Default for TitleSurface {
             ambient_color: Vec4::new(64., 64., 64., 0.),
             field_light: Vec4::ZERO,
             shade_colors: [Vec4::ONE; 2],
+            scenery_lighting: SceneryLighting::default(),
             fog_color: Vec4::ZERO,
             fog_range: Vec4::ZERO,
             field_fog: false,
@@ -277,6 +289,7 @@ pub struct SurfaceUniform {
     ambient_color: Vec4,
     field_light: Vec4,
     shade_colors: [Vec4; 2],
+    scenery_lighting: SceneryLighting,
     fog_color: Vec4,
     fog_range: Vec4,
     alpha_cutoff: f32,
@@ -291,6 +304,7 @@ impl From<&TitleSurface> for SurfaceUniform {
             ambient_color: value.ambient_color,
             field_light: value.field_light,
             shade_colors: value.shade_colors,
+            scenery_lighting: value.scenery_lighting,
             fog_color: value.fog_color,
             fog_range: value
                 .fog_range
@@ -333,17 +347,26 @@ impl SurfaceKey {
                 alpha: component,
             });
         }
-        self.blend?;
-        // GX uses the same source-alpha factors for color and stored alpha.
-        // Modern OVER alpha would keep opaque destinations opaque, losing the
-        // translucent scene alpha subsequently sampled by battle feedback.
+        let (source, destination) = match self.blend? {
+            Blend::Alpha | Blend::Previous => {
+                (BlendFactor::SrcAlpha, BlendFactor::OneMinusSrcAlpha)
+            }
+            Blend::Additive => (BlendFactor::SrcAlpha, BlendFactor::One),
+            Blend::DestinationColor => (BlendFactor::Dst, BlendFactor::OneMinusSrcAlpha),
+            Blend::InverseDestinationColor => {
+                (BlendFactor::OneMinusDst, BlendFactor::OneMinusSrcAlpha)
+            }
+            Blend::SourceColor => (BlendFactor::SrcAlpha, BlendFactor::Src),
+            Blend::InverseSourceColor => (BlendFactor::SrcAlpha, BlendFactor::OneMinusSrc),
+            Blend::AdditiveUnscaled => (BlendFactor::One, BlendFactor::One),
+            Blend::Subtractive => unreachable!(),
+        };
+        // Apply the same factors to color and stored alpha. Standard OVER alpha
+        // would keep opaque destinations opaque, losing the translucent scene
+        // alpha subsequently sampled by battle feedback.
         let component = BlendComponent {
-            src_factor: BlendFactor::SrcAlpha,
-            dst_factor: if self.blend == Some(Blend::Additive) {
-                BlendFactor::One
-            } else {
-                BlendFactor::OneMinusSrcAlpha
-            },
+            src_factor: source,
+            dst_factor: destination,
             operation: BlendOperation::Add,
         };
         Some(BlendState {
@@ -490,6 +513,50 @@ mod tests {
 #[cfg(test)]
 mod blend_tests {
     use super::*;
+
+    #[test]
+    fn actor_color_blends_preserve_per_channel_modulation() {
+        let source = [0.4, 0.5, 0.6, 0.25];
+        let destination = [0.2, 0.3, 0.4, 0.75];
+        for (mode, expected) in [
+            (Blend::DestinationColor, [0.23, 0.375, 0.54, 0.75]),
+            (Blend::InverseDestinationColor, [0.47, 0.575, 0.66, 0.625]),
+            (Blend::SourceColor, [0.18, 0.275, 0.39, 0.25]),
+            (Blend::InverseSourceColor, [0.22, 0.275, 0.31, 0.625]),
+            (Blend::AdditiveUnscaled, [0.6, 0.8, 1., 1.]),
+        ] {
+            let state = SurfaceKey::from(&TitleSurface {
+                blend: Some(mode),
+                ..Default::default()
+            })
+            .blend_state()
+            .unwrap();
+            for channel in 0..4 {
+                let component = if channel == 3 {
+                    state.alpha
+                } else {
+                    state.color
+                };
+                let factor = |factor| match factor {
+                    BlendFactor::One => 1.,
+                    BlendFactor::Src => source[channel],
+                    BlendFactor::OneMinusSrc => 1. - source[channel],
+                    BlendFactor::Dst => destination[channel],
+                    BlendFactor::OneMinusDst => 1. - destination[channel],
+                    BlendFactor::SrcAlpha => source[3],
+                    BlendFactor::OneMinusSrcAlpha => 1. - source[3],
+                    other => panic!("unexpected blend factor {other:?}"),
+                };
+                assert_eq!(component.operation, BlendOperation::Add);
+                let actual: f32 = source[channel] * factor(component.src_factor)
+                    + destination[channel] * factor(component.dst_factor);
+                assert!(
+                    (actual - expected[channel]).abs() < 0.000001,
+                    "{mode:?}, channel {channel}: {actual}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn subtractive_surface_uses_destination_minus_source_rgba() {

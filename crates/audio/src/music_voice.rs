@@ -289,11 +289,17 @@ pub struct Controls {
     #[serde(skip)]
     pub mono: bool,
     pub group_volume: f32,
+    #[serde(skip, default = "unit_volume")]
+    pub source_volume: f32,
     /// MIDI controller pairs (MSB0..31 and LSB32..63), in fourteen-bit units.
     pub paired: [u16; 32],
     pub post: [u8; 2],
     pub pitch_bend: u16,
     pub surround: u16,
+}
+
+fn unit_volume() -> f32 {
+    1.
 }
 
 impl Default for Controls {
@@ -305,6 +311,7 @@ impl Default for Controls {
         Self {
             mono: false,
             group_volume: 1.0,
+            source_volume: 1.0,
             paired,
             post: [0; 2],
             pitch_bend: 8192,
@@ -322,7 +329,9 @@ impl Controls {
                 .all(|&v| v < 16384)
                 && self.post.iter().all(|&v| v < 128)
                 && self.group_volume.is_finite()
-                && (0.0..=1.0).contains(&self.group_volume),
+                && (0.0..=1.0).contains(&self.group_volume)
+                && self.source_volume.is_finite()
+                && (0.0..=1.0).contains(&self.source_volume),
             "invalid music channel controls"
         );
         Ok(())
@@ -339,6 +348,7 @@ impl Controls {
         child.pitch_bend = self.pitch_bend;
         child.surround = self.surround;
         child.group_volume = self.group_volume;
+        child.source_volume = self.source_volume;
         child.mono = self.mono;
         child
     }
@@ -839,7 +849,7 @@ impl<'a> Voice<'a> {
                     &controls,
                 )?,
             ],
-            scale: self.tremolo_scale,
+            scale: self.tremolo_scale * controls.source_volume,
             group_volume: controls.group_volume,
             aux_a: 128,
             alternate: self.alternate_volume,

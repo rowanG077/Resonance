@@ -53,6 +53,46 @@ impl Member {
 }
 
 impl Party {
+    /// Forget optional elemental variants across the whole roster, including
+    /// reserve members and shortcuts assigned by other characters.
+    pub fn forget_elemental_artes(&mut self) {
+        for member in 0..self.members.len() {
+            for variant in resonance_content::arte::elemental::VARIANTS {
+                self.remove_technique(member, variant.id);
+            }
+        }
+    }
+
+    /// Restore each member's current T/S path without changing shared artes or
+    /// usage history. Members outside the active formation are included.
+    pub fn forget_opposite_path_artes(&mut self) {
+        for index in 0..self.members.len() {
+            let member = &self.members[index];
+            let Some(rules) = &member.rules else {
+                continue;
+            };
+            let forgotten: Vec<_> = member
+                .techniques
+                .iter()
+                .copied()
+                .filter(|&id| {
+                    rules
+                        .data
+                        .techniques
+                        .get(usize::from(id))
+                        .is_some_and(|tech| match tech.route {
+                            1 => member.technique_balance > 0,
+                            2 => member.technique_balance <= 0,
+                            _ => false,
+                        })
+                })
+                .collect();
+            for id in forgotten {
+                self.remove_technique(index, id);
+            }
+        }
+    }
+
     pub fn assign_technique(
         &mut self,
         member: usize,

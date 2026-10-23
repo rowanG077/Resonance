@@ -66,6 +66,10 @@ fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Resul
             original.join("files").join(&system),
             extracted.join("files").join(&system),
         )?;
+        fs::copy(
+            original.join("files/sand.tpl"),
+            extracted.join("files/sand.tpl"),
+        )?;
         recipe.archive = "art/effects.bin".into();
         let prepared = prepare(&extracted, &output, recipe)?;
         let effects: FieldEffects =
@@ -80,11 +84,20 @@ fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Resul
         }
         assert_eq!(effects.refraction.sprite.texture, images[5].image(0)?.path);
         assert_eq!(prepared.particles[&25].texture, images[2].image(0)?.path);
+        assert_eq!(prepared.environment.particles, images[0].image(0)?.path);
+        assert_eq!(prepared.environment.haze, images[6].image(0)?.path);
         assert!(
             prepared
                 .files
                 .iter()
-                .all(|path| path.starts_with("textures/") && output.join(path).is_file())
+                .all(|path| output.join(path).is_file())
+        );
+        assert!(
+            prepared
+                .files
+                .iter()
+                .all(|path| path.starts_with("textures/")
+                    || path == crate::field::environment::TEXTURES_PATH)
         );
         assert!(!output.join("sources.json").exists() && !output.join("intermediate").exists());
         fs::remove_file(extracted.join("files/Art/Effects.bin"))?;

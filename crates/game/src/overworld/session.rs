@@ -65,6 +65,11 @@ struct PendingBattle {
     special: Option<SpecialEncounter>,
 }
 
+const PORTAL_DEPARTURE_SOUND: i16 = 26;
+const SOUL_EATER: u16 = 241;
+const SOUL_EATER_ACQUIRED: u16 = 1271;
+const DEVILS_ARM_ACQUIRED: u16 = 1287;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checkpoint {
@@ -88,7 +93,7 @@ pub struct Session {
     prompt: Option<Prompt>,
     discovery: Option<(u16, u32)>,
     battle: Option<PendingBattle>,
-    world_destination: Option<super::World>,
+    portal: Option<super::Portal>,
     portal_contact: bool,
 }
 impl Session {
@@ -150,7 +155,6 @@ impl Session {
         world.played_ticks = play_time.total();
         world.current_field = Some(3000);
         world.input_enabled = true;
-        world.external_encounter_clock = true;
         // Entry camera commands configure the next field while world presentation
         // observes Travel's camera. No field actor needs to exist on the world.
         world.field_camera = Some(Default::default());
@@ -175,10 +179,11 @@ impl Session {
             prompt: None,
             discovery: None,
             battle: None,
-            world_destination: None,
+            portal: None,
             portal_contact: false,
         };
         session.refresh_locations()?;
+        session.clear_flight_obstacles()?;
         session.travel_audio(session.travel.state().mount)?;
         Ok(session)
     }
@@ -251,13 +256,25 @@ impl Session {
     }
     /// Advance only the view, also used by stationary renderer observations.
     pub fn update_camera(&mut self) -> Result<()> {
-        self.camera.step(&self.travel, &self.assets.terrain)
+        let state = self.travel.state();
+        let bound = self
+            .locations
+            .camera_angle_bound(state.world, state.position, state.mount);
+        self.camera.step(&self.travel, &self.assets.terrain, bound)
     }
     pub fn special_encounter(&self) -> Option<SpecialEncounter> {
         self.battle.as_ref().and_then(|battle| battle.special)
     }
     pub fn battle_request(&self) -> Option<&resonance_events::battle::Request> {
         self.battle.as_ref().map(|battle| &battle.request)
+    }
+    /// Ground placement for cosmetic travel effects.
+    pub fn ground_surface(&self, position: super::Position) -> Result<Option<collision::Surface>> {
+        Ok(self
+            .assets
+            .terrain
+            .query(position, 1.)?
+            .surface(collision::Mode::Ground))
     }
     /// The contacting symbol selects the region/formation variant while the
     /// player's floor selects terrain. Flying and sailing suppress encounters.
@@ -277,11 +294,40 @@ impl Session {
         ) else {
             return Ok(false);
         };
+        let mut additional = Vec::new();
+        if self
+            .events
+            .world
+            .party
+            .as_ref()
+            .unwrap()
+            .settings
+            .preferences
+            .combined_battles
+        {
+            for (position, variant) in
+                self.enemies
+                    .neighbors(self.travel.state().position, position, variant)
+            {
+                if let Some(neighbor) = self.assets.rules.lookup(
+                    self.travel.state().world,
+                    position,
+                    self.travel.response(),
+                    variant,
+                    self.events.memory().read(0x40, Width::S32)?,
+                ) {
+                    additional.push(resonance_events::battle::Encounter::Pool(neighbor.group));
+                }
+            }
+        }
         self.begin_battle(
             resonance_events::battle::Encounter::Pool(encounter.group),
             u16::from(encounter.arena),
             None,
         )?;
+        let request = &mut self.battle.as_mut().unwrap().request;
+        request.additional_encounters = additional;
+        self.events.world.battle_request = Some(request.clone());
         Ok(true)
     }
     fn begin_battle(
@@ -309,13 +355,34 @@ impl Session {
     }
     fn poll_battle(&mut self) -> Result<()> {
         let battle = self.battle.as_ref().context("missing world encounter")?;
-        if battle
-            .request
-            .result()
-            .map_err(anyhow::Error::msg)?
-            .is_none()
-        {
+        let Some(outcome) = battle.request.result().map_err(anyhow::Error::msg)? else {
             return Ok(());
+        };
+        if outcome == resonance_events::battle::Outcome::Victory
+            && battle.special == Some(SpecialEncounter::Sandworm)
+        {
+            let data = self
+                .assets
+                .resources
+                .session_data
+                .as_ref()
+                .context("world session definitions are missing")?;
+            let received = self
+                .events
+                .world
+                .party
+                .as_mut()
+                .context("world party is missing")?
+                .change_item(data, SOUL_EATER, 1)
+                .map_err(anyhow::Error::msg)?;
+            self.events
+                .world
+                .event_flags
+                .extend([SOUL_EATER_ACQUIRED, DEVILS_ARM_ACQUIRED]);
+            self.prompt = Some(Prompt::Item {
+                item: SOUL_EATER,
+                received,
+            });
         }
         if self
             .events
@@ -332,12 +399,17 @@ impl Session {
         self.travel_audio(self.travel.state().mount)
     }
     pub fn world_destination(&self) -> Option<super::World> {
-        self.world_destination
+        self.portal.as_ref().and_then(super::Portal::destination)
+    }
+    pub fn portal(&self) -> Option<&super::Portal> {
+        self.portal.as_ref()
     }
     /// Prepare a portal arrival without consuming the current scene. The owner
     /// retires it only after the destination's terrain and presentation succeed.
     pub fn change_world(&self, assets: Arc<Assets>) -> Result<Self> {
-        let destination = self.world_destination.context("no world portal request")?;
+        let destination = self
+            .world_destination()
+            .context("no world portal request")?;
         ensure!(
             assets.world == destination,
             "wrong portal destination terrain"
@@ -354,9 +426,15 @@ impl Session {
         let mut state = self.travel.checkpoint()?;
         state.world = destination;
         state.position = super::Position::from_map([portal.position[0], portal.position[1], 0.])?;
-        state.heading = 0.;
+        state.heading = std::f32::consts::PI;
         state.camera_yaw = 0.;
-        state.altitude = assets.movement.flight_clearance;
+        let ground = assets
+            .terrain
+            .query(state.position, assets.movement.collision_radius)?
+            .flight_floor();
+        state.position =
+            super::Position::from_map([portal.position[0], portal.position[1], ground])?;
+        state.altitude = ground + assets.movement.flight_clearance;
         let mut persistent = self.events.persistent_state()?;
         persistent
             .memory
@@ -369,6 +447,7 @@ impl Session {
             .overworld = Some(state.clone());
         let mut session = Self::enter(assets, state, persistent, self.play_time)?;
         session.portal_contact = true;
+        session.portal = Some(super::Portal::Arrival { ticks: 0 });
         Ok(session)
     }
     pub fn player_has_control(&self) -> bool {
@@ -377,7 +456,7 @@ impl Session {
             && self.prompt.is_none()
             && self.active_skit.is_none()
             && self.battle.is_none()
-            && self.world_destination.is_none()
+            && self.portal.is_none()
             && self.events.world.skit_request.is_none()
             && self.events.world.field_transition.is_none()
             && self.events.world.world_transition.is_none()
@@ -522,12 +601,20 @@ impl Session {
         }
         if self.events.world.field_transition.is_some()
             || self.events.world.world_transition.is_some()
-            || self.world_destination.is_some()
+            || self.world_destination().is_some()
         {
             return Ok(Vec::new());
         }
         self.play_time.advance();
         self.events.world.played_ticks = self.play_time.total();
+        if let Some(portal) = &mut self.portal {
+            if portal.step() {
+                self.portal = None;
+            }
+            self.events.step()?;
+            self.update_camera()?;
+            return Ok(Vec::new());
+        }
         if self.cinematic.is_some() {
             self.step_cinematic()?;
             return Ok(Vec::new());
@@ -623,7 +710,21 @@ impl Session {
                             blocked: false,
                         })?,
                         Prompt::ChangeWorld { destination } => {
-                            self.world_destination = Some(destination)
+                            self.portal = Some(super::Portal::Departure {
+                                destination,
+                                ticks: 0,
+                            });
+                            self.menu_sound(Some(
+                                resonance_content::field_audio::ServiceCue::Confirm as i16,
+                            ))?;
+                            self.events.world.audio_commands.push(
+                                resonance_events::AudioCommand::Sound {
+                                    id: PORTAL_DEPARTURE_SOUND,
+                                    pan: 64,
+                                    volume: 127,
+                                    slot: None,
+                                },
+                            );
                         }
                         _ => {}
                     }
@@ -672,6 +773,23 @@ impl Session {
                         state.altitude,
                     ) {
                         let airborne = state.mount.airborne();
+                        if airborne && matches!(contact.id, 24 | 280) {
+                            let landmark = self.locations.definition(contact.id).unwrap();
+                            let center = super::Position::from_map([
+                                landmark.position[0],
+                                landmark.position[1],
+                                0.,
+                            ])?;
+                            let [dx, dz] = center.displacement_to(state.position);
+                            cues.push(travel::Cue::Barrier {
+                                position: super::Position::from_map([
+                                    previous.map()[0],
+                                    previous.map()[1],
+                                    state.altitude,
+                                ])?,
+                                heading: dx.atan2(-dz),
+                            });
+                        }
                         self.travel.reject_displacement(previous);
                         self.contact(contact, airborne)?;
                     }
@@ -687,6 +805,7 @@ impl Session {
         }
         self.step_enemies()?;
         self.portal_prompt()?;
+        self.clear_flight_obstacles()?;
         self.update_camera()?;
         for cue in &cues {
             match *cue {
@@ -732,15 +851,15 @@ impl Session {
         if !self.player_has_control() {
             return Ok(());
         }
-        let modifier = self
+        let rate = self
             .events
             .world
             .party
             .as_mut()
             .unwrap()
             .encounter_modifier
-            .as_mut();
-        let rate = modifier.as_ref().map_or(0, |m| m.rate);
+            .as_ref()
+            .map_or(0, |m| m.rate);
         self.enemies.step(
             super::enemies::Context {
                 world: state.world,
@@ -754,13 +873,13 @@ impl Session {
             },
             &mut self.events.world.random_state,
         )?;
-        if self.travel.speed() != 0.
-            && let Some(modifier) = modifier
-        {
-            modifier.remaining = modifier.remaining.saturating_sub(1);
-            if modifier.remaining == 0 {
-                self.events.world.party.as_mut().unwrap().encounter_modifier = None;
-            }
+        if self.travel.speed() != 0. {
+            self.events
+                .world
+                .party
+                .as_mut()
+                .unwrap()
+                .step_encounter_modifier(self.events.world.tick);
         }
         if let Some((position, variant)) = self.enemies.contact(self.travel.state().position) {
             self.encounter_symbol(position, variant)?;
@@ -871,6 +990,17 @@ impl Session {
             preview,
             completion,
         )?);
+        Ok(())
+    }
+    fn clear_flight_obstacles(&mut self) -> Result<()> {
+        let state = self.travel.state();
+        if state.mount.airborne() {
+            let floor = self.locations.flight_floor(
+                state.position,
+                &self.assets.movement.flight_zones[state.world.index()],
+            )?;
+            self.travel.clear_flight_obstacle(floor)?;
+        }
         Ok(())
     }
     fn refresh_locations(&mut self) -> Result<()> {

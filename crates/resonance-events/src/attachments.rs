@@ -1,7 +1,7 @@
 //! Attached models use the bone's rigid frame without changing script origins.
 use crate::{GameWorld, ResourceLibrary, world::Attachment};
 use anyhow::{Context, Result, ensure};
-use resonance_content::animation::{Matrix, Transform, matrix_rotation, multiply};
+use resonance_content::animation::{Matrix, Transform, matrix_rotation, multiply, transform_point};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -54,9 +54,28 @@ impl Frames<'_> {
 }
 
 impl GameWorld {
-    /// Scripts can remove a motion owner before replacing it. Presentation keeps
-    /// the last attached pose then; an unknown position must not cull its child.
-    pub(crate) fn attached_culling_position(
+    /// Node position in the field, including the actor's attachment chain.
+    pub(crate) fn attachment_point(
+        &self,
+        resources: &ResourceLibrary,
+        id: i32,
+        node: usize,
+    ) -> Result<[f32; 3], String> {
+        let actor = self.actors.get(&id).ok_or("attachment actor is missing")?;
+        let point = resources.attachment_point(actor, node, self.tick)?;
+        let Some(attachment) = &actor.attachment else {
+            return Ok(point);
+        };
+        match self.attachment_parent(resources, attachment) {
+            Ok(parent) => Ok(transform_point(parent, point)),
+            // Scripts can replace an owner before replacing its children.
+            Err(error) if error.is::<MissingOwner>() => Ok(point),
+            Err(error) => Err(format!("{error:#}")),
+        }
+    }
+
+    /// An attached position is unknown while its motion owner is being replaced.
+    pub(crate) fn try_attached_position(
         &self,
         resources: &ResourceLibrary,
         id: i32,
@@ -208,6 +227,13 @@ mod tests {
         events.step().unwrap();
         assert!(!events.world.actors[&20].animation_culled);
         assert!(!events.world.actors[&30].animation_culled);
+        assert_eq!(
+            events
+                .world
+                .attachment_point(&events.resources, 30, 0)
+                .unwrap(),
+            [0.; 3]
+        );
         // Collision/camera callers still require a resolvable position.
         assert!(
             events
@@ -239,7 +265,7 @@ mod tests {
         assert!(
             events
                 .world
-                .attached_culling_position(&events.resources, 30)
+                .try_attached_position(&events.resources, 30)
                 .is_err()
         );
         let attachment = events
@@ -255,7 +281,7 @@ mod tests {
         assert!(
             events
                 .world
-                .attached_culling_position(&events.resources, 30)
+                .try_attached_position(&events.resources, 30)
                 .unwrap_err()
                 .to_string()
                 .contains("cyclic")
@@ -296,7 +322,7 @@ mod tests {
             target: [100., 210., 0.],
             speed: 10.,
         });
-        owner.step_motion();
+        owner.step_motion(false);
         owner.step_heading(false, true);
         assert_eq!(owner.position, [100., 210., 0.]);
         assert_eq!(owner.heading, 180.);
@@ -323,13 +349,18 @@ mod tests {
                 assert!((actual - expected).abs() < 0.0001, "{actual} != {expected}");
             }
         };
-        for (locked, bone, nested) in [
-            (true, [110., 210., 0.], [112., 223., 0.]),
-            (false, [90., 210., 0.], [88., 197., 0.]),
+        for (locked, bone, child_bone, nested) in [
+            (true, [110., 210., 0.], [112., 220., 0.], [112., 223., 0.]),
+            (false, [90., 210., 0.], [88., 200., 0.], [88., 197., 0.]),
         ] {
             world.actors.get_mut(&10).unwrap().appearance.fixed_heading = locked.then_some(0.);
             let owner = &world.actors[&10];
             assert_point(resources.attachment_point(owner, 0, 0).unwrap(), bone);
+            assert_point(world.attachment_point(&resources, 10, 0).unwrap(), bone);
+            assert_point(
+                world.attachment_point(&resources, 20, 0).unwrap(),
+                child_bone,
+            );
             assert_point(world.attached_position(&resources, 30).unwrap(), nested);
             // Script coordinates follow travel heading; model collision follows
             // the same locked pose as its visible geometry and attachments.
@@ -425,6 +456,31 @@ mod tests {
         }
         events.step().unwrap();
         assert!(events.world.actors[&30].contains_solid([95., 205., 4.], CollisionQuery::All));
+        // Scripted joint rotations move nested collision exactly like the
+        // visible parent, even when no animation clip is playing.
+        events
+            .world
+            .actors
+            .get_mut(&10)
+            .unwrap()
+            .appearance
+            .bone_adjustments
+            .insert(
+                0,
+                crate::BoneAdjustment {
+                    bone: crate::BoneTarget::Name("socket".into()),
+                    absolute_rotation: false,
+                    angles: [0., 0., 90.],
+                    from: [0.; 3],
+                    duration_ticks: 1,
+                    start_tick: events.world.tick,
+                    translation: None,
+                    scale: None,
+                },
+            );
+        events.step().unwrap();
+        assert!(events.world.actors[&30].contains_solid([90., 200., 4.], CollisionQuery::All));
+        assert!(!events.world.actors[&30].contains_solid([95., 205., 4.], CollisionQuery::All));
         events.world.actors.get_mut(&30).unwrap().attachment = None;
         events.step().unwrap();
         let child = &events.world.actors[&30];

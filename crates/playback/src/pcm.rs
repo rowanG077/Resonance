@@ -66,12 +66,13 @@ impl Pcm {
     pub fn underruns(&self) -> u64 {
         self.underruns.load(Ordering::Acquire)
     }
-    pub fn source(self: &Arc<Self>, mono: bool) -> PcmSource {
+    pub fn source(self: &Arc<Self>, mono: bool, gain: f32) -> PcmSource {
         PcmSource {
             buffer: self.clone(),
             chunk: Vec::new().into_iter(),
             right: None,
             mono,
+            gain,
             buffering: false,
         }
     }
@@ -81,6 +82,7 @@ pub struct PcmSource {
     chunk: std::vec::IntoIter<f32>,
     right: Option<f32>,
     mono: bool,
+    gain: f32,
     buffering: bool,
 }
 impl Iterator for PcmSource {
@@ -120,8 +122,8 @@ impl Iterator for PcmSource {
         } else {
             (left, right)
         };
-        self.right = Some(right);
-        Some(left)
+        self.right = Some(right * self.gain);
+        Some(left * self.gain)
     }
 }
 impl crate::Source for PcmSource {

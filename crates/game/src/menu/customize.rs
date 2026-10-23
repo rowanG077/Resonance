@@ -1,5 +1,9 @@
 use super::*;
-use resonance_content::menu_data::{CUSTOMIZE_OPTIONS, CustomizeSettings};
+use resonance_content::menu_data::{
+    COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, CustomizeSettings, FLEXIBLE_BATTLE_PARTY_OPTION,
+    FORGET_ARTE_PATHS_CONFIRMATION, FORGET_ARTES_CONFIRMATION, FORGET_ELEMENTAL_ARTES_CONFIRMATION,
+    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
+};
 
 pub const VISIBLE_OPTIONS: usize = 9;
 
@@ -11,6 +15,9 @@ pub enum Focus {
     Volume,
     Controls,
     Position,
+    ForgetArtes {
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -37,6 +44,24 @@ pub struct Customize {
     pub preview_opacity: u8,
 }
 impl Customize {
+    pub fn forget_confirmation(&self) -> Option<&'static str> {
+        match (
+            self.original.learn_elemental_artes && !self.draft.learn_elemental_artes,
+            self.original.learn_both_arte_paths && !self.draft.learn_both_arte_paths,
+        ) {
+            (true, true) => Some(FORGET_ARTES_CONFIRMATION),
+            (true, false) => Some(FORGET_ELEMENTAL_ARTES_CONFIRMATION),
+            (false, true) => Some(FORGET_ARTE_PATHS_CONFIRMATION),
+            (false, false) => None,
+        }
+    }
+
+    fn cancel_forgetting(&mut self) {
+        self.draft.learn_elemental_artes |= self.original.learn_elemental_artes;
+        self.draft.learn_both_arte_paths |= self.original.learn_both_arte_paths;
+        self.focus = Focus::Options;
+    }
+
     fn opening(preferences: CustomizeSettings) -> Self {
         Self {
             transition: super::Transition::opening(),
@@ -155,13 +180,15 @@ impl Menu {
         }
         if input == Some(Cancel) {
             if state.focus == Focus::Options {
-                if let Some(checkpoint) = &mut self.checkpoint {
-                    checkpoint.progress_mut().party.settings.preferences = state.draft.clone();
-                    self.party_changed = true;
+                if state.forget_confirmation().is_some() {
+                    state.focus = Focus::ForgetArtes { yes: false };
+                    return Some(2);
                 }
-                state.transition.page_closing = true;
-                self.select_main(Page::System);
+                self.close_customize();
             } else {
+                if matches!(state.focus, Focus::ForgetArtes { .. }) {
+                    state.cancel_forgetting();
+                }
                 state.focus = Focus::Options;
             }
             return Some(3);
@@ -259,6 +286,10 @@ impl Menu {
                         10 => draft.movie_subtitles = left,
                         11 => draft.battle_auto_zoom = left,
                         12 => draft.rumble = left,
+                        FLEXIBLE_BATTLE_PARTY_OPTION => draft.flexible_battle_party = left,
+                        COMBINED_BATTLES_OPTION => draft.combined_battles = left,
+                        LEARN_ELEMENTAL_ARTES_OPTION => draft.learn_elemental_artes = left,
+                        LEARN_BOTH_ARTE_PATHS_OPTION => draft.learn_both_arte_paths = left,
                         _ => return None,
                     }
                     return Some(1);
@@ -344,8 +375,43 @@ impl Menu {
                 }
                 return (old != state.draft.screen_position).then_some(1);
             }
+            Focus::ForgetArtes { yes } => {
+                if horizontal || vertical {
+                    state.focus = Focus::ForgetArtes { yes: !yes };
+                    return Some(1);
+                }
+                if input == Some(Confirm) {
+                    if yes {
+                        self.close_customize();
+                    } else {
+                        state.cancel_forgetting();
+                    }
+                    return Some(2);
+                }
+            }
         }
         None
+    }
+
+    fn close_customize(&mut self) {
+        if let Some(checkpoint) = &mut self.checkpoint {
+            let party = &mut checkpoint.progress_mut().party;
+            if self.customize.original.learn_elemental_artes
+                && !self.customize.draft.learn_elemental_artes
+            {
+                party.forget_elemental_artes();
+            }
+            if self.customize.original.learn_both_arte_paths
+                && !self.customize.draft.learn_both_arte_paths
+            {
+                party.forget_opposite_path_artes();
+            }
+            party.settings.preferences = self.customize.draft.clone();
+            self.party_changed = true;
+        }
+        self.customize.focus = Focus::Options;
+        self.customize.transition.page_closing = true;
+        self.select_main(Page::System);
     }
 }
 fn cycle(value: usize, previous: bool, count: usize) -> usize {

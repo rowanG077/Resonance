@@ -14,6 +14,9 @@ macro_rules! bindings {
 }
 impl Host for NativeHost<'_> {
     const NATIVES: NativeBindings<Self> = bindings! {
+        StageCommand(7) -> i32 = stage;
+        StageOpcode148(7) -> i32 = stage;
+        StageOpcode206(7) -> i32 = stage;
         CloseDialogue(1) -> () = dispatch;
         GetDialogueStatus(1) -> i32 = dispatch;
         ConfigureDialogue(8) -> () = dispatch;
@@ -130,6 +133,7 @@ impl Host for NativeHost<'_> {
         ShowChoice(5) -> i32 = dispatch;
         ShowNumberInput(5) -> i32 = dispatch;
         OpenMenu(1) -> i32 = request_menu;
+        StartBattle(12) -> i32 = request_battle;
         SetEventBit(1) -> () = field;
         ClearEventBit(1) -> () = field;
         TestEventBit(1) -> i32 = field;
@@ -197,7 +201,6 @@ impl Host for NativeHost<'_> {
         ReadCoordinateRegister(1) -> i32 = dispatch;
         ReadActorLocalOffset(9) -> () = dispatch;
         ReadActorOffset(5) -> () = dispatch;
-        StartBattle(12) -> i32 = request_battle;
         Unknown37(3) -> i32 = request_battle;
         StartEnemyBattle(2) -> i32 = request_enemy_battle;
         GetCurrentField(0) -> i32 = field;
@@ -222,7 +225,13 @@ impl Host for NativeHost<'_> {
         PlayActorSound(4) -> () = field;
         ConfigureSound(3) -> () = field;
         SelectAudioBank(1) -> () = field;
-    };
+    }
+    .register(
+        crate::battle_party::BATTLE_PARTY_CHECK,
+        1,
+        true,
+        Self::battle_party_check,
+    );
 }
 
 #[cfg(test)]
@@ -234,6 +243,9 @@ mod tests {
         let catalog = symphonia_script::semantics::NativeRegistry::gqseaf();
         let bindings = NativeHost::NATIVES;
         for opcode in 0..=u8::MAX {
+            if opcode == crate::battle_party::BATTLE_PARTY_CHECK {
+                continue;
+            }
             let Some(binding) = bindings.get(opcode) else {
                 continue;
             };

@@ -73,6 +73,18 @@ fn cast(ability: Ability) -> EventRuntime {
     events.activate_ring(true).unwrap();
     events
 }
+
+#[test]
+fn sliding_surface_prevents_ring_activation_even_at_rest() {
+    let mut events = field(Ability::Fire, None);
+    events.world.actors.get_mut(&1).unwrap().ground_attributes =
+        resonance_content::field::SLIDING_SURFACE;
+    events.activate_ring(true).unwrap();
+    assert!(events.player_has_control());
+    events.world.actors.get_mut(&1).unwrap().ground_attributes = 0;
+    events.activate_ring(true).unwrap();
+    assert!(!events.player_has_control());
+}
 fn steps(events: &mut EventRuntime, count: u32) {
     for _ in 0..count {
         events.step().unwrap();
@@ -91,7 +103,7 @@ fn enemy(position: [f32; 3]) -> Actor {
         normal_speed: 0.,
         alert_speed: 0.,
         random_turns: 0,
-        chase_on_sight: false,
+        alert_response: 0,
         sight_angle: 0.,
         sight_distance: 0.,
         alerted: false,
@@ -141,6 +153,39 @@ fn delayed_casts_keep_the_shared_particle_pulse_phase() {
                 .collect::<Vec<_>>(),
             later
         );
+    }
+}
+
+#[test]
+fn darkness_keeps_a_visible_cloud_when_it_hits_something_immediately() {
+    let callback = format!(
+        "push.s16 321\ncalc 0\narg\nproc {}\nend\n",
+        NativeCall::SetEventBit as u8
+    );
+    for barrier in [false, true] {
+        let mut events = field(Ability::Darkness, Some((CALLBACK, &callback)));
+        if barrier {
+            wall(&mut events, -21.);
+        } else {
+            events.world.insert_actor(2, Actor::new(1, [0., -63., 0.]));
+        }
+        for _ in 0..2 {
+            events.world.event_flags.remove(&321);
+            events.activate_ring(true).unwrap();
+            steps(&mut events, 30);
+            assert!(
+                events
+                    .world
+                    .billboards
+                    .values()
+                    .any(|p| { p.rgba[..3] == [0, 0, 0] && p.size[0] >= 40. && p.size[1] >= 40. }),
+                "an immediate hit must still leave a visible darkness cloud"
+            );
+            assert_eq!(events.world.event_flags.contains(&321), !barrier);
+            steps(&mut events, 300);
+            assert!(events.world.billboards.is_empty());
+            assert!(events.player_has_control());
+        }
     }
 }
 
@@ -195,6 +240,49 @@ fn orb_pause_freezes_movement_interactions_and_expiry_together() {
         assert!(events.world.actors[&2].enemy.as_ref().unwrap().pause_ticks > 0);
         steps(&mut events, 400);
         assert!(events.player_has_control());
+    }
+}
+
+#[test]
+fn activated_orbs_keep_animating_while_the_power_source_pauses_input() {
+    for kind in [ElectricOrbKind::Sylvarant, ElectricOrbKind::Tethealla] {
+        for delay in [0, 1] {
+            let wait = if delay == 0 {
+                String::new()
+            } else {
+                format!(
+                    "push.s8 0\ncalc 0\narg\npush.s8 {delay}\ncalc 0\narg\nproc {}\n",
+                    NativeCall::YieldCommand as u8,
+                )
+            };
+            let callback = format!("{wait}proc {}\nend\n", NativeCall::DisableMappedInput as u8);
+            let mut events = field(Ability::ElectricOrb(kind), Some((CALLBACK, &callback)));
+            events.world.insert_actor(2, Actor::new(1, [0., -180., 0.]));
+            events.activate_ring(true).unwrap();
+            for _ in 0..40 {
+                events.step().unwrap();
+                if events.world.mapped_input_disabled {
+                    break;
+                }
+            }
+            assert!(events.world.mapped_input_disabled);
+            for _ in 0..60 {
+                events.step().unwrap();
+                assert!(
+                    events
+                        .world
+                        .billboards
+                        .values()
+                        .any(|p| { p.recipe == crate::effect::ELECTRIC_ARC_SPRITE }),
+                    "{kind:?} orb disappeared during activation (pause delay {delay})"
+                );
+            }
+            events.world.mapped_input_disabled = false;
+            events.world.input_enabled = true;
+            steps(&mut events, 400);
+            assert!(events.world.billboards.is_empty());
+            assert!(events.player_has_control());
+        }
     }
 }
 #[test]
@@ -276,7 +364,7 @@ fn walls_prevent_stuns_and_unobstructed_enemies_recover() {
     }
 }
 #[test]
-fn sunlight_reports_each_continuous_exposure_once() {
+fn sunlight_callbacks_fire_once_per_cast() {
     let callback = format!(
         "push.s16 321\ncalc 0\narg\nproc {}\nproc {}\nend\n",
         NativeCall::SetEventBit as u8,
@@ -290,51 +378,69 @@ fn sunlight_reports_each_continuous_exposure_once() {
         assert!(events.world.menu_blocked());
         steps(&mut events, 30);
         assert!(!events.player_has_control());
-        for id in [16, 17] {
-            let mut target = Actor::new(1, [0., -200., 100.]);
-            target.role = crate::ActorRole::Interaction;
-            events.world.insert_actor(id, target);
-            steps(&mut events, exposure + 1);
-            assert!(events.world.event_flags.contains(&321));
-            assert_eq!(
-                events
-                    .memory()
-                    .read(0x20, symphonia_script::Width::S32)
-                    .unwrap(),
-                id
-            );
-            events.world.event_flags.remove(&321);
-            steps(&mut events, 30);
-            assert!(!events.world.event_flags.contains(&321));
-            events.world.actors.remove(&id);
-        }
-        // A gap must restart the long exposure, even for the same actor.
-        events
-            .world
-            .insert_actor(17, Actor::new(1, [0., -200., 100.]));
-        events.world.actors.get_mut(&17).unwrap().role = crate::ActorRole::Interaction;
-        steps(&mut events, 1);
-        events.world.actors.get_mut(&17).unwrap().position[0] = 1000.;
-        steps(&mut events, 2);
-        events.world.event_flags.remove(&321);
-        events.world.actors.get_mut(&17).unwrap().position[0] = 0.;
-        steps(&mut events, exposure.saturating_sub(1));
-        assert!(!events.world.event_flags.contains(&321));
-        steps(&mut events, 2);
+        let mut target = Actor::new(1, [0., -200., 100.]);
+        target.role = crate::ActorRole::Interaction;
+        events.world.insert_actor(16, target);
+        steps(&mut events, exposure + 1);
         assert!(events.world.event_flags.contains(&321));
         assert_eq!(
             events
                 .memory()
                 .read(0x20, symphonia_script::Width::S32)
                 .unwrap(),
-            17
+            16
         );
+        events.world.event_flags.remove(&321);
+        let target = events.world.actors.remove(&16).unwrap();
+        steps(&mut events, 2);
+        events.world.insert_actor(24, target);
+        steps(&mut events, exposure + 30);
+        assert!(!events.world.event_flags.contains(&321));
         events.world.input.held = Default::default();
         steps(&mut events, 60);
         assert!(events.player_has_control());
         assert!(events.world.model_particles.is_empty());
         assert!(!events.world.menu_blocked());
     }
+}
+
+#[test]
+fn sunlight_shares_exposure_between_an_obstacles_contact_markers() {
+    let callback = format!(
+        "push.s16 321\ncalc 0\narg\nproc {}\nend\n",
+        NativeCall::SetEventBit as u8,
+    );
+    let mut events = field(Ability::Sunlight, Some((SECONDARY_CALLBACK, &callback)));
+    events.world.input.held = [crate::input::Button::Ring].into_iter().collect();
+    events.activate_ring(true).unwrap();
+    steps(&mut events, 30);
+    for (id, position) in [
+        (16, [0., -200., 100.]),
+        (17, [0., -220., 100.]),
+        (18, [0., -180., 100.]),
+        (24, [100., -200., 100.]),
+    ] {
+        let mut target = Actor::new(1, position);
+        target.role = crate::ActorRole::Interaction;
+        events.world.insert_actor(id, target);
+    }
+    // Three markers charge one obstacle; the nearby second obstacle adds nothing.
+    steps(&mut events, 70);
+    assert!(!events.world.event_flags.contains(&321));
+    events.world.actors.remove(&16);
+    events.world.actors.remove(&24);
+    for id in [17, 18] {
+        events.world.actors.get_mut(&id).unwrap().position[0] = 1000.;
+    }
+    steps(&mut events, 3);
+    for id in [17, 18] {
+        events.world.actors.get_mut(&id).unwrap().position[0] = 0.;
+    }
+    // Changing the nearest marker and briefly losing contact preserve the charge.
+    steps(&mut events, 14);
+    assert!(!events.world.event_flags.contains(&321));
+    steps(&mut events, 2);
+    assert!(events.world.event_flags.contains(&321));
 }
 #[test]
 fn ring_hit_uses_nearest_target_and_keeps_control_until_callback_finishes() {

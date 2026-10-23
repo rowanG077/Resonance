@@ -71,6 +71,7 @@ impl Emitter {
             14 => Kind::Portal {
                 palette: 0,
                 size: 0.,
+                alpha_blend: false,
             },
             15 | 30 | 73 => Kind::RisingOrbs(super::rays::RisingOrbs {
                 drifting: a[5] != 15,
@@ -646,10 +647,11 @@ impl Emitter {
             Kind::Portal {
                 palette: color,
                 size,
-                ..
+                alpha_blend,
             } => match slot {
                 0 => setting!(*color, value, palette_index),
                 1 => setting!(*size, value, nonnegative),
+                9 => flag(alpha_blend, value),
                 _ => Ok(0),
             },
             Kind::Charge {

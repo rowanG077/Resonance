@@ -37,7 +37,12 @@ impl NativeHost<'_> {
                 use std::mem::replace;
                 let rules = &mut party.battle_rules;
                 value = Some(match a[0] {
-                    0 => i32::from(replace(&mut rules.modifiers, a[1] as u16)),
+                    0 => {
+                        let previous = party
+                            .exchange_battle_flags(a[1])
+                            .map_err(|error| error.to_string())?;
+                        i32::from(previous)
+                    }
                     1 => i32::from(replace(&mut rules.disabled_commands, a[1] as u8)),
                     2 => i32::from(replace(&mut rules.coliseum, a[1] != 0)),
                     3 => i32::from(replace(&mut rules.attack_adjustment, a[1] as i8)),
@@ -294,6 +299,8 @@ impl NativeHost<'_> {
                         0
                     },
                 );
+                // Scripts can rebuild the formation by removing everyone first.
+                party.restore_field_leader();
             }
             NativeCall::RemovePartyMember => {
                 let id = a[0] as u8;
@@ -532,9 +539,9 @@ impl NativeHost<'_> {
 }
 
 // Encoded condition operands belong to the script boundary, not saved party state.
-const MILD_POISON: u32 = 1;
-const SEVERE_POISON: u32 = 2;
-const PARALYSIS: u32 = 0x20;
+const MILD_POISON: u32 = 0x20;
+const SEVERE_POISON: u32 = 0x40;
+const PARALYSIS: u32 = 0x80;
 const PETRIFIED: u32 = 0x100;
 const CURSE: u32 = 0x200;
 const KNOCKED_OUT: u32 = 0x8000_0000;
@@ -573,4 +580,38 @@ pub(super) fn set_script_conditions(
         member.hp = 1;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::party::{Ailments, Party, Poison};
+
+    #[test]
+    fn field_condition_operands_roundtrip_named_ailments() {
+        let data = crate::party::tests::data();
+        let mut party = Party::new(&data, Default::default()).unwrap();
+        let member = &mut party.members[0];
+        for (bits, poison, paralysis, petrified, curse) in [
+            (0x20, Poison::Mild, false, false, false),
+            (0x40, Poison::Severe, false, false, false),
+            (0x80, Poison::None, true, false, false),
+            (0x100, Poison::None, false, true, false),
+            (0x200, Poison::None, false, false, true),
+            (0x3e0, Poison::Both, true, true, true),
+            (0, Poison::None, false, false, false),
+        ] {
+            set_script_conditions(member, bits).unwrap();
+            assert_eq!(
+                member.ailments,
+                Ailments {
+                    poison,
+                    paralysis,
+                    petrified,
+                    curse
+                }
+            );
+            assert_eq!(script_conditions(member), bits);
+        }
+    }
 }

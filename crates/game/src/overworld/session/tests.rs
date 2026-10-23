@@ -1,7 +1,7 @@
 use super::*;
 use crate::overworld::{
     landmarks::tests::definitions,
-    travel::tests::{parameters, state, terrain},
+    travel::tests::{parameters, state, terrain, terrain_at_height},
 };
 use resonance_content::{
     overworld::{Interaction, Marker},
@@ -14,7 +14,7 @@ fn data() -> Arc<SessionData> {
     // Small valid party data; no original files are needed for scene ownership.
     Arc::new(serde_json::from_value(serde_json::json!({
         "version":1,"executable_sha256":"0".repeat(64),"experience":[0,0,10],
-        "items":vec![serde_json::json!({"equipment_kind":null,"allowed_characters":511,"stack_limit":20});60],
+        "items":vec![serde_json::json!({"equipment_kind":null,"allowed_characters":511,"stack_limit":20});usize::from(SOUL_EATER)+1],
         "characters":vec![serde_json::json!({"level":1,"experience":0,"affinity":0,
             "base_stats":[100,20,30,40,50,60,70],"luck":10,"overlimit":0,
                 "equipment":vec![0;6],"techniques":[],"allowed_techniques":[],"shortcuts":vec![0;4],
@@ -80,6 +80,56 @@ fn visible_camps(session: &Session) -> Vec<u16> {
                 .then_some(location.id)
         })
         .collect()
+}
+
+#[test]
+fn flying_clears_landmarks_on_entry_movement_and_restore() -> Result<()> {
+    use crate::overworld::{Position, World};
+    for (world, id, radius, margin, floor) in [
+        (World::Sylvarant, 25, 300., 50., 1000.),
+        (World::TetheAlla, 266, 1000., 300., 500.),
+    ] {
+        let mut landmarks = definitions();
+        let landmark = &mut landmarks.worlds[world.index()][id % 256 - 1];
+        landmark.position = [3200., 3200.];
+        landmark.radius = radius;
+        landmark.interaction = Interaction::Active;
+        let initial = start(landmarks, vec![])?;
+        let mut assets = (*initial.assets).clone();
+        assets.world = world;
+        assets.terrain = Arc::new(terrain(0));
+        let assets = Arc::new(assets);
+        let mut persistent = initial.events.persistent_state()?;
+        persistent.memory.write(0x40, Width::S32, 22905000)?;
+        let mut state = state(Mount::Rheairds);
+        state.world = world;
+        state.position = Position::from_map([3200. + radius + margin + 1., 3200., 0.])?;
+        let mut session = Session::enter(assets.clone(), state, persistent, Default::default())?;
+        assert_eq!(session.travel.state().altitude, 300.);
+
+        let mut input = Input::default();
+        input.travel.secondary = [-1., 0.];
+        session.step(input)?;
+        assert_eq!(session.travel.state().position.map()[2], floor);
+        assert_eq!(session.travel.state().altitude, floor + 300.);
+        // Nose-down input cannot penetrate the obstacle while hovering.
+        input.travel.secondary = [0., 0.];
+        input.travel.stick = [0., 1.];
+        session.step(input)?;
+        assert_eq!(session.travel.state().altitude, floor + 300.);
+
+        let mut checkpoint = session.checkpoint()?;
+        checkpoint.state.altitude = 300.;
+        checkpoint.progress.party.travel.overworld = Some(checkpoint.state.clone());
+        session = Session::restore(assets, checkpoint)?;
+        assert_eq!(session.travel.state().altitude, floor + 300.);
+        input.travel.stick = [0., 0.];
+        input.travel.secondary = [1., 0.];
+        session.step(input)?;
+        assert_eq!(session.travel.state().position.map()[2], 0.);
+        assert_eq!(session.travel.state().altitude, floor + 300.);
+    }
+    Ok(())
 }
 
 #[test]
@@ -151,6 +201,17 @@ fn temporary_battle_bypass_resumes_world_and_scripted_encounters_as_victories() 
         Some(Outcome::Victory)
     );
     session.step(Input::default())?;
+    assert_eq!(
+        session.prompt(),
+        Some(&Prompt::Item {
+            item: SOUL_EATER,
+            received: true
+        })
+    );
+    session.step(Input {
+        confirm: true,
+        ..Default::default()
+    })?;
     assert!(session.player_has_control());
     assert!(session.battle_request().is_none());
 
@@ -283,8 +344,35 @@ fn sandworm_handoff_freezes_the_source_and_resumes_once_after_results() -> Resul
         assert!(request.complete(outcome).is_err());
         session.step(Input::default())?;
         assert!(session.battle_request().is_none());
-        assert!(session.player_has_control());
         assert_eq!(session.events.tick(), tick);
+        let won = outcome == Outcome::Victory;
+        let party = session.events.world.party.as_ref().unwrap();
+        assert_eq!(party.items.get(&SOUL_EATER).copied(), won.then_some(1));
+        assert_eq!(party.found_items.contains(&SOUL_EATER), won);
+        for flag in [SOUL_EATER_ACQUIRED, DEVILS_ARM_ACQUIRED] {
+            assert_eq!(session.events.world.event_flags.contains(&flag), won);
+        }
+        if won {
+            assert_eq!(
+                session.prompt(),
+                Some(&Prompt::Item {
+                    item: SOUL_EATER,
+                    received: true
+                })
+            );
+            assert!(!session.player_has_control());
+            session.step(Input::default())?;
+            assert_eq!(
+                session.events.world.party.as_ref().unwrap().items[&SOUL_EATER],
+                1
+            );
+            session.step(Input {
+                confirm: true,
+                ..Default::default()
+            })?;
+        }
+        assert!(session.prompt().is_none());
+        assert!(session.player_has_control());
         let checkpoint = session.checkpoint()?;
         assert_eq!(checkpoint.state, position);
         assert_eq!(checkpoint.progress.party.gald, 345);
@@ -444,6 +532,53 @@ fn field_arrivals_resolve_height_before_a_town_prompt_can_pause_travel() -> Resu
 }
 
 #[test]
+fn flying_into_either_tower_emits_a_barrier_at_the_rejected_position() -> Result<()> {
+    use crate::overworld::World;
+    for world in [World::Sylvarant, World::TetheAlla] {
+        let mut landmarks = definitions();
+        let tower = &mut landmarks.worlds[world.index()][23];
+        tower.position = [3200., 3100.];
+        tower.radius = 800.;
+        tower.interaction = Interaction::Active;
+        let original = start(landmarks, vec![])?;
+        let mut assets = (*original.assets).clone();
+        assets.world = world;
+        let mut flight = state(Mount::Rheairds);
+        flight.world = world;
+        let position = flight.position;
+        let altitude = flight.altitude;
+        let mut session = Session::enter(
+            Arc::new(assets),
+            flight,
+            original.events.persistent_state()?,
+            Default::default(),
+        )?;
+        let cues = session.step(Input {
+            travel: travel::Input {
+                throttle: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        })?;
+        assert_eq!(session.travel.state().position, position);
+        assert!(cues.iter().any(|cue| matches!(cue,
+            travel::Cue::Barrier { position: impact, heading }
+            if impact.map() == [position.map()[0], position.map()[1], altitude]
+                && heading.abs() < 0.001
+        )));
+        assert!(session.prompt().is_none());
+    }
+    let mut on_foot = start(definitions(), vec![])?;
+    assert!(
+        !on_foot
+            .step(Input::default())?
+            .iter()
+            .any(|cue| matches!(cue, travel::Cue::Barrier { .. }))
+    );
+    Ok(())
+}
+
+#[test]
 fn rheaird_portals_require_progress_and_latch_until_leaving_the_gate() -> Result<()> {
     use crate::overworld::{Position, World};
     let mut landmarks = definitions();
@@ -480,17 +615,99 @@ fn rheaird_portals_require_progress_and_latch_until_leaving_the_gate() -> Result
         confirm: true,
         ..Default::default()
     })?;
-    assert_eq!(session.world_destination(), Some(World::TetheAlla));
+    assert_eq!(session.world_destination(), None);
+    assert_eq!(session.portal().unwrap().fade(), 0);
+    assert_eq!(session.portal().unwrap().effect_ticks(), Some(0));
+    assert!(!session.player_has_control());
     assert!(session.checkpoint().is_err());
     let before = session.travel.state().clone();
+    assert!(session.change_world(session.assets.clone()).is_err());
+    let blocked_input = Input {
+        travel: travel::Input {
+            stick: [1., 1.],
+            throttle: true,
+            vehicle: true,
+            toggle_perspective: true,
+            ..Default::default()
+        },
+        menu: crate::field::FieldInput {
+            pressed_buttons: [Button::Menu].into(),
+            ..Default::default()
+        },
+        confirm: true,
+        cancel: true,
+        ..Default::default()
+    };
+    let start_time = session.play_time.total();
+    let start_tick = session.events.tick();
+    for tick in 1..=131 {
+        session.step(blocked_input)?;
+        assert_eq!(session.travel.state(), &before);
+        assert!(session.menu.is_none());
+        let portal = session.portal().unwrap();
+        assert_eq!(portal.fade(), (tick * 2).min(255) as u8);
+        assert_eq!(portal.effect_ticks(), (tick < 120).then_some(tick));
+        if tick == 40 {
+            assert_eq!(portal.vehicle_opacity(), 255);
+        } else if tick >= 55 {
+            assert_eq!(portal.vehicle_opacity(), 0);
+        }
+        assert_eq!(
+            session.world_destination(),
+            (tick == 131).then_some(World::TetheAlla)
+        );
+    }
+    assert_eq!(session.play_time.total(), start_time + 131);
+    assert_eq!(session.events.tick(), start_tick + 131);
+    assert_eq!(
+        session
+            .events
+            .world
+            .audio_commands
+            .iter()
+            .filter(|command| {
+                matches!(
+                    command,
+                    resonance_events::AudioCommand::Sound {
+                        id: PORTAL_DEPARTURE_SOUND,
+                        ..
+                    }
+                )
+            })
+            .count(),
+        1
+    );
     assert!(session.change_world(session.assets.clone()).is_err());
     assert_eq!(session.travel.state(), &before);
     let mut assets = (*session.assets).clone();
     assets.world = World::TetheAlla;
+    assets.terrain = Arc::new(terrain_at_height(0, 348.));
     let mut arrival = session.change_world(Arc::new(assets))?;
-    assert_eq!(arrival.travel.state().position.map(), [4000., 3500., 0.]);
+    assert_eq!(arrival.travel.state().position.map(), [4000., 3500., 348.]);
+    assert_eq!(
+        arrival.travel.state().altitude,
+        348. + parameters().flight_clearance
+    );
+    assert_eq!(arrival.travel.state().heading, std::f32::consts::PI);
+    assert_eq!(arrival.travel.state().camera_yaw, 0.);
     assert_eq!(arrival.travel.state().mount, Mount::Rheairds);
     assert_eq!(arrival.events.memory().read(0x50, Width::S32)?, 1);
+    assert_eq!(arrival.portal().unwrap().fade(), 255);
+    assert_eq!(arrival.portal().unwrap().vehicle_opacity(), 255);
+    assert!(arrival.portal().unwrap().effect_ticks().is_none());
+    assert!(arrival.checkpoint().is_err());
+    let arrival_state = arrival.travel.state().clone();
+    for tick in 1..=19 {
+        arrival.step(blocked_input)?;
+        assert_eq!(arrival.travel.state(), &arrival_state);
+        assert!(arrival.menu.is_none());
+        assert_eq!(arrival.player_has_control(), tick == 19);
+        assert_eq!(
+            arrival.portal().map_or(0, super::super::Portal::fade),
+            255u32.saturating_sub(tick * 16) as u8
+        );
+    }
+    assert!(arrival.checkpoint().is_ok());
     arrival.portal_prompt()?;
     assert!(arrival.prompt().is_none());
     assert_eq!(session.world_destination(), Some(World::TetheAlla));

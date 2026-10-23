@@ -126,6 +126,31 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
 #endif
 #endif
 
+#ifndef FIELD_LIGHTING
+#ifdef VERTEX_NORMALS
+#ifdef BINDLESS
+    let scenery_slot = mesh[vertex_no_morph.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
+#else
+    let scenery_slot = 0u;
+#endif
+    let lighting = surface_data(scenery_slot).scenery_lighting;
+    if lighting.ambient.w != 0.0 {
+        var illumination = lighting.ambient.rgb;
+        for (var index = 0u; index < 2u; index++) {
+            let light = lighting.positions[index];
+            let delta = light.xyz - out.world_position.xyz;
+            let distance = length(delta);
+            let diffuse = max(dot(out.world_normal, delta / max(distance, 0.0001)), 0.0);
+            let attenuation = dot(lighting.attenuation.xyz, vec3<f32>(1.0, distance, distance * distance));
+            illumination += lighting.color.rgb * (light.w * diffuse / max(attenuation, 0.0001));
+        }
+        // Unlit scenery has no later use for its normal. Interpolate the
+        // vertex illumination through that varying without another layout.
+        out.world_normal = clamp(illumination, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+#endif
+#endif
+
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     // Use vertex_no_morph.instance_index instead of vertex.instance_index to work around a wgpu dx12 bug.
     // See https://github.com/gfx-rs/naga/issues/2416

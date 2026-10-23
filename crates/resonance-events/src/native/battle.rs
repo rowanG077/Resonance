@@ -25,7 +25,7 @@ impl NativeHost<'_> {
             music: None,
             route: [0; 5],
         };
-        let request = self.world.request_battle(setup)?;
+        let request = self.world.request_symbol_battle(args[0], setup)?;
         *self.wait = Some(Wait::Battle(request.operation));
         Ok(NativeResult::Suspend)
     }

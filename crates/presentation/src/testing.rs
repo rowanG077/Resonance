@@ -8,6 +8,7 @@ pub(super) struct Controls {
     pub paused: bool,
     pub skipping: bool,
     pub double_speed: bool,
+    pub instant_kill: bool,
 }
 
 pub(super) fn install(app: &mut App) {

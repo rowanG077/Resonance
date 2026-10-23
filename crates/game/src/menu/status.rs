@@ -1,4 +1,5 @@
 use super::*;
+use resonance_content::appearance;
 use resonance_events::party::Member;
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -145,14 +146,21 @@ impl Menu {
                     self.status.row = (self.status.row + 1).min(titles.len() - 1);
                 }
                 if input == Some(Confirm) {
-                    let member = self.member_index();
-                    self.checkpoint
-                        .as_mut()
-                        .unwrap()
-                        .progress_mut()
-                        .party
-                        .members[member]
-                        .title = titles[self.status.row];
+                    let index = self.member_index();
+                    let title = titles[self.status.row];
+                    let costume =
+                        self.resources.as_ref()?.data.titles[index][usize::from(title - 1)].costume;
+                    let progress = self.checkpoint.as_mut()?.progress_mut();
+                    let member = &mut progress.party.members[index];
+                    member.title = title;
+                    member.costume = costume.map_or(
+                        appearance::story_costume(
+                            index as u32 + 1,
+                            progress.script_globals[usize::from(appearance::ANGEL_PROGRESS / 4)],
+                            &progress.event_flags,
+                        ),
+                        |costume| costume as u8,
+                    );
                     self.party_changed = true;
                     self.status.title_closing = true;
                     return Some(2);

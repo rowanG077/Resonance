@@ -144,7 +144,17 @@ fn battle_flags_survive_field_transfer_and_saved_progress() {
     assert_eq!(restored.gameplay_random, events.world.gameplay_random);
     assert_eq!(restored.event_flags, events.world.event_flags);
 
-    for unsupported in [1, 9, 65535] {
+    for supported in [1, 9, 0x0150, 0x03ff] {
+        let mut modified = value.clone();
+        modified["party"]["battle_rules"]["modifiers"] = supported.into();
+        let modified: SavedProgress = serde_json::from_value(modified).unwrap();
+        let (world, _) = modified.into_state(&data).unwrap().into_world();
+        assert_eq!(
+            world.party.unwrap().initial_unison_full().unwrap(),
+            supported & 8 != 0
+        );
+    }
+    for unsupported in [0x0400, 0x8000, 65535] {
         let mut invalid = value.clone();
         invalid["party"]["battle_rules"]["modifiers"] = unsupported.into();
         let invalid: SavedProgress = serde_json::from_value(invalid).unwrap();

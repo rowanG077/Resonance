@@ -3,7 +3,7 @@ mod burst;
 mod cloud;
 mod column;
 mod contract;
-mod fire;
+pub(crate) mod fire;
 mod gathering;
 mod mote;
 mod native;
@@ -126,6 +126,7 @@ enum Kind {
     Portal {
         palette: i32,
         size: f32,
+        alpha_blend: bool,
     },
     Charge {
         velocity: Option<[f32; 3]>,
@@ -617,7 +618,7 @@ impl Emitter {
             Kind::Bloom(bloom) => {
                 crate::world::random(random);
                 if *phase == 0 {
-                    bloom.emit(center, born, speed, random, out);
+                    bloom.emit(center, born, actor, random, out);
                     *phase = 1;
                 }
             }
@@ -709,7 +710,12 @@ impl Emitter {
                         heading: delta[0].atan2(-delta[1]).to_degrees(),
                     }
                 });
-                let mut glow = particle(actor.position, born, *color as u16, 61);
+                let glow_color = if !*afterimages && (105..=108).contains(color) {
+                    palette(*color, random)
+                } else {
+                    *color as u16
+                };
+                let mut glow = particle(actor.position, born, glow_color, 61);
                 glow.size = [*size as f32; 2];
                 glow.size_delta = -0.75;
                 glow.fade = Fade::Linear(*fade as f32);
@@ -775,16 +781,26 @@ impl Emitter {
                 }
                 *angle += (crate::world::random(random) % 2) as f32;
             }
-            Kind::Portal { palette, size, .. } => {
+            Kind::Portal {
+                palette: color,
+                size,
+                alpha_blend,
+            } => {
                 crate::world::random(random);
                 let mut emit = |recipe, diameter, alpha, rotation, orientation| {
-                    let mut p = particle(center, born, *palette as u16, 2);
+                    let color = match *color {
+                        105..=108 => palette(*color, random),
+                        color => color as u16,
+                    };
+                    let mut p = particle(center, born, color, 2);
                     p.recipe = recipe;
                     p.size = [diameter; 2];
                     p.rgba[3] = alpha;
                     p.rotation = rotation;
                     p.orientation = orientation;
                     p.fade = Fade::Linear(0.);
+                    p.blend = alpha_blend.then_some(crate::effect::Blend::Alpha);
+                    inherit(&mut p, actor);
                     out.push(p);
                 };
                 emit(
@@ -885,7 +901,16 @@ impl Emitter {
                 *phase = if *travelling && *updates <= 0 { 2 } else { 1 };
             }
             Kind::Scatter(scatter) => {
-                scatter.emit(center, born, clock, speed / 10., *phase == 1, random, out);
+                scatter.emit(
+                    center,
+                    born,
+                    clock,
+                    speed / 10.,
+                    *phase,
+                    actor.particle_blend(),
+                    random,
+                    out,
+                );
             }
             Kind::Cardinal {
                 count, angle: turn, ..
@@ -1378,7 +1403,7 @@ fn inherit(particle: &mut BillboardEffect, actor: &Actor) {
     if actor.opacity != 255 {
         particle.rgba[3] = actor.opacity;
     }
-    if let Some(blend) = actor.blend {
+    if let Some(blend) = actor.particle_blend() {
         particle.blend = Some(blend);
     }
 }

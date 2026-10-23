@@ -410,7 +410,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn technique_menu() -> resonance_content::menu_data::MenuData {
+    pub(super) fn technique_menu() -> resonance_content::menu_data::MenuData {
         use resonance_content::menu_data::{Technique, TechniqueUse::*};
         // Field technique operations need only these rules; unrelated page catalogues are empty.
         let techniques: Vec<_> = [
@@ -545,6 +545,61 @@ pub(crate) mod tests {
         assert_eq!(party.members[0].shortcuts, [1, 0, 0, 0]);
         assert_eq!(party.members[2].assist_shortcuts[0], None);
         party.validate(&data).unwrap();
+    }
+
+    #[test]
+    fn disabling_both_arte_paths_cleans_the_whole_roster_without_losing_counts() {
+        let mut data = data();
+        let mut menus = technique_menu();
+        menus.techniques[2].route = 1;
+        menus.techniques[3].route = 2;
+        menus.techniques[4].route = 3;
+        data.rules = Some(std::sync::Arc::new(menus));
+        for character in &mut data.characters {
+            character.allowed_techniques = vec![1, 2, 3, 4];
+            character.techniques = character.allowed_techniques.clone();
+            character.level_techniques.clear();
+        }
+        let mut party = Party::new(&data, Default::default()).unwrap();
+        for (index, member) in party.members.iter_mut().enumerate() {
+            member.technique_balance = [-100, 0, 100][index % 3];
+            member.shortcuts = [1, 2, 3, 4];
+            member.disabled_techniques = [2, 3].into();
+            member.technique_uses = [(2, 145), (3, 234)].into();
+            let other = (index + 1) % 9;
+            member.assist_shortcuts[0] = Some(TechniqueShortcut {
+                character: other,
+                technique: if other % 3 == 2 { 2 } else { 3 },
+            });
+        }
+        party.settings.preferences.learn_both_arte_paths = true;
+        let encoded = serde_json::to_value(&party).unwrap();
+        assert_eq!(encoded["settings"]["learn_both_arte_paths"], true);
+        let mut loaded: Party = serde_json::from_value(encoded).unwrap();
+        assert!(loaded.settings.preferences.learn_both_arte_paths);
+        loaded.bind_rules(&data);
+        loaded.forget_opposite_path_artes();
+        for member in &loaded.members {
+            let kept = if member.technique_balance <= 0 { 2 } else { 3 };
+            assert_eq!(member.techniques, [1, kept, 4].into());
+            assert_eq!(member.disabled_techniques, [kept].into());
+            assert_eq!(
+                member.shortcuts,
+                if kept == 2 {
+                    [1, 2, 0, 4]
+                } else {
+                    [1, 0, 3, 4]
+                }
+            );
+            assert_eq!(member.assist_shortcuts, [None; 2]);
+            assert_eq!(member.technique_uses, [(2, 145), (3, 234)].into());
+        }
+        loaded.settings.preferences.learn_both_arte_paths = false;
+        let encoded = serde_json::to_value(&loaded).unwrap();
+        assert!(encoded["settings"].get("learn_both_arte_paths").is_none());
+        let restored: Party = serde_json::from_value(encoded).unwrap();
+        assert!(!restored.settings.preferences.learn_both_arte_paths);
+        restored.validate(&data).unwrap();
     }
 
     #[test]
@@ -1040,20 +1095,24 @@ pub(crate) mod tests {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
-    // Runtime consumers share one view of settings. Save files only own the
-    // difficulty; deserialization still accepts the former global preferences.
-    #[serde(flatten, serialize_with = "save_difficulty")]
+    // Save difficulty and whether both arte paths were enabled, so loading an
+    // older party after disabling that option can remove its opposite-path artes.
+    #[serde(flatten, serialize_with = "save_gameplay_settings")]
     pub preferences: resonance_content::menu_data::CustomizeSettings,
     /// Manual 0, semi-auto 1, auto 2; one entry per battle controller.
     pub battle_controls: [u8; 4],
 }
-fn save_difficulty<S: serde::Serializer>(
+fn save_gameplay_settings<S: serde::Serializer>(
     preferences: &resonance_content::menu_data::CustomizeSettings,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     use serde::ser::SerializeMap;
-    let mut map = serializer.serialize_map(Some(1))?;
+    let mut map =
+        serializer.serialize_map(Some(1 + usize::from(preferences.learn_both_arte_paths)))?;
     map.serialize_entry("battle_rank", &preferences.battle_rank)?;
+    if preferences.learn_both_arte_paths {
+        map.serialize_entry("learn_both_arte_paths", &true)?;
+    }
     map.end()
 }
 impl Default for Settings {
@@ -1091,6 +1150,9 @@ pub struct Party {
     pub strategy_presets: Option<[resonance_content::menu_data::StrategyPreset; 3]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encounter_modifier: Option<EncounterModifier>,
+    /// Movement phase survives field transitions, but is not saved progression.
+    #[serde(skip)]
+    pub(crate) field_steps: u16,
     #[serde(default)]
     pub viewed_skits: BTreeSet<u16>,
     pub members: Vec<Member>,
@@ -1117,11 +1179,9 @@ pub struct Party {
     pub settings: Settings,
 }
 impl Party {
-    /// Only the startup-full flag is prepared. Other stored bits
-    /// affect damage/rewards and must not silently acquire partial behavior.
     fn validate_battle_flags(flags: u16) -> anyhow::Result<()> {
         anyhow::ensure!(
-            flags & !0x0008 == 0,
+            flags & !crate::battle::Rules::SUPPORTED_MODIFIERS == 0,
             "unsupported saved battle flags {flags:#06x}"
         );
         Ok(())
@@ -1137,7 +1197,7 @@ impl Party {
     /// The leader flag is independent of story availability.
     pub fn initial_unison_full(&self) -> anyhow::Result<bool> {
         Self::validate_battle_flags(self.battle_rules.modifiers)?;
-        Ok(self.battle_rules.modifiers & 0x0008 != 0)
+        Ok(self.battle_rules.modifiers & crate::battle::Rules::UNISON_FULL != 0)
     }
 
     /// Keep the selected leader unless absent, knocked out or petrified.
@@ -1318,6 +1378,7 @@ impl Party {
             battles: BattleStatistics::default(),
             cooking: Cooking::default(),
             encounter_modifier: None,
+            field_steps: 0,
             members: data
                 .characters
                 .iter()

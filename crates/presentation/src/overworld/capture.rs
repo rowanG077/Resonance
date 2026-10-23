@@ -19,6 +19,8 @@ pub struct Probe {
     pub state: resonance_content::overworld::TravelState,
     pub story: i32,
     #[serde(default)]
+    pub angel_progress: i32,
+    #[serde(default)]
     pub event_flags: std::collections::BTreeSet<u16>,
     /// Settle the camera without stepping scripts, travel, or audio.
     #[serde(default = "camera_ticks")]
@@ -37,6 +39,9 @@ pub struct Probe {
     /// Party order, including the four visible Rheaird riders.
     #[serde(default)]
     pub formation: Option<Vec<u8>>,
+    /// Active Holy/Dark Bottle effect for travel-particle captures.
+    #[serde(default)]
+    pub encounter_modifier: Option<resonance_events::party::EncounterModifier>,
     /// Drive the prepared scene, observing vehicle effects at gameplay cadence.
     #[serde(default)]
     pub throttle_ticks: u16,
@@ -90,9 +95,15 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
         party.field_leader = formation[0];
         party.validate(package.resources.session_data.as_ref().unwrap())?;
     }
+    persistent.party.as_mut().unwrap().encounter_modifier = probe.encounter_modifier.clone();
     persistent
         .memory
         .write(0x40, symphonia_script::Width::S32, probe.story)?;
+    persistent.memory.write(
+        resonance_content::appearance::ANGEL_PROGRESS,
+        symphonia_script::Width::S32,
+        probe.angel_progress,
+    )?;
     persistent.memory.write(
         0x50,
         symphonia_script::Width::S32,
@@ -158,6 +169,10 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             confirm: probe.confirm_ticks.contains(&tick),
             ..Default::default()
         })?;
+        if let Some(destination) = session.world_destination() {
+            let persistent = session.events.persistent_state()?;
+            session = session.change_world(package.assets(destination, &persistent)?)?;
+        }
     }
     if probe.menu {
         session.step(game::Input {
@@ -238,6 +253,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             pose,
             terrain_order,
             camera,
+            particles::render,
             ui,
             crate::skin_bounds,
             capture,

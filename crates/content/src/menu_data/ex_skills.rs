@@ -28,6 +28,11 @@ pub mod ex_effect {
     pub const TAUNT: u8 = 3;
     pub const DASH: u8 = 6;
     pub const FIELD_MOBILITY: u8 = 8;
+    pub const HOLY_BOTTLE_DURATION: u8 = 18;
+    pub const ENCOUNTER_EVASION: u8 = 34;
+    pub const FIELD_FORAGING: u8 = 44;
+    pub const SHOP_DISCOUNT: u8 = 50;
+    pub const FIELD_RECOVERY: u8 = 53;
     pub const ADDITIONAL_COMBO: u8 = 11;
     pub const GUARD_REDUCTION: u8 = 12;
     pub const AILMENT_RESISTANCE: u8 = 13;
@@ -118,6 +123,8 @@ pub mod ex_effect {
     pub const SPECIAL_GUARD_REDUCTION: u8 = 120;
     pub const SPIRIT_HEALER: u8 = 122;
     pub const ELEMENTAL_PHYSICAL_BOOST: u8 = 129;
+    pub const LIFE_DRAIN: u8 = 132;
+    pub const SPIRIT_DRAIN: u8 = 133;
     pub const PHYSICAL_ARTE_BOOST: u8 = 134;
     pub const TIMED_GUARD: u8 = 135;
     pub const REPRISE: u8 = 136;
@@ -127,11 +134,12 @@ pub mod ex_effect {
     pub const IDLE_HP: u8 = 140;
     pub const COMBO_FORCE: u8 = 142;
     pub const RUN_MAGIC_STABILITY: u8 = 143;
+    pub const AERIAL_SPELL: u8 = 145;
     pub const LUCKY_CHARGE: u8 = 146;
     pub const CHARGED_NEUTRAL_STABILITY: u8 = 147;
     pub const TAUNT_HP: u8 = 148;
     pub const VARIABLE_ATTACK: u8 = 149;
-    pub const SINGLE_CHARGE_GUARD: u8 = 150;
+    pub const CHARGE_GUARD_BREAK: u8 = 150;
     pub const SUPPRESS_SMALL_HITS: u8 = 151;
     pub const TOUGH_EXPERIENCE: u8 = 152;
     pub const CHARGED_RUN_STABILITY: u8 = 153;
@@ -222,10 +230,35 @@ pub struct ExSkillData {
     pub characters: Vec<CharacterExSkills>,
     /// Inventory IDs for Lv1 through Lv4, followed by the Max gem.
     pub gem_items: [u16; 5],
+    #[serde(default)]
+    pub foraging: FieldForaging,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FieldForaging {
+    pub pools: Vec<Vec<u16>>,
+    /// Choose a pool first, then an item within it, preserving category weights.
+    pub fields: BTreeMap<u32, Vec<usize>>,
 }
 
 impl ExSkillData {
     pub fn validate_rules(&self, items: usize) -> Result<()> {
+        ensure!(
+            self.foraging
+                .pools
+                .iter()
+                .all(|pool| !pool.is_empty()
+                    && pool.iter().all(|&id| id > 0 && usize::from(id) < items))
+                && self
+                    .foraging
+                    .fields
+                    .values()
+                    .all(|choices| !choices.is_empty()
+                        && choices
+                            .iter()
+                            .all(|&index| index < self.foraging.pools.len())),
+            "invalid field foraging pools"
+        );
         ensure!(
             !self.skills.is_empty()
                 && !self.skills.contains_key(&0)

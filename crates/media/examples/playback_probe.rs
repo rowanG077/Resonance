@@ -21,9 +21,9 @@ fn main() -> Result<()> {
     let (control, mixer) = Mixer::new(output.clock.clone());
     let worker = Worker::start(
         mixer,
-        resonance_audio_device::prioritize(Box::new(resonance_media::output::Resampler::new(
+        Box::new(resonance_media::output::Resampler::new(
             device.description.rate,
-        )?)),
+        )?),
         output.clone(),
     )?;
     let ready = Instant::now();
@@ -72,7 +72,7 @@ fn main() -> Result<()> {
             thread::sleep(Duration::from_millis(1));
         }
         let source = pcm.clone();
-        let handle = control.play(false, move || Ok(Box::new(source.source(false))))?;
+        let handle = control.play(false, move || Ok(Box::new(source.source(false, 1.))))?;
         let mut selected = 0;
         let mut skipped = 0;
         let mut previous = None;

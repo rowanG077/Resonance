@@ -1,7 +1,8 @@
 //! Runtime landmarks use full travel coordinates, independent of menu artwork.
 use super::world_map as source;
+use crate::{read, rel::Rel};
 use anyhow::{Context, Result, bail, ensure};
-use resonance_content::overworld::{Interaction, Landmark, Landmarks, Marker};
+use resonance_content::overworld::{Interaction, Landmark, Landmarks, Marker, ShipCameraClearance};
 use std::path::Path;
 
 pub(crate) fn prepare(source: &source::Catalogue) -> Result<Landmarks> {
@@ -42,6 +43,7 @@ pub(crate) fn prepare(source: &source::Catalogue) -> Result<Landmarks> {
                     source::Marker::Unknown { value } => bail!("unknown world marker {value}"),
                 },
                 automatic: name.starts_with('*'),
+                ship_camera_clearance: None,
                 name,
             });
         }
@@ -81,6 +83,25 @@ pub(crate) fn prepare(source: &source::Catalogue) -> Result<Landmarks> {
     Ok(landmarks)
 }
 
+pub(super) fn bind_camera_clearance(landmarks: &mut Landmarks, module: &Rel) -> Result<()> {
+    let exire = landmarks.worlds[1]
+        .iter_mut()
+        .find(|landmark| landmark.id == 266)
+        .context("Exire landmark is missing")?;
+    let height = module.at((5, 0xb90))?;
+    exire.ship_camera_clearance = Some(ShipCameraClearance {
+        near_margin: read::f32(module.at((5, 0x954))?, 0)?,
+        far_margin: read::f32(module.at((5, 0xb8c))?, 0)?,
+        height: f64::from_be_bytes(
+            height
+                .get(..8)
+                .context("truncated ship camera height")?
+                .try_into()?,
+        ) as f32,
+    });
+    landmarks.validate()
+}
+
 pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
     crate::embedded::write(
         file,
@@ -117,6 +138,19 @@ mod tests {
             assert_eq!(
                 crate::embedded::read::<Landmarks>(out.path(), "overworld-landmarks", "main.dol")?,
                 prepared
+            );
+            let mut prepared = prepared;
+            bind_camera_clearance(
+                &mut prepared,
+                &Rel::read(&root.join(format!("disc{disc}/files/US_r_Top2field.rel")))?,
+            )?;
+            assert_eq!(
+                prepared.worlds[1][9].ship_camera_clearance,
+                Some(ShipCameraClearance {
+                    near_margin: 300.,
+                    far_margin: 4250.,
+                    height: 885.,
+                })
             );
         }
         Ok(())

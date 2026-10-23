@@ -4,14 +4,17 @@ use anyhow::{Context, Result};
 
 const LEARNING: u32 = 0x80202dc8;
 
-pub(crate) fn learning(executable: &[u8]) -> Result<Vec<Vec<u8>>> {
+pub(crate) fn learning(executable: &[u8]) -> Result<Vec<Vec<u16>>> {
     dol::slice(executable, LEARNING, 11 * 41)?
         .chunks_exact(41)
         .map(|row| {
             Ok(row
                 .get(1..1 + usize::from(row[0]))
                 .context("learning count exceeds table capacity")?
-                .to_vec())
+                .iter()
+                .copied()
+                .map(u16::from)
+                .collect())
         })
         .collect()
 }

@@ -110,6 +110,9 @@ pub(super) fn validate_controls(controls: [LiveControls; CONTROLS_PER_BLOCK]) ->
     ensure!(
         controls.iter().all(|c| c.volume.is_finite()
             && (0.0..=1.0).contains(&c.volume)
+            && c.source_volume.is_finite()
+            && (0.0..=1.0).contains(&c.source_volume)
+            && c.sound_velocity.is_none_or(|v| v < 128)
             && c.pan.is_none_or(|p| p < 128)),
         "invalid stream controls"
     );
