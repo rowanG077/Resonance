@@ -331,6 +331,7 @@ fn original_party_bindings_use_the_production_graph() -> Result<()> {
         discs: &discs,
         output: output.path(),
         jobs: 3,
+        memory_budget: 2 * 1024 * 1024 * 1024,
     };
     let mut dag = pool::Dag::new();
     let mut packages = BTreeMap::new();
@@ -418,6 +419,7 @@ fn original_representative_fields_share_the_production_graph() -> Result<()> {
         discs: &paths,
         output,
         jobs: 3,
+        memory_budget: 2 * 1024 * 1024 * 1024,
     };
     let _publications = crate::publication::Session::start_if_needed(output)?;
     let discs = super::source_discs(&paths)?;
