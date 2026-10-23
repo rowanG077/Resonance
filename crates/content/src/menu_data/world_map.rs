@@ -5,6 +5,8 @@ pub struct WorldMapData {
     pub locations: BTreeMap<u16, MapLocation>,
     pub field_locations: BTreeMap<u32, u16>,
     pub shops: Vec<Shop>,
+    /// Opening any member records visits for the entire group, using saved shop IDs.
+    pub shop_visit_groups: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +76,29 @@ impl MapLocation {
 }
 
 impl WorldMapData {
+    pub fn validate_shop_visits(&self) -> Result<()> {
+        let mut seen = std::collections::BTreeSet::new();
+        ensure!(self.shops.len() <= 52, "too many saved shop IDs");
+        for group in &self.shop_visit_groups {
+            ensure!(
+                group.len() >= 2
+                    && group.windows(2).all(|pair| pair[0] < pair[1])
+                    && group
+                        .iter()
+                        .all(|&id| usize::from(id) < self.shops.len() && seen.insert(id)),
+                "invalid or overlapping shop visit group"
+            );
+        }
+        Ok(())
+    }
+
+    pub fn shop_visit_group(&self, id: u8) -> &[u8] {
+        self.shop_visit_groups
+            .iter()
+            .find(|group| group.contains(&id))
+            .map_or(&[], Vec::as_slice)
+    }
+
     /// Field entry only needs the current location's travel-history identity.
     pub fn validate_field(&self, field: u32) -> Result<()> {
         if let Some(&id) = self.field_locations.get(&field) {
@@ -91,6 +116,7 @@ impl WorldMapData {
     }
 
     pub fn validate(&self, item_count: usize) -> Result<()> {
+        self.validate_shop_visits()?;
         for shop in &self.shops {
             shop.validate(item_count)?;
         }
@@ -127,11 +153,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shop_visits_require_disjoint_bounded_groups() -> Result<()> {
+        let mut data = WorldMapData {
+            locations: BTreeMap::new(),
+            field_locations: BTreeMap::new(),
+            shops: vec![Shop { items: vec![1] }; 4],
+            shop_visit_groups: vec![vec![0, 2, 3]],
+        };
+        data.validate(2)?;
+        assert_eq!(data.shop_visit_group(2), [0, 2, 3]);
+        assert!(data.shop_visit_group(1).is_empty());
+        for groups in [
+            vec![vec![0]],
+            vec![vec![0, 4]],
+            vec![vec![0, 0]],
+            vec![vec![2, 0]],
+            vec![vec![0, 1], vec![1, 2]],
+        ] {
+            data.shop_visit_groups = groups;
+            assert!(data.validate(2).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
     fn field_travel_validates_only_its_selected_location() {
         let mut data = WorldMapData {
             locations: BTreeMap::new(),
             field_locations: [(4, 1)].into(),
             shops: Vec::new(),
+            shop_visit_groups: Vec::new(),
         };
         assert!(data.validate_field(5).is_ok());
         assert!(data.validate_field(4).is_err());

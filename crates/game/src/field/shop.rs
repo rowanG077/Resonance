@@ -91,21 +91,15 @@ impl Shop {
             "shop {id} is not cooked"
         );
         resources.data.world_map.shops[usize::from(id)].validate(resources.data.items.len())?;
+        resources.data.world_map.validate_shop_visits()?;
         resources.data.items_text()?;
         resources.data.shop_text(id)?;
         ensure!(!party.formation.is_empty(), "shop requires a party");
         party.travel.visited_shops.insert(id);
-        if let Some(alias) = match id {
-            17 => Some(50),
-            50 => Some(17),
-            18 => Some(40),
-            40 => Some(18),
-            29 => Some(45),
-            45 => Some(29),
-            _ => None,
-        } {
-            party.travel.visited_shops.insert(alias);
-        }
+        party
+            .travel
+            .visited_shops
+            .extend(resources.data.world_map.shop_visit_group(id));
         Ok(Self {
             resources,
             id,

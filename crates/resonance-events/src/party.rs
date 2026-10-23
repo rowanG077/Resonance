@@ -463,7 +463,7 @@ pub(crate) mod tests {
                 "default_positions": ([0; 9]), "positions": ([0; 6])},
             "cooking": {"recipes": [], "groups": [], "preferences": [], "bonus_skill": 0},
             "status": {"equipment_effects": {}},
-            "world_map": {"locations": {}, "field_locations": {}, "shops": []},
+            "world_map": {"locations": {}, "field_locations": {}, "shops": [], "shop_visit_groups": []},
             "ex_skills": {"skills": {"31": {
                 "stat_bonuses": [], "save_point_tp_cost": 1, "tendency": null, "activation": "constant"}},
                 "characters": vec![serde_json::json!({"levels": ([[31; 4]; 4]), "compounds": []}); 9],
