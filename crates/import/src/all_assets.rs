@@ -24,6 +24,7 @@ pub(crate) mod geometry;
 mod overworld_cinematics;
 mod overworld_collision;
 mod overworld_encounters;
+mod overworld_entries;
 mod overworld_landmarks;
 mod overworld_movement;
 mod overworld_preparation;
