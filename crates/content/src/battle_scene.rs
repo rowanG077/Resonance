@@ -4,6 +4,12 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod spell;
+pub use spell::{PatternContact, PatternOrigin, PatternSpell, SpellRecipe};
+
+/// Version 1 makes the migrated spell recipe part of the scene publication.
+pub const VERSION: u32 = 1;
+
 pub fn path(technique: u16) -> String {
     format!("battle/scenes/{technique:03}.json")
 }
@@ -14,6 +20,7 @@ pub fn skill_path(catalogue: u16) -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scene {
+    pub version: u32,
     pub source_sha256: String,
     /// Standard source bank, consumed by the shared effect preparation path.
     pub effects: String,
@@ -45,7 +52,22 @@ pub struct Scene {
     /// Ground radius for recovery scenes that select nearby recipients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_radius: Option<f32>,
+    /// Native strategies consume these parameters after resolving all dependencies.
+    pub spell_recipe: Option<SpellRecipe>,
     pub files: BTreeMap<String, crate::field_preload::File>,
+}
+
+impl Scene {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.version == VERSION,
+            "unsupported battle scene version; recook assets"
+        );
+        if let Some(recipe) = &self.spell_recipe {
+            recipe.validate(self)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

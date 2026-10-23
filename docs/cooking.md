@@ -130,6 +130,15 @@ After a format change, rerun `cook-all`. There is no
 compatibility layer for obsolete cooked formats: version mismatches request a
 recook.
 
+Stored battle scenes now require scene format 1. The Ray fixed-pattern recipe in
+`crates/import/src/battle_scene/spell_recipes.json` translates its verified native
+schedule and extracts heading, strike points, camera and color from the original
+REL tables. Cooking includes the resulting typed recipe in the scene descriptor
+and its normal preparation identity. Preparation resolves the declared contacts
+and effects into `PreparedSpell`; transition clocks, TP payment, interruption and
+released-effect ownership remain native. Changing this representation requires a
+complete cook, including scenes that retain their existing native controllers.
+
 ## Authored events
 
 The SymphoniaScript DSL and compiler ship with the cooking system. Authored code

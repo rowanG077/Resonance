@@ -1,0 +1,21 @@
+{
+  "252": {
+    "provenance": "GQSEAF Ray parameters define lifetime, contact ages and effect slots. Heading, strike points, color and camera are extracted from REL section 4. SceneGround uses the shared scene initializer; transition, contact initialization, recovery and ownership remain native.",
+    "lifetime": 230,
+    "origin": { "kind": "scene_ground", "toward_caster": 1.0 },
+    "heading_offset": 32296,
+    "startup_member": 1,
+    "startup_deferred": true,
+    "contacts": {
+      "first_tick": 60,
+      "period": 8,
+      "count": 9,
+      "points_offset": 32172,
+      "projectile": 1,
+      "hit_variant": 0,
+      "effect_member": 2
+    },
+    "color_offset": 32168,
+    "camera_offset": 32288
+  }
+}
