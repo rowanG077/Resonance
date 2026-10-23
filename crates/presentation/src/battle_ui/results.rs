@@ -216,7 +216,10 @@ impl Artwork {
                     technique,
                 } => (
                     character,
-                    format!("Learned {}", self.menu_data.technique_text(technique)?.name),
+                    format!(
+                        "Learned {}",
+                        self.menu_data.technique_text(technique.0)?.name
+                    ),
                 ),
                 ResultNotice::Title { character, title } => (
                     character,
@@ -586,7 +589,7 @@ mod tests {
             notices: vec![
                 ResultNotice::Technique {
                     character: Character::Regal,
-                    technique: 201,
+                    technique: resonance_battle::TechniqueId(201),
                 },
                 ResultNotice::MaximumVital {
                     character: Character::Lloyd,

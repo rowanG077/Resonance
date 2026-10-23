@@ -6,19 +6,18 @@ mod aerial_spell;
 
 #[test]
 fn normal_combo_uses_the_actors_authored_direction_and_fallback() -> Result<()> {
-    use resonance_content::battle_normal::Continuation;
     for (directions, fallback, expected) in [
         (
             1 << NormalAttack::Thrust as u8,
-            Some(NormalAttack::Low as u8),
+            Some(NormalAttack::Low),
             Some(NormalAttack::Thrust),
         ),
-        (0, Some(NormalAttack::Low as u8), Some(NormalAttack::Low)),
+        (0, Some(NormalAttack::Low), Some(NormalAttack::Low)),
         (0, None, None),
     ] {
         let mut prepared = prepared(Control::Manual);
         let control = Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap());
-        control.normals[NormalAttack::Neutral as usize].continuation = Continuation {
+        control.normals[NormalAttack::Neutral as usize].continuation = NormalContinuation {
             directions,
             fallback,
         };

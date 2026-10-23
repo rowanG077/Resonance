@@ -402,7 +402,7 @@ fn result_advancement_feedback_uses_the_result_clock_and_pauses_with_it() -> Res
         },
         ResultNotice::Technique {
             character: Character::Lloyd,
-            technique: 1,
+            technique: resonance_battle::TechniqueId(1),
         },
         ResultNotice::CompoundEx {
             character: Character::Colette,

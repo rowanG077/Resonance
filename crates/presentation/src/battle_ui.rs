@@ -2,8 +2,9 @@
 use super::*;
 use anyhow::ensure;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use resonance_battle::{Activity, BattleFrame, Character, Side};
+use resonance_battle::{Activity, ActorId, BattleFrame, Character, Side};
 use resonance_content::battle_ui::Art;
+use std::collections::BTreeMap;
 
 const HOURGLASS_FLASH_STEP: u8 = 16;
 const HOURGLASS_FLASH_RISE: u8 = u8::MAX.div_ceil(HOURGLASS_FLASH_STEP);
@@ -61,7 +62,7 @@ mod unison;
 /// Prepared enemy-group artwork; loaded before the battle's GPU warmup.
 #[derive(Clone)]
 pub(crate) struct EnemyHud {
-    pub actor: usize,
+    pub actor: ActorId,
     pub group: u8,
     pub name: String,
     pub icon: Option<resonance_content::font::UiTexture>,
@@ -102,7 +103,7 @@ pub(crate) struct Artwork {
     settings: resonance_content::menu_data::CustomizeSettings,
     results: Option<results::Results>,
     notices: notice::Notices,
-    labels: Vec<(usize, overlays::ActorLabel)>,
+    labels: BTreeMap<ActorId, overlays::ActorLabel>,
     combat: combat::Hud,
     numbers: combat_numbers::Numbers,
     scan: Option<items::Scan>,
@@ -328,7 +329,7 @@ impl Artwork {
             settings: Default::default(),
             results: None,
             notices: Default::default(),
-            labels: Vec::new(),
+            labels: BTreeMap::new(),
             combat,
             numbers: Default::default(),
             scan: None,
@@ -672,7 +673,7 @@ impl Artwork {
                     let position = target.condition_label_origin();
                     overlays::request_at(
                         &mut self.labels,
-                        actor.index(),
+                        *actor,
                         overlays::LabelKind::GuardBreak,
                         position,
                     );
@@ -686,7 +687,7 @@ impl Artwork {
                         actor.index() < frame.actors.len(),
                         "unknown condition label actor"
                     );
-                    overlays::condition(&mut self.labels, actor.index(), *kind, *position);
+                    overlays::condition(&mut self.labels, *actor, *kind, *position);
                 }
                 resonance_battle::Cue::OverLimitEntered { actor, position } => {
                     ensure!(
@@ -695,7 +696,7 @@ impl Artwork {
                     );
                     overlays::request_at(
                         &mut self.labels,
-                        actor.index(),
+                        *actor,
                         overlays::LabelKind::OverLimit,
                         *position,
                     );
@@ -707,7 +708,7 @@ impl Artwork {
                     );
                     overlays::request_at(
                         &mut self.labels,
-                        actor.index(),
+                        *actor,
                         overlays::LabelKind::ExSkill,
                         *position,
                     );
@@ -725,7 +726,7 @@ impl Artwork {
                     );
                     overlays::request_custom(
                         &mut self.labels,
-                        actor.index(),
+                        *actor,
                         [left.clone(), right.clone()],
                         *position,
                         *duration,

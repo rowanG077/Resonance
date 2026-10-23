@@ -113,7 +113,7 @@ impl Artwork {
                 };
                 if let Some((name, duration)) = notice {
                     self.notice_with_icon(
-                        combination.actors[0].index(),
+                        combination.actors[0],
                         &name,
                         duration,
                         battle,

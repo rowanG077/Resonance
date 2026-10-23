@@ -9,13 +9,31 @@ use std::sync::Arc;
 pub(super) fn controls(
     attacks: &[Attack; 7],
     actions: [resonance_battle::ActionKey; 7],
-) -> [resonance_battle::NormalControl; 7] {
-    std::array::from_fn(|index| resonance_battle::NormalControl {
-        action: actions[index],
-        continuation: attacks[index].continuation,
-        reach: f32::from(attacks[index].reach[0]),
-        minimum_reach: f32::from(attacks[index].reach[1]),
-    })
+) -> Result<[resonance_battle::NormalControl; 7]> {
+    let mut fallbacks = [None; 7];
+    for (fallback, attack) in fallbacks.iter_mut().zip(attacks) {
+        *fallback = attack
+            .continuation
+            .fallback
+            .map(|index| {
+                NormalAttack::ALL
+                    .get(usize::from(index))
+                    .copied()
+                    .context("invalid normal fallback")
+            })
+            .transpose()?;
+    }
+    Ok(std::array::from_fn(|index| {
+        resonance_battle::NormalControl {
+            action: actions[index],
+            continuation: resonance_battle::NormalContinuation {
+                directions: attacks[index].continuation.directions,
+                fallback: fallbacks[index],
+            },
+            reach: f32::from(attacks[index].reach[0]),
+            minimum_reach: f32::from(attacks[index].reach[1]),
+        }
+    }))
 }
 
 /// Prepared actor inputs shared by encounter and focused action preparation.

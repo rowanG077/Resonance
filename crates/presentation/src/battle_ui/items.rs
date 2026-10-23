@@ -253,7 +253,7 @@ impl Artwork {
             .combat
             .enemies
             .iter()
-            .find(|enemy| enemy.actor == scan.target.index())
+            .find(|enemy| enemy.actor == scan.target)
             .context("scan enemy name was not prepared")?
             .name;
         let [x, y, _, _] = scan_rect(scan, actor);
@@ -376,7 +376,7 @@ impl Artwork {
     }
     pub fn item_notice_request(
         &mut self,
-        actor: usize,
+        actor: ActorId,
         item: u16,
         duration: u16,
         frame: &BattleFrame,

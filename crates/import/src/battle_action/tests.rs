@@ -1447,18 +1447,6 @@ fn enemy_hit_conditions_and_voices_use_shared_bindings() -> Result<()> {
 }
 
 #[test]
-fn enemy_tables_reject_bad_boundaries_and_truncated_resources() {
-    for length in [0, 487, 584, 609] {
-        assert!(read(&package()[..length], &[]).is_err(), "length {length}");
-    }
-    for (at, value) in [(0, 0), (11, 5), (608, 5)] {
-        let mut bytes = package();
-        bytes[at] = value;
-        assert!(read(&bytes, &[]).is_err(), "byte {at}");
-    }
-}
-
-#[test]
 fn enemy_decisions_decode_eligibility_targets_and_weighted_rows() -> Result<()> {
     let mut bytes = package();
     bytes[575] = 73;

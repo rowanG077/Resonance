@@ -364,18 +364,16 @@ pub(crate) fn normal_controls(
     })
 }
 
-pub(crate) fn normal_continuation(
-    kind: NormalAttack,
-) -> resonance_content::battle_normal::Continuation {
+pub(crate) fn normal_continuation(kind: NormalAttack) -> NormalContinuation {
     use NormalAttack::*;
     let (directions, fallback) = match kind {
-        Neutral => (0b0001110, Some(Finisher as u8)),
-        Rising => (0b1100000, Some(AerialSlash as u8)),
+        Neutral => (0b0001110, Some(Finisher)),
+        Rising => (0b1100000, Some(AerialSlash)),
         Thrust | Low => (0b0001111, None),
         AerialSlash | AerialThrust => (0b1100000, None),
         Finisher => (0, None),
     };
-    resonance_content::battle_normal::Continuation {
+    NormalContinuation {
         directions,
         fallback,
     }

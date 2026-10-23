@@ -86,7 +86,7 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
             let previous = playable.clone();
             for &selection in &previous {
                 let continuation = control.normals[selection].continuation;
-                playable.extend(continuation.fallback.map(usize::from));
+                playable.extend(continuation.fallback.map(|attack| attack as usize));
                 playable.extend(
                     (0..bindings.len()).filter(|&i| continuation.directions & (1 << i) != 0),
                 );

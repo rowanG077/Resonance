@@ -1,7 +1,8 @@
 //! Actor labels and screen feedback owned by presentation.
 use super::{Batch, BitmapFont, text};
 use anyhow::Result;
-use resonance_battle::conditions::ConditionLabel;
+use resonance_battle::{ActorId, conditions::ConditionLabel};
+use std::collections::BTreeMap;
 
 const HOLD_TICKS: u32 = 60;
 const LABEL_FADE_STEP: u64 = 8;
@@ -31,8 +32,8 @@ pub(super) struct ActorLabel {
 }
 
 pub(super) fn condition(
-    labels: &mut Vec<(usize, ActorLabel)>,
-    owner: usize,
+    labels: &mut BTreeMap<ActorId, ActorLabel>,
+    owner: ActorId,
     kind: ConditionLabel,
     position: [f32; 3],
 ) {
@@ -49,7 +50,7 @@ pub(super) fn condition(
         let mut label = ActorLabel::new(LabelKind::StatUp, position);
         label.lines = [stat.into(), "UP".into()];
         label.duration = CONDITION_HOLD_TICKS;
-        replace(labels, owner, label);
+        labels.insert(owner, label);
         return;
     }
     let kind = match kind {
@@ -64,39 +65,30 @@ pub(super) fn condition(
     request_at(labels, owner, kind, position)
 }
 
-fn replace(labels: &mut Vec<(usize, ActorLabel)>, owner: usize, replacement: ActorLabel) {
-    if let Some((_, label)) = labels.iter_mut().find(|(id, _)| *id == owner) {
-        *label = replacement;
-    } else {
-        labels.push((owner, replacement));
-        labels.sort_by_key(|(id, _)| *id);
-    }
-}
-
 pub(super) fn request_at(
-    labels: &mut Vec<(usize, ActorLabel)>,
-    owner: usize,
+    labels: &mut BTreeMap<ActorId, ActorLabel>,
+    owner: ActorId,
     kind: LabelKind,
     position: [f32; 3],
 ) {
-    replace(labels, owner, ActorLabel::new(kind, position))
+    labels.insert(owner, ActorLabel::new(kind, position));
 }
 
 pub(super) fn request_custom(
-    labels: &mut Vec<(usize, ActorLabel)>,
-    owner: usize,
+    labels: &mut BTreeMap<ActorId, ActorLabel>,
+    owner: ActorId,
     lines: [String; 2],
     position: [f32; 3],
     duration: u32,
 ) {
     if duration == 0 {
-        labels.retain(|(id, _)| *id != owner);
+        labels.remove(&owner);
         return;
     }
     let mut label = ActorLabel::new(LabelKind::Custom, position);
     label.duration = duration;
     label.lines = lines;
-    replace(labels, owner, label)
+    labels.insert(owner, label);
 }
 
 impl ActorLabel {
@@ -246,13 +238,16 @@ impl super::Artwork {
             clock,
             resonance_battle::BattleClock::TimedHold | resonance_battle::BattleClock::Rescue(_)
         );
-        self.labels.retain_mut(|(owner, label)| {
-            let rescue = matches!(clock, resonance_battle::BattleClock::Rescue(actor) if actor.index() == *owner);
-            label.advance(if rescue || (activation_hold && matches!(label.kind, LabelKind::OverLimit)) {
-                1
-            } else {
-                elapsed
-            });
+        self.labels.retain(|owner, label| {
+            let rescue =
+                matches!(clock, resonance_battle::BattleClock::Rescue(actor) if actor == *owner);
+            label.advance(
+                if rescue || (activation_hold && matches!(label.kind, LabelKind::OverLimit)) {
+                    1
+                } else {
+                    elapsed
+                },
+            );
             label.visible()
         });
     }
@@ -260,7 +255,7 @@ impl super::Artwork {
     pub(crate) fn overlays_diagnostic(&self) -> serde_json::Value {
         serde_json::json!({
             "actor_labels": self.labels.iter().map(|(actor, label)| serde_json::json!({
-                "actor": actor, "kind": format!("{:?}", label.kind), "position": label.position,
+                "actor": actor.index(), "kind": format!("{:?}", label.kind), "position": label.position,
                 "age": label.age, "duration": label.duration,
                 "alpha": label.alpha(), "text": label.text(),
             })).collect::<Vec<_>>(),
@@ -274,28 +269,29 @@ mod tests {
 
     #[test]
     fn labels_replace_cancel_and_expire() {
-        let mut labels = Vec::new();
-        condition(&mut labels, 2, ConditionLabel::Applied, [1., 2., 3.]);
-        labels[0].1.advance(0);
-        assert!(labels[0].1.visible());
-        request_at(&mut labels, 2, LabelKind::OverLimit, [4., 5., 6.]);
+        let mut labels = BTreeMap::new();
+        let owner = ActorId::from_index(2).unwrap();
+        condition(&mut labels, owner, ConditionLabel::Applied, [1., 2., 3.]);
+        labels.get_mut(&owner).unwrap().advance(0);
+        assert!(labels[&owner].visible());
+        request_at(&mut labels, owner, LabelKind::OverLimit, [4., 5., 6.]);
         assert_eq!(labels.len(), 1);
-        assert_eq!(labels[0].1.position, [4., 5., 6.]);
-        assert_eq!(labels[0].1.text(), "OVER LIMIT");
-        labels[0].1.advance(HOLD_TICKS);
-        assert!(labels[0].1.visible());
-        labels[0].1.advance(HOLD_TICKS);
-        assert!(!labels[0].1.visible());
+        assert_eq!(labels[&owner].position, [4., 5., 6.]);
+        assert_eq!(labels[&owner].text(), "OVER LIMIT");
+        labels.get_mut(&owner).unwrap().advance(HOLD_TICKS);
+        assert!(labels[&owner].visible());
+        labels.get_mut(&owner).unwrap().advance(HOLD_TICKS);
+        assert!(!labels[&owner].visible());
         request_custom(
             &mut labels,
-            2,
+            owner,
             ["CUSTOM".into(), "LABEL".into()],
             [0.; 3],
             10,
         );
-        assert_eq!(labels[0].1.text(), "CUSTOM LABEL");
-        assert_eq!(labels[0].1.lines, ["CUSTOM", "LABEL"]);
-        request_custom(&mut labels, 2, Default::default(), [0.; 3], 0);
+        assert_eq!(labels[&owner].text(), "CUSTOM LABEL");
+        assert_eq!(labels[&owner].lines, ["CUSTOM", "LABEL"]);
+        request_custom(&mut labels, owner, Default::default(), [0.; 3], 0);
         assert!(labels.is_empty());
     }
 }

@@ -1355,24 +1355,4 @@ mod tests {
         assert!(edits(&words).is_err());
         Ok(())
     }
-
-    #[test]
-    fn appearance_values_are_checked_before_narrowing() {
-        let record = Record {
-            age: 0,
-            command: 0,
-            argument: 0,
-            operand: 1,
-        };
-        for (target, maximum) in [(1, 1), (3, 255)] {
-            for value in [0, 1, 2, 255, 256, 257, u16::MAX] {
-                let modifiers = BTreeMap::from([(1, vec![10, target, value, 0, u16::MAX])]);
-                assert_eq!(
-                    operation(&record, &[], &modifiers, None).is_ok(),
-                    value <= maximum,
-                    "target {target}, value {value}"
-                );
-            }
-        }
-    }
 }

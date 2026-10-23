@@ -45,5 +45,5 @@ pub(super) fn control(
         &profiles.normal_attacks[usize::from(character - 1)],
         std::array::from_fn(resonance_battle::ActionKey),
         battle::control::motions(Some(model)),
-    )))
+    )?))
 }

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{ActorId, Battle, ButtonInput, Control, ControllerPort, Side};
+use resonance_battle::{ActorId, Battle, ButtonInput, Control, ControllerPort, Side, TechniqueId};
 mod items;
 pub use items::{ActorSelection, InventoryInput, ItemRow, ListFrame};
 
@@ -28,7 +28,7 @@ pub struct Input {
 pub struct TechTarget {
     pub actor: ActorId,
     pub issuer: ActorId,
-    pub technique: u16,
+    pub technique: TechniqueId,
     pub selected: Option<ActorId>,
 }
 
@@ -477,7 +477,7 @@ impl Owner {
                                 Some(Page::TechTarget(TechTarget {
                                     actor,
                                     issuer: session.admission.actor,
-                                    technique,
+                                    technique: TechniqueId(technique),
                                     selected,
                                 }))
                             }

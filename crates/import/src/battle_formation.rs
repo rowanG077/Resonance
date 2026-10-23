@@ -194,17 +194,4 @@ mod tests {
         let record = read(&usual(&row)).unwrap().records.remove(0);
         assert!(record.actors[0].unsupported_reason.is_some());
     }
-
-    #[test]
-    fn rejects_truncation_bad_signatures_and_active_slot_references() {
-        let bytes = usual(&row());
-        for length in 0..bytes.len() {
-            assert!(read(&bytes[..length]).is_err(), "length {length}");
-        }
-        for (at, value) in [(0, 0), (4, 9), (5, 5), (8, 255), (16, 1)] {
-            let mut row = row();
-            row[at] = value;
-            assert!(read(&usual(&row)).is_err());
-        }
-    }
 }

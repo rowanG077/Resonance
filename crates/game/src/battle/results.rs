@@ -12,6 +12,7 @@ use super::{
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
     ActorAvailability, ActorId, Battle, BattleOutcome, BattlePhase, BattleResult, Cue, Sound,
+    TechniqueId,
     conditions::{ConditionSet, POISON},
 };
 use resonance_content::{arte::Catalogue, menu_data::MenuData, session::SessionData};
@@ -132,7 +133,7 @@ pub enum ResultNotice {
     },
     Technique {
         character: Character,
-        technique: u16,
+        technique: TechniqueId,
     },
     CompoundEx {
         character: Character,
@@ -848,7 +849,7 @@ impl Candidate {
                         .iter()
                         .map(move |&technique| ResultNotice::Technique {
                             character: row.character,
-                            technique,
+                            technique: TechniqueId(technique),
                         })
                 })),
         );
