@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use crate::test_support::field_checkpoint;
 
 mod ending_movie;
+mod replay_preferences;
 
 impl Session {
     pub(crate) fn reload(&mut self, root: &Path, checkpoint: FieldCheckpoint) -> Result<()> {
