@@ -21,6 +21,7 @@ pub(crate) use field::CameraTrack;
 pub(crate) use field::camera;
 pub(crate) mod field_unlocks;
 pub(crate) mod geometry;
+mod overworld_cinematics;
 mod overworld_collision;
 mod overworld_encounters;
 mod overworld_landmarks;
@@ -1015,7 +1016,11 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                     .find(|&&path| path != primary)
                     .map(|path| path.to_path_buf()),
             )?;
-            audio.world(&fs::read(primary.join("files").join(&overworld.script))?)?;
+            audio.world(
+                &fs::read(primary.join("files").join(&overworld.script))?,
+                overworld.visuals.cinematic_sounds(),
+                overworld.visuals.cinematic_voices(),
+            )?;
             overworld_preparation::prepare(
                 &overworld,
                 primary,

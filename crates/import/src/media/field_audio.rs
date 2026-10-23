@@ -53,6 +53,13 @@ pub(crate) struct FieldAudioCooker {
     reverbs: [[f32; 5]; 2],
 }
 
+#[derive(Clone)]
+pub(crate) struct WorldVoiceArchive {
+    pub source: String,
+    pub member: usize,
+    pub first_resource: u32,
+}
+
 impl FieldAudioCooker {
     pub(crate) fn new(workspace: Workspace, additional_disc: Option<PathBuf>) -> Result<Self> {
         let executable = read_file(&workspace.extracted.join("sys/main.dol"))?;
@@ -79,41 +86,60 @@ impl FieldAudioCooker {
         self.cook_resources(&crate::field::audio_path(map_id), resources)
     }
 
-    pub(crate) fn world(&mut self, script: &[u8]) -> Result<()> {
-        let mut resources = self.catalogue.with_native(
-            script,
-            &[2, 3, 4, 5],
-            &[
-                24, 25, 26, 133, 160, 177, 182, 183, 193, 217, 282, 437, 438, 443, 445,
-            ],
-        )?;
-        let source = crate::field_resources::resolve_path(
-            &self.workspace.extracted.join("files"),
-            "FIELD/e04.d",
-        )?;
-        let bytes = crate::compression::payload(fs::read(
-            self.workspace.extracted.join("files").join(source),
-        )?)?;
-        let members = crate::field::sections(&bytes)?;
-        let archive = members
-            .get(9)
-            .and_then(|range| range.as_ref())
-            .and_then(|range| bytes.get(range.clone()))
-            .context("world cinematic voice archive missing")?;
-        let voices = crate::field::sections(archive)?;
-        ensure!(voices.len() == 9, "unexpected world cinematic voice count");
-        for (index, range) in voices.into_iter().enumerate() {
-            let data = &archive[range.context("world cinematic voice missing")?];
-            let name = format!("e04_{index}.ahx");
-            let voice = decode_voice_to(
-                &self.workspace,
-                &format!("audio/voices/{}.wav", crate::digest(data)),
-                &crate::afs::Member { name: &name, data },
-                VoiceFormat::Ahx,
+    pub(crate) fn world<'a>(
+        &mut self,
+        script: &[u8],
+        cinematic_sounds: &[i16],
+        voice_archives: impl IntoIterator<Item = &'a WorldVoiceArchive>,
+    ) -> Result<()> {
+        let cinematic_sounds = cinematic_sounds
+            .iter()
+            .copied()
+            .map(u16::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut resources = self
+            .catalogue
+            .with_native(script, &[2, 3, 4, 5], &cinematic_sounds)?;
+        for declaration in voice_archives {
+            let source = crate::field_resources::resolve_path(
+                &self.workspace.extracted.join("files"),
+                &declaration.source,
             )?;
-            let id = 0xe01a3 + index as u32;
-            self.voices.insert(id, voice.voice);
-            resources.voices.insert(id);
+            let bytes = crate::compression::payload(fs::read(
+                self.workspace.extracted.join("files").join(source),
+            )?)?;
+            let members = crate::field::sections(&bytes)?;
+            let archive = members
+                .get(declaration.member)
+                .and_then(|range| range.as_ref())
+                .and_then(|range| bytes.get(range.clone()))
+                .context("world cinematic voice archive missing")?;
+            let voices = crate::field::sections(archive)?;
+            ensure!(
+                !voices.is_empty() && voices.len() <= 256,
+                "invalid world cinematic voice count"
+            );
+            for (index, range) in voices.into_iter().enumerate() {
+                let id = declaration
+                    .first_resource
+                    .checked_add(u32::try_from(index)?)
+                    .context("world cinematic voice ID overflow")?;
+                let data = &archive[range.context("world cinematic voice missing")?];
+                let name = format!("cinematic_{id}.ahx");
+                let voice = decode_voice_to(
+                    &self.workspace,
+                    &format!("audio/voices/{}.wav", crate::digest(data)),
+                    &crate::afs::Member { name: &name, data },
+                    VoiceFormat::Ahx,
+                )?;
+                if let Some(previous) = self.voices.insert(id, voice.voice.clone()) {
+                    ensure!(
+                        previous.asset.sha256 == voice.voice.asset.sha256,
+                        "conflicting cinematic voice {id}"
+                    );
+                }
+                resources.voices.insert(id);
+            }
         }
         self.cook_resources("worlds/audio.json", resources)
     }

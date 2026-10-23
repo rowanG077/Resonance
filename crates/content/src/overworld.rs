@@ -11,7 +11,9 @@ mod travel;
 pub use travel::{MapDisplay, Mount, TravelState};
 mod landmarks;
 pub use landmarks::{Guidepost, Interaction, Landmark, Landmarks, Marker, ShipCameraClearance};
+mod cinematic;
 mod package;
+pub use cinematic::*;
 pub use package::{
     Cinematic, CinematicDialogue, PACKAGE_PATH, PACKAGE_VERSION, Package, TerrainTile,
     TileResources, Visuals,

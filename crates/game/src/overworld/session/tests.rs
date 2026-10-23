@@ -1083,7 +1083,7 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
 
 #[test]
 fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_once() -> Result<()> {
-    for id in [513, 516, 518] {
+    for id in 513..=526 {
         let source = start(definitions(), vec![])?;
         let saved = source.travel.checkpoint()?;
         let mut persistent = source.events.persistent_state()?;
@@ -1103,6 +1103,19 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
             .map_err(anyhow::Error::msg)?;
         let definition = Arc::new(resonance_content::overworld::Cinematic {
             world: source.assets.world,
+            presentation: resonance_content::overworld::CinematicPresentation {
+                provenance: "synthetic continuation fixture".into(),
+                fade: resonance_content::overworld::CinematicFade {
+                    white: false,
+                    end_rate: 8,
+                    intro_rate: None,
+                    flashes: vec![],
+                },
+                initial_audio: vec![],
+                audio: vec![],
+                end_audio: vec![],
+                actors: Default::default(),
+            },
             camera: vec![
                 resonance_content::CameraKey {
                     time: 0.,
@@ -1166,7 +1179,7 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
         for _ in 0..150 {
             movie.step(Default::default())?;
         }
-        let (operation, tick) = if id == 513 {
+        let (operation, tick) = if !matches!(id, 516 | 518) {
             let request = movie.events.world.field_transition.as_ref().unwrap();
             assert_eq!(request.position, following.position);
             assert_eq!(request.heading, following.heading);
