@@ -484,6 +484,7 @@ pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
             crafting: inputs.crafting.prepare()?,
             items,
             titles,
+            title_awards: serde_json::from_str(include_str!("data/title_awards.json"))?,
             techniques,
             ex_skills,
             world_map,
@@ -531,6 +532,25 @@ fn menu_titles(
         .collect::<Result<Vec<_>>>()?;
     costume::cook(&catalogue.costumes, &mut titles)?;
     Ok(titles)
+}
+
+#[test]
+#[ignore = "requires both extracted original executables; CPU only"]
+fn translated_title_awards_bind_original_catalogues_and_require_current_format() -> Result<()> {
+    let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+    let mut publications = std::collections::BTreeSet::new();
+    for disc in [1, 2] {
+        let data = read(&fs::read(local.join(format!("disc{disc}/sys/main.dol")))?)?.data;
+        data.validate_gameplay()?;
+        publications.insert(serde_json::to_vec(&data.title_awards)?);
+        let mut encoded = serde_json::to_value(&data)?;
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        MenuData::decode(&serde_json::to_vec(&encoded)?, &diagnostics)?.validate_gameplay()?;
+        encoded.as_object_mut().unwrap().remove("title_awards");
+        assert!(MenuData::decode(&serde_json::to_vec(&encoded)?, &diagnostics).is_err());
+    }
+    assert_eq!(publications.len(), 1, "title rules differ between discs");
+    Ok(())
 }
 
 #[test]

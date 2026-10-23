@@ -38,6 +38,9 @@ pub fn prepare(
         item.properties.caption_ids.clear();
     }
     let gameplay = serde_json::to_vec(&(
+        // Award thresholds change future eligibility, not the meaning of stored
+        // title IDs. Keep this identity boundary when moving native rules into
+        // cooked title_awards, so this representation change preserves saves.
         &session.items,
         &session.characters,
         &session.experience,

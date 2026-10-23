@@ -33,6 +33,7 @@ pub(in crate::battle) fn fixture() -> Result<(MenuData, Member)> {
             7
         ],
         titles,
+        title_awards: Default::default(),
         initial_names: Default::default(),
         techniques: vec![],
         strategy: StrategyData {

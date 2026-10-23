@@ -455,6 +455,7 @@ pub(crate) mod tests {
             "version": resonance_content::menu_data::MenuData::VERSION,
             "grade_shop": {"options": [], "labels": {}}, "crafting": resonance_content::menu_data::crafting::Data::default(),
             "items": [], "titles": vec![vec![serde_json::json!({"growth":vec![0;7],"costume":null})];9],
+            "title_awards": resonance_content::menu_data::TitleAwardRules::default(),
             "initial_names":([""; 9]),
             "techniques": techniques,
             "strategy": {"groups": [[], [], []],
