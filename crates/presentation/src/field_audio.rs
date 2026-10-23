@@ -2729,7 +2729,7 @@ mod tests {
         };
         files.insert(
             "game/skits.json".into(),
-            br#"{"version":2,"skits":[],"portrait_recipes":[]}"#.as_slice().into(),
+            br#"{"version":3,"skits":[],"portrait_recipes":[]}"#.as_slice().into(),
         );
         (
             files,
