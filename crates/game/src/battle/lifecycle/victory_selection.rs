@@ -1,7 +1,7 @@
 //! Victory celebrations chosen from the party's condition and prepared resources.
 use crate::battle::results::PreparedGroup;
 use resonance_battle::{Control, Sound};
-use resonance_content::battle_victory::Condition;
+use resonance_content::battle_victory::{Condition, SelectionRule};
 
 use crate::battle::party::Character;
 
@@ -182,40 +182,26 @@ impl Context<'_> {
 
 /// Earlier eligible exchanges have priority; each gets its own chance to speak.
 pub fn select(context: &Context<'_>, mut next: impl FnMut() -> u16) -> Selection {
+    let mut groups: Vec<_> = context.prepared_groups.iter().collect();
+    groups.sort_by_key(|group| group.selection.priority());
     // Encounter exchanges take priority, including participants who were defeated.
-    let special: &[u8] = match context.formation {
-        31 => &[47, 46],
-        71 => &[43],
-        33 => &[53],
-        65 => &[54],
-        74 => &[44],
-        16 => &[45],
-        53 => &[48],
-        79 => &[49],
-        81 => &[50, 51, 52],
-        _ => &[],
-    };
-    for id in special.iter().copied().map(VictoryGroupId) {
-        if context.prepared_groups.iter().any(|group| {
-            group.id == id
-                && group.participants.iter().all(|&character| {
-                    context
-                        .party
-                        .iter()
-                        .any(|member| member.character == character)
-                })
-        }) {
-            return Selection::Group(id);
+    for group in &groups {
+        if let SelectionRule::Encounter { formations, .. } = &group.selection
+            && formations.contains(&context.formation)
+            && group.participants.iter().all(|&character| {
+                context
+                    .party
+                    .iter()
+                    .any(|member| member.character == character)
+            })
+        {
+            return Selection::Group(group.id);
         }
     }
-    const GROUP_ORDER: [u8; 42] = [
-        38, 1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 37, 40, 41, 32, 33, 34, 35, 36, 30, 29,
-        28, 27, 25, 26, 22, 18, 20, 21, 23, 24, 31, 19, 42, 15, 39, 2, 3, 4,
-    ];
     // Half of ordinary results proceed directly to a solo celebration.
     if next() & 1 == 0 {
-        for id in GROUP_ORDER.map(VictoryGroupId) {
-            let Some(group) = context.prepared_groups.iter().find(|group| group.id == id) else {
+        for group in groups {
+            let SelectionRule::Ordinary { gate, .. } = group.selection else {
                 continue;
             };
             let eligible = group
@@ -233,15 +219,8 @@ pub fn select(context: &Context<'_>, mut next: impl FnMut() -> u16) -> Selection
             if !eligible {
                 continue;
             }
-            // Retain the dialogue gates: half, quarter, or eighth of eligible draws.
-            let (mask, accepted) = match id.0 {
-                12 | 13 | 24 | 26 => (4, 4),
-                27 | 33 | 41 => (3, 0),
-                15 | 19 | 31 | 39 | 42 => (7, 0),
-                _ => (1, 1),
-            };
-            if next() & mask == accepted {
-                return Selection::Group(id);
+            if gate.accepts(next()) {
+                return Selection::Group(group.id);
             }
         }
     }

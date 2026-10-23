@@ -123,10 +123,39 @@ pub(crate) fn publish_source(extracted: &Path, output: &Path, prefix: &str) -> R
             }
         }
     }
+    #[derive(serde::Deserialize)]
+    struct SelectionRecipes {
+        provenance: String,
+        groups: BTreeMap<u8, resonance_content::battle_victory::SelectionRule>,
+    }
+    let selection: SelectionRecipes =
+        serde_json::from_str(include_str!("battle_victory/selection.json"))?;
+    ensure!(
+        !selection.provenance.is_empty(),
+        "missing victory selection provenance"
+    );
+    ensure!(
+        selection.groups.keys().copied().eq(1..=GROUP_COUNT),
+        "victory selection recipes must cover the source groups"
+    );
+    for (id, rule) in &selection.groups {
+        rule.validate()?;
+        ensure!(
+            selection
+                .groups
+                .range(..id)
+                .all(|(_, earlier)| !rule.conflicts_with(earlier)),
+            "ambiguous victory selection priority"
+        );
+    }
     let groups = (1..=GROUP_COUNT)
         .map(|id| {
             let index = usize::from(id);
-            group(id, module.at((5, 0x5ea8 + (index - 1) * 8))?)
+            group(
+                id,
+                module.at((5, 0x5ea8 + (index - 1) * 8))?,
+                selection.groups[&id].clone(),
+            )
         })
         .collect::<Result<_>>()?;
     let record: Performances = Performances {
@@ -235,13 +264,18 @@ fn timeline(bytes: &[u8], duration: f32) -> Result<Vec<(u16, Event)>> {
     }
 }
 
-fn group(id: u8, row: &[u8]) -> Result<Group> {
+fn group(
+    id: u8,
+    row: &[u8],
+    selection: resonance_content::battle_victory::SelectionRule,
+) -> Result<Group> {
     let row = row.get(..8).context("truncated group victory descriptor")?;
     let count = usize::from(row[3]);
     let group = Group {
         id,
         required_leader: selection_leader(id),
         condition: condition(id),
+        selection,
         character: row[4],
         voice: crate::battle_voice::sound(half(row, 0)?),
         participants: row

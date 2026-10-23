@@ -70,6 +70,7 @@ pub struct PreparedGroup {
     pub participants: Vec<Character>,
     pub required_leader: Option<Character>,
     pub condition: resonance_content::battle_victory::Condition,
+    pub selection: resonance_content::battle_victory::SelectionRule,
     pub voice: Sound,
 }
 
@@ -873,6 +874,7 @@ impl Candidate {
             .battles
             .record_hunt(self.setup.hunting_symbol.filter(|_| presea_leads));
         notices.extend(titles::award(
+            &self.menus.title_awards,
             &mut party,
             &self.setup.actors,
             battle.actors(),

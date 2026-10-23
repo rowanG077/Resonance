@@ -2235,6 +2235,12 @@ impl Inputs {
             let participants = (|| {
                 group.validate()?;
                 ensure!(
+                    !groups.iter().any(|row: &battle::results::PreparedGroup| row
+                        .selection
+                        .conflicts_with(&group.selection)),
+                    "ambiguous victory group priority"
+                );
+                ensure!(
                     !groups
                         .iter()
                         .any(|row: &battle::results::PreparedGroup| row.id
@@ -2267,6 +2273,7 @@ impl Inputs {
                         .collect::<Result<_>>()?,
                     required_leader: group.required_leader.map(Character::try_from).transpose()?,
                     condition: group.condition,
+                    selection: group.selection.clone(),
                     voice,
                 });
             }

@@ -10,46 +10,10 @@ const TETRA_SLASH: u8 = 22;
 const ITEM_KEEPER: u8 = 14;
 const ESCAPE_CANCELLER: u8 = 15;
 const ESCAPE_VETERAN: u8 = 14;
-const GILGAMESH: u8 = 14;
-const GILGAMESH_ARMOR: [u16; 3] = [238, 288, 330];
-const GILGAMESH_ACCESSORY: u16 = 444;
-const GILGAMESH_ARMS: [u16; 2] = [375, 366];
-const COMBO_TITLES: &[(u16, u8)] = &[(10, 18), (30, 19), (60, 20), (100, 21)];
-
-// Content title IDs are local to each character.
-const LEVEL_TITLES: &[(Character, u8, u8)] = &[
-    (Character::Lloyd, 20, 15),
-    (Character::Lloyd, 40, 16),
-    (Character::Lloyd, 100, 17),
-    (Character::Colette, 20, 13),
-    (Character::Colette, 40, 14),
-    (Character::Colette, 100, 15),
-    (Character::Genis, 20, 14),
-    (Character::Genis, 40, 15),
-    (Character::Raine, 20, 11),
-    (Character::Raine, 40, 12),
-    (Character::Raine, 100, 13),
-    (Character::Sheena, 40, 12),
-    (Character::Sheena, 100, 13),
-    (Character::Zelos, 40, 10),
-    (Character::Zelos, 100, 11),
-    (Character::Presea, 40, 10),
-    (Character::Presea, 100, 11),
-    (Character::Regal, 40, 10),
-    (Character::Regal, 100, 11),
-    (Character::Kratos, 20, 7),
-    (Character::Kratos, 40, 8),
-    (Character::Kratos, 100, 9),
-];
-
-fn gilgamesh_equipment(equipment: [u16; 6]) -> bool {
-    equipment[..3] == GILGAMESH_ARMOR
-        && equipment[3..5].contains(&GILGAMESH_ACCESSORY)
-        && GILGAMESH_ARMS.contains(&equipment[5])
-}
 
 /// Grant every newly eligible title from the completed battle and final party state.
 pub(super) fn award(
+    rules: &resonance_content::menu_data::TitleAwardRules,
     party: &mut Party,
     roster: &[(ActorId, Character)],
     actors: &[Actor],
@@ -92,21 +56,31 @@ pub(super) fn award(
             .iter()
             .map(|id| u32::from(*member.technique_uses.get(id).unwrap_or(&0)))
             .sum();
+        let mut earned = Vec::new();
         let mut grant = |eligible, title| {
             if eligible && member.titles.insert(title) {
-                notices.push(ResultNotice::Title { character, title });
+                earned.push(ResultNotice::Title { character, title });
             }
         };
-        for &(recipient, minimum, title) in LEVEL_TITLES {
-            grant(character == recipient && level >= minimum, title);
+        for rule in &rules.levels {
+            grant(
+                character as u8 == rule.character && level >= rule.minimum,
+                rule.title,
+            );
         }
-        let Some((id, actor)) = actor else { continue };
+        let Some((id, actor)) = actor else {
+            notices.extend(earned);
+            continue;
+        };
         let facts = &ledger.achievements[id.index()];
+        for rule in &rules.combos {
+            grant(
+                character as u8 == rule.character && ledger.maximum_combo >= rule.minimum,
+                rule.title,
+            );
+        }
         match character {
             Character::Lloyd => {
-                for &(hits, title) in COMBO_TITLES {
-                    grant(ledger.maximum_combo >= hits, title);
-                }
                 grant(
                     manual && ledger.normal_variety[id.index()] >= 3,
                     TETRA_SLASH,
@@ -172,7 +146,6 @@ pub(super) fn award(
             Character::Zelos => {
                 grant(manual && ledger.normal_variety[id.index()] >= 3, 12); // Tetra Slash
                 grant(roster.len() == 4 && women == 3, 13); // Casanova
-                grant(gilgamesh_equipment(equipment), GILGAMESH);
                 grant(facts.strategy_orders >= 4, 15); // Commander-in-Chief
                 grant(facts.voices >= 50, 16); // Loudmouth
             }
@@ -203,6 +176,31 @@ pub(super) fn award(
                 grant(manual && ledger.normal_variety[id.index()] >= 3, 10); // Tetra Slash
             }
         }
+        for rule in &rules.equipment {
+            if character as u8 != rule.character
+                || !rule.matches(&equipment)
+                || !member.titles.insert(rule.title)
+            {
+                continue;
+            }
+            // Insert equipment awards in catalogue order among this member's
+            // notices, retaining the shipped rules' existing result order.
+            let position = earned
+                .iter()
+                .position(|notice| {
+                    matches!(notice,
+                ResultNotice::Title { title, .. } if *title > rule.title)
+                })
+                .unwrap_or(earned.len());
+            earned.insert(
+                position,
+                ResultNotice::Title {
+                    character,
+                    title: rule.title,
+                },
+            );
+        }
+        notices.extend(earned);
     }
     notices
 }
@@ -211,6 +209,47 @@ pub(super) fn award(
 mod tests {
     use super::*;
     use resonance_battle::{ActorAvailability, PreparedBattle};
+
+    fn award_rules() -> resonance_content::menu_data::TitleAwardRules {
+        use resonance_content::menu_data::{
+            ComboTitleAward, EquipmentRequirement, EquipmentTitleAward, TitleAwardRules,
+        };
+        TitleAwardRules {
+            provenance: "synthetic award fixture".into(),
+            levels: [(20, 15), (40, 16), (100, 17)]
+                .into_iter()
+                .map(
+                    |(minimum, title)| resonance_content::menu_data::LevelTitleAward {
+                        character: Character::Lloyd as u8,
+                        title,
+                        minimum,
+                    },
+                )
+                .collect(),
+            combos: [(10, 18), (30, 19), (60, 20), (100, 21)]
+                .into_iter()
+                .map(|(minimum, title)| ComboTitleAward {
+                    character: 1,
+                    title,
+                    minimum,
+                })
+                .collect(),
+            equipment: vec![EquipmentTitleAward {
+                character: 6,
+                title: 14,
+                requirements: [
+                    (vec![0], vec![238]),
+                    (vec![1], vec![288]),
+                    (vec![2], vec![330]),
+                    (vec![3, 4], vec![444]),
+                    (vec![5], vec![375, 366]),
+                ]
+                .into_iter()
+                .map(|(slots, items)| EquipmentRequirement { slots, items })
+                .collect(),
+            }],
+        }
+    }
 
     fn fixture(character: Character) -> (Party, Actor, Ledger) {
         let (menus, mut member) = crate::battle::party::projection_tests::fixture().unwrap();
@@ -247,15 +286,94 @@ mod tests {
             .map(|_| (ActorId::from_index(0).unwrap(), character))
             .collect();
         let actors: Vec<_> = actor.into_iter().cloned().collect();
-        let mut titles: Vec<_> = award(party, &roster, &actors, ledger, encounter, 0)
-            .into_iter()
-            .map(|notice| match notice {
-                ResultNotice::Title { title, .. } => title,
-                _ => unreachable!(),
-            })
-            .collect();
+        let mut titles: Vec<_> = award(
+            &award_rules(),
+            party,
+            &roster,
+            &actors,
+            ledger,
+            encounter,
+            0,
+        )
+        .into_iter()
+        .map(|notice| match notice {
+            ResultNotice::Title { title, .. } => title,
+            _ => unreachable!(),
+        })
+        .collect();
         titles.sort_unstable();
         titles
+    }
+
+    #[test]
+    fn level_awards_follow_prepared_thresholds_and_preserve_saved_eligibility() -> anyhow::Result<()>
+    {
+        let (mut party, mut actor, ledger) = fixture(Character::Sheena);
+        let rules = resonance_content::menu_data::TitleAwardRules {
+            levels: vec![resonance_content::menu_data::LevelTitleAward {
+                character: Character::Sheena as u8,
+                title: 11,
+                minimum: 23,
+            }],
+            ..Default::default()
+        };
+        let roster = [(ActorId::from_index(0)?, Character::Sheena)];
+        party.members[4].level = 22;
+        assert!(award(&rules, &mut party, &roster, &[actor.clone()], &ledger, 0, 0).is_empty());
+        party.members[4].level = 23;
+        actor.availability = ActorAvailability::Dead;
+        assert!(award(&rules, &mut party, &roster, &[actor.clone()], &ledger, 0, 0).is_empty());
+        actor.availability = ActorAvailability::Active;
+        assert!(matches!(
+            award(&rules, &mut party, &roster, &[actor], &ledger, 0, 0).as_slice(),
+            [ResultNotice::Title {
+                character: Character::Sheena,
+                title: 11
+            }]
+        ));
+        let mut restored: Party = serde_json::from_slice(&serde_json::to_vec(&party)?)?;
+        assert!(award(&rules, &mut restored, &[], &[], &ledger, 0, 0).is_empty());
+        restored.members[4].titles.clear();
+        restored.members[4].ailments.petrified = true;
+        assert!(award(&rules, &mut restored, &[], &[], &ledger, 0, 0).is_empty());
+        restored.members[4].ailments.petrified = false;
+        assert_eq!(
+            award(&rules, &mut restored, &[], &[], &ledger, 0, 0).len(),
+            1
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn combo_rules_use_declared_recipient_and_threshold_with_final_eligibility()
+    -> anyhow::Result<()> {
+        use resonance_content::menu_data::{ComboTitleAward, TitleAwardRules};
+        let (mut party, mut actor, mut ledger) = fixture(Character::Sheena);
+        let rules = TitleAwardRules {
+            combos: vec![ComboTitleAward {
+                character: 5,
+                title: 11,
+                minimum: 23,
+            }],
+            ..Default::default()
+        };
+        let roster = [(ActorId::from_index(0)?, Character::Sheena)];
+        ledger.maximum_combo = 22;
+        assert!(award(&rules, &mut party, &roster, &[actor.clone()], &ledger, 0, 0).is_empty());
+        ledger.maximum_combo = 23;
+        assert!(award(&rules, &mut party, &[], &[], &ledger, 0, 0).is_empty());
+        actor.availability = ActorAvailability::Dead;
+        assert!(award(&rules, &mut party, &roster, &[actor.clone()], &ledger, 0, 0).is_empty());
+        actor.availability = ActorAvailability::Active;
+        assert!(matches!(
+            award(&rules, &mut party, &roster, &[actor.clone()], &ledger, 0, 0).as_slice(),
+            [ResultNotice::Title {
+                character: Character::Sheena,
+                title: 11
+            }]
+        ));
+        assert!(award(&rules, &mut party, &roster, &[actor], &ledger, 0, 0).is_empty());
+        Ok(())
     }
 
     #[test]
@@ -300,10 +418,10 @@ mod tests {
         ledger.items = vec![5, 4];
         ledger.deaths.resize(2, 0);
         ledger.achievements.resize_with(2, Default::default);
-        assert!(award(&mut party, &roster, &actors, &ledger, 0, 0).is_empty());
+        assert!(award(&award_rules(), &mut party, &roster, &actors, &ledger, 0, 0).is_empty());
         ledger.items[1] = 5;
         assert!(
-            matches!(award(&mut party, &roster, &actors, &ledger, 0, 0).as_slice(),
+            matches!(award(&award_rules(), &mut party, &roster, &actors, &ledger, 0, 0).as_slice(),
             [ResultNotice::Title { character, title: ITEM_KEEPER }] if *character == Character::Raine)
         );
     }
@@ -327,7 +445,69 @@ mod tests {
         assert!(awarded(&mut party, Some(&actor), &ledger, 0).is_empty());
         party.members[Character::Zelos as usize - 1].equipment = equipment;
         actor.control = Control::Auto;
-        assert_eq!(awarded(&mut party, Some(&actor), &ledger, 0), [GILGAMESH]);
+        assert_eq!(awarded(&mut party, Some(&actor), &ledger, 0), [14]);
+    }
+
+    #[test]
+    fn equipment_rules_follow_declared_recipient_and_keep_shipped_notice_order()
+    -> anyhow::Result<()> {
+        let (mut party, actor, mut ledger) = fixture(Character::Zelos);
+        party.members[5].equipment = [238, 288, 330, 0, 444, 375];
+        ledger.normal_variety[0] = 3;
+        ledger.achievements[0].strategy_orders = 4;
+        ledger.achievements[0].voices = 50;
+        let roster = [
+            Character::Zelos,
+            Character::Colette,
+            Character::Raine,
+            Character::Sheena,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| Ok((ActorId::from_index(i)?, c)))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+        let notices = award(
+            &award_rules(),
+            &mut party,
+            &roster,
+            &vec![actor; 4],
+            &ledger,
+            0,
+            0,
+        );
+        assert_eq!(
+            notices
+                .iter()
+                .map(|notice| match notice {
+                    ResultNotice::Title { title, .. } => *title,
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>(),
+            [12, 13, 14, 15, 16]
+        );
+
+        let (mut party, mut actor, ledger) = fixture(Character::Sheena);
+        let mut rules = award_rules();
+        rules.equipment[0].character = 5;
+        rules.equipment[0].title = 11;
+        rules.equipment[0].requirements[0].items = vec![239];
+        let roster = [(ActorId::from_index(0)?, Character::Sheena)];
+        party.members[4].equipment = [238, 288, 330, 444, 0, 366];
+        assert!(award(&rules, &mut party, &roster, &[actor.clone()], &ledger, 0, 0).is_empty());
+        party.members[4].equipment[0] = 239;
+        assert!(award(&rules, &mut party, &[], &[], &ledger, 0, 0).is_empty());
+        actor.availability = ActorAvailability::Dead;
+        assert!(award(&rules, &mut party, &roster, &[actor.clone()], &ledger, 0, 0).is_empty());
+        actor.availability = ActorAvailability::Active;
+        assert!(matches!(
+            award(&rules, &mut party, &roster, &[actor.clone()], &ledger, 0, 0).as_slice(),
+            [ResultNotice::Title {
+                character: Character::Sheena,
+                title: 11
+            }]
+        ));
+        assert!(award(&rules, &mut party, &roster, &[actor], &ledger, 0, 0).is_empty());
+        Ok(())
     }
 
     #[test]
@@ -494,6 +674,7 @@ mod tests {
                 notices.iter().any(|notice| matches!(notice, ResultNotice::Title { character: c, title: t } if *c == character && *t == title))
             };
             assert!(!granted(award(
+                &award_rules(),
                 &mut party,
                 &roster[..3],
                 &actors,
@@ -501,7 +682,15 @@ mod tests {
                 0,
                 0
             )));
-            assert!(granted(award(&mut party, &roster, &actors, &ledger, 0, 0)));
+            assert!(granted(award(
+                &award_rules(),
+                &mut party,
+                &roster,
+                &actors,
+                &ledger,
+                0,
+                0
+            )));
         }
     }
 
@@ -515,21 +704,32 @@ mod tests {
         ];
         let mut actors = vec![actor.clone(), actor];
         assert!(
-            !award(&mut party, &roster, &actors, &ledger, 0, 0)
+            !award(&award_rules(), &mut party, &roster, &actors, &ledger, 0, 0)
                 .iter()
                 .any(|n| matches!(n, ResultNotice::Title { title: 17, .. }))
         );
         actors[1].availability = ActorAvailability::Dead;
         assert!(
-            award(&mut party, &roster, &actors, &ledger, 0, 0)
+            award(&award_rules(), &mut party, &roster, &actors, &ledger, 0, 0)
                 .iter()
                 .any(|n| matches!(n, ResultNotice::Title { title: 17, .. }))
         );
         let (mut party, actor, ledger) = fixture(Character::Regal);
         let roster = [(ActorId::from_index(0).unwrap(), Character::Regal)];
-        assert!(award(&mut party, &roster, &[actor.clone()], &ledger, 0, 7).is_empty());
+        assert!(
+            award(
+                &award_rules(),
+                &mut party,
+                &roster,
+                std::slice::from_ref(&actor),
+                &ledger,
+                0,
+                7
+            )
+            .is_empty()
+        );
         assert!(matches!(
-            award(&mut party, &roster, &[actor], &ledger, 0, 8).as_slice(),
+            award(&award_rules(), &mut party, &roster, &[actor], &ledger, 0, 8).as_slice(),
             [ResultNotice::Title { title: 14, .. }]
         ));
     }

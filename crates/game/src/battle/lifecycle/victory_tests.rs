@@ -2,7 +2,7 @@ use super::victory_selection::*;
 use crate::battle::party::Character::{self, *};
 use crate::battle::results::PreparedGroup;
 use resonance_battle::{Control, Sound};
-use resonance_content::battle_victory::Condition;
+use resonance_content::battle_victory::{Condition, RandomGate, SelectionRule};
 
 fn context<'a>(characters: &[Character], groups: &'a [PreparedGroup]) -> Context<'a> {
     Context {
@@ -41,8 +41,71 @@ fn group(id: u8, participants: &[Character], condition: Condition) -> PreparedGr
         participants: participants.to_vec(),
         required_leader: None,
         condition,
+        // Synthetic rules preserve these tests' established odds and ordering.
+        selection: match id {
+            46 | 47 => SelectionRule::Encounter {
+                formations: vec![31],
+                priority: u8::from(id == 46),
+            },
+            _ => SelectionRule::Ordinary {
+                priority: if id == 38 { 0 } else { id },
+                gate: match id {
+                    26 => RandomGate {
+                        mask: 4,
+                        accepted: 4,
+                    },
+                    15 | 39 => RandomGate {
+                        mask: 7,
+                        accepted: 0,
+                    },
+                    _ => RandomGate {
+                        mask: 1,
+                        accepted: 1,
+                    },
+                },
+            },
+        },
         voice: Sound::Cue(0),
     }
+}
+
+#[test]
+fn dialogue_identity_does_not_override_declared_formation_or_random_gate() {
+    let mut ordinary = group(47, &[Lloyd], Condition::Always);
+    ordinary.selection = SelectionRule::Ordinary {
+        priority: 0,
+        gate: RandomGate {
+            mask: 128,
+            accepted: 128,
+        },
+    };
+    let groups = [ordinary];
+    let mut state = context(&[Lloyd], &groups);
+    state.formation = 31;
+    let mut draws = [0, 128].into_iter();
+    assert_eq!(
+        select(&state, || draws.next().unwrap()),
+        Selection::Group(VictoryGroupId(47))
+    );
+    assert_eq!(draws.next(), None);
+
+    let mut forced = group(15, &[Lloyd, Colette], Condition::Always);
+    forced.selection = SelectionRule::Encounter {
+        priority: 0,
+        formations: vec![900],
+    };
+    let groups = [forced];
+    let mut state = context(&[Lloyd, Colette], &groups);
+    state.formation = 900;
+    state.colette = ColetteState::Silent;
+    state.party[1].dead = true;
+    state.party[1].available = false;
+    assert_eq!(
+        select(&state, || panic!(
+            "declared encounter dialogue drew randomness"
+        )),
+        Selection::Group(VictoryGroupId(15))
+    );
 }
 
 #[test]
