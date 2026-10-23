@@ -44,8 +44,7 @@ display data. World preparation extends the admitted shared inventory, preservin
 its diagnostic policy. Field artwork is cached only for the current playthrough.
 
 Internal APIs and cooked formats may change freely. There are no historical
-behavior or random-sequence compatibility requirements. Do not consult, copy or
-reference decompiled implementations.
+behavior or random-sequence compatibility requirements.
 
 ## Validation and scope
 
