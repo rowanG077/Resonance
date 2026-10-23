@@ -1926,6 +1926,8 @@ fn reception_markers_follow_current_placement_for_both_sides() -> Result<()> {
     ]);
     for side in [Side::Party, Side::Enemy] {
         battle.actors[0].side = side;
+        // Actor-profile capsule dimensions do not replace authored reception markers.
+        battle.actors[0].body.collider = Some(crate::Collider::standing(42., 180.));
         let points: Vec<_> = battle.hurt_points(id, 0., None).collect();
         assert_eq!(points.len(), 2);
         assert_eq!(
@@ -1958,10 +1960,7 @@ fn reception_markers_follow_current_placement_for_both_sides() -> Result<()> {
     Arc::make_mut(&mut model.definition).reception_spheres = Some(vec![]);
     assert_eq!(battle.hurt_points(id, 0., None).count(), 0);
     battle.models = None;
-    assert_eq!(
-        battle.hurt_points(id, 0., None).next().unwrap().radius,
-        fallback.radius
-    );
+    assert_eq!(battle.hurt_points(id, 0., None).next().unwrap().radius, 42.);
     battle.actors[0].body.collider = None;
     assert_eq!(battle.hurt_points(id, 0., None).count(), 0);
     Ok(())

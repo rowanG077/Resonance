@@ -3,7 +3,6 @@ mod player;
 pub(crate) use player::UpdatePhase;
 pub use player::{CommonPose, ModelRequest, Models, Pose};
 mod effect;
-mod independent;
 pub use effect::{EffectModelDefinition, EffectModelFrame, PreparedEffectModel};
 use resonance_content::animation::pose;
 mod secondary;

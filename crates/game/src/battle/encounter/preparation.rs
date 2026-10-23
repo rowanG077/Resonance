@@ -1199,7 +1199,6 @@ impl Inputs {
         feedback.hammer = hammer_effect;
         let mut enemy_banks = BTreeMap::new();
         let mut passive_effects = Vec::new();
-        let mut independent_models = Vec::new();
         for enemy in self
             .enemies
             .resources
@@ -1209,39 +1208,18 @@ impl Inputs {
             let bank = self.enemy_effects.get(&enemy);
             let resource = handles.resource();
             let mut prepared = BTreeMap::new();
-            let independent = match self.enemy_definitions[&enemy].actions.policy.behavior {
-                Some(resonance_content::battle_action::EnemyBehavior::IndependentModel {
-                    model,
-                }) => Some(model),
-                _ => None,
-            };
-            let instances = self
-                .enemies
-                .spawns
-                .iter()
-                .filter(|spawn| self.enemies.resources[spawn.resource].monster.id == enemy)
-                .count();
             for (&slot, part) in bank
                 .into_iter()
                 .filter_map(|bank| bank.art.as_ref())
                 .flat_map(|art| &art.models)
             {
                 let model_resource = handles.resource();
-                if let Some((model, mut render)) =
+                if let Some((model, render)) =
                     render::effect_model(&self.files, part, model_resource, false)?
                 {
-                    if independent == Some(slot) {
-                        render.instances = render::RenderInstances::Fixed(instances);
-                    }
                     prepared.insert(slot, model);
                     models.push(render);
                 }
-            }
-            if let Some(slot) = independent {
-                let model = prepared.get(&slot).with_context(|| {
-                    format!("enemy {enemy} independent model {slot} is not prepared")
-                })?;
-                independent_models.extend(std::iter::repeat_n(model.clone(), instances));
             }
             let mut members: BTreeSet<_> = self.enemy_definitions[&enemy]
                 .profile
@@ -1649,7 +1627,7 @@ impl Inputs {
         let ids = (0..rows.len())
             .map(resonance_battle::ActorId::from_index)
             .collect::<Result<Vec<_>>>()?;
-        let wings = self
+        let mut accessories: Vec<_> = self
             .party_actors
             .iter()
             .enumerate()
@@ -1670,7 +1648,41 @@ impl Inputs {
                 models.push(render);
                 Ok(wings)
             })
-            .transpose()?;
+            .transpose()?
+            .into_iter()
+            .collect();
+        for (slot, row) in rows.iter().enumerate() {
+            let model::ModelSource::Enemy(enemy) = row.source else {
+                continue;
+            };
+            let Some(body) = &row.model else { continue };
+            let Some((source, _)) = self.enemy_models.get(&enemy) else {
+                continue;
+            };
+            for binding in &source.attached_models {
+                let wing = self
+                    .enemy_effects
+                    .get(&enemy)
+                    .and_then(|bank| bank.art.as_ref())
+                    .and_then(|art| art.models.get(&binding.model_slot))
+                    .with_context(|| format!("enemy {enemy} attached model is not prepared"))?;
+                let (accessory, render) = render::prepare_accessory(
+                    &self.files,
+                    &wing.layers,
+                    &body.skeleton,
+                    ids[slot],
+                    handles.resource(),
+                    if binding.wing_layers {
+                        render::AccessoryStyle::EnemyWings
+                    } else {
+                        render::AccessoryStyle::Ordinary
+                    },
+                    binding,
+                )?;
+                accessories.push(accessory);
+                models.push(render);
+            }
+        }
         let defense_members: Vec<_> = rows
             .iter()
             .zip(&ids)
@@ -2283,15 +2295,12 @@ impl Inputs {
         };
         let mut core = core.finish()?;
         core.set_diagnostics(self.files.diagnostics().clone());
-        let mut model_player = resonance_battle::Models::new(
+        let model_player = resonance_battle::Models::new(
             core.actors(),
             model_definitions,
             equipment,
             self.files.diagnostics().clone(),
         )?;
-        for model in independent_models {
-            model_player.add_independent(model)?;
-        }
         core.set_models(model_player);
         if let Some(plan) = &self.events {
             let event_bosses = self
@@ -2319,7 +2328,7 @@ impl Inputs {
             core,
             lifecycle,
             models,
-            wings,
+            accessories,
             effects,
             effect_banks,
             feedback,

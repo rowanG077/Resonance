@@ -754,8 +754,6 @@ pub struct BattleFrame {
     pub actors: Vec<ActorFrame>,
     /// Scene-owned drawing data, filled after native publication.
     pub models: Vec<crate::ModelFrame>,
-    /// Encounter-owned models with no actor or particle lifetime.
-    pub independent_models: Vec<crate::EffectModelFrame>,
     pub weapons: Vec<crate::WeaponFrame>,
     pub model_requests: Vec<crate::ModelRequest>,
     pub weapon_flights: Vec<crate::WeaponFlightFrame>,
@@ -2692,7 +2690,6 @@ impl Battle {
                 })
                 .collect(),
             models: Vec::new(),
-            independent_models: Vec::new(),
             weapons: Vec::new(),
             model_requests: Vec::new(),
             weapon_flights: self

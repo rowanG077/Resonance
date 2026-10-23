@@ -35,13 +35,15 @@ fn publish(extracted: &Path, output: &Path, cached: bool) -> Result<Vec<String>>
             let mut model: resonance_content::battle_model::Enemy = serde_json::from_slice(
                 &fs::read(output.join(&model_path))
                     .with_context(|| format!("missing cached enemy body {id}"))?,
-            )?;
+            )
+            .context("incompatible cached enemy descriptor; recook the asset library")?;
             ensure!(
                 model.source_sha256 == definition.source_sha256,
                 "cached enemy {id} body differs from source"
             );
             crate::battle_model::refresh_enemy_attachment_animation(&bytes, &mut model)?;
             if let Some(shared) = shared.as_mut() {
+                crate::battle_model::refresh_enemy_attached_models(&bytes, &mut model)?;
                 paths.push(
                     refresh_effects(&bytes, id as u8, &mut model, shared, output)
                         .with_context(|| format!("refresh cached enemy {id} effect bank"))?,
@@ -80,6 +82,10 @@ fn refresh_effects(
             .is_some_and(|art| art.source_sha256 == model.source_sha256),
         "cached enemy effect artwork differs from source"
     );
+    if !model.attached_models.is_empty() {
+        crate::battle_model::publish_enemy_effects(bytes, enemy, model, shared, output)?;
+        return Ok(path);
+    }
     let members = crate::model_preview::PointerMembers::new(bytes, 0x18..0x1e8)?;
     if let Some(source) = members.model(0x1cc)? {
         let (mut fresh, strides) =

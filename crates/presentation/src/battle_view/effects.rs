@@ -26,7 +26,7 @@ use resonance_content::{
     },
     diagnostics::Diagnostics,
 };
-use resonance_game::battle::encounter::{RenderEffect, WingAccessory};
+use resonance_game::battle::encounter::{ModelAccessory, RenderEffect};
 use std::collections::{BTreeMap, BTreeSet};
 
 struct LoadedTexture {
@@ -205,7 +205,7 @@ impl Effects {
 
     pub fn load(
         banks: Vec<RenderEffect>,
-        wings: Option<&WingAccessory>,
+        wings: Option<&ModelAccessory>,
         server: &AssetServer,
         diagnostics: Diagnostics,
     ) -> Result<Self> {
@@ -291,8 +291,11 @@ impl Effects {
             );
         }
         if let Some(wings) = wings {
-            let spec = wings.sparkle_texture.clone();
-            let pages = WingAccessory::SPARKLE_PALETTES
+            let spec = wings
+                .sparkle_texture()
+                .context("wing sparkle texture is missing")?
+                .clone();
+            let pages = ModelAccessory::SPARKLE_PALETTES
                 .map(|palette| spec.palette_image(0, palette))
                 .into_iter()
                 .collect::<Result<Vec<_>>>()?;
@@ -368,7 +371,7 @@ impl Effects {
         }
         if let Some(resource) = self.wing_resource {
             let texture = &self.banks[&resource].textures[&0][0].spec;
-            for palette in WingAccessory::SPARKLE_PALETTES {
+            for palette in ModelAccessory::SPARKLE_PALETTES {
                 keys.insert(wing_key(resource, texture.palette_image(0, palette)?));
             }
         }
@@ -426,7 +429,7 @@ impl Effects {
             // Shadows and wing sparkles have fixed slots; particles grow after them.
             let wing_draws = self
                 .wing_resource
-                .map_or(0, |_| WingAccessory::SPARKLE_PALETTES.len());
+                .map_or(0, |_| ModelAccessory::SPARKLE_PALETTES.len());
             for _ in 0..2 + wing_draws {
                 let mesh = meshes.add(warm_mesh());
                 let entity = spawn(commands, mesh.clone(), surface.clone());
@@ -470,7 +473,7 @@ impl Effects {
         (frame, actor_shadows): (&BattleFrame, &[([f32; 3], f32, [u8; 4])]),
         models: &BTreeMap<ResourceId, super::Model>,
         particles: &[ParticleFrame],
-        wing_sparkles: &[super::wings::Sparkle],
+        wing_sparkles: &[super::accessories::Sparkle],
         camera: Mat3,
         meshes: &mut Assets<Mesh>,
         commands: &mut Commands,
@@ -482,7 +485,7 @@ impl Effects {
         let mut scene_samples = super::scene_sample::Draws::default();
         let mut count = 2 + self
             .wing_resource
-            .map_or(0, |_| WingAccessory::SPARKLE_PALETTES.len());
+            .map_or(0, |_| ModelAccessory::SPARKLE_PALETTES.len());
         for (order, particle) in particles.iter().enumerate() {
             let result = (|| -> Result<()> {
                 let bank = self
@@ -628,7 +631,7 @@ impl Effects {
         }
         if let Some(resource) = self.wing_resource {
             let texture = &self.banks[&resource].textures[&0][0].spec;
-            for (index, palette) in WingAccessory::SPARKLE_PALETTES.into_iter().enumerate() {
+            for (index, palette) in ModelAccessory::SPARKLE_PALETTES.into_iter().enumerate() {
                 let mut sparkles = wing_sparkles
                     .iter()
                     .filter(|sparkle| sparkle.palette() == palette)

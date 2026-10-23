@@ -923,3 +923,182 @@ fn execute_combination(
     anyhow::ensure!(!battle.is_diagnostic(), "battle diagnostics failed");
     Ok(())
 }
+
+#[test]
+#[ignore = "requires prepared angel and Colette artwork; CPU only"]
+fn angels_and_colette_prepare_independent_animated_wings() -> Result<()> {
+    use resonance_game::battle::encounter::AccessoryStyle;
+    let mut fixture = ColdEncounter::load()?;
+    let mut party = Party::new(&fixture.session, Default::default())?;
+    // Kratos has wings at the first Tower fight, but neither the later Tower fight
+    // nor the Torent duel. The Torent package still contains unused wing artwork.
+    for (formation, enemy_has_wings) in
+        [(33, true), (65, false), (71, true), (74, false), (79, true)]
+    {
+        party.formation = if formation == 74 {
+            vec![1]
+        } else {
+            vec![1, 2, 3, 4]
+        };
+        let (assets, prepared) = Assets::load(
+            &fixture.root,
+            &fixture.files,
+            &fixture.menus,
+            &fixture.session,
+            &party,
+            opening_setup(formation, DefeatPolicy::GameOver),
+            PrepareOptions {
+                colette_state: 1,
+                story: 23_001_000,
+                ..opening_options(0x2345)
+            },
+            &mut fixture.cache,
+            || false,
+        )?;
+        let colette_has_wings = formation != 74;
+        assert_eq!(
+            prepared.accessories.len(),
+            usize::from(enemy_has_wings) + usize::from(colette_has_wings),
+            "formation {formation}"
+        );
+        let enemy = prepared
+            .accessories
+            .iter()
+            .find(|wing| !matches!(wing.style, AccessoryStyle::Colette { .. }));
+        let colette = prepared
+            .accessories
+            .iter()
+            .find(|wing| matches!(wing.style, AccessoryStyle::Colette { .. }));
+        assert_eq!(enemy.is_some(), enemy_has_wings, "formation {formation}");
+        assert_eq!(
+            colette.is_some(),
+            colette_has_wings,
+            "formation {formation}"
+        );
+        if let (Some(enemy), Some(colette)) = (enemy, colette) {
+            assert_ne!(enemy.owner, colette.owner);
+            assert_ne!(enemy.resource, colette.resource);
+            assert!(enemy.sparkle_texture().is_none());
+            assert!(colette.sparkle_texture().is_some());
+        }
+        for wing in &prepared.accessories {
+            let body = prepared
+                .core
+                .models()
+                .unwrap()
+                .definition(wing.owner)
+                .unwrap();
+            assert_eq!(
+                body.skeleton.bones[wing.attachment.unwrap()].name,
+                if matches!(wing.style, AccessoryStyle::Colette { .. }) {
+                    resonance_events::Wings::ATTACHMENT_BONE
+                } else {
+                    "Bone_sebone02"
+                }
+            );
+            let model = prepared
+                .models
+                .iter()
+                .find(|model| model.resource == wing.resource)
+                .unwrap();
+            assert!(matches!(
+                model.instances,
+                battle::encounter::RenderInstances::Fixed(3)
+            ));
+            let motion = wing.motion.as_ref().unwrap();
+            let start = resonance_content::animation::pose::sample(&wing.skeleton, motion, 0.)?;
+            let later = resonance_content::animation::pose::sample(
+                &wing.skeleton,
+                motion,
+                motion.duration_frames / 3.,
+            )?;
+            assert_ne!(
+                start.iter().map(|pose| pose.matrix()).collect::<Vec<_>>(),
+                later.iter().map(|pose| pose.matrix()).collect::<Vec<_>>(),
+                "wing pose must flap independently of the body"
+            );
+        }
+        assert!(!assets.files.diagnostics().has_errors());
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires original Earth Element, Luna and Meredy artwork; CPU only"]
+fn ordinary_attachments_prepare_all_instances_and_selected_motions() -> Result<()> {
+    use resonance_game::battle::encounter::{AccessoryStyle, RenderInstances};
+    let mut fixture = ColdEncounter::load()?;
+    let party = Party::new(&fixture.session, Default::default())?;
+    for (formation, monster, count, independent, animated) in [
+        (322, 76, 8, false, false),
+        (58, 200, 1, false, true),
+        (83, 233, 1, true, true),
+    ] {
+        let (assets, prepared) = fixture.prepare_formation(&party, formation)?;
+        let owner = prepared
+            .results
+            .enemies
+            .iter()
+            .find(|enemy| enemy.reward.monster == monster)
+            .context("missing attachment owner")?
+            .actor;
+        let accessories: Vec<_> = prepared
+            .accessories
+            .iter()
+            .filter(|accessory| accessory.owner == owner)
+            .collect();
+        assert_eq!(accessories.len(), count, "enemy {monster}");
+        let resources: std::collections::BTreeSet<_> = accessories
+            .iter()
+            .map(|accessory| accessory.resource)
+            .collect();
+        assert_eq!(
+            resources.len(),
+            count,
+            "instances must not overwrite each other"
+        );
+        let bones: std::collections::BTreeSet<_> = accessories
+            .iter()
+            .filter_map(|accessory| accessory.attachment)
+            .collect();
+        assert_eq!(bones.len(), if independent { 0 } else { count });
+        for accessory in accessories {
+            assert!(accessory.visible && accessory.inherit_tint);
+            assert!(matches!(accessory.style, AccessoryStyle::Ordinary));
+            assert_eq!(accessory.motion.is_some(), animated);
+            let render = prepared
+                .models
+                .iter()
+                .find(|model| model.resource == accessory.resource)
+                .context("attachment render resource is missing")?;
+            assert_eq!(render.instances, RenderInstances::Fixed(1));
+            assert!(!render.parts.is_empty());
+            for part in &render.parts {
+                assert!(assets.files.contains_key(&part.scene.mesh));
+                assert!(part.animation.is_none() && part.attached_to.is_none());
+            }
+            if let Some(motion) = &accessory.motion {
+                let poses = [0., motion.duration_frames / 3.].map(|time| {
+                    resonance_content::animation::pose::sample(&accessory.skeleton, motion, time)
+                        .map(|pose| {
+                            pose.into_iter()
+                                .map(|bone| bone.matrix())
+                                .collect::<Vec<_>>()
+                        })
+                });
+                let [start, later] = poses;
+                assert_ne!(start?, later?, "enemy {monster} attachment is frozen");
+            }
+        }
+        let mut core = prepared.core;
+        core.set_diagnostics(Diagnostics::new(true));
+        for _ in 0..240 {
+            let mut frame = core.step(BattleInput::default())?;
+            let clock = frame.clock;
+            core.advance_models(&mut frame, clock, false)?;
+        }
+        assert!(!assets.files.diagnostics().has_errors());
+        assert!(!core.is_diagnostic());
+    }
+    Ok(())
+}

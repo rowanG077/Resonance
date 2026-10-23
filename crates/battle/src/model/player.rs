@@ -232,7 +232,6 @@ impl crate::Battle {
 pub struct Models {
     pub(super) models: Vec<Option<Model>>,
     equipment: BTreeMap<(ActorId, u16), Vec<Arc<WeaponDefinition>>>,
-    independent: Vec<super::independent::IndependentModel>,
     diagnostics: Diagnostics,
     advanced_update: Option<u64>,
     hit_stopped: Vec<bool>,
@@ -290,7 +289,6 @@ impl Models {
             approach_centers,
             approach_geometry_active: false,
             equipment,
-            independent: Vec::new(),
             diagnostics,
             advanced_update: None,
             hit_stopped: vec![false; actors.len()],
@@ -325,13 +323,6 @@ impl Models {
 
     pub(crate) fn finish_approach_queries(&mut self) {
         self.approach_geometry_active = false;
-    }
-
-    /// Keep a separately animated scene model until this encounter is released.
-    pub fn add_independent(&mut self, model: super::PreparedEffectModel) -> Result<()> {
-        self.independent
-            .push(super::independent::IndependentModel::new(model)?);
-        Ok(())
     }
 
     /// Keep the outgoing pose through this update; explicit pose requests still apply.
@@ -589,19 +580,6 @@ impl Models {
             self.advanced_update = Some(frame.update);
         }
         let mut requests = std::mem::take(&mut frame.model_requests);
-        let independent_advance = !already_advanced
-            && matches!(
-                clock,
-                BattleClock::Running | BattleClock::EntrySettle | BattleClock::SummonTransition
-            );
-        if !pose_only {
-            frame.independent_models = self
-                .independent
-                .iter_mut()
-                .map(|model| model.step(independent_advance))
-                .collect::<Result<_>>()
-                .context("independent battle model playback")?;
-        }
         frame.models.clear();
         frame.weapons.clear();
         for (index, actor) in frame.actors.iter().enumerate().take(self.models.len()) {

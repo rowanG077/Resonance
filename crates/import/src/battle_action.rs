@@ -435,7 +435,8 @@ pub(crate) fn read(
                     },
                 ],
             }),
-            16 => Some(EnemyBehavior::IndependentModel { model: 0 }),
+            // Controller 16 initializes the independent attached-model record.
+            16 => None,
             17 => Some(EnemyBehavior::HealthStage {
                 hp_percent: 50,
                 initial_station: EnemyStation {

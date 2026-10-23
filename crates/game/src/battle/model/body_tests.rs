@@ -249,6 +249,7 @@ fn snapshot() -> Result<(Files, Monster, Enemy)> {
     let source = Enemy {
         secondary_body: None,
         body_variant: None,
+        attached_models: Vec::new(),
         attachments: Default::default(),
         uv_animation: Default::default(),
         trails: Default::default(),
