@@ -5,11 +5,11 @@ use resonance_game::battle::encounter::{RenderEffect, RenderInstances, RenderMod
 mod effects;
 mod model_particles;
 pub(super) use model_particles::Stats as ModelParticleStats;
+mod accessories;
 mod scene_sample;
 mod shadows;
 mod stage_color;
 mod trails;
-mod wings;
 use crate::{
     draw_order::{ActorLayer, DrawOrder, Layer},
     materials::{MaterialSlot, TitleSurface},
@@ -102,7 +102,7 @@ struct ActorOrder {
     independent: Vec<usize>,
 }
 impl ActorOrder {
-    fn new(frame: &BattleFrame) -> Result<Self> {
+    fn new(frame: &BattleFrame, independent: &[[f32; 3]]) -> Result<Self> {
         let camera = frame.camera.context("battle frame has no camera")?;
         let direction = Vec3::from_array(camera.focus) - Vec3::from_array(camera.eye);
         let mut depths: Vec<_> = frame
@@ -115,19 +115,12 @@ impl ActorOrder {
                     Vec3::from_array(actor.target_center()).dot(direction),
                 )
             })
-            .chain(
-                frame
-                    .independent_models
-                    .iter()
-                    .enumerate()
-                    .map(|(index, model)| {
-                        let [x, y, z, _] = model.world[3];
-                        (
-                            frame.actors.len() + index,
-                            Vec3::new(x, y, z).dot(direction),
-                        )
-                    }),
-            )
+            .chain(independent.iter().enumerate().map(|(index, position)| {
+                (
+                    frame.actors.len() + index,
+                    Vec3::from_array(*position).dot(direction),
+                )
+            }))
             .collect();
         // Later actors precede earlier actors when depths are equal.
         depths.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| b.0.cmp(&a.0)));
@@ -368,7 +361,7 @@ enum Key {
     Actor(ActorId),
     Weapon(ActorId, Option<resonance_battle::WeaponSlot>),
     Independent(usize),
-    Accessory(ActorId, u8),
+    Accessory(ActorId, u8, bool),
 }
 
 pub(super) struct View {
@@ -383,7 +376,7 @@ pub(super) struct View {
     scenery_alpha: BTreeMap<u8, u8>,
     models: BTreeMap<resonance_battle::ResourceId, Model>,
     model_particles: model_particles::Pool,
-    wings: Option<wings::State>,
+    accessories: Vec<accessories::State>,
     effects: effects::Effects,
     trails: trails::Trails,
     toon: Handle<Image>,
@@ -454,7 +447,7 @@ impl View {
         stage: Stage,
         scenery_models: BTreeMap<u8, resonance_game::battle::stage::Model>,
         models: Vec<RenderModel>,
-        wings: Option<resonance_game::battle::encounter::WingAccessory>,
+        accessories: Vec<resonance_game::battle::encounter::ModelAccessory>,
         toon: Handle<Image>,
         effect_banks: Vec<RenderEffect>,
         trail_assets: Vec<RenderTrail>,
@@ -564,8 +557,14 @@ impl View {
                 diagnostics.report(&format!("battle render model {resource}"), error)?;
             }
         }
-        let effects =
-            effects::Effects::load(effect_banks, wings.as_ref(), server, diagnostics.clone())?;
+        let effects = effects::Effects::load(
+            effect_banks,
+            accessories
+                .iter()
+                .find(|wing| wing.sparkle_texture().is_some()),
+            server,
+            diagnostics.clone(),
+        )?;
         Ok(Self {
             stage_color: stage_color::State::new(stage.color),
             activation_feedback: Default::default(),
@@ -577,7 +576,10 @@ impl View {
             scenery_alpha: BTreeMap::new(),
             models: prepared,
             model_particles,
-            wings: wings.map(wings::State::new),
+            accessories: accessories
+                .into_iter()
+                .map(accessories::State::new)
+                .collect(),
             effects,
             trails: trails::Trails::load(trail_assets, server, diagnostics.clone())?,
             diagnostics,
@@ -1015,7 +1017,29 @@ impl View {
             .iter()
             .map(|(&slot, model)| model.pose(self.scenery_tick).map(|pose| (slot, pose)))
             .collect::<Result<BTreeMap<_, _>>>()?;
-        let order = ActorOrder::new(frame)?;
+        let mut accessory_frames = Vec::new();
+        let mut independent_positions = Vec::new();
+        for accessory in &mut self.accessories {
+            for pose in accessory.sample(frame)? {
+                let key = if accessory.source.attachment.is_none() {
+                    let index = independent_positions.len();
+                    let [x, y, z, _] = pose.world[3];
+                    independent_positions.push([x, y, z]);
+                    Key::Independent(index)
+                } else {
+                    Key::Accessory(
+                        accessory.source.owner,
+                        pose.pass,
+                        matches!(
+                            accessory.source.style,
+                            resonance_game::battle::encounter::AccessoryStyle::Ordinary
+                        ),
+                    )
+                };
+                accessory_frames.push((accessory.source.resource, key, pose));
+            }
+        }
+        let order = ActorOrder::new(frame, &independent_positions)?;
         let scenery_elapsed = self.scenery_tick - previous_scenery_tick;
         let camera_position = Vec2::new(camera.eye[0], camera.eye[2]);
         let camera_focus = Vec2::new(camera.focus[0], camera.focus[2]);
@@ -1098,16 +1122,6 @@ impl View {
                 part.visible(commands, false);
             }
         }
-        let wing_frames = self
-            .wings
-            .as_mut()
-            .map(|wings| wings.sample(frame))
-            .transpose()?
-            .unwrap_or_default();
-        let wing_identity = self
-            .wings
-            .as_ref()
-            .map(|wings| (wings.source.resource, wings.source.owner));
         let wanted: BTreeSet<_> = frame
             .models
             .iter()
@@ -1119,16 +1133,10 @@ impl View {
                     .map(|m| (m.resource, Key::Weapon(m.owner, m.slot))),
             )
             .chain(
-                frame
-                    .independent_models
+                accessory_frames
                     .iter()
-                    .enumerate()
-                    .map(|(index, model)| (model.resource, Key::Independent(index))),
+                    .map(|&(resource, key, _)| (resource, key)),
             )
-            .chain(wing_frames.iter().map(|wing| {
-                let (resource, owner) = wing_identity.unwrap();
-                (resource, Key::Accessory(owner, wing.pass))
-            }))
             .collect();
         for (&resource, model) in &mut self.models {
             for instance in &mut model.instances {
@@ -1192,41 +1200,20 @@ impl View {
                 surfaces,
             )?;
         }
-        for wing in &wing_frames {
-            let (resource, owner) = wing_identity.unwrap();
+        for &(resource, key, ref wing) in &accessory_frames {
             self.model(
                 resource,
-                Key::Accessory(owner, wing.pass),
+                key,
                 true,
-                [64, 64, 64, wing.alpha],
+                wing.tint,
                 None,
-                ModelMaterial::Normal,
-                false,
+                wing.material,
+                wing.depth_write,
                 &wing.world,
                 &wing.bones,
                 None,
                 None,
-                Some(wing.uv),
-                &order,
-                commands,
-                globals,
-                surfaces,
-            )?;
-        }
-        for (index, model) in frame.independent_models.iter().enumerate() {
-            self.model(
-                model.resource,
-                Key::Independent(index),
-                true,
-                [64, 64, 64, 255],
-                None,
-                ModelMaterial::Normal,
-                true,
-                &model.world,
-                &model.bones,
-                None,
-                None,
-                None,
+                wing.uv,
                 &order,
                 commands,
                 globals,
@@ -1298,7 +1285,10 @@ impl View {
             (frame, &actor_shadows),
             &self.models,
             particles,
-            self.wings.as_ref().map_or(&[], wings::State::sparkles),
+            self.accessories
+                .iter()
+                .find(|wing| wing.source.sparkle_texture().is_some())
+                .map_or(&[], accessories::State::sparkles),
             Mat3::from_quat(camera_pose.rotation),
             meshes,
             commands,
@@ -1392,9 +1382,14 @@ impl View {
                 Key::Weapon(actor, slot) => {
                     weapon_layer(actor_order.get(actor)?, slot, model.weapon_style, false)
                 }
-                Key::Accessory(actor, _) => {
-                    Layer::Actor(actor_order.get(actor)?, ActorLayer::Behind)
-                }
+                Key::Accessory(actor, _, after_body) => Layer::Actor(
+                    actor_order.get(actor)?,
+                    if after_body {
+                        ActorLayer::Front
+                    } else {
+                        ActorLayer::Behind
+                    },
+                ),
                 Key::Independent(index) => {
                     Layer::Actor(actor_order.independent(index)?, ActorLayer::Body)
                 }
@@ -1432,7 +1427,7 @@ impl View {
                         let material =
                             part.appearance_materials(material, depth_write)?[index].clone();
                         let instance = match key {
-                            Key::Accessory(_, pass) => usize::from(pass),
+                            Key::Accessory(_, pass, _) => usize::from(pass),
                             _ => 0,
                         };
                         commands

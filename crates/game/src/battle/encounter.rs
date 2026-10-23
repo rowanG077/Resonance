@@ -10,7 +10,8 @@ use super::party::Character;
 use anyhow::{Context, Result, ensure};
 pub use preparation::{PrepareOptions, PreparedEnemyMember, PreparedPartyMember};
 pub use render::{
-    RenderEffect, RenderInstances, RenderModel, RenderTrail, TargetAnchor, WingAccessory,
+    AccessoryStyle, ModelAccessory, RenderEffect, RenderInstances, RenderModel, RenderTrail,
+    TargetAnchor,
 };
 use resonance_content::{
     battle_formation::{Formations, PATH, Settings},
@@ -25,7 +26,7 @@ pub struct Prepared {
     pub core: resonance_battle::Battle,
     pub lifecycle: super::lifecycle::Lifecycle,
     pub models: Vec<RenderModel>,
-    pub wings: Option<WingAccessory>,
+    pub accessories: Vec<ModelAccessory>,
     pub effects: Vec<RenderEffect>,
     pub effect_banks: Vec<resonance_battle::EffectBank>,
     pub feedback: super::feedback::Feedback,

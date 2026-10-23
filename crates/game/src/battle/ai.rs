@@ -115,7 +115,7 @@ fn behavior(
     use resonance_battle::EnemyBehavior;
     use resonance_content::battle_action::EnemyBehavior as Source;
     Ok(Some(match source {
-        Source::IndependentModel { .. } | Source::ActionWeapons { .. } => return Ok(None),
+        Source::ActionWeapons { .. } => return Ok(None),
         Source::Retreat {
             hp_percent,
             after_ticks,

@@ -134,6 +134,8 @@ pub struct Enemy {
     /// Formation-selected vertical atlas rows on the primary body.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_variant: Option<crate::battle_profile::TextureChannel>,
+    /// Persistent models declared independently of carried weapons and effect inventory.
+    pub attached_models: Vec<AttachedModel>,
     /// Native carried model slots, independently visible and sampled.
     pub attachments: BTreeMap<u8, ModelPart>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -145,6 +147,25 @@ pub struct Enemy {
     pub body: Rig,
     /// Shared meshes, textures and sparse clips, loaded only for selected enemies.
     pub files: BTreeMap<String, crate::field_preload::File>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachedModel {
+    pub model_slot: u8,
+    pub motion_slot: Option<u8>,
+    pub placement: AttachmentPlacement,
+    pub visible: bool,
+    pub additive: bool,
+    pub inherit_tint: bool,
+    pub wing_layers: bool,
+    pub transform: crate::animation::Transform,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentPlacement {
+    Bone(u8),
+    Independent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

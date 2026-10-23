@@ -809,7 +809,7 @@ fn construct_scene(
         assets.stage.clone(),
         scenery_models,
         prepared.models,
-        prepared.wings,
+        prepared.accessories,
         toon,
         prepared.effects,
         prepared.trails,

@@ -59,18 +59,37 @@ impl TargetAnchor {
     }
 }
 
-/// Colette's visual attachment shares the ordinary sampled-model renderer.
-pub struct WingAccessory {
+/// Persistent attached artwork shares the ordinary sampled-model renderer.
+pub struct ModelAccessory {
     pub owner: resonance_battle::ActorId,
     pub resource: ResourceId,
-    pub attachment: usize,
+    pub attachment: Option<usize>,
+    pub transform: resonance_content::animation::Transform,
     pub skeleton: Skeleton,
-    pub motion: resonance_content::animation::Motion,
-    pub sparkle_texture: resonance_content::battle_effect::EffectTexture,
+    pub motion: Option<resonance_content::animation::Motion>,
+    pub style: AccessoryStyle,
+    pub visible: bool,
+    pub inherit_tint: bool,
+    pub depth_write: bool,
 }
 
-impl WingAccessory {
+pub enum AccessoryStyle {
+    Colette {
+        sparkle_texture: resonance_content::battle_effect::EffectTexture,
+    },
+    EnemyWings,
+    Ordinary,
+}
+
+impl ModelAccessory {
     pub const SPARKLE_PALETTES: [u8; 5] = [27, 28, 29, 30, 31];
+
+    pub fn sparkle_texture(&self) -> Option<&resonance_content::battle_effect::EffectTexture> {
+        match &self.style {
+            AccessoryStyle::Colette { sparkle_texture } => Some(sparkle_texture),
+            AccessoryStyle::EnemyWings | AccessoryStyle::Ordinary => None,
+        }
+    }
 }
 
 pub(super) fn wings(
@@ -79,7 +98,7 @@ pub(super) fn wings(
     owner: resonance_battle::ActorId,
     resource: ResourceId,
     common: &SourceBank,
-) -> Result<(WingAccessory, RenderModel)> {
+) -> Result<(ModelAccessory, RenderModel)> {
     let sparkle_texture = common
         .art
         .as_ref()
@@ -87,7 +106,7 @@ pub(super) fn wings(
         .and_then(|textures| textures.first())
         .context("wing sparkle atlas is not prepared")?
         .clone();
-    for palette in WingAccessory::SPARKLE_PALETTES {
+    for palette in ModelAccessory::SPARKLE_PALETTES {
         let page = sparkle_texture.palette_image(0, palette)?;
         let image = &sparkle_texture.images[page];
         ensure!(
@@ -99,6 +118,54 @@ pub(super) fn wings(
         .wings
         .as_ref()
         .context("Colette wings are not prepared; refresh party artwork")?;
+    let bone = source
+        .body
+        .skeleton
+        .bones
+        .iter()
+        .position(|bone| bone.name == resonance_events::Wings::ATTACHMENT_BONE)
+        .context("wing attachment bone is missing")?;
+    let [x, y] = resonance_events::Wings::FLIGHT_TILT;
+    let binding = resonance_content::battle_model::AttachedModel {
+        model_slot: 0,
+        motion_slot: Some(resonance_events::animation::slot::IDLE as u8),
+        placement: resonance_content::battle_model::AttachmentPlacement::Bone(bone.try_into()?),
+        visible: true,
+        additive: true,
+        inherit_tint: false,
+        wing_layers: true,
+        transform: resonance_content::animation::Transform {
+            rotation: resonance_content::animation::euler_rotation([x as f32, y as f32, 0.]),
+            ..Default::default()
+        },
+    };
+    prepare_accessory(
+        files,
+        &[PreviewPart {
+            scene: scene.clone(),
+            animation: None,
+            attached_to: None,
+            additive: true,
+            uv_offsets: vec![],
+        }],
+        &source.body.skeleton,
+        owner,
+        resource,
+        AccessoryStyle::Colette { sparkle_texture },
+        &binding,
+    )
+}
+
+pub(super) fn prepare_accessory(
+    files: &resonance_content::prepared::Files,
+    parts: &[PreviewPart],
+    body: &Skeleton,
+    owner: resonance_battle::ActorId,
+    resource: ResourceId,
+    style: AccessoryStyle,
+    binding: &resonance_content::battle_model::AttachedModel,
+) -> Result<(ModelAccessory, RenderModel)> {
+    let scene = &parts.first().context("attached model has no mesh")?.scene;
     let skeleton = Skeleton::from_glb(&files.read(&scene.mesh)?)?;
     ensure!(
         skeleton
@@ -106,54 +173,74 @@ pub(super) fn wings(
             .iter()
             .map(|bone| &bone.name)
             .eq(scene.bone_names.iter()),
-        "wing mesh skeleton differs from its descriptor"
+        "attached mesh skeleton differs from its descriptor"
     );
-    let clip = scene
-        .clips
-        .iter()
-        .find(|clip| {
-            clip.resource_slot == resonance_events::animation::slot::IDLE
-                && clip.animation_resource.is_none()
+    binding.transform.validate()?;
+    let motion = binding
+        .motion_slot
+        .map(|slot| -> Result<_> {
+            let clip = scene
+                .clips
+                .iter()
+                .find(|clip| {
+                    clip.animation_resource.is_none() && clip.resource_slot == u16::from(slot)
+                })
+                .context("attached model motion is missing")?;
+            let motion = resonance_content::animation::Motion::decode(&files.read(&clip.motion)?)?;
+            motion.validate(&skeleton)?;
+            ensure!(
+                motion.duration_frames > 0.,
+                "attached model motion has no duration"
+            );
+            Ok(motion)
         })
-        .context("wing flight motion is missing")?;
-    let motion = resonance_content::animation::Motion::decode(&files.read(&clip.motion)?)?;
-    motion.validate(&skeleton)?;
+        .transpose()?;
     ensure!(
-        motion.duration_frames > 0.,
-        "wing flight motion has no duration"
+        !binding.wing_layers || motion.is_some(),
+        "layered wings require motion"
     );
-    let attachment = source
-        .body
-        .skeleton
-        .bones
-        .iter()
-        .position(|bone| bone.name == resonance_events::Wings::ATTACHMENT_BONE)
-        .context("Colette wing attachment bone is missing")?;
+    let attachment = match binding.placement {
+        resonance_content::battle_model::AttachmentPlacement::Bone(bone) => {
+            ensure!(
+                usize::from(bone) < body.bones.len(),
+                "attached model bone is missing"
+            );
+            Some(usize::from(bone))
+        }
+        resonance_content::battle_model::AttachmentPlacement::Independent => None,
+    };
     let model = RenderModel {
         resource,
         skeleton: skeleton.clone(),
-        parts: vec![PreviewPart {
-            scene: scene.clone(),
-            animation: None,
-            attached_to: None,
-            additive: true,
-            uv_offsets: vec![],
-        }],
-        instances: RenderInstances::Fixed(usize::from(resonance_events::Wings::LAYERS)),
-        lit: false,
+        parts: parts
+            .iter()
+            .cloned()
+            .map(|mut part| {
+                part.animation = None;
+                part.attached_to = None;
+                part.additive = binding.additive;
+                part
+            })
+            .collect(),
+        instances: RenderInstances::Fixed(if binding.wing_layers { 3 } else { 1 }),
+        lit: !binding.wing_layers,
         texture_channels: vec![],
         weapon_style: None,
         suppressed_nodes: BTreeSet::new(),
         target_anchor: None,
     };
     Ok((
-        WingAccessory {
+        ModelAccessory {
             owner,
             resource,
             attachment,
+            transform: binding.transform,
             skeleton,
             motion,
-            sparkle_texture,
+            style,
+            visible: binding.visible,
+            inherit_tint: binding.inherit_tint,
+            depth_write: !binding.additive,
         },
         model,
     ))

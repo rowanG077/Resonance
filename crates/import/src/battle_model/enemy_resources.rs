@@ -7,6 +7,68 @@ use resonance_content::{
 };
 use std::{collections::BTreeMap, path::Path};
 
+pub(super) fn attached_models(
+    bytes: &[u8],
+) -> Result<Vec<resonance_content::battle_model::AttachedModel>> {
+    use crate::read::Field;
+    use resonance_content::animation::{Transform, euler_rotation};
+    use resonance_content::battle_model::{AttachedModel, AttachmentPlacement};
+    let profile = usize::from(u16::read(bytes, 4)?);
+    let count = usize::from(u8::read(bytes, profile + 0x1e6)?);
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let table = u32::read(bytes, 0x1d8)? as usize;
+    ensure!(table != 0, "missing enemy attached-model table");
+    let rows = bytes
+        .get(table..table + count * 40)
+        .context("truncated enemy attached-model table")?;
+    let mut models = Vec::new();
+    for row in rows.chunks_exact(40) {
+        ensure!(
+            matches!(row[3], 0 | 0x10 | 0x70 | 0x80),
+            "unsupported attached-model rendering flags"
+        );
+        ensure!(
+            row[0] < u8::read(bytes, profile + 0x1e8)?,
+            "attached model slot is missing"
+        );
+        ensure!(row[1] < 80, "attached model motion slot is invalid");
+        let model_scale = f32::read(bytes, profile + 0x84)?;
+        let mut transform = Transform {
+            translation: <[f32; 3]>::read(row, 4)?,
+            rotation: euler_rotation(<[f32; 3]>::read(row, 16)?),
+            scale: <[f32; 3]>::read(row, 28)?.map(|value| value * model_scale),
+        };
+        let placement = if row[3] & 0x80 != 0 {
+            // Controller 16 initializes its independent model in field space:
+            // zero translation and -90 degrees about X.
+            let policy = usize::from(u16::read(bytes, 12)?);
+            ensure!(
+                u8::read(bytes, policy + 8)? == 16,
+                "unsupported independent model controller"
+            );
+            transform.translation = [0.; 3];
+            transform.rotation = euler_rotation([-90., 0., 0.]);
+            AttachmentPlacement::Independent
+        } else {
+            AttachmentPlacement::Bone(row[2])
+        };
+        transform.validate()?;
+        models.push(AttachedModel {
+            model_slot: row[0],
+            motion_slot: (row[1] != 0).then_some(row[1]),
+            placement,
+            visible: row[2] != 0,
+            additive: row[3] & 0x10 != 0,
+            inherit_tint: row[3] & 0x20 == 0,
+            wing_layers: row[3] & 0x40 != 0,
+            transform,
+        });
+    }
+    Ok(models)
+}
+
 pub(super) fn carried_motions(
     bytes: &[u8],
     actions: &resonance_content::battle_action::EnemyActions,
@@ -202,20 +264,37 @@ pub(super) fn publish(
     );
     ensure!(count <= 6, "enemy effect model count exceeds pointer table");
     let mut models = BTreeMap::new();
+    let attachments = attached_models(bytes)?;
     let mut decoded = crate::scene::decoded::Package::default();
     for slot in 0..count {
         let Some(model) = members.model(0x180 + slot * 4)? else {
             continue;
         };
-        let animation = members.animation(0x1b0 + slot * 4, &mut decoded)?;
-        let clips = animation
-            .as_ref()
-            .map(|animation| crate::character::Clip {
-                slot: 0,
+        let motions: std::collections::BTreeSet<_> = attachments
+            .iter()
+            .filter(|binding| usize::from(binding.model_slot) == slot)
+            .filter_map(|binding| binding.motion_slot)
+            .collect();
+        // Effect instances still use their default motion. Persistent attachments
+        // additionally select the body-table motion declared by their own record.
+        let fields = std::iter::once((0, 0x1b0 + slot * 4)).chain(
+            motions
+                .into_iter()
+                .map(|motion| (u16::from(motion), 0x20 + usize::from(motion) * 4)),
+        );
+        let mut animations = Vec::new();
+        for (slot, field) in fields {
+            if let Some(animation) = members.animation(field, &mut decoded)? {
+                animations.push((slot, animation));
+            }
+        }
+        let clips = animations
+            .iter()
+            .map(|(slot, animation)| crate::character::Clip {
+                slot: *slot,
                 resource: None,
                 animation,
             })
-            .into_iter()
             .collect::<Vec<_>>();
         let mut layers = Vec::new();
         crate::model_preview::layers_with_clips(

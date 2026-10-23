@@ -15,7 +15,7 @@ const SPHERE_LATITUDE_BANDS: u8 = 10;
 
 pub(super) fn wing_sparkles<'a>(
     vertices: &mut Vertices,
-    sparkles: impl Iterator<Item = &'a super::super::wings::Sparkle>,
+    sparkles: impl Iterator<Item = &'a super::super::accessories::Sparkle>,
     camera: Mat3,
 ) {
     vertices.clear();

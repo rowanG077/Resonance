@@ -47,9 +47,6 @@ pub struct EnemyPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnemyBehavior {
-    IndependentModel {
-        model: u8,
-    },
     /// Leave when either the health threshold or elapsed gameplay time is reached.
     Retreat {
         hp_percent: u8,

@@ -102,6 +102,7 @@ pub(crate) fn publish_enemy(
         source_sha256: definition.source_sha256.clone(),
         secondary_body: secondary_body(bytes, preview)?,
         body_variant: enemy_body_variant(bytes)?,
+        attached_models: enemy_resources::attached_models(bytes)?,
         attachments: Default::default(),
         uv_animation: Default::default(),
         weapon_variants: Default::default(),
@@ -132,6 +133,34 @@ pub(crate) fn publish_enemy(
         &serde_json::to_vec(&definition)?,
     )?;
     Ok([definition_path, path])
+}
+
+/// Refresh the authored attached-model records without converting their artwork.
+pub fn refresh_enemy_attached_models(bytes: &[u8], source: &mut Enemy) -> Result<()> {
+    ensure!(
+        source.source_sha256 == crate::digest(bytes),
+        "attached-model source differs"
+    );
+    source.attached_models = enemy_resources::attached_models(bytes)?;
+    Ok(())
+}
+
+/// Rebuild effect artwork with its declared attachment motion bindings.
+pub(crate) fn publish_enemy_effects(
+    bytes: &[u8],
+    id: u8,
+    source: &mut Enemy,
+    shared: &mut crate::battle_effect::SharedPalettes,
+    output: &Path,
+) -> Result<()> {
+    source.files.extend(enemy_resources::publish(
+        bytes,
+        id,
+        &source.body.skeleton,
+        shared,
+        output,
+    )?);
+    Ok(())
 }
 
 /// Refresh extra-body bindings without converting geometry or motion data.
