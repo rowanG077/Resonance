@@ -31,7 +31,7 @@ fn fixture() -> Result<(Effects, BattleFrame)> {
             texture_tick: 0,
             light: None,
             shadow: None,
-            resource: 1,
+            resource: crate::ResourceId(1),
             clip: 0,
             frame: 0.,
             blend_weight: 1.,

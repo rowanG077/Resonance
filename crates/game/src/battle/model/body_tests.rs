@@ -1,7 +1,9 @@
 use super::*;
 use crate::battle;
 use resonance_battle::conditions::ConditionSet;
-use resonance_battle::{Affinity, Battle, BattleInput, Collider, PreparedBattle};
+use resonance_battle::{
+    Affinity, Battle, BattleInput, Collider, Difficulty, PreparedBattle, ResourceId,
+};
 use resonance_content::{
     animation::{Bone, Skeleton, Transform, TransformChannels},
     battle_model::{Enemy, Rig},
@@ -11,7 +13,7 @@ use resonance_content::{
 
 fn setup(resource: u32) -> ModelSetup {
     ModelSetup {
-        resource,
+        resource: ResourceId(resource),
         initial: Playback {
             clip: 0,
             frame: 0.,
@@ -27,7 +29,6 @@ fn prepare_body(
     monster: &Monster,
     source: &Enemy,
     variant: usize,
-    difficulty: u8,
     setup: ModelSetup,
 ) -> Result<(Actor, Arc<ModelDefinition>)> {
     let definition: resonance_content::battle_enemy::Definition =
@@ -40,7 +41,7 @@ fn prepare_body(
         monster,
         &definition.profile,
         definition.guard_recovery_bonus,
-        battle::enemy::statistics(statistics, difficulty)?,
+        battle::enemy::statistics(statistics, Difficulty::Normal),
         &battle::recoil::Parameters::load(files)?,
     )?;
     let model = body(
@@ -302,14 +303,14 @@ fn body_spacing_uses_scaled_body_markers_without_hurt_only_bones() -> Result<()>
 }
 
 #[test]
-fn body_motion_disabled_preserves_controller_pose_during_idle_settling() -> Result<()> {
+fn body_motion_disabled_preserves_controller_pose_when_returning_to_idle() -> Result<()> {
     let (mut files, monster, enemy) = snapshot()?;
     let path = resonance_content::battle_enemy::path(monster.id);
     let mut source: resonance_content::battle_enemy::Definition = files.json(&path)?;
     for disabled in [false, true] {
         source.profile.traits.body_motion_disabled = disabled;
         files.insert(path.clone(), serde_json::to_vec(&source)?.into());
-        let (mut actor, model) = prepare_body(&files, &monster, &enemy, 0, 0, setup(7))?;
+        let (mut actor, model) = prepare_body(&files, &monster, &enemy, 0, setup(7))?;
         actor.position = [300., 0., 0.];
         let mut party = actor.clone();
         party.side = Side::Party;
@@ -327,19 +328,31 @@ fn body_motion_disabled_preserves_controller_pose_during_idle_settling() -> Resu
             BTreeMap::new(),
             files.diagnostics().clone(),
         )?);
-        for update in 0..2 {
+        let actor = resonance_battle::ActorId::from_index(1)?;
+        for (request, expected_clip) in [
+            (
+                resonance_battle::ModelRequest::Play {
+                    actor,
+                    motion: resonance_battle::MotionBinding {
+                        model: ResourceId(7),
+                        clip: 3,
+                    },
+                    pose: resonance_battle::Pose::default(),
+                },
+                3,
+            ),
+            (
+                resonance_battle::ModelRequest::Common {
+                    actor,
+                    pose: resonance_battle::CommonPose::Idle,
+                },
+                if disabled { 3 } else { 0 },
+            ),
+        ] {
             let mut frame = battle.step(BattleInput::default())?;
-            if update == 0 {
-                frame
-                    .model_requests
-                    .push(resonance_battle::ModelRequest::Play {
-                        actor: resonance_battle::ActorId::from_index(1)?,
-                        motion: resonance_battle::MotionBinding { model: 7, clip: 3 },
-                        pose: resonance_battle::Pose::default(),
-                    });
-            }
+            frame.model_requests.push(request);
             battle.advance_models(&mut frame, resonance_battle::BattleClock::Running, true)?;
-            assert_eq!(frame.models[0].clip, if disabled { 3 } else { 0 });
+            assert_eq!(frame.models[0].clip, expected_clip);
         }
     }
     Ok(())
@@ -349,7 +362,7 @@ fn body_motion_disabled_preserves_controller_pose_during_idle_settling() -> Resu
 fn optional_motion_failures_are_local_until_the_initial_clip_is_used() -> Result<()> {
     use resonance_content::diagnostics::Diagnostics;
     let (snapshot, monster, enemy) = snapshot()?;
-    let (_actor, model) = prepare_body(&snapshot, &monster, &enemy, 0, 0, setup(7))?;
+    let (_actor, model) = prepare_body(&snapshot, &monster, &enemy, 0, setup(7))?;
     let mut scene = monster.preview.parts[0].scene.clone();
     let mut clip = scene.clips[0].clone();
     clip.resource_slot = 66;
@@ -422,7 +435,7 @@ fn low_health_enemy_entry_never_selects_the_party_weak_pose() -> Result<()> {
 }
 
 fn load(files: &Files, monster: &Monster, source: &Enemy, variant: usize) -> Result<Battle> {
-    let (actor, model) = prepare_body(files, monster, source, variant, 0, setup(7))?;
+    let (actor, model) = prepare_body(files, monster, source, variant, setup(7))?;
     model.validate_bindings()?;
     PreparedBattle::new(vec![(actor, Default::default())], Default::default(), 1)?.finish()
 }
@@ -441,7 +454,7 @@ fn enemy_actor_preparation_is_independent_of_body_art() -> Result<()> {
             &monster,
             &source.profile,
             source.guard_recovery_bonus,
-            battle::enemy::statistics(&monster.statistics[variant], 0)?,
+            battle::enemy::statistics(&monster.statistics[variant], Difficulty::Normal),
             &recoil,
         )?;
         assert_eq!((actor.hp, actor.tp), expected);
@@ -491,7 +504,7 @@ fn enemy_art_validates_its_skeleton_and_omits_bad_blink_feedback() -> Result<()>
             resonance_content::battle_enemy::path(monster.id),
             serde_json::to_vec(&definition)?.into(),
         );
-        let prepared = prepare_body(&candidate, &monster, &source, 0, 0, setup(7));
+        let prepared = prepare_body(&candidate, &monster, &source, 0, setup(7));
         if paranoid {
             assert!(prepared.is_err());
         } else {
@@ -562,10 +575,10 @@ fn differently_named_effect_outline_uses_the_verified_indexed_pose() -> Result<(
         files.insert(path.clone(), std::fs::read(root.join(path))?.into());
     }
     for part in art.models.values() {
-        effect(&files, part, 0, false)?;
+        effect(&files, part, ResourceId(0), false)?;
         let mut invalid = part.clone();
         invalid.rig.skeleton.bones[0].bind.translation[0] += 1.;
-        assert!(effect(&files, &invalid, 0, false).is_err());
+        assert!(effect(&files, &invalid, ResourceId(0), false).is_err());
     }
     Ok(())
 }

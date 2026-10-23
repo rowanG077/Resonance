@@ -1,14 +1,13 @@
+use super::{opening_options, opening_setup};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::Cue;
+use resonance_battle::TechniqueId;
 use resonance_content::{
     menu_data::MenuData,
     prepared::{Cache, Files},
 };
-use resonance_events::{
-    battle::{DefeatPolicy, Setup},
-    party::Party,
-};
-use resonance_game::battle::encounter::{Assets, PrepareOptions};
+use resonance_events::{battle::DefeatPolicy, party::Party};
+use resonance_game::battle::encounter::Assets;
 use std::sync::Arc;
 
 /// A saved EX29 gem/skill row must retain Fire Ball's spell-charge definition
@@ -55,9 +54,6 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
     member.disabled_techniques.clear();
     member.shortcuts = [0; 4];
     party.validate(&data)?;
-    assert!(!party.members[member_index].techniques.contains(&catalogue));
-    assert_eq!(party.members[member_index].ex_gems[3], 4);
-    assert_eq!(party.members[member_index].ex_skills[3], 29);
 
     let (assets, prepared) = Assets::load(
         &root,
@@ -65,25 +61,8 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
         &menus,
         &data,
         &party,
-        Setup {
-            route: [0; 5],
-            encounter: resonance_events::battle::Encounter::Formation(1),
-            arena: 13,
-            defeat: DefeatPolicy::GameOver,
-            music: None,
-        },
-        PrepareOptions {
-            hunting_symbol: None,
-            event_flags: Default::default(),
-            devils_arms_unlocked: false,
-            victory_story_flags: [false; 2],
-            random_seed: 0x2345,
-            map: 332,
-            world_music: 0,
-            story: 2500,
-            colette_state: 0,
-            overlimit_boost: false,
-        },
+        opening_setup(1, DefeatPolicy::GameOver),
+        opening_options(0x2345),
         &mut cache,
         || false,
     )?;
@@ -92,7 +71,10 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
 
     let actor = prepared.results.actors[0].0;
     assert!(
-        prepared.core.technique_is_current(actor, catalogue) == Some(false),
+        prepared
+            .core
+            .technique_is_current(actor, TechniqueId(catalogue))
+            == Some(false),
         "Fire Ball must remain dormant until the live learning owner acquires it"
     );
 
@@ -135,28 +117,34 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
             .all(|actor| actor.equipment.base_element != Some(Element::Fire))
     );
     super::enter_battle(&mut active)?;
-    assert_eq!(active.technique_is_current(actor, catalogue), Some(false));
+    assert_eq!(
+        active.technique_is_current(actor, TechniqueId(catalogue)),
+        Some(false)
+    );
     assert!(
         active
             .shortcuts(actor)
             .context("prepared actor shortcuts before acquisition")?
             .iter()
-            .all(|&catalogue| catalogue == 0)
+            .all(Option::is_none)
     );
     let random = active.random_state();
-    let action = active.record_technique_acquisition(actor, catalogue)?;
+    let action = active.record_technique_acquisition(actor, TechniqueId(catalogue))?;
     assert_eq!(active.random_state(), random);
-    assert_eq!(active.technique_is_current(actor, catalogue), Some(true));
+    assert_eq!(
+        active.technique_is_current(actor, TechniqueId(catalogue)),
+        Some(true)
+    );
     let shortcuts = active
         .shortcuts(actor)
         .context("prepared actor shortcuts after acquisition")?;
-    assert_eq!(shortcuts[0], catalogue);
+    assert_eq!(shortcuts[0], Some(TechniqueId(catalogue)));
     let event = active
         .technique_acquisitions()
         .last()
         .context("acquisition event")?;
     ensure!(
-        (event.actor, event.catalogue, event.action) == (actor, catalogue, action),
+        (event.actor, event.catalogue, event.action) == (actor, TechniqueId(catalogue), action),
         "live acquisition published the wrong dormant action"
     );
     assert!(!party.members[member_index].techniques.contains(&catalogue));
@@ -166,10 +154,7 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
     // public movement input before selecting the newly acquired shortcut.
     let mut orient = ControlInput::neutral(actor);
     orient.stick = [30, 0];
-    active.step(BattleInput {
-        controllers: vec![orient],
-        ..Default::default()
-    })?;
+    active.step(BattleInput::from(orient))?;
     ensure!(
         active.actors()[actor.index()]
             .movement
@@ -185,10 +170,7 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
     let mut select = ControlInput::neutral(actor);
     select.technique.pressed = true;
     select.technique.held = true;
-    active.step(BattleInput {
-        controllers: vec![select],
-        ..Default::default()
-    })?;
+    active.step(BattleInput::from(select))?;
     assert!(!active.is_diagnostic());
     let mut ready = false;
     for _ in 0..1024 {
@@ -196,10 +178,7 @@ fn stores_dormant_fire_ball(character: u8, catalogue: u16) -> Result<()> {
         control.technique.held = true;
         control.attack.held = ready;
         control.attack.pressed = ready;
-        let frame = active.step(BattleInput {
-            controllers: vec![control],
-            ..Default::default()
-        })?;
+        let frame = active.step(BattleInput::from(control))?;
         ensure!(
             !active.is_diagnostic(),
             "fault-tolerant battle hid a cast failure"

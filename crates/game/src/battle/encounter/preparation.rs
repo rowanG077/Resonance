@@ -1,9 +1,13 @@
 //! Prepare one complete generation without changing the suspended session.
 use super::{Inputs, Prepared, RenderModel, assets::EquipmentKind, render, resources::Resources};
+use crate::battle::lifecycle::victory_selection::VictoryGroupId;
 use crate::battle::model::MotionRole;
+use crate::battle::party::Character;
 use crate::battle::{self, EffectResource, command, entry, model};
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{Sound, SpellChargeDefinition, WeaponDefinition};
+use resonance_battle::TechniqueId;
+use resonance_battle::WeaponSlot;
+use resonance_battle::{Difficulty, ResourceId, Sound, SpellChargeDefinition, WeaponDefinition};
 use resonance_content::{
     battle_model, battle_profile, menu_data::MenuData, model_preview::PreviewPart,
 };
@@ -33,18 +37,18 @@ pub struct PrepareOptions {
 }
 
 struct Handles {
-    resource: u32,
+    resource: ResourceId,
 }
 impl Handles {
-    fn new(first_resource: u32) -> Self {
+    fn new(first_resource: ResourceId) -> Self {
         Self {
             resource: first_resource,
         }
     }
 
-    fn resource(&mut self) -> u32 {
+    fn resource(&mut self) -> ResourceId {
         let id = self.resource;
-        self.resource += 1;
+        self.resource.0 += 1;
         id
     }
 }
@@ -56,25 +60,9 @@ struct EquipmentAttachments {
 }
 
 impl Inputs {
-    fn prepare_equipment(
-        &self,
-        character: u8,
-        profile: &battle_profile::Profile,
-        source: &battle_model::Party,
-        item: u16,
-        shield: bool,
-        handles: &mut Handles,
-    ) -> Result<EquipmentAttachments> {
-        let weapon = self
-            .weapons
-            .get(&item)
-            .context("missing selected weapon descriptor")?;
-        self.prepare_weapon(character, profile, source, weapon, shield, handles)
-    }
-
     fn prepare_weapon(
         &self,
-        character: u8,
+        character: Character,
         profile: &battle_profile::Profile,
         source: &battle_model::Party,
         weapon: &battle_model::Weapon,
@@ -82,7 +70,7 @@ impl Inputs {
         handles: &mut Handles,
     ) -> Result<EquipmentAttachments> {
         // Sheena's four card attachments share two prepared model parts.
-        let slots: Vec<_> = if character == battle::party::Character::Sheena as u8 && !shield {
+        let slots: Vec<_> = if character == Character::Sheena && !shield {
             (0..4).map(|slot| (slot, slot / 2)).collect()
         } else {
             weapon.parts.keys().map(|&part| (part, part)).collect()
@@ -114,8 +102,7 @@ impl Inputs {
                 handles,
                 &mut prepared.models,
             );
-            let playback = (character == battle::party::Character::Genis as u8)
-                .then(battle::weapon::owner_linked);
+            let playback = (character == Character::Genis).then(battle::weapon::owner_linked);
             let definition = battle::weapon::prepare(
                 &self.files,
                 part,
@@ -143,7 +130,7 @@ impl Inputs {
         }
         if shield {
             ensure!(
-                prepared.weapons.len() == 1 && prepared.weapons[0].slot == 1,
+                prepared.weapons.len() == 1 && prepared.weapons[0].slot == Some(WeaponSlot(1)),
                 "prepared shield has no attachment"
             );
         }
@@ -164,7 +151,7 @@ pub(super) struct ActorRow<'a> {
 }
 
 impl ActorRow<'_> {
-    fn prepare_control(&mut self, inputs: &Inputs, level_difference: i8) -> Result<()> {
+    fn prepare_control(&mut self, inputs: &Inputs, difficulty: Difficulty) -> Result<()> {
         self.setup.overlimit_gain = self.profile.overlimit_gain;
         self.setup.extended_overlimit = self.extended_overlimit;
         self.setup.wait_for_defeat_animation = self.profile.traits.wait_for_defeat_animation;
@@ -215,44 +202,38 @@ impl ActorRow<'_> {
             },
             run_speed: profile.run_speed,
             turn_ticks: profile.turn_ticks,
-            disabled: enemy && party.settings.preferences.battle_rank >= 1,
+            disabled: enemy && difficulty != Difficulty::Normal,
         });
         if let model::ModelSource::Party(character) = *source {
             let actions = actions.as_ref().context("missing party actions")?;
             let techniques = &actions.techniques;
             setup.arte_chain_limit = matches!(
-                battle::party::Character::try_from(character)?,
+                character,
                 battle::party::Character::Zelos | battle::party::Character::Kratos
             )
             .then_some(3);
             setup.techniques = battle::control::techniques(catalogue, character, techniques)?;
-            let member = &party.members[usize::from(character - 1)];
+            let member = &party.members[character.index()];
             setup.disabled_techniques = member
                 .disabled_techniques
                 .iter()
                 .filter_map(|catalogue| techniques.get(catalogue).copied())
                 .collect();
-            setup.companion = Some(battle::companion::prepare(
-                table,
-                character,
-                member,
-                level_difference,
-            )?);
+            setup.companion = Some(battle::companion::prepare(table, character, member));
             let mut definition = battle::control::party(
                 profile,
                 table
                     .normal_attacks
-                    .get(usize::from(character - 1))
+                    .get(character.index())
                     .context("missing normal attack table")?,
                 actions.normals,
                 battle::control::motions(model),
-            )?;
-            definition.shortcuts = member.shortcuts;
-            if let Some(guard) = battle::martial::special_guard(character) {
-                let catalogue = guard.catalogue;
-                let action = techniques[&catalogue];
-                setup.special_guard = Some(action);
-            }
+            );
+            definition.shortcuts = member
+                .shortcuts
+                .map(|id| (id != 0).then_some(TechniqueId(id)));
+            let guard = battle::martial::special_guard(character);
+            setup.special_guard = Some(techniques[&guard.catalogue]);
             setup.control = Some(Arc::new(definition));
         }
         Ok(())
@@ -260,7 +241,7 @@ impl ActorRow<'_> {
     fn prepare_feedback(
         &mut self,
         voices: &battle::voice::Resolver<'_>,
-        common_id: u32,
+        common_id: ResourceId,
         unison_ready: Option<Sound>,
         feedback: &mut battle::feedback::Feedback,
         mut sound: impl FnMut(Sound) -> Result<Option<Sound>>,
@@ -284,7 +265,7 @@ impl ActorRow<'_> {
                     voices
                         .party_table()
                         .overlimit_voices
-                        .get(usize::from(character - 1))
+                        .get(character.index())
                         .copied()
                         .flatten(),
                     &mut sound,
@@ -361,21 +342,21 @@ impl ActorRow<'_> {
 /// One complete actor and its equipped components, prepared from the encounter snapshot.
 pub struct PreparedPartyMember {
     pub loadout: battle::party::Loadout,
-    pub character: u8,
+    pub character: Character,
     pub actor: resonance_battle::Actor,
     pub model: Option<Arc<resonance_battle::ModelDefinition>>,
     equipment: BTreeMap<u16, Vec<Arc<resonance_battle::WeaponDefinition>>>,
     performances: Vec<battle::victory::Performance>,
     models: Vec<RenderModel>,
     render_trails: Vec<super::RenderTrail>,
-    pub next_resource: u32,
+    pub next_resource: ResourceId,
 }
 
 /// One selected enemy instance with its body and carried artwork.
 pub struct PreparedEnemyMember {
     pub actor: resonance_battle::Actor,
     pub model: Option<Arc<resonance_battle::ModelDefinition>>,
-    pub next_resource: u32,
+    pub next_resource: ResourceId,
     models: Vec<RenderModel>,
     render_trails: Vec<super::RenderTrail>,
     weapon_groups: Vec<Vec<Arc<WeaponDefinition>>>,
@@ -385,10 +366,11 @@ impl Inputs {
     pub fn prepare_enemy_member(
         &self,
         spawn_index: usize,
-        resource: u32,
-        first_resource: u32,
+        resource: ResourceId,
+        first_resource: ResourceId,
         random: &mut resonance_battle::Random,
     ) -> Result<PreparedEnemyMember> {
+        let difficulty = Difficulty::try_from(self.party.settings.preferences.battle_rank)?;
         let spawn = self
             .enemies
             .spawns
@@ -404,8 +386,8 @@ impl Inputs {
                 .statistics
                 .get(spawn.variant)
                 .context("enemy statistics variant is not authored")?,
-            self.party.settings.preferences.battle_rank,
-        )?;
+            difficulty,
+        );
         let mut actor = battle::enemy::actor(
             monster,
             &definition.profile,
@@ -732,14 +714,14 @@ impl Inputs {
         loadout: battle::party::Loadout,
         setup: battle::party::Setup,
         devils_arms_unlocked: bool,
-        first_resource: u32,
+        first_resource: ResourceId,
         victory: Option<&resonance_content::battle_victory::Performances>,
     ) -> Result<PreparedPartyMember> {
         let input = self.party_actors.get(slot).context("missing party input")?;
         let profile = self
             .party_profiles
             .records
-            .get(usize::from(input.character - 1))
+            .get(input.character.index())
             .context("missing party actor profile")?;
         let character = input.character;
         let actor = battle::party::prepare_actor(
@@ -755,7 +737,8 @@ impl Inputs {
         )?;
         let mut models = Vec::new();
         let mut body = None;
-        if let (Some(source), Some(setup)) = (&input.source, setup.model) {
+        let source = &input.source;
+        if let Some(setup) = setup.model {
             let resource = setup.resource;
             let prepared: Result<_> = (|| {
                 let body = model::body(
@@ -801,31 +784,35 @@ impl Inputs {
                 Ok((body, render))
             })();
             let (prepared, render) =
-                prepared.with_context(|| format!("party body for character {character}"))?;
+                prepared.with_context(|| format!("party body for character {character:?}"))?;
             body = Some(prepared);
             models.push(render);
         }
-        let current = &self.party.members[usize::from(character - 1)];
-        let performances =
-            if let (Some(victory), Some(source), Some(model)) = (victory, &input.source, &body) {
-                let (prepared, performances) =
-                    battle::victory::prepare(&self.files, victory, source, character, model)?;
-                body = Some(prepared);
-                performances
-            } else {
-                Vec::new()
-            };
+        let current = &self.party.members[character.index()];
+        let performances = if let (Some(victory), Some(model)) = (victory, &body) {
+            let (prepared, performances) =
+                battle::victory::prepare(&self.files, victory, source, character, model)?;
+            body = Some(prepared);
+            performances
+        } else {
+            Vec::new()
+        };
         let mut handles = Handles::new(first_resource);
         let mut render_trails = Vec::new();
         let mut equipment = BTreeMap::new();
-        if let (Some(source), Some(body)) = (&input.source, &mut body) {
+        if let Some(body) = &mut body {
             let body = Arc::get_mut(body).context("party body shared before attachment")?;
             for (&item, &kind) in &input.equipment {
                 let shield = matches!(kind, EquipmentKind::Shield);
+                let weapon = self
+                    .weapons
+                    .get(&item)
+                    .context("missing selected weapon descriptor")?;
                 let component =
-                    self.prepare_equipment(character, profile, source, item, shield, &mut handles);
-                let mut component = component
-                    .with_context(|| format!("equipment item {item} for character {character}"))?;
+                    self.prepare_weapon(character, profile, source, weapon, shield, &mut handles);
+                let mut component = component.with_context(|| {
+                    format!("equipment item {item} for character {character:?}")
+                })?;
                 models.append(&mut component.models);
                 render_trails.append(&mut component.render_trails);
                 if current.equipment[if shield { 5 } else { 0 }] == item {
@@ -887,10 +874,7 @@ impl Inputs {
         // Reject unimplemented E7 damage/reward bits before preparing any
         // candidate resources, including caller-made Party values from tests.
         let initial_unison_full = party.initial_unison_full()?;
-        ensure!(
-            party.settings.preferences.battle_rank <= 2,
-            "invalid battle difficulty"
-        );
+        let difficulty = Difficulty::try_from(party.settings.preferences.battle_rank)?;
         ensure!(
             !self.enemies.spawns.is_empty(),
             "battle has no enemy actors"
@@ -901,7 +885,9 @@ impl Inputs {
         let victory = &self.victory;
         let mut random = resonance_battle::Random::new(options.random_seed);
         let mut cosmetic_random = resonance_battle::Random::new(!options.random_seed);
-        let mut handles = Handles { resource: 1 };
+        let mut handles = Handles {
+            resource: ResourceId(1),
+        };
         let common_id = handles.resource();
         let techniques_id = handles.resource();
         for cue in [1, 2, 3, 4, 6, 7, 38] {
@@ -934,28 +920,24 @@ impl Inputs {
             let character = input.character;
             let profile = table
                 .records
-                .get(usize::from(character - 1))
+                .get(character.index())
                 .context("missing party actor profile")?;
-            let member = &party.members[usize::from(character - 1)];
-            let loadout = battle::party::loadout(menus, member, usize::from(character - 1))?;
+            let member = &party.members[character.index()];
+            let loadout = battle::party::loadout(menus, member, character)?;
             let motions = &input.motions;
-            let initial = if input.source.is_some() {
-                self.files.diagnostics().attempt(
-                    "party entry pose",
-                    entry::initial_playback(
-                        &mut cosmetic_random,
-                        &table.entry,
-                        profile,
-                        resonance_battle::Side::Party,
-                        motions,
-                        (i32::from(member.hp), loadout.attributes.max_hp),
-                        member.ailments.petrified,
-                    )
-                    .with_context(|| format!("initial playback for character {character}")),
-                )?
-            } else {
-                None
-            };
+            let initial = self.files.diagnostics().attempt(
+                "party entry pose",
+                entry::initial_playback(
+                    &mut cosmetic_random,
+                    &table.entry,
+                    profile,
+                    resonance_battle::Side::Party,
+                    motions,
+                    (i32::from(member.hp), loadout.attributes.max_hp),
+                    member.ailments.petrified,
+                )
+                .with_context(|| format!("initial playback for character {character:?}")),
+            )?;
             let resource = handles.resource();
             let setup = battle::party::Setup {
                 position: input.position,
@@ -975,15 +957,14 @@ impl Inputs {
                 handles.resource,
                 style.celebrate.then_some(victory),
             )?;
-            if let Some(eyes) = resonance_content::appearance::forced_face(
-                u32::from(character),
-                options.colette_state,
-            ) && let Some(model) = &mut prepared.model
+            if let Some(eyes) =
+                resonance_content::appearance::forced_face(character as u32, options.colette_state)
+                && let Some(model) = &mut prepared.model
             {
                 Arc::make_mut(model).forced_eye_frame = Some(eyes);
             }
             if let Some(name) = resonance_content::appearance::hidden_accessory(
-                u32::from(character),
+                character as u32,
                 &options.event_flags,
             ) && let Some(body) = prepared
                 .models
@@ -998,7 +979,7 @@ impl Inputs {
                 body.suppressed_nodes.insert(node);
             }
             let costume_frame = resonance_content::appearance::costume_frame(
-                u32::from(character),
+                character as u32,
                 &options.event_flags,
             );
             if let Some(body) = prepared
@@ -1025,17 +1006,17 @@ impl Inputs {
                     }
                 }
             }
-            if character == battle::party::Character::Colette as u8 && options.colette_state != 0 {
+            if character == Character::Colette && options.colette_state != 0 {
                 prepared.actor.body.center_offset[1] += COLETTE_WING_CENTER_RISE;
             }
-            if self.events.is_some() && character == 9 {
+            if self.events.is_some() && character == Character::Kratos {
                 prepared.actor.availability = resonance_battle::ActorAvailability::Absent;
             }
             handles.resource = prepared.next_resource;
             models.append(&mut prepared.models);
             render_trails.append(&mut prepared.render_trails);
             let strategy = resonance_battle::TargetPolicy::try_from(if member.strategy[0] == 0 {
-                table.default_strategy[usize::from(character - 1)][0]
+                table.default_strategy[character.index()][0]
             } else {
                 member.strategy[0]
             })?;
@@ -1056,7 +1037,7 @@ impl Inputs {
                 .loadout
                 .spell_charge
                 .then_some(SpellChargeDefinition {
-                    automatic: character != battle::party::Character::Genis as u8,
+                    automatic: character != Character::Genis,
                     enabled: true,
                 });
             rows.push(ActorRow {
@@ -1103,17 +1084,16 @@ impl Inputs {
             for (slot, input) in self.party_actors.iter().enumerate() {
                 if !matches!(
                     (native, input.character),
-                    (301, 1) | (312, 7) | (314, 6 | 9)
+                    (301, Character::Lloyd)
+                        | (312, Character::Presea)
+                        | (314, Character::Zelos | Character::Kratos)
                 ) {
                     continue;
                 }
-                let Some(source) = &input.source else {
-                    continue;
-                };
                 let mut prepared = self.prepare_weapon(
                     input.character,
                     rows[slot].profile,
-                    source,
+                    &input.source,
                     &weapon,
                     false,
                     &mut handles,
@@ -1138,13 +1118,10 @@ impl Inputs {
                 {
                     continue;
                 }
-                let Some(source) = &input.source else {
-                    continue;
-                };
                 let mut prepared = self.prepare_weapon(
                     input.character,
                     rows[slot].profile,
-                    source,
+                    &input.source,
                     &weapon,
                     false,
                     &mut handles,
@@ -1173,13 +1150,13 @@ impl Inputs {
         let mut thrown_weapons = None;
         if let Some(slot) = rows.iter().position(|row| {
             matches!(row.source, model::ModelSource::Party(character)
-                if character == battle::party::Character::Colette as u8)
+                if character == battle::party::Character::Colette)
         }) && let Some(body) = &rows[slot].model
         {
             let equipped = body
                 .weapons
                 .iter()
-                .find(|weapon| weapon.slot == 0)
+                .find(|weapon| weapon.slot == Some(WeaponSlot(0)))
                 .context("Colette has no prepared primary weapon")?
                 .primary_resource();
             let mut variants = BTreeMap::new();
@@ -1187,7 +1164,10 @@ impl Inputs {
                 if owner != slot {
                     continue;
                 }
-                let Some(weapon) = weapons.iter().find(|weapon| weapon.slot == 0) else {
+                let Some(weapon) = weapons
+                    .iter()
+                    .find(|weapon| weapon.slot == Some(WeaponSlot(0)))
+                else {
                     continue;
                 };
                 let part = self.weapons[&item]
@@ -1412,12 +1392,12 @@ impl Inputs {
                 });
             }
             for weapon in model.iter().flat_map(|model| &model.weapons) {
-                if let Some(interval) = weapon.effect_interval {
+                if let (Some(interval), Some(slot)) = (weapon.effect_interval, weapon.slot) {
                     passive_effects.push(resonance_battle::PassiveEffect {
                         actor: resonance_battle::ActorId::from_index(rows.len())?,
                         appearance: resonance_battle::EffectAppearance {
                             resource: enemy_banks[&monster.id].resource,
-                            member: u16::from(weapon.slot),
+                            member: u16::from(slot.0),
                         },
                         interval,
                         idle_only: false,
@@ -1487,11 +1467,13 @@ impl Inputs {
         );
         let mut resources = Resources {
             files: &self.files,
+            recoil: &self.recoil,
             catalogue,
+            unison: &self.unison,
             party_null_motions: self
                 .party_actors
                 .iter()
-                .filter_map(|actor| Some((actor.character, &actor.source.as_ref()?.null_motions)))
+                .map(|actor| (actor.character, &actor.source.null_motions))
                 .collect(),
             projectiles: self
                 .files
@@ -1530,32 +1512,28 @@ impl Inputs {
         for (row_index, row) in rows.iter_mut().enumerate() {
             match row.source {
                 model::ModelSource::Party(character) => {
-                    let null_motions = &self.party_actors[row_index]
-                        .source
-                        .as_ref()
-                        .context("party model is not prepared")?
-                        .null_motions;
+                    let null_motions = &self.party_actors[row_index].source.null_motions;
                     let actions = resources.party(
                         character,
                         row.model.as_deref(),
                         null_motions,
                         &mut bindings,
                     )?;
-                    let member = &party.members[usize::from(character - 1)];
+                    let member = &party.members[character.index()];
                     for technique in member
                         .techniques
                         .iter()
                         .filter(|id| !actions.techniques.contains_key(id))
                     {
                         self.files.diagnostics().report("battle technique preparation",
-                            anyhow::anyhow!("learned technique {technique} for character {character} has no executable action"))?;
+                            anyhow::anyhow!("learned technique {technique} for character {character:?} has no executable action"))?;
                     }
                     if !actions.techniques.values().any(|&key| {
                         matches!(bindings[key].execution, battle::ActionExecution::Casting(_))
                     }) {
                         row.setup.spell_charge = None;
                     }
-                    if character == battle::party::Character::Colette as u8 {
+                    if character == battle::party::Character::Colette {
                         use battle::colette_spells::{HOLY_JUDGMENT, HOLY_SONG, JUDGMENT};
                         const TRAINED_SPELL_USES: u16 = 50;
                         const HOLY_JUDGMENT_ONE_IN: u16 = 16;
@@ -1569,14 +1547,14 @@ impl Inputs {
                                 .get(&HOLY_JUDGMENT)
                                 .context("Holy Judgment is not prepared")?,
                             required_uses: &[
-                                (HOLY_SONG, TRAINED_SPELL_USES),
-                                (JUDGMENT, TRAINED_SPELL_USES),
+                                (TechniqueId(HOLY_SONG), TRAINED_SPELL_USES),
+                                (TechniqueId(JUDGMENT), TRAINED_SPELL_USES),
                             ],
                             trigger: resonance_battle::CastReplacementTrigger::Chance {
                                 one_in: HOLY_JUDGMENT_ONE_IN,
                             },
                         });
-                    } else if character == battle::party::Character::Genis as u8 {
+                    } else if character == battle::party::Character::Genis {
                         use battle::elemental_spells::{INDIGNATION, INDIGNATION_JUDGMENT};
                         const TRAINED_SPELL_USES: u16 = 50;
                         row.setup.cast_replacement = Some(resonance_battle::CastReplacement {
@@ -1588,7 +1566,7 @@ impl Inputs {
                                 .techniques
                                 .get(&INDIGNATION_JUDGMENT)
                                 .context("Indignation Judgment is not prepared")?,
-                            required_uses: &[(INDIGNATION, TRAINED_SPELL_USES)],
+                            required_uses: &[(TechniqueId(INDIGNATION), TRAINED_SPELL_USES)],
                             trigger: resonance_battle::CastReplacementTrigger::Overlimit,
                         });
                     }
@@ -1608,7 +1586,7 @@ impl Inputs {
                         enemy,
                         source,
                         &actions,
-                        party.settings.preferences.battle_rank,
+                        difficulty,
                         row.model.as_deref(),
                     )?;
                     decision.walk_motion =
@@ -1662,7 +1640,7 @@ impl Inputs {
                         .extend(battle::ai::disabled_by_flags(
                             &source.actions.rows,
                             &options.event_flags,
-                        )?);
+                        ));
                     row.setup.enemy_decision = Some(decision);
                 }
                 _ => unreachable!("encounter rows contain party and enemy actors"),
@@ -1675,13 +1653,12 @@ impl Inputs {
             .party_actors
             .iter()
             .enumerate()
-            .find(|(_, input)| input.character == 2 && options.colette_state != 0)
+            .find(|(_, input)| input.character == Character::Colette && options.colette_state != 0)
             .filter(|(slot, _)| rows[*slot].model.is_some())
             .map(|(slot, input)| -> Result<_> {
-                let source = input.source.as_ref().context("missing Colette artwork")?;
                 let (wings, render) = render::wings(
                     &self.files,
-                    source,
+                    &input.source,
                     ids[slot],
                     handles.resource(),
                     resources
@@ -1767,7 +1744,7 @@ impl Inputs {
                     actor: ids[slot],
                     character,
                     model: row.model.as_deref()?,
-                    null_motions: &self.party_actors[slot].source.as_ref()?.null_motions,
+                    null_motions: &self.party_actors[slot].source.null_motions,
                     profile: row.profile,
                     techniques: &row.actions.as_ref()?.techniques,
                     temporary_weapons: unison_weapons.get(&slot).unwrap_or(&empty_weapons),
@@ -1779,7 +1756,7 @@ impl Inputs {
             .party_actors
             .iter()
             .flat_map(|input| {
-                let index = usize::from(input.character - 1);
+                let index = input.character.index();
                 menus.ex_skills.characters[index]
                     .equipped_compounds(&party.members[index].ex_skills)
                     .map(|(_, recipe)| recipe.skill)
@@ -1838,19 +1815,19 @@ impl Inputs {
                 .iter_mut()
                 .find(|bank| bank.resource() == techniques_id)
                 .context("Colette's resident effect bank is not prepared")?
-                .bind_weapon_models(0, ids[slot], 0, variants)?;
+                .bind_weapon_models(0, ids[slot], WeaponSlot(0), variants)?;
         }
-        let characters: Vec<_> = rows
-            .iter()
-            .filter_map(|row| match row.source {
-                model::ModelSource::Party(character) => Some(character),
-                _ => None,
-            })
-            .collect();
         let party_roster: Vec<_> = ids
             .iter()
             .copied()
-            .zip(characters.iter().copied())
+            .zip(rows.iter().filter_map(|row| match row.source {
+                model::ModelSource::Party(character) => Some(character),
+                _ => None,
+            }))
+            .collect();
+        let characters: Vec<_> = party_roster
+            .iter()
+            .map(|&(_, character)| character)
             .collect();
         let equipment = prepared_equipment
             .into_iter()
@@ -1877,10 +1854,15 @@ impl Inputs {
             if let Some(mut presentation) = self.enemy_definitions[&enemy].presentation.clone() {
                 use resonance_content::battle_enemy::{EntranceCue, Opening};
                 let speaker_source = match &presentation.opening {
-                    Some(Opening::Entrance(entrance)) => entrance
-                        .staging
-                        .as_ref()
-                        .map(|staging| model::ModelSource::Party(staging.character)),
+                    Some(Opening::Entrance(entrance)) => {
+                        entrance.staging.as_ref().and_then(|staging| {
+                            staging
+                                .character
+                                .try_into()
+                                .ok()
+                                .map(model::ModelSource::Party)
+                        })
+                    }
                     _ => None,
                 };
                 let speaker = speaker_source
@@ -2012,7 +1994,7 @@ impl Inputs {
             member: 48,
         });
         for row in &mut rows {
-            row.prepare_control(self, level_difference)?;
+            row.prepare_control(self, difficulty)?;
             row.prepare_feedback(&voices, common_id, unison_ready, &mut feedback, &mut sound)?;
         }
         prepare_assists(party, &mut rows[..self.party_actors.len()], &ids);
@@ -2155,7 +2137,7 @@ impl Inputs {
                 .with_arena_boundary()
                 .with_hover_bobbing(hover_bobbing)?
                 .with_unison_gauge(party.unison_gauge, enabled & 0x02 != 0, initial_unison_full)?
-                .with_grade_rank(party.settings.preferences.battle_rank)?
+                .with_grade_rank(difficulty)
                 .with_items(items)?;
         if let Some(defense_system) = defense_system {
             core = core.with_defense_system(defense_system)?;
@@ -2210,7 +2192,7 @@ impl Inputs {
         });
         let mut victory_voices = BTreeMap::new();
         if style.celebrate {
-            for &character in &characters {
+            for &(_, character) in &party_roster {
                 let source = model::ModelSource::Party(character);
                 let Some(profile) = &voices.profile(source)?.voices else {
                     continue;
@@ -2232,7 +2214,10 @@ impl Inputs {
         }
         let mut groups = Vec::new();
         for group in victory.groups.iter().filter(|_| style.celebrate) {
-            let Some(actor) = characters.iter().position(|&id| id == group.character) else {
+            let Some(actor) = characters
+                .iter()
+                .position(|&id| id as u8 == group.character)
+            else {
                 continue;
             };
             let participants = (|| {
@@ -2240,7 +2225,8 @@ impl Inputs {
                 ensure!(
                     !groups
                         .iter()
-                        .any(|row: &battle::results::PreparedGroup| row.id == group.id),
+                        .any(|row: &battle::results::PreparedGroup| row.id
+                            == VictoryGroupId(group.id)),
                     "duplicate victory group identity"
                 );
                 Ok(&group.participants)
@@ -2252,15 +2238,22 @@ impl Inputs {
             else {
                 continue;
             };
-            if !participants.iter().all(|id| characters.contains(id)) {
+            if !participants
+                .iter()
+                .all(|id| characters.iter().any(|&character| character as u8 == *id))
+            {
                 continue;
             }
             if let Some(voice) = voices.absolute(sources[actor], group.voice, &mut sound)? {
                 groups.push(battle::results::PreparedGroup {
-                    id: group.id,
-                    leader: group.character,
-                    participants: participants.to_vec(),
-                    required_leader: group.required_leader,
+                    id: VictoryGroupId(group.id),
+                    leader: Character::try_from(group.character)?,
+                    participants: participants
+                        .iter()
+                        .copied()
+                        .map(Character::try_from)
+                        .collect::<Result<_>>()?,
+                    required_leader: group.required_leader.map(Character::try_from).transpose()?,
                     condition: group.condition,
                     voice,
                 });
@@ -2278,10 +2271,9 @@ impl Inputs {
                 .story
                 .try_into()
                 .context("negative battle story progress")?,
-            colette_state: options
-                .colette_state
-                .try_into()
-                .context("negative Colette state")?,
+            colette_state: u32::try_from(options.colette_state)
+                .context("negative Colette state")?
+                .into(),
             victory_story_flags: options.victory_story_flags,
             devils_arms_unlocked: options.devils_arms_unlocked,
             groups,
@@ -2376,7 +2368,7 @@ fn prepare_assists(
                 .setup
                 .techniques
                 .iter()
-                .find(|technique| technique.catalogue == selected.technique)
+                .find(|technique| technique.catalogue == TechniqueId(selected.technique))
                 .map(|technique| technique.action)
             else {
                 continue;
@@ -2391,7 +2383,7 @@ fn render_weapon_layers(
     style: battle_profile::WeaponStyle,
     handles: &mut Handles,
     models: &mut Vec<RenderModel>,
-) -> Vec<u32> {
+) -> Vec<ResourceId> {
     part.layers
         .iter()
         .map(|layer| {

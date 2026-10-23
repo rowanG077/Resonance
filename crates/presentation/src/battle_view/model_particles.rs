@@ -1,6 +1,7 @@
 //! Shared model recipes and reusable render objects for live particles.
 use super::*;
 use resonance_battle::ParticleFrame;
+use resonance_battle::ResourceId;
 
 // Optional components cannot appear in an immutable try_query: an entirely
 // rigid asset world has never registered SkinnedMesh, so that query is absent.
@@ -61,14 +62,20 @@ struct DrawRecipe {
     order: u32,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TemplateState {
+    Pending,
+    Ready,
+    Disabled,
+}
+
 struct Template {
     sources: Vec<Source>,
     required_bones: usize,
     suppressed: BTreeSet<usize>,
     joints: Vec<Pose>,
     draws: Vec<DrawRecipe>,
-    ready: bool,
-    disabled: bool,
+    state: TemplateState,
 }
 
 struct Draw {
@@ -78,7 +85,7 @@ struct Draw {
 
 #[derive(Default)]
 struct Instance {
-    key: Option<(ParticleId, u32)>,
+    key: Option<(ParticleId, ResourceId)>,
     draws: Vec<usize>,
     joints: Vec<usize>,
     style: Option<ModelStyle>,
@@ -86,7 +93,7 @@ struct Instance {
 
 #[derive(Default)]
 pub(super) struct Pool {
-    templates: BTreeMap<u32, Template>,
+    templates: BTreeMap<ResourceId, Template>,
     instances: Vec<Instance>,
     draws: Vec<Draw>,
     joints: Vec<Entity>,
@@ -101,7 +108,7 @@ pub(super) struct Pool {
 impl Pool {
     pub fn load(
         &mut self,
-        resource: u32,
+        resource: ResourceId,
         parts: Vec<Part>,
         bone_offsets: Vec<usize>,
         suppressed: BTreeSet<usize>,
@@ -137,8 +144,7 @@ impl Pool {
                 suppressed,
                 joints: Vec::new(),
                 draws: Vec::new(),
-                ready: false,
-                disabled: false,
+                state: TemplateState::Pending,
             },
         );
         Ok(())
@@ -174,18 +180,15 @@ impl Pool {
         diagnostics: &Diagnostics,
     ) -> Result<bool> {
         for (&resource, template) in &mut self.templates {
-            if template.ready {
+            if template.state != TemplateState::Pending {
                 continue;
             }
             let result = template.compile(server, assets, sampled, toon, styles);
-            match diagnostics.attempt(
+            template.state = match diagnostics.attempt(
                 &format!("battle model particle template {resource}"),
                 result,
             )? {
-                None => {
-                    template.ready = true;
-                    template.disabled = true;
-                }
+                None => TemplateState::Disabled,
                 Some(false) => continue,
                 Some(true) => {
                     let joints: Vec<_> = template
@@ -235,11 +238,14 @@ impl Pool {
                             self.warm_materials.push(material);
                         }
                     }
-                    template.ready = true;
+                    TemplateState::Ready
                 }
-            }
+            };
         }
-        Ok(self.templates.values().all(|template| template.ready))
+        Ok(self
+            .templates
+            .values()
+            .all(|template| template.state != TemplateState::Pending))
     }
 
     pub fn activate(&mut self, commands: &mut Commands) {
@@ -322,9 +328,10 @@ impl Pool {
             .templates
             .get(&model.resource)
             .context("unprepared model particle template")?;
-        ensure!(template.ready, "model particle template is not ready");
-        if template.disabled {
-            return Ok(());
+        match template.state {
+            TemplateState::Pending => anyhow::bail!("model particle template is not ready"),
+            TemplateState::Disabled => return Ok(()),
+            TemplateState::Ready => {}
         }
         ensure!(
             model.bones.len() >= template.required_bones,
@@ -734,7 +741,7 @@ mod tests {
             serde_json::from_str(include_str!("fixtures/masked-particle.json"))?;
         let declaration: Declaration = serde_json::from_value(fixture["declaration"].clone())?;
         let particle = ParticleDefinition {
-            resource: 1,
+            resource: ResourceId(1),
             member: 0,
             model: None,
             data: declaration.particle()?,
@@ -755,14 +762,14 @@ mod tests {
         };
         let diagnostics = Diagnostics::new(true);
         let bank = EffectBank::new(
-            1,
+            ResourceId(1),
             BTreeMap::new(),
             [(0, Arc::new(definition))].into(),
             &diagnostics,
         )?;
         let mut effects = Effects::new(vec![bank], None, 1, diagnostics)?.with_ambient(Some((
             EffectAppearance {
-                resource: 1,
+                resource: ResourceId(1),
                 member: 0,
             },
             u16::MAX,
@@ -802,8 +809,7 @@ mod tests {
                 styles: [(style, surface)].into(),
                 order: 7,
             }],
-            ready: true,
-            disabled: false,
+            state: TemplateState::Ready,
         }
     }
 
@@ -817,12 +823,13 @@ mod tests {
             cull_back: false,
         };
         let mut pool = Pool::default();
-        pool.templates.insert(10, template(style, true));
-        pool.templates.insert(11, template(style, false));
+        pool.templates.insert(ResourceId(10), template(style, true));
+        pool.templates
+            .insert(ResourceId(11), template(style, false));
         let mut particles = particles(2)?;
         for (index, particle) in particles.iter_mut().enumerate() {
             particle.model = Some(resonance_battle::EffectModelFrame {
-                resource: 10,
+                resource: ResourceId(10),
                 clip: None,
                 frame: 0.,
                 world: Mat4::IDENTITY.to_cols_array_2d(),
@@ -869,7 +876,10 @@ mod tests {
         let second = surfaces.get(&pool.draws[1].material).unwrap();
         assert_ne!(first.tint, second.tint);
         assert_ne!(first.uv_offsets, second.uv_offsets);
-        assert_eq!(pool.templates[&10].draws[0].styles[&style].tint, Vec4::ONE);
+        assert_eq!(
+            pool.templates[&ResourceId(10)].draws[0].styles[&style].tint,
+            Vec4::ONE
+        );
         let a = world.get::<SkinnedMesh>(draws[0]).unwrap();
         let b = world.get::<SkinnedMesh>(draws[1]).unwrap();
         assert_ne!(a.joints, b.joints);
@@ -888,7 +898,7 @@ mod tests {
         );
         // Rebind a previous skin draw to an unrelated rigid model in the same
         // update as retirement. Neither the draw pool nor materials grow.
-        particles[0].model.as_mut().unwrap().resource = 11;
+        particles[0].model.as_mut().unwrap().resource = ResourceId(11);
         particles[0].model.as_mut().unwrap().bones = Arc::new(vec![]);
         particles[0].state.uv = [0; 4];
         pool.clear_pose();
@@ -925,8 +935,8 @@ mod tests {
         );
         let mut hidden = template(style, false);
         hidden.draws.clear();
-        pool.templates.insert(12, hidden);
-        particles[0].model.as_mut().unwrap().resource = 12;
+        pool.templates.insert(ResourceId(12), hidden);
+        particles[0].model.as_mut().unwrap().resource = ResourceId(12);
         pool.retain(&particles[..1], &mut world.commands(), &mut surfaces);
         pool.apply(
             &particles[0],
@@ -942,7 +952,7 @@ mod tests {
         assert_eq!(pool.stats().active_joints, 0);
 
         // Dense overlaps grow the reusable pool instead of dropping model draws.
-        particles[0].model.as_mut().unwrap().resource = 11;
+        particles[0].model.as_mut().unwrap().resource = ResourceId(11);
         let overlapping: Vec<_> = self::particles(300)?
             .into_iter()
             .map(|particle| ParticleFrame {

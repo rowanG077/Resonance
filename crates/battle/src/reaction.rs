@@ -299,11 +299,7 @@ impl Battle {
     }
 
     /// A failed paralysis check stalls this command without paying its cost.
-    pub(crate) fn begin_paralysis(
-        &mut self,
-        actor: ActorId,
-        cues: &mut Vec<crate::Cue>,
-    ) -> Result<()> {
+    pub(crate) fn begin_paralysis(&mut self, actor: ActorId, cues: &mut Vec<crate::Cue>) {
         const PARALYSIS_TICKS: u8 = 60;
         let index = actor.index();
         self.interrupt_actor(actor, cues);
@@ -328,13 +324,12 @@ impl Battle {
             actor,
             alternate: true,
         });
-        Ok(())
     }
 
-    pub(crate) fn advance_paralysis(&mut self, actor: ActorId, remaining: u8) -> Result<bool> {
+    pub(crate) fn advance_paralysis(&mut self, actor: ActorId, remaining: u8) -> bool {
         let index = actor.index();
         if self.actors[index].hit_stop > 0 {
-            return Ok(true);
+            return true;
         }
         let owner = &mut self.actors[index];
         owner.movement.integrate(&mut owner.position);
@@ -349,7 +344,7 @@ impl Battle {
                 },
             );
         }
-        Ok(true)
+        true
     }
 
     pub(crate) fn advance_hurt(
@@ -411,7 +406,7 @@ impl Battle {
                 },
             );
         }
-        if self.begin_contact_recovery(id, true, cues)? {
+        if self.begin_contact_recovery(id, true, cues) {
             return Ok(true);
         }
         let actor = &mut self.actors[index];

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{DamageTraits, HitResult, PreparedBattle};
+use crate::{DamageTraits, HitResult};
 
 fn contact(kind: DamageKind, attacking: DamageTraits, defending: DamageTraits) -> HitResult {
     let mut owner = crate::tests::actor(Side::Party);
@@ -12,55 +12,22 @@ fn contact(kind: DamageKind, attacking: DamageTraits, defending: DamageTraits) -
     target.equipment.max_hp = 1000;
     target.equipment.damage = defending;
     target.body.collider = Some(crate::Collider::sphere(1.));
-    let mut battle = PreparedBattle::new(
-        vec![(owner, Default::default()), (target, Default::default())],
-        Default::default(),
-        1,
-    )
-    .unwrap()
-    .finish()
-    .unwrap();
-    let mut contacts = Contacts::default();
-    contacts
-        .push(Contact {
-            source: ContactSource::Melee {
-                actor: ActorId(0),
-                action: ActionId(1),
-            },
-            owner: ActorId(0),
-            origin: Origin::World([0.; 3]),
+    let mut battle = crate::tests::prepare_actors(vec![owner, target], 1)
+        .finish()
+        .unwrap();
+    let cues = resolve_contact(
+        &mut battle,
+        Contact {
             radius: 2.,
             height: 2.,
-            shape: HitShape::Box,
-            rule: HitRule {
-                sound: None,
+            ..contact_fixture(HitRule {
                 kind,
-                arte: false,
-                effect_on_guard: false,
-                effect: None,
-                overlimit_pause: false,
-                power: Power::Normal,
-                element: HitElement::Neutral,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
-                guard: GuardRule::default(),
-                reaction: Default::default(),
-                condition: None,
-            },
-            clashes: false,
-            struck: Vec::new(),
-        })
-        .unwrap();
-    let mut cues = vec![];
-    contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
-    let hit = cues
-        .into_iter()
-        .find_map(|cue| match cue {
-            Cue::Hit { result, .. } => Some(result),
-            _ => None,
-        })
-        .unwrap();
+                ..crate::tests::hit()
+            })
+        },
+    )
+    .unwrap();
+    let hit = hit_result(&cues);
     assert_eq!(battle.actors[1].hp, 1000 + hit.hp_change);
     assert_eq!(hit.hp_change, -hit.amount);
     hit

@@ -346,7 +346,7 @@ impl Battle {
         }));
     }
 
-    pub(crate) fn advance_hover(&mut self, index: usize, bob: bool) -> Result<()> {
+    pub(crate) fn advance_hover(&mut self, index: usize, bob: bool) {
         let actor = &mut self.actors[index];
         actor.movement.settle_hover(&mut actor.position[1]);
         let hover = &actor.movement.hover;
@@ -354,7 +354,6 @@ impl Battle {
             let phase = f32::from(hover.phase) * 4.;
             actor.position[1] += 0.5 * phase.to_radians().sin();
         }
-        Ok(())
     }
 
     pub(crate) fn publish_landing(&mut self, index: usize, cues: &mut Vec<Cue>) {

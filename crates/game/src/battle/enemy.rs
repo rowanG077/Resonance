@@ -1,7 +1,9 @@
 //! Prepare native enemy actions and hit volumes.
+use resonance_battle::WeaponSlot;
 
 use super::ActionDefinition;
 use anyhow::{Context, Result};
+use resonance_battle::Difficulty;
 use resonance_content::{battle_enemy, monster::MonsterStats};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,16 +24,15 @@ pub struct EnemyStatistics {
 
 /// Difficulty increases health, TP and offensive statistics. Imported storage
 /// widths never limit combat arithmetic; only the actor's vital bounds apply.
-pub fn statistics(source: &MonsterStats, difficulty: u8) -> Result<EnemyStatistics> {
-    anyhow::ensure!(difficulty <= 2, "invalid battle difficulty {difficulty}");
-    let vital_numerator = u64::from(difficulty) + 2;
-    let combat_numerator = i32::from(difficulty) + 4;
+pub fn statistics(source: &MonsterStats, difficulty: Difficulty) -> EnemyStatistics {
+    let vital_numerator = difficulty as u64 + 2;
+    let combat_numerator = difficulty as i32 + 4;
     let hp = |value: u32| (u64::from(value) * vital_numerator / 2).min(i32::MAX as u64) as i32;
     let tp = |value: u16| (u64::from(value) * vital_numerator / 2).min(u64::from(u16::MAX)) as u16;
     let combat = |value: i32| value.max(0) * combat_numerator / 4;
     let max_hp = hp(source.hp);
     let max_tp = tp(source.tp);
-    Ok(EnemyStatistics {
+    EnemyStatistics {
         hp: max_hp,
         initial_hp: if source.initial_hp == 0 {
             max_hp
@@ -52,7 +53,7 @@ pub fn statistics(source: &MonsterStats, difficulty: u8) -> Result<EnemyStatisti
         evasion: combat(i32::from(source.evasion)),
         luck: u16::from(source.luck),
         level: source.level,
-    })
+    }
 }
 
 /// Construct gameplay state without loading a body, motion, or attachment.
@@ -65,79 +66,16 @@ pub(super) fn actor(
 ) -> Result<resonance_battle::Actor> {
     use resonance_battle::{Actor, Affinity, Body, Collider, CombatStats, Control, Side};
     let mut actor = Actor {
-        side: Side::Enemy,
-        species: 0,
-        equipment: resonance_battle::EquipmentAttributes {
-            max_hp: stats.hp,
-            max_tp: stats.tp,
-            tp_cost_reduction: false,
-            quick_escape: false,
-            taunt_enabled: false,
-            taunt_guard: false,
-            taunt_cancel: false,
-            control_ex: Default::default(),
-            quick_turn: false,
-            backstep_guard: false,
-            casting: Default::default(),
-            dagger_reach: false,
-            contact: Default::default(),
-            normal_combo_limit: 1,
-            guaranteed_steal: false,
-            luck: stats.luck,
-            stats: CombatStats {
-                slash: stats.attack,
-                thrust: stats.thrust,
-                defense: stats.defense,
-                intelligence: stats.intelligence,
-                accuracy: stats.accuracy,
-                evasion: stats.evasion,
-                level: stats.level,
-            },
-            // Leave unrecognized direction modes unchanged.
-            affinities: monster.affinities.map(|code| match code {
-                1 => Affinity::Weak,
-                2 => Affinity::Resistant,
-                3 => Affinity::Absorb,
-                4 => Affinity::Immune,
-                _ => Affinity::Normal,
-            }),
-            damage: Default::default(),
-            recovery: Default::default(),
-            base_element: monster.attack_element,
-            combo_traits: Default::default(),
-            normal_guard: false,
-            speed_multiplier: 1.,
-            reaction_ex: Default::default(),
-            stun_ex_bonus: false,
-            spell_revenge: false,
-        },
-        control: Control::Enemy,
-        availability: Default::default(),
         overlimit: resonance_battle::OverLimit::new(
             u16::try_from(profile.initial_overlimit)
                 .context("negative initial Over Limit charge")?,
         )?,
-        proficiency: 0,
-        combat_adjustments: Default::default(),
-        input: Default::default(),
         guard: resonance_battle::Guard {
             recovery_bonus: guard_recovery_bonus,
             ..Default::default()
         },
         hp: stats.initial_hp,
         tp: stats.initial_tp,
-        control_ex_state: Default::default(),
-        casting_state: Default::default(),
-        stored_spell: None,
-        control_slot: 0,
-        elements: Default::default(),
-        attack_power: 100,
-        conditions: Default::default(),
-        position: [0.; 3],
-        heading: 0.,
-        facing_direction: [0., 0., 1.],
-        effect_scale: 1.,
-        secondary_wind: Default::default(),
         body: Body {
             collider: Some(match monster.id {
                 SEWER_RAT => Collider::standing(35., 70.),
@@ -146,10 +84,34 @@ pub(super) fn actor(
             }),
             ..Default::default()
         },
-        movement: Default::default(),
-        reaction: Default::default(),
-        hit_stop: 0,
-        time_stop: 0,
+        ..Actor::new(
+            Side::Enemy,
+            Control::Enemy,
+            resonance_battle::EquipmentAttributes {
+                luck: stats.luck,
+                affinities: monster.affinities.map(|code| match code {
+                    1 => Affinity::Weak,
+                    2 => Affinity::Resistant,
+                    3 => Affinity::Absorb,
+                    4 => Affinity::Immune,
+                    _ => Affinity::Normal,
+                }),
+                base_element: monster.attack_element,
+                ..resonance_battle::EquipmentAttributes::new(
+                    stats.hp,
+                    stats.tp,
+                    CombatStats {
+                        slash: stats.attack,
+                        thrust: stats.thrust,
+                        defense: stats.defense,
+                        intelligence: stats.intelligence,
+                        accuracy: stats.accuracy,
+                        evasion: stats.evasion,
+                        level: stats.level,
+                    },
+                )
+            },
+        )
     };
     // Prepare braking before an enemy can time out during approach.
     actor.movement.braking = 0.55;
@@ -235,25 +197,15 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
         weapon_groups: &[Vec<std::sync::Arc<resonance_battle::WeaponDefinition>>],
         bindings: &mut resonance_battle::ActionDefinitions,
     ) -> Result<Vec<resonance_battle::ActionKey>> {
-        use resonance_battle::{AttackEvent as Event, AttackPose, PreparedAttack};
+        use resonance_battle::{AttackEvent as Event, PreparedAttack};
         use resonance_content::battle_action::{EnemyEvent, EnemyExecution};
         use std::sync::Arc;
-        let recoil = super::recoil::Parameters::load(self.files)?;
         let body_motion = !source.profile.traits.body_motion_disabled;
         let pose = |source: resonance_content::battle_action::ActionPose| -> Result<_> {
-            Ok(AttackPose {
-                motion: super::model::motion(model, source.clip).with_context(|| {
-                    format!("missing enemy {enemy} action clip {}", source.clip)
-                })?,
-                start: source.start,
-                end: source.end,
-                repeat: source.repeat,
-                rate: source.rate,
-                blend: source.blend,
-            })
+            super::model::action_pose(model, source)
+                .with_context(|| format!("missing enemy {enemy} action clip {}", source.clip))
         };
-        let placements: resonance_content::battle_unison::Catalogue =
-            self.files.json(resonance_content::battle_unison::PATH)?;
+        let placements = self.unison;
         let mut actions = Vec::new();
         for (index, metadata) in source.actions.rows.iter().enumerate() {
             if let Some(reason) = &metadata.unsupported_reason {
@@ -273,7 +225,7 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     continue;
                 }
                 EnemyExecution::Spell(technique) => {
-                    let catalogue = catalogue_id(&placements, *technique).with_context(|| {
+                    let catalogue = catalogue_id(placements, *technique).with_context(|| {
                         format!("enemy technique {technique} has no catalogue binding")
                     })?;
                     anyhow::ensure!(
@@ -360,20 +312,16 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                 const ARTE_BRAKING: f32 = 0.55;
                 events.push((0, Event::Braking(ARTE_BRAKING)));
                 if let Some(member) = effect {
-                    self.effect(true, &[member])?;
                     events.push((
                         0,
                         Event::ActionEffect {
-                            appearance: resonance_battle::EffectAppearance {
-                                resource: self.techniques.resource,
-                                member,
-                            },
+                            appearance: self.prepared.effect_member(&self.techniques, member)?,
                             origin: resonance_battle::AttackOrigin::ActorRoot,
                         },
                     ));
                 }
                 if matches!(*technique, 63..=71) {
-                    let catalogue = catalogue_id(&placements, *technique)
+                    let catalogue = catalogue_id(placements, *technique)
                         .context("missing enemy seal catalogue binding")?;
                     const SEAL_FOLLOW_UP: u16 = 15;
                     let mut at = SEAL_FOLLOW_UP;
@@ -438,45 +386,21 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     continue;
                 }
                 let event = match event {
-                    EnemyEvent::Effect(member) => {
-                        let mut resource = self
-                            .enemy_effects
-                            .get(&enemy)
-                            .context("missing enemy effect bank")?
-                            .clone();
-                        resource.members = vec![*member];
-                        let appearance = resonance_battle::EffectAppearance {
-                            resource: resource.resource,
-                            member: *member,
-                        };
-                        self.prepared.effect(resource)?;
-                        Event::ActionEffect {
-                            appearance,
-                            origin: resonance_battle::AttackOrigin::ActorRoot,
-                        }
-                    }
+                    EnemyEvent::Effect(member) => Event::ActionEffect {
+                        appearance: self.enemy_effect(enemy, *member)?,
+                        origin: resonance_battle::AttackOrigin::ActorRoot,
+                    },
                     EnemyEvent::CarriedEffect { slot, bone, member } => {
                         let weapon = weapons
                             .iter()
-                            .find(|weapon| weapon.slot == *slot)
+                            .find(|weapon| weapon.slot == Some(WeaponSlot(*slot)))
                             .context("carried effect weapon is not prepared")?;
                         anyhow::ensure!(
                             usize::from(*bone) < weapon.bone_count(),
                             "carried effect bone is not prepared"
                         );
-                        let mut resource = self
-                            .enemy_effects
-                            .get(&enemy)
-                            .context("missing enemy effect bank")?
-                            .clone();
-                        resource.members = vec![*member];
-                        let appearance = resonance_battle::EffectAppearance {
-                            resource: resource.resource,
-                            member: *member,
-                        };
-                        self.prepared.effect(resource)?;
                         Event::InitializedEffect {
-                            appearance,
+                            appearance: self.enemy_effect(enemy, *member)?,
                             origin: resonance_battle::AttackOrigin::Bone(
                                 resonance_battle::MeleeAnchor {
                                     resource: weapon.primary_resource(),
@@ -485,19 +409,13 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                             ),
                         }
                     }
-                    EnemyEvent::CommonEffect(member) => {
-                        self.effect(false, &[*member])?;
-                        Event::InitializedEffect {
-                            appearance: resonance_battle::EffectAppearance {
-                                resource: self.common.resource,
-                                member: *member,
-                            },
-                            origin: resonance_battle::AttackOrigin::ActorAim,
-                        }
-                    }
+                    EnemyEvent::CommonEffect(member) => Event::InitializedEffect {
+                        appearance: self.prepared.effect_member(&self.common, *member)?,
+                        origin: resonance_battle::AttackOrigin::ActorAim,
+                    },
                     EnemyEvent::ReleaseSpell { technique, slot } => {
                         let catalogue =
-                            catalogue_id(&placements, *technique).with_context(|| {
+                            catalogue_id(placements, *technique).with_context(|| {
                                 format!("enemy direct spell {technique} has no catalogue binding")
                             })?;
                         let definition = self.spell(catalogue)?;
@@ -511,11 +429,7 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                         } else {
                             rule.casting.effects.members()[1]
                         };
-                        self.effect(false, &[member])?;
-                        let effect = Some(resonance_battle::EffectAppearance {
-                            resource: self.common.resource,
-                            member,
-                        });
+                        let effect = Some(self.prepared.effect_member(&self.common, member)?);
                         let sound = (self.sound)(super::voice::Sound::Cue(
                             if definition.transition_ticks > 0 {
                                 super::audio::STORED_SPELL_RELEASE
@@ -605,12 +519,13 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     } => {
                         anyhow::ensure!(
                             model.is_some_and(|model| model.weapons.iter().any(|weapon| {
-                                weapon.slot == *slot && weapon.has_carried_motion(*clip)
+                                weapon.slot == Some(WeaponSlot(*slot))
+                                    && weapon.has_carried_motion(*clip)
                             })),
                             "enemy {enemy} has no independent carried clip {clip} in slot {slot}"
                         );
                         Event::CarriedPose {
-                            slot: *slot,
+                            slot: WeaponSlot(*slot),
                             clip: *clip,
                             rate: *rate,
                             repeat: *repeat,
@@ -651,7 +566,7 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                             }
                         };
                         let definition = Arc::new(resonance_battle::MeleeDefinition {
-                            hit: self.enemy_hit(enemy, hit, &recoil)?,
+                            hit: self.enemy_hit(enemy, hit)?,
                             volume,
                             trail: None,
                         });
@@ -694,15 +609,13 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                         feedback,
                     } => {
                         let mut projectile =
-                            self.enemy_projectile(enemy, model, definition, hit, &recoil)?;
+                            self.enemy_projectile(enemy, model, definition, hit)?;
                         if let Some(feedback) = feedback {
-                            self.effect(true, &[feedback.effect])?;
                             Arc::make_mut(&mut projectile).effects.contact =
                                 Some(resonance_battle::ProjectileContactFeedback {
-                                    appearance: resonance_battle::EffectAppearance {
-                                        resource: self.techniques.resource,
-                                        member: feedback.effect,
-                                    },
+                                    appearance: self
+                                        .prepared
+                                        .effect_member(&self.techniques, feedback.effect)?,
                                     on_guard: feedback.on_guard,
                                     sound: if feedback.sound == 0 {
                                         None
@@ -719,8 +632,8 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                         retreat,
                     } => Event::GroundProjectiles {
                         definitions: [
-                            self.enemy_projectile(enemy, model, &definitions[0], hit, &recoil)?,
-                            self.enemy_projectile(enemy, model, &definitions[1], hit, &recoil)?,
+                            self.enemy_projectile(enemy, model, &definitions[0], hit)?,
+                            self.enemy_projectile(enemy, model, &definitions[1], hit)?,
                         ],
                         retreat: *retreat,
                     },
@@ -763,14 +676,14 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     },
                     EnemyEvent::Stun => Event::Stun,
                     EnemyEvent::WeaponVisibility { slot, visible } => {
-                        Event::WeaponVisibility(vec![(*slot, *visible)])
+                        Event::WeaponVisibility(vec![(Some(WeaponSlot(*slot)), *visible)])
                     }
                     EnemyEvent::PassThrough { enabled, duration } => Event::PassThrough {
                         enabled: *enabled,
                         duration: *duration,
                     },
                     EnemyEvent::Trail { slot, duration } => Event::Trail {
-                        slot: *slot,
+                        slot: WeaponSlot(*slot),
                         duration: *duration,
                     },
                     EnemyEvent::Sound(cue) => {
@@ -839,14 +752,10 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     .transpose()?,
             };
             if matches!(execution, EnemyExecution::Physical { technique: 121, .. }) {
-                self.effect(true, &[92])?;
                 super::martial::prepare_eagle_landing(
                     &mut prepared,
                     model,
-                    resonance_battle::EffectAppearance {
-                        resource: self.techniques.resource,
-                        member: 92,
-                    },
+                    self.prepared.effect_member(&self.techniques, 92)?,
                     None,
                 )?;
             }
@@ -856,9 +765,11 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                 execution: super::ActionExecution::Attack(prepared),
             });
             if let EnemyExecution::Physical { technique, .. } = execution {
-                let catalogue = catalogue_id(&placements, *technique)
+                let catalogue = catalogue_id(placements, *technique)
                     .context("enemy physical technique has no catalogue binding")?;
-                self.feedback.action_catalogues.insert(key, catalogue);
+                self.feedback
+                    .action_catalogues
+                    .insert(key, resonance_battle::TechniqueId(catalogue));
             }
             actions.push(key);
         }
@@ -878,7 +789,6 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
         model: Option<&resonance_battle::ModelDefinition>,
         definition: &resonance_content::battle_projectile::Projectile,
         hit: &resonance_content::battle_action::ActionHit,
-        recoil: &super::recoil::Parameters,
     ) -> Result<std::sync::Arc<resonance_battle::ProjectileDefinition>> {
         use resonance_content::battle_projectile::ProjectileOrigin;
         use std::sync::Arc;
@@ -909,7 +819,7 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                 );
             }
         }
-        let rule = self.enemy_hit(enemy, hit, recoil)?;
+        let rule = self.enemy_hit(enemy, hit)?;
         const OWNER_EFFECT_BANK: u8 = 2;
         let mut definition = definition.clone();
         // Enemy projectile birth and trail artwork belongs to its owner.
@@ -940,26 +850,28 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
         &mut self,
         enemy: u8,
         source: &resonance_content::battle_action::ActionHit,
-        recoil: &super::recoil::Parameters,
     ) -> Result<resonance_battle::HitRule> {
-        let mut hit = super::hit::authored(source, recoil)?;
+        let mut hit = super::hit::authored(source, self.recoil)?;
         if let Some(sound) = hit.sound {
             hit.sound = (self.sound)(sound)?;
         }
         if let Some(member) = source.effect {
-            let mut resource = self
-                .enemy_effects
-                .get(&enemy)
-                .context("missing enemy contact effect bank")?
-                .clone();
-            resource.members = vec![member];
-            hit.effect = Some(resonance_battle::EffectAppearance {
-                resource: resource.resource,
-                member,
-            });
-            self.prepared.effect(resource)?;
+            hit.effect = Some(self.enemy_effect(enemy, member)?);
         }
         Ok(hit)
+    }
+
+    fn enemy_effect(
+        &mut self,
+        enemy: u8,
+        member: u16,
+    ) -> Result<resonance_battle::EffectAppearance> {
+        self.prepared.effect_member(
+            self.enemy_effects
+                .get(&enemy)
+                .context("missing enemy effect bank")?,
+            member,
+        )
     }
 }
 
@@ -968,7 +880,7 @@ mod statistics_tests {
     use super::*;
 
     #[test]
-    fn difficulty_scales_offense_and_vitals_without_changing_source_or_defense() -> Result<()> {
+    fn difficulty_scales_offense_and_vitals_without_changing_source_or_defense() {
         let mut source = MonsterStats {
             hp: 501,
             initial_hp: 120,
@@ -986,7 +898,8 @@ mod statistics_tests {
             gald: 41,
         };
         let before = source.clone();
-        let scaled = [0, 1, 2].map(|rank| statistics(&source, rank).unwrap());
+        let scaled = [Difficulty::Normal, Difficulty::Hard, Difficulty::Mania]
+            .map(|rank| statistics(&source, rank));
         assert_eq!(
             scaled.map(|s| (s.hp, s.tp)),
             [(501, 91), (751, 136), (1002, 182)]
@@ -1005,10 +918,9 @@ mod statistics_tests {
                 .all(|s| s.defense == 30 && s.luck == 25 && s.level == 10)
         );
         assert_eq!(source, before);
-        assert!(statistics(&source, 3).is_err());
         source.initial_hp = 0;
         source.initial_tp = 0;
-        let full = statistics(&source, 1)?;
+        let full = statistics(&source, Difficulty::Hard);
         assert_eq!((full.initial_hp, full.initial_tp), (full.hp, full.tp));
         source.hp = u32::MAX;
         source.initial_hp = u32::MAX;
@@ -1017,11 +929,10 @@ mod statistics_tests {
         source.attack = u16::MAX;
         source.thrust = -3;
         source.intelligence = -1;
-        let bounded = statistics(&source, 2)?;
+        let bounded = statistics(&source, Difficulty::Mania);
         assert_eq!((bounded.hp, bounded.initial_hp), (i32::MAX, i32::MAX));
         assert_eq!((bounded.tp, bounded.initial_tp), (u16::MAX, u16::MAX));
         assert!(bounded.attack > i32::from(u16::MAX));
         assert_eq!((bounded.thrust, bounded.intelligence), (0, 0));
-        Ok(())
     }
 }

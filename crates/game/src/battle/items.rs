@@ -1,5 +1,5 @@
 //! Prepared ordinary-item resources and a borrowed view of the session inventory.
-use super::{model::ModelSource, voice};
+use super::{model::ModelSource, party::Character, voice};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{ActorId, EffectAppearance, ModelDefinition, Sound, item};
 use resonance_content::{battle_effect::Tints, battle_profile::Profile, menu_data::Item};
@@ -11,7 +11,7 @@ pub struct Inventory<'a> {
     pub counts: &'a BTreeMap<u16, u8>,
     pub definitions: &'a [Item],
     pub recent: &'a [u16],
-    pub roster: &'a [(ActorId, u8)],
+    pub roster: &'a [(ActorId, Character)],
     pub names: [&'a str; 9],
 }
 
@@ -37,7 +37,7 @@ pub fn prepare<'a>(
     resolver: &voice::Resolver<'_>,
     tints: Option<&Tints>,
     actors: impl IntoIterator<Item = (ModelSource, Option<&'a ModelDefinition>, &'a Profile, bool)>,
-    common_resource: u32,
+    common_resource: resonance_battle::ResourceId,
     mut resolve: impl FnMut(voice::Sound) -> Result<Option<Sound>>,
 ) -> Result<(item::Definition, Feedback)> {
     let mut rows = Vec::new();
@@ -65,12 +65,10 @@ pub fn prepare<'a>(
             use_offset: *resolver
                 .party_table()
                 .item_use_offsets
-                .get(usize::from(
-                    character.checked_sub(1).context("zero character ID")?,
-                ))
+                .get(character.index())
                 .context("missing item-use effect offset")?,
             used: resolver.select(source, |v| v.item_use, &mut resolve)?,
-            discovery: if character == super::party::Character::Raine as u8 {
+            discovery: if character == super::party::Character::Raine {
                 resolver.absolute(source, Some(voice::Sound::Cue(878)), &mut resolve)?
             } else {
                 None

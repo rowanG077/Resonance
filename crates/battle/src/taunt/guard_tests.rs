@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    ActorAvailability, Control, DamageKind, GuardResult, GuardRule, HitElement, HitProtection,
-    HitRule, Power, Protection, ProtectionMode, ReactionRule, RecoilRule,
+    ActorAvailability, Control, DamageKind, GuardResult, HitProtection, HitRule, Power, Protection,
+    ProtectionMode, ReactionRule, RecoilRule,
 };
 
 fn guarded() -> Battle {
@@ -12,18 +12,9 @@ fn guarded() -> Battle {
 
 fn hit_rule(kind: DamageKind) -> HitRule {
     HitRule {
-        sound: None,
         kind,
-        arte: false,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
         power: Power::Fixed(8),
-        element: HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        guard: GuardRule::default(),
         reaction: ReactionRule {
             hitstun: 60,
             stagger: 200,
@@ -34,7 +25,7 @@ fn hit_rule(kind: DamageKind) -> HitRule {
             },
             ..Default::default()
         },
-        condition: None,
+        ..crate::tests::hit()
     }
 }
 

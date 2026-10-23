@@ -1,7 +1,7 @@
 //! Four elevated lances converge on one retained ground point.
 use super::{
     ActionResources, EffectResource, recoil,
-    stored_spells::{self, ACTIVE_START_TICKS, SCENE_BOUNDARY_TICKS, TRANSITION_TICKS},
+    stored_spells::{self, ACTIVE_START_TICKS, TRANSITION_TICKS},
 };
 use anyhow::{Context, Result};
 use resonance_battle::{
@@ -34,27 +34,14 @@ pub(super) fn prepare(
             .get(index)
             .context("missing lance projectile")?;
         let rule = source.hit()?;
-        let mut hit = super::hit::authored(rule, &recoil)?;
-        if let Some(member) = rule.effect {
-            let mut required = bank.clone();
-            required.members = vec![member];
-            resources.effect(required)?;
-            hit.effect = Some(EffectAppearance {
-                resource: bank.resource,
-                member,
-            });
-        }
-        let mut projectile = resources.projectile(
+        let projectile = resources.scene_projectile(
             files,
             &source.projectile,
-            hit,
+            rule,
+            &recoil,
+            bank,
             &[(0, bank), (2, bank), (6, bank)],
         )?;
-        Arc::make_mut(&mut projectile)
-            .contact
-            .as_mut()
-            .context("lance projectile has no contact")?
-            .cooldown = rule.cooldown;
         definitions.push(projectile);
     }
     let at = |tick| TRANSITION_TICKS + ACTIVE_START_TICKS + tick;
@@ -99,20 +86,16 @@ pub(super) fn prepare(
     effects.push(effect(95, 3, [0., 120., 0.]));
     effects.sort_by_key(|effect| effect.at);
     Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
         projectiles,
         effects,
-        recovery: vec![],
-        origin: SpellOrigin::SceneGround { toward_caster: 1. },
-        transition_ticks: TRANSITION_TICKS,
-        stage_tint: stored_spells::stage_tint(scene.stage_color, LIFETIME)?,
-        camera: stored_spells::scene_camera(scene.camera, LIFETIME)?,
-        duration: TRANSITION_TICKS + LIFETIME + SCENE_BOUNDARY_TICKS,
         startup: Some((
             TRANSITION_TICKS + 1,
             SpellStartup::DeferredEffect(appearance(1)),
         )),
-        sound: None,
+        ..stored_spells::scene_spell(
+            scene,
+            SpellOrigin::SceneGround { toward_caster: 1. },
+            LIFETIME,
+        )?
     })
 }

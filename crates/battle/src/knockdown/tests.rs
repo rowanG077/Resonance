@@ -1,29 +1,18 @@
 use super::*;
 use crate::{
-    ActionId, Affinity, BattleInput, Control, Cue, DamageKind, GuardResult, GuardRule, HitElement,
-    HitRule, MeleeDefinition, Power, PreparedBattle, ReactionRule, tests::actor,
+    ActionId, Affinity, BattleInput, Control, Cue, GuardResult, HitRule, MeleeDefinition, Power,
+    PreparedBattle, ReactionRule, tests::actor,
 };
 
 fn hit() -> HitRule {
     HitRule {
-        sound: None,
-        effect_on_guard: false,
-        effect: None,
-        overlimit_pause: false,
-        condition: None,
-        arte: false,
-        kind: DamageKind::Slash,
         power: Power::Fixed(32),
-        element: HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        guard: GuardRule::default(),
         reaction: ReactionRule {
             stagger: 5,
             hitstun: 20,
             ..Default::default()
         },
+        ..crate::tests::hit()
     }
 }
 
@@ -39,90 +28,92 @@ fn damage(target: &mut Actor, rule: HitRule) -> crate::HitResult {
     )
 }
 
+fn contact(battle: &mut Battle, rule: HitRule) -> Vec<Cue> {
+    let mut contacts = crate::contact::Contacts::default();
+    contacts
+        .melee(
+            ActorId(0),
+            ActionId(0),
+            &MeleeDefinition {
+                hit: rule,
+                trail: None,
+                volume: crate::MeleeVolume::Fixed {
+                    offset: [0.; 3],
+                    radius: 2.,
+                    half_height: 2.,
+                },
+            },
+            &[],
+        )
+        .unwrap();
+    let mut cues = vec![];
+    contacts.resolve(battle, &mut cues, &[]).unwrap();
+    assert!(cues.iter().any(|cue| matches!(cue, Cue::Hit { .. })));
+    cues
+}
+
+fn set_target_model(battle: &mut Battle, model: crate::ModelDefinition) {
+    battle.set_models(
+        crate::Models::new(
+            battle.actors(),
+            vec![None, Some(std::sync::Arc::new(model))],
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap(),
+    );
+}
+
+fn motion(battle: &Battle) -> crate::MainMotionObservation {
+    battle
+        .models()
+        .unwrap()
+        .main_motion_observation(ActorId(1))
+        .unwrap()
+}
+
+fn assert_paused(battle: &mut Battle, id: ActorId) {
+    let before = battle.actors[id.index()].clone();
+    let motion = battle
+        .models()
+        .and_then(|models| models.main_motion_observation(id));
+    battle
+        .step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(battle.actors[id.index()], before);
+    assert_eq!(
+        battle
+            .models()
+            .and_then(|models| models.main_motion_observation(id)),
+        motion
+    );
+}
+
+fn assert_down_remaining(battle: &Battle, remaining: u32) {
+    assert!(matches!(
+        battle.runtime[1].task(),
+        ActorTask::Knockdown(Recovery::Down { remaining: actual }) if *actual == remaining
+    ));
+}
+
 #[test]
 fn protection_preserves_side_window_and_hits_down_rules() {
-    for (mode, side, window, hits_down, protection, amount, hp) in [
-        (
-            ProtectionMode::Down,
-            Side::Party,
-            0,
-            false,
-            HitProtection::Avoided,
-            0,
-            50,
-        ),
-        (
-            ProtectionMode::Down,
-            Side::Enemy,
-            0,
-            false,
-            HitProtection::Reduced,
-            8,
-            42,
-        ),
-        (
-            ProtectionMode::Down,
-            Side::Party,
-            1,
-            false,
-            HitProtection::Reduced,
-            4,
-            46,
-        ),
-        (
-            ProtectionMode::Down,
-            Side::Enemy,
-            1,
-            false,
-            HitProtection::Reduced,
-            4,
-            46,
-        ),
-        (
-            ProtectionMode::Down,
-            Side::Party,
-            1,
-            true,
-            HitProtection::Armored,
-            32,
-            18,
-        ),
-        (
-            ProtectionMode::Down,
-            Side::Enemy,
-            1,
-            true,
-            HitProtection::Armored,
-            32,
-            18,
-        ),
-        (
-            ProtectionMode::Down,
-            Side::Party,
-            0,
-            true,
-            HitProtection::Avoided,
-            0,
-            50,
-        ),
-        (
-            ProtectionMode::Recovery,
-            Side::Party,
-            1,
-            true,
-            HitProtection::Avoided,
-            0,
-            50,
-        ),
-        (
-            ProtectionMode::Recovery,
-            Side::Enemy,
-            1,
-            true,
-            HitProtection::Reduced,
-            4,
-            46,
-        ),
+    use HitProtection::{Armored, Avoided, Reduced};
+    use ProtectionMode::{Down, Recovery};
+    use Side::{Enemy, Party};
+    for (mode, side, window, hits_down, protection, amount) in [
+        (Down, Party, 0, false, Avoided, 0),
+        (Down, Enemy, 0, false, Reduced, 8),
+        (Down, Party, 1, false, Reduced, 4),
+        (Down, Enemy, 1, false, Reduced, 4),
+        (Down, Party, 1, true, Armored, 32),
+        (Down, Enemy, 1, true, Armored, 32),
+        (Down, Party, 0, true, Avoided, 0),
+        (Recovery, Party, 1, true, Avoided, 0),
+        (Recovery, Enemy, 1, true, Reduced, 4),
     ] {
         let mut target = actor(side);
         target.reaction.protection.mode = mode;
@@ -134,7 +125,7 @@ fn protection_preserves_side_window_and_hits_down_rules() {
         let result = damage(&mut target, rule);
         assert_eq!(
             (result.protection, result.amount, target.hp),
-            (protection, amount, hp)
+            (protection, amount, 50 - amount)
         );
         assert_eq!(
             target.reaction.armor.received,
@@ -162,24 +153,19 @@ fn protection_preserves_side_window_and_hits_down_rules() {
 
 #[test]
 fn armor_preserves_longer_and_stronger_protection() {
-    for (mode, remaining, expected_mode, expected_remaining) in [
-        (ProtectionMode::Armor, 3, ProtectionMode::Armor, 10),
-        (ProtectionMode::Armor, 40, ProtectionMode::Armor, 40),
-        (
-            ProtectionMode::Armor,
-            u32::MAX,
-            ProtectionMode::Armor,
-            u32::MAX,
-        ),
-        (ProtectionMode::Recovery, 2, ProtectionMode::Recovery, 2),
-        (ProtectionMode::Escape, 180, ProtectionMode::Escape, 180),
+    for (mode, remaining, expected_remaining) in [
+        (ProtectionMode::Armor, 3, 10),
+        (ProtectionMode::Armor, 40, 40),
+        (ProtectionMode::Armor, u32::MAX, u32::MAX),
+        (ProtectionMode::Recovery, 2, 2),
+        (ProtectionMode::Escape, 180, 180),
     ] {
         let mut protection = Protection { mode, remaining };
         protection.armor(10);
         assert_eq!(
             protection,
             Protection {
-                mode: expected_mode,
+                mode,
                 remaining: expected_remaining
             }
         );
@@ -220,49 +206,36 @@ fn buildup_saturates_and_only_guard_break_allows_guarded_buildup() {
 
 #[test]
 fn knockdown_without_models_recovers_and_preserves_pause() {
-    {
-        let mut target = actor(Side::Enemy);
-        target.reaction.stagger.duration = 2;
-        let mut battle =
-            PreparedBattle::new(vec![(target, Default::default())], Default::default(), 1)
-                .unwrap()
-                .finish()
-                .unwrap();
-        battle.enter_knockdown(ActorId(0), &mut vec![]);
-        battle.set_diagnostics(resonance_content::diagnostics::Diagnostics::default());
-        let before = battle.actors[0].clone();
-        battle
-            .step(BattleInput {
-                paused: true,
-                ..Default::default()
-            })
-            .unwrap();
-        assert_eq!(battle.actors[0], before);
-        for _ in 0..2 {
-            battle.step(BattleInput::default()).unwrap();
-            assert_eq!(battle.activity(ActorId(0)), Activity::KnockedDown);
-        }
-        let mut getting_up = false;
-        for _ in 0..20 {
-            battle.step(BattleInput::default()).unwrap();
-            getting_up |= battle.activity(ActorId(0)) == Activity::GettingUp;
-            if battle.activity(ActorId(0)) == Activity::Idle {
-                break;
-            }
-        }
-        assert!(getting_up);
-        assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
-        assert_eq!(
-            battle.actors[0].reaction.protection.mode,
-            ProtectionMode::Recovery
-        );
-        assert!(battle.actors[0].reaction.protection.remaining > 0);
-        assert!(!battle.is_diagnostic());
-        for _ in 0..120 {
-            battle.step(BattleInput::default()).unwrap();
-        }
-        assert_eq!(battle.actors[0].reaction.protection, Protection::default());
+    let mut target = actor(Side::Enemy);
+    target.reaction.stagger.duration = 2;
+    let mut battle = crate::tests::prepare_actors(vec![target], 1)
+        .finish()
+        .unwrap();
+    battle.enter_knockdown(ActorId(0), &mut vec![]);
+    battle.set_diagnostics(resonance_content::diagnostics::Diagnostics::default());
+    assert_paused(&mut battle, ActorId(0));
+    for _ in 0..2 {
+        battle.step(BattleInput::default()).unwrap();
+        assert_eq!(battle.activity(ActorId(0)), Activity::KnockedDown);
     }
+    let mut getting_up = false;
+    for _ in 0..20 {
+        battle.step(BattleInput::default()).unwrap();
+        getting_up |= battle.activity(ActorId(0)) == Activity::GettingUp;
+        if battle.activity(ActorId(0)) == Activity::Idle {
+            break;
+        }
+    }
+    assert!(getting_up);
+    assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+    assert_eq!(
+        battle.actors[0].reaction.protection.mode,
+        ProtectionMode::Recovery
+    );
+    assert!(battle.actors[0].reaction.protection.remaining > 0);
+    assert!(!battle.is_diagnostic());
+    crate::tests::step_idle(&mut battle, 120).unwrap();
+    assert_eq!(battle.actors[0].reaction.protection, Protection::default());
 }
 
 #[test]
@@ -275,14 +248,9 @@ fn reaching_threshold_precedes_stun_even_for_knockdown_immune_profiles() {
         target.body.collider = Some(crate::Collider::sphere(1.));
         let owner = actor(Side::Party);
 
-        let mut battle = PreparedBattle::new(
-            vec![(owner, Default::default()), (target, Default::default())],
-            Default::default(),
-            1,
-        )
-        .unwrap()
-        .finish()
-        .unwrap();
+        let mut battle = crate::tests::prepare_actors(vec![owner, target], 1)
+            .finish()
+            .unwrap();
         let mut model = crate::tests::model_definition(
             7,
             [(0, 20.), (3, 3.), (7, 2.), (8, 2.), (9, 2.), (10, 2.)],
@@ -293,34 +261,11 @@ fn reaching_threshold_precedes_stun_even_for_knockdown_immune_profiles() {
         model.reactions.down = Some(8);
         model.reactions.get_up = Some(10);
         model.idle_motions[0] = Some(0);
-        battle.set_models(
-            crate::Models::new(
-                battle.actors(),
-                vec![None, Some(std::sync::Arc::new(model))],
-                Default::default(),
-                Default::default(),
-            )
-            .unwrap(),
-        );
+        set_target_model(&mut battle, model);
         let mut rule = hit();
         rule.reaction.stun_chance = 100;
-        let melee = MeleeDefinition {
-            hit: rule,
-            trail: None,
-            volume: crate::MeleeVolume::Fixed {
-                offset: [0.; 3],
-                radius: 2.,
-                half_height: 2.,
-            },
-        };
-        let mut contacts = crate::contact::Contacts::default();
-        contacts
-            .melee(ActorId(0), ActionId(0), &melee, &[])
-            .unwrap();
-        let mut cues = vec![];
-        contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
+        let cues = contact(&mut battle, rule);
         let target = &battle.actors[1];
-        assert!(cues.iter().any(|c| matches!(c, Cue::Hit { .. })));
         assert_eq!(
             battle.activity(ActorId(1)),
             if immune {
@@ -399,14 +344,11 @@ fn stagger_interrupts_actor_tasks_but_preserves_released_work() {
         .unwrap()
         .unwrap();
     let frame = battle
-        .step(BattleInput {
-            actions: vec![ActionRequest {
-                actor: ActorId(1),
-                target: ActorId(1),
-                action: crate::ActionKey(0),
-            }],
-            ..Default::default()
-        })
+        .step(BattleInput::from(ActionRequest {
+            actor: ActorId(1),
+            target: ActorId(1),
+            action: crate::ActionKey(0),
+        }))
         .unwrap();
     let shots = |frame: &crate::BattleFrame| {
         frame
@@ -426,25 +368,7 @@ fn stagger_interrupts_actor_tasks_but_preserves_released_work() {
         .collect();
     assert_eq!(ids.len(), 1);
     let ids = [ids[0], resident];
-    let mut contacts = crate::contact::Contacts::default();
-    contacts
-        .melee(
-            ActorId(0),
-            ActionId(0),
-            &MeleeDefinition {
-                hit: hit(),
-                trail: None,
-                volume: crate::MeleeVolume::Fixed {
-                    offset: [0.; 3],
-                    radius: 2.,
-                    half_height: 2.,
-                },
-            },
-            &[],
-        )
-        .unwrap();
-    let mut cues = vec![];
-    contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
+    let cues = contact(&mut battle, hit());
     assert_eq!(
         cues.iter()
             .filter(|c| matches!(c, Cue::Interrupted { .. }))
@@ -456,14 +380,11 @@ fn stagger_interrupts_actor_tasks_but_preserves_released_work() {
     assert!(battle.volleys.contains_key(&ids[1]));
     assert_eq!(battle.actors[1].hp, 18);
     let frame = battle
-        .step(BattleInput {
-            actions: vec![ActionRequest {
-                actor: ActorId(1),
-                target: ActorId(1),
-                action: crate::ActionKey(0),
-            }],
-            ..Default::default()
-        })
+        .step(BattleInput::from(ActionRequest {
+            actor: ActorId(1),
+            target: ActorId(1),
+            action: crate::ActionKey(0),
+        }))
         .unwrap();
     emitted += shots(&frame);
     assert!(frame.cues.contains(&Cue::Rejected {
@@ -494,53 +415,22 @@ fn contact_battle(mut target: Actor) -> Battle {
     target.heading = 180.;
     target.facing_direction = [0., 0., -1.];
     target.body.collider = Some(crate::Collider::sphere(1.));
-    PreparedBattle::new(
-        vec![(owner, Default::default()), (target, Default::default())],
-        Default::default(),
-        1,
-    )
-    .unwrap()
-    .finish()
-    .unwrap()
+    crate::tests::prepare_actors(vec![owner, target], 1)
+        .finish()
+        .unwrap()
 }
 
-fn submit_contact(battle: &mut Battle, knock_down: bool, delay: u8) -> Vec<Cue> {
-    submit_contact_with_impulse(battle, knock_down, delay, 16.)
-}
-
-fn submit_contact_with_impulse(
-    battle: &mut Battle,
-    knock_down: bool,
-    delay: u8,
-    impulse: f32,
-) -> Vec<Cue> {
+fn submit_contact(battle: &mut Battle, knock_down: bool) {
     let mut rule = hit();
     rule.arte = true;
     rule.reaction.stagger = 1;
     rule.reaction.hitstun = 45;
     rule.reaction.recoil = crate::RecoilRule {
-        impulse: [impulse, 0.],
+        impulse: [16., 0.],
         knock_down,
-        delay,
         ..Default::default()
     };
-    let melee = MeleeDefinition {
-        hit: rule,
-        trail: None,
-        volume: crate::MeleeVolume::Fixed {
-            offset: [0.; 3],
-            radius: 2.,
-            half_height: 2.,
-        },
-    };
-    let mut contacts = crate::contact::Contacts::default();
-    contacts
-        .melee(ActorId(0), ActionId(0), &melee, &[])
-        .unwrap();
-    let mut cues = vec![];
-    contacts.resolve(battle, &mut cues, &[]).unwrap();
-    assert!(cues.iter().any(|cue| matches!(cue, Cue::Hit { .. })));
-    cues
+    contact(battle, rule);
 }
 
 #[test]
@@ -548,7 +438,7 @@ fn contact_down_waits_then_gets_up_and_recovers() {
     let mut target = actor(Side::Enemy);
     target.reaction.stagger.duration = 2;
     let mut battle = contact_battle(target);
-    submit_contact(&mut battle, true, 0);
+    submit_contact(&mut battle, true);
     assert_eq!(battle.activity(ActorId(1)), Activity::Hurt);
     assert_eq!(
         battle.actors[1].reaction.recoil.kind,
@@ -564,14 +454,7 @@ fn contact_down_waits_then_gets_up_and_recovers() {
     assert_eq!(battle.actors[1].reaction.stagger.received, 1);
     assert_eq!(battle.actors[1].reaction.stagger.window, 59);
 
-    let actor_before = battle.actors[1].clone();
-    battle
-        .step(BattleInput {
-            paused: true,
-            ..Default::default()
-        })
-        .unwrap();
-    assert_eq!(battle.actors[1], actor_before);
+    assert_paused(&mut battle, ActorId(1));
 
     battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.activity(ActorId(1)), Activity::KnockedDown);
@@ -608,95 +491,38 @@ fn contact_down_waits_then_gets_up_and_recovers() {
     definition.idle_motions = [Some(0), None];
     definition.reactions.down = Some(8);
     definition.reactions.get_up = Some(10);
-    battle.set_models(
-        crate::Models::new(
-            &battle.actors,
-            vec![None, Some(std::sync::Arc::new(definition))],
-            Default::default(),
-            Default::default(),
-        )
-        .unwrap(),
-    );
+    set_target_model(&mut battle, definition);
     battle.set_task(
         target.index(),
         ActorTask::Knockdown(Recovery::Down { remaining: 3 }),
     );
 
     battle.step(BattleInput::default()).unwrap();
-    assert!(matches!(
-        battle.runtime[1].task(),
-        ActorTask::Knockdown(Recovery::Down { remaining: 3 })
-    ));
-    let motion = battle
-        .models()
-        .unwrap()
-        .main_motion_observation(target)
-        .unwrap();
-    assert_eq!((motion.clip, motion.frame, motion.finished), (4, 2., false));
-    battle
-        .step(BattleInput {
-            paused: true,
-            ..Default::default()
-        })
-        .unwrap();
-    assert_eq!(
-        battle.models().unwrap().main_motion_observation(target),
-        Some(motion)
-    );
+    assert_down_remaining(&battle, 3);
+    let hurt = motion(&battle);
+    assert_eq!((hurt.clip, hurt.frame, hurt.finished), (4, 2., false));
+    assert_paused(&mut battle, target);
 
     battle.step(BattleInput::default()).unwrap();
-    assert_eq!(
-        battle
-            .models()
-            .unwrap()
-            .main_motion_observation(target)
-            .unwrap()
-            .clip,
-        8
-    );
+    assert_eq!(motion(&battle).clip, 8);
     // Replacing the completed hurt pose consumes its final ready tick.
-    assert!(matches!(
-        battle.runtime[1].task(),
-        ActorTask::Knockdown(Recovery::Down { remaining: 2 })
-    ));
+    assert_down_remaining(&battle, 2);
     let mut finished = false;
     for _ in 0..32 {
         battle.step(BattleInput::default()).unwrap();
-        finished = battle
-            .models()
-            .unwrap()
-            .main_motion_observation(target)
-            .unwrap()
-            .finished;
+        finished = motion(&battle).finished;
         if finished {
             break;
         }
-        assert!(matches!(
-            battle.runtime[1].task(),
-            ActorTask::Knockdown(Recovery::Down { remaining: 2 })
-        ));
+        assert_down_remaining(&battle, 2);
     }
     assert!(finished);
-    assert!(matches!(
-        battle.runtime[1].task(),
-        ActorTask::Knockdown(Recovery::Down { remaining: 1 })
-    ));
+    assert_down_remaining(&battle, 1);
     battle.step(BattleInput::default()).unwrap();
-    assert!(matches!(
-        battle.runtime[1].task(),
-        ActorTask::Knockdown(Recovery::Down { remaining: 0 })
-    ));
+    assert_down_remaining(&battle, 0);
     battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.activity(target), Activity::GettingUp);
-    assert_eq!(
-        battle
-            .models()
-            .unwrap()
-            .main_motion_observation(target)
-            .unwrap()
-            .clip,
-        10
-    );
+    assert_eq!(motion(&battle).clip, 10);
     for _ in 0..32 {
         battle.step(BattleInput::default()).unwrap();
         if battle.activity(target) == Activity::Idle {
@@ -705,49 +531,21 @@ fn contact_down_waits_then_gets_up_and_recovers() {
     }
     assert_eq!(battle.activity(target), Activity::Idle);
     assert!(battle.actor_command_ready(target));
-    let completed = battle
-        .models()
-        .unwrap()
-        .main_motion_observation(target)
-        .unwrap();
+    let completed = motion(&battle);
     assert_eq!(
         (completed.clip, completed.frame, completed.finished),
         (10, 2., true)
     );
-    battle
-        .step(BattleInput {
-            paused: true,
-            ..Default::default()
-        })
-        .unwrap();
-    assert_eq!(
-        battle.models().unwrap().main_motion_observation(target),
-        Some(completed)
-    );
+    assert_paused(&mut battle, target);
     battle.step(BattleInput::default()).unwrap();
-    let idle = battle
-        .models()
-        .unwrap()
-        .main_motion_observation(target)
-        .unwrap();
+    let idle = motion(&battle);
     assert_eq!((idle.clip, idle.frame, idle.repeat), (0, 0., true));
     for _ in 0..8 {
         battle.step(BattleInput::default()).unwrap();
-        assert_eq!(
-            battle.models().unwrap().main_motion_observation(target),
-            Some(idle)
-        );
+        assert_eq!(motion(&battle), idle);
     }
     battle.step(BattleInput::default()).unwrap();
-    assert_eq!(
-        battle
-            .models()
-            .unwrap()
-            .main_motion_observation(target)
-            .unwrap()
-            .frame,
-        0.5
-    );
+    assert_eq!(motion(&battle).frame, 0.5);
 }
 
 #[test]
@@ -757,7 +555,7 @@ fn contact_down_waits_for_landing_even_with_air_recovery() {
     target.reaction.recover_in_air = true;
     target.reaction.stagger.duration = 12;
     let mut battle = contact_battle(target);
-    submit_contact(&mut battle, true, 0);
+    submit_contact(&mut battle, true);
     battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.activity(ActorId(1)), Activity::Hurt);
     assert!(battle.actors[1].position[1] > 0.1);
@@ -787,7 +585,7 @@ fn contact_down_retains_existing_guard_profile_and_protection_gates() {
             target.reaction.protection.mode = ProtectionMode::Armor;
         }
         let mut battle = contact_battle(target);
-        submit_contact(&mut battle, true, 0);
+        submit_contact(&mut battle, true);
         assert_eq!(
             battle.actors[1].reaction.recoil.kind,
             crate::RecoilKind::Normal
@@ -803,9 +601,9 @@ fn contact_down_retains_existing_guard_profile_and_protection_gates() {
     let mut target = actor(Side::Enemy);
     target.reaction.stagger.duration = 12;
     let mut battle = contact_battle(target);
-    submit_contact(&mut battle, true, 0);
+    submit_contact(&mut battle, true);
     // A new inclusive hit window clears the previous contact cache.
-    submit_contact(&mut battle, false, 0);
+    submit_contact(&mut battle, false);
     assert_eq!(
         battle.actors[1].reaction.recoil.kind,
         crate::RecoilKind::Normal

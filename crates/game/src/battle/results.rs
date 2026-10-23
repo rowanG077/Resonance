@@ -1,7 +1,10 @@
 //! Candidate session mutations for one live encounter.
 //! The suspended field commits Completed once.
 use super::{
-    lifecycle::{Request, victory_selection},
+    lifecycle::{
+        QuickOrder, Request,
+        victory_selection::{self, ColetteState, VictoryGroupId},
+    },
     party::Character,
     rewards::{EnemyReward, HappinessAward, MaximumVital, RewardModifiers, Rewards},
     victory::Performance,
@@ -61,10 +64,10 @@ pub struct ResultStyle {
 
 #[derive(Debug, Clone)]
 pub struct PreparedGroup {
-    pub id: u8,
-    pub leader: u8,
-    pub participants: Vec<u8>,
-    pub required_leader: Option<u8>,
+    pub id: VictoryGroupId,
+    pub leader: Character,
+    pub participants: Vec<Character>,
+    pub required_leader: Option<Character>,
     pub condition: resonance_content::battle_victory::Condition,
     pub voice: Sound,
 }
@@ -84,7 +87,7 @@ pub struct Setup {
     pub devils_arms_unlocked: bool,
     pub enemies: Vec<PreparedEnemy>,
     pub level_difference: i8,
-    pub actors: Vec<(ActorId, u8)>,
+    pub actors: Vec<(ActorId, Character)>,
     /// Prepared capacity is shared by menus and live control; saved membership gates use.
     pub formation: u16,
     pub formation_count: usize,
@@ -92,80 +95,78 @@ pub struct Setup {
     pub style: ResultStyle,
     pub story: u32,
     /// Colette's character state, independent of main story progression.
-    pub colette_state: u32,
+    pub colette_state: ColetteState,
     /// Event flags 27 and 28, retained while the suspended field cannot mutate.
     pub victory_story_flags: [bool; 2],
     pub groups: Vec<PreparedGroup>,
     pub performances: Vec<Performance>,
     pub postures: Vec<super::victory::PostureBinding>,
     /// Ordinary character voice cues resolved before activation.
-    pub victory_voices: BTreeMap<u8, Vec<[Option<Sound>; 2]>>,
+    pub victory_voices: BTreeMap<Character, Vec<[Option<Sound>; 2]>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResultNotice {
     Level {
-        character: u8,
+        character: Character,
         level: u8,
     },
     TpRecovery {
-        character: u8,
+        character: Character,
         amount: u16,
     },
     MaximumVital {
-        character: u8,
+        character: Character,
         vital: MaximumVital,
         amount: u16,
     },
     /// EX33 active-recipient result notices. These remain separate from
     /// ordinary growth and technique notices to retain their display order.
     HappinessExperience {
-        character: u8,
+        character: Character,
         amount: u32,
     },
     HappinessGald {
-        character: u8,
+        character: Character,
         amount: u32,
     },
     Technique {
-        character: u8,
+        character: Character,
         technique: u16,
     },
     CompoundEx {
-        character: u8,
+        character: Character,
     },
     Title {
-        character: u8,
+        character: Character,
         title: u8,
     },
     Cooking {
-        character: u8,
+        character: Character,
         recipe: u8,
         success: bool,
     },
 }
 
 /// Translate reward bonuses into result notices.
-fn happiness_notices(awards: impl IntoIterator<Item = HappinessAward>) -> Vec<ResultNotice> {
+fn happiness_notices(
+    awards: impl IntoIterator<Item = HappinessAward>,
+) -> impl Iterator<Item = ResultNotice> {
     awards
         .into_iter()
         .flat_map(|award| {
-            let mut notices = Vec::with_capacity(2);
-            if award.experience_success {
-                notices.push(ResultNotice::HappinessExperience {
+            [
+                (award.experience != 0).then_some(ResultNotice::HappinessExperience {
                     character: award.character,
                     amount: award.experience,
-                });
-            }
-            if award.gald_success {
-                notices.push(ResultNotice::HappinessGald {
+                }),
+                (award.gald != 0).then_some(ResultNotice::HappinessGald {
                     character: award.character,
                     amount: award.gald,
-                });
-            }
-            notices
+                }),
+            ]
         })
-        .collect()
+        .flatten()
 }
 #[derive(Debug, Clone)]
 pub struct Results {
@@ -176,7 +177,7 @@ pub struct Results {
     pub character_names: [String; 9],
     pub notices: Vec<ResultNotice>,
     /// Selected persistent chef while result cooking is available.
-    pub cook_prompt: Option<u8>,
+    pub cook_prompt: Option<Character>,
     /// Parallel to rewards.items; computed before inventory is changed.
     pub overflow: Vec<bool>,
 }
@@ -184,10 +185,10 @@ pub struct Results {
 #[derive(Debug, Clone, Copy)]
 pub struct Selection {
     pub actor: ActorId,
-    pub character: u8,
+    pub character: Character,
     pub pose: Option<u8>,
-    pub group: Option<u8>,
-    /// Solo speech retains the selected celebration even if its motion is unavailable.
+    pub group: Option<VictoryGroupId>,
+    /// Speech remains available even when the selected motion is missing.
     pub voice: Option<Sound>,
 }
 
@@ -206,17 +207,16 @@ pub trait Presentation {
 pub struct Candidate {
     setup: Setup,
     party: Party,
-    active_order: u8,
-    party_members: BTreeMap<ActorId, usize>,
+    active_order: QuickOrder,
     /// Shared menu pages see only actors currently present in battle.
     menu_party: Option<Party>,
-    menu_actors: Vec<(ActorId, u8)>,
+    menu_actors: Vec<(ActorId, Character)>,
     gameplay_random: resonance_events::GameplayRandom,
     cosmetic_random: resonance_battle::Random,
     session: Arc<SessionData>,
     menus: Arc<MenuData>,
     catalogue: Arc<Catalogue>,
-    new_ex_skills: Vec<(u8, u8)>,
+    new_ex_skills: BTreeSet<Character>,
     selection: Option<Selection>,
     performance: Option<super::victory::Playing>,
     results: Option<Results>,
@@ -328,7 +328,7 @@ impl Candidate {
         let mut party = self.party.clone();
         party.formation.retain(|character| {
             !self.setup.actors.iter().any(|&(actor, member)| {
-                member == *character
+                member as u8 == *character
                     && battle.actors()[actor.index()].availability
                         == resonance_battle::ActorAvailability::Absent
             })
@@ -391,7 +391,7 @@ impl Candidate {
     ) -> crate::menu::equipment::Page<'a> {
         crate::menu::equipment::Page {
             state,
-            party: self.menu_party.as_ref().unwrap_or(&self.party),
+            party: self.menu_party(),
             session: &self.session,
             data: &self.menus,
             names: &self.menus.initial_names,
@@ -399,57 +399,36 @@ impl Candidate {
         }
     }
 
-    fn equipment_actor(&self, member: usize) -> Result<(ActorId, u8)> {
-        self.party
-            .members
-            .get(member)
-            .context("equipment member is absent")?;
-        let character_id =
-            u8::try_from(member + 1).context("equipment character exceeds source")?;
-        let (actor, _) = self
-            .setup
-            .actors
-            .iter()
-            .find(|&&(_, id)| id == character_id)
-            .copied()
-            .context("equipment member is not in the battle formation")?;
-        Ok((actor, character_id))
-    }
-
     fn equipment_replacement(
         &self,
         battle: &Battle,
         party: &Party,
-        member: usize,
+        actor_id: ActorId,
+        character: Character,
     ) -> Result<resonance_battle::EquipmentReplacement> {
-        let (actor_id, character) = self.equipment_actor(member)?;
+        let member = character.index();
         let live = battle
             .actors()
             .get(actor_id.index())
             .context("equipment actor is absent")?;
-        let loadout = super::party::loadout(&self.menus, &party.members[member], member)?;
+        let loadout = super::party::loadout(&self.menus, &party.members[member], character)?;
         let (mut attributes, conditions) =
             loadout.equipment_attributes(&party.members[member], &live.conditions, false)?;
         attributes.stats = loadout.battle_stats(
             &party.formation,
             self.setup.devils_arms_unlocked,
-            party.battles.kills[usize::from(character - 1)]
+            party.battles.kills[character.index()]
                 .saturating_add(battle.ledger().kills[actor_id.index()])
                 .min(5_000),
         );
         let current = party.members[member].equipment;
         let previous = self.party.members[member].equipment;
         let attachments_changed = previous[0] != current[0] || previous[5] != current[5];
-        let equipment = if attachments_changed {
-            Some([current[0], current[5]])
-        } else {
-            None
-        };
         Ok(resonance_battle::EquipmentReplacement {
             actor: actor_id,
             attributes,
             conditions,
-            equipment,
+            equipment: attachments_changed.then_some([current[0], current[5]]),
         })
     }
 
@@ -460,7 +439,11 @@ impl Candidate {
     ) -> Result<(crate::menu::equipment::Equipment, usize)> {
         self.begin_menu(battle)?;
         let party = self.menu_party.as_mut().unwrap();
-        party.formation = self.menu_actors.iter().map(|&(_, member)| member).collect();
+        party.formation = self
+            .menu_actors
+            .iter()
+            .map(|&(_, member)| member as u8)
+            .collect();
         let count = party.formation.len();
         Ok((
             crate::menu::equipment::Equipment::opening(),
@@ -504,34 +487,26 @@ impl Candidate {
             self.setup.actors.iter().map(|&(_, character)| character),
         )?;
         let mut replacements = Vec::with_capacity(self.setup.actors.len());
-        for &(_, character) in &self.setup.actors {
-            let member = usize::from(character - 1);
-            replacements.push(self.equipment_replacement(battle, &next, member)?);
+        for &(actor, character) in &self.setup.actors {
+            replacements.push(self.equipment_replacement(battle, &next, actor, character)?);
         }
         battle.replace_equipment_batch(replacements)?;
         for &(actor, character) in &self.setup.actors {
-            let member = usize::from(character - 1);
+            let member = character.index();
             if self.party.members[member].equipment[0] != next.members[member].equipment[0] {
                 battle.record_weapon_change(actor);
+                if character == Character::Lloyd {
+                    next.battles
+                        .observe_lloyd_battle_weapon(next.members[member].equipment[0]);
+                }
             }
-        }
-        let lloyd = Character::Lloyd as usize - 1;
-        if self
-            .setup
-            .actors
-            .iter()
-            .any(|&(_, character)| character == Character::Lloyd as u8)
-            && self.party.members[lloyd].equipment[0] != next.members[lloyd].equipment[0]
-        {
-            next.battles
-                .observe_lloyd_battle_weapon(next.members[lloyd].equipment[0]);
         }
         self.party = next;
         battle.refresh_escape_magic_mist(magic_mist);
         Ok(())
     }
 
-    fn item_character(&self, actor: ActorId) -> Result<u8> {
+    fn item_character(&self, actor: ActorId) -> Result<Character> {
         self.setup
             .actors
             .iter()
@@ -586,7 +561,7 @@ impl Candidate {
                     .iter()
                     .take(4)
                     .copied()
-                    .eq(setup.actors.iter().map(|&(_, id)| id)),
+                    .eq(setup.actors.iter().map(|&(_, id)| id as u8)),
             "result party differs from active roster"
         );
         for (slot, enemy) in setup.enemies.iter().enumerate() {
@@ -602,10 +577,9 @@ impl Candidate {
         let mut activation = Vec::with_capacity(setup.actors.len());
         for (slot, &(actor, character)) in setup.actors.iter().enumerate() {
             ensure!(
-                (1..=9).contains(&character)
-                    && !setup.actors[..slot]
-                        .iter()
-                        .any(|&(other, id)| other == actor || id == character),
+                !setup.actors[..slot]
+                    .iter()
+                    .any(|&(other, id)| other == actor || id == character),
                 "victory character is not prepared"
             );
             let prepared = actors
@@ -615,12 +589,15 @@ impl Candidate {
                 prepared.side == resonance_battle::Side::Party,
                 "result actor is not a party member"
             );
-            activation.push((character, prepared.equipment.contact.technique_balance));
+            activation.push((
+                character as u8,
+                prepared.equipment.contact.technique_balance,
+            ));
         }
         let mut group_ids = std::collections::BTreeSet::new();
         for group in &setup.groups {
             ensure!(
-                (1..64).contains(&group.id)
+                (1..64).contains(&group.id.0)
                     && group_ids.insert(group.id)
                     && (1..=resonance_battle::PARTY_CAPACITY).contains(&group.participants.len())
                     && group.participants.contains(&group.leader)
@@ -638,15 +615,15 @@ impl Candidate {
         // Live conditions were prepared from these requests before activation.
         // Clear only participating members, using character identity rather than slot count.
         for &(_, character) in &setup.actors {
-            let member = &mut party.members[usize::from(character - 1)];
+            let member = &mut party.members[character.index()];
             member.queued_buffs.clear();
         }
         party.begin_battle(&activation)?;
         party.battles.previous_formation = Some(setup.formation);
         // Discover active compound skills at battle entry and retain their result notices.
-        let mut new_ex_skills = Vec::new();
+        let mut new_ex_skills = BTreeSet::new();
         for &(_, character) in &setup.actors {
-            let index = usize::from(character - 1);
+            let index = character.index();
             let member = &mut party.members[index];
             for (row, _) in menus.ex_skills.characters[index].equipped_compounds(&member.ex_skills)
             {
@@ -654,21 +631,15 @@ impl Candidate {
                     u8::try_from(row).context("compound EX index exceeds saved representation")?;
                 if member.compound_ex_skills.insert(row) {
                     member.recent_compound_ex_skills.insert(row);
-                    new_ex_skills.push((character, row));
+                    new_ex_skills.insert(character);
                 }
             }
         }
-        let party_members = setup
-            .actors
-            .iter()
-            .map(|&(actor, character)| (actor, usize::from(character - 1)))
-            .collect();
         let menu_actors = setup.actors.clone();
         Ok(Self {
             setup,
             party,
-            active_order: 0,
-            party_members,
+            active_order: QuickOrder::Cancel,
             menu_party: None,
             menu_actors,
             cosmetic_random: resonance_battle::Random::new(!gameplay_random.state()),
@@ -701,7 +672,7 @@ impl Candidate {
     pub fn selection(&self) -> Option<&Selection> {
         self.selection.as_ref()
     }
-    fn leader(&self, battle: &Battle) -> Result<(ActorId, u8)> {
+    fn leader(&self, battle: &Battle) -> Result<(ActorId, Character)> {
         battle
             .ledger()
             .last_party_killer
@@ -736,18 +707,14 @@ impl Candidate {
         let mut party = self.party.clone();
         // Once rewards publish, Party owns level-up learning for the next battle.
         if self.results.is_none() {
-            Self::project_techniques(battle, &self.party_members, &mut party);
+            Self::project_techniques(battle, &self.setup.actors, &mut party);
         }
         for &(id, character) in &self.setup.actors {
             let actor = battle
                 .actors()
                 .get(id.index())
                 .context("missing result actor")?;
-            let index = usize::from(
-                character
-                    .checked_sub(1)
-                    .context("invalid result character")?,
-            );
+            let index = character.index();
             let member = party
                 .members
                 .get_mut(index)
@@ -820,9 +787,8 @@ impl Candidate {
             .actors
             .iter()
             .map(|&(id, character)| {
-                let member = &mut party.members[usize::from(character - 1)];
-                let loadout =
-                    super::party::loadout(&self.menus, member, usize::from(character - 1))?;
+                let member = &mut party.members[character.index()];
+                let loadout = super::party::loadout(&self.menus, member, character)?;
                 let max_hp = u16::try_from(loadout.attributes.max_hp)?;
                 let max_tp = loadout.attributes.max_tp;
                 ensure!(
@@ -862,7 +828,7 @@ impl Candidate {
         };
         battle.normalize_result_overlimit()?;
         for &(id, character) in &self.setup.actors {
-            party.members[usize::from(character - 1)].overlimit =
+            party.members[character.index()].overlimit =
                 battle.actors()[id.index()].overlimit.saved_percent();
         }
         for (id, hp, maximum_hp, tp, maximum_tp) in vitals {
@@ -890,7 +856,7 @@ impl Candidate {
             if row.levels != 0 {
                 notices.push(ResultNotice::Level {
                     character: row.character,
-                    level: party.members[usize::from(row.character - 1)].level,
+                    level: party.members[row.character.index()].level,
                 });
             }
         }
@@ -899,7 +865,7 @@ impl Candidate {
                 party.battles.hard_victories.saturating_add(1).min(9_999);
         }
         let presea_leads = self.setup.actors.first().is_some_and(|&(id, character)| {
-            character == Character::Presea as u8
+            character == Character::Presea
                 && battle.actors()[id.index()].control != resonance_battle::Control::Auto
         });
         party
@@ -914,7 +880,7 @@ impl Candidate {
             self.setup.level_difference,
         ));
         for &(_, character) in &self.setup.actors {
-            if self.new_ex_skills.iter().any(|&(id, _)| id == character) {
+            if self.new_ex_skills.contains(&character) {
                 notices.push(ResultNotice::CompoundEx { character });
             }
         }
@@ -936,7 +902,10 @@ impl Candidate {
                     .unwrap_or_else(|| self.menus.initial_names[index].clone())
             }),
             notices,
-            cook_prompt: party.cooking_chef(&self.menus).ok(),
+            cook_prompt: party
+                .cooking_chef(&self.menus)
+                .ok()
+                .and_then(|id| Character::try_from(id).ok()),
             overflow,
         };
         self.party = party;
@@ -962,24 +931,24 @@ impl Candidate {
     ) -> Result<RewardModifiers> {
         let mut modifiers = RewardModifiers::default();
         // Read Raine's luck independently; recipient availability determines bonus eligibility.
-        let raine = Character::Raine as usize - 1;
+        let raine = Character::Raine.index();
         if super::party::happiness(&self.party.members[raine]) {
             let luck = self.party.members[raine].stats_for(&self.menus, raine).luck;
             modifiers.happiness_recipient_luck = Some(luck);
         }
         let mut experience_plus = false;
         for &(actor_id, character) in &self.setup.actors {
-            let index = usize::from(character - 1);
+            let index = character.index();
             let member = &self.party.members[index];
             // Committed gear contributes even when its admitted owner is knocked out.
-            let loadout = super::party::loadout(&self.menus, member, index)?;
+            let loadout = super::party::loadout(&self.menus, member, character)?;
             let gear = &loadout.gear;
             modifiers.happiness_recipients[index] = loadout.happiness;
             modifiers.equipment_experience_percent[index] = gear.experience_percent;
             modifiers.gald_one_and_a_half |= gear.gald_one_and_a_half;
             modifiers.gald_double |= gear.gald_double;
             let (available, hp, maximum_hp) = actor_state(actor_id);
-            if character == Character::Raine as u8 && loadout.happiness && available {
+            if character == Character::Raine && loadout.happiness && available {
                 // The global drop query remains availability-gated.
                 modifiers.happiness_luck = modifiers.happiness_recipient_luck;
             }
@@ -1000,7 +969,7 @@ impl Candidate {
         }
         if experience_plus {
             for &(_, character) in &self.setup.actors {
-                modifiers.experience_bonus_percent[usize::from(character - 1)] = 10;
+                modifiers.experience_bonus_percent[character.index()] = 10;
             }
         }
         use resonance_events::battle::Rules;
@@ -1018,37 +987,24 @@ impl Candidate {
             .selection
             .as_ref()
             .context("victory performance has no selection")?;
-        let voice = if let Some(group) = selection.group {
-            Some(
-                self.setup
-                    .groups
-                    .iter()
-                    .find(|row| row.id == group)
-                    .context("missing prepared group")?
-                    .voice,
-            )
-        } else {
-            if let Some(pose) = selection.pose {
-                let performance = self
-                    .setup
-                    .performances
-                    .iter()
-                    .find(|row| row.character == selection.character && row.selector == pose)
-                    .context("missing selected performance")?;
-                if selection.character != Character::Colette as u8
-                    || victory_selection::ColetteState::from(self.setup.colette_state)
-                        != victory_selection::ColetteState::Sealed
-                {
-                    self.performance = Some(super::victory::Playing::start(
-                        battle,
-                        selection.actor,
-                        performance,
-                    )?);
-                }
+        if let Some(pose) = selection.pose {
+            let performance = self
+                .setup
+                .performances
+                .iter()
+                .find(|row| row.character == selection.character && row.selector == pose)
+                .context("missing selected performance")?;
+            if selection.character != Character::Colette
+                || self.setup.colette_state != ColetteState::Sealed
+            {
+                self.performance = Some(super::victory::Playing::start(
+                    battle,
+                    selection.actor,
+                    performance,
+                )?);
             }
-            selection.voice
-        };
-        if let Some(voice) = voice {
+        }
+        if let Some(voice) = selection.voice {
             battle.request_result_voice(selection.actor, voice)?;
         }
         Ok(())
@@ -1095,7 +1051,7 @@ impl Candidate {
             .maximum_combo_damage
             .max(ledger.maximum_combo_damage);
         for (slot, &(id, character)) in self.setup.actors.iter().enumerate() {
-            let index = usize::from(character - 1);
+            let index = character.index();
             self.party.settings.battle_controls[slot] = match battle.actors()[id.index()].control {
                 resonance_battle::Control::Manual => 0,
                 resonance_battle::Control::SemiAuto => 1,
@@ -1215,7 +1171,7 @@ impl resonance_battle::item::Provider for Candidate {
         // Acquisition is the release's final fallible operation. Do not add a
         // fallible tail after this first persistent write for a new species.
         let knowledge = monsters.entry(monster).or_default();
-        let location = if user_character == super::party::Character::Raine as u8 {
+        let location = if user_character == super::party::Character::Raine {
             Some(&mut knowledge.location)
         } else {
             None
@@ -1257,12 +1213,11 @@ impl Candidate {
         let selection =
             victory_selection::select(&self.victory_context(battle)?, || random.next_u16());
         self.cosmetic_random = random;
-        self.select_victory(battle, selection.group, selection.pose)
+        self.select_victory(battle, selection)
     }
 
     pub fn victory_context(&self, battle: &Battle) -> Result<victory_selection::Context<'_>> {
-        use super::party::Character;
-        use victory_selection::{ColetteState, Context, Participant};
+        use victory_selection::{Context, Participant};
         let candidate = self;
         let affinity = affinity_order(std::array::from_fn(|index| {
             candidate.party.members[index].affinity
@@ -1274,34 +1229,33 @@ impl Candidate {
             .map(|&(id, character)| {
                 let actor = &battle.actors()[id.index()];
                 let rank = affinity.iter().position(|&id| id == character).unwrap_or(8);
-                Ok(Participant {
-                    character: Character::try_from(character)?,
+                Participant {
+                    character,
                     available: actor.available(),
                     dead: actor.availability == ActorAvailability::Dead,
                     hp_percent: actor.hp_percent() as u8,
                     close_to_lloyd: rank == 0,
                     distant_from_lloyd: rank >= 3,
                     participation: u32::from(
-                        candidate.party.battles.participation[usize::from(character - 1)],
+                        candidate.party.battles.participation[character.index()],
                     ),
                     poisoned: actor.conditions.effective().intersects(POISON),
                     control: actor.control,
                     kills: u32::from(battle.ledger().kills[id.index()]),
-                })
+                }
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect();
         Ok(Context {
-            leader: Character::try_from(candidate.leader(battle)?.1)?,
+            leader: candidate.leader(battle)?.1,
             formation: candidate.setup.formation,
             party,
-            colette: ColetteState::from(candidate.setup.colette_state),
+            colette: candidate.setup.colette_state,
             presea_recovered: candidate.setup.victory_story_flags[1],
             regal_recovered: candidate.setup.victory_story_flags[0],
             party_was_hit: battle.ledger().party_was_hit,
             enemy_was_scanned: battle.ledger().enemy_was_scanned,
             level_difference: i16::from(candidate.setup.level_difference),
             enemy_count: candidate.setup.enemies.len(),
-            seen_groups: candidate.party.battles.victory_groups,
             prepared_groups: if candidate.setup.style.celebrate {
                 &candidate.setup.groups
             } else {
@@ -1309,65 +1263,75 @@ impl Candidate {
             },
         })
     }
-    pub fn select_victory(&mut self, battle: &Battle, group: u8, pose: u8) -> Result<()> {
+    pub fn select_victory(
+        &mut self,
+        battle: &Battle,
+        choice: victory_selection::Selection,
+    ) -> Result<()> {
         ensure!(
             self.selection.is_none(),
             "invalid repeated victory selection"
         );
-        let (actor, character) = if group == 0 {
-            self.leader(battle)?
-        } else {
-            let selected = self
-                .setup
-                .groups
-                .iter()
-                .find(|row| row.id == group)
-                .context("unprepared victory group")?;
-            *self
-                .setup
-                .actors
-                .iter()
-                // Group performances retain their designated lead character,
-                // including when that character was knocked out.
-                .find(|&&(_, character)| character == selected.leader)
-                .context("absent group leader")?
-        };
-        let can_speak = character != Character::Colette as u8
-            || victory_selection::ColetteState::from(self.setup.colette_state).can_speak();
-        let voice = self
-            .setup
-            .victory_voices
-            .get(&character)
-            .filter(|_| group == 0 && can_speak)
-            .and_then(|choices| {
-                victory_selection::ordinary_voice(
+        self.selection = Some(match choice {
+            victory_selection::Selection::Solo(requested_pose) => {
+                let (actor, character) = self.leader(battle)?;
+                let can_speak =
+                    character != Character::Colette || self.setup.colette_state.can_speak();
+                let voice = self
+                    .setup
+                    .victory_voices
+                    .get(&character)
+                    .filter(|_| can_speak)
+                    .and_then(|choices| {
+                        victory_selection::ordinary_voice(
+                            character,
+                            requested_pose,
+                            self.cosmetic_random.next_u16(),
+                            choices,
+                        )
+                    });
+                let pose = self
+                    .setup
+                    .performances
+                    .iter()
+                    .find(|row| row.character == character && row.selector == requested_pose)
+                    .or_else(|| {
+                        self.setup
+                            .performances
+                            .iter()
+                            .find(|row| row.character == character)
+                    })
+                    .map(|row| row.selector);
+                Selection {
+                    actor,
                     character,
                     pose,
-                    self.cosmetic_random.next_u16(),
-                    choices,
-                )
-            });
-        let pose = if group == 0 {
-            self.setup
-                .performances
-                .iter()
-                .find(|row| row.character == character && row.selector == pose)
-                .or_else(|| {
-                    self.setup
-                        .performances
-                        .iter()
-                        .find(|row| row.character == character)
-                })
-                .map(|row| row.selector)
-        } else {
-            None
-        };
-        self.selection = Some(Selection {
-            actor,
-            character,
-            pose,
-            group: (group != 0).then_some(group),
-            voice,
+                    group: None,
+                    voice,
+                }
+            }
+            victory_selection::Selection::Group(group) => {
+                let selected = self
+                    .setup
+                    .groups
+                    .iter()
+                    .find(|row| row.id == group)
+                    .context("unprepared victory group")?;
+                // A dialogue keeps its designated speaker even when they were knocked out.
+                let &(actor, character) = self
+                    .setup
+                    .actors
+                    .iter()
+                    .find(|&&(_, character)| character == selected.leader)
+                    .context("absent group leader")?;
+                Selection {
+                    actor,
+                    character,
+                    pose: None,
+                    group: Some(group),
+                    voice: Some(selected.voice),
+                }
+            }
         });
         Ok(())
     }
@@ -1445,7 +1409,7 @@ impl Candidate {
             .context("unselected victory confirmation")?
             .group
         {
-            self.party.battles.victory_groups |= 1 << group;
+            self.party.battles.victory_groups |= 1 << group.0;
         }
         self.accepted = true;
         Ok(())
@@ -1461,9 +1425,9 @@ impl Candidate {
 }
 
 /// Rank Lloyd's companions by affinity.
-fn affinity_order(affinities: [i32; 9]) -> [u8; 8] {
-    let mut order = [2u8, 3, 4, 5, 6, 7, 8, 9];
-    order.sort_by_key(|&id| std::cmp::Reverse(affinities[usize::from(id - 1)]));
+fn affinity_order(affinities: [i32; 9]) -> [Character; 8] {
+    let mut order = std::array::from_fn(|index| Character::ALL[index + 1]);
+    order.sort_by_key(|&id| std::cmp::Reverse(affinities[id.index()]));
     order
 }
 

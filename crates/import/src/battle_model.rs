@@ -326,24 +326,21 @@ pub fn publish_enemies(
     let guard_bonus = crate::battle_recoil::guard_defaults(&crate::rel::Rel::read(
         &extracted.join("files").join(&sources.module),
     )?)?[0];
-    let paths = monsters
-        .iter()
-        .enumerate()
-        .map(|(id, monster)| {
-            publish_enemy(
-                &crate::source_assets::enemy_package(&archive, &usual, id as u16)?,
-                &usual,
-                &voices,
-                guard_bonus,
-                id as u8,
-                &monster.preview,
-                &mut shared,
-                library,
-                output,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(paths.into_iter().flatten().collect())
+    let mut paths = Vec::new();
+    for (id, monster) in monsters.iter().enumerate() {
+        paths.extend(publish_enemy(
+            &crate::source_assets::enemy_package(&archive, &usual, id as u16)?,
+            &usual,
+            &voices,
+            guard_bonus,
+            id as u8,
+            &monster.preview,
+            &mut shared,
+            library,
+            output,
+        )?);
+    }
+    Ok(paths)
 }
 
 #[cfg(test)]

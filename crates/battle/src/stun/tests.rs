@@ -1,10 +1,10 @@
 use super::*;
 use crate::Activity;
 use crate::conditions::{Condition, ConditionSet};
-use crate::tests::prepared;
+use crate::tests::{prepare_actors, prepared, step_idle};
 use crate::{
-    ActionId, ActionRequest, BattleInput, DamageKind, GuardResult, GuardRule, HitElement, HitRule,
-    MeleeDefinition, Power, PreparedBattle, ReactionRule, Side,
+    ActionId, ActionRequest, BattleFrame, BattleInput, GuardResult, HitRule, MeleeDefinition,
+    Power, PreparedBattle, ReactionRule, Side,
 };
 fn actor(side: Side) -> Actor {
     let mut actor = crate::tests::actor(side);
@@ -13,9 +13,8 @@ fn actor(side: Side) -> Actor {
     actor
 }
 
-fn battle(mut target: Actor) -> Battle {
-    target.side = Side::Enemy;
-    let mut prepared = prepared(vec![actor(Side::Party), target], 120);
+fn battle() -> Battle {
+    let mut prepared = prepared(vec![actor(Side::Party), actor(Side::Enemy)], 120);
     prepared.resources.actor_setup[0] = Default::default();
     crate::tests::assign_action(&mut prepared, 1, crate::ActionKey(0));
     prepared.finish().unwrap()
@@ -35,27 +34,17 @@ fn hit() -> HitResult {
     }
 }
 
-fn melee(chance: u8) -> MeleeDefinition {
+fn melee() -> MeleeDefinition {
     MeleeDefinition {
         hit: HitRule {
-            sound: None,
-            effect_on_guard: false,
-            effect: None,
             overlimit_pause: true,
-            condition: None,
-            arte: false,
-            kind: DamageKind::Slash,
             power: Power::Fixed(8),
-            element: HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
-            guard: GuardRule::default(),
             reaction: ReactionRule {
-                stun_chance: chance,
+                stun_chance: 100,
                 hitstun: 20,
                 ..Default::default()
             },
+            ..crate::tests::hit()
         },
         trail: None,
         volume: crate::MeleeVolume::Fixed {
@@ -66,14 +55,26 @@ fn melee(chance: u8) -> MeleeDefinition {
     }
 }
 
-fn contact(battle: &mut Battle, chance: u8) -> Vec<Cue> {
+fn contact(battle: &mut Battle, rule: MeleeDefinition) -> Vec<Cue> {
     let mut contacts = crate::contact::Contacts::default();
     contacts
-        .melee(ActorId(0), ActionId(999), &melee(chance), &[])
+        .melee(ActorId(0), ActionId(999), &rule, &[])
         .unwrap();
     let mut cues = vec![];
     contacts.resolve(battle, &mut cues, &[]).unwrap();
     cues
+}
+
+fn present(
+    battle: &mut Battle,
+    effects: &mut crate::Effects,
+    mut frame: BattleFrame,
+) -> BattleFrame {
+    battle
+        .advance_models(&mut frame, crate::BattleClock::Running, true)
+        .unwrap();
+    effects.advance(&frame, false).unwrap();
+    frame
 }
 
 #[test]
@@ -155,15 +156,18 @@ fn stun_chance_respects_immunity_resistance_bonuses_and_guarding() {
         .unwrap()
     );
     assert_eq!(draws, 1);
+}
 
+#[test]
+fn recorded_random_inputs_require_matching_admission_and_each_draw_exactly_once() {
     use crate::random_inputs::{
         Ailment, Contact, Critical, CriticalRole, HammerRingLaunch, Key, RecordedInputs, Scatter,
         Stun, Velocity,
     };
     let key = Key {
         clock: 2,
-        owner: 0,
-        target: 1,
+        owner: ActorId(0),
+        target: ActorId(1),
         action: 1,
         contact: Contact::Projectile(1),
     };
@@ -203,7 +207,7 @@ fn stun_chance_respects_immunity_resistance_bonuses_and_guarding() {
         chance: 50,
         value: 0,
     };
-    let mut fixture = battle(target);
+    let mut fixture = battle();
     fixture.next_action = 7;
     fixture
         .install_random_inputs(
@@ -218,32 +222,21 @@ fn stun_chance_respects_immunity_resistance_bonuses_and_guarding() {
                 }],
                 velocity: vec![velocity],
                 stun: vec![stun.clone()],
-                ailments: Some(vec![
-                    Ailment {
-                        key,
-                        condition,
-                        resistance: false,
-                        value: 4343,
-                    },
-                    Ailment {
-                        key,
-                        condition,
-                        resistance: true,
-                        value: 65000,
-                    },
-                ]),
-                criticals: Some(vec![
-                    Critical {
-                        key,
-                        role: CriticalRole::Chance,
-                        value: 58405,
-                    },
-                    Critical {
-                        key,
-                        role: CriticalRole::Roll,
-                        value: 3204,
-                    },
-                ]),
+                ailments: Some(
+                    [(false, 4343), (true, 65000)]
+                        .map(|(resistance, value)| Ailment {
+                            key,
+                            condition,
+                            resistance,
+                            value,
+                        })
+                        .into(),
+                ),
+                criticals: Some(
+                    [(CriticalRole::Chance, 58405), (CriticalRole::Roll, 3204)]
+                        .map(|(role, value)| Critical { key, role, value })
+                        .into(),
+                ),
                 ..Default::default()
             },
         )
@@ -267,41 +260,22 @@ fn stun_chance_respects_immunity_resistance_bonuses_and_guarding() {
     };
     inputs.released(ActorId(1), Some(ActionId(7)), ActionId(8));
     inputs.released(ActorId(0), Some(ActionId(6)), ActionId(9));
-    assert!(
-        inputs
-            .stun(
-                Key {
-                    action: 8,
-                    ..actual
-                },
-                10
-            )
-            .is_err()
-    );
-    assert!(inputs.stun(actual, 10).is_err());
+    for action in [8, 9] {
+        assert!(inputs.stun(Key { action, ..actual }, 10).is_err());
+    }
     inputs.released(ActorId(0), Some(ActionId(7)), ActionId(9));
-    assert!(
-        inputs
-            .stun(
-                Key {
-                    clock: 11,
-                    ..actual
-                },
-                10
-            )
-            .is_err()
-    );
-    assert!(
-        inputs
-            .stun(
-                Key {
-                    contact: Contact::Projectile(2),
-                    ..actual
-                },
-                10
-            )
-            .is_err()
-    );
+    for key in [
+        Key {
+            clock: 11,
+            ..actual
+        },
+        Key {
+            contact: Contact::Projectile(2),
+            ..actual
+        },
+    ] {
+        assert!(inputs.stun(key, 10).is_err());
+    }
     assert!(inputs.stun(actual, 11).is_err());
     assert_eq!(inputs.stun(actual, 10).unwrap(), 3403);
     assert!(inputs.stun(actual, 10).is_err());
@@ -332,8 +306,9 @@ fn stun_chance_respects_immunity_resistance_bonuses_and_guarding() {
         [44012, 6446, 53151]
     );
     assert!(inputs.hammer_ring(actual, 2, ring).is_err());
-    assert!(inputs.velocity(actual, 0, 2.).is_err());
-    assert!(inputs.velocity(actual, 1, 3.).is_err());
+    for (axis, amplitude) in [(0, 2.), (1, 3.)] {
+        assert!(inputs.velocity(actual, axis, amplitude).is_err());
+    }
     assert_eq!(
         inputs
             .velocity(
@@ -350,45 +325,33 @@ fn stun_chance_respects_immunity_resistance_bonuses_and_guarding() {
     assert!(inputs.velocity(actual, 1, 2.).is_err());
     assert!(inputs.ailment(actual, Some(condition), true).is_err());
     assert!(inputs.critical(actual, CriticalRole::Roll).is_err());
-    assert_eq!(
-        inputs.critical(actual, CriticalRole::Chance).unwrap(),
-        Some(58405)
-    );
-    assert!(inputs.critical(actual, CriticalRole::Chance).is_err());
-    assert!(fixture.finish_random_inputs().is_err());
+    for (role, value) in [(CriticalRole::Chance, 58405), (CriticalRole::Roll, 3204)] {
+        let inputs = fixture.random_inputs.as_mut().unwrap();
+        assert_eq!(inputs.critical(actual, role).unwrap(), Some(value));
+        assert!(inputs.critical(actual, role).is_err());
+        assert!(fixture.finish_random_inputs().is_err());
+    }
     let inputs = fixture.random_inputs.as_mut().unwrap();
-    assert_eq!(
-        inputs.critical(actual, CriticalRole::Roll).unwrap(),
-        Some(3204)
-    );
-    assert!(inputs.critical(actual, CriticalRole::Roll).is_err());
-    assert!(inputs.ailment(actual, None, false).is_err());
-    assert!(
-        inputs
-            .ailment(
-                actual,
-                Some(crate::HitCondition {
-                    chance: 49,
-                    ..condition
-                }),
-                false
-            )
-            .is_err()
-    );
-    assert_eq!(
-        inputs.ailment(actual, Some(condition), false).unwrap(),
-        Some(4343)
-    );
-    assert!(inputs.ailment(actual, Some(condition), false).is_err());
-    assert!(fixture.finish_random_inputs().is_err());
-    let inputs = fixture.random_inputs.as_mut().unwrap();
-    assert_eq!(
-        inputs.ailment(actual, Some(condition), true).unwrap(),
-        Some(65000)
-    );
-    assert!(inputs.ailment(actual, Some(condition), true).is_err());
+    for condition in [
+        None,
+        Some(crate::HitCondition {
+            chance: 49,
+            ..condition
+        }),
+    ] {
+        assert!(inputs.ailment(actual, condition, false).is_err());
+    }
+    for (resistance, value) in [(false, 4343), (true, 65000)] {
+        assert!(fixture.finish_random_inputs().is_err());
+        let inputs = fixture.random_inputs.as_mut().unwrap();
+        assert_eq!(
+            inputs.ailment(actual, Some(condition), resistance).unwrap(),
+            Some(value)
+        );
+        assert!(inputs.ailment(actual, Some(condition), resistance).is_err());
+    }
     fixture.finish_random_inputs().unwrap();
-    let mut attached = battle(actor(Side::Enemy));
+    let mut attached = battle();
     let attached_key = Key {
         contact: Contact::Attached,
         ..key
@@ -424,40 +387,28 @@ fn stun_chance_respects_immunity_resistance_bonuses_and_guarding() {
         3403
     );
     attached.finish_random_inputs().unwrap();
-    let mut wrong_source = battle(actor(Side::Enemy));
-    assert!(
-        wrong_source
-            .install_random_inputs(
-                10,
-                RecordedInputs {
-                    scatter: vec![Scatter {
-                        key: attached_key,
-                        ..scatter.clone()
-                    }],
-                    ..Default::default()
-                }
-            )
-            .is_err()
-    );
-    let mut duplicate = battle(actor(Side::Enemy));
-    assert!(
-        duplicate
-            .install_random_inputs(
-                10,
-                RecordedInputs {
-                    scatter: vec![scatter.clone(), scatter],
-                    stun: vec![stun],
-                    ..Default::default()
-                }
-            )
-            .is_err()
-    );
+    for invalid in [
+        RecordedInputs {
+            scatter: vec![Scatter {
+                key: attached_key,
+                ..scatter.clone()
+            }],
+            ..Default::default()
+        },
+        RecordedInputs {
+            scatter: vec![scatter.clone(), scatter],
+            stun: vec![stun],
+            ..Default::default()
+        },
+    ] {
+        assert!(battle().install_random_inputs(10, invalid).is_err());
+    }
 }
 
 #[test]
 fn stun_interrupts_work_and_recovers_without_resuming_it() {
     for (height, lift) in [(0., 0.), (0., 5.), (1., 0.)] {
-        let mut battle = battle(actor(Side::Enemy));
+        let mut battle = battle();
         let mut model = crate::tests::model_definition(7, [(0, 10.), (1, 10.), (2, 10.)]);
         model.reactions.hurt = [Some(1); 2];
         model.reactions.stunned = Some(2);
@@ -485,26 +436,18 @@ fn stun_interrupts_work_and_recovers_without_resuming_it() {
                 2
             ]);
         let start = battle
-            .step(BattleInput {
-                actions: vec![ActionRequest {
-                    actor: ActorId(1),
-                    target: ActorId(1),
-                    action: crate::ActionKey(0),
-                }],
-                ..Default::default()
-            })
+            .step(BattleInput::from(ActionRequest {
+                actor: ActorId(1),
+                target: ActorId(1),
+                action: crate::ActionKey(0),
+            }))
             .unwrap();
         let action = start.actions[0].0;
         battle.actors[1].position[1] = height;
-        let mut rule = melee(100);
+        let mut rule = melee();
         rule.hit.reaction.recoil.impulse[1] = lift;
         rule.hit.reaction.recoil.launch = lift != 0.;
-        let mut contacts = crate::contact::Contacts::default();
-        contacts
-            .melee(ActorId(0), ActionId(999), &rule, &[])
-            .unwrap();
-        let mut cues = vec![];
-        contacts.resolve(&mut battle, &mut cues, &[]).unwrap();
+        let cues = contact(&mut battle, rule);
         assert_eq!(
             cues.iter()
                 .filter(|cue| **cue == Cue::Interrupted { action })
@@ -512,21 +455,15 @@ fn stun_interrupts_work_and_recovers_without_resuming_it() {
             1
         );
         assert_eq!(battle.activity(ActorId(1)), Activity::Stunned);
-        let mut frame = battle.publish(cues);
-        battle
-            .advance_models(&mut frame, crate::BattleClock::Running, true)
-            .unwrap();
-        effects.advance(&frame, false).unwrap();
+        let frame = battle.publish(cues);
+        let frame = present(&mut battle, &mut effects, frame);
         assert_eq!(frame.models[0].clip, 1, "contact retains the hurt pose");
         assert!(effects.frames().is_empty());
         let mut selected_stun = false;
         for _ in 0..4 {
             let was_grounded = battle.actors[1].position[1] == 0.;
-            let mut frame = battle.step(BattleInput::default()).unwrap();
-            battle
-                .advance_models(&mut frame, crate::BattleClock::Running, true)
-                .unwrap();
-            effects.advance(&frame, false).unwrap();
+            let frame = battle.step(BattleInput::default()).unwrap();
+            let frame = present(&mut battle, &mut effects, frame);
             assert_eq!(effects.frames().len(), 1);
             assert_eq!(effects.frames()[0].member, 19);
             assert_eq!(
@@ -549,11 +486,8 @@ fn stun_interrupts_work_and_recovers_without_resuming_it() {
         let hp = battle.actors[1].hp;
         let mut animated = false;
         for _ in 0..DURATION + 10 {
-            let mut frame = battle.step(BattleInput::default()).unwrap();
-            battle
-                .advance_models(&mut frame, crate::BattleClock::Running, true)
-                .unwrap();
-            effects.advance(&frame, false).unwrap();
+            let frame = battle.step(BattleInput::default()).unwrap();
+            let frame = present(&mut battle, &mut effects, frame);
             animated |= frame.models[0].clip == 2 && frame.models[0].frame > 0.;
             assert_eq!(
                 frame.actors[1].hp, hp,
@@ -574,11 +508,9 @@ fn stun_interrupts_work_and_recovers_without_resuming_it() {
         }
         assert!(animated, "continuing stun does not restart its animation");
         assert_eq!(battle.activity(ActorId(1)), Activity::Recovering);
-        let mut frame = battle.step(BattleInput::default()).unwrap();
+        let frame = battle.step(BattleInput::default()).unwrap();
         assert!(battle.actor_command_ready(ActorId(1)));
-        battle
-            .advance_models(&mut frame, crate::BattleClock::Running, true)
-            .unwrap();
+        let frame = present(&mut battle, &mut effects, frame);
         assert_eq!(
             frame.models[0].clip, 0,
             "idle starts on the following update"
@@ -603,7 +535,7 @@ fn stun_recovery_respects_pause_immunity_and_manual_struggle() {
         let setup = crate::ActorSetup {
             control: Some(std::sync::Arc::new(crate::ControlDefinition {
                 normals,
-                shortcuts: [0; 4],
+                shortcuts: [None; 4],
                 walk_speed: 1.,
                 run_speed: 1.,
                 turn_ticks: 1,
@@ -620,29 +552,20 @@ fn stun_recovery_respects_pause_immunity_and_manual_struggle() {
         .finish()
         .unwrap();
         battle.enter_stun(ActorId(0), &mut vec![]);
+        let input = |paused, struggle| BattleInput {
+            paused,
+            controllers: vec![crate::ControlInput {
+                horizontal_pressed: i8::from(struggle),
+                ..crate::ControlInput::neutral(ActorId(0))
+            }],
+            ..Default::default()
+        };
         for _ in 0..DURATION + 1 {
-            battle
-                .step(BattleInput {
-                    paused: true,
-                    controllers: vec![crate::ControlInput {
-                        horizontal_pressed: 1,
-                        ..crate::ControlInput::neutral(ActorId(0))
-                    }],
-                    ..Default::default()
-                })
-                .unwrap();
+            battle.step(input(true, true)).unwrap();
         }
         assert_eq!(battle.activity(ActorId(0)), Activity::Stunned);
         for elapsed in 1..=DURATION + 1 {
-            battle
-                .step(BattleInput {
-                    controllers: vec![crate::ControlInput {
-                        horizontal_pressed: i8::from(struggle),
-                        ..crate::ControlInput::neutral(ActorId(0))
-                    }],
-                    ..Default::default()
-                })
-                .unwrap();
+            battle.step(input(false, struggle)).unwrap();
             if battle.activity(ActorId(0)) == Activity::Idle {
                 return elapsed;
             }
@@ -657,23 +580,13 @@ fn stun_recovery_respects_pause_immunity_and_manual_struggle() {
 
 #[test]
 fn stun_recovers_without_body_artwork() {
-    let mut battle = PreparedBattle::new(
-        vec![
-            (actor(Side::Party), Default::default()),
-            (actor(Side::Enemy), Default::default()),
-        ],
-        Default::default(),
-        1,
-    )
-    .unwrap()
-    .finish()
-    .unwrap();
+    let mut battle = prepare_actors(vec![actor(Side::Party), actor(Side::Enemy)], 1)
+        .finish()
+        .unwrap();
     battle.set_diagnostics(Default::default());
-    contact(&mut battle, 100);
+    contact(&mut battle, melee());
     assert_eq!(battle.activity(ActorId(1)), Activity::Stunned);
-    for _ in 0..DURATION - 1 {
-        battle.step(BattleInput::default()).unwrap();
-    }
+    step_idle(&mut battle, DURATION - 1).unwrap();
     assert_eq!(battle.activity(ActorId(1)), Activity::Stunned);
     assert_eq!(battle.frame(vec![], None).actors[1].stun_remaining, 1);
     let frame = battle.step(BattleInput::default()).unwrap();

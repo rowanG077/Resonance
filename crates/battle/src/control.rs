@@ -1,4 +1,5 @@
 //! Player input, action chaining and target selection.
+use crate::TechniqueId;
 use crate::action_selection::{BufferedAction, InputIntent};
 use crate::state::ActorTask;
 use crate::{
@@ -6,6 +7,31 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use std::sync::Arc;
+
+/// Local input ownership, independent of party formation and character identity.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ControllerPort {
+    #[default]
+    One,
+    Two,
+    Three,
+    Four,
+}
+
+impl ControllerPort {
+    pub const ALL: [Self; 4] = [Self::One, Self::Two, Self::Three, Self::Four];
+
+    pub fn from_index(index: usize) -> Result<Self> {
+        Self::ALL
+            .get(index)
+            .copied()
+            .with_context(|| format!("invalid controller port {index}"))
+    }
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
 
 pub(crate) const MOVEMENT_STICK_THRESHOLD: u8 = 30;
 pub(crate) const RUN_FLICK_THRESHOLD: i16 = 15;
@@ -18,6 +44,44 @@ pub(crate) const RUN_BLEND_TICKS: u8 = 4;
 const STOP_BLEND_TICKS: u8 = 8;
 const AERIAL_COMBO_LIFT: f32 = 8.;
 const RUN_REVERSE_ANGLE: f32 = 135.;
+
+const DIRECTION_THRESHOLD: i8 = 48;
+
+/// The stick directions bound to the four player technique shortcuts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShortcutSlot {
+    Neutral,
+    Up,
+    Down,
+    Side,
+}
+
+impl ShortcutSlot {
+    pub const ALL: [Self; 4] = [Self::Neutral, Self::Up, Self::Down, Self::Side];
+
+    pub fn from_index(index: usize) -> Result<Self> {
+        Self::ALL
+            .get(index)
+            .copied()
+            .context("invalid technique shortcut slot")
+    }
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub fn from_input([x, y]: [i8; 2]) -> Self {
+        if y > DIRECTION_THRESHOLD {
+            Self::Up
+        } else if y < -DIRECTION_THRESHOLD {
+            Self::Down
+        } else if !(-DIRECTION_THRESHOLD..=DIRECTION_THRESHOLD).contains(&x) {
+            Self::Side
+        } else {
+            Self::Neutral
+        }
+    }
+}
 
 /// Mapped buttons for one simulation update, after the user's button mapping.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -95,21 +159,19 @@ impl NormalAttack {
     }
 
     pub fn from_input([x, y]: [i8; 2], airborne: bool) -> Self {
-        const DIRECTION_THRESHOLD: i8 = 48;
         if airborne {
             if y < -DIRECTION_THRESHOLD {
                 Self::AerialThrust
             } else {
                 Self::AerialSlash
             }
-        } else if y > DIRECTION_THRESHOLD {
-            Self::Rising
-        } else if y < -DIRECTION_THRESHOLD {
-            Self::Thrust
-        } else if !(-DIRECTION_THRESHOLD..=DIRECTION_THRESHOLD).contains(&x) {
-            Self::Low
         } else {
-            Self::Neutral
+            match ShortcutSlot::from_input([x, y]) {
+                ShortcutSlot::Neutral => Self::Neutral,
+                ShortcutSlot::Up => Self::Rising,
+                ShortcutSlot::Down => Self::Thrust,
+                ShortcutSlot::Side => Self::Low,
+            }
         }
     }
 }
@@ -140,7 +202,7 @@ pub struct ControlMotions {
 pub struct ControlDefinition {
     pub normals: [NormalControl; 7],
     /// Initial values only. The existing live controller owns later page edits.
-    pub shortcuts: [u16; 4],
+    pub shortcuts: [Option<TechniqueId>; 4],
     pub walk_speed: f32,
     pub run_speed: f32,
     pub turn_ticks: u8,
@@ -161,7 +223,7 @@ pub enum Locomotion {
 pub(crate) struct PendingTechnique {
     pub action: crate::ActionKey,
     pub target: Option<ActorId>,
-    pub issuer: Option<u8>,
+    pub issuer: Option<ControllerPort>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -200,7 +262,7 @@ pub(crate) struct Controller {
     combo_input: ControlInput,
     /// Technique selected from the Tech page, independent of buffered combo input.
     pub(crate) queued_technique: Option<PendingTechnique>,
-    pub(crate) shortcuts: [u16; 4],
+    pub(crate) shortcuts: [Option<TechniqueId>; 4],
     /// Live Tech-page policy state. Prepared actions remain immutable; these
     /// flags only affect future autonomous admissions.
     pub(crate) disabled_techniques: std::collections::BTreeSet<crate::ActionKey>,
@@ -321,7 +383,7 @@ impl PreparedBattle {
                     .all(|action| setup.techniques.iter().any(|row| row.action == *action)),
                 "disabled technique is outside the actor's prepared capacity"
             );
-            for catalogue in definition.shortcuts.into_iter().filter(|&id| id != 0) {
+            for catalogue in definition.shortcuts.into_iter().flatten() {
                 let learned = self
                     .technique_learning_members
                     .iter()
@@ -407,8 +469,8 @@ impl Battle {
         Ok(())
     }
 
-    /// The four live catalogue assignments. Zero denotes an empty slot.
-    pub fn shortcuts(&self, actor: ActorId) -> Option<&[u16; 4]> {
+    /// The four live technique assignments.
+    pub fn shortcuts(&self, actor: ActorId) -> Option<&[Option<TechniqueId>; 4]> {
         self.runtime
             .get(actor.index())?
             .control
@@ -419,61 +481,40 @@ impl Battle {
     pub(crate) fn shortcut_action(
         &self,
         actor: ActorId,
-        catalogue: u16,
+        catalogue: TechniqueId,
     ) -> Option<crate::ActionKey> {
         self.prepared_technique(actor, catalogue)
             .filter(|row| self.learned_technique(actor, row.action).is_some())
             .map(|row| row.action)
     }
 
-    pub fn validate_shortcut(
-        &self,
+    pub fn prepare_shortcut(
+        &mut self,
         actor: ActorId,
-        slot: usize,
+        slot: ShortcutSlot,
         selected: Option<crate::ActionKey>,
-    ) -> Result<()> {
+    ) -> Result<ShortcutEdit<'_, Option<TechniqueId>>> {
         ensure!(
             self.phase() == crate::BattlePhase::Combat,
             "shortcut assignment requires active combat"
         );
-        ensure!(slot < 4, "invalid battle shortcut slot");
         ensure!(
             self.actor(actor)?.side == crate::Side::Party,
             "shortcut assignment requires a party actor"
         );
-        self.prepared.actor_setup[actor.index()]
-            .control
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("actor has no prepared shortcut bindings"))?;
-        ensure!(
-            self.runtime[actor.index()].control.is_some(),
-            "actor has no live shortcut controller"
-        );
-        if let Some(selected) = selected {
-            ensure!(
-                self.learned_technique(actor, selected).is_some(),
-                "shortcut differs from its prepared player technique"
-            );
-        }
-        Ok(())
-    }
-
-    pub fn prepare_shortcut(
-        &mut self,
-        actor: ActorId,
-        slot: usize,
-        selected: Option<crate::ActionKey>,
-    ) -> Result<ShortcutEdit<'_, u16>> {
-        self.validate_shortcut(actor, slot, selected)?;
         let catalogue = selected
-            .and_then(|action| self.prepared.technique(actor, action))
-            .map_or(0, |row| row.catalogue);
+            .map(|action| {
+                self.learned_technique(actor, action)
+                    .map(|row| row.catalogue)
+                    .context("shortcut differs from its prepared player technique")
+            })
+            .transpose()?;
         let control = self.runtime[actor.index()]
             .control
             .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("actor has no live shortcut controller"))?;
+            .context("actor has no live shortcut controller")?;
         Ok(ShortcutEdit {
-            slot: &mut control.shortcuts[slot],
+            slot: &mut control.shortcuts[slot.index()],
             value: catalogue,
         })
     }
@@ -626,8 +667,8 @@ impl Battle {
             .and_then(|state| state.control.as_mut())
             .context("Tech actor has no live controller")?;
         for shortcut in &mut control.shortcuts {
-            if *shortcut == catalogue {
-                *shortcut = 0;
+            if *shortcut == Some(catalogue) {
+                *shortcut = None;
             }
         }
         control.disabled_techniques.insert(action);
@@ -698,11 +739,7 @@ impl Battle {
         Some(self.action_quote(actor, action))
     }
 
-    pub fn technique_queue_admitted(
-        &self,
-        actor: ActorId,
-        action: crate::ActionKey,
-    ) -> Result<bool> {
+    pub fn technique_queue_admitted(&self, actor: ActorId, action: crate::ActionKey) -> bool {
         let index = actor.index();
         if self.phase() != crate::BattlePhase::Combat
             || !self
@@ -711,12 +748,12 @@ impl Battle {
                 .is_some_and(|actor| actor.available())
             || !self.actors[index].conditions.arte_queue_allowed()
         {
-            return Ok(false);
+            return false;
         }
         let Some(_) = self.learned_technique(actor, action) else {
-            return Ok(false);
+            return false;
         };
-        Ok(self.action_quote(actor, action) <= u32::from(self.actors[index].tp))
+        self.action_quote(actor, action) <= u32::from(self.actors[index].tp)
     }
 
     pub fn queue_technique_from(
@@ -761,7 +798,7 @@ impl Battle {
     ) -> Result<bool> {
         let issuer = self.actor(issuer)?;
         ensure!(
-            issuer.side == crate::Side::Party && issuer.control_slot < 4,
+            issuer.side == crate::Side::Party,
             "invalid Tech issuing controller"
         );
         let issuer = issuer.control_slot;
@@ -776,7 +813,7 @@ impl Battle {
                 .is_some_and(|actor| actor.side == crate::Side::Party),
             "Tech queue owner is not a party member"
         );
-        if !self.technique_queue_admitted(actor, action)?
+        if !self.technique_queue_admitted(actor, action)
             || !self.technique_target_eligible(actor, action, target)
         {
             return Ok(false);
@@ -1066,8 +1103,9 @@ impl Battle {
                 });
             next.map(BufferedAction::Normal)
         } else if input.technique.pressed {
-            let direction = NormalAttack::from_input(input.stick, false) as usize;
-            self.shortcut_action(actor, control.shortcuts[direction])
+            let direction = ShortcutSlot::from_input(input.stick).index();
+            control.shortcuts[direction]
+                .and_then(|id| self.shortcut_action(actor, id))
                 .map(BufferedAction::Technique)
         } else {
             (0..2).rev().find_map(|slot| {
@@ -1252,7 +1290,7 @@ impl Battle {
         index: usize,
         definition: &ControlDefinition,
         locomotion: Locomotion,
-    ) -> Result<()> {
+    ) {
         let control = self.runtime[index].control.as_mut().unwrap();
         let actor = &mut self.actors[index];
         match locomotion {
@@ -1292,7 +1330,7 @@ impl Battle {
         index: usize,
         definition: &ControlDefinition,
         locomotion: Locomotion,
-    ) -> Result<()> {
+    ) {
         let changed = self.actors[index].movement.locomotion != locomotion;
         self.actors[index].movement.locomotion = locomotion;
         if changed
@@ -1322,7 +1360,6 @@ impl Battle {
                 },
             );
         }
-        Ok(())
     }
 
     pub(crate) fn target_available(&self, actor: ActorId, target: ActorId) -> bool {
@@ -1333,19 +1370,15 @@ impl Battle {
         target.side != self.actors[actor.index()].side && target.available()
     }
 
-    pub(crate) fn update_control_stop(
-        &mut self,
-        index: usize,
-        already_stopping: bool,
-    ) -> Result<bool> {
+    pub(crate) fn update_control_stop(&mut self, index: usize, already_stopping: bool) -> bool {
         if self.activity(ActorId(index as u8)) != Activity::Idle
             || self.runtime[index].control.is_none()
             || self.actors[index].movement.locomotion != Locomotion::Stop
         {
-            return Ok(false);
+            return false;
         }
         if self.actors[index].hit_stop > 0 {
-            return Ok(true);
+            return true;
         }
         let actor = &mut self.actors[index];
         actor.movement.integrate(&mut actor.position);
@@ -1377,7 +1410,7 @@ impl Battle {
                 .unwrap()
                 .resume_ground_input();
         }
-        Ok(true)
+        true
     }
 
     pub(crate) fn sample_ground_stick(&mut self, index: usize, stick: i8) {
@@ -1388,7 +1421,7 @@ impl Battle {
         }
     }
 
-    pub(crate) fn brake_control(&mut self, index: usize) -> Result<Option<(ActionId, u32)>> {
+    pub(crate) fn brake_control(&mut self, index: usize) -> Option<(ActionId, u32)> {
         let mut recovery = None;
         if let Some((&id, sequence)) = self.runtime[index]
             .action_mut()
@@ -1418,7 +1451,7 @@ impl Battle {
                 }
             }
         }
-        Ok(recovery)
+        recovery
     }
 
     pub(crate) fn finish_normal_landing(&mut self, sequence: &mut crate::action::Sequence) {
@@ -1625,7 +1658,7 @@ impl Battle {
         actor: ActorId,
         stick: i8,
         released: bool,
-        port: u8,
+        port: ControllerPort,
     ) -> Result<()> {
         let index = actor.index();
         let state = self.actor(actor)?;

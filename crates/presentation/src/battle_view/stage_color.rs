@@ -117,13 +117,7 @@ impl State {
         } else {
             RESTORE_STEP
         };
-        for (color, target) in self.color[..3].iter_mut().zip(target) {
-            *color = if *color < target {
-                color.saturating_add(step).min(target)
-            } else {
-                color.saturating_sub(step).max(target)
-            };
-        }
+        approach(&mut self.color[..3], target, step);
         // Scene initialization follows this update's color step.
         for cue in cues {
             if matches!(cue, Cue::TechniqueAcquired { .. }) {
@@ -148,7 +142,7 @@ impl State {
     }
 }
 
-fn approach(color: &mut [u8; 3], target: [u8; 3], step: u8) {
+fn approach(color: &mut [u8], target: [u8; 3], step: u8) {
     for (current, wanted) in color.iter_mut().zip(target) {
         *current = if *current < wanted {
             current.saturating_add(step).min(wanted)

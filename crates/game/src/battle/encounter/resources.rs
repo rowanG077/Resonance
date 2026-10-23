@@ -11,7 +11,9 @@ use std::{
 pub(crate) struct Resources<'a, S> {
     pub files: &'a Files,
     pub catalogue: &'a resonance_content::arte::Catalogue,
-    pub party_null_motions: BTreeMap<u8, &'a BTreeSet<u16>>,
+    pub unison: &'a resonance_content::battle_unison::Catalogue,
+    pub recoil: &'a battle::recoil::Parameters,
+    pub party_null_motions: BTreeMap<battle::party::Character, &'a BTreeSet<u16>>,
     pub projectiles: resonance_content::battle_projectile::Table,
     pub tints: Option<&'a battle_effect::Tints>,
     pub voices: &'a battle::voice::Resolver<'a>,
@@ -20,7 +22,8 @@ pub(crate) struct Resources<'a, S> {
     pub enemy_effects: BTreeMap<u8, EffectResource>,
     pub spell_scenes: BTreeMap<u16, EffectResource>,
     pub skill_scenes: BTreeMap<u16, EffectResource>,
-    pub skill_weapons: BTreeMap<(u8, u16), Vec<Arc<resonance_battle::WeaponDefinition>>>,
+    pub skill_weapons:
+        BTreeMap<(battle::party::Character, u16), Vec<Arc<resonance_battle::WeaponDefinition>>>,
     pub prepared: ActionResources,
     pub feedback: &'a mut battle::feedback::Feedback,
     pub spells: BTreeMap<u16, Arc<resonance_battle::PreparedSpell>>,
@@ -38,26 +41,25 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
 
     pub(super) fn party(
         &mut self,
-        character: u8,
+        character: battle::party::Character,
         model: Option<&ModelDefinition>,
         null_motions: &BTreeSet<u16>,
         bindings: &mut battle::ActionDefinitions,
     ) -> Result<PartyActions> {
         let source = battle::model::ModelSource::Party(character);
-        let recoil = battle::recoil::Parameters::load(self.files)?;
         let normals = battle::normal::prepare_resources(
             self.voices,
             &battle::normal::Resources {
                 character,
                 model,
-                recoil: &recoil,
+                recoil: self.recoil,
                 common: Some(&self.common),
                 tints: self.tints,
             },
             &mut self.prepared,
             &mut self.sound,
         )
-        .with_context(|| format!("prepare normal attacks for character {character}"))?;
+        .with_context(|| format!("prepare normal attacks for character {character:?}"))?;
         let normals: Vec<_> = normals
             .into_iter()
             .map(|action| bindings.insert(action))
@@ -78,7 +80,7 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
                 let (mut cast, feedback) = self
                     .casting(source, catalogue, voice, None)
                     .with_context(|| {
-                        format!("prepare arte {catalogue} for character {character}")
+                        format!("prepare arte {catalogue} for character {character:?}")
                     })?;
                 const PRAYER_GESTURE: u16 = 80;
                 if matches!(
@@ -104,22 +106,19 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
                 }
                 if let Some(model) = model
                     && !self.voices.profile(source)?.traits.body_motion_disabled
-                    && let Some(steps) = self.voices.party_table().chant_sequences.get(&character)
+                    && let Some(steps) = self
+                        .voices
+                        .party_table()
+                        .chant_sequences
+                        .get(&(character as u8))
                 {
                     Arc::make_mut(&mut cast).chant = steps
                         .iter()
                         .map(|&(at, pose)| {
                             Ok((
                                 at,
-                                resonance_battle::AttackPose {
-                                    motion: battle::model::motion(Some(model), pose.clip)
-                                        .context("casting opening pose is not prepared")?,
-                                    start: pose.start,
-                                    end: pose.end,
-                                    rate: pose.rate,
-                                    blend: pose.blend,
-                                    repeat: pose.repeat,
-                                },
+                                battle::model::action_pose(Some(model), pose)
+                                    .context("casting opening pose is not prepared")?,
                             ))
                         })
                         .collect::<Result<_>>()?;
@@ -133,8 +132,8 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
                         null_motions,
                         cast.release.transition_ticks,
                     )?;
-                    cast.hide_primary_weapons =
-                        character == 2 && catalogue == battle::colette_spells::HOLY_JUDGMENT;
+                    cast.hide_primary_weapons = character == battle::party::Character::Colette
+                        && catalogue == battle::colette_spells::HOLY_JUDGMENT;
                 } else if cast.release.summon.is_none() {
                     let profile = self.voices.profile(source)?;
                     Arc::make_mut(&mut cast).release_pose = anticipated_cast_pose(
@@ -152,7 +151,7 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
                 key
             } else {
                 bindings.insert(technique.prepare(self, model).with_context(|| {
-                    format!("prepare arte {catalogue} for character {character}")
+                    format!("prepare arte {catalogue} for character {character:?}")
                 })?)
             };
             if let Some(flash) = flash {
@@ -241,12 +240,8 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
             for pulse in &mut spell.recovery {
                 if matches!(pulse.benefit, resonance_battle::SpellBenefit::Resurrect(_)) {
                     const REVIVAL_EFFECT: u16 = 42;
-                    self.effect(false, &[REVIVAL_EFFECT])?;
                     pulse.effect = Some((
-                        resonance_battle::EffectAppearance {
-                            resource: self.common.resource,
-                            member: REVIVAL_EFFECT,
-                        },
+                        self.prepared.effect_member(&self.common, REVIVAL_EFFECT)?,
                         Default::default(),
                     ));
                     pulse.effect_placement =
@@ -319,7 +314,7 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
             member,
         };
         let feedback = battle::feedback::CastingFeedback {
-            catalogue: technique,
+            catalogue: resonance_battle::TechniqueId(technique),
             chant_voice,
             release_voice,
             start_sound: (self.sound)(Sound::Cue(109))?,
@@ -360,9 +355,13 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
                 hide_primary_weapons: false,
                 release: spell,
                 threat: Some(resonance_battle::CastingThreat {
-                    catalogue: technique,
+                    catalogue: resonance_battle::TechniqueId(technique),
                     offensive: rule.capabilities.offensive,
-                    element: rule.element,
+                    element: rule
+                        .element
+                        .checked_sub(1)
+                        .and_then(|index| resonance_battle::Element::ALL.get(usize::from(index)))
+                        .copied(),
                 }),
             }),
             feedback,
@@ -383,11 +382,11 @@ impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
 /// Prepare implemented capacity before entry so learning can activate it in battle.
 pub(super) fn party_techniques(
     catalogue: &resonance_content::arte::Catalogue,
-    character: u8,
+    character: battle::party::Character,
 ) -> Result<BTreeMap<u16, battle::martial::Technique>> {
-    let guard = battle::martial::special_guard(character).context("missing party Special Guard")?;
+    let guard = battle::martial::special_guard(character);
     Ok(catalogue
-        .learned_by(character)?
+        .learned_by(character as u8)?
         .iter()
         .copied()
         .chain([guard.catalogue])
@@ -417,15 +416,10 @@ pub(crate) fn anticipated_cast_pose(
             pose.rate.is_finite() && pose.rate > 0.,
             "casting release rate must be positive"
         );
-        Some(resonance_battle::AttackPose {
-            motion: battle::model::motion(Some(model), pose.clip)
-                .context("casting release pose is not prepared")?,
-            start: RELEASE_START_UPDATES * pose.rate,
-            end: pose.end,
-            rate: pose.rate,
-            blend: pose.blend,
-            repeat: pose.repeat,
-        })
+        let mut release = battle::model::action_pose(Some(model), pose)
+            .context("casting release pose is not prepared")?;
+        release.start = RELEASE_START_UPDATES * pose.rate;
+        Some(release)
     } else {
         None
     };
@@ -452,15 +446,7 @@ pub(crate) fn stored_cast_pose(
         });
     }
     let bind = |pose: resonance_content::battle_action::ActionPose| -> Result<_> {
-        Ok(resonance_battle::AttackPose {
-            motion: battle::model::motion(Some(model), pose.clip)
-                .context("stored spell pose is not prepared")?,
-            start: pose.start,
-            end: pose.end,
-            rate: pose.rate,
-            blend: pose.blend,
-            repeat: pose.repeat,
-        })
+        battle::model::action_pose(Some(model), pose).context("stored spell pose is not prepared")
     };
     let opening = (!null_motions.contains(&poses.opening.clip))
         .then(|| bind(poses.opening))

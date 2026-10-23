@@ -14,7 +14,9 @@ fn equipped_rescue_traits_arm_angel_tear() -> Result<()> {
     let files = battle::model::load_files(
         &root,
         files,
-        &[battle::model::ModelSource::Party(2)],
+        &[battle::model::ModelSource::Party(
+            battle::party::Character::Colette,
+        )],
         &mut cache,
         || false,
     )?;
@@ -37,7 +39,7 @@ fn equipped_rescue_traits_arm_angel_tear() -> Result<()> {
             position: [0.; 3],
             heading: 0.,
             model: Some(battle::model::ModelSetup {
-                resource: 2,
+                resource: resonance_battle::ResourceId(2),
                 initial: resonance_battle::Playback {
                     clip: 0,
                     frame: 0.,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 use crate::{Control, DecisionDefinition, Side};
 use std::sync::Arc;
 
@@ -51,7 +52,7 @@ pub(crate) fn prepared() -> Result<PreparedBattle> {
                     run_speed: 6.,
                     turn_ticks: 8,
                     motions: None,
-                    shortcuts: [0; 4],
+                    shortcuts: [None; 4],
                     normals,
                 })),
                 companion: Some(CompanionDefinition {
@@ -61,10 +62,7 @@ pub(crate) fn prepared() -> Result<PreparedBattle> {
                     limits: std::array::from_fn(|i| PolicyLimits {
                         tp: i as u8 * 10,
                         healing: 90 - i as u8 * 10,
-                        support_level: i as i8 - 4,
                     }),
-                    level: 30,
-                    level_difference: 0,
                 }),
                 decision: Some(DecisionDefinition {
                     idle_ticks: 0,
@@ -133,6 +131,27 @@ fn technique(
     }
 }
 
+fn spell_capabilities(healing: bool) -> crate::TechniqueCapabilities {
+    crate::TechniqueCapabilities {
+        spell: true,
+        offensive: !healing,
+        healing,
+        target: if healing {
+            crate::TechniqueTarget::Ally
+        } else {
+            crate::TechniqueTarget::Enemy
+        },
+        ..Default::default()
+    }
+}
+
+fn prepared_with_spell(capabilities: crate::TechniqueCapabilities) -> Result<PreparedBattle> {
+    let mut prepared = prepared()?;
+    prepared.resources.actor_setup[2].techniques =
+        vec![technique(crate::ActionKey(7), 66, capabilities)];
+    Ok(prepared)
+}
+
 #[test]
 fn strategy_changes_only_policy_and_applies_atomically() -> Result<()> {
     let mut prepared = prepared()?;
@@ -146,7 +165,10 @@ fn strategy_changes_only_policy_and_applies_atomically() -> Result<()> {
     assert!(battle.refresh_strategy(&refresh).is_err());
     assert_eq!(battle.companion_policy(ActorId(0)).unwrap().choices, [0; 3]);
     battle.refresh_strategy(&rows(&battle, [2, 1, 6]))?;
-    assert_eq!(battle.resolved_companion_policy(ActorId(2))?, [2, 1, 6]);
+    assert_eq!(
+        battle.companion_position(ActorId(2))?,
+        PositionStrategy::Unrestricted
+    );
     assert_eq!(
         battle.actors[2].guard.recovery_bonus,
         strategy_guard_recovery(6)
@@ -169,16 +191,7 @@ fn offensive_policy_filters_cost_enabled_immunity_and_prefers_weakness() -> Resu
     prepared.resources.actions.entries.push(Arc::new(offensive));
     Arc::make_mut(&mut prepared.resources.actions.entries[7]).tp_cost = 4;
     prepared.resources.actor_setup[2].techniques = vec![
-        technique(
-            crate::ActionKey(7),
-            66,
-            crate::TechniqueCapabilities {
-                spell: true,
-                offensive: true,
-                target: crate::TechniqueTarget::Enemy,
-                ..Default::default()
-            },
-        ),
+        technique(crate::ActionKey(7), 66, spell_capabilities(false)),
         technique(
             crate::ActionKey(8),
             1,
@@ -189,7 +202,7 @@ fn offensive_policy_filters_cost_enabled_immunity_and_prefers_weakness() -> Resu
             },
         ),
     ];
-    prepared.resources.actor_setup[2].techniques[0].element = 1;
+    prepared.resources.actor_setup[2].techniques[0].element = Some(crate::Element::Water);
     let mut battle = prepared.finish().unwrap();
     let owner = ActorId(2);
     let target = ActorId(3);
@@ -197,7 +210,7 @@ fn offensive_policy_filters_cost_enabled_immunity_and_prefers_weakness() -> Resu
     battle.actors[2].tp = 3;
     assert_eq!(
         battle
-            .offensive_choice(owner, target, [1, 1, 6])?
+            .offensive_choice(owner, target, battle.companion(owner)?.resolve([1, 1, 6])?)
             .unwrap()
             .action,
         crate::ActionKey(8)
@@ -206,7 +219,7 @@ fn offensive_policy_filters_cost_enabled_immunity_and_prefers_weakness() -> Resu
     battle.actors[3].equipment.affinities[1] = crate::Affinity::Weak;
     assert_eq!(
         battle
-            .offensive_choice(owner, target, [1, 1, 6])?
+            .offensive_choice(owner, target, battle.companion(owner)?.resolve([1, 1, 6])?)
             .unwrap()
             .action,
         crate::ActionKey(7)
@@ -219,32 +232,30 @@ fn offensive_policy_filters_cost_enabled_immunity_and_prefers_weakness() -> Resu
         .insert(crate::ActionKey(7));
     assert_eq!(
         battle
-            .offensive_choice(owner, target, [1, 1, 6])?
+            .offensive_choice(owner, target, battle.companion(owner)?.resolve([1, 1, 6])?)
             .unwrap()
             .action,
         crate::ActionKey(8)
     );
     battle.actors[3].equipment.affinities[0] = crate::Affinity::Immune;
-    assert!(battle.offensive_choice(owner, target, [1, 1, 6])?.is_none());
-    assert!(battle.offensive_choice(owner, target, [1, 5, 6])?.is_none());
+    assert!(
+        battle
+            .offensive_choice(owner, target, battle.companion(owner)?.resolve([1, 1, 6])?)
+            .is_none()
+    );
+    assert!(
+        battle
+            .offensive_choice(owner, target, battle.companion(owner)?.resolve([1, 5, 6])?)
+            .is_none()
+    );
     Ok(())
 }
 
 #[test]
 fn offensive_tp_policies_distinguish_reserves_from_moderation() -> Result<()> {
-    let mut prepared = prepared()?;
+    let mut prepared = prepared_with_spell(spell_capabilities(false))?;
     let action = crate::ActionKey(7);
     Arc::make_mut(&mut prepared.resources.actions.entries[7]).tp_cost = 7;
-    prepared.resources.actor_setup[2].techniques = vec![technique(
-        action,
-        66,
-        crate::TechniqueCapabilities {
-            spell: true,
-            offensive: true,
-            target: crate::TechniqueTarget::Enemy,
-            ..Default::default()
-        },
-    )];
     let companion = prepared.resources.actor_setup[2]
         .companion
         .as_mut()
@@ -283,7 +294,11 @@ fn offensive_tp_policies_distinguish_reserves_from_moderation() -> Result<()> {
             battle.random = crate::Random::new(seed);
             assert_eq!(
                 battle
-                    .offensive_choice(owner, target, [4, skill, 5])?
+                    .offensive_choice(
+                        owner,
+                        target,
+                        battle.companion(owner)?.resolve([4, skill, 5])?
+                    )
                     .is_some(),
                 accepted,
                 "skill {skill}, TP {tp}, seed {seed}"
@@ -297,7 +312,11 @@ fn offensive_tp_policies_distinguish_reserves_from_moderation() -> Result<()> {
         battle.random = crate::Random::new(60);
         assert_eq!(
             battle
-                .offensive_choice(owner, target, [4, skill, 6])?
+                .offensive_choice(
+                    owner,
+                    target,
+                    battle.companion(owner)?.resolve([4, skill, 6])?
+                )
                 .is_some(),
             skill != 5
         );
@@ -308,18 +327,26 @@ fn offensive_tp_policies_distinguish_reserves_from_moderation() -> Result<()> {
     battle.random = crate::Random::new(23);
     assert_eq!(
         battle
-            .offensive_choice(owner, target, [4, 6, 5])?
+            .offensive_choice(owner, target, battle.companion(owner)?.resolve([4, 6, 5])?)
             .unwrap()
             .action,
         action
     );
     battle.actors[2].tp = 6;
     battle.random = crate::Random::new(23);
-    assert!(battle.offensive_choice(owner, target, [4, 6, 5])?.is_none());
+    assert!(
+        battle
+            .offensive_choice(owner, target, battle.companion(owner)?.resolve([4, 6, 5])?)
+            .is_none()
+    );
     battle.actors[2].tp = 18;
     battle.set_technique_enabled(owner, action, false)?;
     battle.random = crate::Random::new(23);
-    assert!(battle.offensive_choice(owner, target, [4, 6, 5])?.is_none());
+    assert!(
+        battle
+            .offensive_choice(owner, target, battle.companion(owner)?.resolve([4, 6, 5])?)
+            .is_none()
+    );
     Ok(())
 }
 
@@ -343,11 +370,8 @@ fn support_prioritizes_revival_then_lowest_eligible_health() -> Result<()> {
             crate::ActionKey(7),
             66,
             crate::TechniqueCapabilities {
-                spell: true,
-                healing: true,
                 uses_weapon_reach: true,
-                target: crate::TechniqueTarget::Ally,
-                ..Default::default()
+                ..spell_capabilities(true)
             },
         ),
     ];
@@ -406,18 +430,7 @@ fn healing_uses_group_spells_for_multiple_wounded_allies() -> Result<()> {
         prepared.resources.actor_setup[2].techniques = [single, group]
             .into_iter()
             .enumerate()
-            .map(|(i, action)| {
-                technique(
-                    action,
-                    i as u16 + 1,
-                    crate::TechniqueCapabilities {
-                        spell: true,
-                        healing: true,
-                        target: crate::TechniqueTarget::Ally,
-                        ..Default::default()
-                    },
-                )
-            })
+            .map(|(i, action)| technique(action, i as u16 + 1, spell_capabilities(true)))
             .collect();
         let mut battle = prepared.finish()?;
         let owner = ActorId(2);
@@ -508,9 +521,7 @@ fn companion_cures_removable_ailments_and_does_not_recast() -> Result<()> {
             battle.condition_choice(owner, false).unwrap().target,
             ActorId(0)
         );
-        for _ in 0..150 {
-            battle.step(crate::BattleInput::default())?;
-        }
+        crate::tests::step_idle(&mut battle, 150)?;
         assert!(!battle.actors[0].conditions.needs_cure(cure), "{ailment:?}");
         assert!(battle.actors[0].available());
         assert_eq!(battle.actors[2].tp, 8, "cure should be paid once");
@@ -601,7 +612,7 @@ fn idle_native_policy_starts_an_approach_without_a_policy_vm() -> Result<()> {
 fn ranged_companions_use_normals_when_their_artes_cannot_sustain_them() -> Result<()> {
     for (skill, reserve, healing) in [(6, 30, false), (7, 25, true)] {
         for (tp, cost, enabled) in [(0, 7, true), (6, 7, true), (80, 81, true), (100, 7, false)] {
-            let mut prepared = prepared()?;
+            let mut prepared = prepared_with_spell(spell_capabilities(healing))?;
             let owner = ActorId(2);
             let spell = crate::ActionKey(7);
             Arc::make_mut(&mut prepared.resources.actions.entries[7]).tp_cost = cost;
@@ -611,21 +622,6 @@ fn ranged_companions_use_normals_when_their_artes_cannot_sustain_them() -> Resul
             let policy = setup.companion.as_mut().unwrap();
             policy.defaults = [1, skill, 5];
             policy.limits[usize::from(skill)].tp = reserve;
-            setup.techniques = vec![technique(
-                spell,
-                66,
-                crate::TechniqueCapabilities {
-                    spell: true,
-                    offensive: !healing,
-                    healing,
-                    target: if healing {
-                        crate::TechniqueTarget::Ally
-                    } else {
-                        crate::TechniqueTarget::Enemy
-                    },
-                    ..Default::default()
-                },
-            )];
             let mut battle = prepared.finish()?;
             battle.set_technique_enabled(owner, spell, enabled)?;
             battle.advance_ai(owner, &mut Vec::new())?;
@@ -646,9 +642,8 @@ fn healer_holds_position_only_above_its_tp_reserve_and_still_prioritizes_healing
         (25, true, false, true),
         (26, true, false, true),
     ] {
-        let mut prepared = prepared()?;
+        let mut prepared = prepared_with_spell(spell_capabilities(true))?;
         let owner = ActorId(2);
-        let spell = crate::ActionKey(7);
         Arc::make_mut(&mut prepared.resources.actions.entries[7]).tp_cost = 7;
         prepared.actors[2].equipment.max_tp = 100;
         prepared.actors[2].tp = tp;
@@ -659,16 +654,6 @@ fn healer_holds_position_only_above_its_tp_reserve_and_still_prioritizes_healing
         let policy = setup.companion.as_mut().unwrap();
         policy.defaults = [1, 7, 5];
         policy.limits[7].tp = 25;
-        setup.techniques = vec![technique(
-            spell,
-            66,
-            crate::TechniqueCapabilities {
-                spell: true,
-                healing: true,
-                target: crate::TechniqueTarget::Ally,
-                ..Default::default()
-            },
-        )];
         let mut battle = prepared.finish()?;
         battle.advance_ai(owner, &mut Vec::new())?;
         assert_eq!(battle.approach_normal(owner).is_some(), expect_normal);
@@ -695,28 +680,12 @@ fn normal_openings_preserve_healing_ranged_orders_and_combo_artes() -> Result<()
         (6, 100, false, true),
         (2, 100, true, true),
     ] {
-        let mut prepared = prepared()?;
+        let mut prepared = prepared_with_spell(spell_capabilities(healing))?;
         let owner = ActorId(2);
         let setup = &mut prepared.resources.actor_setup[2];
         let policy = setup.companion.as_mut().unwrap();
         policy.normal_attack_opening = true;
         policy.defaults = [1, 1, position];
-        let spell = crate::ActionKey(7);
-        setup.techniques = vec![technique(
-            spell,
-            66,
-            crate::TechniqueCapabilities {
-                spell: true,
-                offensive: !healing,
-                healing,
-                target: if healing {
-                    crate::TechniqueTarget::Ally
-                } else {
-                    crate::TechniqueTarget::Enemy
-                },
-                ..Default::default()
-            },
-        )];
         prepared.actors[2].equipment.max_hp = 100;
         prepared.actors[2].hp = hp_percent;
         if healing {
@@ -733,7 +702,11 @@ fn normal_openings_preserve_healing_ranged_orders_and_combo_artes() -> Result<()
         if !healing && position == 2 {
             assert!(
                 battle
-                    .offensive_choice(owner, ActorId(3), [1, 1, 2])?
+                    .offensive_choice(
+                        owner,
+                        ActorId(3),
+                        battle.companion(owner)?.resolve([1, 1, 2])?
+                    )
                     .is_some()
             );
         }
@@ -746,19 +719,9 @@ mod command_tests;
 
 #[test]
 fn repertoire_tracks_acquisition_forgetting_and_live_enable_masks() -> Result<()> {
-    let mut prepared = prepared()?;
+    let mut prepared = prepared_with_spell(spell_capabilities(false))?;
     let owner = ActorId(2);
-    prepared.resources.actor_setup[2].techniques = vec![technique(
-        crate::ActionKey(7),
-        66,
-        crate::TechniqueCapabilities {
-            spell: true,
-            offensive: true,
-            target: crate::TechniqueTarget::Enemy,
-            ..Default::default()
-        },
-    )];
-    prepared.resources.actor_setup[2].techniques[0].catalogue = 1;
+    prepared.resources.actor_setup[2].techniques[0].catalogue = TechniqueId(1);
     let mut battle = prepared
         .with_technique_learning_members(vec![crate::tests::counted_techniques(
             owner,
@@ -767,7 +730,7 @@ fn repertoire_tracks_acquisition_forgetting_and_live_enable_masks() -> Result<()
         )])?
         .finish()?;
     assert!(battle.companion_techniques(owner).next().is_none());
-    battle.record_technique_acquisition(owner, 1)?;
+    battle.record_technique_acquisition(owner, TechniqueId(1))?;
     assert_eq!(battle.companion_techniques(owner).count(), 1);
     assert!(
         battle
@@ -781,7 +744,7 @@ fn repertoire_tracks_acquisition_forgetting_and_live_enable_masks() -> Result<()
     );
     battle.forget_technique(owner, crate::ActionKey(7))?;
     assert!(battle.companion_techniques(owner).next().is_none());
-    battle.record_technique_acquisition(owner, 1)?;
+    battle.record_technique_acquisition(owner, TechniqueId(1))?;
     assert!(
         battle
             .usable_companion_technique(owner, battle.companion_techniques(owner).next().unwrap())
@@ -794,7 +757,7 @@ fn idle_charge_accumulates_once_per_visit_including_action_admission() -> Result
     let mut battle = prepared()?.finish().unwrap();
     let owner = ActorId(2);
     battle.actors[2].equipment.control_ex.charge = true;
-    let slot = usize::from(battle.actors[2].control_slot);
+    let slot = battle.actors[2].control_slot.index();
     battle.cast_inputs[slot].attack_held = true;
     battle.runtime[2].idle_timer = 2;
     for expected in 1..=3 {

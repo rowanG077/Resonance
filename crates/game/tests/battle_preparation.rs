@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use resonance_battle::{ActionRequest, Actor, Battle, BattleInput, Side};
+use resonance_battle::{ActionRequest, Actor, Battle, BattleInput, ResourceId, Side};
 use resonance_content::prepared::Files;
 use resonance_game::battle::{self, ActionDefinition, ActionResources, EffectResource};
 use std::sync::Arc;
@@ -72,6 +72,34 @@ fn enter_battle(battle: &mut Battle) -> Result<()> {
     bail!("battle entry did not enable actor control")
 }
 
+fn opening_setup(
+    formation: u16,
+    defeat: resonance_events::battle::DefeatPolicy,
+) -> resonance_events::battle::Setup {
+    resonance_events::battle::Setup {
+        route: [0; 5],
+        encounter: resonance_events::battle::Encounter::Formation(formation),
+        arena: 13,
+        defeat,
+        music: None,
+    }
+}
+
+fn opening_options(random_seed: u64) -> battle::encounter::PrepareOptions {
+    battle::encounter::PrepareOptions {
+        hunting_symbol: None,
+        event_flags: Default::default(),
+        devils_arms_unlocked: false,
+        victory_story_flags: [false; 2],
+        random_seed,
+        map: 332,
+        world_music: 0,
+        story: 2500,
+        colette_state: 0,
+        overlimit_boost: false,
+    }
+}
+
 fn prepare_party_fixture(
     files: &Files,
     menus: &resonance_content::menu_data::MenuData,
@@ -85,23 +113,21 @@ fn prepare_party_fixture(
         menus,
         &session,
         party,
-        resonance_events::battle::Setup {
-            route: [0; 5],
-            encounter: resonance_events::battle::Encounter::Formation(1),
-            arena: 13,
-            defeat: resonance_events::battle::DefeatPolicy::ResumeEvent,
-            music: None,
-        },
+        opening_setup(1, resonance_events::battle::DefeatPolicy::ResumeEvent),
         &mut resonance_content::prepared::Cache::default(),
         || false,
     )?;
-    let mut next_resource = 1000;
+    let mut next_resource = ResourceId(1000);
     setups
         .into_iter()
         .enumerate()
         .map(|(slot, setup)| {
             let character = usize::from(party.formation[slot] - 1);
-            let loadout = battle::party::loadout(menus, &party.members[character], character)?;
+            let loadout = battle::party::loadout(
+                menus,
+                &party.members[character],
+                battle::party::Character::from_index(character)?,
+            )?;
             let member = inputs.prepare_party_member(
                 menus,
                 slot,
@@ -172,78 +198,37 @@ fn prepare_enemy_fixture(
         &menus,
         &data,
         &party,
-        resonance_events::battle::Setup {
-            route: [0; 5],
-            encounter: resonance_events::battle::Encounter::Formation(u16::try_from(encounter)?),
-            arena: 13,
-            defeat: resonance_events::battle::DefeatPolicy::ResumeEvent,
-            music: None,
-        },
+        opening_setup(
+            u16::try_from(encounter)?,
+            resonance_events::battle::DefeatPolicy::ResumeEvent,
+        ),
         &mut resonance_content::prepared::Cache::default(),
         || false,
     )?;
-    inputs.prepare_enemy_member(spawn, resource, 2000, &mut resonance_battle::Random::new(1))
+    inputs.prepare_enemy_member(
+        spawn,
+        ResourceId(resource),
+        ResourceId(2000),
+        &mut resonance_battle::Random::new(1),
+    )
 }
 
 fn actor() -> Actor {
     Actor {
-        side: Side::Party,
-        species: 0,
-        equipment: resonance_battle::EquipmentAttributes {
-            max_hp: 100,
-            max_tp: 40,
-            tp_cost_reduction: false,
-            quick_escape: false,
-            taunt_enabled: false,
-            taunt_guard: false,
-            taunt_cancel: false,
-            control_ex: Default::default(),
-            quick_turn: false,
-            backstep_guard: false,
-            casting: Default::default(),
-            dagger_reach: false,
-            contact: Default::default(),
-            normal_combo_limit: 3,
-            guaranteed_steal: false,
-            luck: 0,
-            stats: resonance_battle::CombatStats::default(),
-            affinities: [resonance_battle::Affinity::Normal; 9],
-            damage: Default::default(),
-            recovery: Default::default(),
-            base_element: None,
-            combo_traits: Default::default(),
-            normal_guard: false,
-            speed_multiplier: 1.,
-            reaction_ex: Default::default(),
-            stun_ex_bonus: false,
-            spell_revenge: false,
-        },
-        control: Default::default(),
-        availability: Default::default(),
-        overlimit: Default::default(),
-        proficiency: 0,
-        combat_adjustments: Default::default(),
-        input: Default::default(),
-        guard: Default::default(),
         hp: 10,
         tp: 40,
-        control_ex_state: Default::default(),
-        casting_state: Default::default(),
-        stored_spell: None,
-        control_slot: 0,
-        elements: Default::default(),
-        attack_power: 100,
-        conditions: Default::default(),
-        position: [0.; 3],
-        heading: 0.,
-        facing_direction: [0., 0., 1.],
-        effect_scale: 1.,
-        secondary_wind: Default::default(),
-        movement: Default::default(),
-        hit_stop: 0,
-        time_stop: 0,
-        reaction: Default::default(),
-        body: resonance_battle::Body::default(),
+        ..Actor::new(
+            Side::Party,
+            Default::default(),
+            resonance_battle::EquipmentAttributes {
+                normal_combo_limit: 3,
+                ..resonance_battle::EquipmentAttributes::new(
+                    100,
+                    40,
+                    resonance_battle::CombatStats::default(),
+                )
+            },
+        )
     }
 }
 
@@ -292,7 +277,7 @@ fn files() -> Files {
 fn fixture_effect(files: &Files, members: Vec<u16>) -> Result<EffectResource> {
     Ok(EffectResource {
         bank: battle::effect_program::load(files, "test-effects.json")?,
-        resource: 37,
+        resource: ResourceId(37),
         members,
         models: Default::default(),
     })

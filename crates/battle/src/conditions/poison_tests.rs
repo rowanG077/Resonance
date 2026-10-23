@@ -15,18 +15,13 @@ fn poisoned(base: ConditionSet, equipment: ConditionSet) -> Actor {
 }
 
 fn prepared() -> PreparedBattle {
-    PreparedBattle::new(
+    crate::tests::prepare_actors(
         vec![
-            (
-                poisoned(PoisonMild.into(), ConditionSet::EMPTY),
-                Default::default(),
-            ),
-            (actor(Side::Enemy), Default::default()),
+            poisoned(PoisonMild.into(), ConditionSet::EMPTY),
+            actor(Side::Enemy),
         ],
-        Default::default(),
         17,
     )
-    .unwrap()
 }
 
 #[test]

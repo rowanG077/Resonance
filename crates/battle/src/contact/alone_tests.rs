@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ActorAvailability, DamageKind, GuardRule, HitElement, Power};
+use crate::{ActorAvailability, DamageKind, Power};
 
 fn battle() -> crate::Battle {
     let mut owner = crate::tests::actor(Side::Party);
@@ -22,46 +22,21 @@ fn battle() -> crate::Battle {
 
 fn hit(battle: &mut crate::Battle, kind: DamageKind, power: Power) -> crate::HitResult {
     battle.random = crate::state::Random::new(1);
-    let mut contacts = Contacts::default();
-    contacts
-        .push(Contact {
-            source: ContactSource::Melee {
-                actor: ActorId(0),
-                action: ActionId(1),
-            },
-            owner: ActorId(0),
-            origin: Origin::World([0.; 3]),
+    let cues = tests::resolve_contact(
+        battle,
+        Contact {
             radius: 2.,
             height: 2.,
-            shape: HitShape::Box,
-            rule: HitRule {
-                sound: None,
+            ..tests::contact_fixture(HitRule {
                 kind,
                 power,
-                arte: false,
-                effect_on_guard: false,
-                effect: None,
                 overlimit_pause: true,
-                element: HitElement::Neutral,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
-                guard: GuardRule::default(),
-                reaction: Default::default(),
-                condition: None,
-            },
-            clashes: false,
-            struck: Vec::new(),
-        })
-        .unwrap();
-    let mut cues = vec![];
-    contacts.resolve(battle, &mut cues, &[]).unwrap();
-    cues.into_iter()
-        .find_map(|cue| match cue {
-            Cue::Hit { result, .. } => Some(result),
-            _ => None,
-        })
-        .unwrap()
+                ..crate::tests::hit()
+            })
+        },
+    )
+    .unwrap();
+    tests::hit_result(&cues)
 }
 
 #[test]

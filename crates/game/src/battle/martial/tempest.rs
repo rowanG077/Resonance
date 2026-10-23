@@ -1,5 +1,5 @@
 //! Tempest spins through its authored strikes, then settles on the floor.
-use super::{ActionDefinition, Sound, Technique};
+use super::{PreparedAttack, Sound, Technique};
 use anyhow::{Context, Result};
 use resonance_battle::{AttackEvent, AttackPose, ModelDefinition};
 
@@ -8,24 +8,14 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let mut action = self.prepare_authored(resources, model, tp_cost)?;
-        let crate::battle::ActionExecution::Attack(attack) = &mut action.execution else {
-            unreachable!("martial preparation produces an attack")
-        };
-        let recovery_pose = attack
+    ) -> Result<PreparedAttack> {
+        let mut action = self.prepare_authored(resources, model)?;
+        let recovery_pose =
+            super::recovery_pose(&action).context("missing Tempest recovery pose")?;
+        action
             .events
-            .iter()
-            .find_map(|(at, event)| match event {
-                AttackEvent::Pose(pose) if *at == attack.end_at => Some(*pose),
-                _ => None,
-            })
-            .context("missing Tempest recovery pose")?;
-        attack
-            .events
-            .retain(|(at, event)| *at != attack.end_at || !matches!(event, AttackEvent::Pose(_)));
-        let landing_at = attack
+            .retain(|(at, event)| *at != action.end_at || !matches!(event, AttackEvent::Pose(_)));
+        let landing_at = action
             .events
             .iter()
             .map(|(at, event)| {
@@ -39,7 +29,7 @@ impl Technique {
         // The landing clip blends for four updates and settles for fourteen.
         // The idle pose begins with recovery, independently of clip completion.
         let landing_clip = if self.catalogue == 17 { 18 } else { 16 };
-        attack.events.push((
+        action.events.push((
             landing_at,
             AttackEvent::Land {
                 pose: Some(AttackPose {

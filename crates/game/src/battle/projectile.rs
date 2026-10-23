@@ -19,7 +19,8 @@ impl ActionResources {
         if let Some(reason) = &row.unsupported_reason {
             anyhow::bail!("{reason}");
         }
-        let select = |bank, member| -> Result<Option<EffectResource>> {
+        let mut effect = |source: battle_projectile::Effect| -> Result<Option<EffectAppearance>> {
+            let battle_projectile::Effect { bank, member } = source;
             if member == 0 {
                 return Ok(None);
             }
@@ -30,24 +31,11 @@ impl ActionResources {
                 .with_context(|| {
                     format!("projectile effect {member} has no prepared bank {bank}")
                 })?;
-            let mut binding = binding.clone();
-            binding.members = vec![u16::from(member)];
-            Ok(Some(binding))
+            Ok(Some(self.effect_member(binding, u16::from(member))?))
         };
         let contact = &row.contact;
         hit.overlimit_pause = false;
         hit.reaction.direction = contact.recoil_direction;
-        let mut effect = |source: battle_projectile::Effect| -> Result<Option<EffectAppearance>> {
-            let Some(binding) = select(source.bank, source.member)? else {
-                return Ok(None);
-            };
-            let appearance = EffectAppearance {
-                resource: binding.resource,
-                member: u16::from(source.member),
-            };
-            self.effect(binding)?;
-            Ok(Some(appearance))
-        };
         let trail = effect(row.trail_effect)?;
         let definition = ProjectileDefinition {
             lifetime: row.lifetime,

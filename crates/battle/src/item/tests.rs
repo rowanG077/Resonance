@@ -26,27 +26,22 @@ fn prepared(actors: Vec<crate::Actor>) -> PreparedBattle {
         .iter()
         .map(|actor| {
             (actor.side == Side::Party).then_some(ActorDefinition {
-                motion: Some(MotionBinding { model: 7, clip: 20 }),
+                motion: Some(MotionBinding {
+                    model: crate::ResourceId(7),
+                    clip: 20,
+                }),
                 quick: false,
             })
         })
         .collect();
     let count = actors.len();
-    PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        0x1234_5678,
-    )
-    .unwrap()
-    .with_items(Definition {
-        policies: Arc::new(policies()),
-        actors: users,
-        targets: vec![TargetDefinition::default(); count],
-    })
-    .unwrap()
+    crate::tests::prepare_actors(actors, 0x1234_5678)
+        .with_items(Definition {
+            policies: Arc::new(policies()),
+            actors: users,
+            targets: vec![TargetDefinition::default(); count],
+        })
+        .unwrap()
 }
 
 #[test]
@@ -220,7 +215,7 @@ impl Provider for Storage {
 }
 
 fn battle() -> Battle {
-    (prepared(vec![actor(), actor(), crate::tests::actor(Side::Enemy)]))
+    prepared(vec![actor(), actor(), crate::tests::actor(Side::Enemy)])
         .finish()
         .unwrap()
 }
@@ -242,6 +237,17 @@ fn before_release(battle: &mut Battle, storage: &mut Storage, request: Release) 
         step(battle, storage);
     }
     assert_eq!(storage.acquisitions, acquisitions);
+}
+
+fn use_item(battle: &mut Battle, storage: &mut Storage, request: Release) -> crate::BattleFrame {
+    before_release(battle, storage, request);
+    step(battle, storage)
+}
+
+fn advance(battle: &mut Battle, storage: &mut Storage, ticks: u16) {
+    for _ in 0..ticks {
+        step(battle, storage);
+    }
 }
 
 #[test]
@@ -278,8 +284,7 @@ fn all_ordinary_recoveries_consume_at_full_vitals_and_keep_hp_tp_operands_distin
         battle.actors[0].hp = 328;
         battle.actors[0].tp = 36;
         let mut storage = Storage::new(item, 1);
-        before_release(&mut battle, &mut storage, request(item, 0));
-        step(&mut battle, &mut storage);
+        use_item(&mut battle, &mut storage, request(item, 0));
         assert_eq!((battle.actors[0].hp, battle.actors[0].tp), (328, 36));
         assert!(storage.inventory.is_empty());
     }
@@ -305,8 +310,7 @@ fn recovery_modifiers_bind_single_target_or_group_user_and_tp_ignores_ex21() {
             actor.equipment.recovery.boost = true;
         }
         let mut storage = Storage::new(item, 1);
-        before_release(&mut battle, &mut storage, request(item, 1));
-        step(&mut battle, &mut storage);
+        use_item(&mut battle, &mut storage, request(item, 1));
         // Single5 uses target118:37%, EX21 HP44%, TP37%.
         // Group8/9 uses user without118:30%, individual EX21 HP36%, TP30%.
         if item != 9 {
@@ -330,44 +334,29 @@ fn recovery_modifiers_bind_single_target_or_group_user_and_tp_ignores_ex21() {
 #[test]
 fn seal_reduces_single_target_and_group_user_recovery_but_elixir_bypasses() {
     use crate::conditions::{Conditions, Layers};
-
-    let mut single = battle();
-    single.actors[1].conditions = Conditions::new(Layers {
-        equipment_overlay: ConditionSet::of(&[Condition::ReduceItemEffect]),
-        ..Default::default()
-    });
-    single.actors[1].hp = 1;
-    let mut storage = Storage::new(5, 1);
-    before_release(&mut single, &mut storage, request(5, 1));
-    step(&mut single, &mut storage);
-    assert_eq!(single.actors[1].hp, 50); // 1 + floor(328 * 15 / 100)
-    assert!(storage.inventory.is_empty());
-
-    // Group recovery uses the item user's Seal once for every recipient.
-    let mut group = battle();
-    group.actors[0].conditions = Conditions::new(Layers {
-        equipment_overlay: ConditionSet::of(&[Condition::ReduceItemEffect]),
-        ..Default::default()
-    });
-    group.actors[0].hp = 1;
-    group.actors[1].hp = 1;
-    let mut storage = Storage::new(8, 1);
-    before_release(&mut group, &mut storage, request(8, 1));
-    step(&mut group, &mut storage);
-    assert_eq!(group.actors[0].hp, 50);
-    assert_eq!(group.actors[1].hp, 50);
-
-    let mut elixir = battle();
-    elixir.actors[0].conditions = Conditions::new(Layers {
-        equipment_overlay: ConditionSet::of(&[Condition::ReduceItemEffect]),
-        ..Default::default()
-    });
-    elixir.actors[0].hp = 1;
-    elixir.actors[0].tp = 0;
-    let mut storage = Storage::new(7, 1);
-    before_release(&mut elixir, &mut storage, request(7, 0));
-    step(&mut elixir, &mut storage);
-    assert_eq!((elixir.actors[0].hp, elixir.actors[0].tp), (328, 36));
+    // Single recovery uses the recipient's Seal; group recovery uses its user's.
+    for (item, sealed, target, hp, tp) in [(5, 1, 1, 50, 36), (8, 0, 1, 50, 32), (7, 0, 0, 328, 36)]
+    {
+        let mut battle = battle();
+        battle.actors[sealed].conditions = Conditions::new(Layers {
+            equipment_overlay: Condition::ReduceItemEffect.into(),
+            ..Default::default()
+        });
+        battle.actors[usize::from(target)].hp = 1;
+        if item == 8 {
+            battle.actors[0].hp = 1;
+        } else if item == 7 {
+            battle.actors[0].tp = 0;
+        }
+        let mut storage = Storage::new(item, 1);
+        use_item(&mut battle, &mut storage, request(item, target));
+        let recipient = &battle.actors[usize::from(target)];
+        assert_eq!((recipient.hp, recipient.tp), (hp, tp), "{item}");
+        if item == 8 {
+            assert_eq!(battle.actors[0].hp, hp);
+        }
+        assert!(storage.inventory.is_empty());
+    }
 }
 
 #[test]
@@ -402,9 +391,7 @@ fn life_bottle_commits_once_and_recovers_without_waiting_for_a_pose() {
                 ..
             }
         )));
-        for _ in 0..15 {
-            step(&mut battle, &mut storage);
-        }
+        advance(&mut battle, &mut storage, 15);
         assert!(battle.actor_command_ready(ActorId(1)));
         assert_eq!(battle.activity(ActorId(1)), Activity::Idle);
         assert!(!battle.is_diagnostic());
@@ -501,8 +488,7 @@ fn unsupported_items_and_ineligible_targets_never_reserve_or_spend() {
     let mut remapped = self::battle();
     remapped.actors[0].hp = 1;
     let mut storage = Storage::new(600, 1);
-    before_release(&mut remapped, &mut storage, request(600, 0));
-    step(&mut remapped, &mut storage);
+    use_item(&mut remapped, &mut storage, request(600, 0));
     assert_eq!(remapped.actors[0].hp, 83);
     assert!(!storage.inventory.contains_key(&600));
     assert!(storage.gel);
@@ -510,9 +496,7 @@ fn unsupported_items_and_ineligible_targets_never_reserve_or_spend() {
 
 #[test]
 fn hourglass_freezes_opponents_while_party_keeps_running() {
-    let mut battle = prepared(vec![actor(), actor(), crate::tests::actor(Side::Enemy)])
-        .finish()
-        .unwrap();
+    let mut battle = battle();
     let mut storage = Storage::new(39, 1);
     before_release(&mut battle, &mut storage, request(39, 0));
     battle.enter_stun(ActorId(2), &mut vec![]);
@@ -536,18 +520,14 @@ fn hourglass_freezes_opponents_while_party_keeps_running() {
 
     battle.actors[1].hit_stop = 2;
     battle.actors[2].hit_stop = 2;
-    for _ in 0..60 {
-        step(&mut battle, &mut storage);
-    }
+    advance(&mut battle, &mut storage, 60);
     assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
     assert_eq!(battle.actors[1].hit_stop, 0);
     assert_eq!(battle.actors[2].hit_stop, 2);
     assert_eq!(battle.activity(ActorId(2)), Activity::Stunned);
     assert!(battle.transition().is_none());
     assert_eq!(battle.hourglass_remaining(), 240);
-    for _ in 0..240 {
-        step(&mut battle, &mut storage);
-    }
+    advance(&mut battle, &mut storage, 240);
     assert_eq!(battle.hourglass_remaining(), 0);
     assert_eq!(battle.actors[2].hit_stop, 1);
     assert_eq!(battle.actors[2].time_stop, 0);
@@ -570,9 +550,7 @@ fn death_clears_its_freeze_and_inactive_actors_still_expire() {
     battle.enter_death(ActorId(3), &mut vec![]);
     assert_eq!(battle.actors[3].time_stop, 0);
     assert_eq!(battle.hourglass_remaining(), 2);
-    for _ in 0..2 {
-        battle.step(BattleInput::default()).unwrap();
-    }
+    crate::tests::step_idle(&mut battle, 2).unwrap();
     assert_eq!(battle.hourglass_remaining(), 0);
     battle.actors[2].availability = crate::ActorAvailability::Active;
     battle.actors[2].hit_stop = 2;
@@ -582,53 +560,76 @@ fn death_clears_its_freeze_and_inactive_actors_still_expire() {
 
 #[test]
 fn preflight_faults_cancel_once_without_effect_or_inventory_mutation() {
-    for paranoid in [false, true] {
-        let mut battle = battle();
-        let diagnostics = Diagnostics::new(paranoid);
-        battle.set_diagnostics(diagnostics.clone());
-        let mut storage = Storage::new(1, 1);
-        before_release(&mut battle, &mut storage, request(1, 0));
-        storage.inventory.clear();
-        battle.actors[2].movement.forward = 1.;
-        battle.actors[2].movement.direction = [1., 0., 0.];
-        let later_actor_position = battle.actors[2].position;
-        let hp_tp: Vec<_> = battle
-            .actors
-            .iter()
-            .map(|actor| (actor.hp, actor.tp))
-            .collect();
-        let inventory = storage.inventory.clone();
-        let grade = battle.ledger.grade();
-        let result = battle.update(BattleInput::default(), &mut storage);
-        assert_eq!(result.is_err(), paranoid);
-        assert!(battle.pending_item().is_none());
-        assert_eq!(
-            battle
+    for (item, target_id) in [(1, 0), (10, 1), (12, 1), (14, 1), (38, 1), (48, 1)] {
+        for paranoid in [false, true] {
+            let mut battle = if matches!(item, 10 | 12) {
+                cures::stone_battle(1)
+            } else {
+                battle()
+            };
+            let diagnostics = Diagnostics::new(paranoid);
+            battle.set_diagnostics(diagnostics.clone());
+            let mut storage = Storage::new(item, 1);
+            before_release(&mut battle, &mut storage, request(item, target_id));
+            storage.inventory.clear();
+            battle.actors[2].movement.forward = 1.;
+            battle.actors[2].movement.direction = [1., 0., 0.];
+            let later_actor_position = battle.actors[2].position;
+            let target_index = usize::from(target_id);
+            let target = battle.actors[target_index].clone();
+            let hp_tp: Vec<_> = battle
                 .actors
                 .iter()
                 .map(|actor| (actor.hp, actor.tp))
-                .collect::<Vec<_>>(),
-            hp_tp
-        );
-        assert_eq!(storage.inventory, inventory);
-        assert!(!storage.gel);
-        assert!(!storage.scanned && !storage.location);
-        assert_eq!(battle.ledger.grade(), grade);
-        assert_eq!(battle.ledger.items[0], 0);
-        assert!(!battle.ledger.party_item_effect_used);
-        assert_eq!(battle.items.cooldown, 0);
-        assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
-        assert!(battle.is_diagnostic());
-        if paranoid {
-            assert!(battle.update(BattleInput::default(), &mut storage).is_err());
-        } else {
-            assert_ne!(battle.actors[2].position, later_actor_position);
-            for _ in 0..3 {
-                step(&mut battle, &mut storage);
+                .collect();
+            let result = battle.update(BattleInput::default(), &mut storage);
+            assert_eq!(result.is_err(), paranoid, "item {item}");
+            assert!(battle.pending_item().is_none());
+            assert_eq!(
+                battle
+                    .actors
+                    .iter()
+                    .map(|actor| (actor.hp, actor.tp))
+                    .collect::<Vec<_>>(),
+                hp_tp
+            );
+            assert_eq!(battle.actors[target_index].conditions, target.conditions);
+            assert_eq!(
+                battle.actors[target_index].availability,
+                target.availability
+            );
+            assert_eq!(
+                battle.actors[target_index].elements.enchantment,
+                target.elements.enchantment
+            );
+            assert!(!battle.all_divide_active());
+            assert!(storage.inventory.is_empty());
+            assert!(!storage.gel);
+            assert!(!storage.scanned && !storage.location);
+            assert_eq!(battle.ledger.grade(), 0);
+            assert_eq!(battle.ledger.items[0], 0);
+            assert!(!battle.ledger.party_item_effect_used);
+            assert_eq!(battle.item_cooldown(), 0);
+            assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+            assert!(battle.is_diagnostic());
+            assert_eq!(diagnostics.entries().len(), 1);
+            assert_eq!(storage.acquisitions, 1);
+            if paranoid {
+                assert!(battle.update(BattleInput::default(), &mut storage).is_err());
+            } else {
+                assert_ne!(battle.actors[2].position, later_actor_position);
+                assert!(
+                    result.unwrap().iter().all(|cue| !matches!(
+                        cue,
+                        Cue::ItemReleased { .. } | Cue::ItemNotice { .. }
+                    ))
+                );
+                advance(&mut battle, &mut storage, 3);
             }
+            assert_eq!(diagnostics.entries().len(), 1);
+            assert_eq!(storage.acquisitions, 1);
+            assert!(storage.inventory.is_empty());
         }
-        assert_eq!(diagnostics.entries().len(), 1);
-        assert_eq!(storage.acquisitions, 1);
     }
 }
 
@@ -702,7 +703,7 @@ fn queued_item_takes_priority_over_new_player_actions() {
         run_speed: 10.,
         turn_ticks: 8,
         motions: None,
-        shortcuts: [0; 4],
+        shortcuts: [None; 4],
         normals,
     }));
     let mut battle = candidate.finish().unwrap();
@@ -711,17 +712,14 @@ fn queued_item_takes_priority_over_new_player_actions() {
     battle.queue_item(request(1, 0)).unwrap();
     let cues = battle
         .update(
-            BattleInput {
-                controllers: vec![crate::ControlInput {
-                    attack: crate::ButtonInput {
-                        held: true,
-                        pressed: true,
-                        released: false,
-                    },
-                    ..crate::ControlInput::neutral(ActorId(0))
-                }],
-                ..Default::default()
-            },
+            BattleInput::from(crate::ControlInput {
+                attack: crate::ButtonInput {
+                    held: true,
+                    pressed: true,
+                    released: false,
+                },
+                ..crate::ControlInput::neutral(ActorId(0))
+            }),
             &mut storage,
         )
         .unwrap();
@@ -786,8 +784,7 @@ fn lens_eligibility_is_shared_by_selection_confirmation_and_release() {
         assert!(battle.pending_item().is_none());
         let mut storage = Storage::new(37, 1);
         if inactive_selectable {
-            before_release(&mut battle, &mut storage, request(37, 2));
-            step(&mut battle, &mut storage);
+            use_item(&mut battle, &mut storage, request(37, 2));
             assert!(storage.scanned);
             assert_eq!(storage.acquisitions, 1);
         } else {
@@ -815,24 +812,13 @@ fn lens_eligibility_is_shared_by_selection_confirmation_and_release() {
 fn item_release_commits_once_and_finishes_without_a_pose() {
     for (pose, quick) in [(Some(20), false), (Some(99), true), (None, false)] {
         let mut candidate = prepared(vec![actor(), actor(), crate::tests::actor(Side::Enemy)]);
-        if let Some(clip) = pose {
-            candidate.resources.items.as_mut().unwrap().actors[0]
-                .as_mut()
-                .unwrap()
-                .motion
-                .as_mut()
-                .unwrap()
-                .clip = clip;
-        } else {
-            candidate.resources.items.as_mut().unwrap().actors[0]
-                .as_mut()
-                .unwrap()
-                .motion = None;
-        }
-        candidate.resources.items.as_mut().unwrap().actors[0]
-            .as_mut()
-            .unwrap()
-            .quick = quick;
+        candidate.resources.items.as_mut().unwrap().actors[0] = Some(ActorDefinition {
+            motion: pose.map(|clip| MotionBinding {
+                model: crate::ResourceId(7),
+                clip,
+            }),
+            quick,
+        });
         let mut battle = candidate.finish().unwrap();
         let diagnostics = Diagnostics::default();
         battle.set_diagnostics(diagnostics.clone());
@@ -879,9 +865,7 @@ fn item_release_commits_once_and_finishes_without_a_pose() {
 #[test]
 fn buff_items_refresh_the_recipient_and_spend_once_per_release() {
     for (user, target) in [(1, 0), (0, 0), (0, 1)] {
-        let mut battle = (prepared(vec![actor(), actor(), crate::tests::actor(Side::Enemy)]))
-            .finish()
-            .unwrap();
+        let mut battle = battle();
         let request = Release {
             user: ActorId(user),
             target: ActorId(target),
@@ -903,8 +887,7 @@ fn buff_items_refresh_the_recipient_and_spend_once_per_release() {
             while battle.item_cooldown() != 0 {
                 step(&mut battle, &mut storage);
             }
-            before_release(&mut battle, &mut storage, request);
-            let frame = step(&mut battle, &mut storage);
+            let frame = use_item(&mut battle, &mut storage, request);
             let condition = &battle.actors[request.target.index()].conditions;
             assert_eq!(condition.base(), ConditionSet::of(&[Condition::Flare]));
             assert_eq!(storage.acquisitions, usize::from(used));
@@ -985,8 +968,7 @@ fn duration_extension_belongs_to_the_buff_recipient() {
                     });
             }
             let mut storage = Storage::new(item, 1);
-            before_release(&mut battle, &mut storage, request(item, 1));
-            step(&mut battle, &mut storage);
+            use_item(&mut battle, &mut storage, request(item, 1));
             assert!(battle.actors[1].conditions.effective().contains(condition));
             let duration = match condition {
                 Condition::PhysicalProtection => None,
@@ -1044,41 +1026,6 @@ fn immune_buff_is_consumed_without_changing_conditions() {
     }
 }
 
-#[test]
-fn buff_faults_preserve_conditions_inventory_and_usage() {
-    for item in [14, 48] {
-        for paranoid in [false, true] {
-            let mut battle = battle();
-            let diagnostics = Diagnostics::new(paranoid);
-            battle.set_diagnostics(diagnostics.clone());
-            let mut storage = Storage::new(item, 1);
-
-            before_release(&mut battle, &mut storage, request(item, 1));
-            storage.inventory.clear();
-            let inventory = storage.inventory.clone();
-            let result = battle.update(BattleInput::default(), &mut storage);
-            assert_eq!(result.is_err(), paranoid, "{item}");
-            assert!(battle.pending_item().is_none());
-            assert_eq!(storage.acquisitions, 1);
-            assert_eq!(storage.inventory, inventory);
-            assert!(battle.actors[1].conditions.base().is_empty());
-            assert!(battle.actors[1].conditions.active_effects().is_empty());
-            assert_eq!(battle.actors[1].elements.enchantment, None);
-            assert_eq!(battle.ledger.grade(), 0);
-            assert_eq!(battle.ledger.items[0], 0);
-            assert_eq!(battle.item_cooldown(), 0);
-            if !paranoid {
-                assert_eq!(diagnostics.entries().len(), 1);
-                for _ in 0..3 {
-                    step(&mut battle, &mut storage);
-                }
-                assert_eq!(diagnostics.entries().len(), 1);
-                assert_eq!(storage.acquisitions, 1);
-            }
-        }
-    }
-}
-
 #[path = "cure_tests.rs"]
 mod cures;
 
@@ -1093,9 +1040,7 @@ fn potion_title_counts_the_recipient_only_after_release() {
         assert_eq!(battle.ledger.achievements[0].potions, 0);
         assert_eq!(battle.ledger.achievements[1].potions, 1);
         assert_eq!(battle.ledger.items[0], 1);
-        for _ in 0..10 {
-            step(&mut battle, &mut storage);
-        }
+        advance(&mut battle, &mut storage, 10);
         assert_eq!(battle.ledger.achievements[1].potions, 1);
     }
 }

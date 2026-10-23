@@ -97,10 +97,12 @@ impl PreparedBattle {
                     .unwrap()
                     .strategy
             };
-            let target = crate::select_target(&targets, index, policy, &mut || random.next_u16())?
-                .context("entry actor has no eligible target")?;
+            let target = crate::select_target(&targets, ActorId(index as u8), policy, &mut || {
+                random.next_u16()
+            })?
+            .context("entry actor has no eligible target")?;
             targets[index].target = Some(target);
-            self.targets[index] = ActorId(target as u8);
+            self.targets[index] = target;
         }
         self.random_seed = random.state();
         for index in 0..self.actors.len() {
@@ -183,7 +185,7 @@ impl Battle {
             return Ok(());
         }
         if companion {
-            self.advance_auto_charge(actor, cues)?;
+            self.advance_auto_charge(actor, cues);
         }
         if self.runtime[index].idle_timer > 0 {
             self.runtime[index].idle_timer -= 1;
@@ -272,15 +274,12 @@ impl Battle {
                 available: a.available(),
                 hidden: self.target_excluded(ActorId(index as u8)),
                 dying: a.availability == crate::ActorAvailability::Dead,
-                target: self.target(ActorId(index as u8)).map(ActorId::index),
+                target: self.target(ActorId(index as u8)),
             })
             .collect();
-        let target =
-            crate::target::select_target_pool(&actors, owner.index(), policy, allies, &mut || {
-                self.random.next_u16()
-            })?
-            .map(|index| ActorId(index as u8));
-        Ok(target)
+        crate::target::select_target_pool(&actors, owner, policy, allies, &mut || {
+            self.random.next_u16()
+        })
     }
 
     pub(crate) fn set_decision_target(&mut self, owner: ActorId, target: ActorId) -> Result<()> {

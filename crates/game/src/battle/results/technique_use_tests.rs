@@ -1,11 +1,13 @@
 //! Candidate accounting tests isolate known membership while retaining real action admission.
 use super::item_tests::{
-    Display, PreparedFixture, enter_battle, escape, prepared_fixture_with_party,
+    Display, PreparedFixture, edge, enter_battle, escape, prepared_fixture_with_party,
 };
 use super::*;
 use crate::battle::{command, lifecycle};
 use crate::menu::MenuAction;
-use resonance_battle::{ActionRequest, Activity, BattleFrame, BattleInput, ButtonInput};
+use resonance_battle::ControllerPort;
+use resonance_battle::TechniqueId;
+use resonance_battle::{ActionRequest, Activity, BattleFrame, BattleInput};
 
 fn fixture(formation: &[u8], initial: u16, previous: Option<&Party>) -> Result<PreparedFixture> {
     prepared_fixture_with_party(formation, 2, &[(1, 1), (3, 66)], |party, _, _| {
@@ -41,7 +43,7 @@ fn genis(f: &PreparedFixture) -> ActorId {
         .setup
         .actors
         .iter()
-        .find(|(_, character)| *character == 3)
+        .find(|(_, character)| *character == Character::Genis)
         .unwrap()
         .0
 }
@@ -82,21 +84,17 @@ fn selected_tech_target(fixture: &PreparedFixture) -> Option<ActorId> {
     }
 }
 
-fn edge() -> ButtonInput {
-    ButtonInput {
-        held: true,
-        pressed: true,
-        released: false,
-    }
-}
-
 fn release_fire_ball(f: &mut PreparedFixture, initial: u16) -> Result<()> {
     enter_battle(&mut f.candidate, &mut f.battle)?;
     let actor = genis(f);
     let request = ActionRequest {
         actor,
         target: f.battle.target(actor).context("missing Fire Ball target")?,
-        action: f.battle.prepared_technique(actor, 66).unwrap().action,
+        action: f
+            .battle
+            .prepared_technique(actor, TechniqueId(66))
+            .unwrap()
+            .action,
     };
     let expected = (initial + 1).min(999);
     let mut chanted = false;
@@ -109,7 +107,7 @@ fn release_fire_ball(f: &mut PreparedFixture, initial: u16) -> Result<()> {
             },
         )?;
         // Live usage is immediately observable without publishing a Party snapshot.
-        let total = f.battle.technique_uses(actor, 66).unwrap();
+        let total = f.battle.technique_uses(actor, TechniqueId(66)).unwrap();
         assert_eq!(f.candidate.party.members[2].technique_uses[&66], initial);
         assert!(
             !f.candidate.party.members[2]
@@ -152,13 +150,13 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
         .setup
         .actors
         .iter()
-        .find(|(_, character)| *character == 1)
+        .find(|(_, character)| *character == Character::Lloyd)
         .map(|&(actor, _)| actor)
         .context("Tech fixture lost the Auto caster")?;
     command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             open: edge(),
             ..Default::default()
         },
@@ -170,7 +168,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             confirm_a: edge(),
             ..Default::default()
         },
@@ -186,7 +184,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
         let (frame, _) = command_visit(
             &mut fixture,
             command::Input {
-                controller: 0,
+                controller: ControllerPort::One,
                 shared_menu: (visit >= 20).then_some(MenuAction::Confirm),
                 ..Default::default()
             },
@@ -216,7 +214,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     let (neutral, neutral_events) = command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             ..Default::default()
         },
     )?;
@@ -229,7 +227,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     let (cycled, cycled_events) = command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             step: 1,
             ..Default::default()
         },
@@ -247,7 +245,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     let (second_cycle, _) = command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             step: 1,
             ..Default::default()
         },
@@ -259,7 +257,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     let (cancelled, events) = command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             cancel_b: edge(),
             ..Default::default()
         },
@@ -278,7 +276,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             confirm_a: edge(),
             ..Default::default()
         },
@@ -287,7 +285,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
         let (frame, _) = command_visit(
             &mut fixture,
             command::Input {
-                controller: 0,
+                controller: ControllerPort::One,
                 shared_menu: (visit >= 20).then_some(MenuAction::Confirm),
                 ..Default::default()
             },
@@ -300,7 +298,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     let (low_tp, denied_events) = command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             confirm_a: edge(),
             ..Default::default()
         },
@@ -319,7 +317,7 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     let (closed, events) = command_visit(
         &mut fixture,
         command::Input {
-            controller: 0,
+            controller: ControllerPort::One,
             step: -1,
             confirm_a: edge(),
             ..Default::default()
@@ -328,14 +326,21 @@ fn tech_command_selector_owns_target_lifetime_and_live_confirmation() -> Result<
     assert!(closed.target_selector.is_none());
     assert!(fixture.lifecycle.command_frame().is_none());
     assert!(events.contains(&command::Event::VoiceStreamsPaused(false)));
-    assert_eq!(fixture.battle.pending_technique_issuer(actor), Some(0));
+    assert_eq!(
+        fixture.battle.pending_technique_issuer(actor),
+        Some(ControllerPort::One)
+    );
     let queued_target = fixture
         .battle
         .pending_technique_target(actor)
         .context("successful Tech confirmation did not retain a target")?;
     assert_ne!(queued_target, pre_confirm_target);
     assert_eq!(fixture.battle.target(actor), Some(ordinary_target));
-    let action = fixture.battle.prepared_technique(actor, 1).unwrap().action;
+    let action = fixture
+        .battle
+        .prepared_technique(actor, TechniqueId(1))
+        .unwrap()
+        .action;
     assert!(!fixture.battle.queue_technique(actor, action)?);
     assert_eq!(
         fixture.battle.pending_technique_target(actor),
@@ -351,16 +356,25 @@ fn learned_technique_appears_on_menu_entry_and_preserves_later_user_edits() -> R
     let mut f = prepared_fixture_with_party(&[8, 1], 2, &[], |_, _, _| Ok(()))?;
     enter_battle(&mut f.candidate, &mut f.battle)?;
     let actor = f.candidate.setup.actors[0].0;
-    let action = f.battle.record_technique_acquisition(actor, 201)?;
+    let action = f
+        .battle
+        .record_technique_acquisition(actor, TechniqueId(201))?;
     f.battle.forget_technique(actor, action)?;
     f.candidate.begin_tech(&mut f.battle, 0, [false; 4])?;
     assert!(!f.candidate.party.members[7].techniques.contains(&201));
     assert_eq!(f.candidate.party.members[7].shortcuts, [0; 4]);
-    f.battle.record_technique_acquisition(actor, 201)?;
+    f.battle
+        .record_technique_acquisition(actor, TechniqueId(201))?;
     f.candidate
         .world_update(&mut f.battle, BattleInput::default())?;
-    assert_eq!(f.battle.technique_is_current(actor, 201), Some(true));
-    assert_eq!(f.battle.shortcuts(actor).unwrap()[0], 201);
+    assert_eq!(
+        f.battle.technique_is_current(actor, TechniqueId(201)),
+        Some(true)
+    );
+    assert_eq!(
+        f.battle.shortcuts(actor).unwrap()[0],
+        Some(TechniqueId(201))
+    );
     assert!(!f.candidate.party.members[7].techniques.contains(&201));
 
     let page = f.candidate.begin_tech(&mut f.battle, 0, [false; 4])?;
@@ -389,7 +403,7 @@ fn learned_technique_appears_on_menu_entry_and_preserves_later_user_edits() -> R
         )?;
     }
     f.candidate.begin_tech(&mut f.battle, 0, [false; 4])?;
-    assert_eq!(f.battle.shortcuts(actor).unwrap()[0], 0);
+    assert_eq!(f.battle.shortcuts(actor).unwrap()[0], None);
     assert_eq!(f.candidate.party.members[7].shortcuts[0], 0);
     assert!(
         f.candidate.party.members[7]
@@ -408,11 +422,18 @@ fn learned_technique_appears_on_menu_entry_and_preserves_later_user_edits() -> R
         Ok(())
     })?;
     let actor = next.candidate.setup.actors[0].0;
-    let action = next.battle.prepared_technique(actor, 201).unwrap().action;
-    assert_eq!(next.battle.technique_is_current(actor, 201), Some(true));
-    assert_eq!(next.battle.shortcuts(actor), Some(&[0; 4]));
+    let action = next
+        .battle
+        .prepared_technique(actor, TechniqueId(201))
+        .unwrap()
+        .action;
+    assert_eq!(
+        next.battle.technique_is_current(actor, TechniqueId(201)),
+        Some(true)
+    );
+    assert_eq!(next.battle.shortcuts(actor), Some(&[None; 4]));
     assert!(!next.battle.technique_enabled(actor, action));
-    assert_eq!(next.battle.technique_uses(actor, 201), Some(0));
+    assert_eq!(next.battle.technique_uses(actor, TechniqueId(201)), Some(0));
     Ok(())
 }
 
@@ -471,7 +492,7 @@ fn usage_projects_at_menu_and_finish_boundaries_across_two_battles() -> Result<(
 fn failed_vital_snapshot_does_not_publish_technique_counts() -> Result<()> {
     let mut f = fixture(&[3, 1], 49, None)?;
     // Deliberately stale projection rows expose accidental partial writes; no
-    // source event is fabricated and the immutable core totals remain49/17.
+    // source event is fabricated and the immutable core totals remain 49/17.
     f.candidate.party.members[2].technique_uses.insert(66, 1);
     f.candidate.party.members[0].technique_uses.insert(1, 2);
     let before = serde_json::to_value(&f.candidate.party)?;

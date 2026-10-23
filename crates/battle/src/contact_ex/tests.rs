@@ -17,15 +17,7 @@ fn hit(amount: i32) -> HitResult {
 }
 
 fn candidate(actors: Vec<Actor>) -> PreparedBattle {
-    PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        1,
-    )
-    .unwrap()
+    crate::tests::prepare_actors(actors, 1)
 }
 
 fn battle(actors: Vec<Actor>) -> Battle {
@@ -46,18 +38,8 @@ fn finish_hurt(battle: &mut Battle, actor: ActorId) -> Result<Vec<Cue>> {
 
 fn rule() -> crate::HitRule {
     crate::HitRule {
-        sound: None,
-        kind: crate::DamageKind::Slash,
         arte: true,
-        effect_on_guard: false,
-        effect: None,
-        overlimit_pause: false,
         power: crate::Power::Fixed(7),
-        element: crate::HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        reaction: Default::default(),
         guard: crate::GuardRule {
             enabled: false,
             suppress_sound: false,
@@ -65,7 +47,7 @@ fn rule() -> crate::HitRule {
             breaks: false,
             unbreakable: false,
         },
-        condition: None,
+        ..crate::tests::hit()
     }
 }
 

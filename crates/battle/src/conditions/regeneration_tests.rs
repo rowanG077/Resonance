@@ -1,5 +1,4 @@
 use super::*;
-use crate::PreparedBattle;
 use crate::{ActorAvailability, BattleInput, Side, tests::actor};
 use crate::{ActorId, Battle, Cue};
 use Condition::*;
@@ -20,17 +19,9 @@ fn battle() -> Battle {
         hp_percent: 3,
         tp_percent: 1,
     });
-    PreparedBattle::new(
-        vec![
-            (owner, Default::default()),
-            (actor(Side::Enemy), Default::default()),
-        ],
-        Default::default(),
-        17,
-    )
-    .unwrap()
-    .finish()
-    .unwrap()
+    crate::tests::prepare_actors(vec![owner, actor(Side::Enemy)], 17)
+        .finish()
+        .unwrap()
 }
 
 fn pulse(battle: &mut Battle) -> Vec<Cue> {

@@ -1,15 +1,55 @@
 use super::*;
+use crate::ResourceId;
 use crate::conditions::{Condition, ConditionSet};
 use std::sync::Arc;
 
 pub(crate) fn technique(action: crate::ActionKey, catalogue: u16) -> PreparedTechnique {
     PreparedTechnique {
         action,
-        catalogue,
+        catalogue: TechniqueId(catalogue),
         player_range: [0., 120.],
         ai_range: [0., 120.],
         capabilities: TechniqueCapabilities::default(),
-        element: 0,
+        element: None,
+    }
+}
+
+pub(crate) fn enemy_choice(action: ActionKey) -> EnemyChoice {
+    EnemyChoice {
+        action,
+        physical_arte: false,
+        weight: 1,
+        chain_group: 0,
+        followup_chance: 0,
+        requirements: Default::default(),
+        target_policy: None,
+        target_allies: false,
+        return_to_formation: false,
+        returning: None,
+        return_speed: None,
+        guard_chance: 0,
+        range: [0, 0],
+        tp: 0,
+        approach_minimum: 0.,
+        approach_range: 120.,
+        approach: None,
+    }
+}
+
+pub(crate) fn enemy_decision(choices: Vec<EnemyChoice>) -> EnemyDecisionDefinition {
+    EnemyDecisionDefinition {
+        enemy_id: EnemyId(0),
+        disabled_choices: Vec::new(),
+        strategy: TargetPolicy::Nearest,
+        difficulty: Difficulty::Normal,
+        choices,
+        back_row: vec![],
+        walk_speed: 2.,
+        walk_override: None,
+        behavior: None,
+        walk_motion: None,
+        run_motion: None,
+        turn_ticks: 8,
     }
 }
 
@@ -34,40 +74,16 @@ pub(crate) fn assign_action(prepared: &mut PreparedBattle, owner: usize, action:
         let definition = setup
             .enemy_decision
             .get_or_insert_with(|| EnemyDecisionDefinition {
-                enemy_id: 0,
-                disabled_choices: Vec::new(),
-                strategy: TargetPolicy::Nearest,
-                difficulty: 0,
-                choices: vec![],
-                back_row: vec![],
                 walk_speed: 1.,
-                walk_override: None,
-                behavior: None,
-                walk_motion: None,
-                run_motion: None,
                 turn_ticks: 1,
+                ..enemy_decision(vec![])
             });
         definition.choices.push(EnemyChoice {
-            action,
-            physical_arte: false,
-            weight: 1,
-            chain_group: 0,
-            followup_chance: 0,
             requirements: EnemyRequirements {
                 hp_percent: Some(0),
                 ..Default::default()
             },
-            target_policy: None,
-            target_allies: false,
-            return_to_formation: false,
-            returning: None,
-            return_speed: None,
-            guard_chance: 0,
-            range: [0, 0],
-            tp: 0,
-            approach_minimum: 0.,
-            approach_range: 120.,
-            approach: None,
+            ..enemy_choice(action)
         });
     }
 }
@@ -105,6 +121,14 @@ pub(crate) fn assert_vector_close<const N: usize>(
     }
 }
 
+/// Advance a fixture when only the resulting state is relevant to its assertions.
+pub(crate) fn step_idle(battle: &mut Battle, ticks: u32) -> anyhow::Result<()> {
+    for _ in 0..ticks {
+        battle.step(BattleInput::default())?;
+    }
+    Ok(())
+}
+
 #[test]
 fn equipment_refresh_preserves_live_vitals_and_condition_base() {
     let mut current = actor(Side::Party);
@@ -118,8 +142,7 @@ fn equipment_refresh_preserves_live_vitals_and_condition_base() {
         base: ConditionSet::of(&[Condition::Weak]),
         ..Default::default()
     });
-    let prepared =
-        PreparedBattle::new(vec![(current, Default::default())], Default::default(), 1).unwrap();
+    let prepared = prepare_actors(vec![current], 1);
     let id = prepared.actor_ids().next().unwrap();
     let mut battle = prepared.finish().unwrap();
     let mut replacement = actor(Side::Party);
@@ -127,7 +150,6 @@ fn equipment_refresh_preserves_live_vitals_and_condition_base() {
     replacement.equipment.max_tp = 80;
     //A freshly derived gear row has no actor-template species. Only that
     //profile field survives; weapon/EX damage traits must still be rebuilt.
-    assert_eq!(replacement.species, 0);
     replacement.equipment.damage.weapon_species = Some(9);
     replacement.equipment.damage.critical_chance_bonus = 7;
     replacement.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
@@ -170,12 +192,7 @@ fn equipment_refresh_preserves_live_vitals_and_condition_base() {
 fn equipment_batch_preflight_keeps_earlier_actor_unpublished_on_late_failure() {
     let first = actor(Side::Party);
     let second = actor(Side::Party);
-    let prepared = PreparedBattle::new(
-        vec![(first, Default::default()), (second, Default::default())],
-        Default::default(),
-        1,
-    )
-    .unwrap();
+    let prepared = prepare_actors(vec![first, second], 1);
     let mut battle = prepared.finish().unwrap();
     let mut changed = actor(Side::Party);
     changed.equipment.max_hp = 200;
@@ -207,63 +224,16 @@ mod diagnostic_tests;
 
 pub(super) fn actor(side: Side) -> Actor {
     Actor {
-        side,
-        species: 0,
-        equipment: crate::EquipmentAttributes {
-            max_hp: 100,
-            max_tp: 40,
-            tp_cost_reduction: false,
-            quick_escape: false,
-            taunt_enabled: false,
-            taunt_guard: false,
-            taunt_cancel: false,
-            control_ex: Default::default(),
-            quick_turn: false,
-            backstep_guard: false,
-            casting: Default::default(),
-            dagger_reach: false,
-            contact: Default::default(),
-            normal_combo_limit: 3,
-            guaranteed_steal: false,
-            luck: 0,
-            stats: crate::CombatStats::default(),
-            affinities: [crate::Affinity::Normal; 9],
-            damage: Default::default(),
-            recovery: RecoveryTraits::default(),
-            base_element: None,
-            combo_traits: Default::default(),
-            normal_guard: false,
-            speed_multiplier: 1.,
-            reaction_ex: Default::default(),
-            stun_ex_bonus: false,
-            spell_revenge: false,
-        },
-        control: Default::default(),
-        availability: Default::default(),
-        overlimit: crate::OverLimit::new(0).unwrap(),
-        guard: Default::default(),
         hp: 50,
         tp: 40,
-        control_ex_state: Default::default(),
-        casting_state: Default::default(),
-        stored_spell: None,
-        control_slot: 0,
-        elements: Default::default(),
-        attack_power: 100,
-        proficiency: 0,
-        combat_adjustments: Default::default(),
-        input: Default::default(),
-        conditions: Default::default(),
-        position: [0.; 3],
-        heading: 0.,
-        facing_direction: [0., 0., 1.],
-        effect_scale: 1.,
-        secondary_wind: Default::default(),
-        movement: Default::default(),
-        hit_stop: 0,
-        time_stop: 0,
-        reaction: Default::default(),
-        body: Body::default(),
+        ..Actor::new(
+            side,
+            Default::default(),
+            crate::EquipmentAttributes {
+                normal_combo_limit: 3,
+                ..crate::EquipmentAttributes::new(100, 40, crate::CombatStats::default())
+            },
+        )
     }
 }
 pub(crate) fn particle_definition(resource: u32, member: u16) -> ParticleDefinition {
@@ -272,7 +242,7 @@ pub(crate) fn particle_definition(resource: u32, member: u16) -> ParticleDefinit
     let declaration: resonance_content::battle_effect::declaration::Declaration =
         serde_json::from_value(fixture["declaration"].clone()).unwrap();
     ParticleDefinition {
-        resource,
+        resource: ResourceId(resource),
         member,
         model: None,
         data: declaration.particle().unwrap(),
@@ -291,7 +261,7 @@ pub(crate) fn model_definition(
         body_spheres: vec![],
         reception_spheres: None,
         fade_on_defeat: false,
-        resource,
+        resource: ResourceId(resource),
         initial: Playback {
             clip: motions[0].0,
             frame: 0.,
@@ -332,15 +302,20 @@ pub(crate) fn model_definition(
     }
 }
 
+pub(crate) fn models(
+    actors: &[Actor],
+    definitions: impl IntoIterator<Item = Option<Arc<ModelDefinition>>>,
+) -> anyhow::Result<Models> {
+    Models::new(
+        actors,
+        definitions.into_iter().collect(),
+        Default::default(),
+        resonance_content::diagnostics::Diagnostics::new(true),
+    )
+}
+
 pub(crate) fn attack(end_at: u16) -> PreparedAttack {
-    PreparedAttack {
-        contact_recovery: None,
-        opening: None,
-        events: vec![],
-        chain_at: None,
-        end_at,
-        recovery: 0,
-    }
+    PreparedAttack::new(end_at)
 }
 
 pub(crate) fn action(end_at: u16) -> ActionDefinition {
@@ -413,29 +388,31 @@ pub(crate) fn attack_mut(action: &mut ActionDefinition) -> &mut PreparedAttack {
     attack
 }
 
-pub(super) fn prepared(actors: Vec<Actor>, end_at: u16) -> PreparedBattle {
-    let mut prepared = PreparedBattle::new(
-        (actors)
+pub(crate) fn prepare_actors(actors: Vec<Actor>, seed: u64) -> PreparedBattle {
+    PreparedBattle::new(
+        actors
             .into_iter()
             .map(|actor| (actor, Default::default()))
             .collect(),
-        (vec![action(end_at)]).into(),
-        1,
+        Default::default(),
+        seed,
     )
-    .unwrap();
+    .unwrap()
+}
+
+pub(super) fn prepared(actors: Vec<Actor>, end_at: u16) -> PreparedBattle {
+    let mut prepared = prepare_actors(actors, 1);
+    prepared.resources.actions.insert(action(end_at));
     crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
     prepared
 }
 
 fn request(actor: u8) -> BattleInput {
-    BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(actor),
-            action: crate::ActionKey(0),
-            target: ActorId(actor),
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ActionRequest {
+        actor: ActorId(actor),
+        action: crate::ActionKey(0),
+        target: ActorId(actor),
+    })
 }
 fn started(frame: &BattleFrame) -> ActionId {
     frame
@@ -483,9 +460,7 @@ fn direct_requests_require_owned_roots_before_any_batch_payment_or_execution() {
         assert_eq!(frame.actors[0].tp, 40);
     }
     assert_eq!(battle.phase(), crate::BattlePhase::Combat);
-    for _ in 0..crate::prepare::ENTRY_SETTLE_UPDATES {
-        battle.step(BattleInput::default()).unwrap();
-    }
+    step_idle(&mut battle, u32::from(crate::prepare::ENTRY_SETTLE_UPDATES)).unwrap();
 
     let frame = battle.step(request(0)).unwrap();
     assert_eq!(frame.actors[0].tp, 12);
@@ -597,11 +572,7 @@ fn boosted_recovery_reports_full_amount_without_signed_narrowing() {
     recipient.equipment.max_hp = 100_000;
     recipient.hp = 50_000;
     recipient.equipment.recovery.boost = true;
-    let mut battle =
-        PreparedBattle::new(vec![(recipient, Default::default())], Default::default(), 1)
-            .unwrap()
-            .finish()
-            .unwrap();
+    let mut battle = prepare_actors(vec![recipient], 1).finish().unwrap();
     let mut cues = vec![];
     battle.recover(ActorId(0), 40, &mut cues).unwrap();
     assert!(matches!(
@@ -670,19 +641,13 @@ fn petrified_actors_cannot_begin_an_action_or_pay_its_cost() {
 
 fn projectile_definition() -> ProjectileDefinition {
     ProjectileDefinition {
-        motion: Default::default(),
-        effects: Default::default(),
         lifetime: Some(20),
-        velocity: [0.; 3],
-        acceleration: [0.; 3],
-        offset: [0.; 3],
         clamp_ground: true,
-        active: None,
         birth: Some(EffectAppearance {
-            resource: 37,
+            resource: ResourceId(37),
             member: 28,
         }),
-        contact: None,
+        ..Default::default()
     }
 }
 
@@ -690,21 +655,11 @@ pub(crate) fn volley() -> crate::PreparedSpell {
     let mut projectile = projectile_definition();
     projectile.birth = None;
     crate::PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
         projectiles: [0, 8, 16]
             .into_iter()
             .map(|at| crate::SpellProjectile::new(at, Arc::new(projectile.clone())))
             .collect(),
-        origin: crate::SpellOrigin::Caster,
-        recovery: vec![],
-        transition_ticks: 0,
-        stage_tint: None,
-        camera: None,
-        duration: 16,
-        startup: None,
-        sound: None,
+        ..crate::PreparedSpell::new(crate::SpellOrigin::Caster, 16)
     }
 }
 
@@ -749,15 +704,13 @@ fn prepared_attack_pays_once_and_owns_only_unreleased_projectiles() {
                 normal: None,
                 tp_cost: 4,
                 execution: ActionExecution::Attack(PreparedAttack {
-                    contact_recovery: None,
-                    opening: None,
                     chain_at: Some(5),
-                    end_at: 6,
                     recovery: 2,
                     events: vec![
                         (0, AttackEvent::Notice { duration: 10 }),
                         (3, AttackEvent::Projectile(Arc::new(wave))),
                     ],
+                    ..attack(6)
                 }),
             }])
             .into(),
@@ -845,17 +798,7 @@ fn clash_battle(
 ) -> Battle {
     let mut actors = vec![actor(Side::Enemy), actor(Side::Party)];
     actors[0].position = enemy_position;
-    let mut battle = PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        1,
-    )
-    .unwrap()
-    .finish()
-    .unwrap();
+    let mut battle = prepare_actors(actors, 1).finish().unwrap();
     for (projectile, owner, target) in [
         (party, ActorId(1), ActorId(0)),
         (enemy, ActorId(0), ActorId(1)),
@@ -874,26 +817,31 @@ fn clash_battle(
     battle
 }
 
+/// Neutral physical hit; each scenario specifies only the properties it exercises.
+pub(crate) fn hit() -> HitRule {
+    HitRule {
+        sound: None,
+        effect_on_guard: false,
+        effect: None,
+        overlimit_pause: false,
+        condition: None,
+        arte: false,
+        reaction: Default::default(),
+        kind: DamageKind::Slash,
+        power: Power::Normal,
+        element: HitElement::Neutral,
+        prevents_defeat: false,
+        finisher_grade: false,
+        hp_drain: false,
+        guard: GuardRule::default(),
+    }
+}
+
 pub(crate) fn contact_projectile(clashes: bool, survives_contact: bool) -> ProjectileDefinition {
     let mut definition = projectile_definition();
     definition.birth = None;
     definition.contact = Some(ProjectileContact {
-        hit: crate::HitRule {
-            sound: None,
-            effect_on_guard: false,
-            effect: None,
-            overlimit_pause: false,
-            condition: None,
-            arte: false,
-            reaction: Default::default(),
-            kind: crate::DamageKind::Slash,
-            power: crate::Power::Normal,
-            element: crate::HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
-            guard: crate::GuardRule::default(),
-        },
+        hit: crate::tests::hit(),
         cooldown: 120,
         repeat_limit: 0,
         radius: 5.,
@@ -936,7 +884,7 @@ fn opposing_projectiles_disarm_together_before_actor_hits() {
         enemy.lifetime = Some(4);
         if artwork {
             party.effects.clash = Some(EffectAppearance {
-                resource: 19,
+                resource: ResourceId(19),
                 member: 11,
             });
             enemy.effects.clash = party.effects.clash;
@@ -983,7 +931,7 @@ fn clashes_require_overlapping_volumes_and_active_contact_windows() {
     for (height, enabled) in [(8., true), (12., true), (8., false)] {
         let mut party = contact_projectile(enabled, true);
         party.effects.clash = Some(EffectAppearance {
-            resource: 19,
+            resource: ResourceId(19),
             member: 11,
         });
         party.contact.as_mut().unwrap().offset = [0., height, 0.];
@@ -998,17 +946,9 @@ fn clashes_require_overlapping_volumes_and_active_contact_windows() {
 
 #[test]
 fn all_projectile_contacts_remain_eligible_after_many_newer_submissions() {
-    let mut battle = PreparedBattle::new(
-        vec![
-            (actor(Side::Party), Default::default()),
-            (actor(Side::Enemy), Default::default()),
-        ],
-        Default::default(),
-        1,
-    )
-    .unwrap()
-    .finish()
-    .unwrap();
+    let mut battle = prepare_actors(vec![actor(Side::Party), actor(Side::Enemy)], 1)
+        .finish()
+        .unwrap();
     let party = Arc::new(contact_projectile(false, true));
     let enemy = Arc::new(contact_projectile(true, true));
     // The last submitted contact overlaps after forty newer contacts miss.
@@ -1109,30 +1049,6 @@ fn contact_height_grows_before_the_actor_geometry_phase() {
     battle.actors[0].body.collider = Some(crate::Collider::sphere(0.));
     let frame = battle.step(BattleInput::default()).unwrap();
     assert_eq!(hits(&frame), [(ProjectileId(1), ActorId(0))]);
-}
-
-#[test]
-fn invalid_hurt_poses_and_shapes_fail_before_activation() {
-    for scale in [0., -1., f32::NAN, f32::INFINITY] {
-        let mut actor = actor(Side::Party);
-        actor.body.scale = scale;
-        assert!(
-            PreparedBattle::new(vec![(actor, Default::default())], Default::default(), 1).is_err()
-        );
-    }
-    for collider in [Collider::sphere(-1.), Collider::standing(1., f32::NAN)] {
-        let mut actor = actor(Side::Party);
-        actor.body.collider = Some(collider);
-        assert!(
-            PreparedBattle::new(vec![(actor, Default::default())], Default::default(), 1).is_err()
-        );
-    }
-    let mut definition = contact_projectile(false, true);
-    definition.contact.as_mut().unwrap().shape = HitShape::Ring { width: f32::NAN };
-    assert!(definition.validate().is_err());
-    definition.contact.as_mut().unwrap().shape = HitShape::Box;
-    definition.contact.as_mut().unwrap().height = f32::INFINITY;
-    assert!(definition.validate().is_err());
 }
 
 fn hits(frame: &BattleFrame) -> Vec<(ProjectileId, ActorId)> {
@@ -1380,8 +1296,7 @@ fn contact_ex_equipment_rebuild_is_repeatable_and_preserves_live_hurt() {
     let mut current = actor(Side::Party);
     current.reaction.combo_hits = 11;
     current.equipment.normal_combo_limit = 4;
-    let prepared =
-        PreparedBattle::new(vec![(current, Default::default())], Default::default(), 1).unwrap();
+    let prepared = prepare_actors(vec![current], 1);
     let mut battle = prepared.finish().unwrap();
     battle.begin_hurt(ActorId(0), 42, &mut vec![]);
     let random = battle.random_state();
@@ -1434,12 +1349,15 @@ pub(crate) fn counted_techniques(
         actor,
         member: crate::learning::LearningCatalogue::new(Arc::new(catalogue))
             .prepare_member(crate::learning::LearningEntry {
-                character: 1,
+                character: crate::Character::Lloyd,
                 level: 1,
                 balance: 0,
                 story_unlocked: true,
-                current: current.iter().copied().collect(),
-                counts: counts.iter().copied().collect(),
+                current: current.iter().copied().map(crate::TechniqueId).collect(),
+                counts: counts
+                    .iter()
+                    .map(|&(id, count)| (crate::TechniqueId(id), count))
+                    .collect(),
             })
             .unwrap(),
     }

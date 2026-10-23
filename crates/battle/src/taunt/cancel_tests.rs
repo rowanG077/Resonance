@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    Control, DamageKind, GuardResult, GuardRule, HitElement, HitProtection, HitRule, Power,
-    Protection, ReactionRule,
-};
+use crate::{Control, GuardResult, HitProtection, HitRule, Power, Protection, ReactionRule};
 
 fn prepared_controlled(enabled: bool, mode: Control) -> PreparedBattle {
     let mut prepared = super::prepared(0, true);
@@ -15,8 +12,6 @@ fn prepared_controlled(enabled: bool, mode: Control) -> PreparedBattle {
         initial_policy: [1; 3],
         defaults: [1; 3],
         limits: [crate::PolicyLimits::default(); 9],
-        level: 1,
-        level_difference: 0,
     });
     prepared
 }
@@ -26,16 +21,13 @@ fn controlled(enabled: bool, mode: Control) -> Battle {
 }
 
 pub(super) fn guard() -> BattleInput {
-    BattleInput {
-        controllers: vec![ControlInput {
-            guard: ButtonInput {
-                held: true,
-                ..Default::default()
-            },
-            ..ControlInput::neutral(ActorId(0))
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ControlInput {
+        guard: ButtonInput {
+            held: true,
+            ..Default::default()
+        },
+        ..ControlInput::neutral(ActorId(0))
+    })
 }
 
 fn enter(battle: &mut Battle) {
@@ -122,23 +114,12 @@ fn taunt_cancel_blocks_contact_immediately_without_preventing_lethal_damage() {
         let (result, _) = contact(
             &mut battle,
             HitRule {
-                sound: None,
-                kind: DamageKind::Slash,
-                arte: false,
-                effect_on_guard: false,
-                effect: None,
-                overlimit_pause: false,
                 power: Power::Fixed(9),
-                element: HitElement::Neutral,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
-                guard: GuardRule::default(),
                 reaction: ReactionRule {
                     hitstun: 5,
                     ..Default::default()
                 },
-                condition: None,
+                ..crate::tests::hit()
             },
         );
         assert_eq!(result.protection, HitProtection::None);

@@ -4,16 +4,16 @@ use super::*;
 #[ignore = "requires current Presea, projectile and encounter publications; CPU only"]
 fn destruction_releases_five_rocks_and_finishes() -> Result<()> {
     let (mut battle, owner) = encounter(7, &[154], false)?;
-    let action = battle.prepared_technique(owner, 154).unwrap().action;
+    let action = battle
+        .prepared_technique(owner, resonance_battle::TechniqueId(154))
+        .unwrap()
+        .action;
     let tp = battle.actors()[owner.index()].tp;
-    let first = battle.step(BattleInput {
-        actions: vec![resonance_battle::ActionRequest {
-            actor: owner,
-            action,
-            target: battle.target(owner).context("missing target")?,
-        }],
-        ..Default::default()
-    })?;
+    let first = battle.step(BattleInput::from(resonance_battle::ActionRequest {
+        actor: owner,
+        action,
+        target: battle.target(owner).context("missing target")?,
+    }))?;
     let handle = first
         .actions
         .iter()
@@ -47,7 +47,10 @@ fn destruction_releases_five_rocks_and_finishes() -> Result<()> {
             .all(|p| p.owner != owner)
     );
     assert_eq!(battle.actors()[owner.index()].tp, tp - 6);
-    assert_eq!(battle.technique_uses(owner, 154), Some(1));
+    assert_eq!(
+        battle.technique_uses(owner, resonance_battle::TechniqueId(154)),
+        Some(1)
+    );
     assert!(!battle.is_diagnostic());
     Ok(())
 }

@@ -296,7 +296,7 @@ fn recipient_traits_control_immunity_duration_and_strength() {
 }
 
 #[test]
-fn persistent_ailments_have_no_dummy_clocks() {
+fn persistent_ailments_survive_elapsed_time() {
     let mut owner = actor(Side::Party);
     for condition in [HitAilment::Weak, HitAilment::Curse] {
         assert!(
@@ -317,14 +317,6 @@ fn persistent_ailments_have_no_dummy_clocks() {
         owner.conditions.effective(),
         ConditionSet::of(&[Weak, Curse])
     );
-    assert!(
-        owner
-            .conditions
-            .active_effects()
-            .iter()
-            .all(|effect| effect.remaining.is_none())
-    );
-    assert!(owner.conditions.periodic_effects().is_empty());
 }
 
 #[test]

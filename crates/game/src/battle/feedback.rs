@@ -1,5 +1,7 @@
 //! Optional scene resources. None of these participate in battle admission or gameplay.
-use resonance_battle::{ActorId, Cue, EffectAppearance, MotionBinding, RescueKind, Sound};
+use resonance_battle::{
+    ActorId, Cue, EffectAppearance, MotionBinding, RescueKind, Sound, TechniqueId,
+};
 use std::collections::BTreeMap;
 
 #[derive(Default)]
@@ -7,7 +9,7 @@ pub struct Feedback {
     pub actors: Vec<ActorFeedback>,
     pub casting: BTreeMap<resonance_battle::ActionKey, CastingFeedback>,
     /// Catalogue names for actions outside the party's learned-technique list.
-    pub action_catalogues: BTreeMap<resonance_battle::ActionKey, u16>,
+    pub action_catalogues: BTreeMap<resonance_battle::ActionKey, TechniqueId>,
     pub unison_ready: Option<Sound>,
     pub overlimit_sound: Option<Sound>,
     pub hammer: Option<EffectAppearance>,
@@ -34,7 +36,7 @@ pub struct Feedback {
 }
 
 pub struct CastingFeedback {
-    pub catalogue: u16,
+    pub catalogue: TechniqueId,
     pub chant_voice: Option<Sound>,
     pub release_voice: Option<Sound>,
     pub start_sound: Option<Sound>,
@@ -51,7 +53,7 @@ impl CastingFeedback {
     pub fn notice_duration(&self) -> u16 {
         const RESIDENT_SPELL_TICKS: u16 = 90;
         const STORED_SPELL_TICKS: u16 = 315;
-        if super::stored_spells::scene(self.catalogue).is_some() {
+        if super::stored_spells::scene(self.catalogue.0).is_some() {
             STORED_SPELL_TICKS
         } else {
             RESIDENT_SPELL_TICKS

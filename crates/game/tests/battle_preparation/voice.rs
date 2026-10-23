@@ -61,7 +61,10 @@ fn snapshot(paranoid: bool) -> (Files, battle_profile::Table) {
 fn prepared_lines_use_supplied_profiles_and_spell_overrides_without_reloading() -> Result<()> {
     let (files, profiles) = snapshot(true);
     let resolver = Resolver::new(&files, &profiles, [(36, &profiles.records[0])]);
-    for source in [ModelSource::Party(1), ModelSource::Enemy(36)] {
+    for source in [
+        ModelSource::Party(battle::party::Character::Lloyd),
+        ModelSource::Enemy(36),
+    ] {
         assert_eq!(
             resolver.absolute(source, Some(Sound::Cue(510)), resolve)?,
             resolve(Sound::Cue(510))?
@@ -72,7 +75,7 @@ fn prepared_lines_use_supplied_profiles_and_spell_overrides_without_reloading() 
         );
         assert_eq!(resolver.select(source, |v| v.guard, resolve)?, None);
     }
-    let speaker = ModelSource::Party(1);
+    let speaker = ModelSource::Party(battle::party::Character::Lloyd);
     assert_eq!(
         resolver.chant(speaker, 42, resolve)?,
         Some((Sound::Stream(1), 75))
@@ -85,7 +88,11 @@ fn prepared_lines_use_supplied_profiles_and_spell_overrides_without_reloading() 
     );
     assert_eq!(resolver.absolute(speaker, None, resolve)?, None);
     assert_eq!(
-        resolver.absolute(ModelSource::Party(2), Some(Sound::Cue(510)), resolve)?,
+        resolver.absolute(
+            ModelSource::Party(battle::party::Character::Colette),
+            Some(Sound::Cue(510)),
+            resolve
+        )?,
         None
     );
     assert_eq!(
@@ -106,21 +113,22 @@ fn prepared_lines_use_supplied_profiles_and_spell_overrides_without_reloading() 
         resolver.technique(speaker, 99, Phase::Release, resolve)?,
         None
     );
-    for source in [ModelSource::Party(2), ModelSource::Enemy(36)] {
+    for source in [
+        ModelSource::Party(battle::party::Character::Colette),
+        ModelSource::Enemy(36),
+    ] {
         assert_eq!(
             resolver.technique(source, 42, Phase::Release, resolve)?,
             None
         );
     }
-    for source in [ModelSource::Party(0), ModelSource::Weapon(1)] {
-        assert!(
-            resolver
-                .absolute(source, Some(Sound::Cue(510)), |_| {
-                    panic!("invalid actors must fail before sound loading")
-                })
-                .is_err()
-        );
-    }
+    assert!(
+        resolver
+            .absolute(ModelSource::Weapon(1), Some(Sound::Cue(510)), |_| {
+                panic!("invalid actors must fail before sound loading")
+            })
+            .is_err()
+    );
     Ok(())
 }
 
@@ -144,9 +152,18 @@ fn selected_voice_failures_follow_diagnostics_and_leave_other_lines_available() 
                 resolve(request)
             };
             let failed = if fault == "spell" {
-                resolver.technique(ModelSource::Party(2), 42, Phase::Release, &mut sound)
+                resolver.technique(
+                    ModelSource::Party(battle::party::Character::Colette),
+                    42,
+                    Phase::Release,
+                    &mut sound,
+                )
             } else {
-                resolver.select(ModelSource::Party(2), |v| v.critical, &mut sound)
+                resolver.select(
+                    ModelSource::Party(battle::party::Character::Colette),
+                    |v| v.critical,
+                    &mut sound,
+                )
             };
             if paranoid {
                 assert!(failed.is_err());
@@ -155,7 +172,11 @@ fn selected_voice_failures_follow_diagnostics_and_leave_other_lines_available() 
             }
             assert_eq!(files.diagnostics().entries().len(), 1);
             assert_eq!(
-                resolver.absolute(ModelSource::Party(1), Some(Sound::Cue(510)), resolve)?,
+                resolver.absolute(
+                    ModelSource::Party(battle::party::Character::Lloyd),
+                    Some(Sound::Cue(510)),
+                    resolve
+                )?,
                 resolve(Sound::Cue(510))?
             );
         }
@@ -177,8 +198,8 @@ fn contact_inventory_prepares_without_audio_packages() -> Result<()> {
     let audio = battle::contact_audio::prepare(
         &resolver,
         &[
-            ModelSource::Party(1),
-            ModelSource::Party(2),
+            ModelSource::Party(battle::party::Character::Lloyd),
+            ModelSource::Party(battle::party::Character::Colette),
             ModelSource::Enemy(36),
         ],
         |sound| {

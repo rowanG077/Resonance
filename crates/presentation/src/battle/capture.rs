@@ -152,7 +152,7 @@ impl Owner {
                 });
                 json!({
                     "actor": index, "side": if actor.side == Side::Party { 0 } else { 1 },
-                    "character": scene.characters.get(index),
+                    "character": scene.characters.get(index).map(|&character| character as u8),
                     "companion_policy": ActorId::from_index(index).ok()
                         .and_then(|actor| scene.core.companion_policy(actor))
                         .map(|policy| json!({"raw": policy.choices})),
@@ -206,7 +206,7 @@ impl Owner {
             .iter()
             .map(|model| {
                 json!({
-                    "actor": model.actor.index(), "resource": model.resource,
+                    "actor": model.actor.index(), "resource": model.resource.0,
                     "visible": model.visible, "clip": model.clip, "frame": model.frame,
                     // Live post-callback flag; the pose above can be held from an
                     // earlier drawing boundary. Terminal stop uses this flag too.
@@ -239,7 +239,7 @@ impl Owner {
             "command": scene.lifecycle.command_frame().map(|command| json!({
                 "actor": command.actor.index(), "selected": command.selected.index(),
                 "enabled": command.enabled,
-                "controller": command.controller,
+                "controller": command.controller.index(),
                 "view": command_view(&command.view),
             })),
             "strategy_party": strategy_party,
@@ -253,8 +253,8 @@ impl Owner {
             "actors": actors,
             "models": models,
             "weapons": frame.weapons.iter().map(|weapon| json!({
-                "actor": weapon.owner.index(), "slot": weapon.slot,
-                "resource": weapon.resource, "visible": weapon.visible,
+                "actor": weapon.owner.index(), "slot": weapon.slot.map_or(u8::MAX, |slot| slot.0),
+                "resource": weapon.resource.0, "visible": weapon.visible,
                 "clip": weapon.clip, "frame": weapon.frame,
                 "texture_offset": weapon.texture_scroll,
                 "world": weapon.world, "bones": weapon.bones.as_ref(),
@@ -272,11 +272,11 @@ impl Owner {
             "model_particle_pool": scene.view.model_particle_stats(),
             "particles": scene.particles.iter().map(|particle| json!({
                 "handle": format!("{:?}", particle.id), "actor": particle.owner.index(),
-                "resource": particle.resource, "member": particle.member,
+                "resource": particle.resource.0, "member": particle.member,
                 "origin": particle.origin, "offset": particle.state.offset,
                 "owner_bone": particle.owner_bone,
                 "model": particle.model.as_ref().map(|model| json!({
-                    "resource": model.resource, "world": model.world,
+                    "resource": model.resource.0, "world": model.world,
                     "clip": model.clip, "frame": model.frame,
                 })),
             })).collect::<Vec<_>>(),
@@ -292,7 +292,7 @@ impl Owner {
         // JSON macro expansion stays within the ordinary recursion limit.
         diagnostic["controller_motors"] = json!(scene.feedback.motors(scene.feedback_paused()));
         diagnostic["quick_order"] = json!({
-            "selected": scene.lifecycle.order_selection(),
+            "selected": scene.lifecycle.order_selection() as u8,
             "revision": scene.lifecycle.order_revision(),
         });
         diagnostic["pause"] = json!({
@@ -316,7 +316,7 @@ impl Owner {
             "stage_color": unison.stage_color,
             "completion": unison.completion.as_ref().map(|completion| format!("{completion:?}")),
             "combination": unison.combination.as_ref().map(|combination| json!({
-                "id": combination.id, "native_id": combination.native_id,
+                "id": combination.id.0, "native_id": combination.native_id.0,
                 "actors": combination.actors.map(|actor| actor.index()),
             })),
         })));
@@ -356,7 +356,7 @@ impl Owner {
                 .enumerate()
                 .map(|(index, actor)| json!({
                     "actor": index,
-                    "character": scene.characters.get(index),
+                    "character": scene.characters.get(index).map(|&character| character as u8),
                     "availability": format!("{:?}", actor.availability),
                     "hp": actor.hp, "max_hp": actor.equipment.max_hp,
                     "tp": actor.tp, "max_tp": actor.equipment.max_tp,
@@ -396,35 +396,35 @@ impl Owner {
         {
             use resonance_game::battle::results::ResultNotice;
             let notices: Vec<_> = pending.results.notices.iter().map(|notice| match notice {
-                ResultNotice::Level { character, level } => json!({"kind": "level", "character": character, "level": level}),
-                ResultNotice::TpRecovery { character, amount } => json!({"kind": "tp_recovery", "character": character, "amount": amount}),
+                ResultNotice::Level { character, level } => json!({"kind": "level", "character": *character as u8, "level": level}),
+                ResultNotice::TpRecovery { character, amount } => json!({"kind": "tp_recovery", "character": *character as u8, "amount": amount}),
                 ResultNotice::MaximumVital { character, vital, amount } =>
-                    json!({"kind": "maximum_vital", "character": character,
+                    json!({"kind": "maximum_vital", "character": *character as u8,
                         "vital": format!("{vital:?}"), "amount": amount}),
                 ResultNotice::HappinessExperience { character, amount } =>
-                    json!({"kind": "happiness_experience", "character": character, "amount": amount}),
+                    json!({"kind": "happiness_experience", "character": *character as u8, "amount": amount}),
                 ResultNotice::HappinessGald { character, amount } =>
-                    json!({"kind": "happiness_gald", "character": character, "amount": amount}),
+                    json!({"kind": "happiness_gald", "character": *character as u8, "amount": amount}),
                 ResultNotice::Technique { character, technique } =>
-                    json!({"kind": "technique", "character": character, "technique": technique}),
+                    json!({"kind": "technique", "character": *character as u8, "technique": technique}),
                 ResultNotice::CompoundEx { character } =>
-                    json!({"kind": "compound_ex", "character": character}),
+                    json!({"kind": "compound_ex", "character": *character as u8}),
                 ResultNotice::Title { character, title } =>
-                    json!({"kind": "title", "character": character, "title": title}),
+                    json!({"kind": "title", "character": *character as u8, "title": title}),
                 ResultNotice::Cooking { character, recipe, success } =>
-                    json!({"kind": "cooking", "character": character, "recipe": recipe, "success": success}),
+                    json!({"kind": "cooking", "character": *character as u8, "recipe": recipe, "success": success}),
             }).collect();
             diagnostic["results"] = json!({
                 "pending_party": pending.party,
                 "gameplay_random": pending.gameplay_random,
                 "accepted": pending.accepted,
-                "cook_prompt": pending.results.cook_prompt,
+                "cook_prompt": pending.results.cook_prompt.map(|character| character as u8),
                 "notices": notices,
                 "cards": scene.hud.results_diagnostic(),
                 "live_actors": scene.core.actors().iter().enumerate()
                     .filter(|(_, actor)| actor.side == Side::Party)
                     .map(|(index, actor)| json!({
-                        "actor": index, "character": scene.characters.get(index),
+                        "actor": index, "character": scene.characters.get(index).map(|&character| character as u8),
                         "hp": actor.hp, "max_hp": actor.equipment.max_hp,
                         "tp": actor.tp, "max_tp": actor.equipment.max_tp,
                         "overlimit_charge": actor.overlimit.charge(), "overlimit_remaining": actor.overlimit.remaining(),

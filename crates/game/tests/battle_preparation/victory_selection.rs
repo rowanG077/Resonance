@@ -3,10 +3,7 @@ use resonance_battle::{ActorAvailability, BattleResult, Cue};
 use resonance_content::{
     arte, diagnostics::Diagnostics, menu_data::MenuData, prepared::Cache, session::SessionData,
 };
-use resonance_events::{
-    battle::{DefeatPolicy, Setup},
-    party::Party,
-};
+use resonance_events::{battle::DefeatPolicy, party::Party};
 use resonance_game::battle::{
     encounter::{Assets, PrepareOptions},
     lifecycle::victory_selection,
@@ -45,30 +42,16 @@ fn fallen_companion_results_place_speak_and_preserve_party_state() -> Result<()>
         &menus,
         &data,
         &party,
-        Setup {
-            route: [0; 5],
-            encounter: resonance_events::battle::Encounter::Formation(1),
-            arena: 13,
-            music: None,
-            defeat: DefeatPolicy::GameOver,
-        },
+        opening_setup(1, DefeatPolicy::GameOver),
         PrepareOptions {
-            hunting_symbol: None,
-            event_flags: Default::default(),
-            random_seed: 4,
-            map: 332,
-            world_music: 0,
-            story: 2500,
-            colette_state: 0,
-            devils_arms_unlocked: false,
             victory_story_flags: [true, true],
-            overlimit_boost: false,
+            ..opening_options(4)
         },
         &mut cache,
         || false,
     )?;
 
-    let group = 2; // Raine's fallen-companion dialogue.
+    let group = victory_selection::VictoryGroupId(2); // Raine's fallen-companion dialogue.
     let expected = prepared
         .results
         .groups
@@ -119,8 +102,8 @@ fn fallen_companion_results_place_speak_and_preserve_party_state() -> Result<()>
     );
     let mut draws = [0, 1].into_iter();
     let selection = victory_selection::select(&context, || draws.next().unwrap());
-    assert_eq!(selection.group, group);
-    candidate.select_victory(&live, group, selection.pose)?;
+    assert_eq!(selection, victory_selection::Selection::Group(group));
+    candidate.select_victory(&live, selection)?;
     assert_eq!(candidate.selection().unwrap().actor, expected_actor);
     assert_eq!(
         live.actors()[expected_actor.index()].availability,
@@ -150,7 +133,7 @@ fn fallen_companion_results_place_speak_and_preserve_party_state() -> Result<()>
         .outcome
         .context("missing victory outcome")?;
     let result = candidate.finish(&live, &outcome)?;
-    assert_ne!(result.party.battles.victory_groups & (1 << group), 0);
+    assert_ne!(result.party.battles.victory_groups & (1 << group.0), 0);
     assert_eq!(result.party.members[raine].hp, 0);
     assert!(!diagnostics.has_errors());
     Ok(())

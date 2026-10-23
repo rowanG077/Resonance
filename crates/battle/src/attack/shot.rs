@@ -63,8 +63,8 @@ impl ProjectileShot {
                     inputs.scatter(
                         crate::random_inputs::Key {
                             clock: battle.ledger.elapsed_ticks,
-                            owner: actor.index(),
-                            target: target.index(),
+                            owner: actor,
+                            target: target,
                             action: action.0,
                             contact: crate::random_inputs::Contact::Projectile(
                                 battle.next_projectile,

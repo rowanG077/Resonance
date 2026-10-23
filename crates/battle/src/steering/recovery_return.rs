@@ -8,10 +8,6 @@ const RETURN_START_DISTANCE: f32 = 45.;
 const RETURN_STOP_LOOKAHEAD: f32 = 4.;
 const RETURN_TARGET_DELAY: u16 = 60;
 const RETURN_TARGET_DISTANCE: f32 = 60.;
-const RETURN_DETOUR_DISTANCE: f32 = 300.;
-const RETURN_DETOUR_CORRIDOR: f32 = 400.;
-const RETURN_DETOUR_MARGIN: f32 = 50.;
-const RETURN_DETOUR_EDGE_RADIUS: f32 = ARENA_RADIUS * 0.75;
 
 /// Locomotion used when an automatic actor returns to a safe position.
 #[derive(Debug, Clone, Copy)]
@@ -72,20 +68,10 @@ impl Battle {
         )
     }
 
-    fn controlled_target(&self) -> Option<ActorId> {
-        self.actors
-            .iter()
-            .position(|actor| actor.side == Side::Party && actor.control != Control::Auto)
-            .or_else(|| {
-                self.actors
-                    .iter()
-                    .position(|actor| actor.side == Side::Party)
-            })
-            .and_then(|index| self.target(ActorId(index as u8)))
-    }
-
     fn return_interrupted(&self, owner: ActorId) -> bool {
-        self.controlled_target() == Some(owner)
+        self.preferred_party_leader()
+            .and_then(|actor| self.target(actor))
+            == Some(owner)
             || self.has_pending_item(owner)
             || self.pending_technique(owner).is_some()
             || self.runtime[owner.index()].combo.buffered.is_some()
@@ -105,13 +91,13 @@ impl Battle {
             self.prepared.actor_setup[index]
                 .enemy_decision
                 .as_ref()
-                .and_then(|enemy| enemy.choices.get(selected))
+                .and_then(|enemy| enemy.choices.get(selected.0))
         });
         let row_disabled = row.is_some_and(|row| !row.return_to_formation);
         let returning = row.map(|row| (row.returning, row.return_speed));
         let actor = &self.actors[index];
         let home = if actor.side == Side::Party {
-            if self.companion_position(owner)? == 1 {
+            if self.companion_position(owner)? == crate::companion::PositionStrategy::Melee {
                 let target = self
                     .target(owner)
                     .context("recovery return requires a target")?;
@@ -172,8 +158,7 @@ impl Battle {
             actor.movement.steering.home = home;
         }
         let actor = &mut self.actors[index];
-        actor.movement.steering.side = if planar_length(actor.position) >= RETURN_DETOUR_EDGE_RADIUS
-        {
+        actor.movement.steering.side = if planar_length(actor.position) >= DETOUR_EDGE_RADIUS {
             match approach_side(actor, home) {
                 DetourSide::Automatic => DetourSide::Right,
                 side => side,
@@ -211,49 +196,20 @@ impl Battle {
             let direction =
                 distance::planar_direction(destination, actor.position, actor.movement.direction);
             let normal = [-direction[2], 0., direction[0]];
-            let obstacle = self.actors.iter().enumerate().find_map(|(index, other)| {
+            let detour = self.actors.iter().enumerate().find_map(|(index, other)| {
                 if index == owner.index()
                     || self
                         .target(owner)
                         .is_some_and(|target| target.index() == index)
-                    || !other.available()
-                    || other.movement.fixed_height
-                    || actor.side == other.side
-                        && actor.movement.steering.passes_allied_obstacles
-                        && other.movement.steering.passable_for_allies
                 {
                     return None;
                 }
-                let relative = [
-                    other.position[0] - actor.position[0],
-                    0.,
-                    other.position[2] - actor.position[2],
-                ];
-                let across = distance::dot(relative, normal);
-                let in_bounds = [0, 2].into_iter().all(|axis| {
-                    (actor.position[axis].min(destination[axis]) - RETURN_DETOUR_MARGIN
-                        ..=actor.position[axis].max(destination[axis]) + RETURN_DETOUR_MARGIN)
-                        .contains(&other.position[axis])
-                });
-                (across.abs() < RETURN_DETOUR_CORRIDOR && in_bounds).then_some((other, across))
+                detour_destination(actor, other, destination, normal)
             });
-            let Some((obstacle, across)) = obstacle else {
+            let Some(detour) = detour else {
                 break;
             };
-            let side = match actor.movement.steering.side {
-                DetourSide::Left => 1.,
-                DetourSide::Right => -1.,
-                DetourSide::Automatic => {
-                    if across <= 0. {
-                        1.
-                    } else {
-                        -1.
-                    }
-                }
-            };
-            destination = std::array::from_fn(|axis| {
-                obstacle.position[axis] + normal[axis] * RETURN_DETOUR_DISTANCE * side
-            });
+            destination = detour;
         }
         destination
     }
@@ -264,11 +220,11 @@ impl Battle {
         owner: ActorId,
         mut state: ReturnState,
         cues: &mut Vec<crate::Cue>,
-    ) -> Result<bool> {
+    ) -> bool {
         let index = owner.index();
         if !self.actors[index].available() {
             self.set_task(index, ActorTask::None);
-            return Ok(false);
+            return false;
         }
         let definition = self.prepared.actor_setup[index].recovery_return.unwrap();
         let home = self.actors[index].movement.steering.home;
@@ -294,7 +250,7 @@ impl Battle {
                     + desired[axis] * RETURN_DIRECTION_BLEND
             }));
             actor.movement.integrate(&mut actor.position);
-            self.advance_hover(index, true)?;
+            self.advance_hover(index, true);
             let actor = &mut self.actors[index];
             actor.facing_direction = actor.movement.direction;
             let facing = actor.facing_direction;
@@ -335,7 +291,7 @@ impl Battle {
             if actor.movement.flying || actor.movement.fixed_height {
                 actor.movement.forward = 0.;
             }
-            self.advance_hover(index, false)?;
+            self.advance_hover(index, false);
         }
         let actor = &self.actors[index];
         let stop_finished = actor.movement.flying
@@ -349,7 +305,7 @@ impl Battle {
         } else {
             self.set_task(index, ActorTask::Returning(state));
         }
-        Ok(true)
+        true
     }
 
     fn finish_recovery_return(&mut self, owner: ActorId) {
@@ -414,38 +370,13 @@ mod tests {
         let mut battle = battle();
         let owner = ActorId(2);
         battle.prepared.actor_setup[2].enemy_decision = Some(crate::EnemyDecisionDefinition {
-            enemy_id: 0,
-            disabled_choices: Vec::new(),
-            strategy: crate::TargetPolicy::Nearest,
-            difficulty: 0,
-            choices: vec![crate::EnemyChoice {
-                action: crate::ActionKey(0),
-                physical_arte: false,
-                weight: 1,
-                chain_group: 0,
-                followup_chance: 0,
-                requirements: Default::default(),
-                target_policy: None,
-                target_allies: false,
-                return_to_formation: false,
-                returning: None,
-                return_speed: None,
-                guard_chance: 0,
-                range: [0, 0],
-                tp: 0,
-                approach_minimum: 0.,
-                approach_range: 100.,
-                approach: None,
-            }],
-            back_row: vec![],
             walk_speed: 3.,
-            walk_override: None,
-            behavior: None,
-            walk_motion: None,
-            run_motion: None,
-            turn_ticks: 8,
+            ..crate::tests::enemy_decision(vec![crate::EnemyChoice {
+                approach_range: 100.,
+                ..crate::tests::enemy_choice(crate::ActionKey(0))
+            }])
         });
-        battle.runtime[2].enemy_choice = Some(0);
+        battle.runtime[2].enemy_choice = Some(crate::EnemyChoiceId(0));
         // A body directly on the route chooses the positive lateral detour.
         battle.actors[1].position = [200., 0., 0.];
         battle.actors[2].heading = -90.;
@@ -482,7 +413,7 @@ mod tests {
         let mut battle = battle();
         let owner = ActorId(2);
         let effect = crate::EffectAppearance {
-            resource: 1,
+            resource: crate::ResourceId(1),
             member: 9,
         };
         battle.prepared.actor_setup[owner.index()].movement_effect = Some((effect, 3));

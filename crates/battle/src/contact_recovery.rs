@@ -65,13 +65,8 @@ impl Battle {
                 actor,
                 Some(pose.motion),
                 crate::Pose {
-                    frame: pose.start,
-                    end: pose.end,
-                    repeat: pose.repeat,
-                    rate: pose.rate,
-                    blend: pose.blend,
                     restart: false,
-                    ..Default::default()
+                    ..pose.playback()
                 },
             );
         }
@@ -150,14 +145,11 @@ mod tests {
                 choices[1].requirements = Default::default();
             }
             let mut battle = prepared.finish()?;
-            battle.step(BattleInput {
-                actions: vec![ActionRequest {
-                    actor: ActorId(0),
-                    action: ActionKey(0),
-                    target: ActorId(1),
-                }],
-                ..Default::default()
-            })?;
+            battle.step(BattleInput::from(ActionRequest {
+                actor: ActorId(0),
+                action: ActionKey(0),
+                target: ActorId(1),
+            }))?;
             let id = *battle.runtime[0].task().action().unwrap().0;
             battle.actors[1].guard.active = guarded;
             battle.actors[1].guard.break_pressure = 31;

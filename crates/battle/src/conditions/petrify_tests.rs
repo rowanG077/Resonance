@@ -1,6 +1,6 @@
 use crate::conditions::{Buff, Conditions, Cure, Layers};
 use crate::conditions::{Condition, ConditionSet};
-use crate::{Actor, ActorId, Battle, BattleInput, PreparedBattle, Side};
+use crate::{Actor, ActorId, Battle, BattleInput, Side};
 use anyhow::Result;
 
 fn stone() -> Actor {
@@ -18,18 +18,9 @@ fn battle() -> Battle {
     other.position = [100., 0., 0.];
     let mut enemy = crate::tests::actor(Side::Enemy);
     enemy.position = [400., 0., 0.];
-    PreparedBattle::new(
-        vec![
-            (stone(), Default::default()),
-            (other, Default::default()),
-            (enemy, Default::default()),
-        ],
-        Default::default(),
-        19,
-    )
-    .unwrap()
-    .finish()
-    .unwrap()
+    crate::tests::prepare_actors(vec![stone(), other, enemy], 19)
+        .finish()
+        .unwrap()
 }
 
 #[test]
@@ -104,12 +95,7 @@ fn petrified_actor_publishes_current_body_after_physics() -> Result<()> {
     let mut enemy = crate::tests::actor(Side::Enemy);
     enemy.position = [400., 0., 0.];
     enemy.body.collider = Some(crate::Collider::sphere(10.));
-    let prepared = PreparedBattle::new(
-        vec![(owner, Default::default()), (enemy, Default::default())],
-        Default::default(),
-        19,
-    )?;
-    let mut battle = prepared.finish().unwrap();
+    let mut battle = crate::tests::prepare_actors(vec![owner, enemy], 19).finish()?;
     battle.step(BattleInput::default())?;
     assert_eq!(battle.actors[0].target_center()[0], 12.);
     assert_eq!(battle.actors[0].position[0], 12.);

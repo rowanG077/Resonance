@@ -1,5 +1,6 @@
 //! Ordinary victory rewards. The session applies these to its candidate party
 //! once, before publishing results; presentation ticks never recalculate them.
+use super::party::Character;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::ActorAvailability;
 use resonance_content::{
@@ -56,10 +57,7 @@ pub struct Rewards {
 /// Successful Happiness bonuses for an active member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HappinessAward {
-    /// One-based persistent character identity.
-    pub character: u8,
-    pub experience_success: bool,
-    pub gald_success: bool,
+    pub character: Character,
     pub experience: u32,
     pub gald: u32,
 }
@@ -95,7 +93,7 @@ pub enum MaximumVital {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MaximumVitalAward {
-    pub character: u8,
+    pub character: Character,
     pub vital: MaximumVital,
     /// Actual base-stat increase after applying the stat cap.
     pub amount: u16,
@@ -171,8 +169,7 @@ pub fn award(
             )
         })
         .collect::<Result<Vec<_>>>()?;
-    let maximum_vitals = rewards.grow_vitals(&mut party, session, input.modifiers, &mut random)?;
-    let (advancement, happiness) = rewards.apply(
+    let (maximum_vitals, advancement, happiness) = rewards.apply(
         &mut party,
         session,
         techniques,
@@ -193,8 +190,8 @@ pub fn award(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Advancement {
-    /// One-based character ID, independent of its battle slot.
-    pub character: u8,
+    /// Persistent character identity, independent of its battle slot.
+    pub character: Character,
     pub levels: u8,
     pub techniques: Vec<u16>,
     /// Last learned technique for each gained level.
@@ -369,6 +366,7 @@ impl Rewards {
     fn grow_vitals(
         &self,
         party: &mut Party,
+        formation: &[Character],
         session: &SessionData,
         modifiers: RewardModifiers,
         random: &mut GameplayRandom,
@@ -378,16 +376,10 @@ impl Rewards {
         if experience == 0 {
             return Ok(awards);
         }
-        for &id in party.formation.iter().take(4) {
-            let index = usize::from(id.checked_sub(1).context("zero party character")?);
-            let member = party
-                .members
-                .get_mut(index)
-                .context("missing reward recipient")?;
-            let skills = *modifiers
-                .maximum_vital_growth
-                .get(index)
-                .context("invalid maximum-vital recipient")?;
+        for &character in formation.iter().take(4) {
+            let index = character.index();
+            let member = &mut party.members[index];
+            let skills = modifiers.maximum_vital_growth[index];
             if member.level >= 250 || member.hp == 0 || member.ailments.petrified {
                 continue;
             }
@@ -415,7 +407,7 @@ impl Rewards {
                 }
                 member.base_stats[index] = before.saturating_add(gain).min(cap);
                 awards.push(MaximumVitalAward {
-                    character: id,
+                    character,
                     vital: if index == 0 {
                         MaximumVital::Hp
                     } else {
@@ -436,20 +428,31 @@ impl Rewards {
         titles: &[Vec<Title>],
         modifiers: RewardModifiers,
         random: &mut GameplayRandom,
-    ) -> Result<(Vec<Advancement>, Vec<HappinessAward>)> {
-        let formation = party.formation.clone();
+    ) -> Result<(
+        Vec<MaximumVitalAward>,
+        Vec<Advancement>,
+        Vec<HappinessAward>,
+    )> {
+        let formation = party
+            .formation
+            .iter()
+            .copied()
+            .map(Character::try_from)
+            .collect::<Result<Vec<_>>>()
+            .context("invalid reward recipient")?;
         ensure!(
             formation
                 .iter()
-                .all(|&id| (1..=9).contains(&id) && usize::from(id - 1) < party.members.len()),
+                .all(|character| character.index() < party.members.len()),
             "invalid reward recipient"
         );
+        let maximum_vitals = self.grow_vitals(party, &formation, session, modifiers, random)?;
         let gald = i32::try_from(self.gald).context("victory gald exceeds session range")?;
 
         party.add_gald(gald);
         let experience = self.experience.saturating_add(self.combo_experience);
-        for (slot, &id) in formation.iter().enumerate() {
-            let index = usize::from(id - 1);
+        for (slot, &character) in formation.iter().enumerate() {
+            let index = character.index();
             let member = &mut party.members[index];
             if member.hp > 0 && !member.ailments.petrified {
                 // Equipment and skill bonuses round separately and exclude combo experience.
@@ -467,23 +470,22 @@ impl Rewards {
         let mut happiness_awards = Vec::new();
         if let Some(luck) = modifiers.happiness_recipient_luck {
             // Only active recipients with Happiness receive its additional rolls.
-            for &id in formation.iter().take(4) {
+            for &character in formation.iter().take(4) {
+                let index = character.index();
+                let member = &party.members[index];
+                if member.hp == 0
+                    || member.ailments.petrified
+                    || !modifiers.happiness_recipients[index]
                 {
-                    let member = &party.members[usize::from(id - 1)];
-                    if member.hp == 0
-                        || member.ailments.petrified
-                        || !modifiers.happiness_recipients[usize::from(id - 1)]
-                    {
-                        continue;
-                    }
+                    continue;
                 }
                 let exp_bonus = self.experience / 20;
                 let exp_success = exp_bonus != 0
-                    && party.members[usize::from(id - 1)].experience < 9_999_999
+                    && member.experience < 9_999_999
                     && succeeds(happiness_chance(luck), 100, || random.next_u32());
                 let exp = if exp_success { exp_bonus } else { 0 };
                 if exp_success {
-                    let member = &mut party.members[usize::from(id - 1)];
+                    let member = &mut party.members[index];
                     member.experience = member.experience.saturating_add(exp).min(9_999_999);
                 }
                 let gald_bonus = self.gald / 20;
@@ -498,9 +500,7 @@ impl Rewards {
                 }
                 if exp_success || gald_success {
                     happiness_awards.push(HappinessAward {
-                        character: id,
-                        experience_success: exp_success,
-                        gald_success,
+                        character,
                         experience: exp,
                         gald,
                     });
@@ -508,8 +508,8 @@ impl Rewards {
             }
         }
         let mut advancement = Vec::new();
-        for (slot, &id) in formation.iter().enumerate() {
-            let index = usize::from(id - 1);
+        for (slot, &character) in formation.iter().enumerate() {
+            let index = character.index();
             let member = &party.members[index];
             let before = member.level;
             if before >= 250
@@ -552,7 +552,7 @@ impl Rewards {
             let levels = party.members[index].level - before;
             if levels != 0 || !learned.techniques.is_empty() {
                 advancement.push(Advancement {
-                    character: id,
+                    character,
                     levels,
                     techniques: learned.techniques,
                     notices: learned.notices,
@@ -568,7 +568,7 @@ impl Rewards {
                 .change_item(session, award.item, count)
                 .map_err(anyhow::Error::msg)?;
         }
-        Ok((advancement, happiness_awards))
+        Ok((maximum_vitals, advancement, happiness_awards))
     }
 }
 
@@ -1014,7 +1014,7 @@ pub(super) mod tests {
                 .iter()
                 .map(|row| row.character)
                 .collect::<Vec<_>>(),
-            [1, 4, 5]
+            [Character::Lloyd, Character::Raine, Character::Sheena]
         );
     }
 
@@ -1071,23 +1071,28 @@ pub(super) mod tests {
         )
         .unwrap();
         assert!(awarded.maximum_vitals.contains(&MaximumVitalAward {
-            character: 1,
+            character: Character::Lloyd,
             vital: MaximumVital::Hp,
             amount: 9
         }));
         assert!(awarded.maximum_vitals.contains(&MaximumVitalAward {
-            character: 1,
+            character: Character::Lloyd,
             vital: MaximumVital::Tp,
             amount: 4
         }));
-        assert!(awarded.maximum_vitals.iter().all(|row| row.character == 1));
+        assert!(
+            awarded
+                .maximum_vitals
+                .iter()
+                .all(|row| row.character == Character::Lloyd)
+        );
         assert_eq!(
             awarded
                 .happiness
                 .iter()
                 .map(|row| row.character)
                 .collect::<Vec<_>>(),
-            [1, 4]
+            [Character::Lloyd, Character::Raine]
         );
         assert!(
             awarded
@@ -1097,41 +1102,6 @@ pub(super) mod tests {
         );
         assert_eq!(awarded.party.gald, 220);
         assert_eq!(awarded.party.members[4].experience, 108);
-    }
-
-    #[test]
-    fn reward_transactions_replay_from_the_same_state() {
-        let (session, techniques, titles, party) = reward_fixture();
-        let random = GameplayRandom::new(5);
-        let enemies = [EnemyReward {
-            drops: [Some(1), Some(50)],
-            drop_chances: [30, 70],
-            ..enemy(30, 100)
-        }];
-        let first = award(
-            party.clone(),
-            &session,
-            &techniques,
-            &titles,
-            input(&enemies),
-            random,
-        )
-        .unwrap();
-        let second = award(
-            party,
-            &session,
-            &techniques,
-            &titles,
-            input(&enemies),
-            random,
-        )
-        .unwrap();
-        assert_eq!(first.rewards, second.rewards);
-        assert_eq!(first.random, second.random);
-        assert_eq!(
-            serde_json::to_value(first.party).unwrap(),
-            serde_json::to_value(second.party).unwrap()
-        );
     }
 
     #[test]

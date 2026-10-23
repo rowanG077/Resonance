@@ -1,21 +1,35 @@
 use super::*;
-use crate::{EffectBank, EffectFollow, EffectModelDefinition, PreparedEffectModel, ProjectileId};
+use crate::{
+    EffectBank, EffectFollow, EffectModelDefinition, PreparedEffectModel, ProjectileId, ResourceId,
+};
 use resonance_content::{
     animation::{Bone, Skeleton, Transform, TransformChannels},
-    battle_effect::SourceBank,
+    battle_effect::{SourceBank, declaration::Declaration},
 };
 
-fn source() -> SourceBank {
+fn definition() -> ParticleDefinition {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../../content/tests/fixtures/projectile-model-follow.json"
     ))
     .unwrap();
-    serde_json::from_value(fixture["bank"].clone()).unwrap()
+    let mut source: SourceBank = serde_json::from_value(fixture["bank"].clone()).unwrap();
+    let Declaration::ModelParticle {
+        template, binding, ..
+    } = source.actors.remove(1)
+    else {
+        panic!("fixture needs model particle")
+    };
+    ParticleDefinition {
+        resource: ResourceId(17),
+        member: 1,
+        model: Some(binding),
+        data: template,
+    }
 }
 
 fn model(resource: u32) -> Result<PreparedEffectModel> {
     PreparedEffectModel::new(Arc::new(EffectModelDefinition {
-        resource,
+        resource: ResourceId(resource),
         skeleton: Skeleton {
             bones: vec![Bone {
                 name: "root".into(),
@@ -33,7 +47,7 @@ fn effects() -> Result<Effects> {
     let model = model(41)?;
     Effects::new(
         vec![EffectBank::new(
-            17,
+            ResourceId(17),
             [(0, model.clone()), (1, model)].into(),
             Default::default(),
             &Default::default(),
@@ -47,20 +61,24 @@ fn effects() -> Result<Effects> {
 #[test]
 fn thrown_weapon_uses_current_equipment_and_retains_existing_projectiles() -> Result<()> {
     let mut effects = effects()?;
-    effects.banks.get_mut(&17).unwrap().bind_weapon_models(
-        0,
-        ActorId(0),
-        0,
-        [(100, model(41)?), (200, model(42)?)].into(),
-    )?;
+    effects
+        .banks
+        .get_mut(&ResourceId(17))
+        .unwrap()
+        .bind_weapon_models(
+            0,
+            ActorId(0),
+            crate::WeaponSlot(0),
+            [(ResourceId(100), model(41)?), (ResourceId(200), model(42)?)].into(),
+        )?;
     let mut frame = frame();
     frame.weapons.push(crate::WeaponFrame {
         owner: ActorId(0),
-        slot: 0,
+        slot: Some(crate::WeaponSlot(0)),
         visible: false,
         tint: [255; 4],
         material: Default::default(),
-        resource: 100,
+        resource: ResourceId(100),
         clip: None,
         frame: 0.,
         world: glam::Mat4::IDENTITY.to_cols_array_2d(),
@@ -69,23 +87,17 @@ fn thrown_weapon_uses_current_equipment_and_retains_existing_projectiles() -> Re
         texture_scroll: None,
     });
     effects.advance(&frame, true)?;
-    let first = spawn(&mut effects, 1)?;
-    frame.weapons[0].resource = 200;
+    let first = spawn(&mut effects)?;
+    frame.weapons[0].resource = ResourceId(200);
     effects.advance(&frame, true)?;
-    let second = spawn(&mut effects, 1)?;
-    assert_eq!(
-        effects.particles[&first].model.as_ref().unwrap().resource(),
-        41
-    );
-    assert_eq!(
-        effects.particles[&second]
-            .model
-            .as_ref()
-            .unwrap()
-            .resource(),
-        42
-    );
-    frame.weapons[0].resource = 300;
+    let second = spawn(&mut effects)?;
+    for (id, resource) in [(first, 41), (second, 42)] {
+        assert_eq!(
+            effects.particles[&id].model.as_ref().unwrap().resource(),
+            ResourceId(resource)
+        );
+    }
+    frame.weapons[0].resource = ResourceId(300);
     assert!(effects.advance(&frame, true).is_err());
     Ok(())
 }
@@ -107,22 +119,9 @@ fn frame() -> BattleFrame {
     }
 }
 
-fn spawn(effects: &mut Effects, actor: u8) -> Result<ParticleId> {
-    let source = source();
-    source.program(usize::from(actor) + 1)?;
-    let resonance_content::battle_effect::declaration::Declaration::ModelParticle {
-        binding, ..
-    } = &source.actors[usize::from(actor)]
-    else {
-        anyhow::bail!("fixture needs model particle")
-    };
+fn spawn(effects: &mut Effects) -> Result<ParticleId> {
     let particle = effects.spawn_particle(
-        Arc::new(ParticleDefinition {
-            resource: 17,
-            member: u16::from(actor),
-            model: Some(*binding),
-            data: source.particle(usize::from(actor))?.clone(),
-        }),
+        Arc::new(definition()),
         ActorId(0),
         ActorId(1),
         [10., 20., 30.],
@@ -133,11 +132,45 @@ fn spawn(effects: &mut Effects, actor: u8) -> Result<ParticleId> {
     Ok(particle)
 }
 
+fn effect_frame() -> BattleFrame {
+    let mut frame = frame();
+    frame.actors = [crate::Side::Party, crate::Side::Enemy]
+        .map(|side| {
+            let state = crate::tests::actor(side);
+            crate::ActorFrame {
+                effect_center: state.effect_origin(),
+                state,
+                activity: crate::Activity::Idle,
+                cast_releasing: false,
+                stun_remaining: 0,
+                stun_struggling: false,
+            }
+        })
+        .to_vec();
+    frame
+}
+
+fn first_model_particle(effects: &Effects) -> &Particle {
+    effects
+        .particles
+        .values()
+        .find(|p| p.model.is_some())
+        .unwrap()
+}
+
+fn model_frames(effects: &Effects) -> Vec<f32> {
+    effects
+        .frames()
+        .iter()
+        .filter_map(|p| p.model.as_ref().map(|m| m.frame))
+        .collect()
+}
+
 #[test]
 fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() -> Result<()> {
     let mut effects = effects()?;
     let model = PreparedEffectModel::new(Arc::new(EffectModelDefinition {
-        resource: 41,
+        resource: ResourceId(41),
         skeleton: Skeleton {
             bones: vec![Bone {
                 name: "kk00_attachment".into(),
@@ -152,9 +185,10 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
         motions: Default::default(),
         secondary_motion: vec![],
     }))?;
-    effects.banks.get_mut(&17).unwrap().models = [(0, model.clone()), (1, model)].into();
-    let parent = spawn(&mut effects, 1)?;
-    let child = spawn(&mut effects, 1)?;
+    effects.banks.get_mut(&ResourceId(17)).unwrap().models =
+        [(0, model.clone()), (1, model)].into();
+    let parent = spawn(&mut effects)?;
+    let child = spawn(&mut effects)?;
     for id in [parent, child] {
         let particle = effects.particles.get_mut(&id).unwrap();
         particle.follow = None;
@@ -203,8 +237,9 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
     effects.advance_particles(&frame())?;
     assert!(effects.frames().is_empty());
 
-    let source = source();
-    let mut data = source.particle(1)?.clone();
+    let mut definition = definition();
+    definition.model.as_mut().unwrap().program_animation = true;
+    let data = &mut definition.data;
     data.owner_bone = Some(0);
     data.follow_origin = false;
     data.follow_orientation = false;
@@ -212,25 +247,8 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
     data.state.offset = [2., 3., 4.];
     data.state.angles = [0., 0., 90.];
     data.state.angular_velocity = [0., 10., 0.];
-    let id = effects.spawn_particle(
-        Arc::new(ParticleDefinition {
-            resource: 17,
-            member: 1,
-            model: Some(resonance_content::battle_effect::ModelBinding {
-                slot: 0,
-                animation: None,
-                repeat: false,
-                reverse_at: None,
-                program_animation: true,
-                attachment: None,
-            }),
-            data,
-        }),
-        ActorId(0),
-        ActorId(1),
-        [400.; 3],
-        90.,
-    )?;
+    let id =
+        effects.spawn_particle(Arc::new(definition), ActorId(0), ActorId(1), [400.; 3], 90.)?;
     assert_eq!(effects.particles[&id].frame.state.angles, [0., 0., 90.]);
     let mut frame = frame();
     let mut owner = crate::model::Model::new(
@@ -285,7 +303,7 @@ fn attached_model_keeps_the_complete_joint_matrix_and_expires_with_its_parent() 
 fn followed_model_uses_origin_delta_and_keeps_rotation_and_orbit_while_stationary() -> Result<()> {
     let mut effects = effects()?;
     let mut frame = frame();
-    let id = spawn(&mut effects, 1)?;
+    let id = spawn(&mut effects)?;
     let particle = effects.particles.get_mut(&id).unwrap();
     particle.frame.state.orbit = [2., 3., 4.];
     particle.orbit_velocity = [10.; 3];
@@ -320,50 +338,32 @@ fn followed_model_uses_origin_delta_and_keeps_rotation_and_orbit_while_stationar
 }
 
 #[test]
-fn model_elevation_is_applied_to_the_current_follow_position() -> Result<()> {
-    let mut effects = effects()?;
-    let mut frame = frame();
-    let id = spawn(&mut effects, 1)?;
-    Arc::make_mut(&mut effects.particles.get_mut(&id).unwrap().definition)
-        .data
-        .model_elevation = Some(12.);
-    assert!(effects.frames().is_empty());
-    effects.advance_particles(&frame)?;
-    let drawn = effects.frames();
-    assert_eq!(drawn.len(), 1);
-    assert_eq!(
-        drawn[0].model.as_ref().unwrap().world[3],
-        [10., 57., 30., 1.]
-    );
-    frame.projectiles[0].position = [13., 24., 30.];
-    effects.advance_particles(&frame)?;
-    assert_eq!(
-        effects.frames()[0].model.as_ref().unwrap().world[3],
-        [13., 61., 30., 1.]
-    );
-    assert_eq!(effects.particles[&id].frame.origin, [13., 24., 30.]);
-    Ok(())
-}
-
-#[test]
-fn ground_model_follows_horizontal_motion_without_inheriting_height() -> Result<()> {
-    let mut effects = effects()?;
-    let mut frame = frame();
-    let id = spawn(&mut effects, 1)?;
-    Arc::make_mut(&mut effects.particles.get_mut(&id).unwrap().definition)
-        .data
-        .model_ground_relative = true;
-    effects.advance_particles(&frame)?;
-    assert_eq!(
-        effects.frames()[0].model.as_ref().unwrap().world[3],
-        [10., 25., 30., 1.]
-    );
-    frame.projectiles[0].position = [13., 84., 30.];
-    effects.advance_particles(&frame)?;
-    assert_eq!(
-        effects.frames()[0].model.as_ref().unwrap().world[3],
-        [13., 25., 30., 1.]
-    );
+fn followed_model_applies_elevation_or_stays_relative_to_the_ground() -> Result<()> {
+    for (ground_relative, elevation, next_height, expected_heights) in
+        [(false, 12., 24., [57., 61.]), (true, 0., 84., [25., 25.])]
+    {
+        let mut effects = effects()?;
+        let mut frame = frame();
+        let id = spawn(&mut effects)?;
+        let data = &mut Arc::make_mut(&mut effects.particles.get_mut(&id).unwrap().definition).data;
+        data.model_elevation = Some(elevation);
+        data.model_ground_relative = ground_relative;
+        assert!(effects.frames().is_empty());
+        for (position, height) in [[10., 20., 30.], [13., next_height, 30.]]
+            .into_iter()
+            .zip(expected_heights)
+        {
+            frame.projectiles[0].position = position;
+            effects.advance_particles(&frame)?;
+            let drawn = effects.frames();
+            assert_eq!(drawn.len(), 1);
+            assert_eq!(
+                drawn[0].model.as_ref().unwrap().world[3],
+                [position[0], height, position[2], 1.]
+            );
+            assert_eq!(effects.particles[&id].frame.origin, position);
+        }
+    }
     Ok(())
 }
 
@@ -373,13 +373,13 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
         EffectOperation, ParticleBirth, ScheduledEvent, ValueRange,
     };
     let mut effects = effects()?;
-    let mut models = effects.banks[&17].models.clone();
+    let mut models = effects.banks[&ResourceId(17)].models.clone();
     // Distinct resource identities make the selected model observable.
     let skeleton = crate::tests::model_definition(42, [(0, 1.)]).skeleton;
     models.insert(
         1,
         PreparedEffectModel::new(Arc::new(EffectModelDefinition {
-            resource: 42,
+            resource: ResourceId(42),
             skeleton,
             motions: Default::default(),
             secondary_motion: vec![],
@@ -410,17 +410,9 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
         particles: [(
             0,
             Arc::new(ParticleDefinition {
-                resource: 17,
+                resource: ResourceId(17),
                 member: 0,
-                model: Some(resonance_content::battle_effect::ModelBinding {
-                    slot: 0,
-                    animation: None,
-                    repeat: false,
-                    reverse_at: None,
-                    program_animation: false,
-                    attachment: None,
-                }),
-                data: source().particle(1)?.clone(),
+                ..definition()
             }),
         )]
         .into(),
@@ -429,7 +421,7 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
     let members = [(1, Arc::clone(&definition))].into();
     assert!(
         EffectBank::new(
-            17,
+            ResourceId(17),
             [(0, models[&0].clone())].into(),
             members,
             &resonance_content::diagnostics::Diagnostics::new(true)
@@ -437,28 +429,20 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
         .is_err()
     );
     effects.banks.insert(
-        17,
-        EffectBank::new(17, models, [(1, definition)].into(), &Default::default())?,
+        ResourceId(17),
+        EffectBank::new(
+            ResourceId(17),
+            models,
+            [(1, definition)].into(),
+            &Default::default(),
+        )?,
     );
-    let mut frame = frame();
-    frame.actors = [crate::Side::Party, crate::Side::Enemy]
-        .map(|side| {
-            let state = crate::tests::actor(side);
-            crate::ActorFrame {
-                effect_center: state.effect_origin(),
-                state,
-                activity: crate::Activity::Idle,
-                cast_releasing: false,
-                stun_remaining: 0,
-                stun_struggling: false,
-            }
-        })
-        .to_vec();
+    let mut frame = effect_frame();
     frame.cues.push(crate::Cue::Effect(crate::EffectRequest {
         owner: ActorId(0),
         target: ActorId(1),
         appearance: crate::EffectAppearance {
-            resource: 17,
+            resource: ResourceId(17),
             member: 1,
         },
         origin: [0.; 3],
@@ -472,7 +456,10 @@ fn model_choices_require_all_artwork_and_reuse_the_authored_draw() -> Result<()>
         effects.advance(&frame, false)?;
         let particle = effects.particles.values().last().unwrap();
         let choice = particle.frame.state.offset[0] as u32;
-        assert_eq!(particle.model.as_ref().unwrap().resource(), 41 + choice);
+        assert_eq!(
+            particle.model.as_ref().unwrap().resource(),
+            ResourceId(41 + choice)
+        );
         selected.insert(choice);
     }
     assert_eq!(selected, [0, 1].into());
@@ -486,7 +473,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     };
     let source = crate::tests::model_definition(41, [(0, 15.), (1, 4.)]);
     let model = PreparedEffectModel::new(Arc::new(EffectModelDefinition {
-        resource: 41,
+        resource: ResourceId(41),
         skeleton: source.skeleton,
         motions: source.motions,
         secondary_motion: vec![],
@@ -563,7 +550,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
     });
     assert!(
         EffectBank::new(
-            17,
+            ResourceId(17),
             [(0, model.clone())].into(),
             [(1, definition.clone())].into(),
             &resonance_content::diagnostics::Diagnostics::new(true),
@@ -589,7 +576,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         animation.rate = 0.;
     }
     EffectBank::new(
-        17,
+        ResourceId(17),
         [(0, model.clone())].into(),
         [(1, Arc::new(held.clone()))].into(),
         &resonance_content::diagnostics::Diagnostics::new(true),
@@ -614,7 +601,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         }
         assert!(
             EffectBank::new(
-                17,
+                ResourceId(17),
                 [(0, model.clone())].into(),
                 [(1, Arc::new(invalid))].into(),
                 &resonance_content::diagnostics::Diagnostics::new(true),
@@ -633,7 +620,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         .data
         .follow_orientation = false;
     let bank = EffectBank::new(
-        17,
+        ResourceId(17),
         [(0, model)].into(),
         [
             (1, definition),
@@ -644,25 +631,12 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         &Default::default(),
     )?;
     let mut effects = Effects::new(vec![bank], None, 7, Default::default())?;
-    let mut frame = frame();
-    frame.actors = [crate::Side::Party, crate::Side::Enemy]
-        .map(|side| {
-            let state = crate::tests::actor(side);
-            crate::ActorFrame {
-                effect_center: state.effect_origin(),
-                state,
-                activity: crate::Activity::Idle,
-                cast_releasing: false,
-                stun_remaining: 0,
-                stun_struggling: false,
-            }
-        })
-        .to_vec();
+    let mut frame = effect_frame();
     let mut request = crate::EffectRequest {
         owner: ActorId(0),
         target: ActorId(0),
         appearance: crate::EffectAppearance {
-            resource: 17,
+            resource: ResourceId(17),
             member: 1,
         },
         origin: [0.; 3],
@@ -708,25 +682,14 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
             }
             assert_eq!(child.frame.origin, origins[&child.frame.id]);
         }
-        let poses: Vec<_> = effects
-            .frames()
-            .iter()
-            .filter_map(|p| p.model.as_ref().map(|model| model.frame))
-            .collect();
+        let poses = model_frames(&effects);
         assert_eq!(poses[0], if tick <= 30 { tick as f32 * 0.5 } else { 0.5 });
         if tick >= 5 {
             assert_eq!(poses[1], (tick - 5) as f32 * 0.5);
         }
         if tick == 10 {
             effects.advance(&frame, true)?;
-            assert_eq!(
-                effects
-                    .frames()
-                    .iter()
-                    .filter_map(|p| p.model.as_ref().map(|model| model.frame))
-                    .collect::<Vec<_>>(),
-                poses
-            );
+            assert_eq!(model_frames(&effects), poses);
         }
     }
     assert_eq!(births, [0, 5, 8, 13, 16, 21, 24, 29]);
@@ -796,11 +759,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         crate::Cue::InitializedEffect(request.clone()),
     ];
     effects.advance(&frame, false)?;
-    let particle = effects
-        .particles
-        .values()
-        .find(|particle| particle.model.is_some())
-        .unwrap();
+    let particle = first_model_particle(&effects);
     assert_eq!(particle.frame.origin, frame.projectiles[0].position);
     assert_eq!(particle.orientation_origin, creation_origin);
 
@@ -817,21 +776,13 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
             crate::Cue::InitializedEffect(request.clone()),
         ];
         effects.advance(&frame, false)?;
-        let particle = effects
-            .particles
-            .values()
-            .find(|p| p.model.is_some())
-            .unwrap();
+        let particle = first_model_particle(&effects);
         assert_eq!(particle.frame.state.angles[..2], expected);
     }
     frame.cues.clear();
     frame.projectiles[0].position[1] += 2.;
     effects.advance(&frame, false)?;
-    let particle = effects
-        .particles
-        .values()
-        .find(|p| p.model.is_some())
-        .unwrap();
+    let particle = first_model_particle(&effects);
     assert_eq!(particle.frame.state.angles[..2], [180., 0.]);
     frame.projectiles[0].position[0] += 1.;
     frame.projectiles[0].position[1] = 0.;
@@ -840,11 +791,7 @@ fn program_model_clip_starts_at_zero_and_loops_without_sharing_playback() -> Res
         projectile: ProjectileId(1),
     });
     effects.advance(&frame, false)?;
-    let particle = effects
-        .particles
-        .values()
-        .find(|p| p.model.is_some())
-        .unwrap();
+    let particle = first_model_particle(&effects);
     assert_eq!(particle.frame.origin, frame.projectiles[0].position);
     assert_eq!(particle.frame.state.angles[..2], [180., 0.]);
     Ok(())

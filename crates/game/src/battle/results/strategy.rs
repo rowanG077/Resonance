@@ -4,9 +4,10 @@ use crate::menu::strategy::{Input, Page, Strategy, Visit};
 use resonance_battle::StrategyRefresh;
 
 impl Candidate {
-    pub fn order_name(&self, order: u8) -> Result<&str> {
-        ensure!((1..=3).contains(&order), "invalid strategy preset order");
-        let index = usize::from(order - 1);
+    pub fn order_name(&self, order: QuickOrder) -> Result<&str> {
+        let Some(index) = order.preset_index() else {
+            return Ok("Cancel orders");
+        };
         if let Some(presets) = &self.party.strategy_presets {
             Ok(&presets[index].name)
         } else {
@@ -19,7 +20,7 @@ impl Candidate {
         }
     }
 
-    pub(in crate::battle) fn active_order(&self) -> u8 {
+    pub(in crate::battle) fn active_order(&self) -> QuickOrder {
         self.active_order
     }
 
@@ -53,10 +54,12 @@ impl Candidate {
         self.apply_order(battle, self.active_order)
     }
 
-    pub(in crate::battle) fn apply_order(&mut self, battle: &mut Battle, order: u8) -> Result<()> {
-        ensure!(order <= 3, "invalid battle order");
-        let preset = order.checked_sub(1).map(|index| {
-            let index = usize::from(index);
+    pub(in crate::battle) fn apply_order(
+        &mut self,
+        battle: &mut Battle,
+        order: QuickOrder,
+    ) -> Result<()> {
+        let preset = order.preset_index().map(|index| {
             self.party
                 .strategy_presets
                 .as_ref()
@@ -70,10 +73,9 @@ impl Candidate {
             .iter()
             .map(|&(actor, character)| StrategyRefresh {
                 actor,
-                choices: preset.map_or(
-                    self.party.members[usize::from(character - 1)].strategy,
-                    |members| members[usize::from(character - 1)],
-                ),
+                choices: preset.map_or(self.party.members[character.index()].strategy, |members| {
+                    members[character.index()]
+                }),
             })
             .collect();
         battle.refresh_strategy(&rows)?;

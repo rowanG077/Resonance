@@ -19,7 +19,7 @@ fn battle() -> Battle {
     .unwrap();
     prepared.resources.actor_setup[0].control = Some(Arc::new(crate::ControlDefinition {
         normals,
-        shortcuts: [0; 4],
+        shortcuts: [None; 4],
         walk_speed: 5.,
         run_speed: 10.,
         turn_ticks: 8,
@@ -32,12 +32,6 @@ fn definition(lifetime: u32, velocity: [f32; 3]) -> Arc<ProjectileDefinition> {
     Arc::new(ProjectileDefinition {
         lifetime: (lifetime != 0).then_some(lifetime),
         velocity,
-        acceleration: [0.; 3],
-        offset: [0.; 3],
-        clamp_ground: false,
-        active: None,
-        birth: None,
-        motion: Default::default(),
         effects: ProjectileEffects {
             shadow: Some(ProjectileShadow {
                 color: [128, 32, 32, 128],
@@ -46,7 +40,7 @@ fn definition(lifetime: u32, velocity: [f32; 3]) -> Arc<ProjectileDefinition> {
             }),
             ..Default::default()
         },
-        contact: None,
+        ..Default::default()
     })
 }
 

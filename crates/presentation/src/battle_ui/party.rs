@@ -196,6 +196,38 @@ pub(super) fn slanted_quad(
     }
 }
 
+/// A colored strip with separately feathered edges and optional slant.
+pub(super) fn backdrop(
+    batch: &mut Batch,
+    [left, top, right, bottom]: [f32; 4],
+    colors: [[u8; 4]; 4],
+    edge: f32,
+    skew: f32,
+) {
+    let clear = colors.map(|[r, g, b, _]| [r, g, b, 0]);
+    for (rect, colors) in [
+        ([left, top, right, bottom], colors),
+        (
+            [left + skew, top - edge, right + skew, top],
+            [clear[0], clear[1], colors[0], colors[1]],
+        ),
+        (
+            [left - skew, bottom, right - skew, bottom + edge],
+            [colors[2], colors[3], clear[2], clear[3]],
+        ),
+        (
+            [left - edge, top, left, bottom],
+            [clear[0], colors[0], clear[2], colors[2]],
+        ),
+        (
+            [right, top, right + edge, bottom],
+            [colors[1], clear[1], colors[3], clear[3]],
+        ),
+    ] {
+        slanted_quad(batch, rect, [0.5; 4], skew, colors);
+    }
+}
+
 fn bar(
     batch: &mut Batch,
     [x, y]: [f32; 2],
@@ -312,8 +344,7 @@ impl Artwork {
             if actor.availability == resonance_battle::ActorAvailability::Absent {
                 continue;
             }
-            ensure!((1..=9).contains(&character), "invalid battle HUD character");
-            let character = usize::from(character - 1);
+            let character = character.index();
             let x = left(slot);
             let portrait = portrait(
                 actor,
@@ -513,7 +544,12 @@ mod tests {
             artwork.render(
                 &frame,
                 PartyHudInput {
-                    characters: &[1, 5, 6, 9],
+                    characters: &[
+                        Character::Lloyd,
+                        Character::Sheena,
+                        Character::Zelos,
+                        Character::Kratos,
+                    ],
                     queued_techniques: &[queued, false, false, false],
                     names: &[Some("Custom Name"), None, None, None],
                 },

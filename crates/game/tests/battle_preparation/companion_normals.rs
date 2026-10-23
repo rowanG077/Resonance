@@ -12,7 +12,10 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
         false
     })?;
     let weapons = [135, 159, 175, 190, 205, 228, 242, 258, 228];
-    let mut models: Vec<_> = (1..=9).map(battle::model::ModelSource::Party).collect();
+    let mut models: Vec<_> = battle::party::Character::ALL
+        .into_iter()
+        .map(battle::model::ModelSource::Party)
+        .collect();
     models.extend(weapons.map(battle::model::ModelSource::Weapon));
     models.push(battle::model::ModelSource::Enemy(36));
     let files = battle::model::load_files(&root, files, &models, &mut cache, || false)?;
@@ -41,7 +44,7 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
                 position: [0.; 3],
                 heading: 0.,
                 model: Some(battle::model::ModelSetup {
-                    resource: 1,
+                    resource: resonance_battle::ResourceId(1),
                     initial: Playback {
                         clip: 0,
                         frame: 0.,
@@ -133,13 +136,10 @@ fn all_nine_characters_normal_attacks_hit_and_finish() -> Result<()> {
             active.step(BattleInput::default())?;
             if NormalAttack::ALL[selection].airborne() {
                 for _ in 0..120 {
-                    active.step(BattleInput {
-                        controllers: vec![ControlInput {
-                            stick: [0, 127],
-                            ..ControlInput::neutral(ids[0])
-                        }],
-                        ..Default::default()
-                    })?;
+                    active.step(BattleInput::from(ControlInput {
+                        stick: [0, 127],
+                        ..ControlInput::neutral(ids[0])
+                    }))?;
                     if active.actors()[0].position[1] > 0. {
                         break;
                     }

@@ -62,8 +62,9 @@ fn ex71_queries_current_available_party_actors_while_magic_mist_survives_ko() {
     battle.advance_escape();
     assert_eq!(battle.escape.gauge - before, 15);
     battle.actors[0].equipment.quick_escape = false;
-    battle.refresh_escape_magic_mist(false);
     let before = battle.escape.gauge;
+    battle.refresh_escape_magic_mist(false);
+    assert_eq!(battle.escape.gauge, before);
     battle.advance_escape();
     assert_eq!(battle.escape.gauge - before, 7);
     assert!(battle.all_divide_active());

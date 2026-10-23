@@ -1,8 +1,10 @@
 //! Device edges are latched between renders and sampled once per fixed update.
 use bevy::prelude::*;
+use resonance_battle::ControllerPort;
 use resonance_battle::{Actor, ActorId, ButtonInput as BattleButton, Control, ControlInput, Side};
 use resonance_content::menu_data::CustomizeSettings;
 use resonance_game::battle::command::{Input as CommandInput, InputKind};
+use resonance_game::battle::lifecycle::QuickOrder;
 use resonance_game::menu::{Input as SharedMenuInput, MenuAction};
 
 // Battle movement uses signed controller units; navigation reads the same range.
@@ -130,9 +132,14 @@ impl LocalControls {
             cancel,
             cancel_selector,
             cook: cook.pressed,
-            order: [(1, 3), (0, 1), (3, 2), (2, 0)]
-                .into_iter()
-                .find_map(|(button, order)| self.extra[button].pressed.then_some(order)),
+            order: [
+                (1, QuickOrder::RightPreset),
+                (0, QuickOrder::LeftPreset),
+                (3, QuickOrder::UpperPreset),
+                (2, QuickOrder::Cancel),
+            ]
+            .into_iter()
+            .find_map(|(button, order)| self.extra[button].pressed.then_some(order)),
             menu: menu_input(&self.buttons, &self.extra, directions),
             stick: self.stick,
             pressed_direction: [directions[0].pressed, directions[1].pressed],
@@ -236,7 +243,7 @@ struct ControllerSample {
     cancel: BattleButton,
     cancel_selector: BattleButton,
     cook: bool,
-    order: Option<u8>,
+    order: Option<QuickOrder>,
     menu: SharedMenuInput,
     stick: [i8; 2],
     pressed_direction: [i8; 2],
@@ -316,7 +323,7 @@ impl Frame {
     ) -> Option<resonance_battle::UnisonInput> {
         if let Some(frame) = frame {
             let owner = actors.get(frame.initiator.index())?;
-            let sample = self.slots.get(usize::from(owner.control_slot))?;
+            let sample = &self.slots[owner.control_slot.index()];
             let pressed_slots = sample
                 .selection
                 .iter()
@@ -326,17 +333,13 @@ impl Frame {
                 });
             return (pressed_slots != 0).then_some(resonance_battle::UnisonInput::Select {
                 pressed_slots,
-                shortcut: resonance_battle::NormalAttack::from_input(sample.stick, false) as u8,
+                shortcut: resonance_battle::ShortcutSlot::from_input(sample.stick),
             });
         }
         actors.iter().enumerate().find_map(|(index, actor)| {
             (actor.side == Side::Party
                 && matches!(actor.control, Control::Manual | Control::SemiAuto)
-                && self
-                    .slots
-                    .get(usize::from(actor.control_slot))?
-                    .unison
-                    .pressed)
+                && self.slots[actor.control_slot.index()].unison.pressed)
                 .then(|| {
                     resonance_battle::UnisonInput::Activate(ActorId::from_index(index).unwrap())
                 })
@@ -351,23 +354,23 @@ impl Frame {
         self.slots[0].cook
     }
 
-    pub fn order(&self) -> Option<u8> {
+    pub fn order(&self) -> Option<QuickOrder> {
         self.slots.iter().find_map(|sample| sample.order)
     }
 
     pub fn command_input(
         &self,
-        owner: Option<u8>,
+        owner: Option<ControllerPort>,
         actors: &[Actor],
         kind: InputKind,
     ) -> CommandInput {
-        let controller = owner.filter(|&slot| slot < 4).or_else(|| {
+        let controller = owner.or_else(|| {
             actors.iter().find_map(|actor| {
                 let slot = actor.control_slot;
                 (actor.side == Side::Party
-                    && slot < 4
-                    && (matches!(actor.control, Control::Manual | Control::SemiAuto) || slot == 0)
-                    && self.slots[usize::from(slot)].open.pressed)
+                    && (matches!(actor.control, Control::Manual | Control::SemiAuto)
+                        || slot == ControllerPort::One)
+                    && self.slots[slot.index()].open.pressed)
                     .then_some(slot)
             })
         });
@@ -377,7 +380,7 @@ impl Frame {
                 ..Default::default()
             };
         };
-        let sample = self.slots[usize::from(controller)];
+        let sample = self.slots[controller.index()];
         CommandInput {
             controller,
             connected: self.connected,
@@ -406,9 +409,7 @@ impl Frame {
         actors
             .into_iter()
             .filter_map(|(id, actor, activity)| {
-                self.slots
-                    .get(usize::from(actor.control_slot))?
-                    .actor_input(id, actor, activity)
+                self.slots[actor.control_slot.index()].actor_input(id, actor, activity)
             })
             .collect()
     }
@@ -595,7 +596,9 @@ pub(super) fn gather(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn actor(slot: u8, control: Control) -> Actor {
+    use ControllerPort;
+
+    fn actor(slot: ControllerPort, control: Control) -> Actor {
         let mut actor = crate::test_support::actor(Side::Party, 100, 20);
         actor.control = control;
         actor.control_slot = slot;
@@ -683,7 +686,7 @@ mod tests {
             assert_eq!(frame.confirm(), physical == 0);
             assert_eq!(frame.cook(), physical == 2);
             assert_eq!(
-                frame.unison_input(&[actor(0, Control::Manual)], None),
+                frame.unison_input(&[actor(ControllerPort::One, Control::Manual)], None),
                 (settings.button_map[physical] == Action::Unison as u8).then_some(
                     resonance_battle::UnisonInput::Activate(ActorId::from_index(0).unwrap())
                 )
@@ -712,10 +715,10 @@ mod tests {
     fn actor_and_command_readers_share_immutable_controller_samples() {
         let mut controls = Controls::default();
         let actors = [
-            actor(3, Control::Manual),
-            actor(0, Control::SemiAuto),
-            actor(2, Control::Manual),
-            actor(1, Control::SemiAuto),
+            actor(ControllerPort::Four, Control::Manual),
+            actor(ControllerPort::One, Control::SemiAuto),
+            actor(ControllerPort::Three, Control::Manual),
+            actor(ControllerPort::Two, Control::SemiAuto),
         ];
         for (slot, controls) in controls.slots.iter_mut().enumerate() {
             let mut device = Sample {
@@ -731,19 +734,19 @@ mod tests {
             frame
                 .command_input(None, &actors, InputKind::Command)
                 .controller,
-            3
+            ControllerPort::Four
         );
         assert_eq!(
             frame
-                .command_input(Some(1), &actors, InputKind::Command)
+                .command_input(Some(ControllerPort::Two), &actors, InputKind::Command)
                 .controller,
-            1
+            ControllerPort::Two
         );
         for _ in 0..2 {
             let inputs = inputs(&frame, &actors);
             assert_eq!(inputs.len(), 4);
             for (input, actor) in inputs.iter().zip(&actors) {
-                let sign = if actor.control_slot.is_multiple_of(2) {
+                let sign = if actor.control_slot.index().is_multiple_of(2) {
                     1
                 } else {
                     -1
@@ -803,10 +806,10 @@ mod tests {
             .init_resource::<Controls>()
             .add_systems(Update, gather);
         for (key, order) in [
-            (KeyCode::Digit1, 1),
-            (KeyCode::Digit2, 2),
-            (KeyCode::Digit3, 3),
-            (KeyCode::Digit0, 0),
+            (KeyCode::Digit1, QuickOrder::LeftPreset),
+            (KeyCode::Digit2, QuickOrder::UpperPreset),
+            (KeyCode::Digit3, QuickOrder::RightPreset),
+            (KeyCode::Digit0, QuickOrder::Cancel),
         ] {
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
@@ -824,13 +827,15 @@ mod tests {
                 .resource_mut::<Controls>()
                 .sample(&Default::default());
             assert_eq!(frame.order(), Some(order));
-            let actor_input = inputs(&frame, &[actor(0, Control::Manual)])[0];
+            let actor_input = inputs(&frame, &[actor(ControllerPort::One, Control::Manual)])[0];
             assert_eq!(actor_input.stick, [0; 2]);
             assert_eq!(actor_input.horizontal_pressed, 0);
             assert_eq!(actor_input.vertical_pressed, 0);
             assert_eq!(actor_input.target_step, 0);
             assert_eq!(
-                frame.command_input(Some(0), &[], InputKind::Command).step,
+                frame
+                    .command_input(Some(ControllerPort::One), &[], InputKind::Command)
+                    .step,
                 0
             );
             for _ in 0..60 {
@@ -849,7 +854,10 @@ mod tests {
             ..Default::default()
         });
         controls.slots[3].gather(Sample::default());
-        assert_eq!(controls.sample(&Default::default()).order(), Some(2));
+        assert_eq!(
+            controls.sample(&Default::default()).order(),
+            Some(QuickOrder::UpperPreset)
+        );
         assert_eq!(controls.sample(&Default::default()).order(), None);
     }
 
@@ -863,7 +871,7 @@ mod tests {
         });
         controls.discard();
         let frame = controls.sample(&CustomizeSettings::default());
-        let mut actors = [actor(2, Control::Auto)];
+        let mut actors = [actor(ControllerPort::Three, Control::Auto)];
         assert!(inputs(&frame, &actors).is_empty());
         actors[0].control = Control::Manual;
         let manual = inputs(&frame, &actors)[0];
@@ -890,7 +898,7 @@ mod tests {
         });
         controls.slots[0].buttons[1].pressed = true;
         let frame = controls.sample(&CustomizeSettings::default());
-        let input = frame.command_input(Some(2), &[], InputKind::SharedMenu);
+        let input = frame.command_input(Some(ControllerPort::Three), &[], InputKind::SharedMenu);
         assert_eq!(input.shared_menu, Some(MenuAction::Confirm));
         assert!(input.confirm_a.pressed && !input.cancel_b.pressed);
         // Simultaneous actions have a deterministic priority instead of an invalid combination.
@@ -939,7 +947,8 @@ mod tests {
     #[test]
     fn automatic_actors_read_only_enabled_interactions_without_consuming_manual_input() {
         use resonance_battle::{Activity, RecoilKind};
-        let mut actors: [_; 6] = std::array::from_fn(|_| actor(2, Control::Auto));
+        let mut actors: [_; 6] =
+            std::array::from_fn(|_| actor(ControllerPort::Three, Control::Auto));
         actors[1].equipment.casting.rhythm = true;
         actors[2].equipment.control_ex.charge = true;
         actors[3].equipment.control_ex.double_jump = true;

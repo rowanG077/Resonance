@@ -3,25 +3,16 @@ use crate::{Control, HitProtection, ProtectionMode, Side, tests::actor};
 
 fn fixed(kind: DamageKind, amount: u16) -> HitRule {
     HitRule {
-        sound: None,
         kind,
-        arte: false,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
         power: Power::Fixed(amount),
-        element: HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        guard: GuardRule::default(),
         reaction: crate::ReactionRule {
             hitstun: 60,
             stagger: 200,
             stun_chance: 255,
             ..Default::default()
         },
-        condition: None,
+        ..crate::tests::hit()
     }
 }
 
@@ -35,48 +26,16 @@ fn active() -> Actor {
 
 #[test]
 fn guard_and_overlimit_use_the_strongest_reduction() {
+    use DamageKind::{Magic, Slash};
+    use GuardKind::{Normal, Special};
+
     for (kind, guard, down, breaks, reduction, amount) in [
-        (
-            DamageKind::Slash,
-            Some(GuardKind::Normal),
-            false,
-            false,
-            75,
-            25,
-        ),
-        (
-            DamageKind::Slash,
-            Some(GuardKind::Normal),
-            false,
-            false,
-            255,
-            1,
-        ),
-        (
-            DamageKind::Magic,
-            Some(GuardKind::Normal),
-            false,
-            false,
-            75,
-            50,
-        ),
-        (
-            DamageKind::Magic,
-            Some(GuardKind::Special),
-            false,
-            false,
-            75,
-            20,
-        ),
-        (
-            DamageKind::Slash,
-            Some(GuardKind::Normal),
-            false,
-            true,
-            75,
-            50,
-        ),
-        (DamageKind::Slash, None, true, false, 75, 25),
+        (Slash, Some(Normal), false, false, 75, 25),
+        (Slash, Some(Normal), false, false, 255, 1),
+        (Magic, Some(Normal), false, false, 75, 50),
+        (Magic, Some(Special), false, false, 75, 20),
+        (Slash, Some(Normal), false, true, 75, 50),
+        (Slash, None, true, false, 75, 25),
     ] {
         let mut target = active();
         target.guard.active = guard.is_some();

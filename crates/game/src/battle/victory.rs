@@ -15,7 +15,7 @@ const WEAK_HP_PERCENT: u8 = 25;
 
 #[derive(Debug, Clone)]
 pub struct Performance {
-    pub character: u8,
+    pub character: Character,
     pub selector: u8,
     pub motion: MotionBinding,
     pub timeline: Option<Vec<(u16, Event)>>,
@@ -106,17 +106,16 @@ impl Playing {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PostureBinding {
-    character: u8,
+    character: Character,
     healthy: Option<MotionBinding>,
     weak: Option<MotionBinding>,
 }
 
 pub fn prepare_posture(
     files: &Files,
-    character: u8,
+    character: Character,
     model: Option<&ModelDefinition>,
 ) -> Result<PostureBinding> {
-    ensure!((1..=9).contains(&character), "invalid result character");
     let motion = |clip| {
         let Some(model) = model else {
             return Ok(None);
@@ -145,11 +144,10 @@ pub fn prepare_posture(
 pub fn construct_result_actors(
     battle: &mut Battle,
     leader: ActorId,
-    roster: &[(ActorId, u8)],
+    roster: &[(ActorId, Character)],
     postures: &[PostureBinding],
-    colette_state: u32,
+    colette_state: ColetteState,
 ) -> Result<Vec<Cue>> {
-    let colette_state = ColetteState::from(colette_state);
     let mut cues = Vec::new();
     for &(id, character) in roster {
         let binding = postures.iter().find(|row| row.character == character);
@@ -161,7 +159,7 @@ pub fn construct_result_actors(
         let weak = !petrified
             && (!actor.available()
                 || (id != leader && actor.hp_percent() <= i16::from(WEAK_HP_PERCENT)));
-        let sealed = character == Character::Colette as u8 && colette_state == ColetteState::Sealed;
+        let sealed = character == Character::Colette && colette_state == ColetteState::Sealed;
         cues.extend(battle.reset_result_actor(id)?);
         if !petrified && !weak {
             battle.end_overlimit(id)?;
@@ -186,7 +184,7 @@ pub fn construct_result_actors(
         ColetteState::Alternate | ColetteState::Silent
     ) && roster
         .iter()
-        .any(|&(id, character)| id == leader && character == Character::Colette as u8)
+        .any(|&(id, character)| id == leader && character == Character::Colette)
     {
         battle.hide_result_weapons(leader)?;
     }
@@ -279,19 +277,15 @@ pub fn prepare(
     files: &Files,
     source: &Performances,
     body: &battle_model::Party,
-    character: u8,
+    character: Character,
     model: &ModelDefinition,
 ) -> Result<(Arc<ModelDefinition>, Vec<Performance>)> {
-    ensure!(
-        (1..=9).contains(&character),
-        "victory character is not prepared"
-    );
     let mut candidate = model.clone();
     let mut result = Vec::new();
     for row in source
         .ordinary
         .iter()
-        .filter(|row| row.character == character && row.body_sha256 == body.body_sha256)
+        .filter(|row| row.character == character as u8 && row.body_sha256 == body.body_sha256)
     {
         let prepared = (|| {
             ensure!(row.selector < 5, "unknown victory selector");
@@ -299,7 +293,7 @@ pub fn prepare(
                 source
                     .ordinary
                     .iter()
-                    .filter(|other| other.character == character
+                    .filter(|other| other.character == character as u8
                         && other.body_sha256 == body.body_sha256
                         && other.selector == row.selector)
                     .count()
@@ -395,10 +389,10 @@ mod tests {
             |mut actors, setup| {
                 setup.style.celebrate = true;
                 setup.performances.push(Performance {
-                    character: 1,
+                    character: Character::Lloyd,
                     selector: 0,
                     motion: MotionBinding {
-                        model: 1,
+                        model: resonance_battle::ResourceId(1),
                         clip: FIRST_VICTORY_CLIP,
                     },
                     timeline: Some(vec![
@@ -437,7 +431,10 @@ mod tests {
         let candidate = &mut fixture.candidate;
         battle.recognize_result();
         battle.retire_combat()?;
-        candidate.select_victory(battle, 0, 0)?;
+        candidate.select_victory(
+            battle,
+            crate::battle::lifecycle::victory_selection::Selection::Solo(0),
+        )?;
         candidate.prepare_results(battle)?;
         let opening = battle.publish(Vec::new());
         assert!(opening.model_requests.iter().any(|request| matches!(

@@ -13,9 +13,9 @@ import shutil
 import struct
 
 from battle_fixture import BattleFixture, DTM_BUTTONS, neutral_movie
-from battle_state import watch_locations
+from battle_state import projectile_locations, watch_locations
 from effect_fixture import prepare
-from state import State, inspect
+from state import State, digest, inspect
 
 MANIFEST = Path(__file__).with_name("cases") / "battle-artes.json"
 SETTINGS = 0x8035A768
@@ -37,11 +37,6 @@ def write(path, value):
     Path(path).write_text(json.dumps(value, indent=2) + "\n")
 
 
-def digest(path):
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
 def selected(manifest, key):
     character, arte = map(int, key.split(":"))
     return next(row for row in manifest["cases"]
@@ -60,12 +55,7 @@ def locations():
         actor = ACTORS + slot * ACTOR_BYTES
         for offset in (0x10, 0x14):
             result[f"{BATTLE_POINTER} {actor + 4:x} {offset:x}"] = f"condition_{slot}_{offset:x}"
-    # Initialized projectile records: owner, lifetime, contact geometry and age.
-    for slot in range(16):
-        node = f"{BATTLE_POINTER} 75c44" + " 4" * slot
-        result[node] = f"projectile_{slot}_address"
-        for offset in (0x10, 0x28, 0x2C, 0x30, 0x34, 0x3C, 0x6C, 0x70, 0x74):
-            result[f"{node} {offset:x}"] = f"projectile_{slot}_{offset:x}"
+    result.update(projectile_locations(BATTLE_POINTER))
     return result
 
 
@@ -212,6 +202,7 @@ def prepare_ready(output, record):
         if actor["side"] == 1:
             for offset in (0x20, 0x24):
                 state.write(actor["vitals_address"] + offset, "I", 30000)
+        x = None
         if case["fixture"] == "recovery" or case.get("input") == "guard_down":
             if actor["side"] == 1:
                 x = 5000.0
@@ -219,11 +210,10 @@ def prepare_ready(output, record):
                 x = 0.0
             else:
                 x = [-1600.0, -1500.0, -1100.0, 0.0][actor["slot"]]
-            state.write(actor["address"] + 0x18C0, "f", x)
-            state.write(actor["address"] + 0x195C, "f", actor["center"][0] + x - actor["position"][0])
         elif case["fixture"] != "martial" and actor["slot"] == 0:
             # Keep the ordinary target position, using the measured safe-caster setup.
             x = -1250.0
+        if x is not None:
             state.write(actor["address"] + 0x18C0, "f", x)
             state.write(actor["address"] + 0x195C, "f", actor["center"][0] + x - actor["position"][0])
         if case["fixture"] == "recovery" and actor["side"] == 0:

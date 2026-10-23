@@ -188,22 +188,18 @@ impl crate::Battle {
     }
 
     /// Guard movement and recovery are shared by player and automatic controllers.
-    pub(crate) fn update_guard(
-        &mut self,
-        index: usize,
-        cues: &mut Vec<crate::Cue>,
-    ) -> anyhow::Result<bool> {
+    pub(crate) fn update_guard(&mut self, index: usize, cues: &mut Vec<crate::Cue>) -> bool {
         if self.activity(crate::ActorId(index as u8)) != Activity::Guarding {
-            return Ok(false);
+            return false;
         }
         let id = crate::ActorId(index as u8);
-        self.advance_guard_ex(id, cues)?;
+        self.advance_guard_ex(id, cues);
         let actor = &mut self.actors[index];
         if actor.hit_stop == 0 {
             if matches!(actor.control, Control::Auto | Control::Enemy) && actor.guard.recovery == 0
             {
                 self.enter_idle(id);
-                return Ok(true);
+                return true;
             }
             actor.guard.recovery = actor.guard.recovery.saturating_sub(1);
             actor.movement.gravity = if actor.movement.flying {
@@ -221,7 +217,7 @@ impl crate::Battle {
         if let Some(turn_ticks) = self.prepared.actor_setup[index].turn_ticks() {
             crate::control::face(actor, actor.facing_direction, 180. / f32::from(turn_ticks));
         }
-        Ok(true)
+        true
     }
 }
 

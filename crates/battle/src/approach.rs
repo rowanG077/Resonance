@@ -258,7 +258,7 @@ impl Battle {
         Ok(())
     }
 
-    pub(crate) fn cancel_approach(&mut self, index: usize) -> Result<()> {
+    pub(crate) fn cancel_approach(&mut self, index: usize) {
         self.set_task(index, ActorTask::None);
 
         if self.runtime[index].control.is_some() {
@@ -267,11 +267,10 @@ impl Battle {
                 .as_ref()
                 .unwrap()
                 .clone();
-            self.control_motion(index, &definition, crate::control::Locomotion::Stop)?;
+            self.control_motion(index, &definition, crate::control::Locomotion::Stop);
         } else {
             self.enter_idle(ActorId(index as u8));
         }
-        Ok(())
     }
 
     /// Own the complete movement update while an action is approaching. The caller
@@ -282,7 +281,7 @@ impl Battle {
             return Ok(false);
         };
         if self.terminal.result.is_some() {
-            self.cancel_approach(index)?;
+            self.cancel_approach(index);
             cues.push(Cue::Rejected {
                 actor,
                 reason: crate::Rejection::BattleEnding,
@@ -297,7 +296,7 @@ impl Battle {
             return Ok(true);
         }
         if self.has_pending_item(actor) || self.actors[index].input.motion == GroundMotion::Stop {
-            self.cancel_approach(index)?;
+            self.cancel_approach(index);
             return Ok(false);
         }
         if self.actors[index].side == crate::Side::Party
@@ -312,7 +311,7 @@ impl Battle {
         {
             if !self.technique_target_eligible(actor, approach.action, target) {
                 self.clear_technique_command(actor);
-                self.cancel_approach(index)?;
+                self.cancel_approach(index);
                 return Ok(false);
             }
             approach.target = target;
@@ -323,7 +322,7 @@ impl Battle {
             approach.target = target;
         }
         if !self.actors[approach.target.index()].available() {
-            self.cancel_approach(index)?;
+            self.cancel_approach(index);
             return Ok(false);
         }
         let motion_ready = self
@@ -349,7 +348,7 @@ impl Battle {
             && (!in_range || self.actors[index].movement.locomotion == crate::Locomotion::Run);
         if enemy && entry_pending {
             // Enemy selection finishes the outgoing idle hover before approach takes over.
-            self.advance_hover(index, true)?;
+            self.advance_hover(index, true);
         }
         if walking && entry_pending {
             let direction = crate::distance::planar_direction(
@@ -444,7 +443,7 @@ impl Battle {
                         .movement
                         .brake(owner.position[1], Activity::Approaching)
                 };
-                self.advance_hover(index, false)?;
+                self.advance_hover(index, false);
                 let stop_finished = self.actors[index].movement.flying
                     || self
                         .models
@@ -456,7 +455,7 @@ impl Battle {
             } else if !self.actors[index].movement.hover_ready() {
                 let owner = &mut self.actors[index];
                 owner.movement.integrate(&mut owner.position);
-                self.advance_hover(index, false)?;
+                self.advance_hover(index, false);
                 return Ok(true);
             }
             if self.pending_aerial_jump(actor, self.pending_technique(actor)) {
@@ -502,7 +501,7 @@ impl Battle {
             }
             if crate::conditions::paralysis_controller_roll(&self.actors[index], &mut self.random) {
                 self.clear_technique_command(actor);
-                self.begin_paralysis(actor, cues)?;
+                self.begin_paralysis(actor, cues);
                 return Ok(true);
             }
             if self.prepared.actions[request.action].normal.is_some() {
@@ -571,7 +570,7 @@ impl Battle {
                 .min((gap - desired_gap).abs());
             owner.movement.integrate(&mut owner.position);
         }
-        self.advance_hover(index, true)?;
+        self.advance_hover(index, true);
         Ok(())
     }
 

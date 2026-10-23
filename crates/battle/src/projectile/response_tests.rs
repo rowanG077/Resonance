@@ -8,8 +8,6 @@ fn definition(bounce: bool, ricochet: bool) -> Arc<ProjectileDefinition> {
         acceleration: [0., -0.2, 0.],
         offset: [0., 75., 155.],
         clamp_ground: true,
-        active: None,
-        birth: None,
         motion: ProjectileMotion {
             response: (bounce || ricochet).then_some(ProjectileResponse {
                 bounce,
@@ -20,23 +18,10 @@ fn definition(bounce: bool, ricochet: bool) -> Arc<ProjectileDefinition> {
             }),
             ..Default::default()
         },
-        effects: Default::default(),
         contact: Some(ProjectileContact {
             hit: crate::HitRule {
-                sound: None,
-                kind: crate::DamageKind::Slash,
-                arte: false,
-                effect_on_guard: false,
-                effect: None,
-                overlimit_pause: false,
-                power: crate::Power::Normal,
                 element: crate::HitElement::Inherited,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
-                guard: Default::default(),
-                reaction: Default::default(),
-                condition: None,
+                ..crate::tests::hit()
             },
             cooldown: 30,
             repeat_limit: 0,
@@ -49,6 +34,7 @@ fn definition(bounce: bool, ricochet: bool) -> Arc<ProjectileDefinition> {
             survives_contact: true,
             clashes: false,
         }),
+        ..Default::default()
     })
 }
 
@@ -78,7 +64,7 @@ fn instance(bounce: bool, ricochet: bool) -> Projectile {
 fn floor_response_bounces_or_holds_the_aimed_landing_point() {
     let mut projectile = instance(true, false);
     let ground = EffectAppearance {
-        resource: 1,
+        resource: crate::ResourceId(1),
         member: 3,
     };
     Arc::make_mut(&mut projectile.definition).effects.ground = Some(ground);
@@ -190,7 +176,7 @@ fn floor_ricochet_preserves_forward_direction_until_above_ground() -> Result<()>
 #[test]
 fn contact_response_disarms_once_on_the_next_update() {
     let trail = EffectAppearance {
-        resource: 1,
+        resource: crate::ResourceId(1),
         member: 6,
     };
     let assert_trail = |projectile: &mut Projectile| {

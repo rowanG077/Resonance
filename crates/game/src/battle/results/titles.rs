@@ -51,25 +51,30 @@ fn gilgamesh_equipment(equipment: [u16; 6]) -> bool {
 /// Grant every newly eligible title from the completed battle and final party state.
 pub(super) fn award(
     party: &mut Party,
-    roster: &[(ActorId, u8)],
+    roster: &[(ActorId, Character)],
     actors: &[Actor],
     ledger: &Ledger,
     encounter: u16,
     level_difference: i8,
 ) -> Vec<ResultNotice> {
     let mut notices = Vec::new();
-    let active: Vec<u8> = roster.iter().map(|&(_, character)| character).collect();
-    let women = active
+    let women = roster
         .iter()
-        .filter(|&&id| matches!(id, 2 | 4 | 5 | 7))
+        .filter(|&&(_, character)| {
+            matches!(
+                character,
+                Character::Colette | Character::Raine | Character::Sheena | Character::Presea
+            )
+        })
         .count();
-    let men = active.len() - women;
+    let men = roster.len() - women;
     let survivors = roster
         .iter()
         .filter(|&&(id, _)| actors[id.index()].available())
         .count();
     for &character in &party.formation {
-        let member = &mut party.members[usize::from(character - 1)];
+        let character = Character::try_from(character).expect("validated party character");
+        let member = &mut party.members[character.index()];
         let actor = roster
             .iter()
             .find(|&&(_, id)| id == character)
@@ -80,7 +85,6 @@ pub(super) fn award(
         ) {
             continue;
         }
-        let owner = Character::try_from(character).expect("validated party character");
         let manual = actor.is_some_and(|(_, actor)| actor.control != Control::Auto);
         let level = member.level;
         let equipment = member.equipment;
@@ -94,11 +98,11 @@ pub(super) fn award(
             }
         };
         for &(recipient, minimum, title) in LEVEL_TITLES {
-            grant(owner == recipient && level >= minimum, title);
+            grant(character == recipient && level >= minimum, title);
         }
         let Some((id, actor)) = actor else { continue };
         let facts = &ledger.achievements[id.index()];
-        match owner {
+        match character {
             Character::Lloyd => {
                 for &(hits, title) in COMBO_TITLES {
                     grant(ledger.maximum_combo >= hits, title);
@@ -147,9 +151,9 @@ pub(super) fn award(
             }
             Character::Raine => {
                 grant(ledger.items[id.index()] >= 5, ITEM_KEEPER);
-                grant(active.len() == 4 && women == 4, 15); // Crimson Rose
+                grant(roster.len() == 4 && women == 4, 15); // Crimson Rose
                 grant(ledger.deaths[id.index()] >= 5, 16); // Never Say Never
-                grant(active.len() >= 2 && survivors == 1, 17); // Survivor
+                grant(roster.len() >= 2 && survivors == 1, 17); // Survivor
             }
             Character::Sheena => {
                 grant(manual && ledger.escape_cancellations >= 3, ESCAPE_CANCELLER);
@@ -167,22 +171,30 @@ pub(super) fn award(
             }
             Character::Zelos => {
                 grant(manual && ledger.normal_variety[id.index()] >= 3, 12); // Tetra Slash
-                grant(active.len() == 4 && women == 3, 13); // Casanova
+                grant(roster.len() == 4 && women == 3, 13); // Casanova
                 grant(gilgamesh_equipment(equipment), GILGAMESH);
                 grant(facts.strategy_orders >= 4, 15); // Commander-in-Chief
                 grant(facts.voices >= 50, 16); // Loudmouth
             }
             Character::Presea => {
                 grant(facts.guard_breaks >= 10, 12); // Fragile Shield
-                grant(active.len() == 4 && men == 3, 13); // Lone Girl
+                grant(roster.len() == 4 && men == 3, 13); // Lone Girl
                 grant(
-                    active.len() == 4 && [5, 6, 7, 8].iter().all(|id| active.contains(id)),
+                    roster.len() == 4
+                        && [
+                            Character::Sheena,
+                            Character::Zelos,
+                            Character::Presea,
+                            Character::Regal,
+                        ]
+                        .into_iter()
+                        .all(|character| roster.iter().any(|&(_, active)| active == character)),
                     14,
                 ); // Associate
                 grant(manual && party.battles.hunting_streak >= 5, 15); // Hunter
             }
             Character::Regal => {
-                grant(active.len() == 4 && men == 4, 12); // Testosterone
+                grant(roster.len() == 4 && men == 4, 12); // Testosterone
                 grant(facts.potions >= 5, 13); // Potion King
                 grant(level_difference >= 8, 14); // Way of the Jungle
                 grant(facts.knockdowns >= 3, 15); // Pratfall King
@@ -201,17 +213,15 @@ mod tests {
     use resonance_battle::{ActorAvailability, PreparedBattle};
 
     fn fixture(character: Character) -> (Party, Actor, Ledger) {
-        let character = character as u8;
         let (menus, mut member) = crate::battle::party::projection_tests::fixture().unwrap();
         member.level = 1;
         member.titles.clear();
-        let loadout =
-            crate::battle::party::loadout(&menus, &member, usize::from(character - 1)).unwrap();
+        let loadout = crate::battle::party::loadout(&menus, &member, character).unwrap();
         let actor =
             crate::battle::party::actor(&loadout, &member, Control::Manual, [0.; 3], 0.).unwrap();
         let (_, _, _, mut party) = crate::battle::rewards::tests::reward_fixture();
         party.members = vec![member; 9];
-        party.formation = vec![character];
+        party.formation = vec![character as u8];
         let ledger = PreparedBattle::new(
             vec![(actor.clone(), Default::default())],
             Default::default(),
@@ -231,7 +241,7 @@ mod tests {
         ledger: &Ledger,
         encounter: u16,
     ) -> Vec<u8> {
-        let character = party.formation[0];
+        let character = Character::try_from(party.formation[0]).unwrap();
         let roster: Vec<_> = actor
             .into_iter()
             .map(|_| (ActorId::from_index(0).unwrap(), character))
@@ -285,7 +295,7 @@ mod tests {
     #[test]
     fn item_title_uses_the_recipients_actor_slot() {
         let (mut party, actor, mut ledger) = fixture(Character::Raine);
-        let roster = [(ActorId::from_index(1).unwrap(), Character::Raine as u8)];
+        let roster = [(ActorId::from_index(1).unwrap(), Character::Raine)];
         let actors = [actor.clone(), actor];
         ledger.items = vec![5, 4];
         ledger.deaths.resize(2, 0);
@@ -294,7 +304,7 @@ mod tests {
         ledger.items[1] = 5;
         assert!(
             matches!(award(&mut party, &roster, &actors, &ledger, 0, 0).as_slice(),
-            [ResultNotice::Title { character, title: ITEM_KEEPER }] if *character == Character::Raine as u8)
+            [ResultNotice::Title { character, title: ITEM_KEEPER }] if *character == Character::Raine)
         );
     }
 
@@ -469,14 +479,19 @@ mod tests {
             let roster: Vec<_> = formation
                 .into_iter()
                 .enumerate()
-                .map(|(i, c)| (ActorId::from_index(i).unwrap(), c))
+                .map(|(i, c)| {
+                    (
+                        ActorId::from_index(i).unwrap(),
+                        Character::try_from(c).unwrap(),
+                    )
+                })
                 .collect();
             ledger.achievements.resize_with(4, Default::default);
             ledger.normal_variety.resize(4, 0);
             ledger.items.resize(4, 0);
             ledger.deaths.resize(4, 0);
             let granted = |notices: Vec<ResultNotice>| {
-                notices.iter().any(|notice| matches!(notice, ResultNotice::Title { character: c, title: t } if *c == character as u8 && *t == title))
+                notices.iter().any(|notice| matches!(notice, ResultNotice::Title { character: c, title: t } if *c == character && *t == title))
             };
             assert!(!granted(award(
                 &mut party,
@@ -495,8 +510,8 @@ mod tests {
         let (mut party, actor, mut ledger) = fixture(Character::Raine);
         ledger.achievements.resize_with(2, Default::default);
         let roster = [
-            (ActorId::from_index(0).unwrap(), 4),
-            (ActorId::from_index(1).unwrap(), 1),
+            (ActorId::from_index(0).unwrap(), Character::Raine),
+            (ActorId::from_index(1).unwrap(), Character::Lloyd),
         ];
         let mut actors = vec![actor.clone(), actor];
         assert!(
@@ -511,7 +526,7 @@ mod tests {
                 .any(|n| matches!(n, ResultNotice::Title { title: 17, .. }))
         );
         let (mut party, actor, ledger) = fixture(Character::Regal);
-        let roster = [(ActorId::from_index(0).unwrap(), 8)];
+        let roster = [(ActorId::from_index(0).unwrap(), Character::Regal)];
         assert!(award(&mut party, &roster, &[actor.clone()], &ledger, 0, 7).is_empty());
         assert!(matches!(
             award(&mut party, &roster, &[actor], &ledger, 0, 8).as_slice(),

@@ -1,15 +1,18 @@
 //! Result preparation, equipment, and reward feedback through CPU fixtures.
+use resonance_battle::ControllerPort;
 mod equipment_model;
 mod hourglass_lifecycle;
 mod magic_mist;
 use super::*;
 use crate::battle::{
+    command,
     encounter::{Inputs, PrepareOptions},
+    lifecycle,
     voice::Sound,
 };
 use crate::menu::MenuAction;
 use resonance_battle::{
-    BattleInput,
+    BattleFrame, BattleInput, ButtonInput,
     item::{Provider, Release},
 };
 use resonance_content::{
@@ -20,6 +23,14 @@ use resonance_events::{
     battle::{DefeatPolicy, Setup as Encounter},
     party::MonsterKnowledge,
 };
+
+pub(super) fn edge() -> ButtonInput {
+    ButtonInput {
+        held: true,
+        pressed: true,
+        released: false,
+    }
+}
 
 pub(crate) struct Display;
 impl Presentation for Display {
@@ -46,6 +57,34 @@ pub(crate) struct PreparedFixture {
     pub lifecycle: crate::battle::lifecycle::Lifecycle,
 }
 
+pub(super) fn command_visit(
+    f: &mut PreparedFixture,
+    command: command::Input,
+) -> Result<(BattleFrame, Vec<command::Event>)> {
+    let frame = f.lifecycle.step(
+        &mut f.battle,
+        lifecycle::Input {
+            command,
+            ..Default::default()
+        },
+        &mut f.candidate,
+        &mut Display,
+    )?;
+    Ok((frame, f.lifecycle.take_command_events()))
+}
+
+pub(crate) fn native_battle(actors: Vec<resonance_battle::Actor>) -> Result<Battle> {
+    resonance_battle::PreparedBattle::new(
+        actors
+            .into_iter()
+            .map(|actor| (actor, Default::default()))
+            .collect(),
+        Default::default(),
+        1,
+    )?
+    .finish()
+}
+
 /// Small native encounter shared by result arithmetic and lifecycle boundary tests.
 pub(crate) fn native_fixture(
     formation: &[u8],
@@ -63,14 +102,14 @@ pub(crate) fn native_fixture(
         .iter()
         .take(4)
         .enumerate()
-        .map(|(slot, &character)| Ok((ActorId::from_index(slot)?, character)))
+        .map(|(slot, &character)| Ok((ActorId::from_index(slot)?, Character::try_from(character)?)))
         .collect::<Result<Vec<_>>>()?;
     let mut actors = roster
         .iter()
         .map(|&(_, character)| {
-            let member = &field.members[usize::from(character - 1)];
+            let member = &field.members[character.index()];
             party::actor(
-                &party::loadout(&menus, member, usize::from(character - 1))?,
+                &party::loadout(&menus, member, character)?,
                 member,
                 Control::Manual,
                 [0.; 3],
@@ -109,7 +148,7 @@ pub(crate) fn native_fixture(
             celebrate: false,
         },
         story: 0,
-        colette_state: 0,
+        colette_state: ColetteState::Normal,
         victory_story_flags: [false; 2],
         groups: vec![],
         performances: vec![],
@@ -395,17 +434,7 @@ fn grade_shop_large_stacks_allow_item_use_and_magic_lens() -> Result<()> {
             }
             Ok(())
         },
-        |actors, _| {
-            resonance_battle::PreparedBattle::new(
-                actors
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
-        },
+        |actors, _| native_battle(actors),
     )?;
     let candidate = &mut fixture.candidate;
     let user = candidate.setup.actors[0].0;
@@ -470,17 +499,7 @@ fn candidate_item_loans_preserve_authoritative_storage() -> Result<()> {
             }
             Ok(())
         },
-        |actors, _| {
-            resonance_battle::PreparedBattle::new(
-                (actors)
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
-        },
+        |actors, _| native_battle(actors),
     )?;
     let roster = candidate.setup.actors.clone();
     for &(actor, _) in &roster {
@@ -517,7 +536,7 @@ fn candidate_item_loans_preserve_authoritative_storage() -> Result<()> {
     let (enemy, monster) = (prepared_enemy.actor, prepared_enemy.reward.monster);
     let ordinary = roster
         .iter()
-        .find(|&&(_, character)| character != 4)
+        .find(|&&(_, character)| character != Character::Raine)
         .unwrap()
         .0;
     let scan = Release {
@@ -559,7 +578,10 @@ fn candidate_item_loans_preserve_authoritative_storage() -> Result<()> {
     loan.consume();
     assert!(candidate.party.monsters[&monster].scanned);
     assert!(!candidate.party.monsters[&monster].location);
-    if let Some(&(raine, _)) = roster.iter().find(|&&(_, character)| character == 4) {
+    if let Some(&(raine, _)) = roster
+        .iter()
+        .find(|&&(_, character)| character == Character::Raine)
+    {
         for learned in [true, false] {
             let mut loan = candidate.acquire_scan(Release {
                 user: raine,
@@ -600,15 +622,7 @@ fn controlled_candidate_actor_identities_share_one_species_knowledge_row() -> Re
                 reward: enemy.reward.clone(),
             });
             actors.push(actors.last().unwrap().clone());
-            resonance_battle::PreparedBattle::new(
-                (actors)
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
+            native_battle(actors)
         },
     )?;
     let first = candidate.setup.enemies[0].actor;
@@ -645,7 +659,7 @@ fn controlled_candidate_actor_identities_share_one_species_knowledge_row() -> Re
 fn synchronous_item_release_spends_once_and_finish_maps_usage_to_character() -> Result<()> {
     let (mut candidate, mut battle, field) = fixture(&[4, 1], 2)?;
     let user = candidate.setup.actors[0].0;
-    assert_eq!(candidate.setup.actors[0].1, 4);
+    assert_eq!(candidate.setup.actors[0].1, Character::Raine);
     let hp = battle.actors()[user.index()].hp;
     let grade = battle.ledger().grade();
     release(
@@ -678,15 +692,6 @@ fn synchronous_item_release_spends_once_and_finish_maps_usage_to_character() -> 
 fn all_divide_and_hourglass_inventory_return_queues_selected_user_and_spends_at_release()
 -> Result<()> {
     use crate::battle::command::{self, ActorSelection, InputKind, View};
-    use resonance_battle::ButtonInput;
-
-    fn edge() -> ButtonInput {
-        ButtonInput {
-            held: true,
-            pressed: true,
-            released: false,
-        }
-    }
 
     fn visit(
         owner: &mut command::Owner,
@@ -721,12 +726,12 @@ fn all_divide_and_hourglass_inventory_return_queues_selected_user_and_spends_at_
         let mut owner = command::Owner::default();
         let admission = command::Admission {
             actor: menu_actor,
-            controller: 2,
+            controller: ControllerPort::Three,
             enabled: 0xff,
         };
         let opened = owner.step_with_candidate(
             command::Input {
-                controller: 2,
+                controller: ControllerPort::Three,
                 open: edge(),
                 ..Default::default()
             },
@@ -735,7 +740,7 @@ fn all_divide_and_hourglass_inventory_return_queues_selected_user_and_spends_at_
             &mut candidate,
         )?;
         assert!(opened.paused);
-        assert_eq!(owner.controller(), Some(2));
+        assert_eq!(owner.controller(), Some(ControllerPort::Three));
         assert!(matches!(owner.frame().unwrap().view, View::Strip));
         for _ in 0..2 {
             visit(
@@ -743,7 +748,7 @@ fn all_divide_and_hourglass_inventory_return_queues_selected_user_and_spends_at_
                 &mut candidate,
                 &mut battle,
                 command::Input {
-                    controller: 2,
+                    controller: ControllerPort::Three,
                     step: -1,
                     ..Default::default()
                 },
@@ -754,7 +759,7 @@ fn all_divide_and_hourglass_inventory_return_queues_selected_user_and_spends_at_
             &mut candidate,
             &mut battle,
             command::Input {
-                controller: 2,
+                controller: ControllerPort::Three,
                 confirm_a: edge(),
                 ..Default::default()
             },
@@ -770,7 +775,7 @@ fn all_divide_and_hourglass_inventory_return_queues_selected_user_and_spends_at_
             &mut candidate,
             &mut battle,
             command::Input {
-                controller: 2,
+                controller: ControllerPort::Three,
                 confirm_a: edge(),
                 ..Default::default()
             },
@@ -808,7 +813,7 @@ fn all_divide_and_hourglass_inventory_return_queues_selected_user_and_spends_at_
             &mut battle,
             command::Input {
                 // Shared inventory accepts the merged menu action from another pad.
-                controller: 0,
+                controller: ControllerPort::One,
                 shared_menu: Some(MenuAction::Confirm),
                 ..Default::default()
             },
@@ -1007,9 +1012,9 @@ fn colette_critical_up_activation_and_finish_preserve_discovery_once() -> Result
         assert_eq!(
             candidate.new_ex_skills,
             if remembered {
-                vec![]
+                BTreeSet::new()
             } else {
-                vec![(2, recipe)]
+                [Character::Colette].into()
             }
         );
         assert!(
@@ -1031,7 +1036,7 @@ fn colette_critical_up_activation_and_finish_preserve_discovery_once() -> Result
             .setup
             .actors
             .iter()
-            .find(|&&(_, id)| id == 2)
+            .find(|&&(_, character)| character == Character::Colette)
             .unwrap()
             .0;
         let equipment = field.members[1]
@@ -1110,15 +1115,7 @@ fn stealing_consumes_each_enemy_once_even_when_inventory_is_full() -> Result<()>
                 reward: enemy.reward.clone(),
             });
             actors.push(actors.last().unwrap().clone());
-            resonance_battle::PreparedBattle::new(
-                actors
-                    .into_iter()
-                    .map(|a| (a, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
+            native_battle(actors)
         },
     )?;
     let first = candidate.setup.enemies[0].actor;

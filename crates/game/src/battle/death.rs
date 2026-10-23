@@ -26,7 +26,7 @@ pub fn feedback(
     voices: &super::voice::Resolver<'_>,
     actors: &[super::model::ModelSource],
     party: &resonance_events::party::Party,
-    common_resource: u32,
+    common_resource: resonance_battle::ResourceId,
     mut resolve: impl FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>,
 ) -> Result<Feedback> {
     let affinities = party
@@ -63,12 +63,12 @@ pub fn feedback(
             let super::model::ModelSource::Party(recipient) = recipient else {
                 continue;
             };
-            let selected = if victim == 1 {
-                recipient == nearest
-            } else if recipient == 1 {
-                victim == nearest
+            let selected = if victim == super::party::Character::Lloyd {
+                recipient as u8 == nearest
+            } else if recipient == super::party::Character::Lloyd {
+                victim as u8 == nearest
             } else {
-                pairs.contains(&[victim, recipient])
+                pairs.contains(&[victim as u8, recipient as u8])
             };
             if !selected {
                 continue;

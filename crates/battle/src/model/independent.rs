@@ -42,7 +42,7 @@ mod tests {
         let source = crate::tests::model_definition(41, [(0, 3.)]);
         let mut model = IndependentModel::new(PreparedEffectModel::new(Arc::new(
             crate::EffectModelDefinition {
-                resource: 41,
+                resource: crate::ResourceId(41),
                 skeleton: source.skeleton.clone(),
                 motions: source.motions.clone(),
                 secondary_motion: vec![],

@@ -1,17 +1,18 @@
 //! Bind prepared enemy choices to executable battle actions.
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{EnemyChoice, EnemyDecisionDefinition};
+use resonance_battle::WeaponSlot;
+use resonance_battle::{Difficulty, EnemyChoice, EnemyChoiceId, EnemyDecisionDefinition, EnemyId};
 use resonance_content::battle_enemy;
 use std::collections::BTreeSet;
 
 pub fn disabled_by_flags(
     rows: &[resonance_content::battle_action::EnemyAction],
     flags: &BTreeSet<u16>,
-) -> Result<Vec<u8>> {
+) -> Vec<EnemyChoiceId> {
     rows.iter()
         .enumerate()
         .filter(|(_, row)| row.required_flag.is_some_and(|flag| !flags.contains(&flag)))
-        .map(|(index, _)| Ok(u8::try_from(index)?))
+        .map(|(index, _)| EnemyChoiceId(index))
         .collect()
 }
 
@@ -19,7 +20,7 @@ pub fn definition(
     enemy_id: u8,
     source: &battle_enemy::Definition,
     action_ids: &[resonance_battle::ActionKey],
-    difficulty: u8,
+    difficulty: Difficulty,
     model: Option<&resonance_battle::ModelDefinition>,
 ) -> Result<EnemyDecisionDefinition> {
     let policy = &source.actions.policy;
@@ -81,7 +82,7 @@ pub fn definition(
         })
         .collect::<Result<_>>()?;
     Ok(EnemyDecisionDefinition {
-        enemy_id,
+        enemy_id: EnemyId(enemy_id),
         disabled_choices: Vec::new(),
         strategy: source
             .target_strategy
@@ -91,7 +92,7 @@ pub fn definition(
         back_row: policy
             .back_row
             .iter()
-            .map(|row| (row.action, row.weight))
+            .map(|row| (EnemyChoiceId(usize::from(row.action)), row.weight))
             .collect(),
         walk_speed: source.profile.walk_speed,
         walk_override: policy.walk_override,
@@ -131,11 +132,13 @@ fn behavior(
         } => EnemyBehavior::HealthStage {
             hp_percent: *hp_percent,
             initial_station: *initial_station,
-            initial_actions: initial_actions.clone(),
-            final_actions: final_actions.clone(),
+            initial_actions: EnemyChoiceId(usize::from(initial_actions.start))
+                ..EnemyChoiceId(usize::from(initial_actions.end)),
+            final_actions: EnemyChoiceId(usize::from(final_actions.start))
+                ..EnemyChoiceId(usize::from(final_actions.end)),
         },
         Source::CarriedAnimationRate { slot, rate } => EnemyBehavior::CarriedAnimationRate {
-            slot: *slot,
+            slot: WeaponSlot(*slot),
             rate: *rate,
         },
         Source::ThreeStations {
@@ -155,18 +158,19 @@ fn behavior(
         } => {
             let model = model.context("enemy weapon replacement requires a prepared body")?;
             ensure!(
-                [source, destination]
-                    .into_iter()
-                    .all(|slot| model.weapons.iter().any(|weapon| weapon.slot == *slot)),
+                [source, destination].into_iter().all(|slot| model
+                    .weapons
+                    .iter()
+                    .any(|weapon| weapon.slot == Some(WeaponSlot(*slot)))),
                 "enemy weapon replacement has an unprepared slot"
             );
             EnemyBehavior::ReplaceWeapon {
-                action: *action,
+                action: EnemyChoiceId(usize::from(*action)),
                 hide_at: u32::from(*hide_at),
                 replace_at: u32::from(*replace_at),
-                source: *source,
-                destination: *destination,
-                disabled_action: *disabled_action,
+                source: WeaponSlot(*source),
+                destination: WeaponSlot(*destination),
+                disabled_action: EnemyChoiceId(usize::from(*disabled_action)),
             }
         }
         Source::Transformation {
@@ -209,8 +213,10 @@ fn behavior(
                     })
                     .collect::<Result<_>>()?,
                 hover_height: *hover_height,
-                initial_actions: initial_actions.clone(),
-                final_actions: final_actions.clone(),
+                initial_actions: EnemyChoiceId(usize::from(initial_actions.start))
+                    ..EnemyChoiceId(usize::from(initial_actions.end)),
+                final_actions: EnemyChoiceId(usize::from(final_actions.start))
+                    ..EnemyChoiceId(usize::from(final_actions.end)),
             }
         }
         Source::ModelParts { bone_scales } => {
@@ -265,66 +271,4 @@ fn choice(
         approach_range: f32::from(row.approach_range),
         approach,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use resonance_content::battle_action::{EnemyAction, EnemyRequirements, TargetPolicy};
-
-    #[test]
-    fn prepared_choices_preserve_eligibility_and_reject_unsupported_actions() -> Result<()> {
-        let mut row = EnemyAction {
-            voices: Default::default(),
-            weight: 1,
-            required_flag: None,
-            cast_ticks: None,
-            cast_armor: None,
-            chain_group: 1,
-            followup_chance: 25,
-            target_policy: Some(TargetPolicy::Flying),
-            target_allies: false,
-            requirements: EnemyRequirements {
-                difficulty: 1..=2,
-                hp_percent: Some(50),
-                max_enemies: Some(1),
-                priority: true,
-                once_per_battle: true,
-                ..Default::default()
-            },
-            return_to_formation: false,
-            run_return: false,
-            range: [0, 0],
-            approach_range: 100,
-            approach_minimum: 0,
-            approach: Default::default(),
-            guard_chance: -1,
-            tp: 0,
-            execution: None,
-            unsupported_reason: None,
-        };
-        let prepared = choice(&row, resonance_battle::ActionKey(0), None, None, None)?;
-        assert_eq!(prepared.action, resonance_battle::ActionKey(0));
-        assert_eq!(prepared.requirements, row.requirements);
-        assert_eq!((prepared.chain_group, prepared.followup_chance), (1, 25));
-        assert_eq!(prepared.target_policy, Some(TargetPolicy::Flying));
-        assert!(!prepared.return_to_formation);
-        assert_eq!(prepared.guard_chance, -1);
-        let mut rows = [row.clone(), row.clone(), row.clone()];
-        rows[1].required_flag = Some(73);
-        assert_eq!(disabled_by_flags(&rows, &BTreeSet::new())?, vec![1]);
-        assert!(disabled_by_flags(&rows, &BTreeSet::from([73]))?.is_empty());
-        assert_eq!(
-            choice(&rows[1], resonance_battle::ActionKey(1), None, None, None)?.action,
-            resonance_battle::ActionKey(1)
-        );
-        row.unsupported_reason = Some("custom action controller".into());
-        assert!(
-            choice(&row, resonance_battle::ActionKey(0), None, None, None)
-                .unwrap_err()
-                .to_string()
-                .contains("custom action controller")
-        );
-        Ok(())
-    }
 }

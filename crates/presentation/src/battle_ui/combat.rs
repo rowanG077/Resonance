@@ -55,18 +55,11 @@ impl Hud {
         art.font
             .validate_text("ITEM 0123456789.ESCAPEUNISONREADYHITSDAMAGE TECHNICAL SMASH!% AERIAL SUMMON HIGH SPEED CONTINUE COUNTER SKILL")?;
         let mut layers = vec![
-            palette.font.clone().at(Depth::Enemies).foreground(),
+            palette.font.clone().at(Depth::Enemies).offset_depth(1.),
             palette.solid.clone().at(Depth::Combo),
-            palette.font.clone().at(Depth::Combo).foreground(),
+            palette.font.clone().at(Depth::Combo).offset_depth(1.),
             palette.solid.clone().at(Depth::Meters),
-            palette
-                .font
-                .clone()
-                .at(Depth::Meters)
-                .foreground()
-                .foreground()
-                .foreground()
-                .foreground(),
+            palette.font.clone().at(Depth::Meters).offset_depth(4.),
         ];
         for (index, texture) in std::iter::once(&art.feedback.unison_frame)
             .chain(&art.feedback.escape)
@@ -275,10 +268,9 @@ fn draw_enemies(
             .map(|target| (owner, target))
     });
     let selected = selection.map(|(_, target)| target).or_else(|| {
-        let owner = frame
-            .actors
-            .iter()
-            .position(|actor| actor.side == Side::Party && actor.control_slot == 0)?;
+        let owner = frame.actors.iter().position(|actor| {
+            actor.side == Side::Party && actor.control_slot == resonance_battle::ControllerPort::One
+        })?;
         frame.targets.get(owner).copied().flatten()
     });
     let portraits = enemy_portraits(enemies, frame, selected, stacked);
@@ -376,10 +368,8 @@ fn draw_enemies(
                 .actors
                 .get(owner.index())
                 .context("roster target owner is not in battle frame")?;
-            let slot = usize::from(owner.control_slot);
-            let pointer = *marker_layers
-                .get(slot + 1)
-                .context("invalid battle controller slot")?;
+            let slot = owner.control_slot.index();
+            let pointer = marker_layers[slot + 1];
             if let Some(layer) = marker_layers[0] {
                 batch[layer].quad(
                     [x + 4., y - 16., x + 32., y + 20.],
@@ -490,7 +480,7 @@ mod tests {
             })
             .collect();
         let party = PartyHudInput {
-            characters: &[1],
+            characters: &[Character::Lloyd],
             queued_techniques: &[false],
             names: &[Some("R%s")],
         };
@@ -719,7 +709,7 @@ mod tests {
             .collect::<Vec<_>>();
         let owner = ActorId::from_index(frame.actors.len())?;
         let mut party = frame.actors[0].clone();
-        party.control_slot = 2;
+        party.control_slot = resonance_battle::ControllerPort::Three;
         frame.actors.push(party);
         frame.targets = vec![None; frame.actors.len()];
         let draw = |frame: &BattleFrame, selection| -> Result<[Batch; 8]> {

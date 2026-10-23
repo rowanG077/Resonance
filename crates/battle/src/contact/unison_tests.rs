@@ -32,60 +32,23 @@ fn battle(side: Side, scenario: &str, unlocked: bool, targets: usize) -> Battle 
     }
     let mut actors = vec![owner];
     actors.extend((0..targets).map(|_| target.clone()));
-    let prepared = crate::PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        1,
-    )
-    .unwrap()
-    .with_unison_gauge(0, unlocked, false)
-    .unwrap();
+    let prepared = crate::tests::prepare_actors(actors, 1)
+        .with_unison_gauge(0, unlocked, false)
+        .unwrap();
     prepared.finish().unwrap()
 }
 
-fn contacts(scenario: &str, position: [f32; 3]) -> Contacts {
-    let mut contacts = Contacts::default();
-    contacts
-        .push(Contact {
-            source: ContactSource::Melee {
-                actor: ActorId(0),
-                action: ActionId(1),
+fn contact(scenario: &str, position: [f32; 3]) -> Contact {
+    Contact {
+        origin: Origin::World(position),
+        ..contact_fixture(HitRule {
+            guard: GuardRule {
+                breaks: scenario == "broken",
+                ..Default::default()
             },
-            owner: ActorId(0),
-            origin: Origin::World(position),
-            radius: 20.,
-            height: 20.,
-            shape: HitShape::Box,
-            rule: HitRule {
-                sound: None,
-                effect_on_guard: false,
-                effect: None,
-                overlimit_pause: true,
-                kind: DamageKind::Slash,
-                arte: true,
-                power: Power::Fixed(54),
-                element: HitElement::Neutral,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
-                reaction: Default::default(),
-                guard: GuardRule {
-                    enabled: true,
-                    suppress_sound: false,
-                    pressure: 0,
-                    breaks: scenario == "broken",
-                    unbreakable: false,
-                },
-                condition: None,
-            },
-            clashes: false,
-            struck: Vec::new(),
+            ..rule(54)
         })
-        .unwrap();
-    contacts
+    }
 }
 
 fn ready(cues: &[Cue]) -> usize {
@@ -110,9 +73,7 @@ fn only_unblocked_party_damage_gains_unison_when_unlocked() {
         (Side::Party, true, "lethal", 16),
     ] {
         let mut battle = battle(side, scenario, unlocked, 1);
-        contacts(scenario, [0.; 3])
-            .resolve(&mut battle, &mut vec![], &[])
-            .unwrap();
+        resolve_contact(&mut battle, contact(scenario, [0.; 3])).unwrap();
         assert_eq!(
             battle.unison_gauge(),
             expected,
@@ -126,10 +87,7 @@ fn unison_contacts_emit_ready_only_when_crossing_the_threshold() {
     for initial in [3183, 3184, 3200] {
         let mut battle = battle(Side::Party, "lethal", true, 1);
         battle.unison_gauge = initial;
-        let mut cues = Vec::new();
-        contacts("lethal", [0.; 3])
-            .resolve(&mut battle, &mut cues, &[])
-            .unwrap();
+        let cues = resolve_contact(&mut battle, contact("lethal", [0.; 3])).unwrap();
         assert_eq!(battle.unison_gauge(), (initial + 16).min(3200));
         assert_eq!(ready(&cues), usize::from(initial == 3184));
     }
@@ -141,8 +99,9 @@ fn unison_gain_counts_each_victim_and_ignores_missed_contacts() {
     battle.unison_gauge = 3170;
     let mut cues = Vec::new();
     // Separate markers can hit both victims during the same update.
-    let mut simultaneous = contacts("ordinary", [0.; 3]);
-    simultaneous.0.extend(contacts("ordinary", [0.; 3]).0);
+    let mut simultaneous = Contacts::default();
+    simultaneous.push(contact("ordinary", [0.; 3])).unwrap();
+    simultaneous.push(contact("ordinary", [0.; 3])).unwrap();
     simultaneous.resolve(&mut battle, &mut cues, &[]).unwrap();
     assert_eq!(
         cues.iter().filter(|c| matches!(c, Cue::Hit { .. })).count(),
@@ -166,8 +125,6 @@ fn unison_gain_counts_each_victim_and_ignores_missed_contacts() {
     assert_eq!(battle.unison_gauge(), 3200);
     assert_eq!(ready(&cues), 1);
     let mut missed = self::battle(Side::Party, "ordinary", true, 1);
-    contacts("ordinary", [1000.; 3])
-        .resolve(&mut missed, &mut vec![], &[])
-        .unwrap();
+    resolve_contact(&mut missed, contact("ordinary", [1000.; 3])).unwrap();
     assert_eq!(missed.unison_gauge(), 0);
 }

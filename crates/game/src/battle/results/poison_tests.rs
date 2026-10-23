@@ -1,10 +1,9 @@
 //! Poison persistence and reward rules use native state; one content scenario covers item bindings.
 use super::item_tests::{
-    enter_battle, escape, native_fixture, prepared_fixture_with_party, release,
+    enter_battle, escape, native_battle, native_fixture, prepared_fixture_with_party, release,
 };
 use super::*;
 use resonance_battle::{
-    PreparedBattle,
     conditions::{
         Condition::{PoisonMild, PoisonSevere},
         Conditions, Layers, POISON,
@@ -14,12 +13,12 @@ use resonance_battle::{
 
 use resonance_events::party::Poison;
 
-fn poisoned(candidate: &Candidate, battle: &Battle, character: u8) -> Result<bool> {
+fn poisoned(candidate: &Candidate, battle: &Battle, character: Character) -> Result<bool> {
     Ok(candidate
         .victory_context(battle)?
         .party
         .iter()
-        .find(|member| member.character as u8 == character)
+        .find(|member| member.character == character)
         .context("missing poison participant")?
         .poisoned)
 }
@@ -37,17 +36,7 @@ fn saved_poison_roundtrips_through_completion_and_fresh_entry() -> Result<()> {
                 }
                 Ok(())
             },
-            |actors, _| {
-                PreparedBattle::new(
-                    (actors)
-                        .into_iter()
-                        .map(|actor| (actor, Default::default()))
-                        .collect(),
-                    Default::default(),
-                    1,
-                )?
-                .finish()
-            },
+            |actors, _| native_battle(actors),
         )
     };
     let mut f = prepare(None)?;
@@ -64,7 +53,7 @@ fn saved_poison_roundtrips_through_completion_and_fresh_entry() -> Result<()> {
     assert_eq!(actor.conditions.base().intersection(POISON), POISON);
     assert_eq!(actor.conditions.periodic_effects().len(), 2);
     assert_eq!(actor.availability, ActorAvailability::Active);
-    assert!(poisoned(&next.candidate, &next.battle, 4)?);
+    assert!(poisoned(&next.candidate, &next.battle, Character::Raine)?);
     assert!(!next.battle.actors()[1].conditions.base().intersects(POISON));
     Ok(())
 }
@@ -86,7 +75,7 @@ fn real_panacea_and_miracle_clear_saved_poison_through_candidate_item_and_finish
             .party
             .change_item(&f.candidate.session, item, 1)
             .map_err(anyhow::Error::msg)?;
-        let uses = f.candidate.party.battles.items[usize::from(user_character - 1)];
+        let uses = f.candidate.party.battles.items[user_character.index()];
         let target_before = f.battle.actors()[target.index()].clone();
         assert!(f.battle.item_target_eligible(item, target)?);
         release(
@@ -108,29 +97,24 @@ fn real_panacea_and_miracle_clear_saved_poison_through_candidate_item_and_finish
         assert!(!f.candidate.party.items.contains_key(&item));
         assert_eq!(f.battle.ledger().items[user.index()], 1);
         assert_eq!(
-            f.candidate.party.battles.items[usize::from(user_character - 1)],
+            f.candidate.party.battles.items[user_character.index()],
             uses
         );
         f.candidate.sync_party(&f.battle)?;
         assert_eq!(
-            f.candidate.party.members[usize::from(character - 1)]
-                .ailments
-                .poison,
+            f.candidate.party.members[character.index()].ailments.poison,
             Poison::None
         );
         let outcome = escape(&mut f.candidate, &mut f.battle)?;
         let completed = f.candidate.finish(&f.battle, &outcome)?;
         let saved: Party = serde_json::from_slice(&serde_json::to_vec(&completed.party)?)?;
+        assert_eq!(saved.battles.items[user_character.index()], uses + 1);
         assert_eq!(
-            saved.battles.items[usize::from(user_character - 1)],
-            uses + 1
-        );
-        assert_eq!(
-            saved.members[usize::from(character - 1)].ailments.poison,
+            saved.members[character.index()].ailments.poison,
             Poison::None
         );
         assert_eq!(
-            f.field.members[usize::from(character - 1)].ailments.poison,
+            f.field.members[character.index()].ailments.poison,
             Poison::Both
         );
     }
@@ -181,15 +165,7 @@ fn results_query_and_reward_grade_read_effective_poison_but_export_reads_base() 
                     };
                     actor.tp = actor.equipment.max_tp;
                 }
-                PreparedBattle::new(
-                    (actors)
-                        .into_iter()
-                        .map(|actor| (actor, Default::default()))
-                        .collect(),
-                    Default::default(),
-                    1,
-                )?
-                .finish()
+                native_battle(actors)
             },
         )?;
         let (id, character) = f.candidate.setup.actors[0];
@@ -222,9 +198,7 @@ fn results_query_and_reward_grade_read_effective_poison_but_export_reads_base() 
         f.candidate.construct_rewards(battle)?;
         assert_eq!(f.candidate.results.as_ref().unwrap().grade, grade);
         assert_eq!(
-            f.candidate.party.members[usize::from(character - 1)]
-                .ailments
-                .poison,
+            f.candidate.party.members[character.index()].ailments.poison,
             saved
         );
         assert_eq!(battle.actors()[id.index()].conditions.layers(), layers);

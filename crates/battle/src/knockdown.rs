@@ -260,7 +260,7 @@ impl Battle {
                         }),
                     );
                 }
-                self.begin_contact_recovery(id, false, cues)?;
+                self.begin_contact_recovery(id, false, cues);
             }
             Recovery::Down { .. } => {}
         }
@@ -285,7 +285,7 @@ impl Battle {
         id: ActorId,
         from_hurt: bool,
         cues: &mut Vec<crate::Cue>,
-    ) -> Result<bool> {
+    ) -> bool {
         let index = id.index();
         if !self.actors[index].reaction.contact_recovery_command
             || if from_hurt {
@@ -294,10 +294,10 @@ impl Battle {
                 !self.actors[index].reaction.recoil.kind.breakfall_allowed()
             }
         {
-            return Ok(false);
+            return false;
         }
         if !self.prepared.actor_setup[index].contact_recovery {
-            return Ok(false);
+            return false;
         }
         let actor = &mut self.actors[index];
         // Reset combo without ordinary recovery accounting.
@@ -323,7 +323,7 @@ impl Battle {
             actor: id,
             pose: crate::CommonPose::Breakfall,
         });
-        Ok(true)
+        true
     }
 }
 

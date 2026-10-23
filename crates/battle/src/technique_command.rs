@@ -5,15 +5,31 @@ pub use resonance_content::arte::{
     ArteFamily, RegalArteFamily, TechniqueCapabilities, TechniqueTarget,
 };
 
+/// Identity in the shared technique catalogue, distinct from an action handle or use count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TechniqueId(pub u16);
+
+impl TechniqueId {
+    pub fn index(self) -> usize {
+        usize::from(self.0)
+    }
+}
+
+impl std::fmt::Display for TechniqueId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Immutable technique metadata shared by player commands and autonomous policy.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PreparedTechnique {
     pub action: crate::ActionKey,
-    pub catalogue: u16,
+    pub catalogue: TechniqueId,
     pub player_range: [f32; 2],
     pub ai_range: [f32; 2],
     pub capabilities: TechniqueCapabilities,
-    pub element: u8,
+    pub element: Option<crate::Element>,
 }
 
 #[cfg(test)]
@@ -44,14 +60,17 @@ mod elemental_tests {
                 let member = crate::learning::LearningCatalogue::new(Arc::new(catalogue))
                     .with_elemental_learning(enabled)
                     .prepare_member(crate::learning::LearningEntry {
-                        character: 1,
+                        character: crate::Character::Lloyd,
                         level: 1,
                         balance: 0,
                         story_unlocked: true,
-                        current: [variant.base].into_iter().collect(),
-                        counts: [(variant.base, 199), (variant.id, 49)]
-                            .into_iter()
-                            .collect(),
+                        current: [TechniqueId(variant.base)].into_iter().collect(),
+                        counts: [
+                            (TechniqueId(variant.base), 199),
+                            (TechniqueId(variant.id), 49),
+                        ]
+                        .into_iter()
+                        .collect(),
                     })?;
                 let mut battle = PreparedBattle::new(
                     vec![
@@ -81,12 +100,21 @@ mod elemental_tests {
                     action: ActionKey(0),
                 };
                 battle.record_unison_use(ActorId(0), ActionKey(1))?;
-                assert_eq!(battle.technique_uses(ActorId(0), variant.id), Some(49));
+                assert_eq!(
+                    battle.technique_uses(ActorId(0), TechniqueId(variant.id)),
+                    Some(49)
+                );
                 battle.start(request, &mut vec![])?;
                 let (&id, action) = battle.sequences().next().expect("elemental action starts");
                 assert_eq!(action.action, ActionKey(1));
-                assert_eq!(battle.technique_uses(ActorId(0), variant.base), Some(200));
-                assert_eq!(battle.technique_uses(ActorId(0), variant.id), Some(50));
+                assert_eq!(
+                    battle.technique_uses(ActorId(0), TechniqueId(variant.base)),
+                    Some(200)
+                );
+                assert_eq!(
+                    battle.technique_uses(ActorId(0), TechniqueId(variant.id)),
+                    Some(50)
+                );
                 assert_eq!(battle.actors[0].proficiency, 4);
                 assert_eq!(battle.technique_acquisitions().len(), usize::from(enabled));
                 while battle.timed_hold_remaining().is_some() {
@@ -109,7 +137,10 @@ mod elemental_tests {
                         },
                         &mut vec![],
                     )?;
-                    assert_eq!(battle.technique_uses(ActorId(0), variant.id), Some(51));
+                    assert_eq!(
+                        battle.technique_uses(ActorId(0), TechniqueId(variant.id)),
+                        Some(51)
+                    );
                     assert_eq!(battle.actors[0].proficiency, 4);
                     assert_eq!(battle.technique_acquisitions().len(), 1);
                 }
@@ -163,7 +194,7 @@ impl PreparedBattle {
             let mut actions = std::collections::BTreeSet::new();
             let mut catalogues = std::collections::BTreeSet::new();
             for row in &setup.techniques {
-                ensure!(row.catalogue > 0, "invalid technique catalogue identity");
+                ensure!(row.catalogue.0 > 0, "invalid technique catalogue identity");
                 ensure!(
                     row.capabilities.target != TechniqueTarget::Unavailable,
                     "technique target is unavailable"
@@ -172,7 +203,6 @@ impl PreparedBattle {
                     actions.insert(row.action) && catalogues.insert(row.catalogue),
                     "duplicate prepared technique identity"
                 );
-                ensure!(row.element < 9, "invalid technique element");
                 for [minimum, maximum] in [row.player_range, row.ai_range] {
                     ensure!(
                         minimum.is_finite()
@@ -220,14 +250,14 @@ impl Battle {
         let owner = &self.actors[actor.index()];
         let element = crate::damage::resolve_element(crate::HitElement::Inherited, owner);
         let Some(variant) = elemental::VARIANTS.iter().find(|variant| {
-            variant.base == base
+            variant.base == base.0
                 && element == Some(variant.element)
                 && uses >= elemental::ACTIVATION_USES
         }) else {
             return (action, None);
         };
         let Some(replacement) = self
-            .prepared_technique(actor, variant.id)
+            .prepared_technique(actor, TechniqueId(variant.id))
             .map(|row| row.action)
         else {
             return (action, None);
@@ -240,15 +270,18 @@ impl Battle {
         {
             let choice =
                 crate::attack::hammer_choice(uses, owner.equipment.luck, element, &mut self.random);
-            if choice != 1 {
-                if choice == 2 {
+            if choice != crate::attack::HammerVariant::Ice {
+                if let Some(text) = choice.notice() {
                     cues.push(crate::Cue::EffectNotice {
                         actor,
-                        text: "Toss Hammer".into(),
+                        text: text.into(),
                         duration: 90,
                     });
                 }
-                return (action, Some(std::sync::Arc::clone(&variants[choice])));
+                return (
+                    action,
+                    Some(std::sync::Arc::clone(&variants[choice as usize])),
+                );
             }
         }
         (replacement, None)
@@ -261,7 +294,11 @@ impl Battle {
             .map_or(&[], |setup| &setup.techniques)
     }
 
-    pub fn prepared_technique(&self, actor: ActorId, catalogue: u16) -> Option<&PreparedTechnique> {
+    pub fn prepared_technique(
+        &self,
+        actor: ActorId,
+        catalogue: TechniqueId,
+    ) -> Option<&PreparedTechnique> {
         self.prepared_techniques(actor)
             .iter()
             .find(|row| row.catalogue == catalogue)
@@ -337,7 +374,7 @@ impl Battle {
         )
     }
 
-    pub fn pending_technique_issuer(&self, actor: ActorId) -> Option<u8> {
+    pub fn pending_technique_issuer(&self, actor: ActorId) -> Option<crate::ControllerPort> {
         self.runtime
             .get(actor.index())?
             .control
@@ -452,7 +489,7 @@ impl Battle {
             }
             if crate::conditions::paralysis_controller_roll(&self.actors[index], &mut self.random) {
                 self.clear_technique_command(actor);
-                self.begin_paralysis(actor, cues)?;
+                self.begin_paralysis(actor, cues);
                 return Ok(true);
             }
             self.runtime[index].support_target = target;

@@ -74,7 +74,7 @@ pub(super) struct Inputs {
 impl Inputs {
     pub(super) fn admit(
         source: &Trace,
-        banks: &BTreeMap<u32, String>,
+        banks: &BTreeMap<resonance_battle::ResourceId, String>,
         effects: &mut Effects,
     ) -> Result<Self> {
         let Some(pin) = source.setup.get("effect_birth_inputs") else {
@@ -98,12 +98,12 @@ impl Inputs {
             format!("{:x}", Sha256::digest(raw)) == metadata.source_sha256,
             "effect bank fingerprint differs"
         );
-        let resources: Vec<_> = banks
-            .iter()
-            .filter(|(_, hash)| **hash == metadata.source_sha256)
-            .collect();
-        ensure!(resources.len() == 1, "recorded effect bank is not unique");
-        let resource = *resources[0].0;
+        let (&resource, _) = super::exactly_one(
+            banks
+                .iter()
+                .filter(|(_, hash)| **hash == metadata.source_sha256),
+        )
+        .context("recorded effect bank is not unique")?;
         for interval in &proof.intervals {
             let first_tick = source
                 .frames
@@ -209,43 +209,44 @@ impl Inputs {
                         == Some(first_tick + u64::from(input.birth_clock))
                 })
                 .context("source effect birth clock is absent")?;
-            let particles: Vec<_> = frame["particles"]
-                .as_array()
-                .context("missing source particles")?
-                .iter()
-                .filter(|particle| particle["id"] == input.source_particle)
-                .collect();
-            ensure!(
-                particles.len() == 1
-                    && particles[0]["owner"] == input.owner
-                    && particles[0]["bank"] == metadata.source_sha256
-                    && particles[0]["member"] == input.particle
-                    && particles[0]["initialized"] == true
-                    && particles[0]["age"] == 1,
-                "effect allocation identity is not observed at birth"
-            );
-            let model = if let Some(ordinal) = input.model_ordinal {
-                let observed: Vec<_> = frame["effect_models"]
+            let particle = super::exactly_one(
+                frame["particles"]
                     .as_array()
-                    .context("missing effect models")?
+                    .context("missing source particles")?
                     .iter()
-                    .filter(|model| {
-                        model["owner"] == input.owner
-                            && model["bank"] == metadata.source_sha256
-                            && model["member"] == input.particle
-                            && model["ordinal"] == ordinal
-                            && model["model"] == particles[0]["model"]
-                    })
-                    .collect();
-                ensure!(observed.len() == 1, "effect model birth is not unique");
-                Some(observed[0])
+                    .filter(|particle| particle["id"] == input.source_particle),
+            )
+            .filter(|particle| {
+                particle["owner"] == input.owner
+                    && particle["bank"] == metadata.source_sha256
+                    && particle["member"] == input.particle
+                    && particle["initialized"] == true
+                    && particle["age"] == 1
+            })
+            .context("effect allocation identity is not observed at birth")?;
+            let model = if let Some(ordinal) = input.model_ordinal {
+                let observed = super::exactly_one(
+                    frame["effect_models"]
+                        .as_array()
+                        .context("missing effect models")?
+                        .iter()
+                        .filter(|model| {
+                            model["owner"] == input.owner
+                                && model["bank"] == metadata.source_sha256
+                                && model["member"] == input.particle
+                                && model["ordinal"] == ordinal
+                                && model["model"] == particle["model"]
+                        }),
+                )
+                .context("effect model birth is not unique")?;
+                Some(observed)
             } else {
                 ensure!(
                     matches!(
                         metadata.actors.get(usize::from(input.particle)),
                         Some(Declaration::Particle { .. })
-                    ) && particles[0]["model"].is_null()
-                        && particles[0]["owner_bone"].is_null(),
+                    ) && particle["model"].is_null()
+                        && particle["owner_bone"].is_null(),
                     "effect sprite birth differs from its authored declaration"
                 );
                 None
@@ -253,34 +254,30 @@ impl Inputs {
             let attachment = match input.attachment {
                 None => serde_json::Value::Null,
                 Some(BirthAttachment::Projectile { projectile }) => {
-                    let shots: Vec<_> = frame["projectiles"]
-                        .as_array()
-                        .context("missing projectile birth observations")?
-                        .iter()
-                        .filter(|shot| shot["id"] == projectile)
-                        .collect();
-                    ensure!(
+                    super::exactly_one(
+                        frame["projectiles"]
+                            .as_array()
+                            .context("missing projectile birth observations")?
+                            .iter()
+                            .filter(|shot| shot["id"] == projectile),
+                    )
+                    .filter(|shot| {
                         projectile != 0
                             && input.event_age == 0
                             && input.program_clock == input.birth_clock
                             && input.clock == input.birth_clock
-                            && shots.len() == 1
-                            && shots[0]["owner"] == input.owner
-                            && shots[0]["age"] == 1
-                            && source
-                                .events
-                                .iter()
-                                .filter(|event| {
-                                    event["kind"] == "projectile_started"
-                                        && event["projectile"] == projectile
-                                        && event["owner"] == input.owner
-                                        && event["target"] == shots[0]["target"]
-                                        && event["presentation_clock"] == input.birth_clock
-                                })
-                                .count()
-                                == 1,
-                        "effect attachment lacks a unique owned projectile birth"
-                    );
+                            && shot["owner"] == input.owner
+                            && shot["age"] == 1
+                            && super::exactly_one(source.events.iter().filter(|event| {
+                                event["kind"] == "projectile_started"
+                                    && event["projectile"] == projectile
+                                    && event["owner"] == input.owner
+                                    && event["target"] == shot["target"]
+                                    && event["presentation_clock"] == input.birth_clock
+                            }))
+                            .is_some()
+                    })
+                    .context("effect attachment lacks a unique owned projectile birth")?;
                     serde_json::json!({"kind": "projectile", "projectile": projectile})
                 }
             };

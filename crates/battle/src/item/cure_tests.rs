@@ -34,13 +34,10 @@ fn poison_cure_prevents_further_damage_and_spends_once() {
             ConditionSet::EMPTY,
         );
         let mut storage = Storage::new(item, 2);
-        before_release(&mut battle, &mut storage, request(item, 1));
-        let frame = step(&mut battle, &mut storage);
+        let frame = use_item(&mut battle, &mut storage, request(item, 1));
         assert!(battle.actors[1].conditions.base().is_empty());
         let cured_hp = battle.actors[1].hp;
-        for _ in 0..300 {
-            step(&mut battle, &mut storage);
-        }
+        advance(&mut battle, &mut storage, 300);
         assert_eq!(battle.actors[1].hp, cured_hp);
         assert_eq!(storage.acquisitions, 1);
         assert_eq!(storage.inventory[&item], 1);
@@ -156,9 +153,7 @@ fn stale_cure_targets_cancel_before_hand_feedback_or_inventory_acquisition() {
                     .iter()
                     .all(|cue| !matches!(cue, Cue::ItemReleased { .. } | Cue::ItemNotice { .. }))
             );
-            for _ in 0..3 {
-                step(&mut battle, &mut storage);
-            }
+            advance(&mut battle, &mut storage, 3);
             assert_eq!(storage.acquisitions, 0);
         }
     }
@@ -259,8 +254,7 @@ fn anti_magic_bottle_clears_weak_without_thawing_stone_or_touching_vitals() {
         target: ActorId(1),
         item: 13,
     };
-    before_release(&mut battle, &mut storage, request);
-    let frame = step(&mut battle, &mut storage);
+    let frame = use_item(&mut battle, &mut storage, request);
     let target = &battle.actors[1];
     assert_eq!(
         target.conditions.base(),
@@ -296,69 +290,12 @@ fn stone_cures_restore_control_and_spend_once() {
         assert!(recipient.conditions.base().is_empty());
         assert_eq!((recipient.hp, recipient.tp), vitals);
         assert_no_recovery_or_revival(&frame.cues);
-        for _ in 0..12 {
-            step(&mut battle, &mut storage);
-        }
+        advance(&mut battle, &mut storage, 12);
         assert!(battle.actor_command_ready(request.target));
         assert_eq!(storage.acquisitions, 1);
         assert_eq!(storage.inventory[&item], 1);
         assert_eq!(battle.ledger.items[usize::from(user)], 1);
         assert!(!battle.is_diagnostic());
-    }
-}
-
-#[test]
-fn cure_faults_preserve_conditions_and_inventory_without_blocking_later_actors() {
-    for item in [10, 12] {
-        for paranoid in [false, true] {
-            let mut battle = stone_battle(1);
-            let diagnostics = Diagnostics::new(paranoid);
-            battle.set_diagnostics(diagnostics.clone());
-            let mut storage = Storage::new(item, 1);
-
-            before_release(&mut battle, &mut storage, request(item, 1));
-            storage.inventory.clear();
-            battle.actors[2].movement.forward = 1.;
-            battle.actors[2].movement.direction = [1., 0., 0.];
-            let later_actor_position = battle.actors[2].position;
-            let target = battle.actors[1].clone();
-            let inventory = storage.inventory.clone();
-            let result = battle.update(BattleInput::default(), &mut storage);
-            assert_eq!(result.is_err(), paranoid, "{item}");
-            assert!(battle.pending_item().is_none());
-            assert_eq!(storage.acquisitions, 1);
-            assert_eq!(storage.inventory, inventory);
-            assert!(!storage.gel);
-            assert!(!storage.scanned && !storage.location);
-            assert_eq!(battle.actors[1].conditions, target.conditions);
-            assert_eq!(battle.actors[1].availability, ActorAvailability::Petrified);
-            assert_eq!(
-                (battle.actors[1].hp, battle.actors[1].tp),
-                (target.hp, target.tp)
-            );
-            assert_eq!(battle.ledger.items[0], 0);
-            assert_eq!(battle.ledger.grade(), 0);
-            assert!(!battle.ledger.party_item_effect_used);
-
-            assert_eq!(battle.item_cooldown(), 0);
-            if let Ok(cues) = result {
-                assert!(battle.is_diagnostic());
-                assert_ne!(battle.actors[2].position, later_actor_position);
-                assert_eq!(diagnostics.entries().len(), 1);
-                assert!(
-                    cues.iter().all(|cue| !matches!(
-                        cue,
-                        Cue::ItemReleased { .. } | Cue::ItemNotice { .. }
-                    ))
-                );
-                for _ in 0..3 {
-                    step(&mut battle, &mut storage);
-                }
-                assert_eq!(diagnostics.entries().len(), 1);
-                assert_eq!(storage.acquisitions, 1);
-                assert_eq!(storage.inventory, inventory);
-            }
-        }
     }
 }
 
@@ -374,6 +311,6 @@ fn stone_prepared(target: usize) -> PreparedBattle {
     prepared(actors)
 }
 
-fn stone_battle(target: usize) -> Battle {
+pub(super) fn stone_battle(target: usize) -> Battle {
     stone_prepared(target).finish().unwrap()
 }

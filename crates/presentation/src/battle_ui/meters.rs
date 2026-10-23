@@ -120,26 +120,21 @@ pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Res
             for color in &mut colors {
                 color[3] = alpha;
             }
-            text::italic(
-                &mut batches[1],
-                &art.font,
-                &art.feedback.unison_ready,
-                [162., 374.],
-                [13., 16.],
-                10.,
-                8.,
-                [[0, 0, 0, alpha / 2]; 2],
-            )?;
-            text::italic(
-                &mut batches[1],
-                &art.font,
-                &art.feedback.unison_ready,
-                [160., 372.],
-                [13., 16.],
-                10.,
-                8.,
-                colors,
-            )?;
+            for (position, colors) in [
+                ([162., 374.], [[0, 0, 0, alpha / 2]; 2]),
+                ([160., 372.], colors),
+            ] {
+                text::italic(
+                    &mut batches[1],
+                    &art.font,
+                    &art.feedback.unison_ready,
+                    position,
+                    [13., 16.],
+                    10.,
+                    8.,
+                    colors,
+                )?;
+            }
         }
     }
     Ok(())

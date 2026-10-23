@@ -1,4 +1,8 @@
 //! Prepared attacks run resolved events on the actor's gameplay clock.
+#[cfg(test)]
+use crate::ResourceId;
+use crate::TechniqueId;
+use crate::WeaponSlot;
 use crate::{
     ActionExecution, ActionId, Battle, Cue, MeleeDefinition, MotionBinding, Sound,
     WeaponFlightDefinition,
@@ -75,7 +79,7 @@ pub enum AttackEvent {
         duration: u16,
     },
     Cutin {
-        catalogue: u16,
+        catalogue: TechniqueId,
         duration: u16,
     },
     TemporaryWeapons(Vec<Arc<crate::WeaponDefinition>>),
@@ -165,7 +169,7 @@ pub enum AttackEvent {
         duration: u16,
     },
     Trail {
-        slot: u8,
+        slot: WeaponSlot,
         duration: u16,
     },
     Voice {
@@ -250,12 +254,12 @@ pub enum AttackEvent {
     PoseKeepingParts(AttackPose),
     AnimationRate(f32),
     CarriedPose {
-        slot: u8,
+        slot: WeaponSlot,
         clip: u16,
         rate: f32,
         repeat: bool,
     },
-    WeaponVisibility(Vec<(u8, bool)>),
+    WeaponVisibility(Vec<(Option<WeaponSlot>, bool)>),
     Effect {
         appearance: crate::EffectAppearance,
         tints: [crate::effect::EffectTint; 10],
@@ -335,6 +339,18 @@ pub struct PreparedAttack {
 }
 
 impl PreparedAttack {
+    /// An attack with no events or recovery delay; callers supply its gameplay duration.
+    pub fn new(end_at: u16) -> Self {
+        Self {
+            contact_recovery: None,
+            chain_at: None,
+            end_at,
+            opening: None,
+            events: Vec::new(),
+            recovery: 0,
+        }
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         if let Some(recovery) = self.contact_recovery {
             recovery.validate()?;
@@ -619,19 +635,38 @@ fn steal_bonus_count(uses: u16, luck: u16, random: &mut crate::Random) -> u16 {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HammerVariant {
+    Ordinary,
+    Ice,
+    Toss,
+}
+
+impl HammerVariant {
+    pub(crate) fn notice(self) -> Option<&'static str> {
+        match self {
+            Self::Ordinary => None,
+            Self::Ice => Some("Ice Hammer"),
+            Self::Toss => Some("Toss Hammer"),
+        }
+    }
+}
+
 pub(crate) fn hammer_choice(
     uses: u16,
     luck: u16,
     element: Option<crate::Element>,
     random: &mut crate::Random,
-) -> usize {
+) -> HammerVariant {
     const ALTERNATE_USES: u16 = 200;
     if uses < ALTERNATE_USES {
-        0
+        HammerVariant::Ordinary
     } else if random.next_u16() % 100 < luck / 8 {
-        2
+        HammerVariant::Toss
+    } else if element == Some(crate::Element::Ice) {
+        HammerVariant::Ice
     } else {
-        usize::from(element == Some(crate::Element::Ice))
+        HammerVariant::Ordinary
     }
 }
 
@@ -733,14 +768,14 @@ pub(crate) fn step(
         let owner = &battle.actors[index];
         let element = crate::damage::resolve_element(crate::HitElement::Inherited, owner);
         let choice = hammer_choice(uses, owner.equipment.luck, element, &mut battle.random);
-        if let Some(text) = [None, Some("Ice Hammer"), Some("Toss Hammer")][choice] {
+        if let Some(text) = choice.notice() {
             cues.push(Cue::EffectNotice {
                 actor,
                 text: text.into(),
                 duration: 90,
             });
         }
-        sequence.definition = Arc::clone(&variants[choice]);
+        sequence.definition = Arc::clone(&variants[choice as usize]);
         return step(battle, id, sequence, run, contacts, items, cues);
     }
     let highlighted_trail = battle
@@ -846,9 +881,19 @@ pub(crate) fn step(
             AttackEvent::UseItem(item) => {
                 battle.release_enemy_item(actor, sequence.target, *item, cues)?;
             }
-            AttackEvent::WaitForEffectiveHit { deadline } => {
-                if sequence.struck_target.is_none() {
+            AttackEvent::WaitForHit { deadline, .. }
+            | AttackEvent::WaitForEffectiveHit { deadline } => {
+                let (hit, pose) = match event {
+                    AttackEvent::WaitForHit { recovery, .. } => {
+                        (sequence.contact_target, *recovery)
+                    }
+                    _ => (sequence.struck_target, None),
+                };
+                if hit.is_none() {
                     if sequence.age >= u32::from(*deadline) {
+                        if let Some(pose) = pose {
+                            pose.play(battle, index);
+                        }
                         sequence.melee = None;
                         return Ok(Some(recovery));
                     }
@@ -868,23 +913,6 @@ pub(crate) fn step(
             }
             AttackEvent::CapturedVertical(value) => {
                 battle.captured_velocity(actor, None, Some(*value));
-            }
-            AttackEvent::WaitForHit {
-                deadline,
-                recovery: pose,
-            } => {
-                if sequence.contact_target.is_none() {
-                    if sequence.age >= u32::from(*deadline) {
-                        if let Some(pose) = pose {
-                            pose.play(battle, index);
-                        }
-                        sequence.melee = None;
-                        return Ok(Some(recovery));
-                    }
-                    delay += 1;
-                    waiting = true;
-                    break;
-                }
             }
             AttackEvent::ActionEffect { appearance, origin }
             | AttackEvent::InitializedActionEffect { appearance, origin }
@@ -1831,7 +1859,7 @@ mod tests {
             definition: Arc::new(crate::tests::volley()),
             slot,
             effect: Some(crate::EffectAppearance {
-                resource: 1,
+                resource: ResourceId(1),
                 member: 7,
             }),
             tint: Default::default(),
@@ -2017,21 +2045,14 @@ mod tests {
                 action: crate::ActionKey(0),
                 target: ActorId(1),
             };
-            battle
-                .step(BattleInput {
-                    actions: vec![request],
-                    ..Default::default()
-                })
-                .unwrap();
-            assert_eq!(battle.technique_uses(ActorId(0), 4), Some(uses));
+            battle.step(BattleInput::from(request)).unwrap();
+            assert_eq!(
+                battle.technique_uses(ActorId(0), TechniqueId(4)),
+                Some(uses)
+            );
             assert_eq!(battle.actors[0].tp, 15);
             battle.actors[0].tp = 40;
-            let frame = battle
-                .step(BattleInput {
-                    actions: vec![request],
-                    ..Default::default()
-                })
-                .unwrap();
+            let frame = battle.step(BattleInput::from(request)).unwrap();
             assert_eq!(
                 frame
                     .cues
@@ -2082,7 +2103,10 @@ mod tests {
                     if tick < 2 { 0.2 } else { 0. }
                 );
             }
-            assert_eq!(battle.technique_uses(ActorId(0), 4), Some(uses + 1));
+            assert_eq!(
+                battle.technique_uses(ActorId(0), TechniqueId(4)),
+                Some(uses + 1)
+            );
             assert_eq!(battle.actors[0].tp, 24);
         }
     }
@@ -2188,7 +2212,10 @@ mod tests {
                     (
                         1,
                         AttackEvent::Pose(AttackPose {
-                            motion: MotionBinding { model: 1, clip: 0 },
+                            motion: MotionBinding {
+                                model: ResourceId(1),
+                                clip: 0,
+                            },
                             start: 0.,
                             end: None,
                             repeat: true,
@@ -2210,14 +2237,11 @@ mod tests {
             crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
             let mut battle = prepared.finish().unwrap();
             let first = battle
-                .step(BattleInput {
-                    actions: vec![crate::ActionRequest {
-                        actor: ActorId(0),
-                        target: ActorId(1),
-                        action: crate::ActionKey(0),
-                    }],
-                    ..Default::default()
-                })
+                .step(BattleInput::from(crate::ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(1),
+                    action: crate::ActionKey(0),
+                }))
                 .unwrap();
             let action = first.actions[0].0;
             if contact == Contact::PreviousPose {
@@ -2336,14 +2360,11 @@ mod tests {
             crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
             let mut battle = prepared.finish().unwrap();
             let opening = battle
-                .step(BattleInput {
-                    actions: vec![crate::ActionRequest {
-                        actor: ActorId(0),
-                        target: ActorId(1),
-                        action: crate::ActionKey(0),
-                    }],
-                    ..Default::default()
-                })
+                .step(BattleInput::from(crate::ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(1),
+                    action: crate::ActionKey(0),
+                }))
                 .unwrap();
             assert!(opening.projectiles.is_empty());
             for (index, target) in battle.actors.iter_mut().enumerate().skip(1) {
@@ -2374,7 +2395,7 @@ mod tests {
     fn cyclone_contacts_use_the_prior_center_in_both_roster_orders() {
         for (owner, target) in [(ActorId(0), ActorId(1)), (ActorId(1), ActorId(0))] {
             let appearance = crate::EffectAppearance {
-                resource: 1,
+                resource: ResourceId(1),
                 member: 7,
             };
             let mut projectile = crate::tests::contact_projectile(false, true);
@@ -2494,7 +2515,7 @@ mod tests {
             projectile.lifetime = Some(2);
             projectile.velocity = [0.; 3];
             let appearance = crate::EffectAppearance {
-                resource: 1,
+                resource: ResourceId(1),
                 member: 7,
             };
             let mut definition = crate::tests::action(4);
@@ -2535,14 +2556,11 @@ mod tests {
             crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
             let mut battle = prepared.finish().unwrap();
             let first = battle
-                .step(BattleInput {
-                    actions: vec![crate::ActionRequest {
-                        actor: ActorId(0),
-                        target: ActorId(2),
-                        action: crate::ActionKey(0),
-                    }],
-                    ..Default::default()
-                })
+                .step(BattleInput::from(crate::ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(2),
+                    action: crate::ActionKey(0),
+                }))
                 .unwrap();
             assert_eq!(
                 battle.sequence(&first.actions[0].0).unwrap().contact_target,
@@ -2612,12 +2630,9 @@ mod tests {
                     normal: None,
                     tp_cost: 0,
                     execution: ActionExecution::Attack(PreparedAttack {
-                        contact_recovery: None,
-                        opening: None,
-                        chain_at: None,
-                        end_at: 4,
                         recovery: 2,
                         events,
+                        ..PreparedAttack::new(4)
                     }),
                 }]
                 .into(),
@@ -2628,14 +2643,11 @@ mod tests {
             let mut battle = prepared.finish().unwrap();
             battle.set_decision_target(ActorId(1), ActorId(0)).unwrap();
             battle
-                .step(BattleInput {
-                    actions: vec![crate::ActionRequest {
-                        actor: ActorId(0),
-                        target: ActorId(1),
-                        action: crate::ActionKey(0),
-                    }],
-                    ..Default::default()
-                })
+                .step(BattleInput::from(crate::ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(1),
+                    action: crate::ActionKey(0),
+                }))
                 .unwrap();
             let mut defeats = 0;
             for _ in 0..8 {
@@ -2668,20 +2680,9 @@ mod tests {
     fn landing_contact() -> Arc<MeleeDefinition> {
         Arc::new(MeleeDefinition {
             hit: crate::HitRule {
-                sound: None,
-                kind: crate::DamageKind::Slash,
                 arte: true,
-                effect_on_guard: false,
-                effect: None,
-                overlimit_pause: false,
                 power: crate::Power::Fixed(1),
-                element: crate::HitElement::Neutral,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
-                guard: Default::default(),
-                reaction: Default::default(),
-                condition: None,
+                ..crate::tests::hit()
             },
             trail: None,
             volume: crate::MeleeVolume::Fixed {
@@ -2707,10 +2708,6 @@ mod tests {
                 normal: None,
                 tp_cost: 8,
                 execution: ActionExecution::Attack(PreparedAttack {
-                    contact_recovery: None,
-                    opening: None,
-                    chain_at: None,
-                    end_at: 0,
                     recovery: 3,
                     events: vec![
                         (
@@ -2738,6 +2735,7 @@ mod tests {
                             },
                         ),
                     ],
+                    ..PreparedAttack::new(0)
                 }),
             }])
             .into(),
@@ -2751,14 +2749,11 @@ mod tests {
         prepared.actors[0].equipment.combo_traits.aerial_arte = true;
         let mut battle = prepared.finish().unwrap();
         let first = battle
-            .step(BattleInput {
-                actions: vec![crate::ActionRequest {
-                    actor: ActorId(0),
-                    target: ActorId(0),
-                    action: crate::ActionKey(0),
-                }],
-                ..Default::default()
-            })
+            .step(BattleInput::from(crate::ActionRequest {
+                actor: ActorId(0),
+                target: ActorId(0),
+                action: crate::ActionKey(0),
+            }))
             .unwrap();
         let action = first.actions[0].0;
         for _ in 0..10 {
@@ -2807,7 +2802,7 @@ mod tests {
         target.position[0] = 1000.;
         target.body.collider = Some(crate::Collider::sphere(1.));
         let landing_effect = crate::EffectAppearance {
-            resource: 7,
+            resource: ResourceId(7),
             member: 3,
         };
         let mut prepared = crate::PreparedBattle::new(
@@ -2816,10 +2811,6 @@ mod tests {
                 normal: None,
                 tp_cost: 8,
                 execution: ActionExecution::Attack(PreparedAttack {
-                    contact_recovery: None,
-                    opening: None,
-                    chain_at: None,
-                    end_at: 100,
                     recovery: 3,
                     events: vec![
                         (
@@ -2843,7 +2834,10 @@ mod tests {
                                 effect: Some(landing_effect),
                                 settle: Some(4),
                                 recovery_pose: Some(AttackPose {
-                                    motion: MotionBinding { model: 1, clip: 0 },
+                                    motion: MotionBinding {
+                                        model: ResourceId(1),
+                                        clip: 0,
+                                    },
                                     start: 0.,
                                     end: None,
                                     repeat: true,
@@ -2860,6 +2854,7 @@ mod tests {
                             },
                         ),
                     ],
+                    ..PreparedAttack::new(100)
                 }),
             }]
             .into(),
@@ -2873,14 +2868,11 @@ mod tests {
         prepared.actors[0].equipment.combo_traits.aerial_arte = true;
         let mut battle = prepared.finish().unwrap();
         let first = battle
-            .step(BattleInput {
-                actions: vec![crate::ActionRequest {
-                    actor: ActorId(0),
-                    target: ActorId(1),
-                    action: crate::ActionKey(0),
-                }],
-                ..Default::default()
-            })
+            .step(BattleInput::from(crate::ActionRequest {
+                actor: ActorId(0),
+                target: ActorId(1),
+                action: crate::ActionKey(0),
+            }))
             .unwrap();
         let action = first.actions[0].0;
         for _ in 0..10 {
@@ -2926,7 +2918,7 @@ mod tests {
         }
         let frame = battle.step(BattleInput::default()).unwrap();
         assert!(frame.model_requests.iter().any(|request| matches!(request,
-            crate::ModelRequest::Play { actor: ActorId(0), motion: MotionBinding { model: 1, clip: 0 }, pose } if pose.repeat && pose.blend == 3
+            crate::ModelRequest::Play { actor: ActorId(0), motion: MotionBinding { model: ResourceId(1), clip: 0 }, pose } if pose.repeat && pose.blend == 3
         )));
         assert_eq!(battle.action_age(action), Some(landed_age + 4));
         assert_eq!(battle.action_recovery_remaining(action), Some(3));
@@ -2958,30 +2950,16 @@ mod tests {
         enemy.body.collider = Some(crate::Collider::sphere(1.));
         enemy.equipment.luck = 0;
         let hit = crate::HitRule {
-            sound: None,
-            kind: crate::DamageKind::Slash,
             arte: true,
-            effect_on_guard: false,
-            effect: None,
-            overlimit_pause: false,
             power: crate::Power::Fixed(1),
-            element: crate::HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
-            guard: Default::default(),
-            reaction: Default::default(),
             condition: Some(HitCondition {
                 condition: resonance_content::battle_action::Condition::DefenseDown,
                 chance: 100,
                 value: -10,
             }),
+            ..crate::tests::hit()
         };
         let attack = PreparedAttack {
-            contact_recovery: None,
-            chain_at: None,
-            opening: None,
-            end_at: 24,
             recovery: 2,
             events: vec![
                 (
@@ -3018,6 +2996,7 @@ mod tests {
                     },
                 ),
             ],
+            ..PreparedAttack::new(24)
         };
         let mut battle = crate::PreparedBattle::new(
             vec![
@@ -3043,14 +3022,11 @@ mod tests {
         .finish()
         .unwrap();
         battle
-            .step(BattleInput {
-                actions: vec![crate::ActionRequest {
-                    actor: ActorId(0),
-                    target: ActorId(2),
-                    action: crate::ActionKey(0),
-                }],
-                ..Default::default()
-            })
+            .step(BattleInput::from(crate::ActionRequest {
+                actor: ActorId(0),
+                target: ActorId(2),
+                action: crate::ActionKey(0),
+            }))
             .unwrap();
         for _ in 0..17 {
             battle.step(BattleInput::default()).unwrap();
@@ -3126,24 +3102,5 @@ mod tests {
                 .unwrap()
                 < duration
         );
-    }
-}
-
-#[cfg(test)]
-mod steal_tests {
-    use super::*;
-    #[test]
-    fn steal_bonus_draw_precedes_use_gate_and_only_success_draws_count() {
-        let mut random = crate::Random::new(0);
-        let mut expected = random;
-        expected.next_u16();
-        assert_eq!(steal_bonus_count(199, 1000, &mut random), 0);
-        assert_eq!(random.state(), expected.state());
-        let expected_count = {
-            expected.next_u16();
-            expected.next_u16() % 3 + 1
-        };
-        assert_eq!(steal_bonus_count(200, 1000, &mut random), expected_count);
-        assert_eq!(random.state(), expected.state());
     }
 }

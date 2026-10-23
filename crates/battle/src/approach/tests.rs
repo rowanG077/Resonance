@@ -24,14 +24,7 @@ fn controlled_fixture(distance: f32, minimum: f32, maximum: f32, control: Contro
         (vec![crate::ActionDefinition {
             normal: None,
             tp_cost: 7,
-            execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-                contact_recovery: None,
-                chain_at: None,
-                end_at: 60,
-                opening: None,
-                events: vec![],
-                recovery: 0,
-            }),
+            execution: crate::ActionExecution::Attack(crate::PreparedAttack::new(60)),
         }])
         .into(),
         0,
@@ -58,7 +51,10 @@ fn controlled_fixture(distance: f32, minimum: f32, maximum: f32, control: Contro
                 ApproachParameters {
                     minimum,
                     maximum,
-                    motion: Some(MotionBinding { model: 7, clip: 99 }),
+                    motion: Some(MotionBinding {
+                        model: crate::ResourceId(7),
+                        clip: 99
+                    }),
                     motion_rate: 0.5,
                     speed: 6.,
                     turn_ticks: 8,
@@ -115,7 +111,10 @@ fn approach_enters_range_and_commits_payment_and_learning_once() -> Result<()> {
         assert_eq!(battle.actors[0].tp, tp - 7);
         assert_eq!(battle.activity(ActorId(0)), crate::Activity::Idle);
         if control == Control::Auto {
-            assert_eq!(battle.technique_uses(ActorId(0), 1), Some(50));
+            assert_eq!(
+                battle.technique_uses(ActorId(0), crate::TechniqueId(1)),
+                Some(50)
+            );
         }
     }
     let mut battle = fixture(100., 0., 200.);

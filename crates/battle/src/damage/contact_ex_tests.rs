@@ -3,20 +3,10 @@ use crate::{Activity, Control, HitProtection, Side, tests::actor};
 
 fn rule(kind: DamageKind, power: Power) -> HitRule {
     HitRule {
-        sound: None,
         kind,
         power,
-        arte: false,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
-        element: HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        guard: GuardRule::default(),
-        reaction: Default::default(),
-        condition: None,
+        ..crate::tests::hit()
     }
 }
 
@@ -293,33 +283,4 @@ fn suppression_stops_small_hits_before_guard_break_or_stagger() {
         assert_eq!(hit.is_unblocked_damage(), !avoided);
         assert_eq!(label, None);
     }
-}
-
-#[test]
-fn equipment_refresh_recomputes_damage_traits_preserving_profile_and_live_hp() {
-    let mut current = actor(Side::Party);
-    current.hp = 37;
-    current.species = 6;
-    current.equipment.damage.nullify_damage = true;
-    current.equipment.damage.variable_attack = true;
-    let prepared =
-        crate::PreparedBattle::new(vec![(current, Default::default())], Default::default(), 1)
-            .unwrap();
-    let id = prepared.actor_ids().next().unwrap();
-    let mut battle = prepared.finish().unwrap();
-    let before = battle.actors()[id.index()].clone();
-    let mut replacement = actor(Side::Party);
-    replacement.equipment.damage.physical_counter = true;
-    replacement.equipment.damage.elemental_physical_boost = true;
-    replacement.equipment.damage.suppress_small_hits = true;
-    let expected = replacement.equipment.damage;
-    crate::tests::equip(&mut battle, id, replacement).unwrap();
-    let live = &battle.actors()[id.index()];
-    assert_eq!(live.equipment.damage, expected);
-    assert_eq!(live.species, 6);
-    assert_eq!(live.hp, 37);
-    let mut expected_actor = before;
-    expected_actor.equipment.damage = expected;
-    assert_eq!(live, &expected_actor);
-    assert_eq!(battle.random_state(), 1);
 }

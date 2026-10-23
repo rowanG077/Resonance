@@ -1,4 +1,5 @@
 use super::{AnimatedPose, Clock, Playback, secondary};
+use crate::ResourceId;
 use anyhow::{Context, Result, ensure};
 use glam::{EulerRot, Mat4, Quat, Vec3};
 use resonance_content::{
@@ -9,7 +10,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct EffectModelDefinition {
-    pub resource: u32,
+    pub resource: ResourceId,
     pub skeleton: Skeleton,
     pub motions: BTreeMap<u16, Motion>,
     pub secondary_motion: Vec<Chain>,
@@ -25,7 +26,7 @@ pub struct PreparedEffectModel {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectModelFrame {
-    pub resource: u32,
+    pub resource: ResourceId,
     pub clip: Option<u16>,
     pub frame: f32,
     pub world: Matrix,
@@ -33,7 +34,7 @@ pub struct EffectModelFrame {
 }
 
 impl PreparedEffectModel {
-    pub fn resource(&self) -> u32 {
+    pub fn resource(&self) -> ResourceId {
         self.definition.resource
     }
     pub fn new(definition: Arc<EffectModelDefinition>) -> Result<Self> {
@@ -354,7 +355,7 @@ mod tests {
                 source.skeleton.bones.push(child);
             }
             PreparedEffectModel::new(Arc::new(EffectModelDefinition {
-                resource: 41,
+                resource: ResourceId(41),
                 skeleton: source.skeleton,
                 motions: source.motions,
                 secondary_motion: vec![],
@@ -375,7 +376,7 @@ mod tests {
 
         let source = crate::tests::model_definition(41, [(0, 1.)]);
         let mut rigid = PreparedEffectModel::new(Arc::new(EffectModelDefinition {
-            resource: 41,
+            resource: ResourceId(41),
             skeleton: source.skeleton,
             motions: BTreeMap::new(),
             secondary_motion: vec![],
@@ -402,13 +403,13 @@ mod tests {
         motion.tracks.push(child_track);
         motion.validate(&definition.skeleton)?;
         let mut selected = make(4., false)?;
-        Arc::make_mut(&mut selected.definition).resource = 42;
+        Arc::make_mut(&mut selected.definition).resource = ResourceId(42);
         selected.play_repeating_from(&source, 0, true)?;
         for _ in 0..10 {
             selected.advance()?;
         }
         let frame = selected.sample_at(world, Quat::IDENTITY, &mut vec![], true)?;
-        assert_eq!(frame.resource, 42);
+        assert_eq!(frame.resource, ResourceId(42));
         assert_eq!(frame.bones.len(), 1);
         assert_eq!(frame.frame, 5.);
         assert_eq!(frame.bones[0][3], [5., 0., 0., 1.]);
@@ -424,7 +425,7 @@ mod tests {
     fn effect_model_blends_freeze_frames_and_hold_or_loop() -> Result<()> {
         let source = crate::tests::model_definition(41, [(0, 3.), (1, 12.), (2, 25.)]);
         let mut model = PreparedEffectModel::new(Arc::new(EffectModelDefinition {
-            resource: 41,
+            resource: ResourceId(41),
             skeleton: source.skeleton,
             motions: source.motions,
             secondary_motion: vec![],

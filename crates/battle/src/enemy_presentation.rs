@@ -1,5 +1,7 @@
 //! Optional enemy opening shots and final-enemy voice holds share the battle clock.
-use crate::{Actor, ActorId, Battle, BattleClock, CameraPose, Cue, Side, UnisonFeedback};
+use crate::{
+    Actor, ActorId, Battle, BattleClock, CameraPose, Cue, ResourceId, Side, UnisonFeedback,
+};
 use anyhow::{Result, ensure};
 use resonance_content::battle_enemy::{
     Entrance, EntranceCue, Opening as OpeningDefinition, Presentation,
@@ -26,20 +28,20 @@ pub struct EnemyPresentationFrame {
 pub struct EnemyPresentation {
     pub actor: ActorId,
     pub definition: Presentation,
-    pub model: u32,
-    pub effects: u32,
+    pub model: ResourceId,
+    pub effects: ResourceId,
     pub speaker: Option<ActorId>,
-    pub speaker_model: Option<u32>,
+    pub speaker_model: Option<ResourceId>,
 }
 
 struct Opening {
     actor: ActorId,
     definition: OpeningDefinition,
-    model: u32,
-    effects: u32,
+    model: ResourceId,
+    effects: ResourceId,
     anchor: [f32; 3],
     speaker: Option<ActorId>,
-    speaker_model: Option<u32>,
+    speaker_model: Option<ResourceId>,
     party_anchor: [f32; 3],
     age: u16,
 }
@@ -229,37 +231,29 @@ impl State {
     }
 
     pub(crate) fn frame(&self) -> Option<EnemyPresentationFrame> {
+        let (hide_party, hide_hud, letterbox) =
+            self.opening
+                .as_ref()
+                .map_or((false, false, 0), |opening| match &opening.definition {
+                    OpeningDefinition::Entrance(entrance) => (
+                        entrance
+                            .staging
+                            .as_ref()
+                            .map_or(!entrance.show_party, |staging| {
+                                staging.hide_party_at.is_some_and(|at| opening.age >= at)
+                            }),
+                        !entrance.show_hud,
+                        entrance.letterbox.min(opening.age),
+                    ),
+                    OpeningDefinition::Voice(_) => (true, true, 0),
+                });
         (!self.enemies.is_empty()).then_some(EnemyPresentationFrame {
-            hide_party: self
-                .opening
-                .as_ref()
-                .is_some_and(|opening| match &opening.definition {
-                    OpeningDefinition::Entrance(entrance) if entrance.staging.is_some() => entrance
-                        .staging
-                        .as_ref()
-                        .unwrap()
-                        .hide_party_at
-                        .is_some_and(|at| opening.age >= at),
-                    OpeningDefinition::Entrance(entrance) => !entrance.show_party,
-                    OpeningDefinition::Voice(_) => true,
-                }),
-            hide_hud: self
-                .opening
-                .as_ref()
-                .is_some_and(|opening| match &opening.definition {
-                    OpeningDefinition::Entrance(entrance) => !entrance.show_hud,
-                    OpeningDefinition::Voice(_) => true,
-                }),
+            hide_party,
+            hide_hud,
             dissolve: self.dissolve,
             flash: self.opening.as_ref().and_then(Opening::flash),
             feedback: self.feedback,
-            letterbox: self
-                .opening
-                .as_ref()
-                .map_or(0, |opening| match &opening.definition {
-                    OpeningDefinition::Entrance(entrance) => entrance.letterbox.min(opening.age),
-                    OpeningDefinition::Voice(_) => 0,
-                }),
+            letterbox,
         })
     }
 
@@ -377,12 +371,7 @@ impl Battle {
         Ok(())
     }
 
-    fn advance_entrance(
-        &mut self,
-        opening: &Opening,
-        entrance: &Entrance,
-        cues: &mut Vec<Cue>,
-    ) -> Result<()> {
+    fn advance_entrance(&mut self, opening: &Opening, entrance: &Entrance, cues: &mut Vec<Cue>) {
         let id = opening.actor;
         if opening.age == 0 && entrance.staging.is_some() {
             let speaker = opening.speaker.expect("prepared entrance speaker");
@@ -535,7 +524,6 @@ impl Battle {
             }
         }
         self.publish_landing(id.index(), cues);
-        Ok(())
     }
 
     /// Returns true only when this update belongs to the opening or defeat hold.
@@ -583,7 +571,7 @@ impl Battle {
                         self.restore_combat_camera()?;
                         return Ok(false);
                     }
-                    self.advance_entrance(&opening, entrance, cues)?;
+                    self.advance_entrance(&opening, entrance, cues);
                     entrance.ticks
                 }
             };
@@ -744,8 +732,8 @@ mod tests {
                     ticks: 0,
                 },
             },
-            model: 0,
-            effects: 0,
+            model: ResourceId(0),
+            effects: ResourceId(0),
             speaker: Some(ActorId(1)),
             speaker_model: None,
         }])?
@@ -850,8 +838,8 @@ mod tests {
                 EnemyPresentation {
                     actor: ActorId(1),
                     definition: definition.clone(),
-                    model: 0,
-                    effects: 0,
+                    model: ResourceId(0),
+                    effects: ResourceId(0),
                     speaker: None,
                     speaker_model: None,
                 },

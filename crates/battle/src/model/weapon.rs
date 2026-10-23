@@ -1,5 +1,6 @@
 use super::{AnimatedPose, Clock, ModelFrame, ModelMaterial, Playback, secondary};
 use crate::ActorId;
+use crate::ResourceId;
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     animation::{Matrix, Motion, Skeleton, multiply},
@@ -26,7 +27,7 @@ pub enum WeaponPlayback {
 
 #[derive(Debug, Clone)]
 pub struct WeaponLayerDefinition {
-    pub resource: u32,
+    pub resource: ResourceId,
     pub skeleton: Skeleton,
     pub motions: BTreeMap<u16, Motion>,
     pub playback: WeaponPlayback,
@@ -52,9 +53,22 @@ pub enum WeaponTextureAnimation {
 
 const UV_REPEAT: i16 = 1000;
 
+/// A carried weapon binding within one actor's model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WeaponSlot(pub u8);
+
+impl WeaponSlot {
+    pub const PRIMARY: [Self; 2] = [Self(0), Self(1)];
+
+    pub const fn is_primary(self) -> bool {
+        self.0 < 2
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct WeaponDefinition {
-    pub slot: u8,
+    /// Extra body artwork has no weapon slot.
+    pub slot: Option<WeaponSlot>,
     pub initially_visible: bool,
     pub attachment: Option<u16>,
     pub effect_interval: Option<u16>,
@@ -67,13 +81,13 @@ impl WeaponDefinition {
     /// Admit layer relationships once, after the loader validates skeletons and motions.
     /// Attachment bones and slots are checked when binding to a body.
     pub fn new(
-        slot: u8,
+        slot: WeaponSlot,
         attachment: u16,
         layers: Vec<WeaponLayerDefinition>,
         links: Vec<[u16; 2]>,
     ) -> Result<Self> {
         let definition = Self {
-            slot,
+            slot: Some(slot),
             initially_visible: true,
             attachment: Some(attachment),
             effect_interval: None,
@@ -84,7 +98,7 @@ impl WeaponDefinition {
         Ok(definition)
     }
 
-    pub fn primary_resource(&self) -> u32 {
+    pub fn primary_resource(&self) -> ResourceId {
         self.layers[0].resource
     }
 
@@ -119,7 +133,7 @@ impl WeaponDefinition {
             "body component requires mapped playback"
         );
         let definition = Self {
-            slot: u8::MAX,
+            slot: None,
             initially_visible: true,
             attachment,
             effect_interval: None,
@@ -196,11 +210,11 @@ impl WeaponDefinition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WeaponFrame {
     pub owner: ActorId,
-    pub slot: u8,
+    pub slot: Option<WeaponSlot>,
     pub visible: bool,
     pub tint: [u8; 4],
     pub material: ModelMaterial,
-    pub resource: u32,
+    pub resource: ResourceId,
     pub clip: Option<u16>,
     pub frame: f32,
     pub world: Matrix,
@@ -332,7 +346,7 @@ impl Weapon {
         Ok(())
     }
 
-    pub(super) fn slot(&self) -> u8 {
+    pub(super) fn slot(&self) -> Option<WeaponSlot> {
         self.definition.slot
     }
     pub(super) fn frames(&self) -> impl Iterator<Item = &WeaponFrame> {
@@ -667,7 +681,7 @@ mod tests {
             texture_tick: 0,
             light: None,
             shadow: None,
-            resource: 7,
+            resource: ResourceId(7),
             clip: 0,
             frame: 9.,
             blend_weight: 1.,
@@ -694,12 +708,12 @@ mod tests {
 
     fn definition() -> WeaponDefinition {
         WeaponDefinition {
-            slot: 0,
+            slot: Some(crate::WeaponSlot(0)),
             attachment: Some(0),
             effect_interval: None,
             initially_visible: true,
             layers: vec![WeaponLayerDefinition {
-                resource: 70,
+                resource: ResourceId(70),
                 skeleton: Skeleton {
                     bones: vec![Bone {
                         name: "weapon".into(),
@@ -767,7 +781,7 @@ mod tests {
             step: [0, -7],
         });
         let mut independent = definition.layers[0].clone();
-        independent.resource = 71;
+        independent.resource = ResourceId(71);
         independent.texture_animation = Some(WeaponTextureAnimation::Scroll {
             texture: 0,
             initial: [0, 995],
@@ -775,7 +789,7 @@ mod tests {
         });
         definition.layers.push(independent);
         let mut horizontal = definition.layers[0].clone();
-        horizontal.resource = 72;
+        horizontal.resource = ResourceId(72);
         horizontal.texture_animation = Some(WeaponTextureAnimation::Scroll {
             texture: 0,
             initial: [995, 0],
@@ -841,7 +855,7 @@ mod tests {
         .enumerate()
         .map(|(texture, (rows, ticks_per_frame, order))| {
             let mut layer = primary.clone();
-            layer.resource += texture as u32;
+            layer.resource.0 += texture as u32;
             layer.texture_animation = Some(WeaponTextureAnimation::Atlas {
                 texture,
                 rows,
@@ -932,7 +946,7 @@ mod tests {
         )]
         .into();
         let mut decoration = primary.clone();
-        decoration.resource += 1;
+        decoration.resource.0 += 1;
         decoration.playback = WeaponPlayback::Local(Playback {
             clip: 0,
             frame: 0.,

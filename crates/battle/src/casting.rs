@@ -18,7 +18,7 @@ impl crate::prepare::BattleResources {
 pub struct CastReplacement {
     pub input: crate::ActionKey,
     pub output: crate::ActionKey,
-    pub required_uses: &'static [(u16, u16)],
+    pub required_uses: &'static [(crate::TechniqueId, u16)],
     pub trigger: CastReplacementTrigger,
 }
 
@@ -133,9 +133,9 @@ pub(crate) struct CastInput {
 /// Prepared Special Guard threat parameters, published when casting releases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CastingThreat {
-    pub catalogue: u16,
+    pub catalogue: crate::TechniqueId,
     pub offensive: bool,
-    pub element: u8,
+    pub element: Option<crate::Element>,
 }
 
 #[derive(Debug, Clone)]
@@ -287,7 +287,7 @@ impl Battle {
             (sequence.learning
                 || matches!(
                     &sequence.execution,
-                    crate::action::Execution::Casting(CastingRun::Running(cast)) if cast.learning
+                    crate::action::Execution::Casting(CastingRun::Running(cast)) if cast.stage == CastStage::Learning
                 ))
             .then_some(sequence.actor)
         })
@@ -302,17 +302,16 @@ impl Battle {
     pub(crate) fn sample_cast_inputs(&mut self, inputs: &[crate::ControlInput]) {
         self.cast_inputs.fill(CastInput::default());
         for input in inputs {
-            let slot = usize::from(self.actors[input.actor.index()].control_slot);
-            if let Some(sample) = self.cast_inputs.get_mut(slot) {
-                // Several actors can retain one physical slot. A filtered Auto
-                // callback sample must not erase another sample of that channel.
-                sample.attack |= input.attack.pressed;
-                sample.attack_held |= input.attack.held;
-                sample.up_pressed |= input.vertical_pressed > 0;
-                sample.technique |= input.technique.held;
-                sample.guard |= input.guard.held;
-                sample.delay_spell |= input.delay_spell.held;
-            }
+            let slot = self.actors[input.actor.index()].control_slot.index();
+            let sample = &mut self.cast_inputs[slot];
+            // Several actors can retain one physical slot. A filtered Auto
+            // callback sample must not erase another sample of that channel.
+            sample.attack |= input.attack.pressed;
+            sample.attack_held |= input.attack.held;
+            sample.up_pressed |= input.vertical_pressed > 0;
+            sample.technique |= input.technique.held;
+            sample.guard |= input.guard.held;
+            sample.delay_spell |= input.delay_spell.held;
         }
     }
 
@@ -324,10 +323,7 @@ impl Battle {
                 owner.control,
                 crate::Control::Manual | crate::Control::SemiAuto
             )
-            && self
-                .cast_inputs
-                .get(usize::from(owner.control_slot))
-                .is_some_and(|input| input.guard)
+            && self.cast_inputs[owner.control_slot.index()].guard
     }
 
     /// Manual and Semi read Techs; Auto reads the issuing controller’s captured Delay Spell
@@ -335,14 +331,12 @@ impl Battle {
     /// a positive countdown.
     pub(crate) fn cast_delay_requested(&self, actor: ActorId) -> bool {
         match self.actors[actor.index()].control {
-            crate::Control::Manual | crate::Control::SemiAuto => self
-                .cast_inputs
-                .get(usize::from(self.actors[actor.index()].control_slot))
-                .is_some_and(|input| input.technique),
+            crate::Control::Manual | crate::Control::SemiAuto => {
+                self.cast_inputs[self.actors[actor.index()].control_slot.index()].technique
+            }
             crate::Control::Auto => self
                 .pending_technique_issuer(actor)
-                .and_then(|slot| self.cast_inputs.get(usize::from(slot)))
-                .is_some_and(|input| input.delay_spell),
+                .is_some_and(|slot| self.cast_inputs[slot.index()].delay_spell),
             crate::Control::Enemy => false,
         }
     }
@@ -372,6 +366,15 @@ pub(crate) enum Progress {
     Finished,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CastStage {
+    Chanting,
+    Learning,
+    AnticipatedRelease,
+    ReleasePose(u16),
+    SceneRecovery(u32),
+}
+
 /// One cast owns its policy until recovery. The released spell is a separate
 /// resident, so interrupting its caster never cancels an already released spell.
 pub(crate) struct CastRun {
@@ -379,16 +382,13 @@ pub(crate) struct CastRun {
     pub(crate) remaining: u32,
     rhythm_presses: u8,
     incantation_pending: bool,
-    release_pose: Option<u16>,
-    release_pending: bool,
-    scene_recovery: Option<u32>,
-    learning: bool,
+    stage: CastStage,
     definition: Arc<CastingDefinition>,
 }
 
 impl CastRun {
     pub(crate) fn releasing(&self) -> bool {
-        self.release_pose.is_some() || self.release_pending || self.scene_recovery.is_some()
+        !matches!(self.stage, CastStage::Chanting | CastStage::Learning)
     }
 
     fn chant_pose(&self, battle: &mut Battle, actor: ActorId, age: u32) {
@@ -433,7 +433,7 @@ impl CastRun {
     }
 
     pub(crate) fn save_progress(&self, actor: &mut crate::Actor, action: crate::ActionKey) {
-        if !self.releasing() && !self.learning {
+        if self.stage == CastStage::Chanting {
             actor.casting_state.interrupted = Some((action, self.remaining));
         }
     }
@@ -445,10 +445,7 @@ impl CastRun {
             && self.definition.release.summon.is_none()
             && owner.side == crate::Side::Party
             && owner.equipment.casting.rhythm
-            && battle
-                .cast_inputs
-                .get(usize::from(owner.control_slot))
-                .is_some_and(|input| input.attack)
+            && battle.cast_inputs[owner.control_slot.index()].attack
         {
             self.rhythm_presses += 1;
             if self.rhythm_presses == 5 {
@@ -463,80 +460,65 @@ impl CastRun {
         sequence: &crate::action::Sequence,
         definition: Arc<CastingDefinition>,
     ) -> Self {
-        if sequence.unison || definition.fixed_timing || definition.release.summon.is_some() {
-            let remaining = if sequence.unison {
-                UNISON_CHANT_TICKS
+        let remaining =
+            if sequence.unison || definition.fixed_timing || definition.release.summon.is_some() {
+                if sequence.unison {
+                    UNISON_CHANT_TICKS
+                } else {
+                    definition.duration.max(1)
+                }
             } else {
-                definition.duration.max(1)
+                let actor = sequence.actor;
+                let owner = &battle.actors[actor.index()];
+                let traits = if owner.side == crate::Side::Party {
+                    owner.equipment.casting
+                } else {
+                    Default::default()
+                };
+                let memory = owner.casting_state;
+                let resumed = memory.interrupted.filter(|&(action, remaining)| {
+                    traits.spell_save && action == sequence.action && remaining > 0
+                });
+                let profile_ticks = i64::from(definition.profile_ticks);
+                let mut reduction = 0;
+                if owner.overlimit.is_active() {
+                    reduction += profile_ticks.div_euclid(2);
+                }
+                if traits.speed_cast {
+                    reduction += profile_ticks.div_euclid(4);
+                }
+                if traits.angel_song {
+                    reduction += profile_ticks.div_euclid(2);
+                }
+                if traits.reprise && memory.previous_spell == Some(sequence.action) {
+                    reduction += profile_ticks.div_euclid(2);
+                }
+                let mut duration = i64::from(definition.duration) - reduction;
+                if duration != 0
+                    && owner
+                        .conditions
+                        .effective()
+                        .contains(Condition::CastingSpeed)
+                {
+                    duration -= i64::from(definition.spell_ticks).div_euclid(4);
+                }
+                let duration = resumed.map_or(
+                    duration.clamp(0, i64::from(u32::MAX)) as u32,
+                    |(_, remaining)| remaining,
+                );
+                crate::tp::initialize_random_clock(owner, resumed.is_some(), duration, || {
+                    battle.random.next_u16() % 100
+                })
+                .max(1)
             };
-            return Self {
-                held: false,
-                remaining,
-                incantation_pending: definition
-                    .incantation_lead
-                    .is_some_and(|lead| remaining >= lead),
-                rhythm_presses: 0,
-                release_pose: None,
-                release_pending: false,
-                scene_recovery: None,
-                learning: false,
-                definition,
-            };
-        }
-        let actor = sequence.actor;
-        let owner = &battle.actors[actor.index()];
-        let traits = if owner.side == crate::Side::Party {
-            owner.equipment.casting
-        } else {
-            Default::default()
-        };
-        let memory = owner.casting_state;
-        let resumed = memory.interrupted.filter(|&(action, remaining)| {
-            traits.spell_save && action == sequence.action && remaining > 0
-        });
-        let profile_ticks = i64::from(definition.profile_ticks);
-        let mut reduction = 0;
-        if owner.overlimit.is_active() {
-            reduction += profile_ticks.div_euclid(2);
-        }
-        if traits.speed_cast {
-            reduction += profile_ticks.div_euclid(4);
-        }
-        if traits.angel_song {
-            reduction += profile_ticks.div_euclid(2);
-        }
-        if traits.reprise && memory.previous_spell == Some(sequence.action) {
-            reduction += profile_ticks.div_euclid(2);
-        }
-        let mut duration = i64::from(definition.duration) - reduction;
-        if duration != 0
-            && owner
-                .conditions
-                .effective()
-                .contains(Condition::CastingSpeed)
-        {
-            duration -= i64::from(definition.spell_ticks).div_euclid(4);
-        }
-        let duration = resumed.map_or(
-            duration.clamp(0, i64::from(u32::MAX)) as u32,
-            |(_, remaining)| remaining,
-        );
-        let duration =
-            crate::tp::initialize_random_clock(owner, resumed.is_some(), duration, || {
-                battle.random.next_u16() % 100
-            })
-            .max(1);
         Self {
             held: false,
-            remaining: duration,
+            remaining,
             incantation_pending: definition
                 .incantation_lead
-                .is_some_and(|lead| duration >= lead),
+                .is_some_and(|lead| remaining >= lead),
             rhythm_presses: 0,
-            release_pose: None,
-            release_pending: false,
-            scene_recovery: None,
-            learning: false,
+            stage: CastStage::Chanting,
             definition,
         }
     }
@@ -586,7 +568,7 @@ impl CastRun {
                 sequence.action = action;
                 sequence.definition = definition;
                 battle.snapshot_technique_proficiency(actor, action);
-                self.learning = true;
+                self.stage = CastStage::Learning;
                 false
             } else {
                 let owner = &battle.actors[actor.index()];
@@ -610,10 +592,10 @@ impl CastRun {
         }
         owner.casting_state.interrupted = None;
         if store {
-            battle.store_committed_cast(actor, sequence.action, cues)?;
+            battle.store_committed_cast(actor, sequence.action, cues);
             return Ok(Progress::Finished);
         }
-        if self.learning {
+        if self.stage == CastStage::Learning {
             battle.request_timed_hold(LEARNING_HOLD_TICKS, None);
             return Ok(Progress::Casting);
         }
@@ -666,7 +648,7 @@ impl CastRun {
                         );
                     }
                     self.held = false;
-                    self.release_pending = true;
+                    self.stage = CastStage::AnticipatedRelease;
                     return Ok(Progress::Casting);
                 }
             }
@@ -702,14 +684,15 @@ impl CastRun {
             && self.definition.release.transition_ticks == 0
             && self.definition.release.summon.is_none()
         {
-            self.release_pose = battle
+            self.stage = battle
                 .models
                 .as_ref()
                 .and_then(|models| models.definition(actor))
-                .and_then(|model| model.reactions.cast);
+                .and_then(|model| model.reactions.cast)
+                .map_or(CastStage::Chanting, CastStage::ReleasePose);
         }
         self.held = false;
-        if self.release_pose.is_some() {
+        if matches!(self.stage, CastStage::ReleasePose(_)) {
             Ok(Progress::Casting)
         } else {
             self.release(battle, id, sequence, cues)
@@ -747,7 +730,7 @@ impl CastRun {
             self.definition.recovery
         };
         if self.definition.release.transition_ticks > 0 {
-            self.scene_recovery = Some(recovery);
+            self.stage = CastStage::SceneRecovery(recovery);
             Ok(Progress::Casting)
         } else {
             Ok(Progress::Recovery(recovery))
@@ -771,60 +754,63 @@ impl CastRun {
         }
         // A long release pose can outlast scene framing. Finish its first
         // cycle before recovery, without waiting for the independent spell.
-        if let Some(recovery) = self.scene_recovery {
-            if matches!(
-                self.definition.release_pose,
-                CastReleasePose::Scene {
-                    release: Some(_),
-                    ..
+        match self.stage {
+            CastStage::Chanting => {}
+            CastStage::Learning => {
+                self.stage = CastStage::Chanting;
+                return self.begin_release(battle, id, sequence, cues);
+            }
+            CastStage::SceneRecovery(recovery) => {
+                if matches!(
+                    self.definition.release_pose,
+                    CastReleasePose::Scene {
+                        release: Some(_),
+                        ..
+                    }
+                ) && battle.models.as_ref().is_some_and(|models| {
+                    !models.motion_finished_this_update(actor, battle.actors[index].hit_stop == 0)
+                }) {
+                    return Ok(Progress::Casting);
                 }
-            ) && battle.models.as_ref().is_some_and(|models| {
-                !models.motion_finished_this_update(actor, battle.actors[index].hit_stop == 0)
-            }) {
-                return Ok(Progress::Casting);
-            }
-            self.scene_recovery = None;
-            if matches!(self.definition.release_pose, CastReleasePose::Scene { .. }) {
-                cues.push(Cue::Casting {
-                    actor,
-                    action: sequence.action,
-                    phase: crate::CastPhase::Released,
-                });
-            }
-            return Ok(Progress::Recovery(recovery));
-        }
-        if self.learning {
-            self.learning = false;
-            return self.begin_release(battle, id, sequence, cues);
-        }
-        if self.release_pending {
-            if matches!(
-                self.release_gesture(battle, actor, sequence.unison),
-                CastReleasePose::Anticipated {
-                    release: Some(_),
-                    ..
+                self.stage = CastStage::Chanting;
+                if matches!(self.definition.release_pose, CastReleasePose::Scene { .. }) {
+                    cues.push(Cue::Casting {
+                        actor,
+                        action: sequence.action,
+                        phase: crate::CastPhase::Released,
+                    });
                 }
-            ) && battle.models.as_ref().is_some_and(|models| {
-                !models.motion_finished_this_update(actor, battle.actors[index].hit_stop == 0)
-            }) {
-                return Ok(Progress::Casting);
+                return Ok(Progress::Recovery(recovery));
             }
-            self.release_pending = false;
-            return self.release(battle, id, sequence, cues);
-        }
-        if let Some(clip) = self.release_pose {
-            let complete = battle
-                .models
-                .as_ref()
-                .and_then(|models| models.main_motion_observation(actor))
-                .is_some_and(|motion| {
-                    motion.clip == clip && !motion.repeat && motion.frame >= motion.end
-                });
-            return if complete && !occupied {
-                self.release(battle, id, sequence, cues)
-            } else {
-                Ok(Progress::Casting)
-            };
+            CastStage::AnticipatedRelease => {
+                if matches!(
+                    self.release_gesture(battle, actor, sequence.unison),
+                    CastReleasePose::Anticipated {
+                        release: Some(_),
+                        ..
+                    }
+                ) && battle.models.as_ref().is_some_and(|models| {
+                    !models.motion_finished_this_update(actor, battle.actors[index].hit_stop == 0)
+                }) {
+                    return Ok(Progress::Casting);
+                }
+                self.stage = CastStage::Chanting;
+                return self.release(battle, id, sequence, cues);
+            }
+            CastStage::ReleasePose(clip) => {
+                let complete = battle
+                    .models
+                    .as_ref()
+                    .and_then(|models| models.main_motion_observation(actor))
+                    .is_some_and(|motion| {
+                        motion.clip == clip && !motion.repeat && motion.frame >= motion.end
+                    });
+                return if complete && !occupied {
+                    self.release(battle, id, sequence, cues)
+                } else {
+                    Ok(Progress::Casting)
+                };
+            }
         }
         self.chant_pose(battle, actor, sequence.age);
         if let CastReleasePose::Anticipated {

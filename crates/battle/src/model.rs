@@ -8,12 +8,13 @@ pub use effect::{EffectModelDefinition, EffectModelFrame, PreparedEffectModel};
 use resonance_content::animation::pose;
 mod secondary;
 mod weapon;
-use crate::{Actor, ActorId};
+use crate::{Actor, ActorId, ResourceId};
 use anyhow::{Context, Result, ensure};
 use resonance_content::animation::{Matrix, Motion, Skeleton};
 use std::{collections::BTreeMap, sync::Arc};
 pub use weapon::{
-    WeaponDefinition, WeaponFrame, WeaponLayerDefinition, WeaponPlayback, WeaponTextureAnimation,
+    WeaponDefinition, WeaponFrame, WeaponLayerDefinition, WeaponPlayback, WeaponSlot,
+    WeaponTextureAnimation,
 };
 
 impl Models {
@@ -327,7 +328,7 @@ pub struct ModelDefinition {
     pub tint: [u8; 4],
     /// Corpse artwork fades when it has no persistent defeated pose.
     pub fade_on_defeat: bool,
-    pub resource: u32,
+    pub resource: ResourceId,
     /// Skeleton and clips are validated together by the content loader.
     pub skeleton: Skeleton,
     /// Authored body spheres, bound to this skeleton during preparation.
@@ -464,13 +465,13 @@ impl ModelDefinition {
         };
         collect(self.resource, &self.skeleton, 3, 0);
         for weapon in weapons {
-            if weapon.is_body() {
+            let Some(slot) = weapon.slot else {
                 continue;
-            }
+            };
             // Contact markers belong to the primary layer, not its outline.
             // Its primary marker group belongs to the equipped weapon slot.
             let primary = &weapon.layers[0];
-            collect(primary.resource, &primary.skeleton, 2, weapon.slot);
+            collect(primary.resource, &primary.skeleton, 2, slot.0);
         }
         anchors
     }
@@ -612,7 +613,8 @@ impl crate::Battle {
         }
         for weapon in &mut frame.weapons {
             weapon.visible &= !self.capture_hidden(weapon.owner)
-                && (weapon.slot >= 2 || !self.cast_hides_primary_weapons(weapon.owner));
+                && (!weapon.slot.is_some_and(WeaponSlot::is_primary)
+                    || !self.cast_hides_primary_weapons(weapon.owner));
         }
         Ok(())
     }
@@ -634,7 +636,7 @@ pub struct ActorShadowFrame {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MotionBinding {
-    pub model: u32,
+    pub model: ResourceId,
     pub clip: u16,
 }
 
@@ -669,7 +671,7 @@ pub struct ModelFrame {
     /// Model light position; None uses the prepared stage light.
     pub light: Option<[f32; 3]>,
     pub shadow: Option<ActorShadowFrame>,
-    pub resource: u32,
+    pub resource: ResourceId,
     pub clip: u16,
     pub frame: f32,
     pub blend_weight: f32,
@@ -1257,24 +1259,24 @@ impl Model {
         Ok(())
     }
 
-    pub(crate) fn weapon_animation_rate(&mut self, slot: u8, rate: f32) -> Result<()> {
+    pub(crate) fn weapon_animation_rate(&mut self, slot: WeaponSlot, rate: f32) -> Result<()> {
         self.weapons
             .iter_mut()
-            .find(|weapon| weapon.slot() == slot)
+            .find(|weapon| weapon.slot() == Some(slot))
             .context("unprepared carried animation slot")?
             .set_animation_rate(rate)
     }
 
     pub(crate) fn play_carried_pose(
         &mut self,
-        slot: u8,
+        slot: WeaponSlot,
         clip: u16,
         rate: f32,
         repeat: bool,
     ) -> Result<()> {
         self.weapons
             .iter_mut()
-            .find(|weapon| weapon.slot() == slot)
+            .find(|weapon| weapon.slot() == Some(slot))
             .context("unprepared carried animation slot")?
             .play_carried_pose(clip, rate, repeat)
     }
@@ -1370,7 +1372,7 @@ impl Model {
             .collect()
     }
 
-    pub(crate) fn weapon_visible(&mut self, slot: u8, visible: bool) -> Result<()> {
+    pub(crate) fn weapon_visible(&mut self, slot: Option<WeaponSlot>, visible: bool) -> Result<()> {
         let weapon = self
             .weapons
             .iter_mut()
@@ -1384,7 +1386,11 @@ impl Model {
         Ok(())
     }
 
-    pub(crate) fn move_weapon(&mut self, source: u8, destination: u8) -> Result<()> {
+    pub(crate) fn move_weapon(
+        &mut self,
+        source: WeaponSlot,
+        destination: WeaponSlot,
+    ) -> Result<()> {
         ensure!(
             source != destination,
             "weapon replacement uses the same slot"
@@ -1392,15 +1398,15 @@ impl Model {
         let from = self
             .weapons
             .iter()
-            .find(|weapon| weapon.slot() == source)
+            .find(|weapon| weapon.slot() == Some(source))
             .context("unprepared replacement weapon")?;
         let to = self
             .weapons
             .iter()
-            .find(|weapon| weapon.slot() == destination)
+            .find(|weapon| weapon.slot() == Some(destination))
             .context("unprepared replaced weapon slot")?;
         let mut definition = (*from.definition).clone();
-        definition.slot = destination;
+        definition.slot = Some(destination);
         definition.attachment = to.definition.attachment;
         let mut replacement = self.prepare_weapons(&[Arc::new(definition)])?.remove(0);
         replacement.visible = true;
@@ -1408,13 +1414,17 @@ impl Model {
             frame.visible = self.shown.visible;
         }
         self.weapons
-            .retain(|weapon| weapon.slot() != source && weapon.slot() != destination);
+            .retain(|weapon| weapon.slot() != Some(source) && weapon.slot() != Some(destination));
         self.weapons.push(replacement);
         Ok(())
     }
 
-    pub(crate) fn detach_weapon(&mut self, slot: u8, world: Option<Matrix>) {
-        if let Some(weapon) = self.weapons.iter_mut().find(|weapon| weapon.slot() == slot) {
+    pub(crate) fn detach_weapon(&mut self, slot: WeaponSlot, world: Option<Matrix>) {
+        if let Some(weapon) = self
+            .weapons
+            .iter_mut()
+            .find(|weapon| weapon.slot() == Some(slot))
+        {
             weapon.detach(world);
         }
     }
@@ -1427,11 +1437,11 @@ impl Model {
         }
     }
 
-    pub(crate) fn drop_weapon(&mut self, slot: u8, world: Matrix) -> Result<()> {
+    pub(crate) fn drop_weapon(&mut self, slot: WeaponSlot, world: Matrix) -> Result<()> {
         let weapon = self
             .weapons
             .iter_mut()
-            .find(|weapon| weapon.slot() == slot)
+            .find(|weapon| weapon.slot() == Some(slot))
             .context("unprepared dropped weapon slot")?;
         weapon.detach(Some(world));
         weapon.dropped = true;
@@ -1491,7 +1501,7 @@ impl Model {
 
     pub(crate) fn primary_weapons_visible(&mut self, visible: bool) {
         for weapon in &mut self.weapons {
-            if weapon.slot() < 2 {
+            if weapon.slot().is_some_and(WeaponSlot::is_primary) {
                 weapon.visible = visible;
                 let visible = visible && self.shown.visible && weapon.enabled;
                 for frame in weapon.frames_mut() {
@@ -1503,7 +1513,7 @@ impl Model {
 
     pub(crate) fn primary_weapons_enabled(&mut self, enabled: bool) {
         for weapon in &mut self.weapons {
-            if weapon.slot() < 2 {
+            if weapon.slot().is_some_and(WeaponSlot::is_primary) {
                 weapon.enabled = enabled;
                 let visible = enabled && weapon.visible && self.shown.visible;
                 for frame in weapon.frames_mut() {

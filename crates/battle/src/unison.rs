@@ -1,8 +1,8 @@
 //! A team attack temporarily owns actor admission and scene placement.
 use crate::{
     ActionDefinition, ActionExecution, ActionId, ActionKey, ActionRequest, ActorId, Battle,
-    CameraPose, Cue, EffectAppearance, EffectRequest, MotionBinding, Pose, PreparedAttack, Side,
-    Sound,
+    CameraPose, Cue, EffectAppearance, EffectRequest, MotionBinding, Pose, PreparedAttack,
+    ShortcutSlot, Side, Sound,
 };
 use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeSet, sync::Arc};
@@ -21,10 +21,19 @@ const CAMERA_PITCH: f32 = 12.5;
 #[cfg(test)]
 mod tests;
 
+/// Canonical arte identity used to match combination ingredients. Several
+/// learned techniques can share this identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnisonArteId(pub u16);
+
+/// A recipe row is distinct from the arte it produces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnisonRecipeId(pub u8);
+
 #[derive(Debug, Clone, Copy)]
 pub struct UnisonArte {
     pub action: ActionKey,
-    pub native_id: u16,
+    pub native_id: UnisonArteId,
     pub duration: u16,
     /// Distance between the participants' contact bodies.
     pub distance: f32,
@@ -45,8 +54,8 @@ pub struct UnisonMember {
 }
 
 impl UnisonMember {
-    fn selected_arte(&self, battle: &Battle, slot: usize) -> Option<UnisonArte> {
-        let catalogue = battle.shortcuts(self.actor)?[slot];
+    fn selected_arte(&self, battle: &Battle, slot: ShortcutSlot) -> Option<UnisonArte> {
+        let catalogue = battle.shortcuts(self.actor)?[slot.index()]?;
         let action = battle.shortcut_action(self.actor, catalogue)?;
         self.artes
             .iter()
@@ -57,12 +66,12 @@ impl UnisonMember {
 
 #[derive(Debug, Clone)]
 pub struct UnisonRecipe {
-    pub id: u8,
-    pub native_id: u16,
+    pub id: UnisonRecipeId,
+    pub native_id: UnisonArteId,
     pub duration: u16,
     pub camera_pitch: f32,
-    /// Alternatives in authored priority order. Ingredients are native arte IDs.
-    pub ingredients: Vec<Vec<u16>>,
+    /// Alternatives in authored priority order. Ingredients use canonical arte identities.
+    pub ingredients: Vec<Vec<UnisonArteId>>,
     /// Prepared character bindings for this recipe's two ordered roles.
     pub execution: Option<UnisonCombination>,
 }
@@ -124,7 +133,10 @@ pub struct UnisonDefinition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnisonInput {
     Activate(ActorId),
-    Select { pressed_slots: u8, shortcut: u8 },
+    Select {
+        pressed_slots: u8,
+        shortcut: ShortcutSlot,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,21 +157,21 @@ pub enum UnisonCompletion {
     NoCombination,
     RecipeCatalogueUnavailable,
     CombinationPending {
-        id: u8,
-        native_id: u16,
+        id: UnisonRecipeId,
+        native_id: UnisonArteId,
         actors: Vec<ActorId>,
     },
     CombinationExecuted {
-        id: u8,
-        native_id: u16,
+        id: UnisonRecipeId,
+        native_id: UnisonArteId,
         actors: Vec<ActorId>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnisonCombinationFrame {
-    pub id: u8,
-    pub native_id: u16,
+    pub id: UnisonRecipeId,
+    pub native_id: UnisonArteId,
     pub actors: [ActorId; 2],
 }
 
@@ -228,6 +240,19 @@ struct Orbit {
     yaw: f32,
     speed: f32,
     pitch: f32,
+}
+
+impl Orbit {
+    fn new(random: &mut crate::Random, pitch: f32) -> Self {
+        let yaw = f32::from(random.next_u16() % 360);
+        let speed = loop {
+            let speed = (random.next_u16() as i16) % 50;
+            if speed != 0 {
+                break f32::from(speed) * 0.01;
+            }
+        };
+        Self { yaw, speed, pitch }
+    }
 }
 
 struct Combined {
@@ -335,11 +360,14 @@ impl State {
     pub(crate) fn frame(&self, actors: usize) -> Option<UnisonFrame> {
         let run = self.run.as_ref()?;
         let definition = self.definition.as_ref().unwrap();
-        let selected: Vec<_> = run
+        let (selected, selected_actions): (Vec<_>, Vec<_>) = run
             .selections
             .iter()
-            .map(|selection| definition.members[selection.slot].actor)
-            .collect();
+            .map(|selection| {
+                let actor = definition.members[selection.slot].actor;
+                (actor, (actor, selection.arte.action))
+            })
+            .unzip();
         let hidden = (0..actors)
             .map(|index| ActorId(index as u8))
             .filter(|actor| {
@@ -365,16 +393,7 @@ impl State {
             elapsed: run.elapsed,
             blocked_slots: run.blocked,
             selected,
-            selected_actions: run
-                .selections
-                .iter()
-                .map(|selection| {
-                    (
-                        definition.members[selection.slot].actor,
-                        selection.arte.action,
-                    )
-                })
-                .collect(),
+            selected_actions,
             hidden,
             stage_color: run.color.or_else(|| {
                 (run.phase == UnisonPhase::Windup)
@@ -516,7 +535,7 @@ impl Battle {
             let mut ids = BTreeSet::new();
             for recipe in recipes {
                 ensure!(
-                    recipe.id != 0
+                    recipe.id.0 != 0
                         && ids.insert(recipe.id)
                         && recipe.duration > 0
                         && recipe.camera_pitch.is_finite()
@@ -524,7 +543,7 @@ impl Battle {
                             .ingredients
                             .iter()
                             .all(|row| (2..=crate::PARTY_CAPACITY).contains(&row.len())
-                                && row.iter().all(|id| *id != 0)),
+                                && row.iter().all(|id| id.0 != 0)),
                     "invalid Unison combination recipe"
                 );
                 if let Some(execution) = &recipe.execution {
@@ -763,31 +782,19 @@ impl State {
             run.elapsed = 0;
             run.deadline = 0;
             run.launch(battle, definition, run.selections[0], cues)?;
-            let yaw = f32::from(battle.random.next_u16() % 360);
-            let speed = loop {
-                let speed = (battle.random.next_u16() as i16) % 50;
-                if speed != 0 {
-                    break f32::from(speed) * 0.01;
-                }
-            };
-            run.orbit = Some(Orbit {
-                yaw,
-                speed,
-                pitch: CAMERA_PITCH,
-            });
+            run.orbit = Some(Orbit::new(&mut battle.random, CAMERA_PITCH));
         }
         if let Some(UnisonInput::Select {
             pressed_slots,
             shortcut,
         }) = input
         {
-            ensure!(shortcut < 4, "invalid Unison shortcut direction");
             if matches!(run.phase, UnisonPhase::Selecting | UnisonPhase::Executing) {
                 for (slot, member) in definition.members.iter().enumerate() {
                     if pressed_slots & (1 << slot) == 0 || run.blocked & (1 << slot) != 0 {
                         continue;
                     }
-                    let Some(arte) = member.selected_arte(battle, usize::from(shortcut)) else {
+                    let Some(arte) = member.selected_arte(battle, shortcut) else {
                         continue;
                     };
                     if !battle.actors[member.actor.index()].available() {
@@ -856,7 +863,7 @@ impl State {
                 return Ok(());
             }
             UnisonPhase::Executing if run.elapsed > run.deadline => {
-                if run.begin_combination(battle, definition, cues)? {
+                if run.begin_combination(battle, definition, cues) {
                     return Ok(());
                 }
                 run.finish(battle, definition, cues)?;
@@ -947,7 +954,9 @@ impl State {
                     .conditions
                     .effective()
                     .contains(crate::conditions::Condition::Curse)
-                || (0..4).all(|slot| member.selected_arte(battle, slot).is_none())
+                || ShortcutSlot::ALL
+                    .into_iter()
+                    .all(|slot| member.selected_arte(battle, slot).is_none())
             {
                 blocked |= 1 << slot;
             }
@@ -1108,10 +1117,10 @@ impl Run {
         battle: &mut Battle,
         definition: &UnisonDefinition,
         cues: &mut Vec<Cue>,
-    ) -> Result<bool> {
+    ) -> bool {
         let Some(recipes) = &definition.recipes else {
             self.completion = Some(UnisonCompletion::RecipeCatalogueUnavailable);
-            return Ok(false);
+            return false;
         };
         for (recipe_index, recipe) in recipes.iter().enumerate() {
             for ingredients in &recipe.ingredients {
@@ -1132,10 +1141,10 @@ impl Run {
                         actors: actors.clone(),
                     });
                     let Some(execution) = &recipe.execution else {
-                        return Ok(false);
+                        return false;
                     };
                     let Ok(actors) = <[ActorId; 2]>::try_from(actors) else {
-                        return Ok(false);
+                        return false;
                     };
                     let roles = std::array::from_fn::<_, 2, _>(|role| {
                         execution.roles[role]
@@ -1144,7 +1153,7 @@ impl Run {
                             .cloned()
                     });
                     let [Some(first), Some(second)] = roles else {
-                        return Ok(false);
+                        return false;
                     };
                     self.combined = Some(Combined {
                         recipe: recipe_index,
@@ -1154,12 +1163,12 @@ impl Run {
                     });
                     self.completion = None;
                     self.combination_pose(battle, definition, cues);
-                    return Ok(true);
+                    return true;
                 }
             }
         }
         self.completion = Some(UnisonCompletion::NoCombination);
-        Ok(false)
+        false
     }
 
     fn combination_pose(
@@ -1267,18 +1276,10 @@ impl Run {
         {
             battle.request_voice(*speaker, *sound, crate::VoicePriority::Action);
         }
-        let yaw = f32::from(battle.random.next_u16() % 360);
-        let speed = loop {
-            let speed = (battle.random.next_u16() as i16) % 50;
-            if speed != 0 {
-                break f32::from(speed) * 0.01;
-            }
-        };
-        self.orbit = Some(Orbit {
-            yaw,
-            speed,
-            pitch: CAMERA_PITCH + recipe.camera_pitch,
-        });
+        self.orbit = Some(Orbit::new(
+            &mut battle.random,
+            CAMERA_PITCH + recipe.camera_pitch,
+        ));
         Ok(())
     }
 

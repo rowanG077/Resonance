@@ -135,6 +135,17 @@ def presentation_locations(pointer="8035a86c 10 30 540"):
     ]}
 
 
+def projectile_locations(pointer="8035a86c 10 30 540"):
+    """Initialized projectile owner, lifetime, contact geometry and age fields."""
+    locations = {}
+    for slot in range(16):
+        node = f"{pointer} 75c44" + " 4" * slot
+        locations[node] = f"projectile_{slot}_address"
+        for offset in (0x10, 0x28, 0x2C, 0x30, 0x34, 0x3C, 0x6C, 0x70, 0x74):
+            locations[f"{node} {offset:x}"] = f"projectile_{slot}_{offset:x}"
+    return locations
+
+
 def watch_locations(battle):
     """Follow observed storage; retain pointer words so relocation is detectable."""
     locations = {"8035a760": "global_mode_word", "802cb554": "battle_route_flags_word",

@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 
 fn controlled(mode: Control, duration: u16) -> Battle {
     let mut prepared = super::spell_charge::charged_prepared(mode, duration);
@@ -15,8 +16,6 @@ fn controlled(mode: Control, duration: u16) -> Battle {
         initial_policy: [1, 1, 1],
         defaults: [1, 1, 1],
         limits: [crate::PolicyLimits::default(); 9],
-        level: 1,
-        level_difference: 0,
     });
     prepared.finish().unwrap()
 }
@@ -25,10 +24,7 @@ fn held(guard: bool, technique: bool) -> BattleInput {
     let mut input = crate::ControlInput::neutral(ActorId(0));
     input.guard.held = guard;
     input.technique.held = technique;
-    BattleInput {
-        controllers: vec![input],
-        ..Default::default()
-    }
+    BattleInput::from(input)
 }
 
 fn cast_id(battle: &Battle) -> ActionId {
@@ -69,7 +65,7 @@ fn unfinished_cast_turn_holds_task_and_motion() {
             assert_eq!(battle.actors[0].position, position);
             assert_eq!(battle.actors[0].movement.forward, 3.);
             assert_eq!(battle.actors[0].tp, tp);
-            assert_eq!(battle.technique_uses(ActorId(0), 66), Some(49));
+            assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(49));
             assert!(
                 !frame
                     .cues
@@ -166,7 +162,7 @@ fn airborne_actors_cannot_start_casts_but_existing_casts_can_continue_without_tu
                 crate::ActionExecution::Casting(_)
             )
     }));
-    assert_eq!(fresh.technique_uses(ActorId(0), 66), Some(49));
+    assert_eq!(fresh.technique_uses(ActorId(0), TechniqueId(66)), Some(49));
 
     for airborne in [false, true] {
         let mut battle = controlled(Control::Manual, 8);
@@ -201,7 +197,7 @@ fn ready_release_waits_for_facing_before_queue_retirement_and_use() {
                 break;
             }
             assert_eq!(battle.pending_technique(ActorId(0)), Some(CAST));
-            assert_eq!(battle.technique_uses(ActorId(0), 66), Some(49));
+            assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(49));
             assert_eq!(battle.actors[0].tp, tp);
         }
         assert_eq!(battle.actors[0].heading, 90., "turn must complete");
@@ -212,7 +208,7 @@ fn ready_release_waits_for_facing_before_queue_retirement_and_use() {
         );
         battle.step(held(false, false)).unwrap();
         assert_eq!(battle.pending_technique(ActorId(0)), None);
-        assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(50));
         assert!(battle.actors[0].tp < tp);
     }
 }

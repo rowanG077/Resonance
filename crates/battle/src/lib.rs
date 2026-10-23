@@ -1,6 +1,10 @@
 /// Maximum active party size.
 pub const PARTY_CAPACITY: usize = 4;
 
+mod character;
+pub use character::Character;
+mod difficulty;
+pub use difficulty::Difficulty;
 mod actor_common;
 mod secondary_wind;
 pub use secondary_wind::SecondaryWind;
@@ -64,7 +68,7 @@ mod technique_command;
 mod technique_uses;
 pub use technique_command::{
     ArteFamily, AssistShortcuts, PreparedTechnique, RegalArteFamily, TechniqueCapabilities,
-    TechniqueTarget,
+    TechniqueId, TechniqueTarget,
 };
 mod attack;
 mod body_push;
@@ -111,9 +115,9 @@ mod target;
 mod taunt;
 mod unison;
 pub use unison::{
-    UnisonArte, UnisonCombination, UnisonCombinationFrame, UnisonCompletion, UnisonDefinition,
-    UnisonFeedback, UnisonFrame, UnisonInput, UnisonMember, UnisonPhase, UnisonPlacement,
-    UnisonPrelude, UnisonRecipe, UnisonRole,
+    UnisonArte, UnisonArteId, UnisonCombination, UnisonCombinationFrame, UnisonCompletion,
+    UnisonDefinition, UnisonFeedback, UnisonFrame, UnisonInput, UnisonMember, UnisonPhase,
+    UnisonPlacement, UnisonPrelude, UnisonRecipe, UnisonRecipeId, UnisonRole,
 };
 mod tp;
 pub use taunt::MAX_UNISON_GAUGE;
@@ -128,8 +132,9 @@ pub use casting::{
     CastingState, CastingThreat, CastingTraits,
 };
 pub use control::{
-    ButtonInput, ControlDefinition, ControlInput, ControlMotions, Locomotion, NormalAttack,
-    NormalControl, ShortcutEdit, direction_from_heading, project_screen_point, project_screen_x,
+    ButtonInput, ControlDefinition, ControlInput, ControlMotions, ControllerPort, Locomotion,
+    NormalAttack, NormalControl, ShortcutEdit, ShortcutSlot, direction_from_heading,
+    project_screen_point, project_screen_x,
 };
 pub use damage::{
     Affinity, AttackElements, CombatAdjustments, CombatStats, DamageKind, DamageTraits, Element,
@@ -140,7 +145,9 @@ pub use decision::{DecisionDefinition, EntryChoice};
 pub use defense_system::{DefenseArm, DefenseSystemDefinition};
 #[cfg(feature = "test-support")]
 pub use enemy_decision::FixtureEnemyChainInput;
-pub use enemy_decision::{EnemyChoice, EnemyDecisionDefinition, EnemyRequirements};
+pub use enemy_decision::{
+    EnemyChoice, EnemyChoiceId, EnemyDecisionDefinition, EnemyId, EnemyRequirements,
+};
 pub use geometry::{Body, Collider, HitShape};
 pub use guard::{Activity, Control, Guard, GuardKind, GuardResult, GuardRule};
 pub use knockdown::{HitProtection, Protection, ProtectionMode, Stagger};
@@ -151,7 +158,7 @@ pub use model::{
     MainMotionObservation, ModelDefinition, ModelFrame, ModelMaterial, ModelRequest, ModelSample,
     ModelSampler, Models, MotionBinding, Playback, Pose, PreparedEffectModel, ReactionMotions,
     ShadowDefinition, WeaponDefinition, WeaponFrame, WeaponLayerDefinition, WeaponPlayback,
-    WeaponTextureAnimation,
+    WeaponSlot, WeaponTextureAnimation,
 };
 #[cfg(feature = "test-support")]
 pub use movement::FixtureMotion;
@@ -163,7 +170,7 @@ pub use particle::{
 };
 pub use prepare::{
     ActionDefinition, ActionDefinitions, ActionExecution, ActionKey, ActorSetup, PreparedBattle,
-    Sound,
+    ResourceId, Sound,
 };
 pub use projectile::{
     EffectAppearance, ProjectileBoneDirection, ProjectileContact, ProjectileContactFeedback,

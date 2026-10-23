@@ -1,5 +1,5 @@
 //! Health stages retain their choices and capability changes after healing.
-use crate::{ActorId, Battle, EnemyBehavior, ModelRequest};
+use crate::{ActorId, Battle, EnemyBehavior, EnemyChoiceId, ModelRequest};
 use anyhow::Result;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -11,7 +11,7 @@ pub(crate) enum State {
 }
 
 impl Battle {
-    pub(crate) fn enemy_behavior_allows_choice(&self, owner: ActorId, row: usize) -> bool {
+    pub(crate) fn enemy_behavior_allows_choice(&self, owner: ActorId, row: EnemyChoiceId) -> bool {
         let Some(decision) = &self.prepared.actor_setup[owner.index()].enemy_decision else {
             return true;
         };
@@ -34,7 +34,7 @@ impl Battle {
             Some(EnemyBehavior::ReplaceWeapon {
                 disabled_action, ..
             }) => {
-                return !runtime.weapon_replaced || row != usize::from(*disabled_action);
+                return !runtime.weapon_replaced || row != *disabled_action;
             }
             _ => return true,
         };
@@ -43,7 +43,7 @@ impl Battle {
         } else {
             initial_actions
         };
-        usize::from(actions.start) <= row && row < usize::from(actions.end)
+        actions.contains(&row)
     }
 
     /// Called with ordinary actor updates, after scene and hit-stop gates.
@@ -113,7 +113,7 @@ impl Battle {
                 movement.flying = true;
                 movement.hover_height = *hover_height;
                 movement.reset_hover();
-                self.refresh_enemy_choice(ActorId(index as u8))?;
+                self.refresh_enemy_choice(ActorId(index as u8));
             }
             _ => {}
         }
@@ -147,8 +147,8 @@ mod tests {
             .behavior = Some(EnemyBehavior::HealthStage {
             hp_percent: 25,
             initial_station: station,
-            initial_actions: 0..1,
-            final_actions: 1..2,
+            initial_actions: EnemyChoiceId(0)..EnemyChoiceId(1),
+            final_actions: EnemyChoiceId(1)..EnemyChoiceId(2),
         });
         let prepared = crate::PreparedBattle::new(
             prepared
@@ -205,13 +205,13 @@ mod tests {
                     position: [850., 0., 0.],
                     heading: -90.,
                 },
-                initial_actions: 0..1,
-                final_actions: 1..2,
+                initial_actions: EnemyChoiceId(0)..EnemyChoiceId(1),
+                final_actions: EnemyChoiceId(1)..EnemyChoiceId(2),
             });
             let mut battle = prepared.finish()?;
             battle.advance_enemy_transformation(owner.index())?;
-            assert!(battle.enemy_behavior_allows_choice(owner, 0));
-            assert!(!battle.enemy_behavior_allows_choice(owner, 1));
+            assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
+            assert!(!battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(1)));
             assert!(battle.actors[owner.index()].movement.turning_disabled);
             assert_eq!(battle.actors[owner.index()].position, [850., 0., 0.]);
             assert_eq!(battle.actors[owner.index()].heading, -90.);
@@ -232,8 +232,8 @@ mod tests {
                 battle.runtime[owner.index()].task().action().unwrap().0,
                 &action
             );
-            assert!(!battle.enemy_behavior_allows_choice(owner, 0));
-            assert!(battle.enemy_behavior_allows_choice(owner, 1));
+            assert!(!battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
+            assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(1)));
             let actor = &battle.actors[owner.index()];
             assert!(!actor.movement.turning_disabled);
             assert!(!actor.movement.steering.push_immovable);
@@ -244,8 +244,8 @@ mod tests {
             battle.advance_enemy_transformation(owner.index())?;
             battle.advance_enemy_behavior(owner.index(), false)?;
             assert_eq!(battle.actors[owner.index()].position, [200., 0., 30.]);
-            assert!(!battle.enemy_behavior_allows_choice(owner, 0));
-            assert!(battle.enemy_behavior_allows_choice(owner, 1));
+            assert!(!battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
+            assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(1)));
         }
         Ok(())
     }
@@ -276,11 +276,11 @@ mod tests {
                 airborne_walk_speed: 6.5,
                 airborne_motions: vec![(0, Some(1))],
                 hover_height: 25.,
-                initial_actions: 0..1,
-                final_actions: 1..2,
+                initial_actions: EnemyChoiceId(0)..EnemyChoiceId(1),
+                final_actions: EnemyChoiceId(1)..EnemyChoiceId(2),
             });
             let mut battle = prepared.finish()?;
-            assert_eq!(battle.choose_enemy_action(owner)?, Some(0));
+            assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(0)));
             if running {
                 battle.start_admitted_action(
                     ActionRequest {
@@ -310,13 +310,13 @@ mod tests {
                 .collect();
             assert_eq!(scales, vec![vec![(0, [0.; 3])], vec![(0, [1.; 3])]]);
             assert!(!battle.actors[owner.index()].movement.flying);
-            assert!(battle.enemy_behavior_allows_choice(owner, 0));
+            assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
 
             battle.advance_enemy_transformation(owner.index())?;
             assert!(battle.actors[owner.index()].movement.flying);
             assert_eq!(battle.actors[owner.index()].movement.hover_height, 25.);
-            assert!(!battle.enemy_behavior_allows_choice(owner, 0));
-            assert!(battle.enemy_behavior_allows_choice(owner, 1));
+            assert!(!battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
+            assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(1)));
             if running {
                 assert_eq!(battle.activity(owner), Activity::Action);
             } else {
@@ -326,7 +326,7 @@ mod tests {
 
             battle.actors[owner.index()].hp = 100;
             battle.advance_enemy_transformation(owner.index())?;
-            assert_eq!(battle.choose_enemy_action(owner)?, Some(1));
+            assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(1)));
             assert!(battle.actors[owner.index()].movement.flying);
             assert_eq!(battle.runtime[owner.index()].enemy_walk_override, Some(6.5));
         }

@@ -11,7 +11,7 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
     bank: &EffectResource,
     resources: &mut Resources<'_, S>,
 ) -> Result<resonance_battle::PreparedAttack> {
-    let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+    let recoil = resources.recoil;
     let mut model = actor.model.clone();
     for weapon in &actor.temporary_weapons {
         model.weapons.retain(|old| old.slot != weapon.slot);
@@ -26,14 +26,11 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
     };
     let mut events = vec![(0, AttackEvent::Braking(0.55))];
     if let Some(member) = source.effect {
-        effect(bank, member, resources)?;
+        let appearance = resources.prepared.effect_member(bank, member)?;
         events.push((
             0,
             AttackEvent::ActionEffect {
-                appearance: EffectAppearance {
-                    resource: bank.resource,
-                    member,
-                },
+                appearance,
                 origin: resonance_battle::AttackOrigin::ActorRoot,
             },
         ));
@@ -45,16 +42,12 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
                 AttackEvent::Pose(pose)
             }
             Event::Contact(contact) => {
-                let mut hit = crate::battle::hit::authored(&contact.hit, &recoil)?;
+                let mut hit = crate::battle::hit::authored(&contact.hit, recoil)?;
                 if let Some(sound) = contact.hit.sound {
                     hit.sound = (resources.sound)(Sound::Cue(sound))?;
                 }
                 if let Some(member) = contact.hit.effect {
-                    effect(bank, member, resources)?;
-                    hit.effect = Some(EffectAppearance {
-                        resource: bank.resource,
-                        member,
-                    });
+                    hit.effect = Some(resources.prepared.effect_member(bank, member)?);
                 }
                 let volume = if matches!(contact.attachments, ContactAttachments::BodyCenter {}) {
                     resonance_battle::MeleeVolume::BodyCenter {
@@ -79,35 +72,6 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
                     duration: contact.duration,
                 }
             }
-            Event::Forward(value) => AttackEvent::Move {
-                forward: Some(*value),
-                vertical: None,
-            },
-            Event::Vertical(value) => AttackEvent::Move {
-                forward: None,
-                vertical: Some(*value),
-            },
-            Event::Gravity(value) => AttackEvent::Gravity(*value),
-            Event::AnimationRate(value) => AttackEvent::AnimationRate(*value),
-            Event::CameraDistance { distance, duration } => AttackEvent::CameraDistance {
-                distance: *distance,
-                duration: *duration,
-            },
-            Event::Turn(value) => AttackEvent::Turn(*value),
-            Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
-            Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {
-                enabled: *enabled,
-                duration: *duration,
-            },
-            Event::Braking(value) => AttackEvent::Braking(*value),
-            Event::PassThrough(value) => AttackEvent::PassThrough {
-                enabled: *value,
-                duration: 0,
-            },
-            Event::Trail { slot, duration } => AttackEvent::Trail {
-                slot: *slot,
-                duration: *duration,
-            },
             Event::Sound(sound) => AttackEvent::Sound((resources.sound)(Sound::Cue(*sound))?),
             Event::Voice(sound) => {
                 let Some(sound) = resources.voices.absolute(
@@ -123,22 +87,14 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
                     priority: resonance_battle::VoicePriority::Action,
                 }
             }
-            Event::WeaponVisibility { slot, visible } => {
-                AttackEvent::WeaponVisibility(vec![(*slot, *visible)])
-            }
-            Event::Effect(member) => {
-                effect(bank, *member, resources)?;
-                AttackEvent::ActionEffect {
-                    appearance: EffectAppearance {
-                        resource: bank.resource,
-                        member: *member,
-                    },
-                    origin: resonance_battle::AttackOrigin::ActorRoot,
-                }
-            }
+            Event::Effect(member) => AttackEvent::ActionEffect {
+                appearance: resources.prepared.effect_member(bank, *member)?,
+                origin: resonance_battle::AttackOrigin::ActorRoot,
+            },
             Event::Throw { .. } | Event::Projectile { .. } => {
                 anyhow::bail!("unsupported combination participant emission")
             }
+            other => crate::battle::normal::movement_event(other)?,
         };
         events.push((at, event));
     }
@@ -164,12 +120,9 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
     }
     events.sort_by_key(|(at, _)| *at);
     Ok(resonance_battle::PreparedAttack {
-        contact_recovery: None,
-        opening: None,
         events,
-        chain_at: None,
-        end_at: source.duration,
         recovery: source.recovery,
+        ..resonance_battle::PreparedAttack::new(source.duration)
     })
 }
 
@@ -300,16 +253,6 @@ fn prepare_pose(
     }))
 }
 
-pub(super) fn effect<S: FnMut(Sound) -> Result<Option<Sound>>>(
-    bank: &EffectResource,
-    member: u16,
-    resources: &mut Resources<'_, S>,
-) -> Result<()> {
-    let mut request = bank.clone();
-    request.members = vec![member];
-    resources.prepared.effect(request)
-}
-
 /// Callback clocks pause for each admitted pose blend, like the action tracks.
 pub(super) fn elapsed(
     source: &resonance_content::battle_martial::Attack,
@@ -350,7 +293,10 @@ mod tests {
         let nulls = BTreeSet::from([46, 100]);
         assert!(prepare_pose(pose, None, &nulls)?.is_none());
         assert!(prepare_pose(pose, None, &BTreeSet::new()).is_err());
-        let motion = resonance_battle::MotionBinding { model: 1, clip: 46 };
+        let motion = resonance_battle::MotionBinding {
+            model: resonance_battle::ResourceId(1),
+            clip: 46,
+        };
         assert!(prepare_pose(pose, Some(motion), &nulls).is_err());
         assert_eq!(
             prepare_pose(pose, Some(motion), &BTreeSet::new())?

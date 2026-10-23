@@ -17,7 +17,10 @@ fn prepared_melee_techniques_make_contact_and_complete() -> Result<()> {
         let (mut battle, owner) = encounter(character, &[catalogue], true)?;
         assert!(battle.actors()[owner.index()].overlimit.is_active());
         battle.set_control_mode(owner, resonance_battle::Control::SemiAuto)?;
-        let action = battle.prepared_technique(owner, catalogue).unwrap().action;
+        let action = battle
+            .prepared_technique(owner, resonance_battle::TechniqueId(catalogue))
+            .unwrap()
+            .action;
         let mut handle = None;
         let mut contact = false;
         let mut completed = false;
@@ -27,10 +30,7 @@ fn prepared_melee_techniques_make_contact_and_complete() -> Result<()> {
             let mut control = ControlInput::neutral(owner);
             control.technique.pressed = tick == 0;
             control.technique.held = tick == 0;
-            let frame = battle.step(BattleInput {
-                controllers: vec![control],
-                ..Default::default()
-            })?;
+            let frame = battle.step(BattleInput::from(control))?;
             for cue in frame.cues {
                 match cue {
                     Cue::Started {
@@ -76,7 +76,10 @@ fn prepared_melee_techniques_make_contact_and_complete() -> Result<()> {
                     .contains(Condition::DefenseDown)
             );
         }
-        assert_eq!(battle.technique_uses(owner, catalogue), Some(1));
+        assert_eq!(
+            battle.technique_uses(owner, resonance_battle::TechniqueId(catalogue)),
+            Some(1)
+        );
         assert!(!battle.is_diagnostic());
     }
     Ok(())

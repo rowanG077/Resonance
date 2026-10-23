@@ -6,6 +6,7 @@ mod placement;
 mod preparation;
 mod render;
 pub(crate) mod resources;
+use super::party::Character;
 use anyhow::{Context, Result, ensure};
 pub use preparation::{PrepareOptions, PreparedEnemyMember, PreparedPartyMember};
 pub use render::{
@@ -35,7 +36,7 @@ pub struct Prepared {
     pub ambient_effect: Option<(resonance_battle::EffectAppearance, u16)>,
     pub passive_effects: Vec<resonance_battle::PassiveEffect>,
     pub trails: Vec<RenderTrail>,
-    pub characters: Vec<u8>,
+    pub characters: Vec<Character>,
     pub music: u16,
     pub results: super::results::Setup,
 }

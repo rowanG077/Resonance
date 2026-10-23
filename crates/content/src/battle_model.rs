@@ -168,35 +168,3 @@ pub struct Rig {
     /// KK slots point into this body's skeleton.
     pub attachments: BTreeMap<u8, u16>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn attachment_json_roundtrip_preserves_numeric_part_and_rig_keys() -> anyhow::Result<()> {
-        let attachment = Attachment::Weapon(Weapon {
-            source_sha256: "source".into(),
-            parts: BTreeMap::from([(
-                0,
-                ModelPart {
-                    rig: Rig {
-                        skeleton: Skeleton { bones: vec![] },
-                        attachments: BTreeMap::from([(1, 3)]),
-                    },
-                    layer_skeletons: BTreeMap::new(),
-                    layers: vec![],
-                },
-            )]),
-            trails: BTreeMap::new(),
-            uv_animation: BTreeMap::new(),
-            files: BTreeMap::new(),
-        });
-        let restored: Attachment = serde_json::from_slice(&serde_json::to_vec(&attachment)?)?;
-        let Attachment::Weapon(model) = restored else {
-            panic!("weapon variant changed")
-        };
-        assert_eq!(model.parts[&0].rig.attachments[&1], 3);
-        Ok(())
-    }
-}

@@ -1,6 +1,6 @@
 //! Bind selected effect timelines to shared particle and audio resources.
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{EffectBank, EffectDefinition, ParticleDefinition, Sound};
+use resonance_battle::{EffectBank, EffectDefinition, ParticleDefinition, ResourceId, Sound};
 use resonance_content::{
     battle_effect::{EffectOperation, SourceBank, TINTS_PATH, Tints, declaration::Declaration},
     diagnostics::Diagnostics,
@@ -53,7 +53,8 @@ pub(super) fn validate_owner(
                         .weapons
                         .iter()
                         .find(|weapon| {
-                            u16::from(weapon.slot) == member && weapon.effect_interval.is_some()
+                            weapon.slot.is_some_and(|slot| u16::from(slot.0) == member)
+                                && weapon.effect_interval.is_some()
                         })
                         .map_or(model.skeleton.bones.len(), |weapon| weapon.bone_count());
                     ensure!(
@@ -70,7 +71,7 @@ pub(super) fn validate_owner(
 
 pub fn prepare(
     source: &SourceBank,
-    resource: u32,
+    resource: ResourceId,
     members: &[u16],
     models: BTreeMap<u8, resonance_battle::PreparedEffectModel>,
     sound: &mut impl FnMut(u16) -> Result<Option<Sound>>,
@@ -158,7 +159,7 @@ mod tests {
         let diagnostics = Diagnostics::default();
         let bank = prepare(
             &source,
-            77,
+            ResourceId(77),
             &[0, 1, 2, 2],
             BTreeMap::new(),
             &mut |_| Ok(None),
@@ -171,7 +172,7 @@ mod tests {
         assert!(
             prepare(
                 &source,
-                77,
+                ResourceId(77),
                 &[1],
                 BTreeMap::new(),
                 &mut |_| unreachable!(),

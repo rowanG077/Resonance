@@ -1,12 +1,12 @@
 use super::*;
-use resonance_battle::{Activity, BattlePhase, ButtonInput, ContactSource, ControlInput, Cue};
+use resonance_battle::TechniqueId;
+use resonance_battle::{
+    Activity, BattlePhase, ButtonInput, Character, ContactSource, ControlInput, Cue,
+};
 use resonance_content::{
     diagnostics::Diagnostics, menu_data::MenuData, prepared::Cache, session::SessionData,
 };
-use resonance_events::{
-    battle::{DefeatPolicy, Setup},
-    party::Party,
-};
+use resonance_events::{battle::DefeatPolicy, party::Party};
 use resonance_game::battle::encounter::{Assets, PrepareOptions, Prepared};
 
 pub(super) struct ColdEncounter {
@@ -49,24 +49,10 @@ impl ColdEncounter {
             &self.menus,
             &self.session,
             party,
-            Setup {
-                route: [0; 5],
-                encounter: resonance_events::battle::Encounter::Formation(formation),
-                arena: 13,
-                defeat: DefeatPolicy::GameOver,
-                music: None,
-            },
+            opening_setup(formation, DefeatPolicy::GameOver),
             PrepareOptions {
-                hunting_symbol: None,
-                event_flags: Default::default(),
-                devils_arms_unlocked: false,
-                victory_story_flags: [false; 2],
-                random_seed: 0x2345,
-                map: 332,
-                world_music: 0,
                 story: self.story,
-                colette_state: 0,
-                overlimit_boost: false,
+                ..opening_options(0x2345)
             },
             &mut self.cache,
             || false,
@@ -133,6 +119,7 @@ fn all_costumes_prepare_bodies_actions_and_celebrations() -> Result<()> {
                         .iter()
                         .any(|part| part.scene.mesh == body.parts[0].mesh)
                 }));
+                let character = Character::try_from(character)?;
                 assert_eq!(
                     prepared
                         .results
@@ -208,7 +195,9 @@ fn volt_body_and_corona_animate_in_prepared_encounter() -> Result<()> {
         let corona = frame
             .weapons
             .iter()
-            .find(|model| model.owner == owner && model.slot == 0)
+            .find(|model| {
+                model.owner == owner && model.slot == Some(resonance_battle::WeaponSlot(0))
+            })
             .context("missing Volt corona pose")?;
         assert!(body.visible && corona.visible);
         assert_eq!(corona.clip, Some(0));
@@ -266,7 +255,14 @@ fn prepare(fixture: &mut ColdEncounter, formation: &[u8], controls: [u8; 4]) -> 
         member.recent_compound_ex_skills.clear();
     }
     let (_, prepared) = fixture.prepare(&party)?;
-    assert_eq!(prepared.characters, formation);
+    assert_eq!(
+        prepared.characters,
+        formation
+            .iter()
+            .copied()
+            .map(Character::try_from)
+            .collect::<Result<Vec<_>>>()?
+    );
     Ok(prepared)
 }
 
@@ -312,10 +308,10 @@ fn mixed_parties_prepare_spells_and_audio() -> Result<()> {
         let (assets, prepared) = fixture.prepare(&party)?;
         for (index, &character) in prepared.characters.iter().enumerate() {
             let traits = prepared.core.actors()[index].equipment.reaction_ex;
-            if character == 2 {
+            if character == Character::Colette {
                 assert!(traits.reflect_damage);
             }
-            if character == 4 {
+            if character == Character::Raine {
                 assert!(traits.aid_revenge);
             }
         }
@@ -378,8 +374,10 @@ fn learned_ray_thrust_uses_its_prepared_projectile_and_feedback() -> Result<()> 
         resonance_battle::BattleClock::Running
     );
     const RAY_THRUST: u16 = 35;
-    let action = battle.record_technique_acquisition(owner, RAY_THRUST)?;
-    battle.prepare_shortcut(owner, 0, Some(action))?.commit();
+    let action = battle.record_technique_acquisition(owner, TechniqueId(RAY_THRUST))?;
+    battle
+        .prepare_shortcut(owner, resonance_battle::ShortcutSlot::Neutral, Some(action))?
+        .commit();
     let mut requested = false;
     let mut projectile = None;
     let mut ring_birth = false;
@@ -394,10 +392,7 @@ fn learned_ray_thrust_uses_its_prepared_projectile_and_feedback() -> Result<()> 
             held: attack,
             released: false,
         };
-        let frame = battle.step(BattleInput {
-            controllers: vec![control],
-            ..Default::default()
-        })?;
+        let frame = battle.step(BattleInput::from(control))?;
         for cue in &frame.cues {
             match cue {
                 Cue::ProjectileStarted {
@@ -458,7 +453,12 @@ fn both_arte_paths_learn_the_missing_branch_on_use() -> Result<()> {
         let (_, prepared) = fixture.prepare_formation(&party, 1)?;
         let owner = prepared.results.actors[0].0;
         let mut battle = live(prepared.core);
-        assert!(!battle.current_techniques(owner).unwrap().contains(&missing));
+        assert!(
+            !battle
+                .current_techniques(owner)
+                .unwrap()
+                .contains(&TechniqueId(missing))
+        );
         enter_battle(&mut battle)?;
         let enemy = battle
             .actor_ids()
@@ -468,7 +468,10 @@ fn both_arte_paths_learn_the_missing_branch_on_use() -> Result<()> {
         battle.set_actor_vitals(owner, 500, 10000, 999, 999)?;
         let [x, y, z] = battle.actors()[enemy.index()].position;
         battle.restore_fixture_placement(owner, [x - 80., y, z], Some(90.))?;
-        let action = battle.prepared_technique(owner, base).unwrap().action;
+        let action = battle
+            .prepared_technique(owner, TechniqueId(base))
+            .unwrap()
+            .action;
         for tick in 0..600 {
             let mut frame = battle.step(BattleInput {
                 actions: if tick == 0 {
@@ -484,17 +487,21 @@ fn both_arte_paths_learn_the_missing_branch_on_use() -> Result<()> {
             })?;
             let clock = frame.clock;
             battle.advance_models(&mut frame, clock, false)?;
-            if battle.current_techniques(owner).unwrap().contains(&missing) {
+            if battle
+                .current_techniques(owner)
+                .unwrap()
+                .contains(&TechniqueId(missing))
+            {
                 break;
             }
         }
         let learned = battle.current_techniques(owner).unwrap();
-        assert!(learned.contains(&known));
+        assert!(learned.contains(&TechniqueId(known)));
         assert!(
-            learned.contains(&missing),
+            learned.contains(&TechniqueId(missing)),
             "character {character} did not learn {missing}"
         );
-        assert_eq!(battle.technique_uses(owner, base), Some(201));
+        assert_eq!(battle.technique_uses(owner, TechniqueId(base)), Some(201));
         assert!(!battle.is_diagnostic());
     }
     Ok(())
@@ -612,10 +619,7 @@ fn elemental_variants_execute_from_equipment_and_permanent_learning() -> Result<
                 let mut control = ControlInput::neutral(owner);
                 control.stick = [0, 127];
                 control.guard.held = true;
-                let mut frame = battle.step(BattleInput {
-                    controllers: vec![control],
-                    ..Default::default()
-                })?;
+                let mut frame = battle.step(BattleInput::from(control))?;
                 let clock = frame.clock;
                 battle.advance_models(&mut frame, clock, false)?;
                 effects.advance(&frame, false)?;
@@ -623,7 +627,7 @@ fn elemental_variants_execute_from_equipment_and_permanent_learning() -> Result<
             assert!(battle.actors()[owner.index()].position[1] > 30.);
         }
         let action = battle
-            .prepared_technique(owner, variant.id)
+            .prepared_technique(owner, TechniqueId(variant.id))
             .context("learned elemental arte was not prepared")?
             .action;
         let mut handle = None;
@@ -634,10 +638,7 @@ fn elemental_variants_execute_from_equipment_and_permanent_learning() -> Result<
             let mut control = ControlInput::neutral(owner);
             control.technique.pressed = tick == 0;
             control.technique.held = tick == 0;
-            let mut frame = battle.step(BattleInput {
-                controllers: vec![control],
-                ..Default::default()
-            })?;
+            let mut frame = battle.step(BattleInput::from(control))?;
             let clock = frame.clock;
             battle.advance_models(&mut frame, clock, false)?;
             effects.advance(&frame, false)?;
@@ -682,9 +683,12 @@ fn elemental_variants_execute_from_equipment_and_permanent_learning() -> Result<
             assert!(phoenix_effect && landing_sound);
             assert!(battle.actors()[enemy.index()].hp < 20000);
         }
-        assert_eq!(battle.technique_uses(owner, variant.id), Some(1));
         assert_eq!(
-            battle.technique_uses(owner, variant.base),
+            battle.technique_uses(owner, TechniqueId(variant.id)),
+            Some(1)
+        );
+        assert_eq!(
+            battle.technique_uses(owner, TechniqueId(variant.base)),
             Some(if learned { 207 } else { 208 })
         );
         assert!(!assets.files.diagnostics().has_errors());
@@ -865,7 +869,7 @@ fn execute_combination(
             selected += 1;
             Some(UnisonInput::Select {
                 pressed_slots: 1 << slot,
-                shortcut: 0,
+                shortcut: resonance_battle::ShortcutSlot::Neutral,
             })
         } else {
             None
@@ -908,7 +912,7 @@ fn execute_combination(
         }
     }
     anyhow::ensure!(
-        matches!(battle.last_unison_completion(), Some(UnisonCompletion::CombinationExecuted { id, native_id, .. }) if *id == row.id && *native_id == row.native_id),
+        matches!(battle.last_unison_completion(), Some(UnisonCompletion::CombinationExecuted { id, native_id, .. }) if *id == resonance_battle::UnisonRecipeId(row.id) && *native_id == resonance_battle::UnisonArteId(row.native_id)),
         "completion {:?}",
         battle.last_unison_completion()
     );

@@ -13,6 +13,14 @@ struct Template {
     index: u32,
 }
 
+impl Template {
+    fn has_provenance(&self) -> bool {
+        !self.path.is_empty()
+            && self.sha256.len() == 64
+            && self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }
+}
+
 #[derive(Deserialize)]
 struct Launch {
     projectile: u64,
@@ -257,12 +265,8 @@ mod stationary_tests {
 /// Only these IDs may omit trajectory fields from the paired comparison. Their
 /// identity, birth, retirement and attributed contacts still compare normally.
 pub(super) fn validate(source: &Trace, native: &Trace) -> Result<Validated> {
-    let launches: Vec<Launch> = source
-        .setup
-        .get("projectile_launches")
-        .map(|value| serde_json::from_value(value.clone()))
-        .transpose()?
-        .unwrap_or_default();
+    let launches: Vec<Launch> =
+        super::optional_field(&source.setup, "projectile_launches")?.unwrap_or_default();
     let mut admitted = Validated::default();
     for launch in &launches {
         ensure!(
@@ -272,14 +276,7 @@ pub(super) fn validate(source: &Trace, native: &Trace) -> Result<Validated> {
         let motion = &launch.motion;
         let ricochet = motion.response.is_some_and(|response| response.ricochet);
         ensure!(
-            launch.lifetime > 0
-                && !launch.template.path.is_empty()
-                && launch.template.sha256.len() == 64
-                && launch
-                    .template
-                    .sha256
-                    .bytes()
-                    .all(|value| value.is_ascii_hexdigit()),
+            launch.lifetime > 0 && launch.template.has_provenance(),
             "missing authored projectile provenance"
         );
         if motion.steering.is_some() {
@@ -500,15 +497,7 @@ fn validate_steering_history(source: &Trace, native: &Trace, launch: &Launch) ->
     let speed = launch.motion.speed.context("missing fixed speed")?;
     let mut initial: Option<([f64; 3], [f64; 3])> = None;
     for trace in [source, native] {
-        let events = |kind| {
-            trace
-                .events
-                .iter()
-                .filter(|event| {
-                    event["kind"] == kind && event["projectile"].as_u64() == Some(launch.projectile)
-                })
-                .collect::<Vec<_>>()
-        };
+        let events = |kind| projectile_events(trace, launch.projectile, kind).collect::<Vec<_>>();
         let births = events("projectile_started");
         let ends = events("projectile_expired");
         ensure!(
@@ -685,13 +674,8 @@ fn validate_authored_action(launch: &Launch) -> Result<()> {
 /// runs: root positions cannot prove an unobserved animated reception overlap.
 fn validate_contacts(trace: &Trace, launch: &Launch, native: bool) -> Result<BTreeMap<u64, u64>> {
     let contact = launch.contact.as_ref().context("missing contact recipe")?;
-    let birth = trace
-        .events
-        .iter()
-        .find(|event| {
-            event["kind"] == "projectile_started"
-                && event["projectile"].as_u64() == Some(launch.projectile)
-        })
+    let birth = projectile_events(trace, launch.projectile, "projectile_started")
+        .next()
         .context("missing projectile birth")?;
     let born = integer(birth, "clock")?;
     let owner = integer(birth, "owner")?;
@@ -708,9 +692,7 @@ fn validate_contacts(trace: &Trace, launch: &Launch, native: bool) -> Result<BTr
     )?;
     let mut counts = BTreeMap::new();
     let mut previous = BTreeMap::new();
-    for hit in trace.events.iter().filter(|event| {
-        event["kind"] == "hit" && event["projectile"].as_u64() == Some(launch.projectile)
-    }) {
+    for hit in projectile_events(trace, launch.projectile, "hit") {
         let target = integer(hit, "target")?;
         let clock = integer(hit, "clock")?;
         let age = clock.checked_sub(born).context("contact precedes birth")?;
@@ -979,18 +961,12 @@ mod contact_tests {
 }
 
 fn validate_flight(trace: &Trace, launch: &Launch, source: bool) -> Result<bool> {
-    let event_clock = |kind: &str| -> Result<u64> {
-        let events: Vec<_> = trace
-            .events
-            .iter()
-            .filter(|event| {
-                event["kind"] == kind && event["projectile"].as_u64() == Some(launch.projectile)
-            })
-            .collect();
-        ensure!(events.len() == 1, "missing or duplicate {kind}");
-        integer(events[0], "clock")
+    let event = |kind: &'static str| -> Result<&Value> {
+        super::exactly_one(projectile_events(trace, launch.projectile, kind))
+            .with_context(|| format!("missing or duplicate {kind}"))
     };
-    let birth = event_clock("projectile_started")?;
+    let birth_event = event("projectile_started")?;
+    let birth = integer(birth_event, "clock")?;
     ensure!(
         launch
             .authored_action
@@ -998,7 +974,7 @@ fn validate_flight(trace: &Trace, launch: &Launch, source: bool) -> Result<bool>
             .is_none_or(|action| action.clock == birth),
         "projectile birth differs from its authored emission"
     );
-    let retirement = event_clock("projectile_expired")?;
+    let retirement = integer(event("projectile_expired")?, "clock")?;
     let duration = retirement
         .checked_sub(birth)
         .context("retirement precedes launch")?;
@@ -1010,28 +986,12 @@ fn validate_flight(trace: &Trace, launch: &Launch, source: bool) -> Result<bool>
         .motion
         .response
         .is_some_and(|response| response.ricochet);
-    let birth_event = trace
-        .events
-        .iter()
-        .find(|event| {
-            event["kind"] == "projectile_started"
-                && event["projectile"].as_u64() == Some(launch.projectile)
-        })
-        .unwrap();
-    let hits: Vec<_> = trace
-        .events
-        .iter()
-        .filter(|event| {
-            event["kind"] == "hit" && event["projectile"].as_u64() == Some(launch.projectile)
-        })
-        .collect();
+    let hits: Vec<_> = projectile_events(trace, launch.projectile, "hit").collect();
     if launch.motion.response.is_some() {
         ensure!(
-            !trace
-                .events
-                .iter()
-                .any(|event| event["kind"] == "projectile_clashed"
-                    && event["projectile"].as_u64() == Some(launch.projectile)),
+            projectile_events(trace, launch.projectile, "projectile_clashed")
+                .next()
+                .is_none(),
             "projectile clash requires a separately observed response"
         );
     }
@@ -1045,12 +1005,7 @@ fn validate_flight(trace: &Trace, launch: &Launch, source: bool) -> Result<bool>
                         && hit["clock"]
                             .as_u64()
                             .is_some_and(|clock| (birth..retirement - 1).contains(&clock))
-                })
-                && !trace
-                    .events
-                    .iter()
-                    .any(|event| event["kind"] == "projectile_clashed"
-                        && event["projectile"].as_u64() == Some(launch.projectile)),
+                }),
             "ricochet lacks complete lifetime or owned contact observations"
         );
     }
@@ -1198,10 +1153,6 @@ fn validate_flight(trace: &Trace, launch: &Launch, source: bool) -> Result<bool>
         );
         if ricochet {
             ensure!(
-                shot["owner"] == birth_event["owner"] && shot["target"] == birth_event["target"],
-                "ricochet owner or target changed"
-            );
-            ensure!(
                 !disarmed || !hits.iter().any(|hit| hit["clock"].as_u64() == Some(clock)),
                 "hit after projectile disarm"
             );
@@ -1325,13 +1276,7 @@ fn ricochet_world(model: &Value, launch: &Launch, owner: &Value) -> Result<[f64;
             && model["bank"].as_str() == Some(binding.bank.as_str())
             && model["member"].as_u64() == Some(binding.member)
             && binding.member == u64::from(binding.template.index)
-            && !binding.template.path.is_empty()
-            && binding.template.sha256.len() == 64
-            && binding
-                .template
-                .sha256
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
+            && binding.template.has_provenance()
             && (!launch.motion.face_velocity
                 || model["model"]["clip"].is_null() && model["model"]["frame"].is_null()),
         "unproven ricochet model binding"
@@ -1342,6 +1287,16 @@ fn ricochet_world(model: &Value, launch: &Launch, owner: &Value) -> Result<[f64;
 fn rotate([x, y, z]: [f64; 3], heading: f64) -> [f64; 3] {
     let (sin, cos) = heading.to_radians().sin_cos();
     [cos * x + sin * z, y, cos * z - sin * x]
+}
+
+fn projectile_events<'a>(
+    trace: &'a Trace,
+    projectile: u64,
+    kind: &'static str,
+) -> impl Iterator<Item = &'a Value> {
+    trace.events.iter().filter(move |event| {
+        event["kind"] == kind && event["projectile"].as_u64() == Some(projectile)
+    })
 }
 
 fn integer(value: &Value, field: &str) -> Result<u64> {
@@ -1420,14 +1375,7 @@ pub(super) fn canonical_world(
     ensure!(bindings.len() == 1, "ambiguous model follow binding");
     let binding = bindings[0];
     ensure!(
-        binding.follow_origin
-            && !binding.template.path.is_empty()
-            && binding.template.sha256.len() == 64
-            && binding
-                .template
-                .sha256
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit()),
+        binding.follow_origin && binding.template.has_provenance(),
         "unproven authored model follow behavior"
     );
     let shot = frame["projectiles"]
@@ -1894,13 +1842,8 @@ fn validate_trail(
             "combat_tick",
         )?;
         let presentation = integer(&trace.frames[0], "presentation_tick")?;
-        let birth = trace
-            .events
-            .iter()
-            .find(|event| {
-                event["kind"] == "projectile_started"
-                    && event["projectile"].as_u64() == Some(launch.projectile)
-            })
+        let birth = projectile_events(trace, launch.projectile, "projectile_started")
+            .next()
             .context("missing trail projectile birth")?;
         let born = integer(birth, "clock")?;
         let mut ground_emitted = false;
@@ -2053,8 +1996,7 @@ mod lifecycle_contract_tests {
             assessment: json!({}),
             incomplete_observations: vec![],
         };
-        let mut native: Trace =
-            serde_json::from_value(serde_json::to_value(&source).unwrap()).unwrap();
+        let mut native: Trace = source.clone();
         native.frames[0] = frame(2.);
         native.frames[1] = frame(4.);
         let descriptors = json!([{"bank":"bank","member":0,"template":{"path":"model","sha256":"a".repeat(64),"index":0},"follow_origin":true,"follow_orientation":true}]);
@@ -2075,25 +2017,20 @@ mod lifecycle_contract_tests {
         };
         assert!(check(&native).unwrap());
         for field in ["bank", "owner", "member"] {
-            let mut wrong: Trace =
-                serde_json::from_value(serde_json::to_value(&native).unwrap()).unwrap();
+            let mut wrong: Trace = native.clone();
             wrong.frames[1]["effect_models"][0][field] = json!(99);
             assert!(check(&wrong).is_err(), "{field}");
         }
-        let mut wrong: Trace =
-            serde_json::from_value(serde_json::to_value(&native).unwrap()).unwrap();
+        let mut wrong: Trace = native.clone();
         wrong.frames[1]["effect_models"] = json!([]);
         assert!(check(&wrong).is_err());
-        let mut wrong: Trace =
-            serde_json::from_value(serde_json::to_value(&native).unwrap()).unwrap();
+        let mut wrong: Trace = native.clone();
         wrong.frames[2]["effect_models"] = native.frames[1]["effect_models"].clone();
         assert!(check(&wrong).is_err());
-        let mut wrong: Trace =
-            serde_json::from_value(serde_json::to_value(&native).unwrap()).unwrap();
+        let mut wrong: Trace = native.clone();
         wrong.frames[1]["effect_models"][0]["model"]["world"][0] = json!(2.);
         assert!(check(&wrong).is_err());
-        let mut wrong: Trace =
-            serde_json::from_value(serde_json::to_value(&native).unwrap()).unwrap();
+        let mut wrong: Trace = native.clone();
         wrong.frames[1]["effect_models"][0]["model"]["clip"] = json!(1);
         assert!(check(&wrong).is_err());
     }

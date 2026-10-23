@@ -1,7 +1,7 @@
 //! Scene events sample the prepared battle artwork without changing combat playback.
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
-    Actor, ActorId, Battle, BattleFrame, ModelDefinition, ModelSample, ModelSampler,
+    Actor, ActorId, Battle, BattleFrame, Character, ModelDefinition, ModelSample, ModelSampler,
 };
 use resonance_content::{
     animation::Motion, battle_event::Scene, model_preview::PreviewPart, prepared::Files,
@@ -47,7 +47,7 @@ impl State {
         files: &Files,
         scenes: &[Arc<Scene>],
         core: &Battle,
-        characters: &[u8],
+        characters: &[Character],
         render: &mut Vec<RenderModel>,
     ) -> Result<Self> {
         let frame = core.snapshot();
@@ -61,7 +61,7 @@ impl State {
         for alias in characters
             .iter()
             .copied()
-            .map(i32::from)
+            .map(|character| character as i32)
             .chain([BOSS_ALIAS].into_iter().chain(SOLDIER_ALIASES))
         {
             let resource = if SOLDIER_ALIASES.contains(&alias) {
@@ -80,7 +80,7 @@ impl State {
             } else {
                 characters
                     .iter()
-                    .position(|&character| i32::from(character) == alias)
+                    .position(|&character| character as i32 == alias)
                     .context("event character is not in the battle")?
             };
             let id = ActorId::from_index(slot)?;
@@ -107,10 +107,11 @@ impl State {
                 } else {
                     let resource = render
                         .iter()
-                        .map(|model| model.resource)
+                        .map(|model| model.resource.0)
                         .max()
                         .unwrap_or(0)
                         .checked_add(1)
+                        .map(resonance_battle::ResourceId)
                         .context("battle render resource overflow")?;
                     render.push(RenderModel {
                         resource,

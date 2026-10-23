@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    Activity, SpellSlot,
+    Activity, ResourceId, SpellSlot,
     tests::{actor, prepared},
 };
 use std::sync::Arc;
@@ -14,14 +14,76 @@ fn battle() -> Battle {
 }
 
 fn request() -> BattleInput {
-    BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(0),
-            action: crate::ActionKey(0),
-            target: ActorId(1),
-        }],
-        ..Default::default()
+    BattleInput::from(ActionRequest {
+        actor: ActorId(0),
+        action: crate::ActionKey(0),
+        target: ActorId(1),
+    })
+}
+
+fn volley(definition: crate::PreparedSpell, battle: &Battle) -> crate::release::Volley {
+    crate::release::Volley {
+        definition: Arc::new(definition),
+        actor: ActorId(0),
+        target: ActorId(1),
+        projectile_target: battle.actors[1].effect_origin(),
+        slot: SpellSlot::Primary,
+        age: 0,
+        origin: None,
+        effect_origin: None,
+        heading: 0.,
+        emitted: 0,
+        summon: None,
+        recipient: None,
+        cast_pose: None,
+        scene_action: None,
+        transfer_phase: Default::default(),
     }
+}
+
+fn release_primary(
+    battle: &mut Battle,
+    definition: crate::PreparedSpell,
+    actor: ActorId,
+    target: ActorId,
+) -> ActionId {
+    battle
+        .release_volley(
+            Arc::new(definition),
+            actor,
+            target,
+            SpellSlot::Primary,
+            None,
+            &mut vec![],
+        )
+        .unwrap()
+        .unwrap()
+}
+
+fn casting_action(
+    duration: u32,
+    cost: u16,
+    release: Arc<crate::PreparedSpell>,
+) -> Arc<crate::ActionDefinition> {
+    let mut action = crate::tests::cast(duration, cost);
+    let crate::ActionExecution::Casting(definition) = &mut action.execution else {
+        unreachable!()
+    };
+    let definition = Arc::make_mut(definition);
+    definition.recovery = 90;
+    definition.release = release;
+    Arc::new(action)
+}
+
+fn deferred_effects(frame: &BattleFrame) -> Vec<&crate::EffectRequest> {
+    frame
+        .cues
+        .iter()
+        .filter_map(|cue| match cue {
+            Cue::DeferredEffect(request) => Some(request),
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]
@@ -40,7 +102,7 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
         .conditions
         .apply_stat_condition(Condition::AttackDown, 10, 100, false);
     let effect = crate::EffectAppearance {
-        resource: 2,
+        resource: ResourceId(2),
         member: 1,
     };
     let mut definition = crate::tests::volley();
@@ -80,30 +142,12 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
         blessing_radius: 500.,
     }));
     definition.validate().unwrap();
-    let mut volley = crate::release::Volley {
-        transfer_phase: Default::default(),
-        definition: Arc::new(definition),
-        actor: ActorId(0),
-        target: ActorId(1),
-        projectile_target: battle.actors[1].effect_origin(),
-        slot: SpellSlot::Primary,
-        age: 0,
-        origin: None,
-        effect_origin: None,
-        heading: 0.,
-        emitted: 0,
-        summon: None,
-        recipient: None,
-        cast_pose: None,
-        scene_action: None,
-    };
+    let mut volley = volley(definition, &battle);
     let mut cues = Vec::new();
     volley.step(&mut battle, ActionId(42), &mut cues).unwrap();
-    assert!(
-        cues.iter().any(
-            |c| matches!(c, Cue::Effect(e) if e.origin == [200., 0., 100.] && e.heading == 90.)
-        )
-    );
+    assert!(cues.iter().any(
+        |c| matches!(c, Cue::DeferredEffect(e) if e.origin == [200., 0., 100.] && e.heading == 90.)
+    ));
     battle.actors[0].heading = 0.;
     battle.actors[1].position = [900., 0., 900.];
     for age in 1..=100 {
@@ -185,7 +229,7 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
                 cue,
                 Cue::ClearEffectBank {
                     actor: ActorId(0),
-                    resource: 2
+                    resource: ResourceId(2)
                 }
             ))
             .count(),
@@ -208,24 +252,7 @@ fn summon_keeps_arrival_and_heading_and_visits_each_ally_once() {
         )
         .unwrap(),
     );
-    casting.prepared.actions.entries[0] = Arc::new(crate::ActionDefinition {
-        normal: None,
-        tp_cost: 7,
-        execution: crate::ActionExecution::Casting(Arc::new(crate::CastingDefinition {
-            armor: None,
-            incantation_lead: None,
-            chant: vec![],
-            release_pose: Default::default(),
-            hide_primary_weapons: false,
-            duration: 8,
-            profile_ticks: 8,
-            spell_ticks: 0,
-            fixed_timing: false,
-            recovery: 90,
-            release: Arc::clone(&volley.definition),
-            threat: None,
-        })),
-    });
+    casting.prepared.actions.entries[0] = casting_action(8, 7, Arc::clone(&volley.definition));
     assert_eq!(
         casting.action_candidate(ActorId(0), crate::ActionKey(0), [0., 1000.]),
         Err(crate::Rejection::Unavailable)
@@ -312,7 +339,7 @@ fn stored_origins_capture_position_and_heading_before_later_placements() {
                     at: transition_ticks + 3,
                     deferred: false,
                     appearance: EffectAppearance {
-                        resource: 2,
+                        resource: ResourceId(2),
                         member: 2,
                     },
                     placement: crate::SpellEffectPlacement::Scene([0., 30., 40.]),
@@ -322,7 +349,7 @@ fn stored_origins_capture_position_and_heading_before_later_placements() {
                     at: transition_ticks + 3,
                     deferred: false,
                     appearance: EffectAppearance {
-                        resource: 2,
+                        resource: ResourceId(2),
                         member: 3,
                     },
                     placement: crate::SpellEffectPlacement::Scene([0.; 3]),
@@ -335,28 +362,12 @@ fn stored_origins_capture_position_and_heading_before_later_placements() {
             definition.startup = Some((
                 transition_ticks + 1,
                 SpellStartup::Effect(EffectAppearance {
-                    resource: 2,
+                    resource: ResourceId(2),
                     member: 1,
                 }),
             ));
             definition.validate().unwrap();
-            let mut volley = crate::release::Volley {
-                transfer_phase: Default::default(),
-                summon: None,
-                recipient: None,
-                cast_pose: None,
-                scene_action: None,
-                definition: Arc::new(definition),
-                actor: ActorId(0),
-                target: ActorId(1),
-                projectile_target: battle.actors[1].effect_origin(),
-                slot: SpellSlot::Primary,
-                age: 0,
-                origin: None,
-                effect_origin: None,
-                heading: 0.,
-                emitted: 0,
-            };
+            let mut volley = volley(definition, &battle);
             let mut cues = Vec::new();
             for _ in 0..=transition_ticks {
                 assert!(!volley.step(&mut battle, ActionId(0), &mut cues).unwrap());
@@ -443,14 +454,10 @@ fn healing_cast_pays_once_and_recovers_a_living_ally_at_its_current_position() {
             prepared.actors[index].equipment.max_hp = 1000;
         }
         let effect = crate::EffectAppearance {
-            resource: 2,
+            resource: ResourceId(2),
             member: 20,
         };
         let release = crate::PreparedSpell {
-            policy: Default::default(),
-            summon: None,
-            effects: vec![],
-            projectiles: vec![],
             recovery: vec![crate::SpellRecovery {
                 duration: 1,
                 effect_placement: Default::default(),
@@ -460,33 +467,10 @@ fn healing_cast_pays_once_and_recovers_a_living_ally_at_its_current_position() {
                 targets: crate::RecoveryTargets::Target,
                 effect: Some((effect, Default::default())),
             }],
-            origin: crate::SpellOrigin::Target,
-            transition_ticks: 0,
-            stage_tint: None,
-            camera: None,
-            duration: 90,
-            startup: None,
-            sound: None,
+            ..crate::PreparedSpell::new(crate::SpellOrigin::Target, 90)
         };
         release.validate().unwrap();
-        prepared.resources.actions.entries[0] = Arc::new(crate::ActionDefinition {
-            normal: None,
-            tp_cost: 8,
-            execution: crate::ActionExecution::Casting(Arc::new(crate::CastingDefinition {
-                armor: None,
-                incantation_lead: None,
-                chant: vec![],
-                release_pose: Default::default(),
-                hide_primary_weapons: false,
-                duration: 1,
-                profile_ticks: 1,
-                spell_ticks: 0,
-                fixed_timing: false,
-                recovery: 90,
-                release: Arc::new(release),
-                threat: None,
-            })),
-        });
+        prepared.resources.actions.entries[0] = casting_action(1, 8, Arc::new(release));
         let mut battle = prepared.finish().unwrap();
         let tp = battle.actors[0].tp;
         let enemy_hp = battle.actors[1].hp;
@@ -519,15 +503,9 @@ fn healing_cast_pays_once_and_recovers_a_living_ally_at_its_current_position() {
             }) {
                 assert!(recovered.replace(tick).is_none());
                 assert_eq!(recipient, if target_dies { ActorId(0) } else { ActorId(2) });
-                let appearance = frame
-                    .cues
-                    .iter()
-                    .find_map(|cue| match cue {
-                        Cue::DeferredEffect(request) if request.appearance == effect => {
-                            Some(request)
-                        }
-                        _ => None,
-                    })
+                let appearance = deferred_effects(&frame)
+                    .into_iter()
+                    .find(|request| request.appearance == effect)
                     .unwrap();
                 assert_eq!(appearance.owner, recipient);
                 assert_eq!(appearance.target, recipient);
@@ -568,7 +546,7 @@ fn delayed_volley_preserves_shot_spacing() {
         battle.actors[0].heading = 0.;
         battle.actors[0].body.center_offset = [0., 12., 0.];
         let trail = crate::EffectAppearance {
-            resource: 37,
+            resource: ResourceId(37),
             member: 25,
         };
         let mut volley = crate::tests::volley();
@@ -586,23 +564,13 @@ fn delayed_volley_preserves_shot_spacing() {
         if hold_ticks > 0 {
             volley.policy = crate::SpellPolicy::Cutin {
                 at: 8,
-                catalogue: 251,
+                catalogue: crate::TechniqueId(251),
                 duration: 71,
                 hold_ticks,
                 reveal: Some((12, "Holy Judgment")),
             };
         }
-        let resident = battle
-            .release_volley(
-                Arc::new(volley),
-                ActorId(0),
-                ActorId(1),
-                SpellSlot::Primary,
-                None,
-                &mut vec![],
-            )
-            .unwrap()
-            .unwrap();
+        let resident = release_primary(&mut battle, volley, ActorId(0), ActorId(1));
         let mut shots = Vec::new();
         let mut portraits = Vec::new();
         let mut reveals = Vec::new();
@@ -628,7 +596,7 @@ fn delayed_volley_preserves_shot_spacing() {
                     Cue::InitializedEffect(effect) if effect.appearance == trail && effect.origin == first.frame.position)));
             }
             if frame.cues.iter().any(
-                |cue| matches!(cue, Cue::Cutin { action, catalogue: 251, .. } if *action == resident),
+                |cue| matches!(cue, Cue::Cutin { action, catalogue: crate::TechniqueId(251), .. } if *action == resident),
             ) {
                 portraits.push(elapsed);
             }
@@ -669,17 +637,7 @@ fn target_spells_retain_the_next_update_origin_through_the_authored_duration() {
                 crate::SpellProjectile::new(2, Arc::clone(&definition.projectiles[0].definition)),
                 crate::SpellProjectile::new(4, Arc::new(second)),
             ];
-            let resident = battle
-                .release_volley(
-                    Arc::new(definition),
-                    owner,
-                    target,
-                    SpellSlot::Primary,
-                    None,
-                    &mut vec![],
-                )
-                .unwrap()
-                .unwrap();
+            let resident = release_primary(&mut battle, definition, owner, target);
             battle.step(BattleInput::default()).unwrap();
             assert!(battle.volleys[&resident].origin.is_none());
             battle.actors[target.index()].position[0] += 100.;
@@ -734,17 +692,7 @@ fn released_volley_aim_uses_the_prior_center_in_both_roster_orders() {
         projectile.motion.aim_at_target = true;
         projectile.contact = None;
         definition.projectiles = vec![crate::SpellProjectile::new(2, Arc::new(projectile))];
-        let resident = battle
-            .release_volley(
-                Arc::new(definition),
-                owner,
-                target,
-                SpellSlot::Primary,
-                None,
-                &mut vec![],
-            )
-            .unwrap()
-            .unwrap();
+        let resident = release_primary(&mut battle, definition, owner, target);
         battle.step(BattleInput::default()).unwrap();
         battle.actors[target.index()].position = [200., 0., 300.];
         battle.actors[owner.index()].hit_stop = 3;
@@ -799,21 +747,11 @@ fn following_spell_keeps_its_visual_target_and_samples_each_pulse_center() {
     definition.startup = Some((
         3,
         crate::SpellStartup::Effect(crate::EffectAppearance {
-            resource: 2,
+            resource: ResourceId(2),
             member: 1,
         }),
     ));
-    let resident = battle
-        .release_volley(
-            Arc::new(definition),
-            ActorId(0),
-            ActorId(1),
-            SpellSlot::Primary,
-            None,
-            &mut vec![],
-        )
-        .unwrap()
-        .unwrap();
+    let resident = release_primary(&mut battle, definition, ActorId(0), ActorId(1));
     let mut seen = std::collections::BTreeSet::new();
     let mut births = Vec::new();
     for elapsed in 0..=8 {
@@ -862,7 +800,10 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
     definition.stage_tint = Some(tint);
     definition.duration = 8;
     let gesture = crate::AttackPose {
-        motion: crate::MotionBinding { model: 7, clip: 80 },
+        motion: crate::MotionBinding {
+            model: ResourceId(7),
+            clip: 80,
+        },
         start: 0.,
         end: None,
         repeat: true,
@@ -879,7 +820,7 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
     definition.startup = Some((
         2,
         crate::SpellStartup::DeferredEffect(crate::EffectAppearance {
-            resource: 1,
+            resource: ResourceId(1),
             member: 1,
         }),
     ));
@@ -1110,14 +1051,10 @@ fn party_recovery_keeps_roster_models_separate_from_living_recipients() {
     battle.actors[2].availability = crate::ActorAvailability::Absent;
     battle.actors[0].heading = 90.;
     let effect = |member| crate::EffectAppearance {
-        resource: 2,
+        resource: ResourceId(2),
         member,
     };
     let definition = crate::PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
-        projectiles: vec![],
         recovery: vec![crate::SpellRecovery {
             duration: 1,
             effect_placement: Default::default(),
@@ -1127,11 +1064,7 @@ fn party_recovery_keeps_roster_models_separate_from_living_recipients() {
             targets: crate::RecoveryTargets::LivingAllies,
             effect: Some((effect(6), Default::default())),
         }],
-        origin: crate::SpellOrigin::Caster,
         transition_ticks: 60,
-        stage_tint: None,
-        camera: None,
-        duration: 313,
         startup: Some((
             61,
             crate::SpellStartup::AllyRing {
@@ -1140,19 +1073,10 @@ fn party_recovery_keeps_roster_models_separate_from_living_recipients() {
                 heading_step: 90.,
             },
         )),
-        sound: None,
+        ..crate::PreparedSpell::new(crate::SpellOrigin::Caster, 313)
     };
     definition.validate().unwrap();
-    battle
-        .release_volley(
-            Arc::new(definition),
-            ActorId(0),
-            ActorId(0),
-            SpellSlot::Primary,
-            None,
-            &mut vec![],
-        )
-        .unwrap();
+    release_primary(&mut battle, definition, ActorId(0), ActorId(0));
     battle.advance_volleys(&mut vec![], false).unwrap();
     let mut recovered = Vec::new();
     for elapsed in 1..=313 {
@@ -1228,7 +1152,7 @@ fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
     use crate::RecoveryEffectPlacement;
     use crate::conditions::{Condition, ConditionLabel, Conditions, Cure, Layers};
     let effect = crate::EffectAppearance {
-        resource: 0,
+        resource: ResourceId(0),
         member: 1,
     };
     for (benefit, placement, owner, follow, height, heading, scale) in [
@@ -1310,10 +1234,6 @@ fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
             });
         }
         let release = crate::PreparedSpell {
-            policy: Default::default(),
-            summon: None,
-            effects: vec![],
-            projectiles: vec![],
             recovery: vec![crate::SpellRecovery {
                 duration: 1,
                 effect_placement: placement,
@@ -1323,36 +1243,14 @@ fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
                 targets: crate::RecoveryTargets::Target,
                 effect: Some((effect, Default::default())),
             }],
-            origin: crate::SpellOrigin::Caster,
-            transition_ticks: 0,
-            stage_tint: None,
-            camera: None,
-            duration: 6,
-            startup: None,
-            sound: None,
+            ..crate::PreparedSpell::new(crate::SpellOrigin::Caster, 6)
         };
         release.validate().unwrap();
-        battle
-            .release_volley(
-                Arc::new(release),
-                ActorId(0),
-                ActorId(2),
-                SpellSlot::Primary,
-                None,
-                &mut vec![],
-            )
-            .unwrap();
+        release_primary(&mut battle, release, ActorId(0), ActorId(2));
         let mut benefits = 0;
         for tick in 0..=6 {
             let frame = battle.step(BattleInput::default()).unwrap();
-            let effects: Vec<_> = frame
-                .cues
-                .iter()
-                .filter_map(|cue| match cue {
-                    Cue::DeferredEffect(request) => Some(request),
-                    _ => None,
-                })
-                .collect();
+            let effects = deferred_effects(&frame);
             if tick == 3 {
                 assert_eq!(
                     effects,
@@ -1452,28 +1350,12 @@ fn support_pulses_cap_tp_apply_buffs_and_cure_petrified_recipients_once() {
     release.origin = crate::SpellOrigin::Caster;
     release.duration = 14;
     release.validate().unwrap();
-    battle
-        .release_volley(
-            Arc::new(release),
-            ActorId(0),
-            ActorId(2),
-            SpellSlot::Primary,
-            None,
-            &mut vec![],
-        )
-        .unwrap();
+    release_primary(&mut battle, release, ActorId(0), ActorId(2));
     let mut benefits = 0;
     for tick in 0..=14 {
         battle.actors[2].position[0] += 10.;
         let frame = battle.step(BattleInput::default()).unwrap();
-        let effects: Vec<_> = frame
-            .cues
-            .iter()
-            .filter_map(|cue| match cue {
-                Cue::DeferredEffect(request) => Some(request),
-                _ => None,
-            })
-            .collect();
+        let effects = deferred_effects(&frame);
         if (1..=9).contains(&tick) {
             assert_eq!(effects.len(), 1);
             let expected = if tick <= 4 {

@@ -685,23 +685,26 @@ fn attached_effect_ordinals(trace: &Trace) -> Result<BTreeMap<EffectKey, u64>> {
         .collect())
 }
 
+fn event_clock(event: &Value) -> Result<(u64, u64)> {
+    Ok((
+        required(event, "clock")?
+            .as_u64()
+            .context("invalid event clock")?,
+        required(event, "presentation_clock")?
+            .as_u64()
+            .context("invalid event presentation clock")?,
+    ))
+}
+
 fn canonical_events(events: &[Value]) -> Result<Vec<Value>> {
-    let key = |event: &Value| -> Result<(u64, u64, String)> {
-        let identity = event_identity(event)?;
-        Ok((
-            required(event, "clock")?
-                .as_u64()
-                .context("invalid event clock")?,
-            required(event, "presentation_clock")?
-                .as_u64()
-                .context("invalid presentation clock")?,
-            serde_json::to_string(&identity)?,
-        ))
-    };
     let mut ordered = events
         .iter()
         .cloned()
-        .map(|event| Ok((key(&event)?, event)))
+        .map(|event| {
+            let identity = event_identity(&event)?;
+            let key = (event_clock(&event)?, serde_json::to_string(&identity)?);
+            Ok((key, event))
+        })
         .collect::<Result<Vec<_>>>()?;
     ordered.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(ordered.into_iter().map(|(_, event)| event).collect())
@@ -904,17 +907,11 @@ fn contact_events_with_projectiles(
         "attributed contact count differs"
     );
     let key = |event: &Value| -> Result<(u64, u64, u64)> {
-        Ok((
-            required(event, "owner")?
-                .as_u64()
-                .context("invalid contact owner")?,
-            required(event, "clock")?
-                .as_u64()
-                .context("invalid contact clock")?,
-            required(event, "presentation_clock")?
-                .as_u64()
-                .context("invalid contact presentation clock")?,
-        ))
+        let owner = required(event, "owner")?
+            .as_u64()
+            .context("invalid contact owner")?;
+        let (combat, presentation) = event_clock(event)?;
+        Ok((owner, combat, presentation))
     };
     // Count simultaneous hits together; each critical hit emits its own feedback.
     let mut feedback = std::collections::BTreeMap::new();
@@ -1310,21 +1307,11 @@ fn validate_contact_outcomes(trace: &Trace, events: &[Value]) -> Result<()> {
 }
 
 fn validate_poison_pulses(trace: &Trace, events: &[Value]) -> Result<()> {
-    let clock = |event: &Value| -> Result<(u64, u64)> {
-        Ok((
-            required(event, "clock")?
-                .as_u64()
-                .context("invalid poison clock")?,
-            required(event, "presentation_clock")?
-                .as_u64()
-                .context("invalid poison presentation clock")?,
-        ))
-    };
     for pulse in events
         .iter()
         .filter(|event| event["kind"] == "poison_pulse")
     {
-        let at = clock(pulse)?;
+        let at = event_clock(pulse)?;
         let condition = required(pulse, "condition")?
             .as_str()
             .context("missing poison kind")?;
@@ -1338,7 +1325,7 @@ fn validate_poison_pulses(trace: &Trace, events: &[Value]) -> Result<()> {
             .filter(|event| {
                 event["kind"] == "condition_changed"
                     && event["target"] == pulse["target"]
-                    && clock(event).is_ok_and(|value| value < at)
+                    && event_clock(event).is_ok_and(|value| value < at)
                     && event["before"]
                         .as_array()
                         .zip(event["after"].as_array())
@@ -1347,7 +1334,7 @@ fn validate_poison_pulses(trace: &Trace, events: &[Value]) -> Result<()> {
                                 != after.iter().any(|value| value == condition)
                         })
             })
-            .max_by_key(|event| clock(event).ok())
+            .max_by_key(|event| event_clock(event).ok())
             .context("poison pulse lacks its application")?;
         ensure!(
             applied["owner"] == pulse["owner"]
@@ -1367,7 +1354,7 @@ fn validate_poison_pulses(trace: &Trace, events: &[Value]) -> Result<()> {
                     && event["owner"] == pulse["target"]
                     && event["bank"] == trace.setup["common_effect_bank"]
                     && event["program"] == 44
-                    && clock(event).ok() == Some(at))
+                    && event_clock(event).ok() == Some(at))
                 .count()
                 == 1,
             "poison pulse lacks its independent feedback emission"
@@ -1421,7 +1408,7 @@ fn validate_poison_pulses(trace: &Trace, events: &[Value]) -> Result<()> {
             .filter(|event| {
                 event["kind"] == "hit"
                     && event["target"] == pulse["target"]
-                    && clock(event).ok() == Some(at)
+                    && event_clock(event).ok() == Some(at)
             })
             .try_fold(before - amount, |hp, hit| -> Result<i64> {
                 hp.checked_add(
@@ -1546,16 +1533,6 @@ fn validate_seal_callbacks(
         .as_array()
         .filter(|attempts| !attempts.is_empty())
         .context("missing seal callback attempts")?;
-    let event_clock = |event: &Value| -> Result<(u64, u64)> {
-        Ok((
-            required(event, "clock")?
-                .as_u64()
-                .context("missing seal clock")?,
-            required(event, "presentation_clock")?
-                .as_u64()
-                .context("missing seal display clock")?,
-        ))
-    };
     let is_program = |event: &Value| {
         event["kind"] == "program_started"
             && ["owner", "bank", "program"]
@@ -1863,10 +1840,10 @@ fn optional_seals_keep_contacts_and_validate_each_feedback_lifetime() {
     let mut duplicate = trace.events.clone();
     duplicate.push(trace.events[3].clone());
     assert!(validate(&trace, &mut duplicate).is_err());
-    let mut wrong: Trace = serde_json::from_value(serde_json::to_value(&trace).unwrap()).unwrap();
+    let mut wrong: Trace = trace.clone();
     wrong.frames[10]["particles"][0]["age"] = json!(99);
     assert!(validate(&wrong, &mut trace.events.clone()).is_err());
-    wrong = serde_json::from_value(serde_json::to_value(&trace).unwrap()).unwrap();
+    wrong = trace.clone();
     wrong.frames[33]["particles"]
         .as_array_mut()
         .unwrap()
@@ -3048,8 +3025,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     hidden.frames[0]["models"].as_array_mut().unwrap().push(
         json!({"actor":2,"clip":0,"frame":2.5,"world":[1.,0.,0.,200.,0.,1.,0.,0.,0.,0.,1.,0.]}),
     );
-    let mut hidden_native: Trace =
-        serde_json::from_value(serde_json::to_value(&hidden).unwrap()).unwrap();
+    let mut hidden_native: Trace = hidden.clone();
     hidden_native.frames[0]["models"][1]["clip"] = json!(3);
     equivalent(&hidden, &hidden_native).expect("proved invisible defeated fixture pose");
     hidden.setup["ready_model_observations"][0]["status"] = json!(2);
@@ -3112,8 +3088,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     let thawed = stopped.frames.pop().unwrap();
     assert!(equivalent(&stopped, &stopped).is_err());
     stopped.frames.push(thawed);
-    let mut wrong_countdown: Trace =
-        serde_json::from_value(serde_json::to_value(&stopped).unwrap()).unwrap();
+    let mut wrong_countdown: Trace = stopped.clone();
     wrong_countdown.frames[0]["actors"][1]["time_stop"] = json!(2);
     assert!(equivalent(&stopped, &wrong_countdown).is_err());
     let mut defeated = make();
@@ -3154,8 +3129,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     later["presentation_tick"] = json!(11);
     later["combat_tick"] = json!(5);
     attached.frames.push(later);
-    let mut reordered = make();
-    reordered.frames = attached.frames.clone();
+    let mut reordered = attached.clone();
     for frame in &mut reordered.frames {
         for model in frame["effect_models"].as_array_mut().unwrap() {
             model["ordinal"] = json!(3 - model["ordinal"].as_u64().unwrap());
@@ -3321,9 +3295,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         ("first_command", json!([0, 0, 0, 0, 0, 0])),
         ("first_command", Value::Null),
     ] {
-        let mut malformed = make();
-        malformed.events = empty_program.events.clone();
-        malformed.setup = empty_program.setup.clone();
+        let mut malformed = empty_program.clone();
         malformed.setup["immediate_end_programs"][0][field] = value;
         assert!(equivalent(&malformed, &make()).is_err());
     }
@@ -3463,9 +3435,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     wrong_proof = proof.clone();
     wrong_proof["contacts"].as_array_mut().unwrap().clear();
     assert!(super::random_inputs::qualify(&observed_inputs, &wrong_proof).is_err());
-    let mut protected = make();
-    protected.setup = observed_inputs.setup.clone();
-    protected.events = observed_inputs.events.clone();
+    let mut protected = observed_inputs.clone();
     protected.setup["contact_stun"]
         .as_array_mut()
         .unwrap()
@@ -3501,8 +3471,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     assert!(equivalent(&debuffed, &debuffed).is_ok());
     assert!(owned_harmful_condition(&debuffed.events[3], &debuffed.setup, &json!(1)).unwrap());
     for field in ["owner", "target", "action"] {
-        let mut wrong = make();
-        wrong.events = debuffed.events.clone();
+        let mut wrong = debuffed.clone();
         wrong.events[3][field] = json!(99);
         assert!(equivalent(&wrong, &wrong).is_err());
         assert!(
@@ -3516,8 +3485,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         (json!([]), json!(["unknown"])),
         (Value::Null, json!(["recovery_down"])),
     ] {
-        let mut wrong = make();
-        wrong.events = debuffed.events.clone();
+        let mut wrong = debuffed.clone();
         wrong.events[3]["before"] = before;
         wrong.events[3]["after"] = after;
         assert!(equivalent(&wrong, &wrong).is_err());
@@ -3525,8 +3493,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
             !owned_harmful_condition(&wrong.events[3], &wrong.setup, &json!(1)).unwrap_or(false)
         );
     }
-    let mut ally = make();
-    ally.events = debuffed.events.clone();
+    let mut ally = debuffed.clone();
     ally.setup["actors"][1]["side"] = json!(0);
     assert!(equivalent(&ally, &ally).is_err());
     assert!(!owned_harmful_condition(&ally.events[3], &ally.setup, &json!(1)).unwrap());
@@ -3545,13 +3512,11 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     assert_eq!(super::tests::condition_branch(&make(), &attempts), [false]);
     assert!(equivalent(&afflicted, &make()).is_err());
     for field in ["owner", "target", "clock", "presentation_clock"] {
-        let mut wrong = make();
-        wrong.events = afflicted.events.clone();
+        let mut wrong = afflicted.clone();
         wrong.events.last_mut().unwrap()[field] = json!(99);
         assert_eq!(super::tests::condition_branch(&wrong, &attempts), [false]);
     }
-    let mut drift = make();
-    drift.events = afflicted.events.clone();
+    let mut drift = afflicted.clone();
     drift.frames[0]["models"][0]["clip"] = json!(99);
     assert_eq!(super::tests::condition_branch(&drift, &attempts), [true]);
     assert!(equivalent(&afflicted, &drift).is_err());
@@ -3568,9 +3533,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     for event in &mut yaw_source.events[1..=2] {
         event["bank"] = json!(bank);
     }
-    let mut yaw_native = make();
-    yaw_native.setup = yaw_source.setup.clone();
-    yaw_native.events = yaw_source.events.clone();
+    let mut yaw_native = yaw_source.clone();
     let yaw_model = |ordinal: u64, angle: f64, scale: f64, x: f64| {
         let (sine, cosine) = angle.to_radians().sin_cos();
         json!({"owner":0,"bank":bank,"member":47,"ordinal":ordinal,"attachment":null,
@@ -3600,10 +3563,8 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         yaw_native.frames.push(native_frame);
     }
     assert!(equivalent(&yaw_source, &yaw_native).is_ok());
-    let mut anisotropic_source: Trace =
-        serde_json::from_value(serde_json::to_value(&yaw_source).unwrap()).unwrap();
-    let mut anisotropic_native: Trace =
-        serde_json::from_value(serde_json::to_value(&yaw_native).unwrap()).unwrap();
+    let mut anisotropic_source: Trace = yaw_source.clone();
+    let mut anisotropic_native: Trace = yaw_native.clone();
     for trace in [&mut anisotropic_source, &mut anisotropic_native] {
         for frame in &mut trace.frames {
             for model in frame["effect_models"].as_array_mut().unwrap() {
@@ -3670,9 +3631,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     choice_source.events[1]["program"] = json!(21);
     choice_source.events[2]["bank"] = json!(bank);
     choice_source.events[2]["member"] = json!(25);
-    let mut choice_native = make();
-    choice_native.setup = choice_source.setup.clone();
-    choice_native.events = choice_source.events.clone();
+    let mut choice_native = choice_source.clone();
     for (trace, pitch, roll, offset, slot, particle_id) in [
         (&mut choice_source, -10_f32, 20_f32, [7., -9.], 3, 71),
         (&mut choice_native, 30_f32, -40_f32, [-13., 2.], 4, 29),
@@ -3704,10 +3663,8 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     assert!(equivalent(&choice_source, &choice_native).is_ok());
     // Independently sampled XYZ angles with authored multi-axis spin cannot be
     // normalized by applying only one constant inverse rotation to later frames.
-    let mut spinning_source: Trace =
-        serde_json::from_value(serde_json::to_value(&choice_source).unwrap()).unwrap();
-    let mut spinning_native: Trace =
-        serde_json::from_value(serde_json::to_value(&choice_native).unwrap()).unwrap();
+    let mut spinning_source: Trace = choice_source.clone();
+    let mut spinning_native: Trace = choice_native.clone();
     let set_spin_angles = |frame: &mut Value, angles: [f32; 3]| {
         let [x, y, z] = angles.map(f32::to_radians);
         let position = [3, 7, 11].map(|index| {
@@ -3744,8 +3701,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     equivalent(&spinning_source, &spinning_native)
         .expect("independent XYZ draws retain authored spin");
     for failure in ["spin", "age", "slot", "scale", "translation"] {
-        let mut wrong: Trace =
-            serde_json::from_value(serde_json::to_value(&spinning_native).unwrap()).unwrap();
+        let mut wrong: Trace = spinning_native.clone();
         match failure {
             "spin" => {
                 let mut angles: [f32; 3] =
@@ -3773,8 +3729,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         );
     }
     for field in ["angles", "model_slot"] {
-        let mut missing: Trace =
-            serde_json::from_value(serde_json::to_value(&spinning_source).unwrap()).unwrap();
+        let mut missing: Trace = spinning_source.clone();
         missing.frames[0]["particles"][0]
             .as_object_mut()
             .unwrap()
@@ -3785,8 +3740,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         );
     }
     for factor in [0., -1., 1.5] {
-        let mut scaled: Trace =
-            serde_json::from_value(serde_json::to_value(&choice_native).unwrap()).unwrap();
+        let mut scaled: Trace = choice_native.clone();
         for row in 0..3 {
             let value = scaled.frames[1]["effect_models"][0]["model"]["world"][row * 4 + 1]
                 .as_f64()
@@ -3801,8 +3755,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
             assert!(effect_pitch::validate(&scaled, &scaled).is_err());
         }
     }
-    let mut zero_choice: Trace =
-        serde_json::from_value(serde_json::to_value(&choice_source).unwrap()).unwrap();
+    let mut zero_choice: Trace = choice_source.clone();
     let words = zero_choice.setup["effect_random_births"][0]["template"]["modifier_words"]
         .as_array_mut()
         .unwrap();
@@ -3827,10 +3780,8 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     zero_choice.frames[1]["particles"][0]["model"] =
         zero_choice.frames[1]["effect_models"][0]["model"].clone();
     assert!(equivalent(&zero_choice, &choice_native).is_err());
-    let mut added_choice: Trace =
-        serde_json::from_value(serde_json::to_value(&choice_source).unwrap()).unwrap();
-    let mut fixed_native: Trace =
-        serde_json::from_value(serde_json::to_value(&choice_native).unwrap()).unwrap();
+    let mut added_choice: Trace = choice_source.clone();
+    let mut fixed_native: Trace = choice_native.clone();
     added_choice.setup["effect_random_births"][0]["model"] = json!({"min":3.,"max":3.});
     added_choice.setup["effect_random_births"][0]["template"]["modifier_words"] = json!([
         11, 52, 900, 0, 11, 60, 900, 0, 11, 32760, 1800, 0, 8, 88, 0, 0, 32760, 0, 11, 96, 1800, 0,
@@ -3845,10 +3796,8 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     added_choice.setup["effect_random_births"][0]["template"]["modifier_words"][16] = json!(32760);
     fixed_native.frames[1]["particles"][0]["model_slot"] = json!(4);
     assert!(equivalent(&added_choice, &fixed_native).is_err());
-    let mut assigned_choice: Trace =
-        serde_json::from_value(serde_json::to_value(&choice_source).unwrap()).unwrap();
-    let mut assigned_native: Trace =
-        serde_json::from_value(serde_json::to_value(&choice_native).unwrap()).unwrap();
+    let mut assigned_choice: Trace = choice_source.clone();
+    let mut assigned_native: Trace = choice_native.clone();
     assigned_choice.setup["effect_random_births"][0]["model"] =
         json!({"min":0.,"max":1.,"step":1.});
     assigned_choice.setup["effect_random_births"][0]["template"]["modifier_words"][20] = json!(10);
@@ -3865,9 +3814,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     // Simultaneous births may have identical contracts and different container
     // order. Match complete histories; identical per-frame multisets alone do
     // not permit switching identity midway through a lifetime.
-    let mut simultaneous = make();
-    simultaneous.setup = choice_source.setup.clone();
-    simultaneous.events = choice_source.events.clone();
+    let mut simultaneous = choice_source.clone();
     let mut descriptor = choice_source.setup["effect_random_births"][0].clone();
     descriptor["lifetime"] = json!(3);
     let mut second = descriptor.clone();
@@ -3900,8 +3847,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         }
         simultaneous.frames.push(frame);
     }
-    let mut permuted: Trace =
-        serde_json::from_value(serde_json::to_value(&simultaneous).unwrap()).unwrap();
+    let mut permuted: Trace = simultaneous.clone();
     for frame in &mut permuted.frames[..3] {
         for model in frame["effect_models"].as_array_mut().unwrap() {
             model["ordinal"] = json!(3 - model["ordinal"].as_u64().unwrap());
@@ -3913,10 +3859,8 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         frame["particles"].as_array_mut().unwrap().reverse();
     }
     equivalent(&simultaneous, &permuted).expect("simultaneous whole-lifetime permutation");
-    let mut exact_source: Trace =
-        serde_json::from_value(serde_json::to_value(&simultaneous).unwrap()).unwrap();
-    let mut exact_native: Trace =
-        serde_json::from_value(serde_json::to_value(&permuted).unwrap()).unwrap();
+    let mut exact_source: Trace = simultaneous.clone();
+    let mut exact_native: Trace = permuted.clone();
     exact_source
         .setup
         .as_object_mut()
@@ -3939,10 +3883,8 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     exact_native.frames = permuted.frames.clone();
     exact_native.frames[2]["effect_models"][0]["model"]["world"][0] = json!(0.7);
     assert!(equivalent(&exact_source, &exact_native).is_err());
-    let mut identical: Trace =
-        serde_json::from_value(serde_json::to_value(&simultaneous).unwrap()).unwrap();
-    let mut identical_permuted: Trace =
-        serde_json::from_value(serde_json::to_value(&permuted).unwrap()).unwrap();
+    let mut identical: Trace = simultaneous.clone();
+    let mut identical_permuted: Trace = permuted.clone();
     for trace in [&mut identical, &mut identical_permuted] {
         for (index, frame) in trace.frames[..3].iter_mut().enumerate() {
             for instance in 0..2 {
@@ -3973,8 +3915,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         .pop();
     assert!(equivalent(&simultaneous, &permuted).is_err());
     let motion_trace = |velocity: f32| {
-        let mut trace = make();
-        trace.events = choice_source.events.clone();
+        let mut trace = choice_source.clone();
         trace.setup["effect_random_births"] = json!((0..2).map(|index| {
             let yaw = index as f32 * 120.;
             json!({"owner":0,"bank":bank,"member":25,"ordinal":index+1,
@@ -4227,8 +4168,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         };
     }
     assert!(projectile_random::validate(&boundary, &boundary).is_ok());
-    let mut premature: Trace =
-        serde_json::from_value(serde_json::to_value(&boundary).unwrap()).unwrap();
+    let mut premature: Trace = boundary.clone();
     premature.events[retirement]["clock"] = json!(1);
     premature.frames[1]["projectiles"] = json!([]);
     assert!(projectile_random::validate(&premature, &premature).is_err());
@@ -4273,9 +4213,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         ("frame", json!(14.)),
         ("visible", json!(false)),
     ] {
-        let mut wrong = make();
-        wrong.setup = secondary.setup.clone();
-        wrong.frames[0]["secondary_models"] = secondary.frames[0]["secondary_models"].clone();
+        let mut wrong = secondary.clone();
         wrong.frames[0]["secondary_models"][0][field] = value;
         assert!(equivalent(&secondary, &wrong).is_err());
     }
@@ -4309,9 +4247,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     stunned.events[3]["damage_branches"] = json!({"ordinary":[48,52],"critical":[73,79]});
     assert!(contact_events(&unstunned, &stunned).is_ok());
     for damage in [-47, -53, -72] {
-        let mut wrong = make();
-        wrong.setup = stunned.setup.clone();
-        wrong.events = stunned.events.clone();
+        let mut wrong = stunned.clone();
         wrong.events[3]["hp_change"] = json!(damage);
         assert!(contact_events(&unstunned, &wrong).is_err());
     }
@@ -4341,9 +4277,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         ),
         ("critical", json!(true)),
     ] {
-        let mut wrong = make();
-        wrong.setup = protected.setup.clone();
-        wrong.events = protected.events.clone();
+        let mut wrong = protected.clone();
         wrong.events.last_mut().unwrap()[field] = value;
         assert!(contact_events(&wrong, &protected).is_err());
         if matches!(field, "protection" | "hp_change" | "critical") {
@@ -4372,10 +4306,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     }
     impact.events.push(json!({"kind":"knockdown_impact","owner":0,"target":1,"action":1,
         "amount":2,"contact_clock":0,"contact_presentation_clock":0,"clock":2,"presentation_clock":2}));
-    let mut own_damage = make();
-    own_damage.setup = impact.setup.clone();
-    own_damage.frames = impact.frames.clone();
-    own_damage.events = impact.events.clone();
+    let mut own_damage = impact.clone();
     own_damage.events[3]["hp_change"] = json!(-12);
     own_damage.events.last_mut().unwrap()["amount"] = json!(3);
     for (index, frame) in own_damage.frames.iter_mut().enumerate() {
@@ -4455,11 +4386,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     drain.frames.push(after);
     drain.events.push(json!({"kind":"hp_drained","owner":0,"target":0,"action":1,
         "amount":1,"contact_clock":0,"contact_presentation_clock":0,"clock":1,"presentation_clock":1}));
-    let mut own_drain = make();
-    own_drain.case = drain.case.clone();
-    own_drain.setup = drain.setup.clone();
-    own_drain.frames = drain.frames.clone();
-    own_drain.events = drain.events.clone();
+    let mut own_drain = drain.clone();
     own_drain.events[3]["hp_change"] = json!(-20);
     own_drain.events.last_mut().unwrap()["amount"] = json!(2);
     for frame in &mut own_drain.frames {
@@ -4500,11 +4427,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     }
     tp_drain.events.push(json!({"kind":"tp_drained","owner":0,"target":0,"action":1,
         "amount":1,"contact_clock":0,"contact_presentation_clock":0,"clock":1,"presentation_clock":1}));
-    let mut own_tp = make();
-    own_tp.case = tp_drain.case.clone();
-    own_tp.setup = tp_drain.setup.clone();
-    own_tp.frames = tp_drain.frames.clone();
-    own_tp.events = tp_drain.events.clone();
+    let mut own_tp = tp_drain.clone();
     own_tp.events[3]["hp_change"] = json!(-70);
     own_tp.events[3]["critical"] = json!(true);
     own_tp.events.last_mut().unwrap()["amount"] = json!(2);
@@ -4565,16 +4488,14 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
     critical.events.push(flash.clone());
     assert!(equivalent(&critical, &make()).is_ok());
     assert!(equivalent(&make(), &critical).is_ok());
-    let mut missing = make();
-    missing.events = critical.events.clone();
+    let mut missing = critical.clone();
     missing.events.pop();
     assert!(equivalent(&missing, &make()).is_err());
     let mut spurious = make();
     spurious.events.push(flash);
     assert!(equivalent(&make(), &spurious).is_err());
     for field in ["owner", "clock", "presentation_clock", "program", "bank"] {
-        let mut misplaced = make();
-        misplaced.events = critical.events.clone();
+        let mut misplaced = critical.clone();
         misplaced.events.last_mut().unwrap()[field] = json!(99);
         assert!(equivalent(&misplaced, &make()).is_err());
     }
@@ -4589,9 +4510,7 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         let mut guarded = make();
         guarded.setup["recipient_input"] = json!({"actor":1,"mode":mode});
         guarded.events[3]["guard"] = json!(mode);
-        let mut guarded_critical = make();
-        guarded_critical.setup = guarded.setup.clone();
-        guarded_critical.events = guarded.events.clone();
+        let mut guarded_critical = guarded.clone();
         guarded_critical.events[3]["hp_change"] = json!(-16);
         assert!(equivalent(&guarded, &guarded_critical).is_ok());
         assert!(equivalent(&guarded_critical, &guarded).is_ok());
@@ -4608,16 +4527,13 @@ fn incomplete_empty_and_wrong_effect_observations_cannot_pass() {
         let mut source = make();
         source.setup["recipient_input"] = json!({"actor":1,"mode":"normal"});
         source.events[3]["guard"] = outcome.clone();
-        let mut native = make();
-        native.setup = source.setup.clone();
-        native.events = source.events.clone();
+        let mut native = source.clone();
         assert!(equivalent(&source, &native).is_ok());
         native.events[3]["guard"] = json!("normal");
         assert!(equivalent(&source, &native).is_err());
         for mode in ["attack", "stick"] {
             source.setup["recipient_input"]["mode"] = json!(mode);
-            native.setup = source.setup.clone();
-            native.events = source.events.clone();
+            native = source.clone();
             assert_eq!(equivalent(&source, &native).is_ok(), outcome.is_null());
         }
     }

@@ -1,3 +1,5 @@
+use crate::EnemyChoiceId;
+use crate::WeaponSlot;
 use crate::conditions::Condition;
 use crate::{
     Activity, PreparedBattle, ProjectileDefinition, ProjectileFrame, ProjectileId,
@@ -67,7 +69,7 @@ pub enum ContactSource {
     },
     Weapon {
         actor: ActorId,
-        slot: u8,
+        slot: WeaponSlot,
         action: ActionId,
     },
     Projectile(ProjectileId),
@@ -98,7 +100,7 @@ pub struct Actor {
     pub combat_adjustments: crate::CombatAdjustments,
     pub control: crate::Control,
     /// Prepared local controller slot, independent of character identity.
-    pub control_slot: u8,
+    pub control_slot: crate::ControllerPort,
     pub availability: crate::ActorAvailability,
     pub guard: crate::Guard,
     pub hp: i32,
@@ -132,6 +134,41 @@ pub struct Actor {
 }
 
 impl Actor {
+    /// A fully healed actor at rest; entry preparation supplies placement and saved state.
+    pub fn new(side: Side, control: crate::Control, equipment: EquipmentAttributes) -> Self {
+        Self {
+            side,
+            control,
+            hp: equipment.max_hp,
+            tp: equipment.max_tp,
+            equipment,
+            combat_adjustments: Default::default(),
+            availability: Default::default(),
+            guard: Default::default(),
+            control_ex_state: Default::default(),
+            casting_state: Default::default(),
+            overlimit: Default::default(),
+            elements: Default::default(),
+            input: Default::default(),
+            conditions: Default::default(),
+            secondary_wind: Default::default(),
+            body: Default::default(),
+            movement: Default::default(),
+            reaction: Default::default(),
+            species: 0,
+            control_slot: crate::ControllerPort::One,
+            stored_spell: None,
+            attack_power: 100,
+            proficiency: 0,
+            position: [0.; 3],
+            heading: 0.,
+            facing_direction: [0., 0., 1.],
+            effect_scale: 1.,
+            hit_stop: 0,
+            time_stop: 0,
+        }
+    }
+
     /// Compute integer percentages before the renderer scales bars.
     pub fn hp_percent(&self) -> i16 {
         (i64::from(self.hp) * 100 / i64::from(self.equipment.max_hp)).clamp(0, 100) as i16
@@ -153,12 +190,43 @@ impl Actor {
         self.airborne() && !self.movement.flying && !self.movement.fixed_height
     }
 
-    pub(crate) fn recovered_tp(&self, percent: i16) -> (u16, i32) {
+    pub(crate) fn recovered_tp(&self, percent: i32) -> (u16, i32) {
         let nominal = (i64::from(self.equipment.max_tp) * i64::from(percent.max(0)) / 100)
             .clamp(1, i64::from(i32::MAX)) as i32;
         let tp =
             (i64::from(self.tp) + i64::from(nominal)).min(i64::from(self.equipment.max_tp)) as u16;
         (tp, nominal)
+    }
+
+    /// Apply percentage recovery and report both the nominal and capped amounts.
+    pub(crate) fn recover_percent(
+        &mut self,
+        actor: ActorId,
+        kind: RecoveryKind,
+        percent: i32,
+        floating: bool,
+    ) -> Cue {
+        let (nominal, applied) = match kind {
+            RecoveryKind::Hp => {
+                let (next, nominal) = self.recovered_hp(percent);
+                let applied = next - self.hp;
+                self.hp = next;
+                (nominal, applied)
+            }
+            RecoveryKind::Tp => {
+                let (next, nominal) = self.recovered_tp(percent);
+                let applied = i32::from(next) - i32::from(self.tp);
+                self.tp = next;
+                (nominal, applied)
+            }
+        };
+        Cue::Recovered {
+            floating,
+            actor,
+            kind,
+            nominal,
+            applied,
+        }
     }
 
     pub(crate) fn recover_flat_hp(&mut self, amount: i32) {
@@ -207,7 +275,6 @@ impl Actor {
         );
         ensure!(self.tp <= self.equipment.max_tp, "invalid battle TP");
         ensure!(self.proficiency <= 5, "invalid technique proficiency");
-        ensure!(self.control_slot < 4, "invalid local control slot");
         ensure!(
             self.position
                 .iter()
@@ -247,6 +314,24 @@ pub struct BattleInput {
     pub paused: bool,
 }
 
+impl From<ActionRequest> for BattleInput {
+    fn from(action: ActionRequest) -> Self {
+        Self {
+            actions: vec![action],
+            ..Default::default()
+        }
+    }
+}
+
+impl From<crate::ControlInput> for BattleInput {
+    fn from(controller: crate::ControlInput) -> Self {
+        Self {
+            controllers: vec![controller],
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rejection {
     BattleEnding,
@@ -268,7 +353,7 @@ pub enum Cue {
     /// Retire one actor's spell scene without disturbing other effect resources.
     ClearEffectBank {
         actor: ActorId,
-        resource: u32,
+        resource: crate::ResourceId,
     },
     Effect(crate::EffectRequest),
     /// Initialize at creation, before the ordinary emitter update.
@@ -309,7 +394,7 @@ pub enum Cue {
     },
     Cutin {
         action: ActionId,
-        catalogue: u16,
+        catalogue: crate::TechniqueId,
         duration: u16,
     },
     /// Start on the next scene update, independently of the actor's hit stop.
@@ -371,7 +456,7 @@ pub enum Cue {
     /// Optional weapon ribbon. Presentation owns sampling, lifetime and fading.
     WeaponTrail {
         actor: ActorId,
-        slot: u8,
+        slot: WeaponSlot,
         duration: u16,
         /// Technique feedback uses the shared bright blade palette.
         highlighted: bool,
@@ -805,12 +890,12 @@ pub(crate) struct ActorRuntime {
     pub(crate) control: Option<crate::control::Controller>,
     pub(crate) target: ActorId,
     pub(crate) target_settle_remaining: u16,
-    pub(crate) enemy_choice: Option<usize>,
-    pub(crate) last_executed_enemy_row: Option<usize>,
+    pub(crate) enemy_choice: Option<EnemyChoiceId>,
+    pub(crate) last_executed_enemy_row: Option<EnemyChoiceId>,
     pub(crate) enemy_effective_hit: bool,
     pub(crate) body_bypass: bool,
     pub(crate) body_bypass_ticks: u8,
-    pub(crate) used_enemy_choices: Vec<usize>,
+    pub(crate) used_enemy_choices: BTreeSet<EnemyChoiceId>,
     pub(crate) enemy_walk_override: Option<f32>,
     pub(crate) enemy_behavior: crate::enemy_policy::State,
     pub(crate) capture: crate::capture::State,
@@ -820,7 +905,7 @@ pub(crate) struct ActorRuntime {
     pub(crate) recovery: crate::CommonRecoveryState,
     pub(crate) angel_tear_armed: bool,
     pub(crate) support_target: ActorId,
-    pub(crate) special_guard_pending: Option<u16>,
+    pub(crate) special_guard_pending: Option<crate::TechniqueId>,
 }
 
 impl ActorRuntime {
@@ -866,7 +951,7 @@ pub struct Battle {
     pub(crate) instant_kill: bool,
     pub(crate) cast_inputs: [crate::casting::CastInput; 4],
     pub(crate) ledger: crate::Ledger,
-    pub(crate) weapon_flights: BTreeMap<(ActorId, u8), crate::weapon_flight::Flight>,
+    pub(crate) weapon_flights: BTreeMap<(ActorId, WeaponSlot), crate::weapon_flight::Flight>,
     pub(crate) target_selector: Option<ActorId>,
     pub(crate) command_target: Option<(ActorId, ActorId)>,
     pub(crate) prepared: crate::prepare::BattleResources,
@@ -931,6 +1016,39 @@ pub struct EquipmentAttributes {
 }
 
 impl EquipmentAttributes {
+    /// Base combat values with no equipment bonuses or elemental affinities.
+    pub fn new(max_hp: i32, max_tp: u16, stats: crate::CombatStats) -> Self {
+        Self {
+            max_hp,
+            max_tp,
+            stats,
+            tp_cost_reduction: false,
+            quick_escape: false,
+            taunt_enabled: false,
+            taunt_guard: false,
+            taunt_cancel: false,
+            quick_turn: false,
+            backstep_guard: false,
+            dagger_reach: false,
+            guaranteed_steal: false,
+            normal_guard: false,
+            stun_ex_bonus: false,
+            spell_revenge: false,
+            control_ex: Default::default(),
+            casting: Default::default(),
+            contact: Default::default(),
+            damage: Default::default(),
+            recovery: Default::default(),
+            combo_traits: Default::default(),
+            reaction_ex: Default::default(),
+            normal_combo_limit: 1,
+            luck: 0,
+            base_element: None,
+            affinities: [crate::Affinity::Normal; 9],
+            speed_multiplier: 1.,
+        }
+    }
+
     fn validate(&self) -> Result<()> {
         ensure!(self.max_hp > 0, "invalid battle HP");
         ensure!(self.normal_combo_limit > 0, "invalid normal combo limit");
@@ -1007,7 +1125,7 @@ impl Battle {
                         enemy_effective_hit: false,
                         body_bypass: false,
                         body_bypass_ticks: 0,
-                        used_enemy_choices: Vec::new(),
+                        used_enemy_choices: BTreeSet::new(),
                         enemy_walk_override: None,
                         enemy_behavior: Default::default(),
                         capture: Default::default(),
@@ -1100,6 +1218,19 @@ impl Battle {
 
     pub fn actor_ids(&self) -> impl ExactSizeIterator<Item = ActorId> + '_ {
         (0..self.actors.len()).map(|index| ActorId(index as u8))
+    }
+
+    /// Prefer a nonautomatic party member, then the first member, regardless of availability.
+    pub(crate) fn preferred_party_leader(&self) -> Option<ActorId> {
+        self.actors
+            .iter()
+            .position(|actor| actor.side == Side::Party && actor.control != crate::Control::Auto)
+            .or_else(|| {
+                self.actors
+                    .iter()
+                    .position(|actor| actor.side == Side::Party)
+            })
+            .map(|index| ActorId(index as u8))
     }
 
     /// Resolve prepared item identities, then publish all actor changes together.
@@ -1566,7 +1697,7 @@ impl Battle {
         for actor in &mut self.actors {
             actor.time_stop = actor.time_stop.saturating_sub(1);
         }
-        self.advance_defense_system(cues)?;
+        self.advance_defense_system(cues);
         self.advance_escape();
         self.items.cooldown = self.items.cooldown.saturating_sub(1);
         for action in input.interrupt {
@@ -2009,7 +2140,7 @@ impl Battle {
                 continue;
             }
             let mut action_advanced = false;
-            if !self.advance_escape_actor(actor, cues)? {
+            if !self.advance_escape_actor(actor, cues) {
                 match self.actors[index].availability {
                     crate::ActorAvailability::Absent => unreachable!(),
                     crate::ActorAvailability::Dead => self.advance_dead(index),
@@ -2128,7 +2259,7 @@ impl Battle {
         }
         let task_movement = match self.runtime[index].task {
             ActorTask::Approach(_) => self.update_approach(actor, cues)?,
-            ActorTask::Returning(state) => self.update_recovery_return(actor, state, cues)?,
+            ActorTask::Returning(state) => self.update_recovery_return(actor, state, cues),
             ActorTask::Hurt { remaining } => self.advance_hurt(actor, remaining, input, cues)?,
             ActorTask::Recovering {
                 remaining,
@@ -2183,7 +2314,7 @@ impl Battle {
                 }
                 false
             }
-            ActorTask::Paralysis { remaining } => self.advance_paralysis(actor, remaining)?,
+            ActorTask::Paralysis { remaining } => self.advance_paralysis(actor, remaining),
             ActorTask::Stunned {
                 remaining,
                 struggle_ticks,
@@ -2196,9 +2327,7 @@ impl Battle {
             ),
             ActorTask::Knockdown(_) => true,
             ActorTask::Mobility(_) => self.update_mobility(actor, cues)?,
-            ActorTask::Taunt { remaining } => {
-                self.advance_taunt(actor, remaining, controls, cues)?
-            }
+            ActorTask::Taunt { remaining } => self.advance_taunt(actor, remaining, controls, cues),
             ActorTask::Item(item) => {
                 self.advance_item(actor, item, items, cues)?;
                 false
@@ -2225,8 +2354,8 @@ impl Battle {
             self.actors[index].movement.forward_step = 0.;
         }
         let mut movement_handled = task_movement
-            || self.update_control_stop(index, already_stopping)?
-            || self.update_guard(index, cues)?
+            || self.update_control_stop(index, already_stopping)
+            || self.update_guard(index, cues)
             || entering_attack;
         let facing_ready = self.face_active_action(actor);
         if facing_ready
@@ -2281,12 +2410,12 @@ impl Battle {
                 }
             }
             if activity == crate::Activity::Idle {
-                self.advance_hover(index, true)?;
+                self.advance_hover(index, true);
             }
         }
         if !movement_handled
             && facing_ready
-            && let Some((id, recovery)) = self.brake_control(index)?
+            && let Some((id, recovery)) = self.brake_control(index)
         {
             next = Some((
                 id,
@@ -2976,10 +3105,9 @@ impl Battle {
         if caster_actor.side != crate::Side::Enemy
             || target_actor.side != crate::Side::Party
             || !threat.offensive
-            || threat.element == 0
-            || usize::from(threat.element) >= target_actor.equipment.affinities.len()
+            || threat.element.is_none()
             || !matches!(
-                target_actor.equipment.affinities[usize::from(threat.element)],
+                target_actor.affinity(threat.element),
                 crate::Affinity::Normal | crate::Affinity::Weak
             )
             || target_actor.overlimit.is_active()
@@ -3041,7 +3169,7 @@ impl Battle {
         }
         if crate::conditions::paralysis_controller_roll(&self.actors[index], &mut self.random) {
             self.clear_technique_command(actor);
-            self.begin_paralysis(actor, cues)?;
+            self.begin_paralysis(actor, cues);
             return Ok(true);
         }
         self.actors[index].guard.active = false;
@@ -3195,8 +3323,8 @@ impl Battle {
         #[cfg(any(test, feature = "test-support"))]
         let input_key = crate::random_inputs::Key {
             clock: self.ledger.elapsed_ticks,
-            owner: owner.index(),
-            target: target.index(),
+            owner: owner,
+            target: target,
             action: action.0,
             contact: crate::random_inputs::Contact::Projectile(id.0),
         };
@@ -3290,16 +3418,7 @@ impl Battle {
             value += value / 2;
         }
         let actor = &mut self.actors[id.index()];
-        let before = actor.hp;
-        let (hp, nominal) = actor.recovered_hp(value);
-        actor.hp = hp;
-        cues.push(Cue::Recovered {
-            floating,
-            kind: crate::RecoveryKind::Hp,
-            actor: id,
-            nominal,
-            applied: actor.hp - before,
-        });
+        cues.push(actor.recover_percent(id, RecoveryKind::Hp, value, floating));
         Ok(())
     }
 }

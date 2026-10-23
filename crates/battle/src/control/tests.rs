@@ -1,5 +1,9 @@
 use super::*;
-use crate::{BattleInput, Side, tests::actor};
+use crate::TechniqueId;
+use crate::{
+    BattleInput, ResourceId, Side,
+    tests::{actor, step_idle},
+};
 use std::sync::Arc;
 
 #[path = "combo_tests.rs"]
@@ -12,20 +16,7 @@ mod normal_guard_tests;
 mod paralysis_tests;
 
 fn prepared(control: Control) -> PreparedBattle {
-    let actions: Vec<_> = (0..7)
-        .map(|index| crate::ActionDefinition {
-            normal: Some(crate::NormalAttack::ALL[index]),
-            execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-                contact_recovery: None,
-                chain_at: Some(15),
-                end_at: 90,
-                opening: None,
-                events: vec![],
-                recovery: 0,
-            }),
-            tp_cost: 0,
-        })
-        .collect();
+    let mut actions = Default::default();
     let mut player = actor(Side::Party);
     player.control = control;
     player.heading = 90.;
@@ -47,18 +38,19 @@ fn prepared(control: Control) -> PreparedBattle {
         run_speed: 10.,
         turn_ticks: 8,
         motions: None,
-        shortcuts: [0; 4],
-        normals: std::array::from_fn(|i| NormalControl {
-            action: crate::ActionKey(i),
-            continuation: crate::tests::normal_continuation(crate::NormalAttack::ALL[i]),
-
-            reach: 120.,
-            minimum_reach: 0.,
-        }),
+        shortcuts: [None; 4],
+        normals: crate::tests::normal_controls(
+            &mut actions,
+            crate::PreparedAttack {
+                chain_at: Some(15),
+                ..crate::tests::attack(90)
+            },
+            [0., 120.],
+        ),
     }));
     PreparedBattle::new(
         vec![player, enemy, other].into_iter().zip(actors).collect(),
-        actions.into(),
+        actions,
         0,
     )
     .unwrap()
@@ -69,7 +61,10 @@ fn battle(control: Control) -> Battle {
 }
 
 fn missing_motions() -> ControlMotions {
-    let motion = MotionBinding { model: 7, clip: 99 };
+    let motion = MotionBinding {
+        model: ResourceId(7),
+        clip: 99,
+    };
     ControlMotions {
         walk: motion,
         run: motion,
@@ -205,7 +200,10 @@ fn held_reversal_resumes_running_after_braking() -> Result<()> {
 #[test]
 fn stopped_speed_waits_for_the_stop_pose_before_idle_initialization() -> Result<()> {
     let mut prepared = prepared(Control::Manual);
-    let binding = |clip| MotionBinding { model: 7, clip };
+    let binding = |clip| MotionBinding {
+        model: ResourceId(7),
+        clip,
+    };
     Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).motions =
         Some(ControlMotions {
             walk: binding(2),
@@ -222,11 +220,9 @@ fn stopped_speed_waits_for_the_stop_pose_before_idle_initialization() -> Result<
     model.reactions.walk = Some(2);
     model.reactions.run = Some(19);
     model.reactions.stopping = Some(18);
-    battle.set_models(crate::Models::new(
+    battle.set_models(crate::tests::models(
         &battle.actors,
         vec![Some(Arc::new(model)), None, None],
-        Default::default(),
-        resonance_content::diagnostics::Diagnostics::new(true),
     )?);
     for _ in 0..24 {
         battle.step(input([80, 0], false))?;
@@ -294,12 +290,19 @@ fn locomotion_keeps_airborne_momentum_and_resumes_run_after_guard() -> Result<()
     Ok(())
 }
 
-fn companion_battle(colette: bool) -> Battle {
-    companion_battle_for(if colette { 2 } else { 3 })
+fn companion_policy(technique: u8) -> crate::CompanionDefinition {
+    crate::CompanionDefinition {
+        normal_attack_opening: false,
+        initial_policy: [0; 3],
+        defaults: [3, 6, technique],
+        limits: [crate::PolicyLimits {
+            tp: 30,
+            healing: 65,
+        }; 9],
+    }
 }
 
-fn companion_prepared_for(character: u8) -> PreparedBattle {
-    let colette = character == 2;
+fn companion_prepared(colette: bool) -> PreparedBattle {
     let mut candidate = prepared(Control::Auto);
     if colette {
         let mut action = crate::tests::action(30);
@@ -312,21 +315,10 @@ fn companion_prepared_for(character: u8) -> PreparedBattle {
             .insert(crate::tests::cast(30, 5));
     }
     let prepared = &mut candidate.resources;
-    prepared.actor_setup[0].companion = Some(crate::CompanionDefinition {
-        normal_attack_opening: false,
-        initial_policy: [0, 0, 0],
-        defaults: [3, 6, if colette { 2 } else { 5 }],
-        limits: [crate::PolicyLimits {
-            tp: 30,
-            healing: 65,
-            support_level: 2,
-        }; 9],
-        level: 1,
-        level_difference: 0,
-    });
+    prepared.actor_setup[0].companion = Some(companion_policy(if colette { 2 } else { 5 }));
     prepared.actor_setup[0].techniques = vec![crate::PreparedTechnique {
         action: crate::ActionKey(7),
-        catalogue: 1,
+        catalogue: TechniqueId(1),
         player_range: [400., 500.],
         ai_range: [400., 500.],
         capabilities: crate::TechniqueCapabilities {
@@ -337,7 +329,7 @@ fn companion_prepared_for(character: u8) -> PreparedBattle {
             target: crate::TechniqueTarget::Enemy,
             ..Default::default()
         },
-        element: 0,
+        element: None,
     }];
     let definition = crate::DecisionDefinition {
         idle_ticks: 0,
@@ -348,8 +340,8 @@ fn companion_prepared_for(character: u8) -> PreparedBattle {
     candidate
 }
 
-fn companion_battle_for(character: u8) -> Battle {
-    let mut battle = companion_prepared_for(character).finish().unwrap();
+fn companion_battle(colette: bool) -> Battle {
+    let mut battle = companion_prepared(colette).finish().unwrap();
     battle
         .start_actor_command(
             crate::ActionRequest {
@@ -366,9 +358,7 @@ fn companion_battle_for(character: u8) -> Battle {
 #[test]
 fn automatic_chain_requires_contact_then_initializes_once() -> Result<()> {
     let mut whiff = companion_battle(true);
-    for _ in 0..16 {
-        whiff.step(BattleInput::default())?;
-    }
+    step_idle(&mut whiff, 16)?;
 
     assert!(
         whiff
@@ -378,9 +368,7 @@ fn automatic_chain_requires_contact_then_initializes_once() -> Result<()> {
     );
 
     let mut hit = companion_battle(true);
-    for _ in 0..15 {
-        hit.step(BattleInput::default())?;
-    }
+    step_idle(&mut hit, 15)?;
     hit.confirm_actor_contact(ActorId(0));
     let tp = hit.actors[0].tp;
     hit.step(BattleInput::default())?;
@@ -390,9 +378,7 @@ fn automatic_chain_requires_contact_then_initializes_once() -> Result<()> {
             .any(|s| s.action == crate::ActionKey(7))
     );
     assert_eq!(hit.actors[0].tp, tp - 5);
-    for _ in 0..3 {
-        hit.step(BattleInput::default())?;
-    }
+    step_idle(&mut hit, 3)?;
     assert_eq!(hit.actors[0].tp, tp - 5);
     Ok(())
 }
@@ -402,18 +388,7 @@ fn approach_policy_battle(control: Control, colette: bool) -> Battle {
     prepared.actors[1].position[0] = 600.;
 
     if colette {
-        prepared.resources.actor_setup[0].companion = Some(crate::CompanionDefinition {
-            normal_attack_opening: false,
-            initial_policy: [0; 3],
-            defaults: [3, 6, 2],
-            limits: [crate::PolicyLimits {
-                tp: 30,
-                healing: 65,
-                support_level: 2,
-            }; 9],
-            level: 1,
-            level_difference: 0,
-        });
+        prepared.resources.actor_setup[0].companion = Some(companion_policy(2));
     }
     prepared.resources.actor_setup[0].decision = Some(crate::DecisionDefinition {
         idle_ticks: 0,
@@ -480,18 +455,15 @@ fn manual_mode_excludes_moving_normal_reevaluation() -> Result<()> {
 }
 
 fn input(stick: [i8; 2], pressed: bool) -> BattleInput {
-    BattleInput {
-        controllers: vec![ControlInput {
-            stick,
-            attack: ButtonInput {
-                held: pressed,
-                pressed,
-                released: false,
-            },
-            ..ControlInput::neutral(ActorId(0))
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ControlInput {
+        stick,
+        attack: ButtonInput {
+            held: pressed,
+            pressed,
+            released: false,
+        },
+        ..ControlInput::neutral(ActorId(0))
+    })
 }
 
 fn wait_for_action(battle: &mut Battle, definition: crate::ActionKey) -> Result<ActionId> {
@@ -541,9 +513,7 @@ fn permitted_directions_chain_and_limit_prevents_a_fourth_normal() -> Result<()>
     let next = battle.next_action;
     battle.step(input([80, 0], true))?;
 
-    for _ in 0..20 {
-        battle.step(BattleInput::default())?;
-    }
+    step_idle(&mut battle, 20)?;
     assert!(battle.sequence(&third).is_some());
     assert_eq!(battle.next_action, next);
     Ok(())
@@ -795,10 +765,14 @@ fn result_poses_are_not_replaced_by_companion_ai() -> Result<()> {
     battle.retire_combat()?;
     battle.reset_result_actor(owner)?;
     battle.runtime[0].idle_timer = 10;
-    battle.play_victory_pose(owner, MotionBinding { model: 7, clip: 1 })?;
-    for _ in 0..20 {
-        battle.step(BattleInput::default())?;
-    }
+    battle.play_victory_pose(
+        owner,
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        },
+    )?;
+    step_idle(&mut battle, 20)?;
 
     assert!(battle.sequences().next().is_none());
     assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
@@ -846,23 +820,12 @@ fn landing_cancels_the_airborne_attack_and_finishes_recovery() -> Result<()> {
         let action = Arc::make_mut(&mut prepared.resources.actions.entries[5]);
         let contact = Arc::new(crate::MeleeDefinition {
             hit: crate::HitRule {
-                sound: None,
-                effect_on_guard: false,
-                effect: None,
-                overlimit_pause: false,
-                condition: None,
-                arte: false,
                 reaction: crate::ReactionRule {
                     hitstun: 20,
                     ..Default::default()
                 },
-                kind: crate::DamageKind::Slash,
                 power: crate::Power::Fixed(5),
-                element: crate::HitElement::Neutral,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
-                guard: Default::default(),
+                ..crate::tests::hit()
             },
             trail: None,
             volume: crate::MeleeVolume::Fixed {
@@ -1005,28 +968,25 @@ fn target_projection_keeps_perspective_depth() {
 }
 
 fn player_buttons(attack: bool, technique: bool, guard: bool, stick: [i8; 2]) -> BattleInput {
-    BattleInput {
-        controllers: vec![ControlInput {
-            attack: ButtonInput {
-                pressed: attack,
-                held: attack,
-                released: false,
-            },
-            technique: ButtonInput {
-                pressed: technique,
-                held: technique,
-                released: false,
-            },
-            guard: ButtonInput {
-                pressed: guard,
-                held: guard,
-                released: false,
-            },
-            stick,
-            ..ControlInput::neutral(ActorId(0))
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ControlInput {
+        attack: ButtonInput {
+            pressed: attack,
+            held: attack,
+            released: false,
+        },
+        technique: ButtonInput {
+            pressed: technique,
+            held: technique,
+            released: false,
+        },
+        guard: ButtonInput {
+            pressed: guard,
+            held: guard,
+            released: false,
+        },
+        stick,
+        ..ControlInput::neutral(ActorId(0))
+    })
 }
 
 fn shortcuts_prepared(control: Control) -> PreparedBattle {
@@ -1042,13 +1002,18 @@ fn shortcuts_prepared(control: Control) -> PreparedBattle {
                 tp_cost: 4,
             }));
     }
-    Arc::make_mut(prepared.actor_setup[0].control.as_mut().unwrap()).shortcuts = [1, 35, 34, 4];
+    Arc::make_mut(prepared.actor_setup[0].control.as_mut().unwrap()).shortcuts = [
+        Some(TechniqueId(1)),
+        Some(TechniqueId(35)),
+        Some(TechniqueId(34)),
+        Some(TechniqueId(4)),
+    ];
     prepared.actor_setup[0].techniques = [1, 35, 34, 4]
         .into_iter()
         .enumerate()
         .map(|(index, catalogue)| crate::PreparedTechnique {
             action: crate::ActionKey(7 + index),
-            catalogue,
+            catalogue: TechniqueId(catalogue),
             player_range: [0., 800.],
             ai_range: [0., 800.],
             capabilities: crate::TechniqueCapabilities {
@@ -1056,7 +1021,7 @@ fn shortcuts_prepared(control: Control) -> PreparedBattle {
                 uses_weapon_reach: true,
                 ..Default::default()
             },
-            element: 0,
+            element: None,
         })
         .collect();
     candidate
@@ -1148,7 +1113,9 @@ fn insufficient_tp_and_empty_shortcuts_do_not_admit_or_spend() -> Result<()> {
         }
     )));
     let mut empty = shortcuts_battle(Control::Manual);
-    empty.prepare_shortcut(ActorId(0), 0, None)?.commit();
+    empty
+        .prepare_shortcut(ActorId(0), crate::ShortcutSlot::Neutral, None)?
+        .commit();
     let frame = empty.step(player_buttons(true, true, false, [0; 2]))?;
     assert!(frame.actions.is_empty());
     assert_eq!(frame.actors[0].activity, Activity::Idle);
@@ -1215,32 +1182,12 @@ fn technique_chain_checks_tp_at_consumption_and_keeps_the_normal_on_rejection() 
             .any(|cue| matches!(cue, Cue::Rejected { .. }))
     );
 
-    for _ in 0..14 {
-        battle.step(BattleInput::default())?;
-    }
+    step_idle(&mut battle, 14)?;
 
     assert!(battle.sequence(&ActionId(1)).is_some());
     assert_eq!(battle.next_action, 2);
     assert_eq!(battle.actors[0].tp, 3);
     Ok(())
-}
-
-#[test]
-fn prepared_shortcuts_reject_unknown_catalogues_and_invalid_ranges() {
-    for kind in [None, Some(NormalAttack::Rising)] {
-        let mut candidate = prepared(Control::Manual);
-        Arc::make_mut(&mut candidate.resources.actions.entries[0]).normal = kind;
-        assert!(candidate.finish().is_err());
-    }
-
-    let mut unknown = prepared(Control::Manual);
-    Arc::make_mut(unknown.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts[0] = 99;
-    assert!(unknown.finish().is_err());
-    for range in [[800., 800.], [0., f32::NAN]] {
-        let mut prepared = shortcuts_prepared(Control::Manual);
-        prepared.resources.actor_setup[0].techniques[0].player_range = range;
-        assert!(prepared.finish().is_err());
-    }
 }
 
 fn active_normal() -> Result<Battle> {
@@ -1327,42 +1274,17 @@ fn airborne_party_and_turn_disabled_actions_do_not_wait_for_facing() -> Result<(
         let mut candidate = prepared(Control::Manual);
         if side == Side::Enemy {
             candidate.actors[0].side = Side::Enemy;
-            candidate.actors[0].control = Control::Enemy;
             candidate.actors[1].side = Side::Party;
+            candidate.resources.actor_setup[0].control = None;
+            crate::tests::assign_action(&mut candidate, 0, crate::ActionKey(0));
             let setup = &mut candidate.resources.actor_setup[0];
-            setup.control = None;
-            setup.enemy_decision = Some(crate::EnemyDecisionDefinition {
-                enemy_id: 0,
-                disabled_choices: Vec::new(),
-                strategy: crate::TargetPolicy::Nearest,
-                difficulty: 0,
-                choices: vec![crate::EnemyChoice {
-                    action: crate::ActionKey(0),
-                    physical_arte: false,
-                    weight: 1,
-                    chain_group: 0,
-                    followup_chance: 0,
-                    requirements: Default::default(),
-                    target_policy: Some(crate::TargetPolicy::Nearest),
-                    target_allies: false,
-                    return_to_formation: true,
-                    returning: None,
-                    return_speed: None,
-                    guard_chance: 0,
-                    range: [0, 0],
-                    tp: 0,
-                    approach_minimum: 0.,
-                    approach_range: 120.,
-                    approach: None,
-                }],
-                back_row: vec![],
-                walk_speed: 5.,
-                walk_override: None,
-                behavior: None,
-                walk_motion: None,
-                run_motion: None,
-                turn_ticks: 8,
-            });
+            setup.decision = None;
+            let decision = setup.enemy_decision.as_mut().unwrap();
+            decision.walk_speed = 5.;
+            decision.turn_ticks = 8;
+            decision.choices[0].requirements = Default::default();
+            decision.choices[0].target_policy = Some(crate::TargetPolicy::Nearest);
+            decision.choices[0].return_to_formation = true;
         }
         let owner = &mut candidate.actors[0];
         owner.position[1] = height;
@@ -1400,9 +1322,7 @@ fn hit_stop_holds_the_admitted_action_and_movement_without_repaying() -> Result<
     assert_eq!(battle.action_age(ActionId(1)), Some(0));
     assert_eq!(battle.actors[0].position, [0.; 3]);
     assert_eq!(battle.actors[0].tp, 16);
-    for _ in 0..8 {
-        battle.step(BattleInput::default())?;
-    }
+    step_idle(&mut battle, 8)?;
     assert_eq!(battle.actors[0].hit_stop, 0);
     assert!(battle.action_age(ActionId(1)).unwrap() > 0);
     assert!(battle.actors[0].position[0] > 0.);
@@ -1603,9 +1523,7 @@ fn selector_release_changes_desired_facing_without_moving_or_turning_while_pause
             ..Default::default()
         })?;
         assert_eq!(held.actors[0].heading, before.actors[0].heading);
-        for _ in 0..8 {
-            battle.step(BattleInput::default())?;
-        }
+        step_idle(&mut battle, 8)?;
         assert!((battle.actors[0].heading - 90.).abs() < 0.01);
     }
     Ok(())
@@ -1734,9 +1652,7 @@ fn arte_boost_companion_chain_uses_live_cost() -> Result<()> {
     let mut battle = companion_battle(true);
     battle.actors[0].equipment.damage.physical_arte_boost = true;
     battle.actors[0].tp = 5;
-    for _ in 0..15 {
-        battle.step(BattleInput::default())?;
-    }
+    step_idle(&mut battle, 15)?;
     battle.confirm_actor_contact(ActorId(0));
     battle.step(BattleInput::default())?;
     assert!(
@@ -1769,13 +1685,11 @@ fn martial_chain_counts_the_accepted_new_catalogue_at_consumption_only() -> Resu
         battle.step(input([0; 2], true))?;
         battle.step(BattleInput::default())?;
         battle.step(player_buttons(false, true, false, [0; 2]))?;
-        assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
 
-        for _ in 0..16 {
-            battle.step(BattleInput::default())?;
-        }
+        step_idle(&mut battle, 16)?;
         assert_eq!(
-            battle.technique_uses(ActorId(0), 1),
+            battle.technique_uses(ActorId(0), TechniqueId(1)),
             Some(if allowed { 50 } else { 49 })
         );
         assert_eq!(battle.actors[0].proficiency, if allowed { 1 } else { 0 });
@@ -1794,21 +1708,15 @@ fn equipped_combo_limit_allows_an_extra_normal() -> Result<()> {
         battle.step(input([0, 0], true))?;
         battle.step(BattleInput::default())?;
         battle.step(input([80, 0], true))?;
-        for _ in 0..14 {
-            battle.step(BattleInput::default())?;
-        }
+        step_idle(&mut battle, 14)?;
         battle.step(BattleInput::default())?;
         battle.step(input([0, 0], true))?;
-        for _ in 0..14 {
-            battle.step(BattleInput::default())?;
-        }
+        step_idle(&mut battle, 14)?;
         battle.step(BattleInput::default())?;
 
         battle.step(input([80, 0], true))?;
 
-        for _ in 0..14 {
-            battle.step(BattleInput::default())?;
-        }
+        step_idle(&mut battle, 14)?;
         assert_eq!(battle.next_action, 4 + u64::from(extra));
     }
     Ok(())

@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 type Key = (u64, String, u64, u64);
 pub(super) type Rotations = BTreeMap<Key, Rotation>;
 
+#[derive(Default)]
 pub(super) struct Rotation {
     initial: [f64; 3],
     offset: [f64; 3],
@@ -70,12 +71,8 @@ struct Yaw {
 }
 
 pub(super) fn validate(source: &Trace, native: &Trace) -> Result<[Rotations; 2]> {
-    let descriptors: Vec<Pitch> = source
-        .setup
-        .get("effect_random_pitch")
-        .map(|value| serde_json::from_value(value.clone()))
-        .transpose()?
-        .unwrap_or_default();
+    let descriptors: Vec<Pitch> =
+        super::optional_field(&source.setup, "effect_random_pitch")?.unwrap_or_default();
     let mut result = [BTreeMap::new(), BTreeMap::new()];
     for pitch in descriptors {
         let words = &pitch.template.modifier_words;
@@ -142,13 +139,9 @@ pub(super) fn validate(source: &Trace, native: &Trace) -> Result<[Rotations; 2]>
                     .insert(
                         id.clone(),
                         Rotation {
-                            relative: None,
                             initial: [initial, 0., 0.],
-                            offset: [0.; 3],
                             ordinal: pitch.ordinal,
-                            motion: None,
-                            spin: None,
-                            scaled_pitch: false,
+                            ..Rotation::default()
                         }
                     )
                     .is_none(),
@@ -156,12 +149,8 @@ pub(super) fn validate(source: &Trace, native: &Trace) -> Result<[Rotations; 2]>
             );
         }
     }
-    let yaws: Vec<Yaw> = source
-        .setup
-        .get("effect_random_yaw")
-        .map(|value| serde_json::from_value(value.clone()))
-        .transpose()?
-        .unwrap_or_default();
+    let yaws: Vec<Yaw> =
+        super::optional_field(&source.setup, "effect_random_yaw")?.unwrap_or_default();
     let families: Vec<_> = yaws
         .iter()
         .map(|yaw| (yaw.owner, yaw.bank.clone(), yaw.member))
@@ -284,13 +273,8 @@ fn match_detached_lifetimes(
     let families: Vec<_> = families.into_iter().collect();
     let observed = [births(source, &families)?, births(native, &families)?];
     let unchanged = |ordinal| Rotation {
-        relative: None,
-        initial: [0.; 3],
-        offset: [0.; 3],
         ordinal,
-        motion: None,
-        spin: None,
-        scaled_pitch: false,
+        ..Rotation::default()
     };
     for family in families {
         let eligible = |side: usize| {
@@ -314,16 +298,15 @@ fn match_detached_lifetimes(
                 natives
                     .iter()
                     .filter_map(|(other, other_birth)| {
-                        let source_rotation = unchanged(id.3);
-                        let native_rotation = unchanged(id.3);
+                        let rotation = unchanged(id.3);
                         same_history(
                             [source, native],
                             [id, other],
                             [birth, other_birth],
-                            [&source_rotation, &native_rotation],
+                            [&rotation, &rotation],
                         )
                         .is_ok()
-                        .then(|| ((*other).clone(), native_rotation))
+                        .then(|| ((*other).clone(), rotation))
                     })
                     .collect()
             })
@@ -379,12 +362,8 @@ struct StaticBinding {
 }
 
 fn validate_choices(source: &Trace, native: &Trace, result: &mut [Rotations; 2]) -> Result<()> {
-    let choices: Vec<Choices> = source
-        .setup
-        .get("effect_random_births")
-        .map(|value| serde_json::from_value(value.clone()))
-        .transpose()?
-        .unwrap_or_default();
+    let choices: Vec<Choices> =
+        super::optional_field(&source.setup, "effect_random_births")?.unwrap_or_default();
     let families: Vec<_> = choices
         .iter()
         .map(|choice| (choice.owner, choice.bank.clone(), choice.member))
@@ -695,12 +674,8 @@ struct RelativeTemplate {
 }
 
 fn validate_relative(source: &Trace, native: &Trace, result: &mut [Rotations; 2]) -> Result<()> {
-    let templates: Vec<RelativeTemplate> = source
-        .setup
-        .get("effect_relative_rotations")
-        .map(|value| serde_json::from_value(value.clone()))
-        .transpose()?
-        .unwrap_or_default();
+    let templates: Vec<RelativeTemplate> =
+        super::optional_field(&source.setup, "effect_relative_rotations")?.unwrap_or_default();
     for template in templates {
         let metadata: Value = serde_json::from_slice(&template.metadata.read_bytes()?)?;
         let bank = metadata["source_sha256"]
@@ -852,11 +827,7 @@ fn relative_rotation(
             .as_array()
             .context("missing relative particles")?
             .iter()
-            .filter(|particle| {
-                ["owner", "bank", "member", "model"]
-                    .iter()
-                    .all(|field| particle[*field] == model[*field])
-            })
+            .filter(|particle| particle_matches(particle, model))
             .collect();
         let [particle] = particles.as_slice() else {
             anyhow::bail!("relative model particle is ambiguous");
@@ -880,13 +851,9 @@ fn relative_rotation(
         relative.frames.insert(index, age);
     }
     Ok(Rotation {
-        initial: [0.; 3],
-        offset: [0.; 3],
         ordinal: id.3,
-        motion: None,
-        spin: None,
         relative: Some(relative),
-        scaled_pitch: false,
+        ..Rotation::default()
     })
 }
 
@@ -1006,11 +973,7 @@ fn choice_rotation(
         .as_array()
         .context("missing particles")?
         .iter()
-        .filter(|particle| {
-            ["owner", "bank", "member", "model"]
-                .iter()
-                .all(|key| particle[*key] == birth.model[*key])
-        })
+        .filter(|particle| particle_matches(particle, birth.model))
         .collect();
     ensure!(
         candidates.len() == 1,
@@ -1038,17 +1001,14 @@ fn choice_rotation(
         sin * delta[0] + cos * delta[2],
     ];
     let mut rotation = Rotation {
-        relative: None,
-        initial: [0.; 3],
-        offset: [0.; 3],
         ordinal: choice.ordinal,
-        motion: None,
         spin: choice.angular_velocity.map(|velocity| Spin {
             first: angles,
             velocity,
             frames: BTreeMap::new(),
         }),
         scaled_pitch: choice.angles[0].is_some(),
+        ..Rotation::default()
     };
     let base_angles = [0., choice.heading, 0.];
     let mut admitted_offset = [0.; 3];
@@ -1139,9 +1099,7 @@ fn choice_rotation(
                             .static_binding
                             .as_ref()
                             .is_some_and(|binding| binding.model == slot)))
-                && ["owner", "bank", "member", "model"]
-                    .iter()
-                    .all(|field| particle[*field] == model[*field])
+                && particle_matches(particle, model)
                 && model["model"]["clip"].is_null()
                 && model["model"]["frame"].is_null()
                 && if choice.origin.is_some() {
@@ -1289,11 +1247,7 @@ fn yaw_model_binding(
             .as_array()
             .context("missing yaw particles")?
             .iter()
-            .filter(|particle| {
-                ["owner", "bank", "member", "model"]
-                    .iter()
-                    .all(|field| particle[*field] == model[*field])
-            })
+            .filter(|particle| particle_matches(particle, model))
             .collect();
         let [particle] = particles.as_slice() else {
             anyhow::bail!("fixed yaw model lacks a unique particle");
@@ -1325,23 +1279,14 @@ fn yaw_rotation(model: &Value, yaw: &Yaw) -> Result<Rotation> {
         "initial model yaw {initial} is outside the authored tenth-degree choices"
     );
     let rotation = Rotation {
-        relative: None,
         initial: [0., initial, 0.],
-        offset: [0.; 3],
         ordinal: yaw.ordinal,
-        motion: None,
-        spin: None,
-        scaled_pitch: false,
+        ..Rotation::default()
     };
     let mut model = model.clone();
     apply(&mut model, &rotation, 0)?;
     let canonical = world(&model)?;
-    let [sx, sy, sz] = std::array::from_fn::<_, 3, _>(|column| {
-        (0..3)
-            .map(|row| initial_world[row * 4 + column].powi(2))
-            .sum::<f64>()
-            .sqrt()
-    });
+    let [sx, sy, sz] = [0, 1, 2].map(|column| column_length(&initial_world, column));
     ensure!(
         [sx, sy, sz].into_iter().all(|scale| scale > 0.),
         "random-yaw model has nonpositive scale"
@@ -1403,10 +1348,7 @@ fn apply(model: &mut Value, rotation: &Rotation, frame: usize) -> Result<()> {
         // inverse birth rotation. Every observed basis was independently
         // checked against its retained angles above; retain its column scales.
         for column in 0..3 {
-            let scale = (0..3)
-                .map(|row| world[row * 4 + column].powi(2))
-                .sum::<f64>()
-                .sqrt();
+            let scale = column_length(&world, column);
             for row in 0..3 {
                 world[row * 4 + column] = basis[row][column] * scale;
             }
@@ -1416,12 +1358,7 @@ fn apply(model: &mut Value, rotation: &Rotation, frame: usize) -> Result<()> {
     // Pitch rotates between the Y/Z basis vectors, not their scale magnitudes.
     // Positive scales were independently checked against retained particle angles.
     let [sy, sz] = if rotation.scaled_pitch {
-        [1, 2].map(|column| {
-            (0..3)
-                .map(|row| world[row * 4 + column].powi(2))
-                .sum::<f64>()
-                .sqrt()
-        })
+        [1, 2].map(|column| column_length(&world, column))
     } else {
         [1.; 2]
     };
@@ -1474,6 +1411,19 @@ fn angle_basis(angles: [f64; 3]) -> [[f64; 3]; 3] {
         [cy * sz, sx * sy * sz + cx * cz, cx * sy * sz - sx * cz],
         [-sy, sx * cy, cx * cy],
     ]
+}
+
+fn column_length(world: &[f64; 12], column: usize) -> f64 {
+    (0..3)
+        .map(|row| world[row * 4 + column].powi(2))
+        .sum::<f64>()
+        .sqrt()
+}
+
+fn particle_matches(particle: &Value, model: &Value) -> bool {
+    ["owner", "bank", "member", "model"]
+        .iter()
+        .all(|field| particle[*field] == model[*field])
 }
 
 fn positive_scale(model: &Value, angles: [f64; 3]) -> Result<()> {
@@ -1613,16 +1563,12 @@ mod relative_tests {
     fn relative_birth_rotation_keeps_contact_spin_changes_and_placement() {
         let births = [model([25., 60., -30.], 4.), model([-10., 15., 80.], 4.)];
         let rotations = births.each_ref().map(|birth| Rotation {
-            initial: [0.; 3],
-            offset: [0.; 3],
             ordinal: 1,
-            motion: None,
-            spin: None,
-            scaled_pitch: false,
             relative: Some(Relative {
                 basis: rotation_basis(birth, [1.; 3]).unwrap(),
                 frames: BTreeMap::from([(0, 1), (1, 2)]),
             }),
+            ..Rotation::default()
         });
         for change in [5., -6.] {
             let mut frames = [
@@ -1651,10 +1597,7 @@ mod relative_tests {
         let changes = [[2., 3., 0.], [4., 6., 0.], [-2., 9., 0.]];
         let mut rotations = initial.map(|initial| Rotation {
             initial,
-            offset: [0.; 3],
             ordinal: 1,
-            motion: None,
-            relative: None,
             scaled_pitch: true,
             spin: Some(Spin {
                 first: std::array::from_fn(|axis| initial[axis] + changes[0][axis]),
@@ -1673,6 +1616,7 @@ mod relative_tests {
                     })
                     .collect(),
             }),
+            ..Rotation::default()
         });
         for frame in 0..changes.len() {
             let mut models = std::array::from_fn::<_, 2, _>(|side| {

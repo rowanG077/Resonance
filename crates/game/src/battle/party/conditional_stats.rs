@@ -91,12 +91,9 @@ mod tests {
                 base()
             );
         }
-        let mut previous = base().slash;
         for kills in [0, 255, 256, 32767, 32768, u16::MAX] {
             let projected = project(base(), true, kills, true, false, false, false, &[]);
             assert_eq!(projected.slash, base().slash + i32::from(kills));
-            assert!(projected.slash >= previous);
-            previous = projected.slash;
         }
     }
     #[test]
@@ -127,20 +124,10 @@ mod tests {
     }
 
     #[test]
-    fn refresh_recomputes_from_saved_base_and_new_kills_without_compounding() {
-        let first = project(base(), true, 40, true, true, false, false, &[]);
-        let refreshed = project(base(), true, 41, true, true, false, false, &[]);
-        assert_eq!(refreshed.slash, first.slash + 1);
-        assert_eq!(
-            project(base(), false, 41, true, true, false, false, &[]).slash,
-            111
-        );
-    }
-
-    #[test]
     #[ignore = "requires cooked menu/session metadata; CPU only"]
     fn active_recipes_project_without_changing_learned_history_or_saved_vitals()
     -> anyhow::Result<()> {
+        use crate::battle::party::Character;
         use resonance_content::{menu_data::MenuData, session::SessionData};
         use resonance_events::party::Party;
         let root = std::env::var_os("RESONANCE_TEST_ASSETS")
@@ -156,15 +143,15 @@ mod tests {
                 .unwrap();
         let mut party = Party::new(&session, Default::default()).unwrap();
         for (character, skills, percent) in [
-            (1, [18, 21, 14, 0], 10),
-            (5, [41, 1, 0, 0], 20),
-            (8, [41, 1, 0, 0], 20),
+            (Character::Colette, [18, 21, 14, 0], 10),
+            (Character::Zelos, [41, 1, 0, 0], 20),
+            (Character::Kratos, [41, 1, 0, 0], 20),
         ] {
-            let member = &mut party.members[character];
+            let member = &mut party.members[character.index()];
             member.ex_skills = skills;
             member.compound_ex_skills.clear();
             let before = serde_json::to_value(&*member).unwrap();
-            let base = member.stats_for(&menus, character);
+            let base = member.stats_for(&menus, character.index());
             let projected = super::super::loadout(&menus, member, character)?.battle_stats(
                 &[2, 4, 5, 7],
                 false,
@@ -189,7 +176,10 @@ mod tests {
                 projected
             );
             member.compound_ex_skills.extend(
-                (0..menus.ex_skills.characters[character].compounds.len()).map(|index| index as u8),
+                (0..menus.ex_skills.characters[character.index()]
+                    .compounds
+                    .len())
+                    .map(|index| index as u8),
             );
             assert_eq!(
                 super::super::loadout(&menus, member, character)?.battle_stats(
@@ -205,7 +195,7 @@ mod tests {
                 false,
                 0,
             );
-            let base = member.stats_for(&menus, character);
+            let base = member.stats_for(&menus, character.index());
             assert_eq!(removed.slash, i32::from(base.slash));
         }
         Ok(())

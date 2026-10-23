@@ -1,4 +1,5 @@
 use super::*;
+use resonance_battle::TechniqueId;
 use resonance_battle::{ContactSource, Cue};
 use resonance_events::party::Party;
 
@@ -14,13 +15,15 @@ fn prepared_genis_cast_pays_once_and_releases_a_damaging_volley() -> Result<()> 
     let mut battle = prepared.core;
     enter_battle(&mut battle)?;
     const FIRE_BALL: u16 = 66;
-    let action = battle.record_technique_acquisition(owner, FIRE_BALL)?;
+    let action = battle.record_technique_acquisition(owner, TechniqueId(FIRE_BALL))?;
     let target = battle.target(owner).context("Fire Ball has no target")?;
     let cost = battle
         .technique_tp_cost(owner, action)
         .context("missing prepared spell cost")?;
     let tp = battle.actors()[owner.index()].tp;
-    let uses = battle.technique_uses(owner, FIRE_BALL).unwrap_or(0);
+    let uses = battle
+        .technique_uses(owner, TechniqueId(FIRE_BALL))
+        .unwrap_or(0);
     let mut released = None;
     let mut projectiles = std::collections::BTreeSet::new();
     let mut hit = false;
@@ -71,6 +74,9 @@ fn prepared_genis_cast_pays_once_and_releases_a_damaging_volley() -> Result<()> 
         u32::from(battle.actors()[owner.index()].tp),
         u32::from(tp) - cost
     );
-    assert_eq!(battle.technique_uses(owner, FIRE_BALL), Some(uses + 1));
+    assert_eq!(
+        battle.technique_uses(owner, TechniqueId(FIRE_BALL)),
+        Some(uses + 1)
+    );
     Ok(())
 }

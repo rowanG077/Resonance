@@ -20,13 +20,6 @@ fn hammer() -> Arc<crate::ProjectileDefinition> {
     Arc::new(crate::ProjectileDefinition {
         lifetime: Some(30),
         velocity: [0., -6., 0.],
-        acceleration: [0.; 3],
-        offset: [0.; 3],
-        clamp_ground: false,
-        active: None,
-        birth: None,
-        motion: Default::default(),
-        effects: Default::default(),
         contact: Some(crate::ProjectileContact {
             hit: crate::HitRule {
                 sound: None,
@@ -59,6 +52,7 @@ fn hammer() -> Arc<crate::ProjectileDefinition> {
             survives_contact: false,
             clashes: false,
         }),
+        ..Default::default()
     })
 }
 
@@ -98,29 +92,18 @@ impl Battle {
                 }
                 let id = ActorId(index as u8);
                 let traits = actor.equipment.reaction_ex;
-                if traits.combo_hp {
-                    let actor = &mut self.actors[index];
-                    let before = actor.hp;
-                    let (hp, nominal) = actor.recovered_hp(i32::from(percent));
-                    actor.hp = hp;
-                    cues.push(Cue::Recovered {
-                        floating: false,
-                        kind: crate::RecoveryKind::Hp,
-                        actor: id,
-                        nominal,
-                        applied: hp - before,
-                    });
-                }
-                if traits.combo_tp {
-                    let (tp, nominal) = self.actors[index].recovered_tp(percent);
-                    cues.push(Cue::Recovered {
-                        floating: false,
-                        actor: id,
-                        kind: RecoveryKind::Tp,
-                        nominal,
-                        applied: i32::from(tp) - i32::from(self.actors[index].tp),
-                    });
-                    self.actors[index].tp = tp;
+                for (enabled, kind) in [
+                    (traits.combo_hp, RecoveryKind::Hp),
+                    (traits.combo_tp, RecoveryKind::Tp),
+                ] {
+                    if enabled {
+                        cues.push(self.actors[index].recover_percent(
+                            id,
+                            kind,
+                            i32::from(percent),
+                            false,
+                        ));
+                    }
                 }
                 if traits.combo_hp || traits.combo_tp {
                     self.contact_ex_label(id, cues);
@@ -143,15 +126,7 @@ impl Battle {
         {
             let id = ActorId(index as u8);
             self.contact_ex_label(id, cues);
-            let (tp, nominal) = self.actors[index].recovered_tp(5);
-            cues.push(Cue::Recovered {
-                floating: false,
-                actor: id,
-                kind: RecoveryKind::Tp,
-                nominal,
-                applied: i32::from(tp) - i32::from(self.actors[index].tp),
-            });
-            self.actors[index].tp = tp;
+            cues.push(self.actors[index].recover_percent(id, RecoveryKind::Tp, 5, false));
         }
     }
 

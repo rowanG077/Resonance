@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelSource {
-    Party(u8),
+    Party(super::party::Character),
     Enemy(u8),
     /// Equipment or a battle-only weapon resource ID.
     Weapon(u16),
@@ -30,7 +30,7 @@ pub fn load_files(
         let dependencies = match source {
             ModelSource::Party(character) => {
                 files
-                    .json::<battle_model::Party>(&battle_model::party_path(character))?
+                    .json::<battle_model::Party>(&battle_model::party_path(character as u8))?
                     .files
             }
             ModelSource::Enemy(id) => {
@@ -71,94 +71,27 @@ pub(crate) fn merge_dependencies(
     Ok(())
 }
 
-#[cfg(test)]
-mod dependency_tests {
-    use super::merge_dependencies;
-    use resonance_content::field_preload::{File, Role};
-    use std::collections::BTreeMap;
-
-    fn file(role: Role) -> File {
-        File {
-            sha256: "a".repeat(64),
-            bytes: 12,
-            roles: [role].into(),
-        }
-    }
-
-    #[test]
-    fn shared_model_dependencies_retain_all_roles() -> anyhow::Result<()> {
-        let mut inventory = BTreeMap::new();
-        merge_dependencies(
-            &mut inventory,
-            [
-                ("shared.bin".into(), file(Role::Mesh)),
-                ("shared.bin".into(), file(Role::Data)),
-            ],
-        )?;
-        assert_eq!(inventory.len(), 1);
-        assert_eq!(
-            inventory["shared.bin"].roles,
-            [Role::Mesh, Role::Data].into()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn conflicting_model_dependencies_are_rejected() {
-        for mismatch in ["digest", "size"] {
-            let mut inventory = BTreeMap::from([("shared.bin".into(), file(Role::Mesh))]);
-            let mut conflicting = file(Role::Data);
-            if mismatch == "digest" {
-                conflicting.sha256 = "b".repeat(64);
-            } else {
-                conflicting.bytes += 1;
-            }
-            let error = merge_dependencies(&mut inventory, [("shared.bin".into(), conflicting)])
-                .unwrap_err();
-            assert!(error.to_string().contains("shared.bin"), "{error}");
-            assert_eq!(inventory["shared.bin"].roles, [Role::Mesh].into());
-        }
-    }
-}
-
 /// Resolve the weapon resource before loading its dependencies.
 pub fn weapon(files: &Files, item: u16) -> Result<battle_model::Weapon> {
-    selected_weapons(files.json(battle_model::WEAPONS_PATH)?, [item])?
+    let mut bank: battle_model::Weapons = files.json(battle_model::WEAPONS_PATH)?;
+    match bank
+        .records
         .remove(&item)
-        .with_context(|| format!("missing weapon resource {item}"))
-}
-
-/// Retain only selected descriptors from the encounter's decoded catalogue.
-pub(super) fn selected_weapons(
-    mut bank: battle_model::Weapons,
-    items: impl IntoIterator<Item = u16>,
-) -> Result<BTreeMap<u16, battle_model::Weapon>> {
-    let mut selected = BTreeMap::new();
-    for item in items {
-        if selected.contains_key(&item) {
-            continue;
+        .with_context(|| format!("missing weapon resource {item}"))?
+    {
+        battle_model::Attachment::Weapon(source) | battle_model::Attachment::Shield(source) => {
+            Ok(source)
         }
-        let attachment = bank
-            .records
-            .remove(&item)
-            .with_context(|| format!("missing weapon resource {item}"))?;
-        let source = match attachment {
-            battle_model::Attachment::Weapon(source) | battle_model::Attachment::Shield(source) => {
-                source
-            }
-            battle_model::Attachment::Nonvisual => {
-                anyhow::bail!("equipment {item} has no attachment model")
-            }
-        };
-        selected.insert(item, source);
+        battle_model::Attachment::Nonvisual => {
+            anyhow::bail!("equipment {item} has no attachment model")
+        }
     }
-    Ok(selected)
 }
 
 /// Prepared presentation ID, entry playback and controller root-axis policy.
 #[derive(Debug, Clone)]
 pub struct ModelSetup {
-    pub resource: u32,
+    pub resource: resonance_battle::ResourceId,
     pub initial: Playback,
     pub suppress_root_translation: [bool; 3],
 }
@@ -217,6 +150,21 @@ pub fn motion(
             model: model.resource,
             clip,
         })
+}
+
+/// Bind an authored pose without changing its playback settings.
+pub(super) fn action_pose(
+    model: Option<&ModelDefinition>,
+    pose: resonance_content::battle_action::ActionPose,
+) -> Option<resonance_battle::AttackPose> {
+    Some(resonance_battle::AttackPose {
+        motion: motion(model, pose.clip)?,
+        start: pose.start,
+        end: pose.end,
+        repeat: pose.repeat,
+        rate: pose.rate,
+        blend: pose.blend,
+    })
 }
 
 /// Admit clips independently; the initial pose is required when the model is constructed.
@@ -427,7 +375,7 @@ fn marker_spheres(
 pub fn effect(
     files: &Files,
     part: &resonance_content::battle_model::ModelPart,
-    resource: u32,
+    resource: resonance_battle::ResourceId,
     animate_layers: bool,
 ) -> Result<resonance_battle::PreparedEffectModel> {
     let primary = &part

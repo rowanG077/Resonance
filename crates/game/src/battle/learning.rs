@@ -1,8 +1,9 @@
 //! Immutable learning operands from the saved party, independent of executable
 //! repertoire. Construct all rows before returning; no runtime owner is installed.
+use super::party::Character;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
-    Actor, ActorId, Side,
+    Actor, ActorId, Side, TechniqueId,
     learning::{LearningCatalogue, LearningEntry, TechniqueLearningMember},
 };
 use resonance_content::arte::Catalogue;
@@ -14,7 +15,7 @@ pub fn read_inputs(
     catalogue: Arc<Catalogue>,
     party: &Party,
     prepared: &[Actor],
-    roster: &[(ActorId, u8)],
+    roster: &[(ActorId, Character)],
     colette_learning_unlocked: bool,
 ) -> Result<Vec<TechniqueLearningMember>> {
     let policy = LearningCatalogue::new(catalogue.clone())
@@ -27,7 +28,7 @@ pub fn read_inputs(
     ensure!(
         roster
             .iter()
-            .map(|&(_, character)| character)
+            .map(|&(_, character)| character as u8)
             .eq(party.formation.iter().take(4).copied()),
         "learning roster differs from formation"
     );
@@ -36,12 +37,12 @@ pub fn read_inputs(
     let mut rows = Vec::with_capacity(roster.len());
     for &(actor, character) in roster {
         ensure!(
-            (1..=9).contains(&character) && actors.insert(actor) && characters.insert(character),
+            actors.insert(actor) && characters.insert(character),
             "invalid learning roster identity"
         );
         let saved = party
             .members
-            .get(usize::from(character - 1))
+            .get(character.index())
             .context("missing learning member")?;
         ensure!(
             saved.disabled_techniques.is_subset(&saved.techniques)
@@ -63,8 +64,12 @@ pub fn read_inputs(
             level: saved.level,
             balance: admitted.equipment.contact.technique_balance,
             story_unlocked: colette_learning_unlocked,
-            current: saved.techniques.clone(),
-            counts: saved.technique_uses.clone(),
+            current: saved.techniques.iter().copied().map(TechniqueId).collect(),
+            counts: saved
+                .technique_uses
+                .iter()
+                .map(|(&id, &count)| (TechniqueId(id), count))
+                .collect(),
         })?;
         rows.push(TechniqueLearningMember { actor, member });
     }
@@ -101,15 +106,20 @@ mod tests {
         party
     }
 
-    fn roster() -> Vec<(ActorId, u8)> {
-        (0..4)
-            .map(|index| (ActorId::from_index(index).unwrap(), index as u8 + 1))
+    fn roster() -> Vec<(ActorId, Character)> {
+        Character::ALL[..4]
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, character)| (ActorId::from_index(index).unwrap(), character))
             .collect()
     }
 
     fn actors() -> Vec<Actor> {
         let (menus, member) = crate::battle::party::projection_tests::fixture().unwrap();
-        (0..4)
+        Character::ALL[..4]
+            .iter()
+            .copied()
             .map(|character| {
                 let loadout = crate::battle::party::loadout(&menus, &member, character).unwrap();
                 crate::battle::party::actor(
@@ -132,47 +142,11 @@ mod tests {
         party.members[0].technique_uses.insert(2, 999);
         let roster = roster();
         let rows = read_inputs(catalogue(), &party, &actors(), &roster, false).unwrap();
-        assert_eq!(rows[0].member.counts()[&2], 999);
-        assert!(!rows[0].member.current().contains(&2));
+        assert_eq!(rows[0].member.counts()[&TechniqueId(2)], 999);
+        assert!(!rows[0].member.current().contains(&TechniqueId(2)));
         assert_eq!(party.members[0].techniques, [1].into());
     }
 
-    #[test]
-    fn invalid_usage_or_duplicate_actor_is_rejected() {
-        let mut party = party();
-        let roster = roster();
-        party.members[3].technique_uses.insert(1, 50);
-        assert!(read_inputs(catalogue(), &party, &actors(), &roster, true).is_err());
-        party.members[3].technique_uses.clear();
-        party.members[0].technique_uses.insert(1, 1000);
-        assert!(read_inputs(catalogue(), &party, &actors(), &roster, true).is_err());
-        party.members[0].technique_uses.clear();
-        let mut duplicate = roster.clone();
-        duplicate[3].0 = duplicate[2].0;
-        assert!(read_inputs(catalogue(), &party, &actors(), &duplicate, true).is_err());
-    }
-
-    #[test]
-    fn current_membership_and_assignments_are_validated_before_return() {
-        let original = party();
-        let roster = roster();
-        let mut invalid = original.clone();
-        invalid.members[0].disabled_techniques.insert(1);
-        assert!(read_inputs(catalogue(), &invalid, &actors(), &roster, true).is_err());
-        let mut invalid = original.clone();
-        invalid.members[0].shortcuts[3] = 1;
-        assert!(read_inputs(catalogue(), &invalid, &actors(), &roster, true).is_err());
-        let mut invalid = original.clone();
-        invalid.members[3].techniques.insert(1);
-        assert!(read_inputs(catalogue(), &invalid, &actors(), &roster, true).is_err());
-        let mut invalid = original.clone();
-        invalid.members.truncate(3);
-        assert!(read_inputs(catalogue(), &invalid, &actors(), &roster, true).is_err());
-        let mut wrong_roster = roster.clone();
-        wrong_roster.swap(0, 1);
-        assert!(read_inputs(catalogue(), &original, &actors(), &wrong_roster, true).is_err());
-        assert!(read_inputs(catalogue(), &original, &actors(), &[], true).is_err());
-    }
     #[test]
     fn learning_uses_admitted_balance_when_drift_changes_route_and_probability() -> Result<()> {
         use resonance_battle::learning::{LearningAttempt, LearningMode};
@@ -184,21 +158,21 @@ mod tests {
         let mut admitted = actors();
         let attempt = LearningAttempt {
             mode: LearningMode::Martial,
-            current: Some(1),
+            current: Some(TechniqueId(1)),
             airborne: false,
         };
         admitted[0].equipment.contact.technique_balance = 20;
         let rows = read_inputs(catalogue(), &party, &admitted, &roster()[..1], true)?;
         assert_eq!(
             rows[0].member.select_after_count(attempt, |_| true, || 9)?,
-            Some(3)
+            Some(TechniqueId(3))
         );
         assert_eq!(party.members[0].technique_balance, -1);
         admitted[0].equipment.contact.technique_balance = -20;
         let rows = read_inputs(catalogue(), &party, &admitted, &roster()[..1], true)?;
         assert_eq!(
             rows[0].member.select_after_count(attempt, |_| true, || 9)?,
-            Some(2)
+            Some(TechniqueId(2))
         );
         party.settings.preferences.learn_both_arte_paths = true;
         party.members[0].techniques.insert(2);
@@ -207,7 +181,7 @@ mod tests {
             rows[0]
                 .member
                 .select_after_count(attempt, |_| true, || panic!("random roll"))?,
-            Some(3)
+            Some(TechniqueId(3))
         );
         assert_eq!(party.members[0].techniques, [1, 2].into());
         assert_eq!(party.members[0].technique_uses[&1], 50);

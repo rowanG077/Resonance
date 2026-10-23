@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::{actor, prepare_actors};
 use crate::{Activity, Actor, ActorAvailability, PreparedBattle};
 
 pub(crate) fn battle(victim: Actor, seed: u64) -> Battle {
@@ -7,21 +8,12 @@ pub(crate) fn battle(victim: Actor, seed: u64) -> Battle {
 
 pub(crate) fn prepared(mut victim: Actor, seed: u64) -> PreparedBattle {
     victim.body.collider = Some(crate::Collider::sphere(2.));
-    let owner = crate::tests::actor(if victim.side == Side::Party {
+    let owner = actor(if victim.side == Side::Party {
         Side::Enemy
     } else {
         Side::Party
     });
-    let actors = vec![owner, victim];
-    PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        seed,
-    )
-    .unwrap()
+    prepare_actors(vec![owner, victim], seed)
 }
 
 #[test]
@@ -36,28 +28,19 @@ fn rescue_priority_respects_traits_side_and_luck() {
         ],
     };
 
-    assert_eq!(
-        select(
-            true,
-            Condition::Revive.into(),
-            Side::Party,
-            all,
-            255,
-            || panic!("guaranteed rescue must not roll")
-        ),
-        Some(RescueKind::AngelTear)
-    );
-    assert_eq!(
-        select(
-            false,
-            Condition::Revive.into(),
-            Side::Party,
-            all,
-            255,
-            || panic!("guaranteed rescue must not roll")
-        ),
-        Some(RescueKind::Revive)
-    );
+    for (armed, expected) in [(true, RescueKind::AngelTear), (false, RescueKind::Revive)] {
+        assert_eq!(
+            select(
+                armed,
+                Condition::Revive.into(),
+                Side::Party,
+                all,
+                255,
+                || { panic!("guaranteed rescue must not roll") }
+            ),
+            Some(expected)
+        );
+    }
     assert_eq!(
         select(false, ConditionSet::EMPTY, Side::Party, all, 255, || 99),
         Some(RescueKind::Doll(1))
@@ -120,7 +103,7 @@ fn rescue_priority_respects_traits_side_and_luck() {
 
 #[test]
 fn rescue_preserves_reaction_gauge_conditions_and_consumes_its_charge() -> Result<()> {
-    let mut victim = crate::tests::actor(Side::Party);
+    let mut victim = actor(Side::Party);
     victim.equipment.recovery.lethal.angel_tear = true;
     victim.equipment.recovery.boost = true;
     victim.equipment.recovery.lucky = true;
@@ -177,11 +160,11 @@ fn rescue_preserves_reaction_gauge_conditions_and_consumes_its_charge() -> Resul
 
 #[test]
 fn latch_retains_across_equipment_edits_and_doll_consumes_only_first_slot() -> Result<()> {
-    let mut victim = crate::tests::actor(Side::Party);
+    let mut victim = actor(Side::Party);
     victim.equipment.recovery.lethal.angel_tear = true;
     let mut battle = battle(victim, 0);
     let id = ActorId(1);
-    let mut replacement = crate::tests::actor(Side::Party);
+    let mut replacement = actor(Side::Party);
     replacement.equipment.recovery.lethal.equipment = [
         Some(RescueEquipment::Consumable(5)),
         Some(RescueEquipment::Consumable(3)),
@@ -221,7 +204,7 @@ fn latch_retains_across_equipment_edits_and_doll_consumes_only_first_slot() -> R
 
 #[test]
 fn revive_consumes_the_admitted_condition_without_consuming_equipment_layers() -> Result<()> {
-    let mut victim = crate::tests::actor(Side::Enemy);
+    let mut victim = actor(Side::Enemy);
     let flag = Condition::Revive.into();
     victim.conditions = crate::conditions::Conditions::new(crate::conditions::Layers {
         base: flag,
@@ -247,7 +230,7 @@ fn revive_consumes_the_admitted_condition_without_consuming_equipment_layers() -
 
 #[test]
 fn rescue_hold_preserves_actor_common_timers() -> Result<()> {
-    let mut victim = crate::tests::actor(Side::Party);
+    let mut victim = actor(Side::Party);
     victim.equipment.recovery.lethal.angel_tear = true;
     let mut battle = battle(victim, 19);
     let id = ActorId(1);

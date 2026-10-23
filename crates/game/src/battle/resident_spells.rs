@@ -2,8 +2,8 @@
 use super::{ActionResources, EffectResource, recoil};
 use anyhow::{Context, Result};
 use resonance_battle::{
-    EffectAppearance, HitShape, PreparedSpell, ProjectileContact, ProjectileDefinition,
-    SpellEffect, SpellEffectPlacement, SpellOrigin,
+    HitShape, PreparedSpell, ProjectileContact, ProjectileDefinition, SpellEffect,
+    SpellEffectPlacement, SpellOrigin, SpellProjectile, SpellStartup,
 };
 use resonance_content::{battle_projectile, prepared::Files};
 use std::sync::Arc;
@@ -14,13 +14,23 @@ pub const WIND_BLADE: u16 = 70;
 pub const STONE_BLAST: u16 = 74;
 pub const LIGHTNING: u16 = 78;
 
-pub(super) fn source_spell(catalogue: u16) -> Option<u16> {
+#[derive(Clone, Copy)]
+#[repr(u16)]
+pub(super) enum Spell {
+    AquaEdge = 200,
+    WindBlade = 208,
+    StoneBlast = 212,
+    Lightning = 216,
+    Icicle = 220,
+}
+
+pub(super) fn source_spell(catalogue: u16) -> Option<Spell> {
     match catalogue {
-        AQUA_EDGE => Some(200),
-        ICICLE => Some(220),
-        WIND_BLADE | 215 => Some(208),
-        STONE_BLAST | 217 => Some(212),
-        LIGHTNING | 219 => Some(216),
+        AQUA_EDGE => Some(Spell::AquaEdge),
+        ICICLE => Some(Spell::Icicle),
+        WIND_BLADE | 215 => Some(Spell::WindBlade),
+        STONE_BLAST | 217 => Some(Spell::StoneBlast),
+        LIGHTNING | 219 => Some(Spell::Lightning),
         _ => None,
     }
 }
@@ -43,18 +53,38 @@ pub fn prepare(
     resources: &mut ActionResources,
 ) -> Result<PreparedSpell> {
     let spell = source_spell(catalogue).context("unknown resident spell")?;
-    let rule = rule(table, spell)?;
+    let rule = rule(table, spell as u16)?;
     let recoil = recoil::Parameters::load(files)?;
-    if spell == 200 {
-        return aqua_edge(files, table, rule, bank, resources, &recoil);
-    }
-    if spell == 220 {
-        return icicle(files, table, rule, bank, resources, &recoil);
-    }
-    let mut hit = super::hit::authored(&rule.hit, &recoil)?;
-    hit.overlimit_pause = false;
-    let (mut projectile, startup_member, births) = match spell {
-        208 => {
+    let mut prepared = PreparedSpell::new(
+        SpellOrigin::GroundAtRelease { toward_caster: 1. },
+        rule.duration,
+    );
+    let hit = || -> Result<_> {
+        let mut hit = super::hit::authored(&rule.hit, &recoil)?;
+        hit.overlimit_pause = false;
+        Ok(hit)
+    };
+    let (mut projectile, births) = match spell {
+        Spell::AquaEdge => {
+            prepared.projectiles = aqua_edge(files, table, rule, bank, resources, &recoil)?;
+            prepared.origin = SpellOrigin::CasterRoot;
+            prepared.duration = rule
+                .duration
+                .checked_add(1)
+                .context("Aqua Edge duration overflow")?;
+            return Ok(prepared);
+        }
+        Spell::Icicle => {
+            prepared.projectiles = icicle(files, table, rule, resources, &recoil)?;
+            prepared.effects.push(scene_effect(bank, resources, 32)?);
+            prepared.duration = rule
+                .duration
+                .checked_add(1)
+                .context("Icicle duration overflow")?;
+            return Ok(prepared);
+        }
+        Spell::WindBlade => {
+            let hit = hit()?;
             let mut template = table
                 .records
                 .get(1)
@@ -63,25 +93,15 @@ pub fn prepare(
             template.contact.radius = 50.;
             template.contact.height = 50.;
             template.contact.recoil_direction = resonance_battle::RecoilDirection::AwayFromContact;
-            (
-                resources.projectile(files, &template, hit, &[])?,
-                Some(27),
-                &[12, 22, 32][..],
-            )
+            let projectile = resources.projectile(files, &template, hit, &[])?;
+            prepared.origin = SpellOrigin::Target;
+            (projectile, &[12, 22, 32][..])
         }
-        212 => (
+        Spell::StoneBlast => (
             Arc::new(ProjectileDefinition {
                 lifetime: Some(10),
-                velocity: [0.; 3],
-                acceleration: [0.; 3],
-                offset: [0.; 3],
-                clamp_ground: false,
-                active: None,
-                birth: None,
-                motion: Default::default(),
-                effects: Default::default(),
                 contact: Some(ProjectileContact {
-                    hit,
+                    hit: hit()?,
                     cooldown: rule.hit.cooldown,
                     repeat_limit: 0,
                     radius: 85.,
@@ -93,97 +113,51 @@ pub fn prepare(
                     survives_contact: true,
                     clashes: false,
                 }),
+                ..Default::default()
             }),
-            Some(21),
             &[32, 37, 42][..],
         ),
-        216 => (
-            resources.projectile(
-                files,
-                table
-                    .records
-                    .get(4)
-                    .context("missing Lightning projectile")?,
-                hit,
-                &[(1, bank)],
-            )?,
-            None,
-            &[22][..],
-        ),
-        _ => unreachable!(),
+        Spell::Lightning => {
+            let hit = hit()?;
+            prepared.origin = SpellOrigin::SceneGround { toward_caster: 1. };
+            (
+                resources.projectile(
+                    files,
+                    table
+                        .records
+                        .get(4)
+                        .context("missing Lightning projectile")?,
+                    hit,
+                    &[(1, bank)],
+                )?,
+                &[22][..],
+            )
+        }
     };
     if let Some(contact) = Arc::make_mut(&mut projectile).contact.as_mut() {
         contact.cooldown = rule.hit.cooldown;
     }
     projectile.validate()?;
-    let startup = startup_member.map(|member| EffectAppearance {
-        resource: bank.resource,
-        member,
-    });
-    if let Some(startup) = startup {
-        let mut effects = bank.clone();
-        effects.members = vec![startup.member];
-        resources.effect(effects)?;
-    }
-    let (origin, startup_tick, duration) = if spell == 208 {
-        // The release visit precedes the resident callback's first age update.
-        (
-            SpellOrigin::Target,
-            6,
-            rule.duration
+    match spell {
+        Spell::WindBlade => {
+            prepared.startup = Some((
+                6,
+                SpellStartup::DeferredEffect(resources.effect_member(bank, 27)?),
+            ));
+            // The release visit precedes the resident callback's first age update.
+            prepared.duration = rule
+                .duration
                 .checked_add(1)
-                .context("Wind Blade duration overflow")?,
-        )
-    } else if spell == 216 {
-        (
-            SpellOrigin::SceneGround { toward_caster: 1. },
-            1,
-            rule.duration,
-        )
-    } else {
-        (
-            SpellOrigin::GroundAtRelease { toward_caster: 1. },
-            0,
-            rule.duration,
-        )
-    };
-    let (startup, effects) = match (spell, startup) {
-        (212, Some(appearance)) => (
-            None,
-            vec![SpellEffect {
-                at: 0,
-                appearance,
-                placement: SpellEffectPlacement::Scene([0.; 3]),
-                deferred: true,
-                captured_heading_offset: Some(0.),
-            }],
-        ),
-        (_, startup) => (startup, vec![]),
-    };
-    Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects,
-        recovery: vec![],
-        projectiles: births
-            .iter()
-            .map(|&at| resonance_battle::SpellProjectile::new(at, Arc::clone(&projectile)))
-            .collect(),
-        origin,
-        transition_ticks: 0,
-        stage_tint: None,
-        camera: None,
-        duration,
-        startup: startup.map(|effect| {
-            let effect = if spell == 208 {
-                resonance_battle::SpellStartup::DeferredEffect(effect)
-            } else {
-                resonance_battle::SpellStartup::Effect(effect)
-            };
-            (startup_tick, effect)
-        }),
-        sound: None,
-    })
+                .context("Wind Blade duration overflow")?;
+        }
+        Spell::StoneBlast => prepared.effects.push(scene_effect(bank, resources, 21)?),
+        _ => {}
+    }
+    prepared.projectiles = births
+        .iter()
+        .map(|&at| SpellProjectile::new(at, Arc::clone(&projectile)))
+        .collect();
+    Ok(prepared)
 }
 
 fn aqua_edge(
@@ -193,7 +167,7 @@ fn aqua_edge(
     bank: &EffectResource,
     resources: &mut ActionResources,
     recoil: &recoil::Parameters,
-) -> Result<PreparedSpell> {
+) -> Result<Vec<SpellProjectile>> {
     let row = table
         .records
         .get(8)
@@ -211,38 +185,18 @@ fn aqua_edge(
         definition.contact.as_mut().unwrap().cooldown = rule.hit.cooldown;
         definition.validate()?;
         // Allocation precedes the first visible projectile visit by one update.
-        projectiles.push(resonance_battle::SpellProjectile::new(
-            2,
-            Arc::new(definition),
-        ));
+        projectiles.push(SpellProjectile::new(2, Arc::new(definition)));
     }
-    Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
-        projectiles,
-        recovery: vec![],
-        origin: SpellOrigin::CasterRoot,
-        transition_ticks: 0,
-        stage_tint: None,
-        camera: None,
-        duration: rule
-            .duration
-            .checked_add(1)
-            .context("Aqua Edge duration overflow")?,
-        startup: None,
-        sound: None,
-    })
+    Ok(projectiles)
 }
 
 fn icicle(
     files: &Files,
     table: &battle_projectile::Table,
     rule: &battle_projectile::ResidentSpell,
-    bank: &EffectResource,
     resources: &mut ActionResources,
     recoil: &recoil::Parameters,
-) -> Result<PreparedSpell> {
+) -> Result<Vec<SpellProjectile>> {
     let mut template = table
         .records
         .get(1)
@@ -269,36 +223,21 @@ fn icicle(
             .as_mut()
             .unwrap()
             .cooldown = rule.cooldown;
-        projectiles.push(resonance_battle::SpellProjectile::new(at + 1, projectile));
+        projectiles.push(SpellProjectile::new(at + 1, projectile));
     }
-    let appearance = EffectAppearance {
-        resource: bank.resource,
-        member: 32,
-    };
-    let mut effects = bank.clone();
-    effects.members = vec![appearance.member];
-    resources.effect(effects)?;
-    Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![SpellEffect {
-            at: 0,
-            appearance,
-            placement: SpellEffectPlacement::Scene([0.; 3]),
-            deferred: true,
-            captured_heading_offset: Some(0.),
-        }],
-        projectiles,
-        recovery: vec![],
-        origin: SpellOrigin::GroundAtRelease { toward_caster: 1. },
-        transition_ticks: 0,
-        stage_tint: None,
-        camera: None,
-        duration: rule
-            .duration
-            .checked_add(1)
-            .context("Icicle duration overflow")?,
-        startup: None,
-        sound: None,
+    Ok(projectiles)
+}
+
+fn scene_effect(
+    bank: &EffectResource,
+    resources: &mut ActionResources,
+    member: u16,
+) -> Result<SpellEffect> {
+    Ok(SpellEffect {
+        at: 0,
+        appearance: resources.effect_member(bank, member)?,
+        placement: SpellEffectPlacement::Scene([0.; 3]),
+        deferred: true,
+        captured_heading_offset: Some(0.),
     })
 }

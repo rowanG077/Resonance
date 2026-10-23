@@ -4,16 +4,13 @@ use super::*;
 #[ignore = "requires current Regal and encounter publications; CPU only"]
 fn learned_mirage_moves_and_completes() -> Result<()> {
     let (mut battle, owner) = encounter(8, &[], false)?;
-    let action = battle.record_technique_acquisition(owner, 201)?;
+    let action = battle.record_technique_acquisition(owner, resonance_battle::TechniqueId(201))?;
     let before = battle.actors()[owner.index()].clone();
-    let first = battle.step(BattleInput {
-        actions: vec![resonance_battle::ActionRequest {
-            actor: owner,
-            action,
-            target: battle.target(owner).context("missing target")?,
-        }],
-        ..Default::default()
-    })?;
+    let first = battle.step(BattleInput::from(resonance_battle::ActionRequest {
+        actor: owner,
+        action,
+        target: battle.target(owner).context("missing target")?,
+    }))?;
     let handle = first
         .actions
         .iter()
@@ -34,7 +31,10 @@ fn learned_mirage_moves_and_completes() -> Result<()> {
     assert!(completed);
     assert_ne!(battle.actors()[owner.index()].position, before.position);
     assert_eq!(battle.actors()[owner.index()].tp, before.tp - 12);
-    assert_eq!(battle.technique_uses(owner, 201), Some(1));
+    assert_eq!(
+        battle.technique_uses(owner, resonance_battle::TechniqueId(201)),
+        Some(1)
+    );
     assert!(!battle.is_diagnostic());
     Ok(())
 }

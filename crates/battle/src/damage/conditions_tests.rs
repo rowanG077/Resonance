@@ -2,27 +2,34 @@ use super::*;
 use crate::conditions::{Condition, ConditionSet};
 use crate::{
     Side,
-    conditions::{Conditions, Layers},
+    conditions::{ConditionLabel, Conditions, Layers},
     tests::actor,
 };
 use resonance_content::battle_action::Condition as HitAilment;
 fn hit(kind: DamageKind) -> HitRule {
     HitRule {
-        sound: None,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
         kind,
-        arte: false,
-        power: Power::Normal,
-        element: HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        guard: GuardRule::default(),
-        reaction: Default::default(),
-        condition: None,
+        ..crate::tests::hit()
     }
+}
+
+fn condition_hit(
+    target: &mut Actor,
+    rule: HitRule,
+    incoming: [f32; 3],
+) -> (HitResult, Option<ConditionLabel>) {
+    resolve_with_condition(
+        &actor(Side::Party),
+        target,
+        crate::Activity::Idle,
+        rule,
+        100,
+        incoming,
+        &mut neutral_roll,
+        false,
+        [2; 2],
+    )
 }
 
 #[test]
@@ -122,6 +129,7 @@ fn floor_bonuses_change_attack_defense_and_accuracy_in_the_advertised_direction(
 
 #[test]
 fn stat_conditions_change_damage_in_the_expected_direction_without_changing_base_stats() {
+    use Condition::{MagicAttackDown, MagicDefenseDown, MagicDefenseUp};
     for (kind, condition, magnitude, on_owner, increases) in [
         (DamageKind::Slash, Condition::AttackUp, 10, true, true),
         (DamageKind::Slash, Condition::AttackDown, -10, true, false),
@@ -130,27 +138,9 @@ fn stat_conditions_change_damage_in_the_expected_direction_without_changing_base
         (DamageKind::Slash, Condition::AccuracyUp, 10, true, true),
         (DamageKind::Slash, Condition::EvasionDown, -10, false, true),
         (DamageKind::Magic, Condition::MagicAttackUp, 10, true, true),
-        (
-            DamageKind::Magic,
-            Condition::MagicAttackDown,
-            -10,
-            true,
-            false,
-        ),
-        (
-            DamageKind::Magic,
-            Condition::MagicDefenseUp,
-            10,
-            false,
-            false,
-        ),
-        (
-            DamageKind::Magic,
-            Condition::MagicDefenseDown,
-            -10,
-            false,
-            true,
-        ),
+        (DamageKind::Magic, MagicAttackDown, -10, true, false),
+        (DamageKind::Magic, MagicDefenseUp, 10, false, false),
+        (DamageKind::Magic, MagicDefenseDown, -10, false, true),
     ] {
         let mut owner = actor(Side::Party);
         owner.casting_state.power_percent = 100;
@@ -363,7 +353,6 @@ fn zero_chance_leaves_conditions_unchanged_but_guard_break_admits_them() {
 
 #[test]
 fn curse_persists_after_contact_and_respects_target_immunity() {
-    let owner = actor(Side::Party);
     let mut target = actor(Side::Enemy);
     let mut rule = hit(DamageKind::Slash);
     rule.condition = Some(HitCondition {
@@ -371,17 +360,7 @@ fn curse_persists_after_contact_and_respects_target_immunity() {
         chance: 100,
         value: 0,
     });
-    let (_, label) = resolve_with_condition(
-        &owner,
-        &mut target,
-        crate::Activity::Idle,
-        rule,
-        100,
-        [0., 0., 1.],
-        &mut neutral_roll,
-        false,
-        [2; 2],
-    );
+    let (_, label) = condition_hit(&mut target, rule, [0., 0., 1.]);
     assert_eq!(label, Some(crate::conditions::ConditionLabel::Applied));
     assert_eq!(target.conditions.effective(), Condition::Curse.into());
     assert_eq!(target.conditions.remaining(Condition::Curse), None);
@@ -394,24 +373,13 @@ fn curse_persists_after_contact_and_respects_target_immunity() {
         immunity: Condition::Curse.into(),
         ..Default::default()
     });
-    let (_, label) = resolve_with_condition(
-        &owner,
-        &mut target,
-        crate::Activity::Idle,
-        rule,
-        100,
-        [0., 0., 1.],
-        &mut neutral_roll,
-        false,
-        [2; 2],
-    );
+    let (_, label) = condition_hit(&mut target, rule, [0., 0., 1.]);
     assert_eq!(label, None);
     assert_eq!(target.conditions.effective(), ConditionSet::EMPTY);
 }
 
 #[test]
 fn paralysis_applies_after_guard_break_and_refreshes_until_expiry() {
-    let owner = actor(Side::Party);
     let mut target = actor(Side::Enemy);
     target.hp = 1000;
     target.equipment.max_hp = 1000;
@@ -424,45 +392,17 @@ fn paralysis_applies_after_guard_break_and_refreshes_until_expiry() {
         chance: 100,
         value: 0,
     });
-    let (_, label) = resolve_with_condition(
-        &owner,
-        &mut target,
-        crate::Activity::Idle,
-        rule,
-        100,
-        [0.; 3],
-        &mut neutral_roll,
-        false,
-        [2; 2],
-    );
+    let (_, label) = condition_hit(&mut target, rule, [0.; 3]);
     assert_eq!(label, None);
     assert!(target.conditions.effective().is_empty());
     rule.guard.breaks = true;
-    let (result, label) = resolve_with_condition(
-        &owner,
-        &mut target,
-        crate::Activity::Idle,
-        rule,
-        100,
-        [0.; 3],
-        &mut neutral_roll,
-        false,
-        [2; 2],
-    );
+    let (result, label) = condition_hit(&mut target, rule, [0.; 3]);
     assert_eq!(result.guard, GuardResult::Broken);
     assert_eq!(label, Some(crate::conditions::ConditionLabel::Applied));
     assert_eq!(target.conditions.remaining(Condition::Paralysis), Some(600));
     target.advance_conditions(true);
     assert_eq!(target.conditions.remaining(Condition::Paralysis), Some(599));
-    resolve(
-        &owner,
-        &mut target,
-        rule,
-        100,
-        [0.; 3],
-        &mut neutral_roll,
-        false,
-    );
+    condition_hit(&mut target, rule, [0.; 3]);
     assert_eq!(target.conditions.remaining(Condition::Paralysis), Some(600));
     let lifetime = target.conditions.remaining(Condition::Paralysis).unwrap();
     for _ in 0..=lifetime {
@@ -474,7 +414,6 @@ fn paralysis_applies_after_guard_break_and_refreshes_until_expiry() {
 
 #[test]
 fn hit_conditions_apply_through_armor_but_skip_defeated_targets() {
-    let owner = actor(Side::Party);
     let mut armored = actor(Side::Enemy);
     armored.reaction.protection.mode = crate::ProtectionMode::Armor;
     armored.reaction.protection.remaining = 10;
@@ -485,17 +424,7 @@ fn hit_conditions_apply_through_armor_but_skip_defeated_targets() {
         chance: 100,
         value: 0,
     });
-    let (result, label) = resolve_with_condition(
-        &owner,
-        &mut armored,
-        crate::Activity::Idle,
-        rule,
-        100,
-        [0., 0., 1.],
-        &mut neutral_roll,
-        false,
-        [2; 2],
-    );
+    let (result, label) = condition_hit(&mut armored, rule, [0., 0., 1.]);
     assert_eq!(result.protection, crate::HitProtection::Armored);
     assert_eq!(armored.conditions.effective(), Condition::Weak.into());
     assert_eq!(label, Some(crate::conditions::ConditionLabel::StatusDown));
@@ -503,17 +432,7 @@ fn hit_conditions_apply_through_armor_but_skip_defeated_targets() {
     let mut lethal = actor(Side::Enemy);
     lethal.hp = 1;
     lethal.equipment.max_hp = 100;
-    let (result, label) = resolve_with_condition(
-        &owner,
-        &mut lethal,
-        crate::Activity::Idle,
-        rule,
-        100,
-        [0., 0., 1.],
-        &mut neutral_roll,
-        false,
-        [2; 2],
-    );
+    let (result, label) = condition_hit(&mut lethal, rule, [0., 0., 1.]);
     assert_eq!(lethal.hp, 0);
     assert!(lethal.conditions.effective().is_empty());
     assert_eq!(label, None);
@@ -523,7 +442,6 @@ fn hit_conditions_apply_through_armor_but_skip_defeated_targets() {
 #[test]
 fn ailment_guards_block_their_own_group_and_explicit_immunity_blocks_both() {
     use crate::conditions::Buff;
-    let owner = actor(Side::Party);
     let physical = Buff::PhysicalAilmentGuard;
     let magical = Buff::MagicalAilmentGuard;
     let physical_barrier = Buff::PhysicalBarrier { persistent: false };
@@ -566,17 +484,7 @@ fn ailment_guards_block_their_own_group_and_explicit_immunity_blocks_both() {
             chance: 100,
             value: 0,
         });
-        let (result, label) = resolve_with_condition(
-            &owner,
-            &mut target,
-            crate::Activity::Idle,
-            rule,
-            100,
-            [0., 0., 1.],
-            &mut neutral_roll,
-            false,
-            [2; 2],
-        );
+        let (result, label) = condition_hit(&mut target, rule, [0., 0., 1.]);
         assert!(result.amount > 0);
         assert_eq!(target.hp, 1000 - result.amount);
         assert_eq!(label.is_some(), accepted, "{buff:?}/{condition:?}/{immune}");

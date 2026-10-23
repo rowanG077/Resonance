@@ -1,5 +1,5 @@
 //! Ordinary Escape operands, resolved against the same roster before activation.
-use super::{model::ModelSource, voice};
+use super::{model::ModelSource, party::Character, voice};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{ActorId, EscapeActorDefinition, EscapeDefinition, Sound};
 use resonance_content::menu_data::MenuData;
@@ -9,15 +9,13 @@ use resonance_events::party::Party;
 pub(super) fn magic_mist(
     party: &Party,
     menus: &MenuData,
-    characters: impl IntoIterator<Item = u8>,
+    characters: impl IntoIterator<Item = Character>,
 ) -> Result<bool> {
     let mut active = false;
     for character in characters {
-        ensure!((1..=9).contains(&character), "unprepared Escape character");
-        let index = usize::from(character.checked_sub(1).context("zero Escape character")?);
         let member = party
             .members
-            .get(index)
+            .get(character.index())
             .context("missing Escape party member")?;
         for &item in &member.equipment {
             let item = menus

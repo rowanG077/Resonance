@@ -1,77 +1,26 @@
 use super::*;
 use crate::{
-    ActionId, Cue, DamageKind, GuardRule, HitElement, HitRule, MeleeDefinition, Power,
-    ReactionRule, RecoilKind, RecoilRule, contact::Contacts,
+    ActionId, Cue, HitRule, MeleeDefinition, Power, ReactionRule, RecoilKind, RecoilRule,
+    contact::Contacts,
 };
 
 fn recovery_battle(mode: Control) -> Battle {
-    let mut actions: Vec<_> = (0..7)
-        .map(|index| ActionDefinition {
-            normal: Some(crate::NormalAttack::ALL[index]),
-            tp_cost: 0,
-            execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-                contact_recovery: None,
-                chain_at: None,
-                end_at: 90,
-                opening: None,
-                events: vec![],
-                recovery: 0,
-            }),
-        })
-        .collect();
-    actions.push(crate::tests::action(90));
-    let mut owner = actor(Side::Party);
+    let mut prepared = prepared();
+    let action = prepared.resources.actions.insert(crate::tests::action(90));
+    let setup = &mut prepared.resources.actor_setup[0];
+    setup.contact_recovery = true;
+    setup.techniques = vec![crate::PreparedTechnique {
+        player_range: [0., 1200.],
+        ai_range: [0., 1200.],
+        ..crate::tests::technique(action, 1)
+    }];
+    let owner = &mut prepared.actors[0];
     owner.control = mode;
     owner.hp = 500;
     owner.equipment.max_hp = 500;
     owner.guard.auto_disabled = true;
     owner.reaction.stagger.duration = 40;
     owner.body.collider = Some(crate::Collider::sphere(2.));
-    owner.movement.direction = [1., 0., 0.];
-    owner.movement.target_direction = owner.movement.direction;
-    owner.facing_direction = owner.movement.direction;
-    let mut target = actor(Side::Enemy);
-    target.position = [1000., 0., 0.];
-    let prepared = PreparedBattle::new(
-        (vec![owner, target])
-            .into_iter()
-            .zip(vec![
-                ActorSetup {
-                    contact_recovery: true,
-                    techniques: vec![crate::PreparedTechnique {
-                        player_range: [0., 1200.],
-                        ai_range: [0., 1200.],
-                        ..crate::tests::technique(crate::ActionKey(7), 1)
-                    }],
-                    control: Some(Arc::new(ControlDefinition {
-                        walk_speed: 5.,
-                        run_speed: 10.,
-                        turn_ticks: 8,
-                        motions: None,
-                        shortcuts: [0; 4],
-                        normals: std::array::from_fn(|index| NormalControl {
-                            action: crate::ActionKey(index),
-                            continuation: crate::tests::normal_continuation(
-                                crate::NormalAttack::ALL[index],
-                            ),
-
-                            reach: 120.,
-                            minimum_reach: 0.,
-                        }),
-                    })),
-                    decision: Some(DecisionDefinition {
-                        idle_ticks: 0,
-                        idle_variation: 0,
-                    }),
-                    ..Default::default()
-                },
-                ActorSetup::default(),
-            ])
-            .collect(),
-        actions.into(),
-        0x13572468,
-    )
-    .unwrap();
     prepared.finish().unwrap()
 }
 
@@ -95,19 +44,8 @@ fn hit_recoil(battle: &mut Battle, delay: u8, launch: bool) {
             ActionId(99),
             &MeleeDefinition {
                 hit: HitRule {
-                    sound: None,
-                    kind: DamageKind::Slash,
                     arte: true,
-                    effect_on_guard: false,
-                    effect: None,
-                    overlimit_pause: false,
                     power: Power::Fixed(9),
-                    element: HitElement::Neutral,
-                    prevents_defeat: false,
-                    finisher_grade: false,
-                    hp_drain: false,
-                    guard: GuardRule::default(),
-                    condition: None,
                     reaction: ReactionRule {
                         hitstun: 45,
                         stagger: 1,
@@ -120,6 +58,7 @@ fn hit_recoil(battle: &mut Battle, delay: u8, launch: bool) {
                         },
                         ..Default::default()
                     },
+                    ..crate::tests::hit()
                 },
                 trail: None,
                 volume: crate::MeleeVolume::Fixed {
@@ -170,12 +109,7 @@ fn fresh_guard_breakfall_preserves_impulse_pause_and_landing_recovery() {
 
     assert!(frame.cues.contains(&Cue::Breakfall { actor: ActorId(0) }));
     let position = battle.actors[0].position;
-    battle
-        .step(BattleInput {
-            paused: true,
-            ..Default::default()
-        })
-        .unwrap();
+    pause(&mut battle);
     assert_eq!(battle.actors[0].position, position);
     let mut fall = false;
     let mut landing = false;
@@ -229,13 +163,7 @@ fn queued_technique_survives_breakfall_landing() {
     let mut battle = recovery_battle(Control::Manual);
     hit(&mut battle, 0);
     battle.step(guard(true)).unwrap();
-    for _ in 0..100 {
-        battle.step(BattleInput::default()).unwrap();
-        if battle.activity(ActorId(0)) == Activity::Recovering {
-            break;
-        }
-    }
-    assert_eq!(battle.activity(ActorId(0)), Activity::Recovering);
+    step_until(&mut battle, Activity::Recovering, 100);
     assert!(
         battle
             .queue_technique(ActorId(0), crate::ActionKey(7))
@@ -245,13 +173,7 @@ fn queued_technique_survives_breakfall_landing() {
         battle.pending_technique(ActorId(0)),
         Some(crate::ActionKey(7))
     );
-    for _ in 0..20 {
-        battle.step(BattleInput::default()).unwrap();
-        if battle.activity(ActorId(0)) == Activity::Idle {
-            break;
-        }
-    }
-    assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+    step_until(&mut battle, Activity::Idle, 20);
     assert_eq!(
         battle.pending_technique(ActorId(0)),
         Some(crate::ActionKey(7))
@@ -266,13 +188,7 @@ fn roll_reduces_landing_damage() {
         battle.actors[0].equipment.control_ex.roll = roll;
         hit_recoil(&mut battle, 0, true);
         let hp = battle.actors[0].hp;
-        for _ in 0..150 {
-            battle.step(BattleInput::default()).unwrap();
-            if battle.activity(ActorId(0)) == Activity::Idle {
-                break;
-            }
-        }
-        assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+        step_until(&mut battle, Activity::Idle, 150);
         damage.push(hp - battle.actors[0].hp);
     }
     assert!(damage[0] > 0);
@@ -293,21 +209,8 @@ fn enemy_recovery_battle() -> Battle {
     enemy.facing_direction = [1., 0., 0.];
     let mut attacker = actor(Side::Party);
     attacker.position = [1000., 0., 0.];
-    let prepared = PreparedBattle::new(
-        vec![
-            (
-                enemy,
-                ActorSetup {
-                    contact_recovery: true,
-                    ..Default::default()
-                },
-            ),
-            (attacker, ActorSetup::default()),
-        ],
-        Default::default(),
-        1,
-    )
-    .unwrap();
+    let mut prepared = crate::tests::prepare_actors(vec![enemy, attacker], 1);
+    prepared.resources.actor_setup[0].contact_recovery = true;
     prepared.finish().unwrap()
 }
 
@@ -354,11 +257,7 @@ fn enemy_breakfall_lands_and_recovers_without_a_model() {
     hit_recoil(&mut battle, 0, true);
     let hp = battle.actors[0].hp;
     battle.actors[0].reaction.contact_recovery_command = true;
-    assert!(
-        battle
-            .begin_contact_recovery(ActorId(0), true, &mut vec![])
-            .unwrap()
-    );
+    assert!(battle.begin_contact_recovery(ActorId(0), true, &mut vec![]));
     assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
     let mut rose = false;
     let mut landed = false;

@@ -1,12 +1,10 @@
 //! Water and earth scenes retain one point while their contacts run independently.
 use super::{
     ActionResources, EffectResource, recoil,
-    stored_spells::{self, ACTIVE_START_TICKS, SCENE_BOUNDARY_TICKS, TRANSITION_TICKS},
+    stored_spells::{self, ACTIVE_START_TICKS, CONTACT_INITIALIZATION_TICKS, TRANSITION_TICKS},
 };
 use anyhow::{Context, Result, bail};
-use resonance_battle::{
-    EffectAppearance, PreparedSpell, SpellOrigin, SpellProjectile, SpellStartup,
-};
+use resonance_battle::{PreparedSpell, SpellOrigin, SpellProjectile, SpellStartup};
 use resonance_content::{battle_scene::Scene, prepared::Files};
 use std::sync::Arc;
 
@@ -61,10 +59,6 @@ pub(super) fn prepare(
         _ => bail!("unknown ground scene spell {catalogue}"),
     };
     let recoil = recoil::Parameters::load(files)?;
-    let mut effects = bank.clone();
-    effects.members = vec![1];
-    // Contacts initialize on the update after allocation.
-    const INITIALIZATION_TICKS: u16 = 1;
     let mut projectiles = Vec::with_capacity(pulses.len());
     for &(at, member, height) in pulses {
         let source = scene
@@ -72,44 +66,23 @@ pub(super) fn prepare(
             .get(member)
             .context("missing ground scene projectile")?;
         let rule = source.hit()?;
-        let mut hit = super::hit::authored(rule, &recoil)?;
-        if let Some(member) = rule.effect {
-            effects.members.push(member);
-            hit.effect = Some(EffectAppearance {
-                resource: bank.resource,
-                member,
-            });
-        }
-        let mut projectile =
-            resources.projectile(files, &source.projectile, hit, &[(0, bank), (6, bank)])?;
-        let definition = Arc::make_mut(&mut projectile);
-        definition.offset[1] += height;
-        definition
-            .contact
-            .as_mut()
-            .context("ground scene projectile has no contact")?
-            .cooldown = rule.cooldown;
+        let mut projectile = resources.scene_projectile(
+            files,
+            &source.projectile,
+            rule,
+            &recoil,
+            bank,
+            &[(0, bank), (6, bank)],
+        )?;
+        Arc::make_mut(&mut projectile).offset[1] += height;
         projectiles.push(SpellProjectile::new(
-            TRANSITION_TICKS + ACTIVE_START_TICKS + at + INITIALIZATION_TICKS,
+            TRANSITION_TICKS + ACTIVE_START_TICKS + at + CONTACT_INITIALIZATION_TICKS,
             projectile,
         ));
     }
-    resources.effect(effects)?;
-    let startup = EffectAppearance {
-        resource: bank.resource,
-        member: 1,
-    };
+    let startup = resources.effect_member(bank, 1)?;
     Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
         projectiles,
-        recovery: vec![],
-        origin,
-        transition_ticks: TRANSITION_TICKS,
-        stage_tint: stored_spells::stage_tint(scene.stage_color, lifetime)?,
-        camera: stored_spells::scene_camera(scene.camera, lifetime)?,
-        duration: TRANSITION_TICKS + lifetime + SCENE_BOUNDARY_TICKS,
         startup: Some((
             TRANSITION_TICKS + 1,
             if matches!(catalogue, ATLAS | TIDAL_WAVE | DREADED_WAVE) {
@@ -118,6 +91,6 @@ pub(super) fn prepare(
                 SpellStartup::Effect(startup)
             },
         )),
-        sound: None,
+        ..stored_spells::scene_spell(scene, origin, lifetime)?
     })
 }

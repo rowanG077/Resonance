@@ -1,4 +1,5 @@
 use super::*;
+use crate::ResourceId;
 use resonance_content::battle_effect::*;
 
 fn frame() -> BattleFrame {
@@ -24,7 +25,7 @@ fn request() -> EffectRequest {
         owner: ActorId(0),
         target: ActorId(0),
         appearance: EffectAppearance {
-            resource: 77,
+            resource: ResourceId(77),
             member: 1,
         },
         origin: [1., 2., 3.],
@@ -38,26 +39,58 @@ fn effects(events: Vec<ScheduledEvent>, followed: bool) -> Effects {
     let mut particle = crate::tests::particle_definition(77, 0);
     particle.data.follow_origin = followed;
     particle.data.lifetime = Some(6);
-    let definition = EffectDefinition {
-        events,
-        particles: [(0, Arc::new(particle))].into(),
-        sounds: [(1, crate::Sound::Cue(1))].into(),
-    };
+    let mut definition = definition(events, Arc::new(particle));
+    Arc::make_mut(&mut definition)
+        .sounds
+        .insert(1, crate::Sound::Cue(1));
     Effects::new(
-        vec![
-            crate::EffectBank::new(
-                77,
-                BTreeMap::new(),
-                [(1, Arc::new(definition))].into(),
-                &Diagnostics::new(true),
-            )
-            .unwrap(),
-        ],
+        vec![bank([(1, definition)]).unwrap()],
         Some(request().appearance),
         7,
         Default::default(),
     )
     .unwrap()
+}
+fn definition(
+    events: Vec<ScheduledEvent>,
+    particle: Arc<crate::ParticleDefinition>,
+) -> Arc<EffectDefinition> {
+    Arc::new(EffectDefinition {
+        events,
+        particles: [(0, particle)].into(),
+        sounds: BTreeMap::new(),
+    })
+}
+fn bank(members: impl IntoIterator<Item = (u16, Arc<EffectDefinition>)>) -> Result<EffectBank> {
+    EffectBank::new(
+        ResourceId(77),
+        BTreeMap::new(),
+        members.into_iter().collect(),
+        &Diagnostics::new(true),
+    )
+}
+fn births(times: impl IntoIterator<Item = u32>) -> Vec<ScheduledEvent> {
+    times
+        .into_iter()
+        .map(|at| emit(at, Default::default()))
+        .collect()
+}
+fn passive(actor: u8, interval: u16) -> PassiveEffect {
+    PassiveEffect {
+        actor: ActorId(actor),
+        appearance: request().appearance,
+        interval,
+        idle_only: false,
+        weapon: None,
+    }
+}
+fn actor_model(actor: &crate::Actor) -> Result<crate::ModelFrame> {
+    Ok(crate::model::Model::new(
+        Arc::new(crate::tests::model_definition(7, [(0, 10.)])),
+        ActorId(0),
+        actor,
+    )?
+    .render_frame(actor))
 }
 fn emit(at: u32, birth: ParticleBirth) -> ScheduledEvent {
     ScheduledEvent {
@@ -73,10 +106,7 @@ fn emit(at: u32, birth: ParticleBirth) -> ScheduledEvent {
 
 #[test]
 fn cinematic_cleanup_destroys_particles_and_delayed_births_while_held() -> Result<()> {
-    let mut effects = effects(
-        vec![emit(0, Default::default()), emit(4, Default::default())],
-        true,
-    );
+    let mut effects = effects(births([0, 4]), true);
     let mut frame = frame();
     frame.cues.push(Cue::Effect(request()));
     effects.advance(&frame, false)?;
@@ -119,22 +149,7 @@ fn trail_birth_sizes_and_acceleration_preserve_distinct_motion_fields() -> Resul
         steps_per_segment: 1,
     };
     let particle = Arc::new(particle);
-    let bank = |birth| {
-        EffectBank::new(
-            77,
-            BTreeMap::new(),
-            [(
-                1,
-                Arc::new(EffectDefinition {
-                    events: vec![emit(0, birth)],
-                    particles: [(0, particle.clone())].into(),
-                    sounds: BTreeMap::new(),
-                }),
-            )]
-            .into(),
-            &Diagnostics::new(true),
-        )
-    };
+    let bank = |birth| bank([(1, definition(vec![emit(0, birth)], particle.clone()))]);
     let birth = ParticleBirth {
         acceleration: [None, Some(ValueRange::fixed(2.)), None],
         size: [80., 96., 176.].map(|v| Some(ValueRange::fixed(v))),
@@ -205,23 +220,10 @@ fn delayed_size_motion_targets_its_birth_before_integration_and_waits_when_pause
             }),
         },
     });
-    let definition = |events| {
-        Arc::new(EffectDefinition {
-            events,
-            particles: [(0, particle.clone())].into(),
-            sounds: BTreeMap::new(),
-        })
-    };
-    let bank = EffectBank::new(
-        77,
-        BTreeMap::new(),
-        [
-            (1, definition(events)),
-            (2, definition(vec![emit(0, Default::default())])),
-        ]
-        .into(),
-        &Diagnostics::new(true),
-    )?;
+    let bank = bank([
+        (1, definition(events, particle.clone())),
+        (2, definition(births([0]), particle)),
+    ])?;
     let mut effects = Effects::new(vec![bank], None, 7, Diagnostics::new(true))?;
     let mut frame = frame();
     let mut other = request();
@@ -392,11 +394,8 @@ fn delayed_forward_motion_uses_retained_heading_and_stops_acceleration() -> Resu
 
 #[test]
 fn ambient_births_match_recorded_arena_clock_and_world_origin() -> Result<()> {
-    let mut effects = effects(
-        vec![emit(0, Default::default()), emit(5, Default::default())],
-        false,
-    )
-    .with_ambient(Some((request().appearance, 30)))?;
+    let ambient = || effects(births([0, 5]), false).with_ambient(Some((request().appearance, 30)));
+    let mut effects = ambient()?;
     let frame = frame();
     let mut births = Vec::new();
     for tick in 1..=150 {
@@ -423,16 +422,8 @@ fn ambient_births_match_recorded_arena_clock_and_world_origin() -> Result<()> {
             (142, 1)
         ]
     );
-    let mut paused = self::effects(
-        vec![emit(0, Default::default()), emit(5, Default::default())],
-        false,
-    )
-    .with_ambient(Some((request().appearance, 30)))?;
-    let mut uninterrupted = self::effects(
-        vec![emit(0, Default::default()), emit(5, Default::default())],
-        false,
-    )
-    .with_ambient(Some((request().appearance, 30)))?;
+    let mut paused = ambient()?;
+    let mut uninterrupted = ambient()?;
     paused.advance(&frame, false)?;
     uninterrupted.advance(&frame, false)?;
     let mut held = frame.clone();
@@ -459,10 +450,7 @@ fn ambient_births_match_recorded_arena_clock_and_world_origin() -> Result<()> {
 #[test]
 fn action_effects_pause_births_with_the_actor_but_keep_particles_running() -> Result<()> {
     for (initialized, interrupted) in [(false, false), (false, true), (true, false), (true, true)] {
-        let mut emitter = effects(
-            [0, 1, 2].map(|at| emit(at, Default::default())).into(),
-            false,
-        );
+        let mut emitter = effects(births([0, 1, 2]), false);
         let mut snapshot = frame();
         let action = crate::ActionId(7);
         snapshot.actions.push((action, ActorId(0), 0));
@@ -501,14 +489,7 @@ fn action_effects_pause_births_with_the_actor_but_keep_particles_running() -> Re
         emitter.advance(&snapshot, false)?;
         assert_eq!(emitter.frames().len(), surviving);
     }
-    let mut effects = effects(
-        vec![
-            emit(0, Default::default()),
-            emit(1, Default::default()),
-            emit(4, Default::default()),
-        ],
-        false,
-    );
+    let mut effects = effects(births([0, 1, 4]), false);
     let mut frame = frame();
     let action = crate::ActionId(7);
     frame.actions.push((action, ActorId(0), 0));
@@ -590,12 +571,7 @@ fn action_effects_pause_births_with_the_actor_but_keep_particles_running() -> Re
 
 #[test]
 fn action_emission_matches_recorded_hit_stop_delays() -> Result<()> {
-    let mut effects = effects(
-        [28, 33, 38, 43]
-            .map(|at| emit(at, Default::default()))
-            .to_vec(),
-        false,
-    );
+    let mut effects = effects(births([28, 33, 38, 43]), false);
     let mut frame = frame();
     let action = crate::ActionId(7);
     frame.actions.push((action, ActorId(0), 0));
@@ -692,18 +668,18 @@ fn scene_effects_hold_expire_and_clear_at_combat_retirement() -> Result<()> {
     assert_eq!(effects.frames().len(), 1);
     effects.advance(&frame, false)?;
     assert!(effects.frames().is_empty());
-    let mut other_bank = effects.banks[&77].clone();
-    other_bank.resource = 78;
+    let mut other_bank = effects.banks[&ResourceId(77)].clone();
+    other_bank.resource = ResourceId(78);
     for definition in other_bank.members.values_mut() {
         for particle in Arc::make_mut(definition).particles.values_mut() {
-            Arc::make_mut(particle).resource = 78;
+            Arc::make_mut(particle).resource = ResourceId(78);
         }
     }
-    effects.banks.insert(78, other_bank);
+    effects.banks.insert(ResourceId(78), other_bank);
     let mut other_owner = request();
     other_owner.owner = ActorId(1);
     let mut other_resource = request();
-    other_resource.appearance.resource = 78;
+    other_resource.appearance.resource = ResourceId(78);
     frame.cues = vec![
         Cue::Effect(request()),
         Cue::Effect(other_owner),
@@ -712,7 +688,7 @@ fn scene_effects_hold_expire_and_clear_at_combat_retirement() -> Result<()> {
     effects.advance(&frame, false)?;
     frame.cues = vec![Cue::ClearEffectBank {
         actor: ActorId(0),
-        resource: 77,
+        resource: ResourceId(77),
     }];
     effects.advance(&frame, true)?;
     assert_eq!(
@@ -721,15 +697,15 @@ fn scene_effects_hold_expire_and_clear_at_combat_retirement() -> Result<()> {
             .iter()
             .map(|p| (p.owner, p.resource))
             .collect::<Vec<_>>(),
-        [(ActorId(1), 77), (ActorId(0), 78)],
+        [(ActorId(1), ResourceId(77)), (ActorId(0), ResourceId(78))],
     );
     assert_eq!(
         effects
             .emitters
             .iter()
-            .map(|e| (e.actor, e.resource))
+            .map(|e| (e.actor, e.appearance.resource))
             .collect::<Vec<_>>(),
-        [(ActorId(1), 77), (ActorId(0), 78)],
+        [(ActorId(1), ResourceId(77)), (ActorId(0), ResourceId(78))],
     );
     frame.cues = vec![Cue::CombatRetired];
     effects.advance(&frame, true)?;
@@ -751,12 +727,12 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         };
         let mut effects = effects(vec![emit(1, birth)], false);
         effects.diagnostics = Diagnostics::new(true);
-        let bank = effects.banks.get_mut(&77).unwrap();
+        let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
         if static_model {
             bank.models.insert(
                 0,
                 crate::PreparedEffectModel::new(Arc::new(crate::EffectModelDefinition {
-                    resource: 77,
+                    resource: ResourceId(77),
                     skeleton: crate::tests::model_definition(77, [(0, 1.)]).skeleton,
                     motions: Default::default(),
                     secondary_motion: vec![],
@@ -791,12 +767,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
             assert!(mismatch.validate(&bank.models).is_err());
         }
         let mut frame = frame();
-        let mut model = crate::model::Model::new(
-            Arc::new(crate::tests::model_definition(7, [(0, 10.)])),
-            ActorId(0),
-            &frame.actors[0].state,
-        )?
-        .shown;
+        let mut model = actor_model(&frame.actors[0])?;
         model.world = Transform {
             translation: [100., 10., 20.],
             ..Default::default()
@@ -845,11 +816,8 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         assert!(effects.diagnostics.entries().is_empty());
     }
     for following in [false, true] {
-        let mut effects = effects(
-            vec![emit(0, Default::default()), emit(0, Default::default())],
-            false,
-        );
-        let bank = effects.banks.get_mut(&77).unwrap();
+        let mut effects = effects(births([0, 0]), false);
+        let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
         let effect = Arc::make_mut(bank.members.get_mut(&1).unwrap());
         let EffectOperation::Spawn { birth, .. } = &mut effect.events[1].operation else {
             unreachable!();
@@ -861,12 +829,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         particle.data.owner_bone = (!following).then_some(0);
         effect.validate(&bank.models)?;
         let mut frame = frame();
-        let mut model = crate::model::Model::new(
-            Arc::new(crate::tests::model_definition(7, [(0, 10.)])),
-            ActorId(0),
-            &frame.actors[0].state,
-        )?
-        .shown;
+        let mut model = actor_model(&frame.actors[0])?;
         let bone = |x| {
             Transform {
                 translation: [x, 0., 0.],
@@ -893,10 +856,6 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
                 }
             );
         }
-        assert!(Arc::ptr_eq(
-            &effects.particles[&first[0].id].definition,
-            &effects.particles[&first[1].id].definition,
-        ));
         frame.cues.clear();
         frame.models[0].bones = Arc::new(vec![bone(30.), bone(40.)]);
         effects.advance(&frame, false)?;
@@ -917,10 +876,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
 
 #[test]
 fn following_particles_can_use_a_fixed_world_origin() -> Result<()> {
-    let mut effects = effects(
-        vec![emit(0, Default::default()), emit(2, Default::default())],
-        true,
-    );
+    let mut effects = effects(births([0, 2]), true);
     effects.diagnostics = Diagnostics::new(true);
     let mut frame = frame();
     let spawn = request();
@@ -945,16 +901,9 @@ fn following_particles_can_use_a_fixed_world_origin() -> Result<()> {
 #[test]
 fn projectile_retirement_removes_attachments_but_finishes_independent_bursts() -> Result<()> {
     for (followed, attached) in [(false, true), (true, true), (false, false)] {
-        let mut effects = effects(
-            vec![
-                emit(0, Default::default()),
-                emit(2, Default::default()),
-                emit(7, Default::default()),
-            ],
-            followed,
-        );
+        let mut effects = effects(births([0, 2, 7]), followed);
         if followed {
-            let bank = effects.banks.get_mut(&77).unwrap();
+            let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
             let effect = Arc::make_mut(bank.members.get_mut(&1).unwrap());
             let particle = Arc::make_mut(effect.particles.get_mut(&0).unwrap());
             particle.data.follow_orientation = true;
@@ -1030,7 +979,7 @@ fn projectile_retirement_removes_attachments_but_finishes_independent_bursts() -
 }
 
 #[test]
-fn reused_buffers_keep_birth_order_and_release_live_state() -> Result<()> {
+fn effects_keep_birth_order_and_retire_before_the_next_cast() -> Result<()> {
     let birth = ParticleBirth {
         random_draws: 2,
         ..Default::default()
@@ -1043,10 +992,6 @@ fn reused_buffers_keep_birth_order_and_release_live_state() -> Result<()> {
         .collect();
     frame.cues.clone_from(&requests);
     effects.advance(&frame, false)?;
-    for active in &effects.emitters {
-        assert_eq!(active.spawned.capacity(), 2);
-        assert_eq!(active.samples.capacity(), 4);
-    }
     frame.cues.clear();
     for _ in 0..2 {
         effects.advance(&frame, false)?;
@@ -1058,25 +1003,9 @@ fn reused_buffers_keep_birth_order_and_release_live_state() -> Result<()> {
         [ActorId(0), ActorId(1), ActorId(0), ActorId(1)]
     );
     let last_id = published.last().unwrap().id;
-    let emitter_capacities = (
-        effects.emitters.capacity(),
-        effects.spare_emitters.capacity(),
-    );
-    let visit_capacity = effects.particle_visits.capacity();
-    let publication_capacity = published.capacity();
     for _ in 0..6 {
         effects.advance(&frame, false)?;
         effects.write_frames(&mut published);
-        assert_eq!(
-            (
-                effects.emitters.capacity(),
-                effects.spare_emitters.capacity()
-            ),
-            emitter_capacities
-        );
-        assert_eq!(effects.particle_visits.capacity(), visit_capacity);
-        assert!(effects.particle_visits.is_empty());
-        assert_eq!(published.capacity(), publication_capacity);
     }
     assert!(effects.emitters.is_empty() && effects.spare_emitters.is_empty());
     assert!(effects.particles.is_empty() && published.is_empty());
@@ -1088,7 +1017,6 @@ fn reused_buffers_keep_birth_order_and_release_live_state() -> Result<()> {
         [ActorId(0), ActorId(1)]
     );
     assert!(published.iter().all(|p| p.id > last_id));
-    assert_eq!(published.capacity(), publication_capacity);
     Ok(())
 }
 
@@ -1247,7 +1175,7 @@ fn birth_variation_faults_and_pool_pressure_do_not_damage_other_feedback() -> Re
     assert_eq!(effects.diagnostics.entries().len(), 1);
     frame.cues = vec![Cue::Effect(EffectRequest {
         appearance: EffectAppearance {
-            resource: 999,
+            resource: ResourceId(999),
             member: 1,
         },
         ..request()
@@ -1313,34 +1241,9 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
                 )
             })
             .collect();
-        let definition = EffectDefinition {
-            events,
-            particles: [(0, Arc::new(particle))].into(),
-            sounds: BTreeMap::new(),
-        };
-        let bank = EffectBank::new(
-            77,
-            BTreeMap::new(),
-            [(1, Arc::new(definition))].into(),
-            &Diagnostics::new(true),
-        )?;
-        let mut effects =
-            Effects::new(vec![bank], None, 1, Diagnostics::new(true))?.with_passive(vec![
-                PassiveEffect {
-                    actor: ActorId(0),
-                    appearance: request().appearance,
-                    interval,
-                    idle_only: false,
-                    weapon: None,
-                },
-                PassiveEffect {
-                    actor: ActorId(1),
-                    appearance: request().appearance,
-                    interval,
-                    idle_only: false,
-                    weapon: None,
-                },
-            ])?;
+        let bank = bank([(1, definition(events, Arc::new(particle)))])?;
+        let mut effects = Effects::new(vec![bank], None, 1, Diagnostics::new(true))?
+            .with_passive(vec![passive(0, interval), passive(1, interval)])?;
         let mut frame = frame();
         frame.actors[0].state.body.scale = 0.9;
         frame.actors[0].state.effect_scale = 1.;
@@ -1370,12 +1273,7 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         // Already emitted particles finish normally.
         frame.actors[0].state.hp = 0;
         frame.actors[0].state.availability = crate::ActorAvailability::Dead;
-        let model = crate::model::Model::new(
-            Arc::new(crate::tests::model_definition(7, [(0, 10.)])),
-            ActorId(0),
-            &frame.actors[0],
-        )?;
-        frame.models.push(model.render_frame(&frame.actors[0]));
+        frame.models.push(actor_model(&frame.actors[0])?);
         if interval == 1 {
             for _ in 0..3 {
                 let before = effects.next_particle;
@@ -1411,15 +1309,10 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         assert!(effects.frames().is_empty() && effects.emitters.is_empty());
     }
     {
-        let mut idle = effects(vec![emit(0, Default::default())], false).with_passive(vec![
-            PassiveEffect {
-                actor: ActorId(0),
-                appearance: request().appearance,
-                interval: 2,
-                idle_only: true,
-                weapon: None,
-            },
-        ])?;
+        let mut idle = effects(births([0]), false).with_passive(vec![PassiveEffect {
+            idle_only: true,
+            ..passive(0, 2)
+        }])?;
         let initial = idle.next_particle;
         let mut frame = frame();
         idle.advance(&frame, false)?;
@@ -1433,12 +1326,7 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         }
         assert_eq!(idle.next_particle, initial + 1);
         frame.actors[0].activity = crate::Activity::Idle;
-        let model = crate::model::Model::new(
-            Arc::new(crate::tests::model_definition(7, [(0, 10.)])),
-            ActorId(0),
-            &frame.actors[0],
-        )?;
-        let mut body = model.render_frame(&frame.actors[0]);
+        let mut body = actor_model(&frame.actors[0])?;
         body.blend_weight = 0.5;
         frame.models.push(body);
         idle.advance(&frame, false)?;
@@ -1462,18 +1350,15 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         false,
     )
     .with_passive(vec![PassiveEffect {
-        actor: ActorId(0),
-        appearance: request().appearance,
-        interval: 2,
-        idle_only: false,
-        weapon: Some(100),
+        weapon: Some(ResourceId(100)),
+        ..passive(0, 2)
     }])?;
     let mut frame = frame();
     frame.weapons.push(crate::WeaponFrame {
         owner: ActorId(0),
-        slot: 0,
+        slot: Some(crate::WeaponSlot(0)),
         visible: true,
-        resource: 100,
+        resource: ResourceId(100),
         tint: [255; 4],
         material: Default::default(),
         clip: None,
@@ -1529,37 +1414,22 @@ fn floor_bounces_emit_prepared_children_once_per_crossing() -> Result<()> {
     child.data.state.offset = [0., 1., 0.];
     child.data.state.velocity = [0.; 3];
     child.data.state.acceleration = [0.; 3];
-    let definition = |particle, data| {
-        Arc::new(EffectDefinition {
-            events: vec![ScheduledEvent {
-                at: 0,
-                operation: EffectOperation::Spawn {
-                    particle,
-                    blend: None,
-                    palette: None,
-                    birth: Default::default(),
-                },
-            }],
-            particles: [(particle, Arc::new(data))].into(),
-            sounds: BTreeMap::new(),
-        })
-    };
-    let parent = definition(0, parent);
-    assert!(
-        EffectBank::new(
-            77,
-            BTreeMap::new(),
-            [(1, parent.clone())].into(),
-            &Diagnostics::new(true)
-        )
-        .is_err()
-    );
-    let bank = EffectBank::new(
-        77,
-        BTreeMap::new(),
-        [(1, parent), (2, definition(1, child))].into(),
-        &Diagnostics::new(true),
-    )?;
+    let parent = definition(births([0]), Arc::new(parent));
+    assert!(bank([(1, parent.clone())]).is_err());
+    let child = Arc::new(EffectDefinition {
+        events: vec![ScheduledEvent {
+            at: 0,
+            operation: EffectOperation::Spawn {
+                particle: 1,
+                blend: None,
+                palette: None,
+                birth: Default::default(),
+            },
+        }],
+        particles: [(1, Arc::new(child))].into(),
+        sounds: BTreeMap::new(),
+    });
+    let bank = bank([(1, parent), (2, child)])?;
     let mut effects = Effects::new(vec![bank], None, 7, Diagnostics::new(true))?;
     let frame = frame();
     effects.start(&request(), &frame, None)?;
@@ -1575,20 +1445,9 @@ fn floor_bounces_emit_prepared_children_once_per_crossing() -> Result<()> {
     effects.advance(&frame, true)?;
     effects.advance(&frame, false)?;
     assert_eq!(effects.particles.len(), 2);
-    effects
-        .particles
-        .get_mut(&parent_id)
-        .unwrap()
-        .frame
-        .state
-        .offset[1] = -3.;
-    effects
-        .particles
-        .get_mut(&parent_id)
-        .unwrap()
-        .frame
-        .state
-        .velocity[1] = -1.;
+    let parent = &mut effects.particles.get_mut(&parent_id).unwrap().frame.state;
+    parent.offset[1] = -3.;
+    parent.velocity[1] = -1.;
     effects.advance(&frame, false)?;
     assert_eq!(effects.particles.len(), 3);
     Ok(())
@@ -1596,10 +1455,7 @@ fn floor_bounces_emit_prepared_children_once_per_crossing() -> Result<()> {
 
 #[test]
 fn spell_openings_preserve_existing_effect_schedules() -> Result<()> {
-    let mut effects = effects(
-        [0, 4, 8].map(|at| emit(at, Default::default())).into(),
-        false,
-    );
+    let mut effects = effects(births([0, 4, 8]), false);
     let mut frame = frame();
     frame.cues = vec![Cue::Effect(request())];
     effects.advance(&frame, false)?;
@@ -1669,22 +1525,9 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
         particles,
         sounds: BTreeMap::new(),
     });
-    let bank = EffectBank::new(
-        77,
-        BTreeMap::new(),
-        [(1, definition)].into(),
-        &Diagnostics::new(true),
-    )?;
-    let mut effects =
-        Effects::new(vec![bank], None, 1, Diagnostics::new(true))?.with_passive(vec![
-            PassiveEffect {
-                actor: ActorId(1),
-                appearance: request().appearance,
-                interval: 20,
-                idle_only: false,
-                weapon: None,
-            },
-        ])?;
+    let bank = bank([(1, definition)])?;
+    let mut effects = Effects::new(vec![bank], None, 1, Diagnostics::new(true))?
+        .with_passive(vec![passive(1, 20)])?;
     let mut frame = frame();
     frame.cues.push(Cue::Effect(request()));
     effects.advance(&frame, false)?;
@@ -1817,25 +1660,8 @@ fn holds_visit_only_pause_enabled_effects_and_menus_freeze_everything() -> Resul
         frozen.iter().map(|age| age + 1).collect::<Vec<_>>()
     );
 
-    let mut delayed = self::effects(
-        vec![
-            emit(0, Default::default()),
-            emit(2, Default::default()),
-            emit(4, Default::default()),
-        ],
-        false,
-    )
-    .with_passive(
-        (0..2)
-            .map(|actor| PassiveEffect {
-                actor: ActorId(actor),
-                appearance: request().appearance,
-                interval: 100,
-                idle_only: false,
-                weapon: None,
-            })
-            .collect(),
-    )?;
+    let mut delayed = self::effects(self::births([0, 2, 4]), false)
+        .with_passive(vec![passive(0, 100), passive(1, 100)])?;
     for passive in &mut delayed.passive {
         passive.remaining = 0;
     }

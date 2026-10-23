@@ -1,26 +1,14 @@
 use super::*;
 use crate::{
-    ContactSource, DamageKind, GuardRule, HitRule, HitShape, MeleeDefinition, Side,
+    ContactSource, HitRule, HitShape, MeleeDefinition, Side,
     tests::{actor, prepared},
 };
 
 fn definition() -> Arc<MeleeDefinition> {
     Arc::new(MeleeDefinition {
         hit: HitRule {
-            sound: None,
-            effect_on_guard: false,
-            effect: None,
-            overlimit_pause: false,
-            condition: None,
-            arte: false,
-            reaction: Default::default(),
-            kind: DamageKind::Slash,
             power: crate::Power::Fixed(5),
-            element: crate::HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
-            guard: GuardRule::default(),
+            ..crate::tests::hit()
         },
         trail: None,
         volume: crate::MeleeVolume::Fixed {
@@ -31,6 +19,40 @@ fn definition() -> Arc<MeleeDefinition> {
     })
 }
 
+fn contact(at: u16, duration: u16, definition: &Arc<MeleeDefinition>) -> (u16, crate::AttackEvent) {
+    (
+        at,
+        crate::AttackEvent::Contact {
+            definition: Arc::clone(definition),
+            duration,
+        },
+    )
+}
+
+fn opposing_actions() -> BattleInput {
+    BattleInput {
+        actions: (0..2)
+            .map(|index| ActionRequest {
+                actor: ActorId(index),
+                action: crate::ActionKey(index as usize),
+                target: ActorId(index ^ 1),
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+fn started_action(frame: &BattleFrame, owner: ActorId) -> ActionId {
+    frame
+        .cues
+        .iter()
+        .find_map(|cue| match cue {
+            Cue::Started { actor, action, .. } if *actor == owner => Some(*action),
+            _ => None,
+        })
+        .expect("action admitted")
+}
+
 fn candidate(mut actors: Vec<Actor>) -> PreparedBattle {
     for actor in &mut actors {
         actor.body.collider = Some(crate::Collider::sphere(1.));
@@ -38,36 +60,19 @@ fn candidate(mut actors: Vec<Actor>) -> PreparedBattle {
     let mut prepared = prepared(actors, 6);
     let action = Arc::make_mut(&mut prepared.resources.actions.entries[0]);
 
-    crate::tests::attack_mut(action).events = vec![
-        (
-            1,
-            crate::AttackEvent::Contact {
-                definition: definition(),
-                duration: 2,
-            },
-        ),
-        (
-            4,
-            crate::AttackEvent::Contact {
-                definition: definition(),
-                duration: 1,
-            },
-        ),
-    ];
+    crate::tests::attack_mut(action).events =
+        vec![contact(1, 2, &definition()), contact(4, 1, &definition())];
     prepared.resources.actor_setup[0] = Default::default();
     crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
     prepared
 }
 
 fn request(actor: u8) -> BattleInput {
-    BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(actor),
-            action: crate::ActionKey(0),
-            target: ActorId(actor ^ 1),
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ActionRequest {
+        actor: ActorId(actor),
+        action: crate::ActionKey(0),
+        target: ActorId(actor ^ 1),
+    })
 }
 
 #[test]
@@ -113,14 +118,9 @@ fn contact_recovery_respects_success_capacity_and_small_hits() {
             "lethal" => target.hp = 1,
             _ => {}
         }
-        let mut battle = PreparedBattle::new(
-            vec![(owner, Default::default()), (target, Default::default())],
-            Default::default(),
-            1,
-        )
-        .unwrap()
-        .finish()
-        .unwrap();
+        let mut battle = crate::tests::prepare_actors(vec![owner, target], 1)
+            .finish()
+            .unwrap();
         let mut contacts = Contacts::default();
         contacts.melee(ActorId(0), ActionId(1), &hit, &[]).unwrap();
         let mut cues = vec![];
@@ -135,24 +135,16 @@ fn contact_recovery_respects_success_capacity_and_small_hits() {
         let mut owner = actor(Side::Party);
         owner.tp = 0;
         let mut prepared = candidate(vec![owner, actor(Side::Enemy)]);
-        let mut contact = definition();
-        Arc::make_mut(&mut contact).hit.arte = true;
+        let mut hit = definition();
+        Arc::make_mut(&mut hit).hit.arte = true;
         crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0]))
             .events = vec![
-            (
-                1,
-                crate::AttackEvent::Contact {
-                    definition: contact,
-                    duration: 1,
-                },
-            ),
+            contact(1, 1, &hit),
             (3, crate::AttackEvent::Drain { kind, percent }),
         ];
         let mut battle = prepared.finish().unwrap();
         battle.step(request(0)).unwrap();
-        for _ in 0..8 {
-            battle.step(BattleInput::default()).unwrap();
-        }
+        crate::tests::step_idle(&mut battle, 8).unwrap();
         assert_eq!(battle.actors[1].hp, 45);
         assert_eq!((battle.actors[0].hp, battle.actors[0].tp), (hp, tp));
     }
@@ -169,25 +161,14 @@ fn native_armor_survives_two_hits_then_cancels_later_work_and_clears_on_recovery
         actors[1].reaction.armor.base = 1;
         let mut hit = definition();
         Arc::make_mut(&mut hit).hit.reaction.armor_damage = 1;
-        let contact = |at| {
-            (
-                at,
-                AttackEvent::Contact {
-                    definition: hit.clone(),
-                    duration: 1,
-                },
-            )
-        };
+        let contact = |at| contact(at, 1, &hit);
         let attack = |events| ActionDefinition {
             normal: None,
             tp_cost: 0,
             execution: ActionExecution::Attack(PreparedAttack {
-                contact_recovery: None,
-                opening: None,
-                chain_at: None,
                 events,
-                end_at: 40,
                 recovery: 2,
+                ..crate::tests::attack(40)
             }),
         };
         let mut prepared = PreparedBattle::new(
@@ -211,35 +192,8 @@ fn native_armor_survives_two_hits_then_cancels_later_work_and_clears_on_recovery
             crate::tests::assign_action(&mut prepared, index, crate::ActionKey(index));
         }
         let mut battle = prepared.finish().unwrap();
-        let first = battle
-            .step(BattleInput {
-                actions: vec![
-                    ActionRequest {
-                        actor: ActorId(0),
-                        action: crate::ActionKey(0),
-                        target: ActorId(1),
-                    },
-                    ActionRequest {
-                        actor: ActorId(1),
-                        action: crate::ActionKey(1),
-                        target: ActorId(0),
-                    },
-                ],
-                ..Default::default()
-            })
-            .unwrap();
-        let enemy_action = first
-            .cues
-            .iter()
-            .find_map(|cue| match cue {
-                Cue::Started {
-                    actor: ActorId(1),
-                    action,
-                    ..
-                } => Some(*action),
-                _ => None,
-            })
-            .unwrap();
+        let first = battle.step(opposing_actions()).unwrap();
+        let enemy_action = started_action(&first, ActorId(1));
         assert_eq!(battle.actors[1].reaction.armor.threshold, 2);
         let mut hits = 0;
         let mut cancelled = false;
@@ -322,15 +276,7 @@ fn spell_row_armor_exposes_the_correct_contact_and_restores_idle_armor() {
             crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0]));
         attack.end_at = 80;
         attack.events = (0..=protected_hits)
-            .map(|index| {
-                (
-                    2 + index * 5,
-                    crate::AttackEvent::Contact {
-                        definition: Arc::clone(&hit),
-                        duration: 1,
-                    },
-                )
-            })
+            .map(|index| contact(2 + index * 5, 1, &hit))
             .collect();
         let mut cast = crate::tests::cast(300, 0);
         let crate::ActionExecution::Casting(definition) = &mut cast.execution else {
@@ -342,35 +288,8 @@ fn spell_row_armor_exposes_the_correct_contact_and_restores_idle_armor() {
             crate::tests::assign_action(&mut prepared, index, crate::ActionKey(index));
         }
         let mut battle = prepared.finish().unwrap();
-        let started = battle
-            .step(BattleInput {
-                actions: vec![
-                    ActionRequest {
-                        actor: ActorId(0),
-                        action: crate::ActionKey(0),
-                        target: ActorId(1),
-                    },
-                    ActionRequest {
-                        actor: ActorId(1),
-                        action: crate::ActionKey(1),
-                        target: ActorId(0),
-                    },
-                ],
-                ..Default::default()
-            })
-            .unwrap();
-        let cast = started
-            .cues
-            .iter()
-            .find_map(|cue| match cue {
-                Cue::Started {
-                    actor: ActorId(1),
-                    action,
-                    ..
-                } => Some(*action),
-                _ => None,
-            })
-            .unwrap();
+        let started = battle.step(opposing_actions()).unwrap();
+        let cast = started_action(&started, ActorId(1));
         let mut hits = 0;
         let mut interrupted = false;
         for _ in 0..200 {
@@ -426,20 +345,8 @@ fn contact_enters_hurt_and_cancels_pending_attack_events() {
                         duration: 0,
                     },
                 ),
-                (
-                    1,
-                    crate::AttackEvent::Contact {
-                        definition: hit.clone(),
-                        duration: 1,
-                    },
-                ),
-                (
-                    3,
-                    crate::AttackEvent::Contact {
-                        definition: hit,
-                        duration: 1,
-                    },
-                ),
+                contact(1, 1, &hit),
+                contact(3, 1, &hit),
                 (3, crate::AttackEvent::Sound(Some(crate::Sound::Stream(1)))),
             ],
             ..crate::tests::attack(20)
@@ -500,11 +407,18 @@ fn melee_windows_expire_and_rearm_without_repeating_targets() {
     let mut distant = actor(Side::Enemy);
     distant.position[0] = 1000.;
     let mut prepared = candidate(vec![actor(Side::Party), actor(Side::Enemy), distant]);
-    for (_, event) in
+    for (at, event) in
         &mut crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0]))
             .events
     {
-        if let crate::AttackEvent::Contact { definition, .. } = event {
+        if let crate::AttackEvent::Contact {
+            definition,
+            duration,
+        } = event
+        {
+            if *at == 4 {
+                *duration = 2;
+            }
             Arc::make_mut(definition).volume = crate::MeleeVolume::BodyCenter {
                 shape: HitShape::Sphere,
                 radius: 30.,
@@ -532,10 +446,14 @@ fn melee_windows_expire_and_rearm_without_repeating_targets() {
     // The first window lasted two updates. A late entrant must wait for the next one.
     battle.actors[2].position = [10., 0., 0.];
     assert!(recipients(&battle.step(BattleInput::default()).unwrap()).is_empty());
-    assert_eq!(
-        recipients(&battle.step(BattleInput::default()).unwrap()),
-        [ActorId(1), ActorId(2)]
-    );
+    // One contact can hit one actor per update. The renewed window admits
+    // each victim once across its two updates.
+    for expected in [ActorId(1), ActorId(2)] {
+        assert_eq!(
+            recipients(&battle.step(BattleInput::default()).unwrap()),
+            [expected]
+        );
+    }
     assert!(recipients(&battle.step(BattleInput::default()).unwrap()).is_empty());
     assert_eq!((battle.actors[1].hp, battle.actors[2].hp), (40, 45));
 }
@@ -553,17 +471,11 @@ fn combo_commits_after_final_contacts_and_loses_to_interruption() {
             actor.hp = 2000;
             actor.equipment.max_hp = 2000;
         }
-        let mut contact = definition();
-        Arc::make_mut(&mut contact).hit.power = crate::Power::Normal;
+        let mut hit = definition();
+        Arc::make_mut(&mut hit).hit.power = crate::Power::Normal;
         *crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0])) =
             crate::PreparedAttack {
-                events: vec![(
-                    1,
-                    crate::AttackEvent::Contact {
-                        definition: contact,
-                        duration: 3,
-                    },
-                )],
+                events: vec![contact(1, 3, &hit)],
                 recovery: 2,
                 chain_at: Some(3),
                 ..crate::tests::attack(3)
@@ -573,13 +485,7 @@ fn combo_commits_after_final_contacts_and_loses_to_interruption() {
         let mut counter = crate::tests::action(0);
         let attack = crate::tests::attack_mut(&mut counter);
         attack.recovery = 1;
-        attack.events = vec![(
-            0,
-            crate::AttackEvent::Contact {
-                definition: definition(),
-                duration: 1,
-            },
-        )];
+        attack.events = vec![contact(0, 1, &definition())];
         let first = Arc::make_mut(&mut prepared.resources.actions.entries[0]);
         first.normal = Some(crate::NormalAttack::Neutral);
         let normals = crate::NormalAttack::ALL.map(|kind| {
@@ -607,7 +513,7 @@ fn combo_commits_after_final_contacts_and_loses_to_interruption() {
         prepared.actors[0].equipment.normal_combo_limit = 2;
         prepared.resources.actor_setup[0].control = Some(Arc::new(crate::ControlDefinition {
             normals,
-            shortcuts: [0; 4],
+            shortcuts: [None; 4],
             walk_speed: 5.,
             run_speed: 10.,
             turn_ticks: 1,
@@ -625,24 +531,8 @@ fn combo_commits_after_final_contacts_and_loses_to_interruption() {
             stick,
             ..crate::ControlInput::neutral(ActorId(0))
         };
-        let start = battle
-            .step(BattleInput {
-                controllers: vec![attack([0; 2])],
-                ..Default::default()
-            })
-            .unwrap();
-        let id = start
-            .cues
-            .iter()
-            .find_map(|cue| match cue {
-                Cue::Started {
-                    actor: ActorId(0),
-                    action,
-                    ..
-                } => Some(*action),
-                _ => None,
-            })
-            .expect("normal admitted through player input");
+        let start = battle.step(request(0)).unwrap();
+        let id = started_action(&start, ActorId(0));
         for _ in 0..30 {
             if battle.action_age(id) == Some(3) {
                 break;
@@ -719,13 +609,7 @@ fn queued_strikes_keep_prior_hits_and_survive_the_owners_defeat() {
         let mut prepared = candidate(actors);
         *crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0])) =
             crate::PreparedAttack {
-                events: vec![(
-                    0,
-                    crate::AttackEvent::Contact {
-                        definition: definition(),
-                        duration: if prior_hit { 2 } else { 1 },
-                    },
-                )],
+                events: vec![contact(0, if prior_hit { 2 } else { 1 }, &definition())],
                 ..crate::tests::attack(0)
             };
         crate::tests::assign_action(&mut prepared, 1, crate::ActionKey(0));
@@ -766,42 +650,26 @@ fn projectile_can_clash_with_an_already_submitted_melee_origin_without_consuming
     let mut prepared = candidate(vec![actor(Side::Party), actor(Side::Enemy)]);
     *crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0])) =
         crate::PreparedAttack {
-            events: vec![(
-                0,
-                crate::AttackEvent::Contact {
-                    definition: definition(),
-                    duration: 1,
-                },
-            )],
+            events: vec![contact(0, 1, &definition())],
             ..crate::tests::attack(2)
         };
     let mut battle = prepared.finish().unwrap();
-    let definition = Arc::new(ProjectileDefinition {
-        motion: Default::default(),
-        effects: Default::default(),
-        lifetime: Some(20),
-        velocity: [0.; 3],
-        acceleration: [0.; 3],
-        offset: [0.; 3],
-        clamp_ground: false,
-        active: None,
-        birth: None,
-        contact: Some(crate::ProjectileContact {
-            hit: definition().hit,
-            cooldown: 1,
-            repeat_limit: 0,
-            radius: 30.,
-            height: 30.,
-            shape: HitShape::Box,
-            offset: [0.; 3],
-            radius_growth: 0.,
-            height_growth: 0.,
-            survives_contact: true,
-            clashes: true,
-        }),
-    });
+    let mut projectile = crate::tests::contact_projectile(true, true);
+    projectile.clamp_ground = false;
+    let contact = projectile.contact.as_mut().unwrap();
+    contact.hit = definition().hit;
+    contact.cooldown = 1;
+    contact.radius = 30.;
+    contact.height = 30.;
+    contact.shape = HitShape::Box;
     battle
-        .emit(definition, ActionId(9), ActorId(1), ActorId(0), [0.; 3])
+        .emit(
+            Arc::new(projectile),
+            ActionId(9),
+            ActorId(1),
+            ActorId(0),
+            [0.; 3],
+        )
         .unwrap();
     battle.step(BattleInput::default()).unwrap();
     let frame = battle.step(request(0)).unwrap();

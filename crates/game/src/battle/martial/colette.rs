@@ -1,9 +1,8 @@
 //! Colette's projectile families share authored tracks and prepared launches.
-use super::{ActionDefinition, Sound, Technique};
+use super::{PreparedAttack, Sound, Technique};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
-    ActionExecution, AttackEvent, EffectAppearance, HammerProjectile, HammerRing,
-    ProjectileScatter, ProjectileShot,
+    AttackEvent, EffectAppearance, HammerProjectile, HammerRing, ProjectileScatter, ProjectileShot,
 };
 use resonance_content::battle_martial::{
     HammerPattern, PoseStart, ProjectileFeedback, gameplay_tick,
@@ -17,14 +16,9 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let source = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .clone();
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+    ) -> Result<PreparedAttack> {
+        let source = self.authored_timeline(resources.voices.party_table())?;
+        let recoil = resources.recoil;
         let mut projectile = |member: usize, rule: u8| {
             let row = resources
                 .projectiles
@@ -36,7 +30,7 @@ impl Technique {
                 .callback_hits
                 .get(&rule)
                 .context("missing Colette projectile hit")?;
-            super::sword::projectile(resources, &row, hit, None, &recoil)
+            super::sword::projectile(resources, &row, hit, None, recoil)
         };
         let shot = |definition, offset, heading_offset, scatter| {
             AttackEvent::ProjectileShot(Arc::new(ProjectileShot {
@@ -153,12 +147,9 @@ impl Technique {
             }
             _ => anyhow::bail!("unexpected Colette projectile family"),
         }
-        let mut definition = self.prepare_authored_attack(resources, model, tp_cost, source)?;
-        let ActionExecution::Attack(attack) = &mut definition.execution else {
-            unreachable!("martial preparation produces an attack")
-        };
-        attack.events.extend(events);
-        attack.events.sort_by_key(|(at, _)| *at);
+        let mut definition = self.prepare_authored_attack(resources, model, source)?;
+        definition.events.extend(events);
+        definition.events.sort_by_key(|(at, _)| *at);
         Ok(definition)
     }
 
@@ -168,18 +159,13 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let mut source = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .clone();
+    ) -> Result<PreparedAttack> {
+        let mut source = self.authored_timeline(resources.voices.party_table())?;
         let hammer = source
             .hammer
             .take()
             .context("missing hammer family recipe")?;
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+        let recoil = resources.recoil;
         let mut row = resources
             .projectiles
             .records
@@ -217,7 +203,7 @@ impl Technique {
                     .context("missing hammer rain opening projectile")?
                     .clone();
                 let opening =
-                    super::sword::projectile(resources, &opening, opening_hit, None, &recoil)?;
+                    super::sword::projectile(resources, &opening, opening_hit, None, recoil)?;
                 // The birth count and signed jitter range come from the observed burst.
                 // Magnitudes and spacing are supplied by the authored parameters.
                 (
@@ -248,7 +234,7 @@ impl Technique {
         };
         for (hit, birth) in hammer.hits.iter().zip(births) {
             row.birth_effect.member = birth;
-            let mut projectile = super::sword::projectile(resources, &row, hit, feedback, &recoil)?;
+            let mut projectile = super::sword::projectile(resources, &row, hit, feedback, recoil)?;
             Arc::make_mut(&mut projectile).effects.spin_on_rebound = true;
             choices.push(projectile);
         }
@@ -256,28 +242,25 @@ impl Technique {
             choices: choices
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("missing hammer variant"))?,
-            uses_catalogue: 41,
+            uses_catalogue: resonance_battle::TechniqueId(41),
             ring,
         });
-        let mut definition = self.prepare_authored_attack(resources, model, tp_cost, source)?;
-        let ActionExecution::Attack(attack) = &mut definition.execution else {
-            unreachable!()
-        };
+        let mut definition = self.prepare_authored_attack(resources, model, source)?;
         // Paid-entry ages from the ordinary activation; these include pose blends.
         if let Some(opening) = opening {
             const OPENING: u16 = 25;
             const RAIN: u16 = 66;
-            attack.events.extend([
+            definition.events.extend([
                 (OPENING, AttackEvent::Projectile(opening)),
                 (RAIN, AttackEvent::HammerProjectile(shots)),
             ]);
         } else {
             const RELEASES: [u16; 4] = [24, 26, 28, 30];
-            attack
+            definition
                 .events
                 .extend(RELEASES.map(|at| (at, AttackEvent::HammerProjectile(Arc::clone(&shots)))));
         }
-        attack.events.sort_by_key(|(at, _)| *at);
+        definition.events.sort_by_key(|(at, _)| *at);
         Ok(definition)
     }
 }

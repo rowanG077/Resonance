@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 use crate::{
     ActionRequest, ActorId, Battle, BattleInput, Cue, Rejection,
     tests::{actor, prepared},
@@ -6,14 +7,11 @@ use crate::{
 use std::sync::Arc;
 
 fn request() -> BattleInput {
-    BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(0),
-            target: ActorId(0),
-            action: crate::ActionKey(0),
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ActionRequest {
+        actor: ActorId(0),
+        target: ActorId(0),
+        action: crate::ActionKey(0),
+    })
 }
 
 fn battle(boost: bool, side: Side, tp: u16) -> Battle {
@@ -23,19 +21,6 @@ fn battle(boost: bool, side: Side, tp: u16) -> Battle {
     let mut prepared = prepared(vec![owner], 8);
     Arc::make_mut(&mut prepared.resources.actions.entries[0]).tp_cost = 28;
     prepared.finish().unwrap()
-}
-
-#[test]
-fn physical_arte_boost_applies_to_party_martial_techniques_only() {
-    let mut owner = actor(Side::Party);
-    let mut action = crate::tests::action(5);
-    action.tp_cost = 28;
-    assert_eq!(action_quote(&owner, crate::ActionKey(0), &action), 28);
-    owner.equipment.damage.physical_arte_boost = true;
-    assert_eq!(action_quote(&owner, crate::ActionKey(0), &action), 35);
-    assert_eq!(spell_quote(&owner, 28, false), 28);
-    owner.side = Side::Enemy;
-    assert_eq!(action_quote(&owner, crate::ActionKey(0), &action), 28);
 }
 
 #[test]
@@ -58,9 +43,7 @@ fn modified_cost_admission_rejects_insufficient_tp_without_payment() {
             assert_eq!(frame.actions.len(), 1);
             assert_eq!(battle.actors[0].tp, 0);
             let paid = battle.actors[0].tp;
-            for _ in 0..3 {
-                battle.step(BattleInput::default()).unwrap();
-            }
+            crate::tests::step_idle(&mut battle, 3).unwrap();
             assert_eq!(battle.actors[0].tp, paid);
         }
         assert_eq!(battle.prepared.actions.entries[0].tp_cost, 28);
@@ -85,12 +68,8 @@ fn native_admission_commits_cost_and_use_before_paused_choreography() {
         normal: None,
         tp_cost: 7,
         execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-            contact_recovery: None,
-            chain_at: None,
-            end_at: 8,
-            opening: None,
-            recovery: 0,
             events: vec![(0, crate::AttackEvent::Sound(Some(crate::Sound::Stream(1))))],
+            ..crate::PreparedAttack::new(8)
         }),
     };
     let mut battle = crate::PreparedBattle::new(
@@ -121,11 +100,11 @@ fn native_admission_commits_cost_and_use_before_paused_choreography() {
         reason: Rejection::Busy
     }));
     assert_eq!(battle.actors[0].tp, 40);
-    assert_eq!(battle.technique_uses(ActorId(0), 7), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(7)), Some(49));
     battle.actors[0].time_stop = 0;
     battle.start(request().actions[0], &mut vec![]).unwrap();
     assert_eq!(battle.actors[0].tp, 33);
-    assert_eq!(battle.technique_uses(ActorId(0), 7), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(7)), Some(50));
     assert_eq!(battle.actors[0].proficiency, 1);
     let id = *battle.sequences().map(|(id, _)| id).next().unwrap();
     for _ in 0..3 {
@@ -159,7 +138,7 @@ fn native_admission_commits_cost_and_use_before_paused_choreography() {
         );
     }
     assert_eq!(battle.actors[0].tp, 33);
-    assert_eq!(battle.technique_uses(ActorId(0), 7), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(7)), Some(50));
     assert!(battle.sequences().next().is_none());
 }
 

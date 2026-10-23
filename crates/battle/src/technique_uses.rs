@@ -1,4 +1,4 @@
-use crate::{ActorId, Battle};
+use crate::{ActorId, Battle, TechniqueId};
 use anyhow::{Result, ensure};
 
 impl Battle {
@@ -6,7 +6,7 @@ impl Battle {
         &self,
         actor: ActorId,
         action: crate::ActionKey,
-    ) -> Option<u16> {
+    ) -> Option<TechniqueId> {
         self.prepared
             .technique(actor, action)
             .map(|row| row.catalogue)
@@ -15,14 +15,14 @@ impl Battle {
     pub fn technique_counts(
         &self,
         actor: ActorId,
-    ) -> Option<&std::collections::BTreeMap<u16, u16>> {
+    ) -> Option<&std::collections::BTreeMap<TechniqueId, u16>> {
         self.learning_members
             .iter()
             .find(|row| row.actor == actor)
             .map(|row| row.member.counts())
     }
 
-    pub fn technique_uses(&self, actor: ActorId, catalogue: u16) -> Option<u16> {
+    pub fn technique_uses(&self, actor: ActorId, catalogue: TechniqueId) -> Option<u16> {
         self.technique_counts(actor)?.get(&catalogue).copied()
     }
 
@@ -31,7 +31,7 @@ impl Battle {
         actor: ActorId,
         action: crate::ActionKey,
         casting: bool,
-    ) -> Option<u16> {
+    ) -> Option<TechniqueId> {
         let catalogue = self.technique_catalogue_for_action(actor, action)?;
         let is_casting = self.prepared.actions.get(action).is_some_and(|definition| {
             matches!(&definition.execution, crate::ActionExecution::Casting(_))
@@ -47,7 +47,7 @@ impl Battle {
         let elements = self
             .prepared
             .technique(actor, action)
-            .map_or(0, |row| row.element);
+            .and_then(|row| row.element);
         self.ledger.achievements[actor.index()].acted = true;
         self.ledger.achievements[actor.index()].used_arte = true;
         self.ledger.achievements[actor.index()].technique(catalogue, elements, casting);
@@ -63,7 +63,7 @@ impl Battle {
         // Elemental variants track ordinary uses for permanent learning.
         if self
             .technique_catalogue_for_action(actor, action)
-            .is_some_and(|id| resonance_content::arte::elemental::find(id).is_some())
+            .is_some_and(|id| resonance_content::arte::elemental::find(id.0).is_some())
         {
             return Ok(());
         }
@@ -93,7 +93,7 @@ impl Battle {
     fn learn_after_use(
         &mut self,
         actor: ActorId,
-        current_catalogue: Option<u16>,
+        current_catalogue: Option<TechniqueId>,
         mode: crate::learning::LearningMode,
     ) -> Result<Option<crate::ActionKey>> {
         if self.phase() != crate::BattlePhase::Combat {
@@ -147,8 +147,8 @@ impl Battle {
         let Some(catalogue) = self.technique_catalogue_for_action(actor, action) else {
             return;
         };
-        let catalogue = resonance_content::arte::elemental::find(catalogue)
-            .map_or(catalogue, |variant| variant.base);
+        let catalogue = resonance_content::arte::elemental::find(catalogue.0)
+            .map_or(catalogue, |variant| TechniqueId(variant.base));
         self.actors[actor.index()].proficiency =
             (self.technique_uses(actor, catalogue).unwrap_or(0) / 50).min(5) as u8;
     }

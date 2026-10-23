@@ -50,7 +50,7 @@ fn prepared_fixture() -> PreparedBattle {
             reach: 120.,
             minimum_reach: 0.,
         }),
-        shortcuts: [BASIC.0 as u16; 4],
+        shortcuts: [Some(crate::TechniqueId(BASIC.0 as u16)); 4],
         walk_speed: 5.,
         run_speed: 10.,
         turn_ticks: 8,
@@ -88,14 +88,11 @@ fn previews_do_not_spend_or_reserve_a_combo_and_interruption_resets_it() -> anyh
         }
     }
     assert_eq!(battle.actors[0].tp, 20);
-    let frame = battle.step(BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(0),
-            target: ActorId(1),
-            action: BASIC,
-        }],
-        ..Default::default()
-    })?;
+    let frame = battle.step(BattleInput::from(ActionRequest {
+        actor: ActorId(0),
+        target: ActorId(1),
+        action: BASIC,
+    }))?;
     let started = frame.actions[0].0;
     assert_eq!(battle.actors[0].tp, 18);
     assert_eq!(
@@ -127,14 +124,11 @@ fn admission_distinguishes_airborne_ineligibility_from_insufficient_tp() -> anyh
         battle.actors[0].position[1] = height;
         battle.actors[0].tp = tp;
         battle.actors[0].equipment.combo_traits.aerial_arte = skill;
-        let frame = battle.step(BattleInput {
-            actions: vec![ActionRequest {
-                actor: ActorId(0),
-                target: ActorId(1),
-                action,
-            }],
-            ..Default::default()
-        })?;
+        let frame = battle.step(BattleInput::from(ActionRequest {
+            actor: ActorId(0),
+            target: ActorId(1),
+            action,
+        }))?;
         assert_eq!(
             frame.cues.iter().find_map(|cue| match cue {
                 Cue::Rejected { reason, .. } => Some(*reason),

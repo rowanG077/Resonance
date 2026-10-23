@@ -24,17 +24,14 @@ fn battle(gauge: i16, unlocked: bool) -> Battle {
 }
 
 fn input(pressed: bool, held: bool) -> BattleInput {
-    BattleInput {
-        controllers: vec![ControlInput {
-            taunt: ButtonInput {
-                pressed,
-                held,
-                released: false,
-            },
-            ..ControlInput::neutral(ActorId(0))
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ControlInput {
+        taunt: ButtonInput {
+            pressed,
+            held,
+            released: false,
+        },
+        ..ControlInput::neutral(ActorId(0))
+    })
 }
 
 fn contact(battle: &mut Battle, rule: HitRule) -> (HitResult, Vec<Cue>) {
@@ -113,9 +110,7 @@ fn taunt_completes_once_without_waiting_for_artwork() {
 fn taunt_respects_gauge_cap_unlock_and_interruption() {
     let mut battle = battle(3190, true);
     battle.step(input(true, true)).unwrap();
-    for _ in 1..TAUNT_DURATION_TICKS - 1 {
-        battle.step(BattleInput::default()).unwrap();
-    }
+    crate::tests::step_idle(&mut battle, TAUNT_DURATION_TICKS - 2).unwrap();
     let frame = battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.unison_gauge(), 3200);
     assert_eq!(
@@ -131,24 +126,20 @@ fn taunt_respects_gauge_cap_unlock_and_interruption() {
 
     let mut locked = self::battle(100, false);
     locked.step(input(true, true)).unwrap();
-    for _ in 0..TAUNT_DURATION_TICKS {
-        locked.step(BattleInput::default()).unwrap();
-    }
+    crate::tests::step_idle(&mut locked, TAUNT_DURATION_TICKS).unwrap();
     assert_eq!(locked.unison_gauge(), 100);
     battle.add_unison_gauge(i16::MIN, &mut vec![]);
     assert_eq!(battle.unison_gauge(), 0);
 }
 
 fn startup(saved: u8, unlocked: bool, initial_full: bool) -> Battle {
-    let prepared = PreparedBattle::new(
+    let prepared = crate::tests::prepare_actors(
         vec![
-            (crate::tests::actor(Side::Party), Default::default()),
-            (crate::tests::actor(Side::Enemy), Default::default()),
+            crate::tests::actor(Side::Party),
+            crate::tests::actor(Side::Enemy),
         ],
-        Default::default(),
         0x13572468,
     )
-    .unwrap()
     .with_unison_gauge(saved, unlocked, initial_full)
     .unwrap();
     prepared.finish().unwrap()

@@ -247,10 +247,7 @@ fn approach(row: &[u8], flags: u32) -> Result<EnemyApproach> {
     Ok(if row[48] != 0 {
         let speed = f32::read(row, 40)?;
         let rate = f32::read(row, 44)?;
-        ensure!(
-            speed.is_finite() && speed > 0. && rate.is_finite() && rate > 0.,
-            "invalid enemy custom approach"
-        );
+        ensure!(speed > 0. && rate > 0., "invalid enemy custom approach");
         EnemyApproach::Custom {
             clip: u16::from(row[48]),
             rate,
@@ -520,7 +517,7 @@ pub(crate) fn read(
 
 mod timeline;
 use timeline::ActionPackage;
-pub(crate) use timeline::{contact, hit, hit_rule};
+pub(crate) use timeline::{contact, damage_kind, hit, hit_rule};
 
 #[cfg(test)]
 mod tests;

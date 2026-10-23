@@ -1,6 +1,6 @@
 //! Compare a single grounded travel recoil in the independently observed shot basis.
 //! Unsupported or unproved inputs retain ordinary world-position comparison.
-use super::{Trace, projectile_random};
+use super::{Trace, exactly_one, projectile_random};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
@@ -46,24 +46,14 @@ fn qualify(
     if source.frames.len() != native.frames.len() || source.frames.is_empty() {
         return decline();
     }
-    let contacts = |trace: &Trace| {
-        trace
-            .events
-            .iter()
-            .filter(|event| event["kind"] == "hit")
-            .cloned()
-            .collect::<Vec<_>>()
-    };
-    let source_contacts = contacts(source);
-    let [source_hit] = source_contacts.as_slice() else {
+    let Some(source_hit) = exactly_one(source.events.iter().filter(|event| event["kind"] == "hit"))
+    else {
         return decline();
     };
-    let source_hit = source_hit.clone();
-    let native_contacts = contacts(native);
-    let [native_hit] = native_contacts.as_slice() else {
+    let Some(native_hit) = exactly_one(native.events.iter().filter(|event| event["kind"] == "hit"))
+    else {
         return decline();
     };
-    let native_hit = native_hit.clone();
     if [
         "owner",
         "target",
@@ -94,14 +84,10 @@ fn qualify(
     let launches = source.setup["projectile_launches"]
         .as_array()
         .context("missing launches")?;
-    let matching_launches = launches
-        .iter()
-        .filter(|launch| launch["projectile"] == id)
-        .collect::<Vec<_>>();
-    let [launch] = matching_launches.as_slice() else {
+    let Some(launch) = exactly_one(launches.iter().filter(|launch| launch["projectile"] == id))
+    else {
         return decline();
     };
-    let launch = (*launch).clone();
     let authored = &launch["authored_action"];
     let action_pin = json!({"path": authored["path"], "sha256": authored["sha256"]});
     if source.setup["catalogue"] != action_pin || native.setup["catalogue"] != action_pin {
@@ -112,11 +98,11 @@ fn qualify(
     let events = catalogue["actions"]["rows"][row]["execution"]["attack"]["events"]
         .as_array()
         .context("missing physical attack")?;
-    let emissions = events
-        .iter()
-        .filter(|event| event[0] == authored["clock"] && event[1].get("projectile").is_some())
-        .collect::<Vec<_>>();
-    let [emission] = emissions.as_slice() else {
+    let Some(emission) = exactly_one(
+        events
+            .iter()
+            .filter(|event| event[0] == authored["clock"] && event[1].get("projectile").is_some()),
+    ) else {
         return decline();
     };
     let recipe = &emission[1]["projectile"];

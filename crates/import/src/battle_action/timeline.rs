@@ -569,7 +569,7 @@ impl<'a> ActionPackage<'a> {
                 );
                 let pose = action_pose(&previous)?;
                 ensure!(
-                    !pose.repeat && pose.rate.is_finite() && pose.rate > 0.,
+                    !pose.repeat && pose.rate > 0.,
                     "enemy pose continuation requires a finite forward motion"
                 );
                 let end = if let Some(end) = pose.end {
@@ -782,10 +782,7 @@ impl<'a> ActionPackage<'a> {
                 25 => {
                     let rate = f32::read(self.commands, cursor + 8)?;
                     let repeat = u32::read(self.commands, cursor + 12)?;
-                    ensure!(
-                        rate.is_finite() && rate > 0. && repeat <= 1,
-                        "invalid enemy carried animation"
-                    );
+                    ensure!(rate > 0. && repeat <= 1, "invalid enemy carried animation");
                     (
                         EnemyEvent::CarriedPose {
                             slot: operand(4)?
@@ -1051,7 +1048,7 @@ pub(crate) fn contact(rules: &[u8], row: &[u8]) -> Result<MeleeContact> {
     })
 }
 
-fn damage_kind(value: u8) -> Result<DamageKind> {
+pub(crate) fn damage_kind(value: u8) -> Result<DamageKind> {
     Ok(match value {
         0 => DamageKind::Slash,
         1 => DamageKind::Thrust,

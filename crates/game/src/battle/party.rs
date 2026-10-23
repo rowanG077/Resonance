@@ -10,39 +10,7 @@ use resonance_events::party::{Member, Party};
 #[cfg(test)]
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum Character {
-    Lloyd = 1,
-    Colette,
-    Genis,
-    Raine,
-    Sheena,
-    Zelos,
-    Presea,
-    Regal,
-    Kratos,
-}
-
-impl TryFrom<u8> for Character {
-    type Error = anyhow::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        use Character::*;
-        match value {
-            1 => Ok(Lloyd),
-            2 => Ok(Colette),
-            3 => Ok(Genis),
-            4 => Ok(Raine),
-            5 => Ok(Sheena),
-            6 => Ok(Zelos),
-            7 => Ok(Presea),
-            8 => Ok(Regal),
-            9 => Ok(Kratos),
-            _ => anyhow::bail!("unknown party character {value}"),
-        }
-    }
-}
+pub use resonance_battle::Character;
 
 #[derive(Debug, Clone)]
 pub struct Setup {
@@ -75,11 +43,8 @@ pub(super) fn prepare_actor(
         !party.formation[..slot].contains(&character),
         "duplicate battle character {character}"
     );
-    let index = usize::from(
-        character
-            .checked_sub(1)
-            .context("invalid party character")?,
-    );
+    let character = Character::try_from(character)?;
+    let index = character.index();
     let member = party.members.get(index).context("missing party member")?;
     let control = match party.settings.battle_controls[slot] {
         0 => Control::Manual,
@@ -101,7 +66,7 @@ pub(super) fn prepare_actor(
         defense_eighths: floor_bonus(Rules::DEFENSE_UP, Rules::DEFENSE_DOWN),
         accuracy_quarters: floor_bonus(Rules::ACCURACY_UP, Rules::ACCURACY_DOWN),
     };
-    actor.body.collider = Some(match Character::try_from(character)? {
+    actor.body.collider = Some(match character {
         Character::Genis | Character::Presea => resonance_battle::Collider::standing(24., 110.),
         _ => resonance_battle::Collider::standing(30., 150.),
     });
@@ -113,7 +78,7 @@ pub(super) fn prepare_actor(
         party.battles.kills[index],
     );
     super::profile::apply(recoil, profile, &mut actor)?;
-    actor.control_slot = slot as u8;
+    actor.control_slot = resonance_battle::ControllerPort::from_index(slot)?;
     // Guard recovery depends on position strategy and character identity, not formation slot.
     actor.guard.recovery_bonus = recoil.guard_recovery_bonus(member.strategy[2], character)?;
     actor.guard.reduction = actor
@@ -124,7 +89,7 @@ pub(super) fn prepare_actor(
     Ok(actor)
 }
 
-fn validate_member(menus: &MenuData, member: &Member, character: usize) -> Result<()> {
+fn validate_member(menus: &MenuData, member: &Member, character: Character) -> Result<()> {
     ensure!(
         member.overlimit <= 100,
         "saved Over Limit percentage exceeds 100"
@@ -132,12 +97,12 @@ fn validate_member(menus: &MenuData, member: &Member, character: usize) -> Resul
     member
         .title
         .checked_sub(1)
-        .and_then(|index| menus.titles.get(character)?.get(usize::from(index)))
+        .and_then(|index| menus.titles.get(character.index())?.get(usize::from(index)))
         .context("missing party title")?;
     let rules = menus
         .ex_skills
         .characters
-        .get(character)
+        .get(character.index())
         .context("missing character EX rules")?;
     for &id in member.ex_skills.iter().filter(|&&id| id != 0) {
         ensure!(
@@ -192,9 +157,9 @@ pub struct Loadout {
 fn active_compounds(
     menus: &MenuData,
     member: &Member,
-    character: usize,
+    character: Character,
 ) -> std::collections::BTreeSet<u8> {
-    menus.ex_skills.characters[character]
+    menus.ex_skills.characters[character.index()]
         .equipped_compounds(&member.ex_skills)
         .map(|(_, recipe)| recipe.skill)
         .collect()
@@ -205,7 +170,7 @@ pub(super) fn happiness(member: &Member) -> bool {
     member.ex_skills.contains(&ex::HAPPINESS)
 }
 
-pub fn loadout(menus: &MenuData, member: &Member, character: usize) -> Result<Loadout> {
+pub fn loadout(menus: &MenuData, member: &Member, character: Character) -> Result<Loadout> {
     validate_member(menus, member, character)?;
     let active = active_compounds(menus, member, character);
     ensure!(
@@ -220,7 +185,7 @@ pub fn loadout(menus: &MenuData, member: &Member, character: usize) -> Result<Lo
     let weapon_species = menus.items[usize::from(member.equipment[0])]
         .properties
         .species_bonus;
-    let stats = member.stats_for(menus, character);
+    let stats = member.stats_for(menus, character.index());
     let mut affinities = [Affinity::Normal; 9];
     affinities[0] = affinity(traits.neutral_resistance);
     for (target, value) in affinities[1..].iter_mut().zip(traits.resistance) {
@@ -249,7 +214,7 @@ pub fn loadout(menus: &MenuData, member: &Member, character: usize) -> Result<Lo
             },
             base_element: traits.attack_element,
             affinities,
-            dagger_reach: matches!(character, 5 | 8)
+            dagger_reach: matches!(character, Character::Zelos | Character::Kratos)
                 && menus.items[usize::from(member.equipment[0])].category == 14,
             casting: resonance_battle::CastingTraits {
                 speed_cast: member.ex_skills.contains(&ex::SPEED_CAST),
@@ -485,10 +450,6 @@ pub(super) fn actor(
         "invalid battle placement"
     );
     Ok(Actor {
-        side: Side::Party,
-        species: 0,
-        equipment: attributes,
-        control,
         availability: if member.hp == 0 {
             resonance_battle::ActorAvailability::Dead
         } else if member.ailments.petrified {
@@ -497,29 +458,13 @@ pub(super) fn actor(
             resonance_battle::ActorAvailability::Active
         },
         overlimit: resonance_battle::OverLimit::new(u16::from(member.overlimit) * 10)?,
-        proficiency: 0,
-        combat_adjustments: Default::default(),
-        input: Default::default(),
-        guard: Default::default(),
         hp: i32::from(member.hp),
         tp: member.tp,
-        control_ex_state: Default::default(),
-        casting_state: Default::default(),
-        stored_spell: None,
-        control_slot: 0,
-        elements: Default::default(),
-        attack_power: 100,
         conditions,
         position,
         heading,
         facing_direction: resonance_battle::direction_from_heading(heading),
-        effect_scale: 1.,
-        secondary_wind: Default::default(),
-        body: Default::default(),
-        movement: Default::default(),
-        reaction: Default::default(),
-        hit_stop: 0,
-        time_stop: 0,
+        ..Actor::new(Side::Party, control, attributes)
     })
 }
 
@@ -535,10 +480,17 @@ fn affinity(value: i16) -> Affinity {
 }
 
 /// Normal combo capacity starts with the character baseline, then applies equipped skills.
-pub(super) fn normal_combo_limit(skills: [u8; 4], character: usize) -> u8 {
+pub(super) fn normal_combo_limit(skills: [u8; 4], character: Character) -> u8 {
     let base = if skills.contains(&ex::SIX_HIT_COMBO) {
         6
-    } else if matches!(character, 1 | 2 | 3 | 6 | 7) {
+    } else if matches!(
+        character,
+        Character::Colette
+            | Character::Genis
+            | Character::Raine
+            | Character::Presea
+            | Character::Regal
+    ) {
         2
     } else {
         3
@@ -619,12 +571,12 @@ mod tests {
         let member = inputs.prepare_party_member(
             &menus,
             0,
-            loadout(&menus, &party.members[0], 0)?,
+            loadout(&menus, &party.members[0], Character::Lloyd)?,
             Setup {
                 position: [0.; 3],
                 heading: 0.,
                 model: Some(ModelSetup {
-                    resource: 1,
+                    resource: resonance_battle::ResourceId(1),
                     initial: Playback {
                         clip: 0,
                         frame: 0.,
@@ -635,7 +587,7 @@ mod tests {
                 }),
             },
             false,
-            100,
+            resonance_battle::ResourceId(100),
             None,
         )?;
         let mut battle = PreparedBattle::new(
@@ -660,7 +612,7 @@ mod tests {
                 .is_some_and(|remaining| remaining < initial_duration)
         );
         party.members[0].equipment[5] = 0;
-        let (attributes, conditions) = loadout(&menus, &party.members[0], 0)?
+        let (attributes, conditions) = loadout(&menus, &party.members[0], Character::Lloyd)?
             .equipment_attributes(&party.members[0], &before, false)?;
         battle.replace_equipment_batch(vec![EquipmentReplacement {
             actor: ActorId::from_index(0)?,

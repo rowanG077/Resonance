@@ -1,5 +1,5 @@
 //! Independent cosmetic timelines; emitted particles may outlive their emitter.
-use crate::{ActorId, BattleFrame, Cue, EffectAppearance, ParticleId, Random};
+use crate::{ActorId, BattleFrame, Cue, EffectAppearance, ParticleId, Random, ResourceId};
 use anyhow::{Context as _, Result, ensure};
 pub use resonance_content::battle_effect::EffectTint;
 use resonance_content::diagnostics::Diagnostics;
@@ -22,7 +22,7 @@ pub use scheduler::EffectDefinition;
 
 #[derive(Debug, Clone)]
 pub struct EffectBank {
-    pub(crate) resource: u32,
+    pub(crate) resource: ResourceId,
     pub(crate) models: BTreeMap<u8, crate::PreparedEffectModel>,
     members: BTreeMap<u16, Arc<crate::EffectDefinition>>,
     weapon_model: Option<WeaponModel>,
@@ -31,15 +31,15 @@ pub struct EffectBank {
 #[derive(Debug, Clone)]
 struct WeaponModel {
     owner: ActorId,
-    weapon_slot: u8,
+    weapon_slot: crate::WeaponSlot,
     model_slot: u8,
-    variants: BTreeMap<u32, crate::PreparedEffectModel>,
+    variants: BTreeMap<ResourceId, crate::PreparedEffectModel>,
 }
 
 impl EffectBank {
     /// Admit selected effects once, after their model bindings are available.
     pub fn new(
-        resource: u32,
+        resource: ResourceId,
         models: BTreeMap<u8, crate::PreparedEffectModel>,
         members: BTreeMap<u16, Arc<crate::EffectDefinition>>,
         diagnostics: &resonance_content::diagnostics::Diagnostics,
@@ -97,7 +97,7 @@ impl EffectBank {
         })
     }
 
-    pub fn resource(&self) -> u32 {
+    pub fn resource(&self) -> ResourceId {
         self.resource
     }
 
@@ -106,8 +106,8 @@ impl EffectBank {
         &mut self,
         model_slot: u8,
         owner: ActorId,
-        weapon_slot: u8,
-        variants: BTreeMap<u32, crate::PreparedEffectModel>,
+        weapon_slot: crate::WeaponSlot,
+        variants: BTreeMap<ResourceId, crate::PreparedEffectModel>,
     ) -> Result<()> {
         ensure!(
             !variants.is_empty(),
@@ -144,7 +144,7 @@ pub enum EffectFollow {
     },
     Weapon {
         actor: ActorId,
-        resource: u32,
+        resource: ResourceId,
         bone: Option<u8>,
     },
     Projectile(crate::ProjectileId),
@@ -163,9 +163,7 @@ pub struct EffectRequest {
     pub tint: EffectTint,
 }
 pub(crate) struct Active {
-    resource: u32,
-    #[cfg(feature = "test-support")]
-    program: u16,
+    appearance: EffectAppearance,
     definition: Arc<EffectDefinition>,
     action: Option<crate::ActionId>,
     actor: ActorId,
@@ -203,9 +201,7 @@ impl Active {
                     _ => (spawns, samples),
                 });
         Self {
-            resource: spawn.appearance.resource,
-            #[cfg(feature = "test-support")]
-            program: spawn.appearance.member,
+            appearance: spawn.appearance,
             definition,
             action,
             actor: spawn.owner,
@@ -231,7 +227,7 @@ impl Active {
 
 /// Cosmetic animation owned by the scene, independent of mutable gameplay state.
 pub struct Effects {
-    pub(crate) banks: BTreeMap<u32, EffectBank>,
+    pub(crate) banks: BTreeMap<ResourceId, EffectBank>,
     poison: Option<EffectAppearance>,
     holy_song: Option<EffectAppearance>,
     overlimit_aura: Option<OverLimitAura>,
@@ -262,7 +258,7 @@ pub struct PassiveEffect {
     /// Suspend the recurrence outside an unblended idle pose in combat.
     pub idle_only: bool,
     /// Primary carried-model resource; absent for an actor aura.
-    pub weapon: Option<u32>,
+    pub weapon: Option<ResourceId>,
 }
 
 struct Passive {
@@ -396,15 +392,19 @@ impl Effects {
 
     /// Live emitters, including waits before a later scheduled birth.
     #[cfg(feature = "test-support")]
-    pub fn active_programs(&self) -> impl Iterator<Item = (ActorId, u32, u16)> + '_ {
-        self.emitters
-            .iter()
-            .map(|active| (active.actor, active.resource, active.program))
+    pub fn active_programs(&self) -> impl Iterator<Item = (ActorId, ResourceId, u16)> + '_ {
+        self.emitters.iter().map(|active| {
+            (
+                active.actor,
+                active.appearance.resource,
+                active.appearance.member,
+            )
+        })
     }
 
     /// Allocated particles, including those awaiting their first visible update.
     #[cfg(feature = "test-support")]
-    pub fn live_particles(&self) -> impl Iterator<Item = (ActorId, u32, u16)> + '_ {
+    pub fn live_particles(&self) -> impl Iterator<Item = (ActorId, ResourceId, u16)> + '_ {
         self.particles.values().map(|particle| {
             (
                 particle.frame.owner,
@@ -686,7 +686,7 @@ impl Effects {
     pub fn restore_fixture_passive_phase(
         &mut self,
         actor: ActorId,
-        weapon: Option<u32>,
+        weapon: Option<ResourceId>,
         recurrence: resonance_content::battle_profile::RecurringEffect,
         counter: u16,
         updates_before_comparison: u32,
@@ -997,9 +997,9 @@ impl Effects {
     }
 
     /// Retire one actor's scene artwork without touching common or unrelated effects.
-    pub fn clear_bank(&mut self, actor: ActorId, resource: u32) {
+    pub fn clear_bank(&mut self, actor: ActorId, resource: ResourceId) {
         self.emitters
-            .retain(|effect| effect.actor != actor || effect.resource != resource);
+            .retain(|effect| effect.actor != actor || effect.appearance.resource != resource);
         self.particles.retain(|_, particle| {
             particle.frame.owner != actor || particle.frame.resource != resource
         });
@@ -1033,7 +1033,9 @@ impl Effects {
             let weapon = frame
                 .weapons
                 .iter()
-                .find(|weapon| weapon.owner == binding.owner && weapon.slot == binding.weapon_slot)
+                .find(|weapon| {
+                    weapon.owner == binding.owner && weapon.slot == Some(binding.weapon_slot)
+                })
                 .context("effect weapon owner has no equipped model")?;
             let model = binding
                 .variants

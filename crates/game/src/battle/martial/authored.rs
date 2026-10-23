@@ -1,5 +1,5 @@
 //! Bind the party action table to the encounter's model, sound, and effect banks.
-use super::{ActionDefinition, Character, Sequence, Sound, Technique};
+use super::{Character, Sequence, Sound, Technique};
 use anyhow::{Context, Result, bail, ensure};
 use resonance_battle::{AttackEvent, AttackPose, EffectAppearance, PreparedAttack};
 use resonance_content::{
@@ -105,18 +105,22 @@ fn resolve_pose_sequence(
 }
 
 impl Technique {
+    pub(super) fn authored_timeline(
+        self,
+        table: &resonance_content::battle_profile::Table,
+    ) -> Result<Attack> {
+        table
+            .martial_attack(self.catalogue, self.character as u8)
+            .cloned()
+    }
+
     pub(super) fn prepare_authored<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let attack = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .clone();
-        self.prepare_authored_attack(resources, model, tp_cost, attack)
+    ) -> Result<PreparedAttack> {
+        let attack = self.authored_timeline(resources.voices.party_table())?;
+        self.prepare_authored_attack(resources, model, attack)
     }
 
     pub(super) fn prepare_authored_attack<
@@ -125,9 +129,8 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
-        tp_cost: u16,
         mut attack: resonance_content::battle_martial::Attack,
-    ) -> Result<ActionDefinition> {
+    ) -> Result<PreparedAttack> {
         let model = model.context("missing martial action model")?;
         resolve_pose_sequence(&mut attack, |clip| {
             model
@@ -159,17 +162,10 @@ impl Technique {
                 .try_into()
                 .context("martial shoulder index exceeds limit")?;
         }
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+        let recoil = resources.recoil;
         let pose = |source: ActionPose| -> Result<AttackPose> {
-            Ok(AttackPose {
-                motion: crate::battle::model::motion(Some(model), source.clip)
-                    .context("missing martial action pose")?,
-                start: source.start,
-                end: source.end,
-                rate: source.rate,
-                blend: source.blend,
-                repeat: source.repeat,
-            })
+            crate::battle::model::action_pose(Some(model), source)
+                .context("missing martial action pose")
         };
         // Grounded arte movement loses this speed each gameplay tick.
         const GROUND_BRAKING: f32 = 0.55;
@@ -197,7 +193,7 @@ impl Technique {
                     if !model.motions.contains_key(&source.clip) {
                         if resources
                             .party_null_motions
-                            .get(&(self.character as u8))
+                            .get(&self.character)
                             .is_some_and(|slots| slots.contains(&source.clip))
                         {
                             // An authored empty slot keeps the current pose.
@@ -207,7 +203,7 @@ impl Technique {
                     AttackEvent::Pose(pose(*source)?)
                 }
                 Event::Contact(contact) => {
-                    let mut hit = crate::battle::hit::authored(&contact.hit, &recoil)?;
+                    let mut hit = crate::battle::hit::authored(&contact.hit, recoil)?;
                     if let Some(member) = contact.hit.effect {
                         resources.effect(true, &[member])?;
                         hit.effect = Some(EffectAppearance {
@@ -227,7 +223,13 @@ impl Technique {
                             .checked_sub(1)
                             .and_then(|ticks| ticks.checked_mul(RIBBON_UPDATES_PER_CONTACT_TICK))
                             .context("Fierce Demon Fang ribbon duration exceeds limit")?;
-                        events.push((*at, AttackEvent::Trail { slot, duration }));
+                        events.push((
+                            *at,
+                            AttackEvent::Trail {
+                                slot: resonance_battle::WeaponSlot(slot),
+                                duration,
+                            },
+                        ));
                     }
                     let volume = if matches!(contact.attachments, ContactAttachments::BodyCenter {})
                     {
@@ -266,45 +268,13 @@ impl Technique {
                         .clone();
                     let hit = hit.as_ref().context("missing martial projectile hit")?;
                     AttackEvent::Projectile(super::sword::projectile(
-                        resources, &row, hit, *feedback, &recoil,
+                        resources, &row, hit, *feedback, recoil,
                     )?)
-                }
-                Event::Braking(value) => AttackEvent::Braking(*value),
-                Event::AnimationRate(value) => AttackEvent::AnimationRate(*value),
-                Event::Turn(degrees) => AttackEvent::Turn(*degrees),
-                Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
-                Event::CameraDistance { distance, duration } => AttackEvent::CameraDistance {
-                    distance: *distance,
-                    duration: *duration,
-                },
-                Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {
-                    enabled: *enabled,
-                    duration: *duration,
-                },
-                Event::Gravity(value) => AttackEvent::Gravity(*value),
-                Event::PassThrough(value) => AttackEvent::PassThrough {
-                    enabled: *value,
-                    duration: 0,
-                },
-                Event::Forward(value) => AttackEvent::Move {
-                    forward: Some(*value),
-                    vertical: None,
-                },
-                Event::Vertical(value) => AttackEvent::Move {
-                    forward: None,
-                    vertical: Some(*value),
-                },
-                Event::Trail { slot, duration } => AttackEvent::Trail {
-                    slot: *slot,
-                    duration: *duration,
-                },
-                Event::WeaponVisibility { slot, visible } => {
-                    AttackEvent::WeaponVisibility(vec![(*slot, *visible)])
                 }
                 Event::Sound(cue) => AttackEvent::Sound((resources.sound)(Sound::Cue(*cue))?),
                 Event::Voice(voice) => {
                     let Some(line) = resources.voices.absolute(
-                        crate::battle::model::ModelSource::Party(self.character as u8),
+                        crate::battle::model::ModelSource::Party(self.character),
                         *voice,
                         &mut resources.sound,
                     )?
@@ -319,6 +289,7 @@ impl Technique {
                 Event::Effect(_) | Event::Throw { .. } => {
                     bail!("unsupported martial action event")
                 }
+                other => crate::battle::normal::movement_event(other)?,
             };
             events.push((*at, event));
         }
@@ -351,17 +322,13 @@ impl Technique {
             ));
         }
         events.sort_by_key(|(at, _)| *at);
-        Ok(ActionDefinition {
-            normal: None,
-            tp_cost,
-            execution: crate::battle::ActionExecution::Attack(PreparedAttack {
-                contact_recovery: None,
-                opening: None,
-                events,
-                chain_at: attack.chain_at,
-                end_at: attack.duration,
-                recovery: attack.recovery,
-            }),
+        Ok(PreparedAttack {
+            contact_recovery: None,
+            opening: None,
+            events,
+            chain_at: attack.chain_at,
+            end_at: attack.duration,
+            recovery: attack.recovery,
         })
     }
 }

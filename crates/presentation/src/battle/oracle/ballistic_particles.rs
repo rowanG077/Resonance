@@ -1,5 +1,5 @@
 //! Validate detached random debris using the ordinary particle integrator.
-use super::{Trace, compare::equal, random_inputs::Pin};
+use super::{Trace, compare::equal, exactly_one, optional_field, random_inputs::Pin};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{FixtureParticle, ParticleGeometry, ParticleTemplate};
 use resonance_content::battle_effect::{
@@ -29,12 +29,8 @@ struct Descriptor {
 }
 
 pub(super) fn validate(source: &Trace, native: &Trace) -> Result<[Validated; 2]> {
-    let descriptors: Vec<Descriptor> = source
-        .setup
-        .get("effect_ballistic_particles")
-        .map(|v| serde_json::from_value(v.clone()))
-        .transpose()?
-        .unwrap_or_default();
+    let descriptors: Vec<Descriptor> =
+        optional_field(&source.setup, "effect_ballistic_particles")?.unwrap_or_default();
     let mut result = [BTreeMap::new(), BTreeMap::new()];
     for descriptor in descriptors {
         let metadata: Value = serde_json::from_slice(&descriptor.metadata.read_bytes()?)?;
@@ -199,19 +195,13 @@ fn embedded_epoch(
         .context("scheduler has no bank binding")?
         .sha256
         .as_str();
-    let parents: Vec<_> = source
-        .events
-        .iter()
-        .filter(|event| {
-            event["kind"] == "program_started"
-                && event["owner"] == owner
-                && event["bank"] == signature
-                && event["program"] == descriptor.program
-        })
-        .collect();
-    let [parent] = parents.as_slice() else {
-        anyhow::bail!("ambiguous embedded program admission");
-    };
+    let parent = exactly_one(source.events.iter().filter(|event| {
+        event["kind"] == "program_started"
+            && event["owner"] == owner
+            && event["bank"] == signature
+            && event["program"] == descriptor.program
+    }))
+    .context("ambiguous embedded program admission")?;
     let parent = parent["clock"]
         .as_u64()
         .context("missing embedded parent clock")?;
@@ -306,24 +296,20 @@ fn validate_run(
         .find(|a| a["actor"] == owner)
         .context("missing debris owner pose")?;
     let heading = actor["heading"].as_f64().context("missing owner heading")? as f32;
+    let is_debris = |value: &Value| {
+        value["owner"] == owner && value["bank"] == bank && value["member"] == descriptor.member
+    };
     let mut lives: BTreeMap<Key, Vec<(usize, &Value, &Value)>> = BTreeMap::new();
     for (index, frame) in trace.frames.iter().enumerate() {
         for particle in frame["particles"].as_array().context("missing particles")? {
-            if particle["owner"] == owner
-                && particle["bank"] == bank
-                && particle["member"] == descriptor.member
-                && particle["age"].as_u64().is_some_and(|age| age > 0)
-            {
+            if is_debris(particle) && particle["age"].as_u64().is_some_and(|age| age > 0) {
                 ensure!(
                     !particle["model"].is_null()
                         && frame["effect_models"]
                             .as_array()
                             .context("missing effect models")?
                             .iter()
-                            .filter(|m| m["owner"] == owner
-                                && m["bank"] == bank
-                                && m["member"] == descriptor.member
-                                && m["model"] == particle["model"])
+                            .filter(|m| is_debris(m) && m["model"] == particle["model"])
                             .count()
                             == 1,
                     "debris particle has no unique visible model"
@@ -334,26 +320,17 @@ fn validate_run(
             .as_array()
             .context("missing effect models")?
         {
-            if model["owner"] != owner
-                || model["bank"] != bank
-                || model["member"] != descriptor.member
-            {
+            if !is_debris(model) {
                 continue;
             }
-            let particles: Vec<_> = frame["particles"]
-                .as_array()
-                .context("missing particles")?
-                .iter()
-                .filter(|p| {
-                    p["owner"] == owner
-                        && p["bank"] == bank
-                        && p["member"] == descriptor.member
-                        && p["model"] == model["model"]
-                })
-                .collect();
-            let [particle] = particles.as_slice() else {
-                anyhow::bail!("ambiguous debris particle/model binding");
-            };
+            let particle = exactly_one(
+                frame["particles"]
+                    .as_array()
+                    .context("missing particles")?
+                    .iter()
+                    .filter(|p| is_debris(p) && p["model"] == model["model"]),
+            )
+            .context("ambiguous debris particle/model binding")?;
             lives
                 .entry(key(model)?)
                 .or_default()
@@ -719,22 +696,18 @@ fn birth_transform(
     ]
     .map(|v| v.to_degrees() as f32);
     let alternate = [angles[0] + 180., 180. - angles[1], angles[2] + 180.];
-    let choices: Vec<_> = [angles, alternate]
-        .into_iter()
-        .map(|a| a.map(wrap))
-        .filter(|angles| {
+    let angles = exactly_one([angles, alternate].into_iter().map(|a| a.map(wrap)).filter(
+        |angles| {
             (0..3).filter(|axis| *axis != 1).all(|axis| {
                 let initial = wrap(angles[axis] - template.state.angular_velocity[axis]);
                 let range =
                     birth.angles[axis].unwrap_or(ValueRange::fixed(template.state.angles[axis]));
                 range_check(initial, range).is_ok()
             })
-        })
-        .collect();
-    let [angles] = choices.as_slice() else {
-        anyhow::bail!("debris birth rotation is not uniquely observed");
-    };
-    Ok((*angles, scale))
+        },
+    ))
+    .context("debris birth rotation is not uniquely observed")?;
+    Ok((angles, scale))
 }
 fn check_frame(
     model: &Value,

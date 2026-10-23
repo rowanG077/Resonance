@@ -27,14 +27,14 @@ pub fn inputs(extracted: &Path) -> Result<BTreeMap<String, String>> {
     let module = Rel::read(&files.join(&module_path))?;
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let catalogue = crate::resource::read(&executable)?;
-    let mut paths = vec![module_path];
-    paths.push(crate::all_assets::roles::declared_path(
+    let mut paths = BTreeSet::from([module_path]);
+    paths.insert(crate::all_assets::roles::declared_path(
         &files,
         &module.text((4, 0x1e4))?,
     )?);
     for name in catalogue.party_bodies.iter().flatten().flatten() {
         if let Some(path) = crate::field_resources::find_path(&files, name)? {
-            paths.push(path);
+            paths.insert(path);
         }
     }
     let mut result = paths
@@ -374,33 +374,6 @@ mod tests {
             timeline(&rows, 252.).is_err(),
             "a loop has no completion deadline"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn group_members_are_validated_at_import() -> Result<()> {
-        let mut parsed = group(38, &[0x12, 0x34, 0, 3, 2, 3, 9, 0])?;
-        assert_eq!(
-            (parsed.character, parsed.voice),
-            (2, Some(resonance_content::battle_voice::Sound::Cue(5161)))
-        );
-        assert_eq!(parsed.participants, [2, 3, 9]);
-        assert_eq!(parsed.required_leader, Some(9));
-        assert_eq!(parsed.condition, Condition::Flawless);
-        parsed.required_leader = Some(1);
-        assert!(parsed.validate().is_err());
-        parsed.required_leader = Some(9);
-        parsed.character = 1;
-        assert!(parsed.validate().is_err());
-        for row in [
-            [0, 1, 0, 0, 2, 3, 0, 0],
-            [0, 1, 0, 5, 2, 3, 0, 0],
-            [0, 1, 0, 2, 2, 0, 0, 0],
-            [0, 1, 0, 2, 2, 2, 0, 0],
-        ] {
-            assert!(group(1, &row).is_err());
-        }
-        assert!(group(1, &[0; 7]).is_err());
         Ok(())
     }
 

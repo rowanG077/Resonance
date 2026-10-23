@@ -57,39 +57,33 @@ pub(super) fn read(module: &Rel) -> Result<Vec<Opener>> {
         events.push((elapsed(tick)?, event));
         cursor += width;
     }
-    (0..9)
-        .map(|character| {
-            let row = module.at((
-                5,
-                if character == 2 {
-                    LATE_CONTACT
-                } else {
-                    CONTACT
-                },
-            ))?;
-            ensure!(
-                i16::read(row, 32)? == -1,
-                "multiple Unison opening contacts"
-            );
-            let mut events = events.clone();
-            events.push((
-                elapsed(u16::read(row, 0)?)?,
-                Event::Contact(crate::battle_action::contact(rules, row)?),
-            ));
-            events.sort_by_key(|(tick, _)| *tick);
-            let duration = u16::read(config, 0)?;
-            Ok(Opener {
-                duration,
-                recovery: u16::read(config, 2)?,
-                reach: [u16::read(config, 20)?, u16::read(config, 22)?],
-                // Genis and Raine retain their slower opening interval.
-                contact_ticks: if matches!(character, 2 | 3) {
-                    45
-                } else {
-                    duration
-                },
-                events,
-            })
-        })
-        .collect()
+    let contact_events = |offset| -> Result<_> {
+        let row = module.at((5, offset))?;
+        ensure!(
+            i16::read(row, 32)? == -1,
+            "multiple Unison opening contacts"
+        );
+        let mut events = events.clone();
+        events.push((
+            elapsed(u16::read(row, 0)?)?,
+            Event::Contact(crate::battle_action::contact(rules, row)?),
+        ));
+        events.sort_by_key(|(tick, _)| *tick);
+        Ok(events)
+    };
+    let duration = u16::read(config, 0)?;
+    let common = Opener {
+        duration,
+        recovery: u16::read(config, 2)?,
+        reach: <[u16; 2]>::read(config, 20)?,
+        contact_ticks: duration,
+        events: contact_events(CONTACT)?,
+    };
+    let mut openers = vec![common; 9];
+    openers[2].events = contact_events(LATE_CONTACT)?;
+    // Genis and Raine retain their slower opening interval.
+    for character in [2, 3] {
+        openers[character].contact_ticks = 45;
+    }
+    Ok(openers)
 }

@@ -3,7 +3,7 @@ use crate::Activity;
 use crate::conditions::{Condition, ConditionSet};
 use crate::{
     ActionDefinition, ActorSetup, BattleInput, ButtonInput, ControlDefinition, DecisionDefinition,
-    NormalControl, PreparedBattle, Side, tests::actor,
+    PreparedBattle, Side, tests::actor,
 };
 use std::sync::Arc;
 
@@ -15,20 +15,8 @@ pub(crate) fn battle() -> Battle {
 }
 
 pub(crate) fn prepared() -> PreparedBattle {
-    let actions: Vec<_> = (0..7)
-        .map(|index| ActionDefinition {
-            normal: Some(crate::NormalAttack::ALL[index]),
-            tp_cost: 0,
-            execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-                contact_recovery: None,
-                chain_at: None,
-                end_at: 90,
-                opening: None,
-                events: vec![],
-                recovery: 0,
-            }),
-        })
-        .collect();
+    let mut actions = Default::default();
+    let normals = crate::tests::normal_controls(&mut actions, crate::tests::attack(90), [0., 120.]);
     let mut owner = actor(Side::Party);
     owner.control = Control::SemiAuto;
     owner.movement.direction = [1., 0., 0.];
@@ -43,16 +31,8 @@ pub(crate) fn prepared() -> PreparedBattle {
                 run_speed: 10.,
                 turn_ticks: 8,
                 motions: None,
-                shortcuts: [0; 4],
-                normals: std::array::from_fn(|index| NormalControl {
-                    action: crate::ActionKey(index),
-                    continuation: crate::tests::normal_continuation(
-                        crate::NormalAttack::ALL[index],
-                    ),
-
-                    reach: 120.,
-                    minimum_reach: 0.,
-                }),
+                shortcuts: [None; 4],
+                normals,
             })),
             decision: Some(DecisionDefinition {
                 idle_ticks: 0,
@@ -64,62 +44,75 @@ pub(crate) fn prepared() -> PreparedBattle {
     ];
     PreparedBattle::new(
         vec![owner, target].into_iter().zip(setup).collect(),
-        actions.into(),
+        actions,
         0x13572468,
     )
     .unwrap()
 }
 
 fn input(stick: [i8; 2], guard: bool, edge: i8) -> BattleInput {
-    BattleInput {
-        controllers: vec![ControlInput {
-            stick,
-            horizontal_pressed: edge,
-            guard: ButtonInput {
-                held: guard,
-                ..Default::default()
-            },
-            ..ControlInput::neutral(ActorId(0))
-        }],
-        ..Default::default()
+    BattleInput::from(ControlInput {
+        stick,
+        horizontal_pressed: edge,
+        guard: ButtonInput {
+            held: guard,
+            ..Default::default()
+        },
+        ..ControlInput::neutral(ActorId(0))
+    })
+}
+
+fn pause(battle: &mut Battle) -> crate::BattleFrame {
+    battle
+        .step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })
+        .unwrap()
+}
+
+fn set_model(battle: &mut Battle, model: crate::ModelDefinition) {
+    battle.set_models(
+        crate::Models::new(
+            battle.actors(),
+            vec![Some(Arc::new(model)), None],
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap(),
+    );
+}
+
+fn step_until(battle: &mut Battle, activity: Activity, limit: usize) -> usize {
+    for visits in 1..=limit {
+        battle.step(BattleInput::default()).unwrap();
+        if battle.activity(ActorId(0)) == activity {
+            return visits;
+        }
     }
+    panic!("actor did not reach {activity:?} within {limit} updates");
 }
 
 #[test]
 fn jump_and_landing_recover_without_artwork() {
-    {
-        let mut prepared = prepared();
-        prepared.actors[0].control = Control::Manual;
-        let mut battle = prepared.finish().unwrap();
-        battle.set_diagnostics(Default::default());
-        for _ in 0..JUMP_CHARGE_UPDATES {
-            battle.step(input([0, 80], false, 0)).unwrap();
-        }
-        assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
-        assert_eq!(battle.actors[0].position[1], 0.);
-        battle.step(BattleInput::default()).unwrap();
-        assert_eq!(battle.actors[0].position[1], JUMP_SPEED);
-        let airborne = battle.actors[0].position;
-        battle
-            .step(BattleInput {
-                paused: true,
-                ..Default::default()
-            })
-            .unwrap();
-        assert_eq!(battle.actors[0].position, airborne);
-        let mut landed = false;
-        for _ in 0..100 {
-            battle.step(BattleInput::default()).unwrap();
-            landed |= battle.activity(ActorId(0)) == Activity::Recovering;
-            if battle.activity(ActorId(0)) == Activity::Idle {
-                break;
-            }
-        }
-        assert!(landed);
-        assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
-        assert_eq!(battle.actors[0].position[1], 0.);
-        assert!(!battle.is_diagnostic());
+    let mut prepared = prepared();
+    prepared.actors[0].control = Control::Manual;
+    let mut battle = prepared.finish().unwrap();
+    battle.set_diagnostics(Default::default());
+    for _ in 0..JUMP_CHARGE_UPDATES {
+        battle.step(input([0, 80], false, 0)).unwrap();
     }
+    assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
+    assert_eq!(battle.actors[0].position[1], 0.);
+    battle.step(BattleInput::default()).unwrap();
+    assert_eq!(battle.actors[0].position[1], JUMP_SPEED);
+    let airborne = battle.actors[0].position;
+    pause(&mut battle);
+    assert_eq!(battle.actors[0].position, airborne);
+    let landed_at = step_until(&mut battle, Activity::Recovering, 100);
+    step_until(&mut battle, Activity::Idle, 100 - landed_at);
+    assert_eq!(battle.actors[0].position[1], 0.);
+    assert!(!battle.is_diagnostic());
 }
 
 #[test]
@@ -208,8 +201,6 @@ fn changing_control_mode_preserves_active_jump_movement() -> Result<()> {
             initial_policy: [0; 3],
             defaults: [1, 5, 2],
             limits: [crate::PolicyLimits::default(); 9],
-            level: 1,
-            level_difference: 0,
         });
         prepared.finish()
     };
@@ -257,31 +248,14 @@ fn landing_trait_shortens_recovery_and_menu_pause_holds_it() {
             battle.step(input([0, 70], true, 0)).unwrap();
         }
         assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
-        for _ in 0..100 {
-            battle.step(BattleInput::default()).unwrap();
-            if battle.activity(ActorId(0)) == Activity::Recovering {
-                break;
-            }
-        }
-        assert_eq!(battle.activity(ActorId(0)), Activity::Recovering);
+        step_until(&mut battle, Activity::Recovering, 100);
         let position = battle.actors[0].position;
         for _ in 0..20 {
-            battle
-                .step(BattleInput {
-                    paused: true,
-                    ..Default::default()
-                })
-                .unwrap();
+            pause(&mut battle);
             assert_eq!(battle.actors[0].position, position);
             assert_eq!(battle.activity(ActorId(0)), Activity::Recovering);
         }
-        for ticks in 1..100 {
-            battle.step(BattleInput::default()).unwrap();
-            if battle.activity(ActorId(0)) == Activity::Idle {
-                return ticks;
-            }
-        }
-        panic!("landing never completed");
+        step_until(&mut battle, Activity::Idle, 99)
     };
     assert!(recover(true) < recover(false));
 }

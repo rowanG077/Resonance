@@ -12,8 +12,8 @@ pub enum Contact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Key {
     pub clock: u32,
-    pub owner: usize,
-    pub target: usize,
+    pub owner: ActorId,
+    pub target: ActorId,
     pub action: u64,
     pub contact: Contact,
 }
@@ -80,14 +80,14 @@ pub struct Critical {
 #[derive(Debug, Clone)]
 pub struct TargetChoice {
     pub key: Key,
-    pub candidates: Vec<usize>,
+    pub candidates: Vec<ActorId>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Positioning {
     pub clock: u32,
-    pub owner: usize,
-    pub target: usize,
+    pub owner: ActorId,
+    pub target: ActorId,
     pub action: u64,
     pub values: Vec<u16>,
 }
@@ -107,7 +107,7 @@ pub struct RecordedInputs {
 
 pub(crate) struct Inputs {
     origin: u32,
-    owner: usize,
+    owner: ActorId,
     action: u64,
     admission: ActionId,
     actions: BTreeSet<ActionId>,
@@ -130,7 +130,7 @@ impl Inputs {
         owner: ActorId,
         target: ActorId,
     ) -> Result<Option<Vec<u16>>> {
-        if owner.index() != self.owner {
+        if owner != self.owner {
             return Ok(None);
         }
         let Some(rows) = &mut self.positioning else {
@@ -140,7 +140,7 @@ impl Inputs {
         ensure!(
             self.admitted
                 && clock.checked_sub(self.origin) == Some(row.clock)
-                && target.index() == row.target,
+                && target == row.target,
             "positioning search clock or target differs"
         );
         Ok(Some(rows.pop_front().unwrap().values))
@@ -160,22 +160,18 @@ impl Inputs {
         let input = inputs.front().context("extra target choice")?;
         let key = self.key(Key {
             clock,
-            owner: owner.index(),
+            owner,
             action: action.0,
             target: input.key.target,
             contact: Contact::Projectile(projectile),
         })?;
         ensure!(
-            input.key == key
-                && candidates
-                    .iter()
-                    .map(|actor| actor.index())
-                    .eq(input.candidates.iter().copied()),
+            input.key == key && candidates == input.candidates,
             "target choice action or candidates differ"
         );
         let choice = candidates
             .iter()
-            .position(|actor| actor.index() == input.key.target)
+            .position(|actor| *actor == input.key.target)
             .context("recorded target is unavailable")?;
         self.targets.as_mut().unwrap().pop_front();
         Ok(Some(choice))
@@ -211,7 +207,7 @@ impl Inputs {
     }
 
     pub(crate) fn released(&mut self, owner: ActorId, parent: Option<ActionId>, action: ActionId) {
-        if owner.index() == self.owner && parent.is_some_and(|id| self.actions.contains(&id)) {
+        if owner == self.owner && parent.is_some_and(|id| self.actions.contains(&id)) {
             self.actions.insert(action);
         }
     }
@@ -338,6 +334,16 @@ impl Inputs {
     }
 }
 
+fn ordered_unique<K: Ord>(rows: impl IntoIterator<Item = (u32, K)>) -> bool {
+    let mut previous = 0;
+    let mut seen = BTreeSet::new();
+    rows.into_iter().all(|(clock, key)| {
+        let valid = clock >= previous && seen.insert(key);
+        previous = clock;
+        valid
+    })
+}
+
 impl Battle {
     pub fn install_random_inputs(&mut self, origin: u32, recorded: RecordedInputs) -> Result<()> {
         let RecordedInputs {
@@ -388,8 +394,8 @@ impl Battle {
             ensure!(
                 key.owner == owner
                     && key.action == action
-                    && key.owner < self.actors.len()
-                    && key.target < self.actors.len()
+                    && key.owner.index() < self.actors.len()
+                    && key.target.index() < self.actors.len()
                     && key.action != 0
                     && key.contact != Contact::Projectile(0),
                 "random inputs must belong to one valid action"
@@ -399,15 +405,7 @@ impl Battle {
             scatter
                 .iter()
                 .all(|row| matches!(row.key.contact, Contact::Projectile(_)))
-                && scatter
-                    .windows(2)
-                    .all(|rows| rows[0].key.clock <= rows[1].key.clock)
-                && scatter
-                    .iter()
-                    .map(|row| row.key)
-                    .collect::<BTreeSet<_>>()
-                    .len()
-                    == scatter.len(),
+                && ordered_unique(scatter.iter().map(|row| (row.key.clock, row.key))),
             "unordered or duplicate scatter inputs"
         );
         ensure!(
@@ -415,15 +413,7 @@ impl Battle {
                 matches!(row.key.contact, Contact::Projectile(_))
                     && row.index < row.distribution.count
                     && row.distribution.jitter_range > 0
-            }) && hammer_ring
-                .windows(2)
-                .all(|rows| rows[0].key.clock <= rows[1].key.clock)
-                && hammer_ring
-                    .iter()
-                    .map(|row| row.key)
-                    .collect::<BTreeSet<_>>()
-                    .len()
-                    == hammer_ring.len(),
+            }) && ordered_unique(hammer_ring.iter().map(|row| (row.key.clock, row.key))),
             "invalid, unordered or duplicate hammer ring inputs"
         );
         ensure!(
@@ -432,46 +422,30 @@ impl Battle {
                     && row.axis < 3
                     && row.amplitude.is_finite()
                     && row.amplitude.abs() >= 1.
-            }) && velocity
-                .windows(2)
-                .all(|rows| rows[0].key.clock <= rows[1].key.clock)
-                && velocity
+            }) && ordered_unique(
+                velocity
                     .iter()
-                    .map(|row| (row.key, row.axis))
-                    .collect::<BTreeSet<_>>()
-                    .len()
-                    == velocity.len(),
+                    .map(|row| (row.key.clock, (row.key, row.axis)))
+            ),
             "invalid, unordered or duplicate velocity jitter inputs"
         );
         ensure!(
-            stun.windows(2)
-                .all(|rows| rows[0].key.clock <= rows[1].key.clock)
-                && stun
-                    .iter()
-                    .map(|row| row.key)
-                    .collect::<BTreeSet<_>>()
-                    .len()
-                    == stun.len(),
+            ordered_unique(stun.iter().map(|row| (row.key.clock, row.key))),
             "unordered or duplicate stun inputs"
         );
         if let Some(rows) = &ailments {
             ensure!(
-                rows.windows(2)
-                    .all(|pair| pair[0].key.clock <= pair[1].key.clock)
-                    && rows
-                        .iter()
-                        .map(|row| (row.key, row.resistance))
-                        .collect::<BTreeSet<_>>()
-                        .len()
-                        == rows.len()
-                    && rows.iter().enumerate().all(|(index, row)| {
-                        row.condition.chance != 0
-                            && (!row.resistance
-                                || index > 0
-                                    && rows[index - 1].key == row.key
-                                    && rows[index - 1].condition == row.condition
-                                    && !rows[index - 1].resistance)
-                    }),
+                ordered_unique(
+                    rows.iter()
+                        .map(|row| (row.key.clock, (row.key, row.resistance)))
+                ) && rows.iter().enumerate().all(|(index, row)| {
+                    row.condition.chance != 0
+                        && (!row.resistance
+                            || index > 0
+                                && rows[index - 1].key == row.key
+                                && rows[index - 1].condition == row.condition
+                                && !rows[index - 1].resistance)
+                }),
                 "invalid, unordered or duplicate ailment inputs"
             );
         }
@@ -479,41 +453,19 @@ impl Battle {
             ensure!(
                 rows.iter()
                     .all(|row| row.percentile < 100 && row.chance_percent <= 100)
-                    && rows
-                        .windows(2)
-                        .all(|pair| pair[0].key.clock <= pair[1].key.clock)
-                    && rows
-                        .iter()
-                        .map(|row| row.key)
-                        .collect::<BTreeSet<_>>()
-                        .len()
-                        == rows.len(),
+                    && ordered_unique(rows.iter().map(|row| (row.key.clock, row.key))),
                 "invalid, unordered or duplicate seal inputs"
             );
         }
         if let Some(rows) = &criticals {
             ensure!(
-                rows.windows(2)
-                    .all(|pair| pair[0].key.clock <= pair[1].key.clock)
-                    && rows
-                        .iter()
-                        .map(|row| (row.key, row.role))
-                        .collect::<BTreeSet<_>>()
-                        .len()
-                        == rows.len(),
+                ordered_unique(rows.iter().map(|row| (row.key.clock, (row.key, row.role)))),
                 "unordered or duplicate critical inputs"
             );
         }
         if let Some(rows) = &targets {
             ensure!(
-                rows.windows(2)
-                    .all(|pair| pair[0].key.clock <= pair[1].key.clock)
-                    && rows
-                        .iter()
-                        .map(|row| row.key)
-                        .collect::<BTreeSet<_>>()
-                        .len()
-                        == rows.len()
+                ordered_unique(rows.iter().map(|row| (row.key.clock, row.key)))
                     && rows
                         .iter()
                         .all(|row| row.candidates.contains(&row.key.target)),
@@ -527,8 +479,8 @@ impl Battle {
                         row.owner == owner
                             && row.action == action
                             && action != 0
-                            && owner < self.actors.len()
-                            && row.target < self.actors.len()
+                            && owner.index() < self.actors.len()
+                            && row.target.index() < self.actors.len()
                             && !row.values.is_empty()
                             && row.values.len() % 2 == 0
                     }),
@@ -580,10 +532,7 @@ impl Battle {
         );
         self.install_random_inputs(origin, recorded)?;
         let inputs = self.random_inputs.as_mut().unwrap();
-        ensure!(
-            inputs.owner == owner.index(),
-            "random input action owner differs"
-        );
+        ensure!(inputs.owner == owner, "random input action owner differs");
         inputs.admission = action;
         inputs.actions = BTreeSet::from([action]);
         Ok(())
@@ -598,11 +547,11 @@ impl Battle {
             ensure!(
                 !inputs.admitted
                     && inputs.origin == self.ledger.elapsed_ticks
-                    && inputs.owner == owner.index()
+                    && inputs.owner == owner
                     && inputs.admission == action,
                 "random input action admission differs: expected tick {}, owner {}, action {:?}, admitted {}; got tick {}, owner {}, action {:?}",
                 inputs.origin,
-                inputs.owner,
+                inputs.owner.index(),
                 inputs.admission,
                 inputs.admitted,
                 self.ledger.elapsed_ticks,

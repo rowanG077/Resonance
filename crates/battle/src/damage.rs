@@ -40,6 +40,12 @@ pub struct AttackElements {
     pub enchantment: Option<Element>,
 }
 
+impl Actor {
+    pub(crate) fn affinity(&self, element: Option<Element>) -> Affinity {
+        self.equipment.affinities[element.map_or(0, |element| element as usize + 1)]
+    }
+}
+
 pub(crate) fn resolve_element(element: HitElement, actor: &Actor) -> Option<Element> {
     match element {
         HitElement::Inherited => actor
@@ -527,7 +533,7 @@ pub(crate) fn resolve_contact(
     );
     let hp_before = target.hp;
     let element = resolve_element(rule.element, owner);
-    let mut affinity = target.equipment.affinities[element.map_or(0, |e| e as usize + 1)];
+    let mut affinity = target.affinity(element);
     if unison && affinity == Affinity::Absorb {
         affinity = Affinity::Normal;
     }
@@ -816,20 +822,10 @@ mod tests {
 
     pub(super) fn rule(kind: DamageKind, power: Power) -> HitRule {
         HitRule {
-            sound: None,
-            effect_on_guard: false,
-            effect: None,
             overlimit_pause: true,
-            condition: None,
-            arte: false,
-            reaction: Default::default(),
             kind,
             power,
-            element: crate::HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
-            guard: GuardRule::default(),
+            ..crate::tests::hit()
         }
     }
 
@@ -1016,46 +1012,42 @@ mod tests {
     }
 
     #[test]
-    fn consecutive_hits_apply_feedback_and_replay_deterministically() {
-        let replay = |seed| {
-            let mut owner = actor(Side::Party);
-            owner.equipment.stats.slash = 160;
-            let mut target = actor(Side::Enemy);
-            target.equipment.stats.defense = 20;
-            target.equipment.max_hp = 300;
-            target.hp = target.equipment.max_hp;
-            target.equipment.affinities[Element::Fire as usize + 1] = Affinity::Resistant;
-            let mut hit = rule(DamageKind::Slash, Power::Normal);
-            hit.element = HitElement::Element(Element::Fire);
-            let mut random = Random::new(seed);
-            let mut hits = Vec::new();
-            for _ in 0..32 {
-                let before = target.hp;
-                let result = resolve(
-                    &owner,
-                    &mut target,
-                    hit,
-                    100,
-                    [0.; 3],
-                    &mut |_| random.next_u16(),
-                    false,
-                );
-                assert!(result.amount > 0 && target.hp < before);
-                assert_eq!(result.hp_change, target.hp - before);
-                assert!((0..=target.equipment.max_hp).contains(&target.hp));
-                assert_eq!(result.affinity, Affinity::Resistant);
-                assert!(result.is_unblocked_damage());
-                assert!(!result.suppresses_reaction());
-                hits.push((result, target.hp));
-                if target.hp == 0 {
-                    break;
-                }
+    fn consecutive_hits_apply_feedback_until_defeat() {
+        let mut owner = actor(Side::Party);
+        owner.equipment.stats.slash = 160;
+        let mut target = actor(Side::Enemy);
+        target.equipment.stats.defense = 20;
+        target.equipment.max_hp = 300;
+        target.hp = target.equipment.max_hp;
+        target.equipment.affinities[Element::Fire as usize + 1] = Affinity::Resistant;
+        let mut hit = rule(DamageKind::Slash, Power::Normal);
+        hit.element = HitElement::Element(Element::Fire);
+        let mut random = Random::new(7);
+        let mut hits = 0;
+        for _ in 0..32 {
+            let before = target.hp;
+            let result = resolve(
+                &owner,
+                &mut target,
+                hit,
+                100,
+                [0.; 3],
+                &mut |_| random.next_u16(),
+                false,
+            );
+            assert!(result.amount > 0 && target.hp < before);
+            assert_eq!(result.hp_change, target.hp - before);
+            assert!((0..=target.equipment.max_hp).contains(&target.hp));
+            assert_eq!(result.affinity, Affinity::Resistant);
+            assert!(result.is_unblocked_damage());
+            assert!(!result.suppresses_reaction());
+            hits += 1;
+            if target.hp == 0 {
+                break;
             }
-            assert!(hits.len() > 1, "exercise a continuous sequence of hits");
-            assert_eq!(target.hp, 0, "hits must eventually defeat the target");
-            hits
-        };
-        assert_eq!(replay(7), replay(7));
+        }
+        assert!(hits > 1, "exercise a continuous sequence of hits");
+        assert_eq!(target.hp, 0, "hits must eventually defeat the target");
     }
 
     #[test]

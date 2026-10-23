@@ -38,13 +38,13 @@ pub fn prepare(
     for &actor in actors {
         let (neutral, colette) = match actor {
             ModelSource::Party(character) => {
-                let index = usize::from(character.checked_sub(1).context("zero character ID")?);
+                let index = character.index();
                 let neutral = *source
                     .contact_sounds
                     .party
                     .get(index)
                     .context("missing neutral contact cue")?;
-                (neutral, character == Character::Colette as u8)
+                (neutral, character == Character::Colette)
             }
             ModelSource::Enemy(_) => (54, false),
             _ => anyhow::bail!("contact audio requires actor profiles"),

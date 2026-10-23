@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 use crate::{ActionDefinition, ActionRequest, BattleInput, Control, Cue, PreparedBattle, Side};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -77,8 +78,8 @@ fn learning_during_normal_attacks_holds_then_releases_the_acquired_action_for_fr
         }
     }
     assert_eq!(battle.technique_acquisitions().len(), 1);
-    assert_eq!(battle.technique_acquisitions()[0].catalogue, 1);
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+    assert_eq!(battle.technique_acquisitions()[0].catalogue, TechniqueId(1));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
     let tp = battle.actors[0].tp;
     battle.start(request(), &mut vec![])?;
     assert_eq!(
@@ -86,7 +87,7 @@ fn learning_during_normal_attacks_holds_then_releases_the_acquired_action_for_fr
         crate::ActionKey(0)
     );
     assert_eq!(battle.actors[0].tp, tp - 7);
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(50));
     Ok(())
 }
 
@@ -104,7 +105,7 @@ fn learning_capacity_requires_a_real_actor_action_and_publishes_once() -> Result
     let mut ownerless = ownerless.finish()?;
     assert!(
         ownerless
-            .record_technique_acquisition(ActorId(0), 1)
+            .record_technique_acquisition(ActorId(0), TechniqueId(1))
             .is_err()
     );
     assert!(ownerless.technique_acquisitions().is_empty());
@@ -134,7 +135,7 @@ fn learning_capacity_requires_a_real_actor_action_and_publishes_once() -> Result
             .is_empty()
     );
     let mut candidate = prepared(0);
-    candidate.resources.actor_setup[0].techniques[0].catalogue = 2;
+    candidate.resources.actor_setup[0].techniques[0].catalogue = TechniqueId(2);
     let mut battle = candidate
         .with_technique_learning_members(vec![crate::tests::counted_techniques(
             ActorId(0),
@@ -143,69 +144,58 @@ fn learning_capacity_requires_a_real_actor_action_and_publishes_once() -> Result
         )])?
         .finish()?;
     assert_eq!(
-        battle.record_technique_acquisition(ActorId(0), 2)?,
+        battle.record_technique_acquisition(ActorId(0), TechniqueId(2))?,
         crate::ActionKey(0)
     );
     assert_eq!(
-        battle.record_technique_acquisition(ActorId(0), 2)?,
+        battle.record_technique_acquisition(ActorId(0), TechniqueId(2))?,
         crate::ActionKey(0)
     );
     assert_eq!(battle.technique_acquisitions().len(), 1);
-    assert!(battle.record_technique_acquisition(ActorId(0), 35).is_err());
+    assert!(
+        battle
+            .record_technique_acquisition(ActorId(0), TechniqueId(35))
+            .is_err()
+    );
     Ok(())
-}
-
-#[test]
-fn prepared_technique_identity_rejects_duplicate_catalogue_or_action() {
-    for (action, catalogue) in [(crate::ActionKey(0), 2), (crate::ActionKey(1), 1)] {
-        let mut candidate = prepared(0);
-        let extra = (*candidate.resources.actions.entries[0]).clone();
-
-        candidate.resources.actions.entries.push(Arc::new(extra));
-        candidate.resources.actor_setup[0]
-            .techniques
-            .push(crate::tests::technique(action, catalogue));
-        assert!(candidate.finish().is_err());
-    }
 }
 
 #[test]
 fn forgetting_and_relearning_keep_the_accumulated_count() -> Result<()> {
     let mut battle = dormant_martial()?.finish()?;
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
     assert_eq!(
-        battle.record_technique_acquisition(ActorId(0), 1)?,
+        battle.record_technique_acquisition(ActorId(0), TechniqueId(1))?,
         crate::ActionKey(0)
     );
     assert_eq!(
         battle.record_technique_use(ActorId(0), crate::ActionKey(0), false),
-        Some(1)
+        Some(TechniqueId(1))
     );
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(50));
     battle.forget_technique(ActorId(0), crate::ActionKey(0))?;
-    assert_eq!(battle.technique_is_current(ActorId(0), 1), Some(false));
-    assert_eq!(battle.shortcuts(ActorId(0)), Some(&[0; 4]));
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(50));
     assert_eq!(
-        battle.record_technique_acquisition(ActorId(0), 1)?,
+        battle.technique_is_current(ActorId(0), TechniqueId(1)),
+        Some(false)
+    );
+    assert_eq!(battle.shortcuts(ActorId(0)), Some(&[None; 4]));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(50));
+    assert_eq!(
+        battle.record_technique_acquisition(ActorId(0), TechniqueId(1))?,
         crate::ActionKey(0)
     );
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(50));
-    assert_eq!(battle.shortcuts(ActorId(0)), Some(&[1, 0, 0, 0]));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(50));
+    assert_eq!(
+        battle.shortcuts(ActorId(0)),
+        Some(&[Some(TechniqueId(1)), None, None, None])
+    );
     assert_eq!(
         battle.record_technique_use(ActorId(0), crate::ActionKey(0), false),
-        Some(1)
+        Some(TechniqueId(1))
     );
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(51));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(51));
     assert_eq!(battle.technique_acquisitions().len(), 2);
     Ok(())
-}
-
-#[test]
-fn learning_capacity_rejects_missing_action_before_activation() {
-    let mut candidate = prepared(0);
-    candidate.resources.actor_setup[0].techniques[0].action = crate::ActionKey(999);
-    assert!(candidate.finish().is_err());
 }
 
 fn parameters() -> crate::ApproachParameters {
@@ -238,17 +228,25 @@ fn count_history_preserves_unsupported_and_forgotten_techniques() -> Result<()> 
         .finish()?;
     assert_eq!(
         battle.technique_counts(ActorId(0)).unwrap(),
-        &BTreeMap::from([(1, 0), (2, 12), (3, 20), (254, 7)])
+        &BTreeMap::from([
+            (TechniqueId(1), 0),
+            (TechniqueId(2), 12),
+            (TechniqueId(3), 20),
+            (TechniqueId(254), 7)
+        ])
     );
-    assert_eq!(battle.technique_is_current(ActorId(0), 254), Some(true));
-    assert_eq!(battle.technique_uses(ActorId(0), 4), None);
+    assert_eq!(
+        battle.technique_is_current(ActorId(0), TechniqueId(254)),
+        Some(true)
+    );
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(4)), None);
     assert_eq!(
         battle.record_technique_use(ActorId(0), crate::ActionKey(0), false),
-        Some(1)
+        Some(TechniqueId(1))
     );
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(1));
-    assert_eq!(battle.technique_uses(ActorId(0), 2), Some(12));
-    assert_eq!(battle.technique_uses(ActorId(0), 3), Some(20));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(1));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(2)), Some(12));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(3)), Some(20));
     Ok(())
 }
 
@@ -263,11 +261,17 @@ fn usage_totals_and_proficiency_are_bounded() -> Result<()> {
     ] {
         let mut battle = prepared(initial).finish().unwrap();
         battle.start(request(), &mut vec![])?;
-        assert_eq!(battle.technique_uses(ActorId(0), 1), Some(total));
-        assert_eq!(battle.technique_uses(ActorId(0), 71), None);
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(1)),
+            Some(total)
+        );
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(71)), None);
         assert_eq!(battle.actors[0].proficiency, bonus);
         battle.step(BattleInput::default())?;
-        assert_eq!(battle.technique_uses(ActorId(0), 1), Some(total));
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(1)),
+            Some(total)
+        );
     }
     Ok(())
 }
@@ -277,12 +281,12 @@ fn death_during_approach_does_not_count_an_unstarted_action() -> Result<()> {
     let mut battle = prepared(49).finish().unwrap();
     battle.actors[0].heading = -90.;
     assert!(battle.request_approach(ActorId(0), ActorId(1), crate::ActionKey(0), parameters())?);
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
     battle.actors[0].hp = 0;
     battle.actors[0].availability = crate::ActorAvailability::Dead;
     battle.step(BattleInput::default())?;
     assert!(battle.sequences().next().is_none());
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
     Ok(())
 }
 
@@ -298,10 +302,10 @@ fn moving_request_waits_for_arrival_and_cancelled_approach_never_counts() -> Res
             crate::ActionKey(0),
             parameters()
         )?);
-        assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
         battle.step(BattleInput::default())?;
         if cancel {
-            battle.cancel_approach(0)?;
+            battle.cancel_approach(0);
         } else {
             battle.actors[1].position[0] = 100.;
         }
@@ -313,7 +317,7 @@ fn moving_request_waits_for_arrival_and_cancelled_approach_never_counts() -> Res
         }
         assert!(battle.runtime[0].task().approach().is_none());
         assert_eq!(
-            battle.technique_uses(ActorId(0), 1),
+            battle.technique_uses(ActorId(0), TechniqueId(1)),
             Some(if cancel { 49 } else { 50 })
         );
     }
@@ -336,7 +340,7 @@ fn insufficient_tp_at_arrival_does_not_count_or_start_the_action() -> Result<()>
             }
         )));
     }
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
     assert_eq!(battle.actors[0].tp, 0);
     Ok(())
 }
@@ -346,7 +350,7 @@ fn rejected_direct_request_does_not_count_and_two_admissions_count_twice() -> Re
     let mut battle = prepared(10).finish().unwrap();
     battle.actors[0].tp = 6;
     battle.start(request(), &mut vec![])?;
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(10));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(10));
     battle.actors[0].tp = 40;
     battle.start(request(), &mut vec![])?;
     let first = *battle.sequences().map(|(id, _)| id).next().unwrap();
@@ -355,7 +359,7 @@ fn rejected_direct_request_does_not_count_and_two_admissions_count_twice() -> Re
         ..Default::default()
     })?;
     battle.start(request(), &mut vec![])?;
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(12));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(12));
     Ok(())
 }
 
@@ -377,7 +381,7 @@ fn battle_end_rejects_new_actions_without_changing_usage() -> Result<()> {
             ..
         }
     )));
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
     Ok(())
 }
 
@@ -397,17 +401,17 @@ fn dormant_martial() -> Result<PreparedBattle> {
     table.definitions[1].required_level = 1;
     let member = crate::learning::LearningCatalogue::new(Arc::new(table)).prepare_member(
         crate::learning::LearningEntry {
-            character: 1,
+            character: crate::Character::Lloyd,
             level: 1,
             balance: 0,
             story_unlocked: true,
             current: Default::default(),
-            counts: [(1, 49)].into_iter().collect(),
+            counts: [(TechniqueId(1), 49)].into_iter().collect(),
         },
     )?;
     prepared.resources.actor_setup[0].control = Some(Arc::new(crate::ControlDefinition {
         normals,
-        shortcuts: [0; 4],
+        shortcuts: [None; 4],
         walk_speed: 5.,
         run_speed: 10.,
         turn_ticks: 1,
@@ -424,25 +428,26 @@ fn dormant_martial() -> Result<PreparedBattle> {
 #[test]
 fn acquired_action_keeps_its_proficiency_after_forgetting() -> Result<()> {
     let mut battle = dormant_martial()?.finish()?;
-    battle.record_technique_acquisition(ActorId(0), 1)?;
+    battle.record_technique_acquisition(ActorId(0), TechniqueId(1))?;
     battle.actors[0].hit_stop = 4;
     battle.start(request(), &mut vec![])?;
     let second = *battle.sequences().map(|(id, _)| id).next().unwrap();
     assert_eq!(battle.actors[0].tp, 33);
     assert_eq!(battle.actors[0].proficiency, 1);
     battle.forget_technique(ActorId(0), crate::ActionKey(0))?;
-    assert_eq!(battle.technique_is_current(ActorId(0), 1), Some(false));
+    assert_eq!(
+        battle.technique_is_current(ActorId(0), TechniqueId(1)),
+        Some(false)
+    );
     for _ in 0..4 {
         battle.step(BattleInput::default())?;
         assert_eq!(battle.action_age(second), Some(0));
         assert_eq!(battle.actors[0].proficiency, 1);
     }
-    for _ in 0..30 {
-        battle.step(BattleInput::default())?;
-    }
+    crate::tests::step_idle(&mut battle, 30)?;
     assert!(battle.sequence(&second).is_none());
     assert_eq!(battle.actors[0].tp, 33);
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(50));
     Ok(())
 }
 
@@ -470,7 +475,10 @@ fn normal_learning_battle(mode: Control) -> Result<Battle> {
     let mut battle = prepared.finish().unwrap();
     // Forgetting a technique disables it until it is learned again.
     battle.forget_technique(ActorId(0), crate::ActionKey(0))?;
-    for (slot, action) in [(0, crate::ActionKey(8)), (2, crate::ActionKey(9))] {
+    for (slot, action) in [
+        (crate::ShortcutSlot::Neutral, crate::ActionKey(8)),
+        (crate::ShortcutSlot::Down, crate::ActionKey(9)),
+    ] {
         let binding = battle.learned_technique(ActorId(0), action).unwrap();
         battle
             .prepare_shortcut(ActorId(0), slot, Some(binding.action))?
@@ -487,7 +495,10 @@ fn learning_updates_vacant_shortcuts_once_without_changing_other_assignments() -
     for full in [false, true] {
         let mut battle = normal_learning_battle(Control::Manual)?;
         if full {
-            for (slot, action) in [(1, crate::ActionKey(9)), (3, crate::ActionKey(8))] {
+            for (slot, action) in [
+                (crate::ShortcutSlot::Up, crate::ActionKey(9)),
+                (crate::ShortcutSlot::Side, crate::ActionKey(8)),
+            ] {
                 battle
                     .prepare_shortcut(ActorId(0), slot, Some(action))?
                     .commit();
@@ -495,14 +506,14 @@ fn learning_updates_vacant_shortcuts_once_without_changing_other_assignments() -
         }
         let mut expected = *battle.shortcuts(ActorId(0)).unwrap();
         if !full {
-            expected[1] = 1;
+            expected[1] = Some(TechniqueId(1));
         }
-        battle.record_technique_acquisition(ActorId(0), 1)?;
-        battle.record_technique_acquisition(ActorId(0), 1)?;
+        battle.record_technique_acquisition(ActorId(0), TechniqueId(1))?;
+        battle.record_technique_acquisition(ActorId(0), TechniqueId(1))?;
         assert_eq!(battle.shortcuts(ActorId(0)), Some(&expected));
         assert!(battle.technique_enabled(ActorId(0), crate::ActionKey(0)));
         assert!(!battle.technique_enabled(ActorId(0), crate::ActionKey(9)));
-        assert_eq!(battle.technique_uses(ActorId(0), 1), Some(0));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(0));
         assert_eq!(battle.technique_acquisitions().len(), 1);
     }
     Ok(())
@@ -516,7 +527,7 @@ fn unprepared_acquisition_preserves_membership_shortcuts_and_ledger() -> Result<
     let counts = battle.technique_counts(ActorId(0)).cloned();
     let ledger = battle.ledger().clone();
     let error = battle
-        .record_technique_acquisition(ActorId(0), 35)
+        .record_technique_acquisition(ActorId(0), TechniqueId(35))
         .unwrap_err();
     assert!(error.to_string().contains("unprepared learning action"));
     assert_eq!(battle.shortcuts(ActorId(0)), Some(&shortcuts));

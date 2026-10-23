@@ -46,6 +46,8 @@ PROJECTILE_CONTACT_WORDS = (("16c 0", "rule_flags_element"), ("16c 4", "rule_tim
     ("16c 8", "rule_conditions"), ("16c c", "rule_power"), ("170 8", "contact_kind"),
     ("c8", "cooldown_0"), ("cc", "cooldown_1"), ("15c", "last_target"))
 OBJECT_POOL_CAPACITY, OBJECT_BYTES, OBJECT_FREE_HEAD = 416, 0x288, 0x754a4
+OBJECT_SENTINELS = {"projectile": 0x75c40, "program": 0x75ec8,
+                    "particle": 0x763d8, "alternate": 0x76660}
 MENU_ACTIVE = 0x80000000
 STUN_ACTION, STUN_DECLARATION = 15, 19
 PARTY_FIXTURE_RADIUS = 850.0
@@ -387,10 +389,10 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
             offset = ACTORS + slot * STRIDE + 0x15b4 + 0x98 + retained * 8
             result[f"{POOL} {offset:x}"] = f"actor_{slot}_retained_{retained}"
     result.update(secondary_bodies.locations(POOL, ACTORS, STRIDE, secondary_slots))
-    groups = [("projectile", 0x75c44, projectile_count,
+    groups = [("projectile", OBJECT_SENTINELS["projectile"] + 4, projectile_count,
                (0x10, 0x14, 0x28, 0x2c, 0x30, *range(0x40, 0x58, 4), 0xac, 0xd8, 0x144, 0x16c, 0x170, 0x19c, 0x278, 0x280)),
-              ("program", 0x75ecc, program_count, (0x10, 0x14, 0x18, 0x2c, 0x30, 0x44, 0x48, 0x4c, 0x50, 0x5c, 0x60, 0x6c, 0x278, 0x280)),
-              ("particle", 0x763dc, particle_count,
+              ("program", OBJECT_SENTINELS["program"] + 4, program_count, (0x10, 0x14, 0x18, 0x2c, 0x30, 0x44, 0x48, 0x4c, 0x50, 0x5c, 0x60, 0x6c, 0x278, 0x280)),
+              ("particle", OBJECT_SENTINELS["particle"] + 4, particle_count,
                (0x10, 0x1c, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c,
                 0x5c, 0x60, 0x64, 0x80, 0x84, 0x88, 0xb4, 0xd8, 0xdc, 0xe0, 0xfc,
                 0x100, 0x108, 0x134, 0x13c, 0x168,
@@ -400,7 +402,7 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
         groups[2] = (label, head, count,
                      (0x10, 0x1c, 0x28, 0x2c, 0x30, 0x34, 0x38, 0x3c, 0xfc, 0x184, 0x278))
     alternate_offsets = sorted(set(groups[1][3]) | set(groups[2][3]))
-    groups.append(("alternate", 0x76664, alternate_count, alternate_offsets))
+    groups.append(("alternate", OBJECT_SENTINELS["alternate"] + 4, alternate_count, alternate_offsets))
     if object_addresses is not None:
         if pool_base is None or len(object_addresses) != OBJECT_POOL_CAPACITY:
             raise ValueError("complete object observation requires the verified full pool")
@@ -415,7 +417,7 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
         # Only initialized projectile nodes use these rule/template pointers.
         # Observe both ends and require coverage of every live projectile.
         for index in range(projectile_count):
-            head = 0x75c44
+            head = OBJECT_SENTINELS["projectile"] + 4
             node = (f"{POOL} {head:x}" + " 4" * index if index < (projectile_count + 1) // 2
                     else f"{POOL} {head - 4:x}" + " 0" * (projectile_count - 1 - index))
             prefix = f"projectile_rule_{index}"
@@ -459,7 +461,7 @@ def locations(actor_slots=None, particle_count=PARTICLES, projectile_count=PROJE
                     result[f"{node} {suffix}"] = prefix + "_" + name
     # Retain the head also for normalization of older head-only observations.
     if not alternate_count:
-        result[f"{POOL} 76664"] = "effect_alternate_head"
+        result[f"{POOL} {OBJECT_SENTINELS['alternate'] + 4:x}"] = "effect_alternate_head"
     if pool_base is not None:
         # Only the initialized pool anchor is fixed. Every dynamic linked-list
         # and actor-owned pointer suffix remains a live dereference.
@@ -567,10 +569,8 @@ def object_pool_projection(addresses, pool):
     indices = {address: index for index, address in enumerate(addresses)}
     if len(indices) != OBJECT_POOL_CAPACITY:
         raise ValueError("object projection requires the complete verified pool")
-    sentinels = {"projectile": 0x75c40, "program": 0x75ec8,
-                 "particle": 0x763d8, "alternate": 0x76660}
     groups = {label: ((offset - OBJECT_FREE_HEAD - 4) // OBJECT_BYTES, offset)
-              for label, offset in sentinels.items()}
+              for label, offset in OBJECT_SENTINELS.items()}
     cached = None
 
     def project(values):
@@ -1099,10 +1099,11 @@ def tracked_list(row, label, count, particle_addresses=None):
     if "object_lists" in row:
         records = row["object_lists"].get(label, [])
         return [tuple(record) for record in records], not row.get("object_pool_error")
+    if label == "alternate" and not count:
+        # Older captures observed only this group's head; only an empty list is complete.
+        return [], row.get("effect_alternate_head") == row["battle_pool"] + OBJECT_SENTINELS[label]
     nodes, seen = [], set()
-    sentinel = row.get("battle_pool", 0) + {"projectile": 0x75c40,
-                                           "program": 0x75ec8, "particle": 0x763d8,
-                                           "alternate": 0x76660}[label]
+    sentinel = row.get("battle_pool", 0) + OBJECT_SENTINELS[label]
     fixed = label == "particle" and "particle_head" in row
     if fixed and (particle_addresses is None or len(particle_addresses) != count or
                   len(set(particle_addresses)) != count):
@@ -1162,10 +1163,10 @@ def tracked_list(row, label, count, particle_addresses=None):
 
 def observation_counts(row):
     if "object_lists" in row:
-        return {label: OBJECT_POOL_CAPACITY for label in ("projectile", "program", "particle", "alternate")}
+        return dict.fromkeys(OBJECT_SENTINELS, OBJECT_POOL_CAPACITY)
     return {label: sum(k.startswith(label + "_") and k.endswith(
                 "_10" if label == "particle" and "particle_head" in row else "_address") for k in row)
-            for label in ("projectile", "program", "particle", "alternate")}
+            for label in OBJECT_SENTINELS}
 
 
 def observation_tail_empty(row, counts, particle_addresses=None):
@@ -1173,10 +1174,6 @@ def observation_tail_empty(row, counts, particle_addresses=None):
     if stored_scene_active(row):
         return False
     for label in counts:
-        if label == "alternate" and not counts[label]:
-            if row.get("effect_alternate_head") != row["battle_pool"] + 0x76660:
-                return False
-            continue
         nodes, complete = tracked_list(row, label, counts[label], particle_addresses)
         if not complete:
             return False
@@ -1410,21 +1407,16 @@ def completion_observer(source_owner, expected, normalize_tail=None, *, particle
                         and departure_hp is not None and departure_hp > 0
                         and row[f"battle_actor_{source_owner}_hp"] == departure_hp
                         and not row[f"actor_{source_owner}_control_word"] & 0x10000)
-            if admitted and (departed or (not departure and action >> 24 == 3)):
-                if observation_tail_empty(row, counts, particle_addresses):
+            terminal = departed or (not departure and (action >> 24 == 3 or
+                (action >> 24 == 18 and primary >> 24 == 2 and normalize_tail is not None)))
+            if not admitted or not terminal:
+                continue
+            if observation_tail_empty(row, counts, particle_addresses):
+                return True
+            if normalize_tail is not None and checked >= next_baseline_check:
+                next_baseline_check = 2 * checked
+                if normalize_tail(rows[:checked]):
                     return True
-                if normalize_tail is not None and checked >= next_baseline_check:
-                    next_baseline_check = 2 * checked
-                    if normalize_tail(rows[:checked]):
-                        return True
-            elif not departure and admitted and action >> 24 == 18 and normalize_tail is not None:
-                if primary >> 24 == 2:
-                    if observation_tail_empty(row, counts, particle_addresses):
-                        return True
-                    if checked >= next_baseline_check:
-                        next_baseline_check = 2 * checked
-                        if normalize_tail(rows[:checked]):
-                            return True
         return False
     return done
 
@@ -1571,9 +1563,12 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
                        size_override=(), palette_override=None, angles_override=(), angular_velocity_override=(),
                        yaw_heading=0, animation_starts=None, attachment_bone=None, motion_birth=None):
         raw = bank["declarations"][member]
+        actors = bank.get("metadata", {}).get("actors", [])
+        metadata = actors[member] if member < len(actors) else {}
+        descriptor = metadata.get("template", {})
+        template = descriptor.get("template", descriptor)
+        state = template.get("state", {})
         if model_attachment is not None:
-            actors = bank.get("metadata", {}).get("actors", [])
-            metadata = actors[member] if member < len(actors) else {}
             attachment = metadata.get("binding", {}).get("attachment")
             if attachment is None or (attachment["joint"], attachment["retained"]) != model_attachment:
                 return False
@@ -1583,19 +1578,10 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
             expected = bytearray(expected)
             expected[8:16] = rectangle
         if owner_bone is not None:
-            actors = bank.get("metadata", {}).get("actors", [])
-            metadata = actors[member] if member < len(actors) else {}
-            template = metadata.get("template", {})
-            template = template.get("template", template)
             expected_bone = template.get("owner_bone") if attachment_bone is None else attachment_bone
             if expected_bone != owner_bone:
                 return False
         if offset is not None and heading is not None and initialized and age == 1 and raw[0] != 3:
-            actors = bank.get("metadata", {}).get("actors", [])
-            metadata = actors[member] if member < len(actors) else {}
-            template = metadata.get("template", {})
-            template = template.get("template", template)
-            state = template.get("state", {})
             birth = motion_birth or {}
             overridden = any(birth.get(key) for key in ("offset", "velocity", "polar_offset", "polar_velocity"))
             overridden |= any(value["field"]["kind"] in ("offset", "velocity") for value in birth.get("sums", []))
@@ -1624,11 +1610,7 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
             if int.from_bytes(raw[212:216], "big") != model_binding:
                 return False
         if size is not None and initialized and age in (0, 1):
-            actors = bank.get("metadata", {}).get("actors", [])
-            metadata = actors[member] if member < len(actors) else {}
-            template = metadata.get("template", {})
-            template = template.get("template", template)
-            geometry = template.get("state", {}).get("geometry", {}).get("Size")
+            geometry = state.get("geometry", {}).get("Size")
             if geometry:
                 for axis, actual_size in enumerate(size):
                     overridden = axis < len(size_override) and size_override[axis] is not None
@@ -1638,14 +1620,10 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
                              struct.unpack_from(">f", raw, 176 + 4 * axis)[0])):
                         return False
         if angles is not None and initialized and age in (0, 1) and raw[0] != 3:
-            actors = bank.get("metadata", {}).get("actors", [])
-            metadata = actors[member] if member < len(actors) else {}
-            template = metadata.get("template", {})
-            state = template.get("template", template).get("state", {})
             for axis, actual_angle in enumerate(angles):
-                overridden = template.get("fixed_orientation", False) or (
+                overridden = descriptor.get("fixed_orientation", False) or (
                     axis == 1 and yaw_heading != 0) or (
-                    axis < 2 and template.get("follow_orientation", False)) or any(
+                    axis < 2 and descriptor.get("follow_orientation", False)) or any(
                     axis < len(values) and values[axis] is not None
                     for values in (angles_override, angular_velocity_override))
                 if (not overridden and len(state.get("angular_velocity", [])) == 3
@@ -1700,9 +1678,8 @@ def declaration_matches(bank, copied, parent_root, *, model_binding=None, initia
         expected[8:16] = struct.pack(">4h", x + age * step_x, y + age * step_y, width, height)
         return signature(expected) == actual
 
-    matches = {i for i, raw in enumerate(bank["declarations"]) if matches_member(i, raw[:24])}
     if parent_root not in bank["roots"]:
-        return sorted(matches)
+        return [i for i, raw in enumerate(bank["declarations"]) if matches_member(i, raw[:24])]
     commands = bank["metadata"]["programs"][bank["roots"].index(parent_root)]
     spawn_times, birth_motions = [], {}
     for command in commands:
@@ -2901,7 +2878,7 @@ def normalize(case, rows, setup, banks, expected, images):
         # installs the bound tracks/cast and commits payment in phase one.
         active = selected and (departure or ((action_word >> 16) & 255) != 0)
         started_now = active and start_tick is None
-        if active and start_tick is None:
+        if started_now:
             if "selected" in expected:
                 try:
                     target = bind_action_target(row, setup, attack.get("events", []),
@@ -2916,8 +2893,7 @@ def normalize(case, rows, setup, banks, expected, images):
             events.append(dict(common, kind="started", owner=owner, action=action))
             if departure:
                 departure_hp = actors[owner]["hp"]
-            if start_tick is None:
-                start_tick = combat
+            start_tick = combat
         primary = row.get(f"battle_actor_{source_owner}_primary_phase_age_word", 0xc00000)
         secondary = row.get(f"battle_actor_{source_owner}_secondary_phase_age_word", 0xc00000)
         handler_started |= start_tick is not None and primary >> 24 == 1
@@ -2993,7 +2969,7 @@ def normalize(case, rows, setup, banks, expected, images):
                 events.append(dict(common, kind="projectile_expired", projectile=ordinal[("projectile", address)]))
         projectile_addresses = {address: ordinal[("projectile", address)] for address in present}
         previous_nodes["projectile"] = present if complete else previous_nodes.get("projectile", set()) | present
-        alternate_nodes, complete_alternate = tracked_list(row, "alternate", counts["alternate"]) if counts["alternate"] else ([], row.get("effect_alternate_head") == row["battle_pool"] + 0x76660)
+        alternate_nodes, complete_alternate = tracked_list(row, "alternate", counts["alternate"])
         if not complete_alternate:
             missing.add("alternative group7 linked list exceeds observer or lacks payload observations")
         program_nodes, complete_programs = tracked_list(row, "program", counts["program"])
@@ -4018,10 +3994,7 @@ def arrange_party(path, record, case):
         if support and actor["side"] == owner["side"]:
             x = 0.0 if actor["slot"] == owner["slot"] else 300.0 if actor["slot"] == target["slot"] else -200.0 * actor["slot"]
             z = 0.0
-        for offset, value in ((0x18c0, x), (0x18c8, z),
-                              (0x195c, actor["center"][0] + x - actor["position"][0]),
-                              (0x1964, actor["center"][2] + z - actor["position"][2])):
-            state.write(actor["address"] + offset, "f", value)
+        battle_geometry.place_actor(state, actor, x, z)
     state.write(owner["address"] + 0x1990, "I", target["address"])
     if "casting_random_state" in case:
         state.write(battle["pool"] + 0x7a670, "I", case["casting_random_state"])
@@ -4277,10 +4250,7 @@ def _arrange_enemy_contact(base, path, initialized, case, assets):
         gap, separation = in_arena_recipient_gap(enemy, party, [x, 0, z], minimum, gap)
         actor = current[target["slot"]]
         x -= separation
-        for offset, value in ((0x18c0, x), (0x18c8, z),
-                              (0x195c, actor["center"][0] + x - actor["position"][0]),
-                              (0x1964, actor["center"][2] + z - actor["position"][2])):
-            state.write(actor["address"] + offset, "f", value)
+        battle_geometry.place_actor(state, actor, x, z)
         # Undo the generic row fixture's owner translation; the attachment
         # begins exactly where the initialized encounter placed it.
         for offset, value in ((0x18c0, owner["position"][0]), (0x18c8, owner["position"][2]),
@@ -4315,11 +4285,7 @@ def _arrange_enemy_contact(base, path, initialized, case, assets):
     gap, separation = in_arena_recipient_gap(enemy, party, anchor, minimum, gap)
     for slot, x, z in ((owner["slot"], anchor[0], anchor[2]),
                        (target["slot"], anchor[0] - separation, anchor[2])):
-        actor = current[slot]
-        for offset, value in ((0x18c0,x),(0x18c8,z),
-                              (0x195c,actor["center"][0]+x-actor["position"][0]),
-                              (0x1964,actor["center"][2]+z-actor["position"][2])):
-            state.write(actor["address"]+offset,"f",value)
+        battle_geometry.place_actor(state, current[slot], x, z)
     state.save(path)
     placement = dict(placement_interval=[minimum,maximum if math.isfinite(maximum) else None], target_surface_gap=gap,
                 root_separation=separation, owner_geometry=enemy, target_geometry=party,
@@ -4375,11 +4341,7 @@ def _arrange_enemy_contact(base, path, initialized, case, assets):
     state = State(path)
     current = {a["slot"]: a for a in inspect(state, battle=True)["battle"]["actors"]}
     for slot, x in ((owner["slot"], chosen[0]), (target["slot"], chosen[0] - separation)):
-        actor = current[slot]
-        for offset, value in ((0x18c0, x), (0x18c8, chosen[2]),
-                              (0x195c, actor["center"][0] + x - actor["position"][0]),
-                              (0x1964, actor["center"][2] + chosen[2] - actor["position"][2])):
-            state.write(actor["address"] + offset, "f", value)
+        battle_geometry.place_actor(state, current[slot], x, chosen[2])
     state.save(path)
     proof = enemy_placement_proof(base, path, initialized, assets)
     placement["changes"].extend(state.changes)

@@ -1,6 +1,5 @@
 //! Charge, guard latches, and completed-taunt recovery.
 use crate::{ActorId, Battle, Cue};
-use anyhow::Result;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ControlExTraits {
@@ -60,7 +59,7 @@ impl ControlExState {
 
 impl Battle {
     /// Timed guard continues charging during local hit-stop.
-    pub(crate) fn advance_guard_ex(&mut self, actor: ActorId, cues: &mut Vec<Cue>) -> Result<()> {
+    pub(crate) fn advance_guard_ex(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
         let owner = &mut self.actors[actor.index()];
         if owner.equipment.control_ex.timed_guard && !owner.control_ex_state.guard_ready {
             owner.control_ex_state.guard_hold = owner.control_ex_state.guard_hold.wrapping_add(1);
@@ -70,9 +69,8 @@ impl Battle {
                 cues.push(Cue::GuardReady { actor });
             }
         }
-        Ok(())
     }
-    pub(crate) fn activate_counter(&mut self, actor: ActorId, cues: &mut Vec<Cue>) -> Result<()> {
+    pub(crate) fn activate_counter(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
         let owner = &mut self.actors[actor.index()];
         if owner.equipment.control_ex.counter && owner.guard.can_counter() {
             owner.control_ex_state.counter_active = true;
@@ -82,48 +80,35 @@ impl Battle {
             cues.push(Cue::Countered { actor });
             self.request_timed_hold(10, None);
         }
-        Ok(())
     }
-    pub(crate) fn advance_auto_charge(
-        &mut self,
-        actor: ActorId,
-        cues: &mut Vec<Cue>,
-    ) -> Result<()> {
+    pub(crate) fn advance_auto_charge(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
         let index = actor.index();
         if self.actors[index].control == crate::Control::Auto
             && self.actor_command_ready(actor)
             && !self.actors[index].needs_landing()
         {
-            self.advance_attack_charge(actor, cues)?;
+            self.advance_attack_charge(actor, cues);
         }
-        Ok(())
     }
 
     /// Run during grounded, flying, and fixed-height idle processing after recovery departure.
-    pub(crate) fn advance_attack_charge(
-        &mut self,
-        actor: ActorId,
-        cues: &mut Vec<Cue>,
-    ) -> Result<()> {
+    pub(crate) fn advance_attack_charge(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
         let index = actor.index();
         let owner = &mut self.actors[index];
         if !owner.equipment.control_ex.charge {
-            return Ok(());
+            return;
         }
-        let held = self
-            .cast_inputs
-            .get(usize::from(owner.control_slot))
-            .is_some_and(|input| input.attack_held);
+        let held = self.cast_inputs[owner.control_slot.index()].attack_held;
         if !held {
             owner.control_ex_state.charge_hold = 0;
-            return Ok(());
+            return;
         }
         if owner.control_ex_state.charge.charged() {
-            return Ok(());
+            return;
         }
         owner.control_ex_state.charge_hold = owner.control_ex_state.charge_hold.wrapping_add(1);
         if owner.control_ex_state.charge_hold < 90 {
-            return Ok(());
+            return;
         }
         let succeeds = !owner.equipment.control_ex.lucky_charge || self.random.next_u16() & 1 != 0;
         owner.control_ex_state.charge_hold = 0;
@@ -139,13 +124,8 @@ impl Battle {
             actor,
             level: owner.control_ex_state.charge,
         });
-        Ok(())
     }
-    pub(crate) fn complete_taunt_recovery(
-        &mut self,
-        actor: ActorId,
-        cues: &mut Vec<Cue>,
-    ) -> Result<()> {
+    pub(crate) fn complete_taunt_recovery(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
         let index = actor.index();
         for (enabled, hp, tp) in [
             (
@@ -160,29 +140,11 @@ impl Battle {
             }
             // Each enabled trait restores its own amount, without a Lucky Healing roll.
             let owner = &mut self.actors[index];
-            let (next, nominal) = owner.recovered_hp(hp);
-            let applied = next - owner.hp;
-            owner.hp = next;
-            cues.push(Cue::Recovered {
-                floating: false,
-                kind: crate::RecoveryKind::Hp,
-                actor,
-                nominal,
-                applied,
-            });
+            cues.push(owner.recover_percent(actor, crate::RecoveryKind::Hp, hp, false));
             if tp {
-                let (next, nominal) = owner.recovered_tp(1);
-                cues.push(Cue::Recovered {
-                    floating: false,
-                    actor,
-                    kind: crate::RecoveryKind::Tp,
-                    nominal,
-                    applied: i32::from(next) - i32::from(owner.tp),
-                });
-                owner.tp = next;
+                cues.push(owner.recover_percent(actor, crate::RecoveryKind::Tp, 1, false));
             }
         }
-        Ok(())
     }
 }
 

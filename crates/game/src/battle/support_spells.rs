@@ -2,8 +2,8 @@
 use super::{ActionResources, EffectResource};
 use anyhow::{Context, Result};
 use resonance_battle::{
-    EffectAppearance, PreparedSpell, RecoveryEffectPlacement, RecoveryTargets, SpellBenefit,
-    SpellOrigin, SpellPolicy, SpellRecovery, conditions::Condition,
+    PreparedSpell, RecoveryEffectPlacement, RecoveryTargets, SpellBenefit, SpellOrigin,
+    SpellPolicy, SpellRecovery, conditions::Condition,
 };
 use resonance_content::battle_projectile::Table;
 
@@ -68,15 +68,9 @@ pub fn prepare(
         194 => (Some(20), 11, distance_healing(45)),
         _ => unreachable!(),
     };
-    let effect = member.map(|member| EffectAppearance {
-        resource: bank.resource,
-        member,
-    });
-    if let Some(member) = member {
-        let mut artwork = bank.clone();
-        artwork.members = vec![member];
-        resources.effect(artwork)?;
-    }
+    let effect = member
+        .map(|member| resources.effect_member(bank, member))
+        .transpose()?;
     let delayed = at != 0;
     let transfer = catalogue == 116;
     Ok(PreparedSpell {
@@ -90,9 +84,6 @@ pub fn prepare(
         } else {
             Default::default()
         },
-        summon: None,
-        effects: vec![],
-        projectiles: Vec::new(),
         recovery: if transfer {
             vec![]
         } else {
@@ -111,17 +102,14 @@ pub fn prepare(
                 effect: effect.map(|effect| (effect, Default::default())),
             }]
         },
-        // Immediate pulses select the recipient directly and need no retained point.
-        origin: if delayed {
-            SpellOrigin::Target
-        } else {
-            SpellOrigin::Caster
-        },
-        transition_ticks: 0,
-        stage_tint: None,
-        camera: None,
-        duration,
-        startup: None,
-        sound: None,
+        ..PreparedSpell::new(
+            // Immediate pulses select the recipient directly and need no retained point.
+            if delayed {
+                SpellOrigin::Target
+            } else {
+                SpellOrigin::Caster
+            },
+            duration,
+        )
     })
 }

@@ -1,21 +1,8 @@
 use super::*;
-use resonance_content::battle_effect::{
-    SourceBank, UvAnimation, UvChange, UvFrame, declaration::Declaration,
-};
+use resonance_content::battle_effect::{UvAnimation, UvChange, UvFrame};
 
-fn source() -> SourceBank {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../tests/fixtures/stun-particle-source.json"
-    ))
-    .unwrap();
-    SourceBank {
-        art: None,
-        source_sha256: fixture["source_sha256"].as_str().unwrap().into(),
-        actors: vec![
-            serde_json::from_value::<Declaration>(fixture["declaration"].clone()).unwrap(),
-        ],
-        programs: vec![],
-    }
+fn template() -> ParticleTemplate {
+    crate::tests::particle_definition(1, 19).data
 }
 
 fn particle(data: ParticleTemplate) -> Particle {
@@ -25,7 +12,7 @@ fn particle(data: ParticleTemplate) -> Particle {
         .spawn_particle(
             Arc::new(ParticleDefinition {
                 model: None,
-                resource: 1,
+                resource: crate::ResourceId(1),
                 member: 19,
                 data,
             }),
@@ -40,7 +27,7 @@ fn particle(data: ParticleTemplate) -> Particle {
 
 #[test]
 fn floor_clamp_keeps_downward_motion_without_bouncing() {
-    let mut data = source().particle(0).unwrap().clone();
+    let mut data = template();
     data.ground_clamp = true;
     data.ground_restitution = None;
     data.bounce_effect = None;
@@ -61,7 +48,7 @@ fn floor_clamp_keeps_downward_motion_without_bouncing() {
 #[test]
 fn floor_child_uses_the_final_motion_tick_without_clamping_or_repeating() {
     for origin_motion in [false, true] {
-        let mut data = source().particle(0).unwrap().clone();
+        let mut data = template();
         data.follow_origin = false;
         data.follow_orientation = false;
         data.ground_clamp = false;
@@ -98,10 +85,10 @@ fn tolerant_particle_fault_removes_the_bad_particle_and_keeps_the_next_one() {
     let diagnostics = resonance_content::diagnostics::Diagnostics::new(false);
     let mut effects = Effects::new(vec![], None, 1, Default::default()).unwrap();
     effects.diagnostics = diagnostics.clone();
-    let mut bad = particle(source().particle(0).unwrap().clone());
+    let mut bad = particle(template());
     bad.frame.state.offset[0] = f32::MAX;
     bad.frame.state.velocity[0] = f32::MAX;
-    let mut good = particle(source().particle(0).unwrap().clone());
+    let mut good = particle(template());
     good.frame.id = ParticleId(2);
     effects.particles.insert(ParticleId(1), bad);
     effects.particles.insert(ParticleId(2), good);
@@ -124,7 +111,7 @@ fn frame(duration: u32, rect: [i16; 4]) -> UvFrame {
 #[test]
 fn ribbon_phase_advances_continuously_at_its_period_and_wraps() {
     for period in [0_i8, 1, -1, 2, -2, -128] {
-        let mut data = source().particle(0).unwrap().clone();
+        let mut data = template();
         data.lifetime = None;
         data.state.geometry = ParticleGeometry::Ribbon {
             length: 900.,
@@ -170,7 +157,7 @@ fn quad_scale_preserves_all_corners_and_their_motion() {
     let vertices = [[-2., 3., 1.], [4., 5., 2.], [6., -7., 3.], [-8., -9., 4.]];
     let velocity = [[1., 2., 3.], [-1., 3., 2.], [2., -3., 1.], [-2., -1., 4.]];
     for scale in [0., 0.5, 2.] {
-        let mut data = source().particle(0).unwrap().clone();
+        let mut data = template();
         data.geometry_acceleration_until = None;
         data.state.geometry = ParticleGeometry::Quad { vertices, velocity };
         apply_scale(&mut data.state, scale).unwrap();
@@ -200,7 +187,7 @@ fn quad_scale_preserves_all_corners_and_their_motion() {
 
 #[test]
 fn palette_animation_changes_only_the_color_page() {
-    let mut data = source().particle(0).unwrap().clone();
+    let mut data = template();
     data.uv_animation = Some(UvAnimation::Frames {
         frames: vec![
             UvFrame {
@@ -224,7 +211,7 @@ fn palette_animation_changes_only_the_color_page() {
 
 #[test]
 fn scrolling_wraps_both_directions_within_the_rectangle() {
-    let mut data = source().particle(0).unwrap().clone();
+    let mut data = template();
     data.state.uv = [100, 200, 8, 10];
     data.uv_animation = Some(UvAnimation::Scroll {
         origin: [10, 20],
@@ -250,7 +237,7 @@ fn scrolling_wraps_both_directions_within_the_rectangle() {
 
 #[test]
 fn model_scroll_keeps_signed_offsets_across_a_texture_repeat() {
-    let mut data = source().particle(0).unwrap().clone();
+    let mut data = template();
     data.state.uv = [0, 0, 2500, 2500];
     data.uv_animation = Some(UvAnimation::Scroll {
         origin: [0; 2],
@@ -273,99 +260,28 @@ fn model_scroll_keeps_signed_offsets_across_a_texture_repeat() {
     }
     // The retained material samples cross V=-1 without clamping to the atlas.
     assert_eq!(p.frame.state.uv, [167, -2505, 2500, 2500]);
-    assert_eq!(f32::from(p.frame.state.uv[0]) / 2500., 0.0668);
-    assert_eq!(f32::from(p.frame.state.uv[1]) / 2500., -1.002);
 }
 
 #[test]
-fn non_looping_animation_keeps_its_last_frame() {
-    let mut data = source().particle(0).unwrap().clone();
-    data.uv_animation = Some(UvAnimation::Frames {
-        frames: vec![frame(2, [1, 2, 3, 4]), frame(2, [5, 6, 7, 8])],
-        loop_start: None,
-    });
-    let mut p = particle(data);
-    p.step(None, None).unwrap();
-    p.step(None, None).unwrap();
-    assert_eq!(p.frame.state.uv, [1, 2, 3, 4]);
-    p.step(None, None).unwrap();
-    assert_eq!(p.frame.state.uv, [5, 6, 7, 8]);
-    for _ in 0..300 {
-        p.step(None, None).unwrap();
-        assert_eq!(p.frame.state.uv, [5, 6, 7, 8]);
+fn frame_animation_loops_or_keeps_its_last_frame() {
+    let frames = [[1, 2, 3, 4], [5, 6, 7, 8]];
+    for loop_start in [None, Some(0), Some(1)] {
+        let mut data = template();
+        data.uv_animation = Some(UvAnimation::Frames {
+            frames: frames.into_iter().map(|rect| frame(2, rect)).collect(),
+            loop_start,
+        });
+        let mut p = particle(data);
+        for tick in 0..304 {
+            p.step(None, None).unwrap();
+            let expected = if loop_start == Some(0) {
+                frames[(tick / 2) % 2]
+            } else {
+                frames[usize::from(tick >= 2)]
+            };
+            assert_eq!(p.frame.state.uv, expected);
+        }
     }
-}
-
-#[test]
-fn preparation_checks_frame_duration_loop_bounds_and_scroll_extent() {
-    let mut data = source().particle(0).unwrap().clone();
-    for animation in [
-        UvAnimation::Frames {
-            frames: vec![],
-            loop_start: None,
-        },
-        UvAnimation::Frames {
-            frames: vec![frame(0, [0; 4])],
-            loop_start: None,
-        },
-        UvAnimation::Frames {
-            frames: vec![frame(1, [0; 4])],
-            loop_start: Some(1),
-        },
-        UvAnimation::Frames {
-            frames: vec![frame(1, [0, 0, -1, 4])],
-            loop_start: None,
-        },
-        UvAnimation::Scroll {
-            origin: [0; 2],
-            step: [1; 2],
-            interval: 0,
-        },
-        UvAnimation::Scroll {
-            origin: [i16::MAX; 2],
-            step: [1; 2],
-            interval: 1,
-        },
-    ] {
-        data.uv_animation = Some(animation);
-        assert!(data.validate().is_err());
-    }
-    data.uv_animation = Some(UvAnimation::Frames {
-        frames: vec![frame(1, [0; 4]), frame(200, [0, 0, 16, 16])],
-        loop_start: Some(1),
-    });
-    assert!(data.validate().is_ok());
-    data.uv_animation = Some(UvAnimation::Scroll {
-        origin: [0; 2],
-        step: [-1, 1],
-        interval: 1,
-    });
-    data.state.uv[2] = 0;
-    assert!(data.validate().is_err());
-}
-
-#[test]
-fn uv_animation_stays_in_its_frames_and_loops() {
-    let frames = [[0, 0, 32, 32], [32, 0, 32, 32]];
-    let mut data = source().particle(0).unwrap().clone();
-    data.uv_animation = Some(UvAnimation::Frames {
-        frames: frames.into_iter().map(|rect| frame(2, rect)).collect(),
-        loop_start: Some(0),
-    });
-    let mut p = particle(data);
-    let mut seen = std::collections::BTreeSet::new();
-    let mut previous = frames[0];
-    let mut wrapped = false;
-    for _ in 0..32 {
-        p.step(None, None).unwrap();
-        let current = p.frame.state.uv;
-        assert!(frames.contains(&current));
-        seen.insert(current);
-        wrapped |= previous == frames[1] && current == frames[0];
-        previous = current;
-    }
-    assert_eq!(seen.len(), frames.len());
-    assert!(wrapped);
 }
 
 #[test]
@@ -374,7 +290,7 @@ fn brightening_and_fading_clamp_color_channels_without_overflow() {
         (true, [[0, 255, 255, 3], [255, 0, 2, 255]]),
         (false, [[0, 255, 252, 0], [255, 0, 0, 253]]),
     ] {
-        let mut data = source().particle(0).unwrap().clone();
+        let mut data = template();
         data.gradient = true;
         data.state.colors = [[i16::MIN, i16::MAX, 254, 1], [i16::MAX, i16::MIN, 0, 255]];
         data.state.brighten = [1, 1, 2, 2];

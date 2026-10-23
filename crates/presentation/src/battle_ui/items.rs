@@ -46,7 +46,14 @@ pub(super) fn layers(
         });
     }
     definitions.push(palette.solid.clone().at(Depth::Scan));
-    definitions.push(palette.font.clone().at(Depth::Scan).nearest().foreground());
+    definitions.push(
+        palette
+            .font
+            .clone()
+            .at(Depth::Scan)
+            .nearest()
+            .offset_depth(1.),
+    );
     palette.layers(definitions, materials)
 }
 
@@ -432,7 +439,7 @@ mod tests {
             actor: owner,
             selected: Command::Items,
             enabled: 0xff,
-            controller: 0,
+            controller: resonance_battle::ControllerPort::One,
             connected: [true, false, false, false],
             view: View::Enemy { target: first },
             escape_requested: false,

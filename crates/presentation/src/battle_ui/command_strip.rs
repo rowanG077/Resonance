@@ -76,7 +76,7 @@ impl Artwork {
         state: Option<&Frame>,
         tick: u32,
         pending: Option<resonance_battle::item::Release>,
-        characters: &[u8],
+        characters: &[Character],
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -89,10 +89,10 @@ impl Artwork {
             .map(|release| -> Result<_> {
                 let character = characters
                     .get(release.user.index())
-                    .and_then(|id| id.checked_sub(1))
+                    .copied()
                     .context("pending item user has no prepared character")?;
                 Ok((
-                    usize::from(character),
+                    character,
                     self.menu_data.item_text(release.item)?.name.as_str(),
                 ))
             })
@@ -133,14 +133,14 @@ fn sprite(batch: &mut Batch, [x, y, w, h]: [f32; 4], [u, v, uw, vh]: [u16; 4], c
 fn emblem(
     batch: &mut Batch,
     art: &CommandArt,
-    command: usize,
+    command: Command,
     selected: bool,
     enabled: bool,
     phase: u32,
     tick: u32,
 ) {
     let inset = if selected { SELECTED_INSET } else { 0. };
-    let x = FIRST_BUTTON + BUTTON_PITCH * command as f32 - inset;
+    let x = FIRST_BUTTON + BUTTON_PITCH * f32::from(command.index()) - inset;
     let y = BUTTON_TOP - inset;
     let size = BUTTON_SIZE + 2. * inset;
     sprite(
@@ -157,90 +157,79 @@ fn emblem(
     } else {
         128.
     } as u8;
-    let count = if command == 1 {
-        3
-    } else if command == 5 {
-        2
-    } else {
-        art.icons[command].len()
+    let icons = &art.icons[usize::from(command.index())];
+    let count = match command {
+        Command::Unison => 3,
+        Command::Escape => 2,
+        _ => icons.len(),
     };
     for part in 0..count {
         let mut at = [x, y];
-        let mut rotation = 0.;
-        let mut pivot = [0., 0.];
-        let mut tilted = false;
-        let mut frame = if command == 5 { 0 } else { part };
+        let mut transform = None;
+        let mut frame = if command == Command::Escape { 0 } else { part };
         match command {
-            0 if selected => {
+            Command::Tech if selected => {
                 if part == 0 {
-                    rotation = phase as f32 * 8.;
-                    tilted = true;
+                    transform = Some((phase as f32 * 8., [0., 0.]));
                 } else {
                     at[1] +=
                         (motion.bob * sine(phase * 6 + if part == 1 { 180 } else { 0 })).trunc();
                 }
             }
-            1 if selected => {
+            Command::Unison if selected => {
                 if part < 2 {
                     at[1] -= (motion.bob * half_sine(phase * 6)).trunc();
                 } else {
                     frame += (tick / 6 % 3) as usize;
                 }
             }
-            2 => {
+            Command::Strategy => {
                 if part == 3 && (!selected || ((phase + 30) / 18) & 1 != 0) {
                     continue;
                 }
                 if selected && part == 0 {
                     at[0] -= 5.;
-                    rotation = motion.strategy_rotation * sine(phase * 10);
-                    pivot = [2., 2.];
-                    tilted = true;
+                    transform = Some((motion.strategy_rotation * sine(phase * 10), [2., 2.]));
                 }
                 if selected && part == 2 {
                     at[1] += (motion.small_bob * sine(phase * 8)).trunc();
                 }
             }
-            3 if selected => {
+            Command::Equipment if selected => {
                 at[1] +=
                     (motion.lift * half_sine(phase * 6 + if part == 1 { 90 } else { 0 })).trunc();
             }
-            4 if selected => match part {
+            Command::Items if selected => match part {
                 0 => at[1] += (motion.lift * half_sine(phase * 6)).trunc(),
                 1 => {
                     at[0] += 12.;
                     at[1] += 24.;
-                    rotation = motion.label_bob * sine(phase * 5);
-                    pivot = [-14., -24.];
-                    tilted = true;
+                    transform = Some((motion.label_bob * sine(phase * 5), [-14., -24.]));
                 }
                 _ => {
                     at[0] -= 10.;
                     at[1] += 16. + (motion.small_bob * sine(phase * 3)).trunc();
-                    rotation = motion.item_sway * sine(phase * 6);
-                    pivot = [8., -16.];
-                    tilted = true;
+                    transform = Some((motion.item_sway * sine(phase * 6), [8., -16.]));
                 }
             },
-            5 => {
+            Command::Escape => {
                 at[1] -= 8.;
-                rotation = if selected {
+                let rotation = if selected {
                     motion.escape_rotation * sine(phase * 8 + part as u32 * 180)
                 } else {
                     0.
                 };
-                pivot = [0., 8.];
-                tilted = true;
+                transform = Some((rotation, [0., 8.]));
             }
             _ => {}
         }
         sprite(
             batch,
             [at[0], at[1], size, size],
-            art.icons[command][frame],
+            icons[frame],
             [shade, shade, shade, 255],
         );
-        if tilted {
+        if let Some((rotation, pivot)) = transform {
             let center = [at[0] + size / 2. - 320., 240. - at[1] - size / 2.];
             let (sin, cos) = rotation.to_radians().sin_cos();
             let tilt = motion.tilt.to_radians().cos();
@@ -331,7 +320,7 @@ pub(super) fn label(
 fn draw(
     state: Option<&Frame>,
     tick: u32,
-    pending: Option<(usize, &str)>,
+    pending: Option<(Character, &str)>,
     art: &Art,
     font: &BitmapFont,
     motion: &mut Motion,
@@ -346,11 +335,7 @@ fn draw(
         *motion = Default::default();
         return Ok([panels, sprites, labels, numbers]);
     };
-    ensure!(state.controller < 4, "invalid command controller");
-    let selected = Command::ALL
-        .iter()
-        .position(|&command| command == state.selected)
-        .unwrap();
+    let selected = usize::from(state.selected.index());
     if motion.selected != Some(state.selected) {
         motion.selected = Some(state.selected);
         motion.since = tick;
@@ -358,13 +343,17 @@ fn draw(
     let phase = tick.wrapping_sub(motion.since) % 360;
     let a = &art.commands;
     // Selected artwork overlaps its neighbors and is therefore submitted last.
-    for command in (0..6).filter(|&i| i != selected).chain([selected]) {
+    for command in Command::ALL
+        .into_iter()
+        .filter(|&command| command != state.selected)
+        .chain([state.selected])
+    {
         emblem(
             &mut sprites,
             a,
             command,
-            command == selected,
-            state.enabled & Command::ALL[command].mask() != 0,
+            command == state.selected,
+            state.enabled & command.mask() != 0,
             phase,
             tick,
         );
@@ -486,7 +475,7 @@ fn draw(
     );
     let player = a
         .player_format
-        .replacen("%d", &(state.controller + 1).to_string(), 1);
+        .replacen("%d", &(state.controller.index() + 1).to_string(), 1);
     for (offset, colors) in [(2., [a.shadow_color; 2]), (0., a.player_colors)] {
         text::italic(
             &mut numbers,
@@ -502,7 +491,7 @@ fn draw(
     if let Some((character, name)) = pending {
         let face = *a
             .faces
-            .get(character)
+            .get(character.index())
             .context("pending item character is missing")?;
         let width = name.chars().count() as f32 * 9.;
         let x = 405. - width / 2.;
@@ -556,7 +545,7 @@ mod tests {
             actor: resonance_battle::ActorId::from_index(0)?,
             selected: Command::Tech,
             enabled: u8::MAX,
-            controller: 0,
+            controller: resonance_battle::ControllerPort::One,
             connected: [true, false, false, false],
             view: View::Strip,
             escape_requested: false,
@@ -571,7 +560,7 @@ mod tests {
         let items = draw(
             Some(&state),
             1,
-            Some((0, "Apple Gel")),
+            Some((Character::Lloyd, "Apple Gel")),
             &art,
             &font,
             &mut motion,

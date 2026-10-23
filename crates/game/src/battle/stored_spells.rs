@@ -1,7 +1,7 @@
 //! Stored spells share scene preparation and independent release timing.
 use super::{ActionResources, EffectResource, recoil};
 use anyhow::{Context, Result};
-use resonance_battle::{EffectAppearance, PreparedSpell, SpellOrigin};
+use resonance_battle::{PreparedSpell, SpellOrigin};
 use resonance_content::{battle_scene, prepared::Files};
 use std::sync::Arc;
 
@@ -50,7 +50,53 @@ pub const SCENES: [(u16, u16); 36] = [
 pub const TRANSITION_TICKS: u16 = 60;
 // Initialization follows the transition; active age zero follows initialization.
 pub(super) const ACTIVE_START_TICKS: u16 = 2;
+// Contacts begin on the update after their scheduled creation.
+pub(super) const CONTACT_INITIALIZATION_TICKS: u16 = 1;
 pub(super) const SCENE_BOUNDARY_TICKS: u16 = 3;
+
+/// Stored scenes share their transition, framing, and cleanup interval.
+pub(super) fn scene_spell(
+    scene: &battle_scene::Scene,
+    origin: SpellOrigin,
+    lifetime: u16,
+) -> Result<PreparedSpell> {
+    Ok(PreparedSpell {
+        transition_ticks: TRANSITION_TICKS,
+        stage_tint: stage_tint(scene.stage_color, lifetime)?,
+        camera: scene_camera(scene.camera, lifetime)?,
+        ..PreparedSpell::new(
+            origin,
+            lifetime
+                .checked_add(TRANSITION_TICKS + SCENE_BOUNDARY_TICKS)
+                .context("stored scene duration overflow")?,
+        )
+    })
+}
+
+impl ActionResources {
+    /// Bind authored contact artwork and cooldown to a scene's projectile.
+    pub(super) fn scene_projectile(
+        &mut self,
+        files: &Files,
+        source: &resonance_content::battle_projectile::Projectile,
+        rule: &resonance_content::battle_action::ActionHit,
+        recoil: &recoil::Parameters,
+        bank: &EffectResource,
+        banks: &[(u8, &EffectResource)],
+    ) -> Result<Arc<resonance_battle::ProjectileDefinition>> {
+        let mut hit = super::hit::authored(rule, recoil)?;
+        if let Some(member) = rule.effect {
+            hit.effect = Some(self.effect_member(bank, member)?);
+        }
+        let mut projectile = self.projectile(files, source, hit, banks)?;
+        Arc::make_mut(&mut projectile)
+            .contact
+            .as_mut()
+            .context("scene projectile has no contact")?
+            .cooldown = rule.cooldown;
+        Ok(projectile)
+    }
+}
 
 pub fn scene(catalogue: u16) -> Option<u16> {
     let catalogue = canonical(catalogue);
@@ -167,7 +213,6 @@ pub fn prepare(
         ),
         _ => unreachable!(),
     };
-    let initialization_ticks = u16::from(matches!(catalogue, ERUPTION | GRAVE | STALAGMITE));
     let mut projectiles = Vec::new();
     for &(at, row, rule_index) in schedule {
         let source = scene
@@ -175,47 +220,22 @@ pub fn prepare(
             .get(row)
             .context("missing ground spell pulse")?;
         let rule = source.hit_variant(rule_index)?;
-        let mut hit = super::hit::authored(rule, &recoil)?;
-        if let Some(member) = rule.effect {
-            let mut effects = bank.clone();
-            effects.members = vec![member];
-            resources.effect(effects)?;
-            hit.effect = Some(EffectAppearance {
-                resource: bank.resource,
-                member,
-            });
-        }
-        let mut projectile = resources.projectile(files, &source.projectile, hit, &[(0, bank)])?;
-        if let Some(contact) = Arc::make_mut(&mut projectile).contact.as_mut() {
-            contact.cooldown = rule.cooldown;
-        }
+        let projectile = resources.scene_projectile(
+            files,
+            &source.projectile,
+            rule,
+            &recoil,
+            bank,
+            &[(0, bank)],
+        )?;
         projectiles.push(resonance_battle::SpellProjectile::new(
-            TRANSITION_TICKS + ACTIVE_START_TICKS + at + initialization_ticks,
+            TRANSITION_TICKS + ACTIVE_START_TICKS + at + CONTACT_INITIALIZATION_TICKS,
             projectile,
         ));
     }
-    let startup = EffectAppearance {
-        resource: bank.resource,
-        member: 1,
-    };
-    let mut effects = bank.clone();
-    effects.members = vec![startup.member];
-    resources.effect(effects)?;
+    let startup = resources.effect_member(bank, 1)?;
     Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
-        recovery: vec![],
         projectiles,
-        origin: match catalogue {
-            ERUPTION | STALAGMITE => SpellOrigin::SceneGround { toward_caster: 1. },
-            GRAVE => SpellOrigin::GroundAtRelease { toward_caster: 1. },
-            _ => SpellOrigin::TargetGround,
-        },
-        transition_ticks: TRANSITION_TICKS,
-        stage_tint: stage_tint(scene.stage_color, lifetime)?,
-        camera: scene_camera(scene.camera, lifetime)?,
-        duration: TRANSITION_TICKS + lifetime + SCENE_BOUNDARY_TICKS,
         startup: Some((
             TRANSITION_TICKS + 1,
             if matches!(catalogue, ERUPTION | STALAGMITE) {
@@ -224,7 +244,15 @@ pub fn prepare(
                 resonance_battle::SpellStartup::Effect(startup)
             },
         )),
-        sound: None,
+        ..scene_spell(
+            &scene,
+            match catalogue {
+                ERUPTION | STALAGMITE => SpellOrigin::SceneGround { toward_caster: 1. },
+                GRAVE => SpellOrigin::GroundAtRelease { toward_caster: 1. },
+                _ => SpellOrigin::TargetGround,
+            },
+            lifetime,
+        )?
     })
 }
 
@@ -241,18 +269,15 @@ fn angel_feathers(
         .get(1)
         .context("missing Angel Feathers projectile")?;
     let rule = source.hit()?;
-    let mut hit = super::hit::authored(rule, recoil)?;
-    let mut effects = bank.clone();
-    effects.members = vec![1];
-    if let Some(member) = rule.effect {
-        effects.members.push(member);
-        hit.effect = Some(EffectAppearance {
-            resource: bank.resource,
-            member,
-        });
-    }
-    resources.effect(effects)?;
-    let template = resources.projectile(files, &source.projectile, hit, &[(0, bank), (6, bank)])?;
+    let startup = resources.effect_member(bank, 1)?;
+    let template = resources.scene_projectile(
+        files,
+        &source.projectile,
+        rule,
+        recoil,
+        bank,
+        &[(0, bank), (6, bank)],
+    )?;
     let mut projectiles = Vec::with_capacity(3);
     for (at, velocity) in [
         (22, [-0.3, -0.2, 0.5]),
@@ -262,7 +287,6 @@ fn angel_feathers(
         let mut projectile = (*template).clone();
         projectile.velocity = velocity;
         projectile.offset[1] += EMISSION_HEIGHT;
-        projectile.contact.as_mut().unwrap().cooldown = rule.cooldown;
         projectile.validate()?;
         projectiles.push(resonance_battle::SpellProjectile::new(
             TRANSITION_TICKS + at + 1,
@@ -270,28 +294,12 @@ fn angel_feathers(
         ));
     }
     Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
-        recovery: vec![],
         projectiles,
-        origin: SpellOrigin::CasterRoot,
-        transition_ticks: TRANSITION_TICKS,
-        stage_tint: stage_tint(scene.stage_color, scene.duration)?,
-        camera: scene_camera(scene.camera, scene.duration)?,
-        // Initialization, callback age zero, and cleanup surround the scene lifetime.
-        duration: scene
-            .duration
-            .checked_add(TRANSITION_TICKS + SCENE_BOUNDARY_TICKS)
-            .context("Angel Feathers duration overflow")?,
         startup: Some((
             TRANSITION_TICKS + 1,
-            resonance_battle::SpellStartup::DeferredEffect(EffectAppearance {
-                resource: bank.resource,
-                member: 1,
-            }),
+            resonance_battle::SpellStartup::DeferredEffect(startup),
         )),
-        sound: None,
+        ..scene_spell(scene, SpellOrigin::CasterRoot, scene.duration)?
     })
 }
 

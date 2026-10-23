@@ -1,7 +1,7 @@
 //! Meals share admission with their prompt and publish one complete result transaction.
-use super::item_tests::{PreparedFixture, native_fixture};
+use super::item_tests::{PreparedFixture, native_battle, native_fixture};
 use super::*;
-use resonance_battle::{Control, PreparedBattle, Side, conditions::Condition};
+use resonance_battle::{Control, Side, conditions::Condition};
 use resonance_content::menu_data::{
     CookingData, FoodPreferences, Ingredient, MealEffect, Recipe, RecipeCook, RecipeGrade,
 };
@@ -156,15 +156,7 @@ fn result_meal_publishes_once_after_all_recipients_are_ready() -> Result<()> {
                     ..Default::default()
                 },
             );
-            PreparedBattle::new(
-                (actors)
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
+            native_battle(actors)
         },
     )?;
     assert_eq!(battle.recognize_result(), Some(BattleResult::Victory));
@@ -225,7 +217,7 @@ fn result_meal_publishes_once_after_all_recipients_are_ready() -> Result<()> {
     assert_eq!(results.cook_prompt, None);
     for &(id, character) in &candidate.setup.actors {
         let actor = &battle.actors()[id.index()];
-        let member = &candidate.party.members[usize::from(character - 1)];
+        let member = &candidate.party.members[character.index()];
         assert_eq!(actor.hp, i32::from(member.hp));
         assert_eq!(actor.tp, member.tp);
         assert!(actor.hp > 0);
@@ -259,7 +251,7 @@ fn result_meal_publishes_once_after_all_recipients_are_ready() -> Result<()> {
     assert!(completed.party.cooking.full);
     assert_eq!(completed.party.members[0].cooking[0], 7);
     let member = &completed.party.members[1];
-    let loadout = super::super::party::loadout(&menus, member, 1)?;
+    let loadout = super::super::party::loadout(&menus, member, Character::Colette)?;
     let next = super::super::party::actor(&loadout, member, Control::Manual, [0.; 3], 0.)?;
     assert!(next.hp > 0 && !next.is_petrified());
     assert!(next.conditions.base().contains(Condition::AttackUp));

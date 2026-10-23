@@ -1,5 +1,5 @@
 //! Petrification persists as an ailment; presentation chooses a pose on entry.
-use super::item_tests::{escape, native_fixture};
+use super::item_tests::{escape, native_battle, native_fixture};
 use super::*;
 
 #[test]
@@ -12,15 +12,7 @@ fn petrification_and_vitals_commit_without_actor_models() -> Result<()> {
         },
         |mut actors, _| {
             actors[0].hp -= 1;
-            resonance_battle::PreparedBattle::new(
-                (actors)
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
+            native_battle(actors)
         },
     )?;
     fixture.candidate.sync_party(&fixture.battle)?;
@@ -35,17 +27,7 @@ fn petrification_and_vitals_commit_without_actor_models() -> Result<()> {
             *party = saved;
             Ok(())
         },
-        |actors, _| {
-            resonance_battle::PreparedBattle::new(
-                (actors)
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
-        },
+        |actors, _| native_battle(actors),
     )?;
     assert_eq!(
         next.battle.actors()[1].availability,

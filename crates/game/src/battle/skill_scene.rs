@@ -37,7 +37,6 @@ pub(crate) fn falcon<S: FnMut(super::voice::Sound) -> Result<Option<resonance_ba
 ) -> Result<()> {
     use resonance_battle::{AttackEvent, AttackOrigin, EffectAppearance, SpellCamera, StageTint};
     const CATALOGUE: u16 = 228;
-    const LLOYD: u8 = 1;
     const SWORD_APPEARS: u16 = 25;
     const SWORD_RESTORES: u16 = 304;
     const EFFECT_HOLD_START: u16 = 141;
@@ -54,7 +53,7 @@ pub(crate) fn falcon<S: FnMut(super::voice::Sound) -> Result<Option<resonance_ba
     resources.prepared.effect(bank.clone())?;
     let weapons = resources
         .skill_weapons
-        .get(&(LLOYD, CATALOGUE))
+        .get(&(resonance_battle::Character::Lloyd, CATALOGUE))
         .context("Falcon's Crest has no prepared sword")?
         .clone();
     let effect = |member| EffectAppearance {
@@ -93,12 +92,12 @@ pub(crate) fn falcon<S: FnMut(super::voice::Sound) -> Result<Option<resonance_ba
         ),
         (
             SWORD_APPEARS,
-            AttackEvent::WeaponVisibility(vec![(1, false)]),
+            AttackEvent::WeaponVisibility(vec![(Some(resonance_battle::WeaponSlot(1)), false)]),
         ),
         (
             PORTRAIT_START,
             AttackEvent::Cutin {
-                catalogue: CATALOGUE,
+                catalogue: resonance_battle::TechniqueId(CATALOGUE),
                 duration: PORTRAIT_DURATION,
             },
         ),

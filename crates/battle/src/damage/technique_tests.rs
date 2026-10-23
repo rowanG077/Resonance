@@ -1,26 +1,13 @@
 use super::*;
-use crate::{
-    ActionId, ActorId, Cue, ProjectileContact, ProjectileDefinition, Side, contact::Contacts,
-    tests::actor,
-};
+use crate::{ActionId, ActorId, Cue, Side, contact::Contacts, tests::actor};
 use std::sync::Arc;
 
 fn rule(kind: DamageKind) -> HitRule {
     HitRule {
-        sound: None,
         kind,
         arte: true,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
-        power: Power::Normal,
-        element: HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        guard: Default::default(),
-        reaction: Default::default(),
-        condition: None,
+        ..crate::tests::hit()
     }
 }
 
@@ -78,32 +65,18 @@ fn emitted_projectile_reads_changed_owner_proficiency_but_retains_combo_power() 
         let mut battle = crate::tests::prepared(vec![owner, target], 1)
             .finish()
             .unwrap();
+        let mut projectile = crate::tests::contact_projectile(false, true);
+        projectile.lifetime = Some(100);
+        projectile.clamp_ground = false;
+        let contact = projectile.contact.as_mut().unwrap();
+        contact.hit = rule(DamageKind::Slash);
+        contact.cooldown = 0;
+        contact.radius = 10.;
+        contact.height = 10.;
+        contact.shape = crate::HitShape::Box;
         battle
             .emit(
-                Arc::new(ProjectileDefinition {
-                    lifetime: Some(100),
-                    velocity: [0.; 3],
-                    acceleration: [0.; 3],
-                    offset: [0.; 3],
-                    clamp_ground: false,
-                    active: None,
-                    birth: None,
-                    motion: Default::default(),
-                    effects: Default::default(),
-                    contact: Some(ProjectileContact {
-                        hit: rule(DamageKind::Slash),
-                        cooldown: 0,
-                        repeat_limit: 0,
-                        radius: 10.,
-                        height: 10.,
-                        shape: crate::HitShape::Box,
-                        offset: [0.; 3],
-                        radius_growth: 0.,
-                        height_growth: 0.,
-                        survives_contact: true,
-                        clashes: false,
-                    }),
-                }),
+                Arc::new(projectile),
                 ActionId(1),
                 ActorId(0),
                 ActorId(1),

@@ -3,18 +3,10 @@ use crate::Activity;
 use crate::BattleInput;
 use crate::PreparedBattle;
 use crate::conditions::{Condition, ConditionSet};
-use std::sync::Arc;
+use crate::tests::{actor, prepare_actors, step_idle};
 
 fn prepared(actors: Vec<Actor>) -> PreparedBattle {
-    let mut prepared = PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        77,
-    )
-    .unwrap();
+    let mut prepared = prepare_actors(actors, 77);
     for setup in &mut prepared.resources.actor_setup {
         setup.overlimit_gain = 11;
     }
@@ -23,8 +15,8 @@ fn prepared(actors: Vec<Actor>) -> PreparedBattle {
 
 #[test]
 fn unavailable_members_settle_without_admitting_commands() {
-    let mut actors = vec![crate::tests::actor(Side::Party); 4];
-    actors.extend(vec![crate::tests::actor(Side::Enemy); 3]);
+    let mut actors = vec![actor(Side::Party); 4];
+    actors.extend(vec![actor(Side::Enemy); 3]);
     actors[4].hp = 0;
     actors[6].hp = 0;
     actors[0].hp = 0;
@@ -48,22 +40,10 @@ fn unavailable_members_settle_without_admitting_commands() {
     let fading_position = actors[6].position;
     let mut prepared = prepared(actors);
     prepared.resources.actor_setup[6].stationary_defeat = true;
-    prepared
-        .resources
-        .actions
-        .entries
-        .push(Arc::new(crate::ActionDefinition {
-            normal: None,
-            execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-                contact_recovery: None,
-                chain_at: None,
-                end_at: 1,
-                opening: None,
-                events: vec![],
-                recovery: 0,
-            }),
-            tp_cost: 5,
-        }));
+    prepared.resources.actions.insert(crate::ActionDefinition {
+        tp_cost: 5,
+        ..crate::tests::action(1)
+    });
     for index in 0..prepared.actors.len() {
         crate::tests::assign_action(&mut prepared, index, crate::ActionKey(0));
     }
@@ -90,9 +70,7 @@ fn unavailable_members_settle_without_admitting_commands() {
             .count(),
         3
     );
-    for _ in 0..20 {
-        battle.step(BattleInput::default()).unwrap();
-    }
+    step_idle(&mut battle, 20).unwrap();
     assert_eq!(battle.actors[0].availability, ActorAvailability::Dead);
     assert!(battle.actors[1].is_petrified());
     assert_eq!(battle.actors[0].position[1], 0.);
@@ -107,16 +85,12 @@ fn unavailable_members_settle_without_admitting_commands() {
 #[test]
 fn defeated_airborne_motion_preserves_scripted_and_recoil_gravity() {
     for gravity in [0., crate::movement::GRAVITY] {
-        let mut owner = crate::tests::actor(Side::Enemy);
+        let mut owner = actor(Side::Enemy);
         owner.position = [0., 20., 0.];
         owner.movement.flying = true;
-        let mut battle = prepared(vec![
-            crate::tests::actor(Side::Party),
-            owner,
-            crate::tests::actor(Side::Enemy),
-        ])
-        .finish()
-        .unwrap();
+        let mut battle = prepared(vec![actor(Side::Party), owner, actor(Side::Enemy)])
+            .finish()
+            .unwrap();
         let id = ActorId(1);
         battle.actors[id.index()].movement.vertical = 0.;
         battle.actors[id.index()].movement.gravity = gravity;
@@ -138,15 +112,11 @@ fn defeated_airborne_motion_preserves_scripted_and_recoil_gravity() {
 
 #[test]
 fn revival_opens_availability_before_get_up() {
-    let mut dead = crate::tests::actor(Side::Party);
+    let mut dead = actor(Side::Party);
     dead.hp = 0;
-    let mut battle = prepared(vec![
-        dead,
-        crate::tests::actor(Side::Party),
-        crate::tests::actor(Side::Enemy),
-    ])
-    .finish()
-    .unwrap();
+    let mut battle = prepared(vec![dead, actor(Side::Party), actor(Side::Enemy)])
+        .finish()
+        .unwrap();
     battle.step(BattleInput::default()).unwrap();
     battle.actors[0].hp = 1; // a vitals edit alone cannot reactivate an actor
     battle.actors[0].equipment.recovery.lucky = true;
@@ -160,16 +130,14 @@ fn revival_opens_availability_before_get_up() {
     assert_eq!(battle.random_state(), before_random);
     assert_eq!(battle.activity(ActorId(0)), Activity::GettingUp);
     assert_eq!(battle.actors[0].reaction.protection.remaining, 120);
-    for _ in 0..20 {
-        battle.step(BattleInput::default()).unwrap();
-    }
+    step_idle(&mut battle, 20).unwrap();
     assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
 }
 
 #[test]
 fn ally_death_rewards_survivors_and_publishes_defeat_once() {
-    let mut actors = vec![crate::tests::actor(Side::Party); 4];
-    actors.push(crate::tests::actor(Side::Enemy));
+    let mut actors = vec![actor(Side::Party); 4];
+    actors.push(actor(Side::Enemy));
     actors[0].overlimit = crate::OverLimit::new(700).unwrap();
     actors[1].overlimit = crate::OverLimit::new(950).unwrap();
     actors[3].hp = 0;
@@ -207,7 +175,7 @@ fn ally_death_rewards_survivors_and_publishes_defeat_once() {
 
 #[test]
 fn result_overlimit_reset_distinguishes_active_state_from_full_gauge() {
-    let mut actors = vec![crate::tests::actor(Side::Party); 2];
+    let mut actors = vec![actor(Side::Party); 2];
     actors[0].overlimit = crate::OverLimit::new(1000).unwrap();
     actors[1].overlimit = crate::OverLimit::active(400).unwrap();
     let mut battle = prepared(actors).finish().unwrap();
@@ -221,23 +189,22 @@ fn result_overlimit_reset_distinguishes_active_state_from_full_gauge() {
 #[test]
 fn death_clears_mutable_effects_and_enchantment_without_removing_equipment_grants() {
     use crate::conditions::{Buff, Conditions, Layers};
-    let mut owner = crate::tests::actor(Side::Party);
+    let mut owner = actor(Side::Party);
     owner.conditions = Conditions::new(Layers {
         equipment_overlay: ConditionSet::of(&[Condition::CastingSpeed]),
         ..Default::default()
     });
-    owner
-        .conditions
-        .prepare_buff(Buff::PhysicalAilmentGuard, false)
-        .commit(&mut owner);
-    owner
-        .conditions
-        .prepare_buff(Buff::Quartz(crate::Element::Ice), false)
-        .commit(&mut owner);
+    for buff in [
+        Buff::PhysicalAilmentGuard,
+        Buff::Quartz(crate::Element::Ice),
+    ] {
+        owner
+            .conditions
+            .prepare_buff(buff, false)
+            .commit(&mut owner);
+    }
     assert!(!owner.conditions.active_effects().is_empty());
-    let mut battle = prepared(vec![owner, crate::tests::actor(Side::Enemy)])
-        .finish()
-        .unwrap();
+    let mut battle = prepared(vec![owner, actor(Side::Enemy)]).finish().unwrap();
     battle.actors[0].hp = 0;
     battle.enter_death(ActorId(0), &mut Vec::new());
     assert!(battle.actors[0].conditions.base().is_empty());
@@ -262,12 +229,10 @@ fn death_clears_mutable_effects_and_enchantment_without_removing_equipment_grant
 
 #[test]
 fn lethal_contact_can_be_revived_without_retaining_its_recoil() {
-    let mut target = crate::tests::actor(Side::Party);
+    let mut target = actor(Side::Party);
     target.guard.auto_disabled = true;
     target.body.collider = Some(crate::Collider::sphere(2.));
-    let mut battle = prepared(vec![target, crate::tests::actor(Side::Enemy)])
-        .finish()
-        .unwrap();
+    let mut battle = prepared(vec![target, actor(Side::Enemy)]).finish().unwrap();
 
     let mut contacts = crate::contact::Contacts::default();
     contacts
@@ -276,19 +241,8 @@ fn lethal_contact_can_be_revived_without_retaining_its_recoil() {
             crate::ActionId(99),
             &crate::MeleeDefinition {
                 hit: crate::HitRule {
-                    sound: None,
-                    kind: crate::DamageKind::Slash,
                     arte: true,
-                    effect_on_guard: false,
-                    effect: None,
-                    overlimit_pause: false,
                     power: crate::Power::Fixed(999),
-                    element: crate::HitElement::Neutral,
-                    prevents_defeat: false,
-                    finisher_grade: false,
-                    hp_drain: false,
-                    guard: Default::default(),
-                    condition: None,
                     reaction: crate::ReactionRule {
                         hitstun: 45,
                         recoil: crate::RecoilRule {
@@ -298,6 +252,7 @@ fn lethal_contact_can_be_revived_without_retaining_its_recoil() {
                         },
                         ..Default::default()
                     },
+                    ..crate::tests::hit()
                 },
                 trail: None,
                 volume: crate::MeleeVolume::Fixed {

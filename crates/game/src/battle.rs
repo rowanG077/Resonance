@@ -65,7 +65,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct EffectResource {
     pub bank: Option<Arc<resonance_content::battle_effect::SourceBank>>,
-    pub resource: u32,
+    pub resource: resonance_battle::ResourceId,
     pub members: Vec<u16>,
     /// Verified model templates. Each particle owns its playback.
     pub models: std::collections::BTreeMap<u8, resonance_battle::PreparedEffectModel>,
@@ -74,16 +74,82 @@ pub struct EffectResource {
 /// Effect banks collected while resolving native action resources.
 #[derive(Default)]
 pub struct ActionResources {
-    pub effects: std::collections::BTreeMap<u32, EffectResource>,
+    pub effects: std::collections::BTreeMap<resonance_battle::ResourceId, EffectResource>,
 }
 
 impl ActionResources {
-    pub fn effect(&mut self, request: EffectResource) -> Result<()> {
-        require_effect(&mut self.effects, request)
+    pub fn effect(&mut self, mut request: EffectResource) -> Result<()> {
+        // Particles can emit another program from the same bank. Collect that
+        // closure before either rendering or simulation selects its dependencies.
+        // Program and particle validation still belongs to preparation below.
+        if let Some(bank) = &request.bank {
+            let mut next = 0;
+            while let Some(&member) = request.members.get(next) {
+                next += 1;
+                for event in bank.programs.get(usize::from(member)).into_iter().flatten() {
+                    if let resonance_content::battle_effect::EffectOperation::Spawn {
+                        particle, ..
+                    } = event.operation
+                        && let Some(template) = bank
+                            .actors
+                            .get(usize::from(particle))
+                            .and_then(|actor| actor.template().ok())
+                    {
+                        for child in [
+                            template.bounce_effect,
+                            template.floor_effect,
+                            template.periodic_effect.map(|effect| effect.member),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        {
+                            if !request.members.contains(&child) {
+                                request.members.push(child);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        request.members.sort_unstable();
+        request.members.dedup();
+        if let Some(previous) = self.effects.get_mut(&request.resource) {
+            ensure!(
+                previous
+                    .models
+                    .iter()
+                    .map(|(slot, model)| (slot, model.resource()))
+                    .eq(request
+                        .models
+                        .iter()
+                        .map(|(slot, model)| (slot, model.resource()))),
+                "inconsistent effect resource {}",
+                request.resource
+            );
+            previous.members.append(&mut request.members);
+            previous.members.sort_unstable();
+            previous.members.dedup();
+        } else {
+            self.effects.insert(request.resource, request);
+        }
+        Ok(())
     }
-}
 
-impl ActionResources {
+    /// Register one effect and return the matching runtime appearance.
+    pub fn effect_member(
+        &mut self,
+        bank: &EffectResource,
+        member: u16,
+    ) -> Result<resonance_battle::EffectAppearance> {
+        let mut request = bank.clone();
+        request.members = vec![member];
+        self.effect(request)?;
+        Ok(resonance_battle::EffectAppearance {
+            resource: bank.resource,
+            member,
+        })
+    }
+
     pub fn prepare_effects(
         &self,
         sound: &mut impl FnMut(u16) -> Result<Option<resonance_battle::Sound>>,
@@ -105,63 +171,4 @@ impl ActionResources {
             })
             .collect()
     }
-}
-
-fn require_effect(
-    effects: &mut std::collections::BTreeMap<u32, EffectResource>,
-    mut request: EffectResource,
-) -> Result<()> {
-    // Particles can emit another program from the same bank. Collect that
-    // closure before either rendering or simulation selects its dependencies.
-    // Program and particle validation still belongs to preparation below.
-    if let Some(bank) = &request.bank {
-        let mut next = 0;
-        while let Some(&member) = request.members.get(next) {
-            next += 1;
-            for event in bank.programs.get(usize::from(member)).into_iter().flatten() {
-                if let resonance_content::battle_effect::EffectOperation::Spawn { particle, .. } =
-                    event.operation
-                    && let Some(template) = bank
-                        .actors
-                        .get(usize::from(particle))
-                        .and_then(|actor| actor.template().ok())
-                {
-                    for child in [
-                        template.bounce_effect,
-                        template.floor_effect,
-                        template.periodic_effect.map(|effect| effect.member),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    {
-                        if !request.members.contains(&child) {
-                            request.members.push(child);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    request.members.sort_unstable();
-    request.members.dedup();
-    if let Some(previous) = effects.get_mut(&request.resource) {
-        ensure!(
-            previous
-                .models
-                .iter()
-                .map(|(slot, model)| (slot, model.resource()))
-                .eq(request
-                    .models
-                    .iter()
-                    .map(|(slot, model)| (slot, model.resource()))),
-            "inconsistent effect resource {}",
-            request.resource
-        );
-        previous.members.append(&mut request.members);
-        previous.members.sort_unstable();
-        previous.members.dedup();
-    } else {
-        effects.insert(request.resource, request);
-    }
-    Ok(())
 }

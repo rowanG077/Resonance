@@ -71,18 +71,8 @@ impl Battle {
         bodies: &mut [Option<CollisionBody>],
         previous_positions: &[[f32; 3]],
     ) {
-        let leader = self
-            .actors
-            .iter()
-            .position(|actor| {
-                actor.side == crate::Side::Party && actor.control != crate::Control::Auto
-            })
-            .or_else(|| {
-                self.actors
-                    .iter()
-                    .position(|actor| actor.side == crate::Side::Party)
-            });
-        let selected = leader.and_then(|index| self.target(ActorId(index as u8)));
+        let leader = self.preferred_party_leader();
+        let selected = leader.and_then(|actor| self.target(actor));
         let Some(body) = &bodies[moving] else {
             return;
         };
@@ -106,7 +96,7 @@ impl Battle {
                 continue;
             }
             let priority = a.side == b.side
-                && ((leader == Some(moving) && a.control != crate::Control::Auto)
+                && ((leader == Some(ActorId(moving as u8)) && a.control != crate::Control::Auto)
                     || selected == Some(ActorId(moving as u8)));
             let recipient = if priority { other } else { moving };
             if self.actors[recipient].movement.steering.push_immovable {
@@ -513,11 +503,6 @@ mod tests {
                     normal: None,
                     tp_cost: 0,
                     execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-                        contact_recovery: None,
-                        opening: None,
-                        chain_at: None,
-                        end_at: 1,
-                        recovery: 0,
                         events: vec![(
                             0,
                             crate::AttackEvent::PassThrough {
@@ -525,6 +510,7 @@ mod tests {
                                 duration,
                             },
                         )],
+                        ..crate::PreparedAttack::new(1)
                     }),
                 }])
                 .into(),
@@ -534,14 +520,11 @@ mod tests {
             crate::tests::assign_action(&mut prepared, 0, crate::ActionKey(0));
             let mut battle = prepared.finish().unwrap();
             battle
-                .step(BattleInput {
-                    actions: vec![crate::ActionRequest {
-                        actor: ActorId(0),
-                        target: ActorId(1),
-                        action: crate::ActionKey(0),
-                    }],
-                    ..Default::default()
-                })
+                .step(BattleInput::from(crate::ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(1),
+                    action: crate::ActionKey(0),
+                }))
                 .unwrap();
             assert_eq!(gap(&battle), 50.);
             assert!(battle.bypasses_body_collision(ActorId(0)));

@@ -1,5 +1,6 @@
 //! Stored-spell casting, interruption, and release.
 use super::*;
+use crate::TechniqueId;
 
 pub(super) fn charged(mode: Control, duration: u16) -> Battle {
     charged_prepared(mode, duration).finish().unwrap()
@@ -16,9 +17,9 @@ pub(super) fn charged_prepared(mode: Control, duration: u16) -> PreparedBattle {
     };
     let cast = casting_definition(&mut prepared);
     cast.threat = Some(crate::CastingThreat {
-        catalogue: 66,
+        catalogue: TechniqueId(66),
         offensive: true,
-        element: 0,
+        element: None,
     });
     prepared.resources.actor_setup[0].spell_charge = Some(crate::SpellChargeDefinition {
         automatic: true,
@@ -38,20 +39,14 @@ fn attack(actor: ActorId, pressed: bool) -> BattleInput {
     input.attack.held = true;
     input.attack.pressed = pressed;
     input.technique.held = true;
-    BattleInput {
-        controllers: vec![input],
-        ..Default::default()
-    }
+    BattleInput::from(input)
 }
 fn recover() -> BattleInput {
-    BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(0),
-            action: NORMAL,
-            target: ActorId(1),
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ActionRequest {
+        actor: ActorId(0),
+        action: NORMAL,
+        target: ActorId(1),
+    })
 }
 pub(super) fn enter_recovery(battle: &mut Battle) -> crate::BattleFrame {
     battle.step(BattleInput::default()).unwrap();
@@ -114,7 +109,7 @@ fn storing_requires_a_fresh_own_attack_and_commits_payment_and_use_once() {
             assert_eq!(frame.actors[0].stored_spell, Some(CAST));
             assert_eq!(battle.actors[0].stored_spell, Some(CAST));
             assert_eq!(battle.actors[0].tp, tp - 7);
-            assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+            assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(50));
 
             assert!(
                 !frame
@@ -154,12 +149,12 @@ fn learnable_charge() -> Battle {
     data.definitions[67].learning.parent_uses = 50;
     let member = crate::learning::LearningCatalogue::new(Arc::new(data))
         .prepare_member(crate::learning::LearningEntry {
-            character: 1,
+            character: crate::Character::Lloyd,
             level: 1,
             balance: 0,
             story_unlocked: true,
-            current: [66].into(),
-            counts: [(66, 49)].into(),
+            current: [TechniqueId(66)].into(),
+            counts: [(TechniqueId(66), 49)].into(),
         })
         .unwrap();
     prepared
@@ -179,7 +174,9 @@ fn external_acquisition_during_chant_keeps_the_selected_spell() {
         battle.actors[0].tp = 7;
         battle.step(request()).unwrap();
         battle.step(attack(ActorId(0), false)).unwrap();
-        battle.record_technique_acquisition(ActorId(0), 67).unwrap();
+        battle
+            .record_technique_acquisition(ActorId(0), TechniqueId(67))
+            .unwrap();
         let mut frame = battle
             .step(if stored {
                 attack(ActorId(0), true)
@@ -204,19 +201,21 @@ fn external_acquisition_during_chant_keeps_the_selected_spell() {
             .collect();
         assert_eq!(released, [3]);
         assert_eq!(battle.actors[0].tp, 0);
-        assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(50));
         assert_eq!(battle.technique_acquisitions().len(), 1);
-        assert_eq!(battle.technique_acquisitions()[0].catalogue, 67);
+        assert_eq!(
+            battle.technique_acquisitions()[0].catalogue,
+            TechniqueId(67)
+        );
         for _ in 0..32 {
             battle.step(BattleInput::default()).unwrap();
         }
-        let next = || BattleInput {
-            actions: vec![ActionRequest {
+        let next = || {
+            BattleInput::from(ActionRequest {
                 actor: ActorId(0),
                 action: LEARNED,
                 target: ActorId(1),
-            }],
-            ..Default::default()
+            })
         };
         assert!(battle.step(next()).unwrap().cues.contains(&Cue::Rejected {
             actor: ActorId(0),
@@ -236,7 +235,7 @@ fn external_acquisition_during_chant_keeps_the_selected_spell() {
         }
         assert_eq!(released, [2]);
         assert_eq!(battle.actors[0].tp, 0);
-        assert_eq!(battle.technique_uses(ActorId(0), 67), Some(1));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(67)), Some(1));
         assert_eq!(battle.technique_acquisitions().len(), 1);
     }
 }
@@ -252,7 +251,7 @@ fn storing_rechecks_tp_before_counting_or_learning() {
     let frame = battle.step(attack(ActorId(0), true)).unwrap();
     assert_eq!(battle.actors[0].stored_spell, None);
     assert_eq!(battle.actors[0].tp, 6);
-    assert_eq!(battle.technique_uses(ActorId(0), 66), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(49));
     assert!(battle.technique_acquisitions().is_empty());
     assert!(frame.cues.iter().any(|cue| matches!(
         cue,
@@ -271,11 +270,11 @@ fn lucky_storage_waives_payment_but_counts_the_use_once() {
     let tp = battle.actors[0].tp;
     store(&mut battle);
     assert_eq!(battle.actors[0].tp, tp);
-    assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(50));
     enter_recovery(&mut battle);
     assert_eq!(battle.actors[0].stored_spell, None);
     assert_eq!(battle.actors[0].tp, tp);
-    assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(50));
 }
 
 #[test]
@@ -291,7 +290,7 @@ fn stored_release_uses_current_target_without_another_payment() {
     let frame = enter_recovery(&mut battle);
     assert_eq!(battle.actors[0].stored_spell, None);
     assert_eq!(battle.actors[0].tp, 0);
-    assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(50));
     assert!(frame.cues.iter().any(|cue| matches!(
         cue,
         Cue::Released {
@@ -317,7 +316,7 @@ fn occupied_primary_preserves_stored_charge_and_live_action_state() {
         .unwrap();
     battle.actors[0].casting_state.power_percent = 147;
     let tp = battle.actors[0].tp;
-    let uses = battle.technique_uses(ActorId(0), 66);
+    let uses = battle.technique_uses(ActorId(0), TechniqueId(66));
     let mut cues = vec![];
     battle
         .discharge_stored_spell(ActionId(900), ActorId(0), &mut cues)
@@ -325,7 +324,7 @@ fn occupied_primary_preserves_stored_charge_and_live_action_state() {
     assert_eq!(battle.actors[0].stored_spell, Some(CAST));
     assert_eq!(battle.actors[0].casting_state.power_percent, 147);
     assert_eq!(battle.actors[0].tp, tp);
-    assert_eq!(battle.technique_uses(ActorId(0), 66), uses);
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), uses);
     assert!(cues.is_empty());
     battle.volleys.clear();
     battle
@@ -334,7 +333,7 @@ fn occupied_primary_preserves_stored_charge_and_live_action_state() {
     assert_eq!(battle.actors[0].stored_spell, None);
     assert_eq!(battle.actors[0].casting_state.power_percent, 100);
     assert_eq!(battle.actors[0].tp, tp);
-    assert_eq!(battle.technique_uses(ActorId(0), 66), uses);
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), uses);
     assert_eq!(
         cues.iter()
             .filter(|cue| matches!(cue, Cue::Released { .. }))
@@ -373,7 +372,8 @@ fn revenge() -> Battle {
         target: crate::TechniqueTarget::Ally,
         ..Default::default()
     };
-    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts[0] = 66;
+    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts[0] =
+        Some(TechniqueId(66));
     let mut battle = prepared.finish().unwrap();
     battle.begin_hurt(ActorId(0), 15, &mut vec![]);
     battle.actors[0].reaction.recoil.kind = crate::RecoilKind::Down;
@@ -403,7 +403,7 @@ fn counter_release_has_an_independent_slot_and_commits_only_after_admission() {
     assert!(battle.spell_active(ActorId(0), crate::SpellSlot::Secondary));
     assert!(battle.actors[0].reaction.spell_revenge_used);
     assert_eq!(battle.actors[0].tp, tp);
-    assert_eq!(battle.technique_uses(ActorId(0), 66), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(49));
     battle.actors[0].reaction.spell_revenge_used = false;
     battle.actors[0].casting_state.power_percent = 145;
     cues.clear();

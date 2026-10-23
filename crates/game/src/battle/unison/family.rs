@@ -2,6 +2,53 @@
 use super::*;
 use resonance_battle::{AttackOrigin, UnisonPlacement, UnisonRole};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Family {
+    PowBlade,
+    CrossThrust,
+    MirageThrust,
+    DarkSerpent,
+    StardustRain,
+    LPunishment,
+    ArchWind,
+    PhotonTempest,
+    Mjollnir,
+    PrismStars,
+    PowDevastation,
+    LTigerBlade,
+    PowSpear,
+    FieryBeast,
+    PhotonBlast,
+    TTigerBlade,
+    PlasmaBlade,
+}
+
+impl Family {
+    fn from_id(id: u16) -> Option<Self> {
+        Some(match id {
+            301 => Self::PowBlade,
+            302 => Self::CrossThrust,
+            303 => Self::MirageThrust,
+            304 => Self::DarkSerpent,
+            305 => Self::StardustRain,
+            307 => Self::LPunishment,
+            308 => Self::ArchWind,
+            309 => Self::PhotonTempest,
+            310 => Self::Mjollnir,
+            311 => Self::PrismStars,
+            312 => Self::PowDevastation,
+            313 => Self::LTigerBlade,
+            314 => Self::PowSpear,
+            315 => Self::FieryBeast,
+            316 => Self::PhotonBlast,
+            317 => Self::TTigerBlade,
+            318 => Self::PlasmaBlade,
+            _ => return None,
+        })
+    }
+}
+use Family::*;
+
 struct Settings {
     placements: [Option<UnisonPlacement>; 2],
     color: [u8; 3],
@@ -11,7 +58,7 @@ struct Settings {
     end_bones: &'static [&'static str],
 }
 
-fn settings(native: u16) -> Option<Settings> {
+fn settings(family: Family) -> Settings {
     const EAST: [f32; 3] = [1., 0., 0.];
     const NORTH: [f32; 3] = [0., 0., 1.];
     const ANGLED: [f32; 3] = [0.9063078, 0., 0.42261818];
@@ -24,72 +71,90 @@ fn settings(native: u16) -> Option<Settings> {
     let pair = |directions: [[f32; 3]; 2], distances: [f32; 2]| {
         std::array::from_fn(|role| place(directions[role], distances[role]))
     };
-    let placements = match native {
-        301 => [place(EAST, 130.), None],
-        302 => pair([EAST, NORTH], [250.; 2]),
-        303..=305 => pair([EAST, ANGLED], [250.; 2]),
-        307 | 308 => pair([ANGLED, EAST], [250., 50.]),
-        309 => pair([EAST, ANGLED], [450.; 2]),
-        310 => pair([EAST, ANGLED], [200.; 2]),
-        311 => pair([EAST, ANGLED], [250.; 2]),
-        312 | 315 | 317 => [place(EAST, 100.), None],
-        313 => [place(EAST, 200.), None],
-        314 => [place(EAST, 50.), None],
-        316 => pair([EAST, ANGLED], [100., 300.]),
-        318 => pair([EAST, ANGLED], [200., 300.]),
-        _ => return None,
+    let placements = match family {
+        PowBlade => [place(EAST, 130.), None],
+        CrossThrust => pair([EAST, NORTH], [250.; 2]),
+        MirageThrust | DarkSerpent | StardustRain => pair([EAST, ANGLED], [250.; 2]),
+        LPunishment | ArchWind => pair([ANGLED, EAST], [250., 50.]),
+        PhotonTempest => pair([EAST, ANGLED], [450.; 2]),
+        Mjollnir => pair([EAST, ANGLED], [200.; 2]),
+        PrismStars => pair([EAST, ANGLED], [250.; 2]),
+        PowDevastation | FieryBeast | TTigerBlade => [place(EAST, 100.), None],
+        LTigerBlade => [place(EAST, 200.), None],
+        PowSpear => [place(EAST, 50.), None],
+        PhotonBlast => pair([EAST, ANGLED], [100., 300.]),
+        PlasmaBlade => pair([EAST, ANGLED], [200., 300.]),
     };
-    Some(Settings {
+    Settings {
         placements,
-        color: match native {
-            304 => [48; 3],
-            307 => [16, 16, 24],
-            308 => [24, 16, 16],
-            305 | 311 => [0; 3],
+        color: match family {
+            DarkSerpent => [48; 3],
+            LPunishment => [16, 16, 24],
+            ArchWind => [24, 16, 16],
+            StardustRain | PrismStars => [0; 3],
             _ => [16; 3],
         },
-        effect_scale: matches!(native, 307..=309 | 315..=318).then_some(1.),
-        projectile_heading: matches!(native, 313 | 315).then_some(0.),
-        projectile_height: (native == 317).then_some(0.),
-        end_bones: match native {
-            301 => &["kk00", "kk01"],
-            312 | 314 => &["kk00"],
+        effect_scale: matches!(
+            family,
+            LPunishment
+                | ArchWind
+                | PhotonTempest
+                | FieryBeast
+                | PhotonBlast
+                | TTigerBlade
+                | PlasmaBlade
+        )
+        .then_some(1.),
+        projectile_heading: matches!(family, LTigerBlade | FieryBeast).then_some(0.),
+        projectile_height: (family == TTigerBlade).then_some(0.),
+        end_bones: match family {
+            PowBlade => &["kk00", "kk01"],
+            PowDevastation | PowSpear => &["kk00"],
             _ => &[],
         },
-    })
+    }
 }
 
-fn phase(native: u16, role: usize, character: u8) -> Option<usize> {
-    match (native, role, character) {
-        (301, 0, 1) | (312, 0, 7) | (314, 0, 6) => Some(0),
-        (301 | 312, 1, 2) | (314, 0, 9) => Some(1),
-        (314, 1, 2) => Some(2),
-        (302, 0, 1 | 6 | 9) => Some(0),
-        (302, 1, 1 | 6 | 9) => Some(1),
-        (303 | 304, 0, 1) => Some(0),
-        (303 | 304, 0, 6) => Some(1),
-        (303 | 304, 0, 9) => Some(2),
-        (303 | 304, 1, 5) => Some(3),
-        (305, 0, 2) | (310, 0, 2) => Some(0),
-        (305, 1, 1) | (310, 1, 3 | 6 | 9) => Some(1),
-        (307, 0, 3) | (308, 0, 6) => Some(0),
-        (307, 0, 6) | (308, 0, 9) => Some(1),
-        (307, 0, 9) | (308, 1, 7) => Some(2),
-        (307, 1, 7) => Some(3),
-        (309 | 313 | 315 | 317, 0, 1) | (316, 0, 2) | (318, 0, 6) => Some(0),
-        (313 | 315, 1, 3 | 6 | 9) | (317, 1, 6 | 9) | (309 | 316, 1, 4) | (318, 0, 9) => Some(1),
-        (318, 1, 4) => Some(2),
-        (311, 0, 3) => Some(0),
-        (311, 1, 4) => Some(1),
+fn phase(family: Family, role: usize, character: Character) -> Option<usize> {
+    use Character::*;
+    match (family, role, character) {
+        (PowBlade, 0, Lloyd) | (PowDevastation, 0, Presea) | (PowSpear, 0, Zelos) => Some(0),
+        (PowBlade | PowDevastation, 1, Colette) | (PowSpear, 0, Kratos) => Some(1),
+        (PowSpear, 1, Colette) => Some(2),
+        (CrossThrust, 0, Lloyd | Zelos | Kratos) => Some(0),
+        (CrossThrust, 1, Lloyd | Zelos | Kratos) => Some(1),
+        (MirageThrust | DarkSerpent, 0, Lloyd) => Some(0),
+        (MirageThrust | DarkSerpent, 0, Zelos) => Some(1),
+        (MirageThrust | DarkSerpent, 0, Kratos) => Some(2),
+        (MirageThrust | DarkSerpent, 1, Sheena) => Some(3),
+        (StardustRain, 0, Colette) | (Mjollnir, 0, Colette) => Some(0),
+        (StardustRain, 1, Lloyd) | (Mjollnir, 1, Genis | Zelos | Kratos) => Some(1),
+        (LPunishment, 0, Genis) | (ArchWind, 0, Zelos) => Some(0),
+        (LPunishment, 0, Zelos) | (ArchWind, 0, Kratos) => Some(1),
+        (LPunishment, 0, Kratos) | (ArchWind, 1, Presea) => Some(2),
+        (LPunishment, 1, Presea) => Some(3),
+        (PhotonTempest | LTigerBlade | FieryBeast | TTigerBlade, 0, Lloyd)
+        | (PhotonBlast, 0, Colette)
+        | (PlasmaBlade, 0, Zelos) => Some(0),
+        (LTigerBlade | FieryBeast, 1, Genis | Zelos | Kratos)
+        | (TTigerBlade, 1, Zelos | Kratos)
+        | (PhotonTempest | PhotonBlast, 1, Raine)
+        | (PlasmaBlade, 0, Kratos) => Some(1),
+        (PlasmaBlade, 1, Raine) => Some(2),
+        (PrismStars, 0, Genis) => Some(0),
+        (PrismStars, 1, Raine) => Some(1),
         _ => None,
     }
 }
 
 pub(super) fn has_pair(native: u16, participants: &[Participant<'_>]) -> bool {
+    let Some(family) = Family::from_id(native) else {
+        return false;
+    };
     participants.iter().any(|first| {
-        phase(native, 0, first.character).is_some()
+        phase(family, 0, first.character).is_some()
             && participants.iter().any(|second| {
-                first.actor != second.actor && phase(native, 1, second.character).is_some()
+                first.actor != second.actor && phase(family, 1, second.character).is_some()
             })
     })
 }
@@ -102,11 +167,13 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
     resources: &mut Resources<'_, S>,
     actions: &mut ActionDefinitions,
 ) -> Result<Option<UnisonCombination>> {
-    let native = combination.native_id;
+    let Some(family) = Family::from_id(combination.native_id) else {
+        return Ok(None);
+    };
     let candidates: [Vec<_>; 2] = std::array::from_fn(|role| {
         participants
             .iter()
-            .filter_map(|actor| phase(native, role, actor.character).map(|phase| (actor, phase)))
+            .filter_map(|actor| phase(family, role, actor.character).map(|phase| (actor, phase)))
             .collect()
     });
     if candidates.iter().any(Vec::is_empty)
@@ -116,9 +183,7 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
     {
         return Ok(None);
     }
-    let Some(settings) = settings(native) else {
-        return Ok(None);
-    };
+    let settings = settings(family);
     let mut roles: [Vec<UnisonRole>; 2] = Default::default();
     for role in 0..2 {
         for &(actor, variant) in &candidates[role] {
@@ -132,6 +197,7 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
             let mut attack = action::prepare(&source, actor, bank, resources)?;
             decorate(
                 combination,
+                family,
                 role,
                 actor,
                 &source,
@@ -150,8 +216,19 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
                     execution: ActionExecution::Attack(attack),
                 }),
                 placement: settings.placements[role],
-                visible: role == 0 || !matches!(native, 301 | 312..=315 | 317),
-                temporary_weapons: if role == 0 && matches!(native, 301 | 312 | 314) {
+                visible: role == 0
+                    || !matches!(
+                        family,
+                        PowBlade
+                            | PowDevastation
+                            | LTigerBlade
+                            | PowSpear
+                            | FieryBeast
+                            | TTigerBlade
+                    ),
+                temporary_weapons: if role == 0
+                    && matches!(family, PowBlade | PowDevastation | PowSpear)
+                {
                     actor.temporary_weapons.clone()
                 } else {
                     Vec::new()
@@ -160,17 +237,21 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
         }
     }
     let mut voices = Vec::new();
-    if matches!(native, 302 | 308) {
+    if matches!(family, CrossThrust | ArchWind) {
         for &(first, _) in &candidates[0] {
             for &(second, _) in &candidates[1] {
                 let mut pair = [first.character, second.character];
                 pair.sort_unstable();
-                let (voice, speaker) = match (native, pair, first.character) {
-                    (302, [1, 6], _) => (0x87a8, first.actor),
-                    (302, [1, 9], _) => (0x87a9, first.actor),
-                    (302, [6, 9], _) => (0x87aa, first.actor),
-                    (308, _, 6) => (0x87c1, second.actor),
-                    (308, _, 9) => (0x87c2, second.actor),
+                let (voice, speaker) = match (family, pair, first.character) {
+                    (CrossThrust, [Character::Lloyd, Character::Zelos], _) => (0x87a8, first.actor),
+                    (CrossThrust, [Character::Lloyd, Character::Kratos], _) => {
+                        (0x87a9, first.actor)
+                    }
+                    (CrossThrust, [Character::Zelos, Character::Kratos], _) => {
+                        (0x87aa, first.actor)
+                    }
+                    (ArchWind, _, Character::Zelos) => (0x87c1, second.actor),
+                    (ArchWind, _, Character::Kratos) => (0x87c2, second.actor),
                     _ => continue,
                 };
                 if let Some(sound) = (resources.sound)(Sound::Stream(voice & 0x7fff))? {
@@ -189,6 +270,7 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
 #[allow(clippy::too_many_arguments)]
 fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
     combination: &Combination,
+    family: Family,
     role: usize,
     actor: &Participant<'_>,
     source: &resonance_content::battle_martial::Attack,
@@ -198,7 +280,6 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
     resources: &mut Resources<'_, S>,
     attack: &mut resonance_battle::PreparedAttack,
 ) -> Result<()> {
-    let native = combination.native_id;
     let appearance = |member| EffectAppearance {
         resource: bank.resource,
         member,
@@ -210,31 +291,37 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
         scale,
         follow,
     };
-    let initial = match (native, role) {
-        (301 | 312, 0) => Some((2, AttackOrigin::ActorRoot, Some(1.), true)),
-        (314, 0) => Some((5, AttackOrigin::ActorRoot, None, true)),
-        (304, 1) => Some((2, AttackOrigin::TargetRoot, Some(1.), true)),
-        (307 | 308, 1) => Some((1, AttackOrigin::ActorRoot, settings.effect_scale, false)),
-        (309 | 316 | 318, 0) => Some((1, AttackOrigin::ActorAim, settings.effect_scale, true)),
-        (310, 0) => Some((1, AttackOrigin::ActorAim, Some(1.), true)),
-        (315 | 317, 0) => Some((1, AttackOrigin::ActorRoot, settings.effect_scale, true)),
-        (305 | 311, 0) => Some((1, AttackOrigin::World([0.; 3]), Some(1.), false)),
+    let initial = match (family, role) {
+        (PowBlade | PowDevastation, 0) => Some((2, AttackOrigin::ActorRoot, Some(1.), true)),
+        (PowSpear, 0) => Some((5, AttackOrigin::ActorRoot, None, true)),
+        (DarkSerpent, 1) => Some((2, AttackOrigin::TargetRoot, Some(1.), true)),
+        (LPunishment | ArchWind, 1) => {
+            Some((1, AttackOrigin::ActorRoot, settings.effect_scale, false))
+        }
+        (PhotonTempest | PhotonBlast | PlasmaBlade, 0) => {
+            Some((1, AttackOrigin::ActorAim, settings.effect_scale, true))
+        }
+        (Mjollnir, 0) => Some((1, AttackOrigin::ActorAim, Some(1.), true)),
+        (FieryBeast | TTigerBlade, 0) => {
+            Some((1, AttackOrigin::ActorRoot, settings.effect_scale, true))
+        }
+        (StardustRain | PrismStars, 0) => Some((1, AttackOrigin::World([0.; 3]), Some(1.), false)),
         _ => None,
     };
     if let Some((member, origin, scale, follow)) = initial {
-        action::effect(bank, member, resources)?;
+        resources.prepared.effect_member(bank, member)?;
         attack
             .events
             .push((0, effect(member, origin, scale, follow)));
     }
-    if role == 0 && matches!(native, 301 | 312 | 314) {
+    if role == 0 && matches!(family, PowBlade | PowDevastation | PowSpear) {
         anyhow::ensure!(
             !actor.temporary_weapons.is_empty(),
             "missing temporary combination weapon"
         );
-        let member = if native == 314 { 4 } else { 5 };
+        let member = if family == PowSpear { 4 } else { 5 };
         if !settings.end_bones.is_empty() {
-            action::effect(bank, member, resources)?;
+            resources.prepared.effect_member(bank, member)?;
         }
         attack.events.push((
             attack.end_at,
@@ -263,15 +350,15 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
             ));
         }
     }
-    let voice = match (native, role) {
-        (303, 1) => Some(if combination.id == 3 { 0x879e } else { 0x879f }),
-        (304, 1) => Some(0x87a4),
-        (305, 0) => Some(0x87bb),
-        (307, 1) => Some(0x87b1),
-        (309, 1) => Some(0x879a),
-        (310, 0) => Some(0x87ba),
-        (311, 0) => Some(0x87c3),
-        (316 | 318, 1) => Some(0x87b3),
+    let voice = match (family, role) {
+        (MirageThrust, 1) => Some(if combination.id == 3 { 0x879e } else { 0x879f }),
+        (DarkSerpent, 1) => Some(0x87a4),
+        (StardustRain, 0) => Some(0x87bb),
+        (LPunishment, 1) => Some(0x87b1),
+        (PhotonTempest, 1) => Some(0x879a),
+        (Mjollnir, 0) => Some(0x87ba),
+        (PrismStars, 0) => Some(0x87c3),
+        (PhotonBlast | PlasmaBlade, 1) => Some(0x87b3),
         _ => None,
     };
     if let Some(voice) = voice
@@ -288,7 +375,7 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
             ),
         );
     }
-    if matches!(native, 302..=304) && role == 0 {
+    if matches!(family, CrossThrust | MirageThrust | DarkSerpent) && role == 0 {
         let at = source
             .events
             .iter()
@@ -306,13 +393,13 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
             },
         ));
     }
-    let feedback = match native {
-        305 => Some((40, 140)),
-        307 | 308 => Some((30, 130)),
-        309 => Some((55, 40)),
-        310 => Some((90, 30)),
-        311 => Some((30, 140)),
-        316 | 318 => Some((70, 40)),
+    let feedback = match family {
+        StardustRain => Some((40, 140)),
+        LPunishment | ArchWind => Some((30, 130)),
+        PhotonTempest => Some((55, 40)),
+        Mjollnir => Some((90, 30)),
+        PrismStars => Some((30, 140)),
+        PhotonBlast | PlasmaBlade => Some((70, 40)),
         _ => None,
     };
     if let Some((at, duration)) = feedback {
@@ -320,14 +407,17 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
             action::elapsed(source, at)?,
             AttackEvent::UnisonFeedback {
                 duration,
-                limit: if native == 311 { 12 } else { 8 },
+                limit: if family == PrismStars { 12 } else { 8 },
             },
         ));
     }
-    if native == 305 && role == 0 {
+    if family == StardustRain && role == 0 {
         attack.events.push((
             0,
-            AttackEvent::WeaponVisibility(vec![(0, false), (1, false)]),
+            AttackEvent::WeaponVisibility(vec![
+                (Some(resonance_battle::WeaponSlot(0)), false),
+                (Some(resonance_battle::WeaponSlot(1)), false),
+            ]),
         ));
         let choices = (1..=3)
             .map(|member| projectile(scene, member, 0, bank, resources))
@@ -344,7 +434,7 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
             ));
         }
     }
-    if native == 311 && role == 0 {
+    if family == PrismStars && role == 0 {
         let mut star = projectile(scene, 1, 0, bank, resources)?;
         Arc::make_mut(&mut star).velocity = [0., 0., 1.];
         let mut glint = Arc::clone(&star);
@@ -360,31 +450,31 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
             ));
         }
     }
-    let release = match (native, role) {
-        (313, 0) => Some((35, 1, 1)),
-        (315, 0) => Some((66, 1, 2)),
-        (317, 0) => Some((65, 1, 2)),
-        (307, 1) => Some((30, 1, 0)),
-        (308, 1) => Some((30, 1, 0)),
-        (309, 1) => Some((60, 2, 1)),
-        (310, 0) => Some((42, 1, 0)),
-        (310, 1) => Some((86, 2, 1)),
-        (316, 1) => Some((88, 2, 1)),
-        (318, 0) => Some((78, 3, 2)),
-        (318, 1) => Some((70, 2, 1)),
+    let release = match (family, role) {
+        (LTigerBlade, 0) => Some((35, 1, 1)),
+        (FieryBeast, 0) => Some((66, 1, 2)),
+        (TTigerBlade, 0) => Some((65, 1, 2)),
+        (LPunishment, 1) => Some((30, 1, 0)),
+        (ArchWind, 1) => Some((30, 1, 0)),
+        (PhotonTempest, 1) => Some((60, 2, 1)),
+        (Mjollnir, 0) => Some((42, 1, 0)),
+        (Mjollnir, 1) => Some((86, 2, 1)),
+        (PhotonBlast, 1) => Some((88, 2, 1)),
+        (PlasmaBlade, 0) => Some((78, 3, 2)),
+        (PlasmaBlade, 1) => Some((70, 2, 1)),
         _ => None,
     };
     if let Some((tick, member, rule)) = release {
         let definition = projectile(scene, member, rule, bank, resources)?;
         let at = action::elapsed(source, tick)?;
-        if native == 313 {
-            action::effect(bank, 2, resources)?;
+        if family == LTigerBlade {
+            resources.prepared.effect_member(bank, 2)?;
             attack
                 .events
                 .push((at, effect(2, AttackOrigin::TargetRoot, None, true)));
         }
-        if native == 310 && role == 1 {
-            action::effect(bank, 4, resources)?;
+        if family == Mjollnir && role == 1 {
+            resources.prepared.effect_member(bank, 4)?;
             attack
                 .events
                 .push((at, effect(4, AttackOrigin::TargetRoot, Some(1.), false)));
@@ -393,9 +483,9 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
             at,
             AttackEvent::ProjectileAt {
                 definition,
-                origin: if native == 310 && role == 0 {
+                origin: if family == Mjollnir && role == 0 {
                     AttackOrigin::ActorRoot
-                } else if matches!(native, 310 | 313 | 315) {
+                } else if matches!(family, Mjollnir | LTigerBlade | FieryBeast) {
                     AttackOrigin::TargetRoot
                 } else {
                     AttackOrigin::TargetAim
@@ -421,17 +511,13 @@ fn projectile<S: FnMut(Sound) -> Result<Option<Sound>>>(
         .context("missing combination projectile")?;
     // Callback hit rules are independent of projectile template selectors.
     let rule = row.hit_variant(rule)?;
-    let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
-    let mut hit = crate::battle::hit::authored(rule, &recoil)?;
+    let recoil = resources.recoil;
+    let mut hit = crate::battle::hit::authored(rule, recoil)?;
     if let Some(sound) = rule.sound {
         hit.sound = (resources.sound)(Sound::Cue(sound))?;
     }
     if let Some(member) = rule.effect {
-        action::effect(bank, member, resources)?;
-        hit.effect = Some(EffectAppearance {
-            resource: bank.resource,
-            member,
-        });
+        hit.effect = Some(resources.prepared.effect_member(bank, member)?);
     }
     let mut definition = resources.prepared.projectile(
         resources.files,

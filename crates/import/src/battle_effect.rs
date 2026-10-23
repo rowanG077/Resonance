@@ -200,45 +200,14 @@ pub fn modifier(bytes: &[u8], at: usize) -> Result<Vec<u16>> {
     }
 }
 
-fn timelines(bytes: &[u8]) -> Result<Vec<Result<Vec<Record>>>> {
-    ensure!(
-        bytes.len() >= 20 && &bytes[..4] == b"ef1\0",
-        "invalid battle effect bank"
-    );
-    let half = |offset| u16::from_be_bytes([bytes[offset], bytes[offset + 1]]) as usize;
-    let offsets: Vec<_> = (8..20).step_by(2).map(half).collect();
-    ensure!(
-        offsets
-            .iter()
-            .all(|&offset| (20..=bytes.len()).contains(&offset)),
-        "battle effect section outside bank"
-    );
-    let events = offsets[1];
-    let end = offsets
-        .iter()
-        .copied()
-        .filter(|&offset| offset > events)
-        .min()
-        .unwrap_or(bytes.len());
-    let table = offsets[4];
-    let count = usize::from(bytes[4]);
-    let table_end = offsets
-        .iter()
-        .copied()
-        .filter(|&offset| offset > table)
-        .min()
-        .unwrap_or(bytes.len());
-    let roots = bytes[table..table_end]
-        .get(..count * 2)
-        .context("truncated effect program table")?;
+fn timelines(bytes: &[u8], roots: &[u8]) -> Result<Vec<Result<Vec<Record>>>> {
     let starts = roots
         .chunks_exact(2)
         .map(|root| {
-            let start = events
-                .checked_add_signed(i16::from_be_bytes([root[0], root[1]]) as isize)
-                .context("effect program offset underflow")?;
+            let start = usize::try_from(i16::from_be_bytes([root[0], root[1]]))
+                .context("effect program outside command section")?;
             ensure!(
-                (events..end).contains(&start),
+                start < bytes.len(),
                 "effect program outside command section"
             );
             Ok(start)
@@ -249,7 +218,7 @@ fn timelines(bytes: &[u8]) -> Result<Vec<Result<Vec<Record>>>> {
         .map(|start| {
             let mut records = Vec::new();
             let mut payload = false;
-            for bytes in bytes[start..end].chunks_exact(6) {
+            for bytes in bytes[start..].chunks_exact(6) {
                 let record = Record::from_bytes(bytes.try_into().unwrap());
                 records.push(record);
                 if payload {

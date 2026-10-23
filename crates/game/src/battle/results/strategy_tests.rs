@@ -1,22 +1,15 @@
 //! Native CPU scenarios at prepared Candidate and command boundaries.
-use super::item_tests::{Display, PreparedFixture, enter_battle, escape, prepared_fixture, step};
+use super::item_tests::{
+    Display, PreparedFixture, command_visit as visit, edge, enter_battle, escape, native_battle,
+    prepared_fixture, step,
+};
 use super::*;
 use crate::battle::{command, lifecycle};
 use crate::menu::{
     MenuAction,
     strategy::{Focus, Strategy},
 };
-use resonance_battle::{
-    ActionRequest, Activity, BattleFrame, BattleInput, ButtonInput, item::Release,
-};
-
-fn edge() -> ButtonInput {
-    ButtonInput {
-        held: true,
-        pressed: true,
-        released: false,
-    }
-}
+use resonance_battle::{ActionRequest, Activity, BattleFrame, BattleInput, item::Release};
 
 #[test]
 #[ignore = "requires cooked Strategy and encounter assets; CPU only"]
@@ -31,7 +24,7 @@ fn lone_general_records_a_completed_strategy_order_with_only_lloyd_alive() -> Re
     f.lifecycle.step(
         &mut f.battle,
         lifecycle::Input {
-            order: Some(1),
+            order: Some(QuickOrder::LeftPreset),
             ..Default::default()
         },
         &mut f.candidate,
@@ -62,25 +55,25 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
     f.lifecycle.step(
         &mut f.battle,
         lifecycle::Input {
-            order: Some(1),
+            order: Some(QuickOrder::LeftPreset),
             ..Default::default()
         },
         &mut f.candidate,
         &mut Display,
     )?;
-    assert_eq!(f.lifecycle.order_selection(), 1);
+    assert_eq!(f.lifecycle.order_selection(), QuickOrder::LeftPreset);
     assert_eq!(f.lifecycle.order_revision(), 1);
-    assert_eq!(f.candidate.order_name(1)?, "Custom");
+    assert_eq!(f.candidate.order_name(QuickOrder::LeftPreset)?, "Custom");
     for _ in 0..59 {
         visit(&mut f, Default::default())?;
     }
-    assert_eq!(f.candidate.active_order(), 0);
+    assert_eq!(f.candidate.active_order(), QuickOrder::Cancel);
     assert_eq!(
         f.battle.ledger().achievements[f.candidate.setup.actors[0].0.index()].strategy_orders,
         0
     );
     visit(&mut f, Default::default())?;
-    assert_eq!(f.candidate.active_order(), 1);
+    assert_eq!(f.candidate.active_order(), QuickOrder::LeftPreset);
     f.candidate.finish_strategy(&mut f.battle)?;
     assert_eq!(
         f.battle.ledger().achievements[f.candidate.setup.actors[0].0.index()].strategy_orders,
@@ -92,7 +85,7 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
     f.lifecycle.step(
         &mut f.battle,
         lifecycle::Input {
-            order: Some(0),
+            order: Some(QuickOrder::Cancel),
             command: command::Input {
                 open: edge(),
                 ..Default::default()
@@ -109,8 +102,8 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
         f.battle.ledger().achievements[f.candidate.setup.actors[0].0.index()].strategy_orders,
         1
     );
-    assert_eq!(f.lifecycle.order_selection(), 0);
-    assert_eq!(f.candidate.active_order(), 1);
+    assert_eq!(f.lifecycle.order_selection(), QuickOrder::Cancel);
+    assert_eq!(f.candidate.active_order(), QuickOrder::LeftPreset);
     visit(
         &mut f,
         command::Input {
@@ -118,12 +111,12 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
             ..Default::default()
         },
     )?;
-    assert_eq!(f.candidate.active_order(), 0);
+    assert_eq!(f.candidate.active_order(), QuickOrder::Cancel);
     for &(actor, character) in &f.candidate.setup.actors {
-        let personal = f.field.members[usize::from(character - 1)].strategy;
+        let personal = f.field.members[character.index()].strategy;
         assert_eq!(f.battle.companion_policy(actor).unwrap().choices, personal);
         assert_eq!(
-            f.candidate.party.members[usize::from(character - 1)].strategy,
+            f.candidate.party.members[character.index()].strategy,
             personal
         );
     }
@@ -134,21 +127,6 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
     assert_eq!(f.candidate.party.strategy_presets, f.field.strategy_presets);
     Ok(())
 }
-fn visit(
-    f: &mut PreparedFixture,
-    command: command::Input,
-) -> Result<(BattleFrame, Vec<command::Event>)> {
-    let frame = f.lifecycle.step(
-        &mut f.battle,
-        lifecycle::Input {
-            command,
-            ..Default::default()
-        },
-        &mut f.candidate,
-        &mut Display,
-    )?;
-    Ok((frame, f.lifecycle.take_command_events()))
-}
 fn shared(
     f: &mut PreparedFixture,
     input: crate::menu::Input,
@@ -158,7 +136,7 @@ fn shared(
     visit(
         f,
         command::Input {
-            controller: 3,
+            controller: resonance_battle::ControllerPort::Four,
             shared_menu: input,
             ..Default::default()
         },
@@ -296,17 +274,18 @@ fn shared_strategy_holds_real_item_and_chant_then_refreshes_before_strip_return(
         let user = f.candidate.setup.actors[0].0;
         if casting {
             let target = f.battle.target(user).context("missing Fire Ball target")?;
-            let action = f.battle.prepared_technique(user, 66).unwrap().action;
+            let action = f
+                .battle
+                .prepared_technique(user, resonance_battle::TechniqueId(66))
+                .unwrap()
+                .action;
             f.candidate.world_update(
                 &mut f.battle,
-                BattleInput {
-                    actions: vec![ActionRequest {
-                        actor: user,
-                        action,
-                        target,
-                    }],
-                    ..Default::default()
-                },
+                BattleInput::from(ActionRequest {
+                    actor: user,
+                    action,
+                    target,
+                }),
             )?;
             for _ in 0..4 {
                 step(&mut f.candidate, &mut f.battle)?;
@@ -480,7 +459,7 @@ fn failed_strategy_return_precedes_strip_input_and_invalidates_the_lifecycle() -
 
 #[test]
 fn absent_menu_members_do_not_change_actor_ids_or_saved_formation() -> Result<()> {
-    use resonance_battle::{ActorAvailability, PreparedBattle};
+    use resonance_battle::ActorAvailability;
     let mut f = super::item_tests::native_fixture(
         &[1, 2, 3, 9],
         |party, _, _| {
@@ -489,20 +468,12 @@ fn absent_menu_members_do_not_change_actor_ids_or_saved_formation() -> Result<()
         },
         |mut actors, _| {
             for (slot, actor) in actors.iter_mut().take(4).enumerate() {
-                actor.control_slot = slot as u8;
+                actor.control_slot = resonance_battle::ControllerPort::from_index(slot).unwrap();
             }
             actors[1].availability = ActorAvailability::Absent;
             actors[2].hp = 0;
             actors[3].availability = ActorAvailability::Petrified;
-            PreparedBattle::new(
-                actors
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
+            native_battle(actors)
         },
     )?;
     f.candidate.begin_menu(&f.battle)?;

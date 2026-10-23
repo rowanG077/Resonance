@@ -1,5 +1,6 @@
 //! Presentation inputs share resource handles with the prepared simulation.
 use anyhow::{Context, Result, ensure};
+use resonance_battle::ResourceId;
 use resonance_content::{
     animation::Skeleton,
     battle_effect::{SourceBank, Tints},
@@ -22,7 +23,7 @@ pub enum RenderInstances {
 }
 
 pub struct RenderModel {
-    pub resource: u32,
+    pub resource: ResourceId,
     pub skeleton: Skeleton,
     pub parts: Vec<PreviewPart>,
     pub instances: RenderInstances,
@@ -61,7 +62,7 @@ impl TargetAnchor {
 /// Colette's visual attachment shares the ordinary sampled-model renderer.
 pub struct WingAccessory {
     pub owner: resonance_battle::ActorId,
-    pub resource: u32,
+    pub resource: ResourceId,
     pub attachment: usize,
     pub skeleton: Skeleton,
     pub motion: resonance_content::animation::Motion,
@@ -76,7 +77,7 @@ pub(super) fn wings(
     files: &resonance_content::prepared::Files,
     source: &resonance_content::battle_model::Party,
     owner: resonance_battle::ActorId,
-    resource: u32,
+    resource: ResourceId,
     common: &SourceBank,
 ) -> Result<(WingAccessory, RenderModel)> {
     let sparkle_texture = common
@@ -208,7 +209,7 @@ pub(super) fn enemy_body_parts(
 pub(super) fn effect_model(
     files: &resonance_content::prepared::Files,
     part: &resonance_content::battle_model::ModelPart,
-    resource: u32,
+    resource: ResourceId,
     animate_layers: bool,
 ) -> Result<Option<(resonance_battle::PreparedEffectModel, RenderModel)>> {
     let prepared =
@@ -260,8 +261,8 @@ pub(super) fn effect_model(
 pub(super) fn scene_bank(
     files: &resonance_content::prepared::Files,
     bank: &Arc<SourceBank>,
-    resource: u32,
-    mut next_resource: impl FnMut() -> u32,
+    resource: ResourceId,
+    mut next_resource: impl FnMut() -> ResourceId,
     models: &mut Vec<RenderModel>,
 ) -> Result<crate::battle::EffectResource> {
     let mut prepared = BTreeMap::new();
@@ -326,7 +327,7 @@ pub(super) fn party_texture_channels(
 }
 
 pub struct RenderEffect {
-    pub resource: u32,
+    pub resource: ResourceId,
     pub source: Arc<SourceBank>,
     pub textures: BTreeMap<u8, Vec<resonance_content::battle_effect::EffectTexture>>,
     /// Particle declarations reached by the selected programs.
@@ -337,7 +338,7 @@ pub struct RenderEffect {
 
 pub struct RenderTrail {
     /// Primary weapon layer that supplies the live pose.
-    pub resource: u32,
+    pub resource: ResourceId,
     pub bones: Vec<u16>,
     pub material: TrailMaterial,
     /// Default material, then the highlighted material for party weapons.
@@ -345,7 +346,7 @@ pub struct RenderTrail {
 }
 
 pub(super) fn effects(
-    resource: u32,
+    resource: ResourceId,
     source: &Arc<SourceBank>,
     programs: &[u16],
     tints: Option<&Tints>,
@@ -436,7 +437,7 @@ pub(super) fn effects(
 pub(super) fn weapon_trail(
     diagnostics: &Diagnostics,
     skeleton: &Skeleton,
-    resource: u32,
+    resource: ResourceId,
     material: TrailMaterial,
     party_weapon: bool,
     common: Option<&SourceBank>,
@@ -625,14 +626,14 @@ mod tests {
         mesh.extend(b"JSON");
         mesh.extend(json);
         files.insert("effect.glb".into(), mesh.into());
-        let (model, render) = effect_model(&files, &part, 1, false)?.unwrap();
+        let (model, render) = effect_model(&files, &part, ResourceId(1), false)?.unwrap();
         assert_eq!(model.resource(), render.resource);
         part.layers[0].scene.bone_names.clear();
-        assert!(effect_model(&files, &part, 2, false)?.is_none());
+        assert!(effect_model(&files, &part, ResourceId(2), false)?.is_none());
         assert_eq!(files.diagnostics().entries().len(), 1);
-        assert!(effect_model(&Files::default(), &part, 2, false).is_err());
+        assert!(effect_model(&Files::default(), &part, ResourceId(2), false).is_err());
         part.layers[0].scene.bone_names.push("root".into());
-        assert!(effect_model(&files, &part, 3, false)?.is_some());
+        assert!(effect_model(&files, &part, ResourceId(3), false)?.is_some());
         Ok(())
     }
 
@@ -652,11 +653,20 @@ mod tests {
             art: None,
         });
         let diagnostics = Diagnostics::default();
-        let prepared = effects(77, &source, &[0, 1], None, &diagnostics).unwrap();
+        let prepared = effects(ResourceId(77), &source, &[0, 1], None, &diagnostics).unwrap();
         assert!(prepared.members.is_empty());
         assert!(prepared.textures.is_empty());
         assert_eq!(diagnostics.entries().len(), 1);
-        assert!(effects(77, &source, &[0, 1], None, &Diagnostics::new(true)).is_err());
+        assert!(
+            effects(
+                ResourceId(77),
+                &source,
+                &[0, 1],
+                None,
+                &Diagnostics::new(true)
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -761,7 +771,7 @@ mod tests {
             },
         }]);
         let source = Arc::new(source);
-        let result = effects(77, &source, &[0], None, &Diagnostics::new(true)).unwrap();
+        let result = effects(ResourceId(77), &source, &[0], None, &Diagnostics::new(true)).unwrap();
         assert_eq!(result.palettes[&0], BTreeSet::from([[26, 1]]));
         assert_eq!(result.blends, BTreeMap::from([(0, BTreeSet::from([0]))]));
         assert_eq!(result.members, BTreeSet::from([0]));
@@ -810,7 +820,7 @@ mod tests {
             weapon_trail(
                 diagnostics,
                 &skeleton,
-                1,
+                ResourceId(1),
                 material,
                 false,
                 Some(&common),

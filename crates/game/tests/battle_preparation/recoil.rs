@@ -1,5 +1,5 @@
 use super::*;
-use resonance_battle::VerticalRecoil;
+use resonance_battle::{Character, VerticalRecoil};
 use resonance_content::{battle_profile::ProfileTraits, battle_recoil};
 use resonance_game::battle::recoil::Parameters;
 
@@ -29,13 +29,20 @@ fn preparation_requires_assets_and_resolves_weight_and_guard_preferences() -> Re
     assert!(Parameters::load(&Files::default()).is_err());
     let files = snapshot(&source());
     let parameters = Parameters::load(&files)?;
-    assert_eq!(parameters.guard_recovery_bonus(0, 0)?, 10);
-    assert_eq!(parameters.guard_recovery_bonus(0, 1)?, 0);
-    assert_eq!(parameters.guard_recovery_bonus(0, 2)?, 5);
-    assert_eq!(parameters.guard_recovery_bonus(0, 3)?, 25);
-    assert_eq!(parameters.guard_recovery_bonus(0, 4)?, 10);
-    assert!(parameters.guard_recovery_bonus(0, 5).is_err());
-    assert_eq!(parameters.guard_recovery_bonus(3, 255)?, 25);
+    for (character, bonus) in [
+        (Character::Lloyd, 0),
+        (Character::Colette, 5),
+        (Character::Genis, 25),
+        (Character::Raine, 10),
+    ] {
+        assert_eq!(parameters.guard_recovery_bonus(0, character)?, bonus);
+    }
+    assert!(
+        parameters
+            .guard_recovery_bonus(0, Character::Sheena)
+            .is_err()
+    );
+    assert_eq!(parameters.guard_recovery_bonus(3, Character::Sheena)?, 25);
     let ordinary = ProfileTraits::default();
     for (weight, vertical) in [
         (1, VerticalRecoil::Scale(1.15)),

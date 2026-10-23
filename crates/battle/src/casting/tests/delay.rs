@@ -13,7 +13,7 @@ pub(super) fn controlled_prepared(control: Control, duration: u16, tp: u16) -> P
     actors[0].facing_direction = [0., 0., 1.];
     let mut issuer = crate::tests::actor(Side::Party);
     issuer.control = Control::Manual;
-    issuer.control_slot = 3;
+    issuer.control_slot = crate::ControllerPort::Four;
     issuer.movement.direction = issuer.facing_direction;
     actors.push(issuer);
     let mut actions = base.resources.actions;
@@ -21,7 +21,7 @@ pub(super) fn controlled_prepared(control: Control, duration: u16, tp: u16) -> P
     let normals = crate::tests::normal_controls(&mut actions, crate::tests::attack(20), [0., 100.]);
     let controls = [0, 2].map(|_| crate::ControlDefinition {
         normals,
-        shortcuts: [0; 4],
+        shortcuts: [None; 4],
         walk_speed: 1.,
         run_speed: 2.,
         turn_ticks: 1,
@@ -50,10 +50,7 @@ fn held(actor: ActorId, technique: bool, delay_spell: bool) -> BattleInput {
     let mut control = crate::ControlInput::neutral(actor);
     control.technique.held = technique;
     control.delay_spell.held = delay_spell;
-    BattleInput {
-        controllers: vec![control],
-        ..Default::default()
-    }
+    BattleInput::from(control)
 }
 
 #[test]
@@ -116,7 +113,10 @@ fn auto_command_uses_issuing_slot_and_clears_only_at_admitted_release() {
             .queue_technique_target_from(ActorId(0), CAST, ActorId(1), ActorId(2))
             .unwrap()
     );
-    assert_eq!(battle.pending_technique_issuer(ActorId(0)), Some(3));
+    assert_eq!(
+        battle.pending_technique_issuer(ActorId(0)),
+        Some(crate::ControllerPort::Four)
+    );
     battle.step(request()).unwrap();
     let tp = battle.actors[0].tp;
     // The issuer comes after the caster in actor traversal. The input snapshot

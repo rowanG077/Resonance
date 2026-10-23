@@ -56,14 +56,17 @@ pub struct Context<'a> {
     pub enemy_was_scanned: bool,
     pub level_difference: i16,
     pub enemy_count: usize,
-    pub seen_groups: u64,
     pub prepared_groups: &'a [PreparedGroup],
 }
 
+/// A prepared victory dialogue, independent of formation and pose selectors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VictoryGroupId(pub u8);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Selection {
-    pub group: u8,
-    pub pose: u8,
+pub enum Selection {
+    Solo(u8),
+    Group(VictoryGroupId),
 }
 
 const INJURED_HP_PERCENT: u8 = 25;
@@ -192,17 +195,17 @@ pub fn select(context: &Context<'_>, mut next: impl FnMut() -> u16) -> Selection
         81 => &[50, 51, 52],
         _ => &[],
     };
-    for &id in special {
+    for id in special.iter().copied().map(VictoryGroupId) {
         if context.prepared_groups.iter().any(|group| {
             group.id == id
                 && group.participants.iter().all(|&character| {
                     context
                         .party
                         .iter()
-                        .any(|member| member.character as u8 == character)
+                        .any(|member| member.character == character)
                 })
         }) {
-            return Selection { group: id, pose: 0 };
+            return Selection::Group(id);
         }
     }
     const GROUP_ORDER: [u8; 42] = [
@@ -211,43 +214,38 @@ pub fn select(context: &Context<'_>, mut next: impl FnMut() -> u16) -> Selection
     ];
     // Half of ordinary results proceed directly to a solo celebration.
     if next() & 1 == 0 {
-        for id in GROUP_ORDER {
+        for id in GROUP_ORDER.map(VictoryGroupId) {
             let Some(group) = context.prepared_groups.iter().find(|group| group.id == id) else {
                 continue;
             };
             let eligible = group
                 .required_leader
-                .is_none_or(|leader| leader == context.leader as u8)
+                .is_none_or(|leader| leader == context.leader)
                 && group.participants.iter().all(|&character| {
-                    fallen_companions(group.condition)
-                        .iter()
-                        .any(|&id| id as u8 == character)
+                    fallen_companions(group.condition).contains(&character)
                         || context.party.iter().any(|member| {
-                            member.character as u8 == character && member.available && !member.dead
+                            member.character == character && member.available && !member.dead
                         })
                 })
                 && (context.colette.can_speak()
-                    || !group.participants.contains(&(Character::Colette as u8)))
+                    || !group.participants.contains(&Character::Colette))
                 && context.eligible(group.condition);
             if !eligible {
                 continue;
             }
             // Retain the dialogue gates: half, quarter, or eighth of eligible draws.
-            let (mask, accepted) = match id {
+            let (mask, accepted) = match id.0 {
                 12 | 13 | 24 | 26 => (4, 4),
                 27 | 33 | 41 => (3, 0),
                 15 | 19 | 31 | 39 | 42 => (7, 0),
                 _ => (1, 1),
             };
             if next() & mask == accepted {
-                return Selection { group: id, pose: 0 };
+                return Selection::Group(id);
             }
         }
     }
-    Selection {
-        group: 0,
-        pose: ordinary_pose(context, next()),
-    }
+    Selection::Solo(ordinary_pose(context, next()))
 }
 
 fn ordinary_pose(context: &Context<'_>, sample: u16) -> u8 {
@@ -281,14 +279,14 @@ fn ordinary_pose(context: &Context<'_>, sample: u16) -> u8 {
 
 /// Solo lines belong to the chosen celebration; only its paired variation is random.
 pub fn ordinary_voice(
-    character: u8,
+    character: Character,
     pose: u8,
     sample: u16,
     choices: &[[Option<Sound>; 2]],
 ) -> Option<Sound> {
     let (pose, variation) = match (character, pose) {
-        (character, 2) if character == Character::Colette as u8 => (3, 0),
-        (character, 3) if character == Character::Colette as u8 => (3, 1),
+        (Character::Colette, 2) => (3, 0),
+        (Character::Colette, 3) => (3, 1),
         (_, pose) => (usize::from(pose), usize::from(sample & 1)),
     };
     choices.get(pose)?[variation]

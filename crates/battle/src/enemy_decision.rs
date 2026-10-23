@@ -1,8 +1,22 @@
 //! Weighted enemy choices and native action dispatch.
-use crate::{ActorId, Battle, PreparedBattle, TargetPolicy};
+use crate::{ActorId, Battle, Difficulty, PreparedBattle, TargetPolicy};
 use anyhow::{Context, Result, ensure};
 
 pub use resonance_content::battle_action::EnemyRequirements;
+
+/// An entry in the enemy catalogue, independent of its live actor slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnemyId(pub u8);
+
+/// An actor's prepared enemy-choice row, distinct from its executable action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EnemyChoiceId(pub usize);
+
+impl std::fmt::Display for EnemyChoiceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 /// Finite branch draws for an observed enemy action sequence.
 #[cfg(feature = "test-support")]
@@ -10,7 +24,7 @@ pub use resonance_content::battle_action::EnemyRequirements;
 pub struct FixtureEnemyChainInput {
     pub clock: u32,
     pub actor: ActorId,
-    pub row: usize,
+    pub row: EnemyChoiceId,
     pub chance: u16,
     pub selection: Option<u16>,
 }
@@ -41,12 +55,12 @@ pub struct EnemyChoice {
 
 #[derive(Debug, Clone)]
 pub struct EnemyDecisionDefinition {
-    pub enemy_id: u8,
+    pub enemy_id: EnemyId,
     pub strategy: TargetPolicy,
-    pub difficulty: u8,
+    pub difficulty: Difficulty,
     pub choices: Vec<EnemyChoice>,
-    pub disabled_choices: Vec<u8>,
-    pub back_row: Vec<(u8, u8)>,
+    pub disabled_choices: Vec<EnemyChoiceId>,
+    pub back_row: Vec<(EnemyChoiceId, u8)>,
     pub walk_speed: f32,
     pub walk_override: Option<resonance_content::battle_action::EnemyWalkOverride>,
     pub behavior: Option<crate::EnemyBehavior>,
@@ -87,16 +101,12 @@ impl PreparedBattle {
                 "enemy choice owner is not an enemy"
             );
 
-            ensure!(
-                definition.difficulty <= 2,
-                "unsupported ordinary enemy strategy"
-            );
             ensure!(!definition.choices.is_empty(), "empty enemy choice table");
             ensure!(
                 definition
                     .disabled_choices
                     .iter()
-                    .all(|&row| usize::from(row) < definition.choices.len()),
+                    .all(|&row| row.0 < definition.choices.len()),
                 "disabled enemy choice is out of range"
             );
             ensure!(
@@ -138,7 +148,7 @@ impl PreparedBattle {
                 definition
                     .back_row
                     .iter()
-                    .all(|&(row, _)| usize::from(row) < definition.choices.len()),
+                    .all(|&(row, _)| row.0 < definition.choices.len()),
                 "invalid back-row choice"
             );
         }
@@ -231,7 +241,7 @@ impl Battle {
     fn enemy_choice_eligible(
         &self,
         owner: ActorId,
-        index: usize,
+        index: EnemyChoiceId,
         row: &EnemyChoice,
         followup_hit: Option<bool>,
     ) -> bool {
@@ -252,7 +262,7 @@ impl Battle {
     fn enemy_choice_available(
         &self,
         owner: ActorId,
-        index: usize,
+        index: EnemyChoiceId,
         row: &EnemyChoice,
         followup_hit: Option<bool>,
     ) -> bool {
@@ -261,15 +271,10 @@ impl Battle {
             .enemy_decision
             .as_ref()
             .unwrap();
-        if definition
-            .disabled_choices
-            .iter()
-            .any(|&row| usize::from(row) == index)
-            || self.defense_arm_waiting(owner)
-        {
+        if definition.disabled_choices.contains(&index) || self.defense_arm_waiting(owner) {
             return false;
         }
-        let difficulty = definition.difficulty;
+        let difficulty = definition.difficulty as u8;
         if row.target_policy.unwrap_or(definition.strategy) == TargetPolicy::NearestIncapacitated
             && !self.actors.iter().any(|candidate| {
                 (candidate.side == actor.side) == row.target_allies
@@ -337,7 +342,7 @@ impl Battle {
                                     .enemy_decision
                                     .as_ref()
                                     .is_some_and(|definition| {
-                                        u16::from(definition.enemy_id) == enemy
+                                        u16::from(definition.enemy_id.0) == enemy
                                     })
                         })
                     }
@@ -345,7 +350,7 @@ impl Battle {
             })
     }
 
-    pub(crate) fn choose_enemy_action(&mut self, owner: ActorId) -> Result<Option<usize>> {
+    pub(crate) fn choose_enemy_action(&mut self, owner: ActorId) -> Result<Option<EnemyChoiceId>> {
         if self.target(owner).is_none_or(|target| {
             self.actors[target.index()].side == self.actors[owner.index()].side
         }) {
@@ -360,51 +365,44 @@ impl Battle {
             .iter()
             .filter(|actor| actor.side == crate::Side::Party && actor.available())
             .count();
-        let cap = if definition.difficulty >= 2 {
+        let cap = if definition.difficulty == Difficulty::Mania {
             8
         } else {
             (party_count + 1).min(3)
         };
         let cap = cap.saturating_mul(self.prepared.formation_count);
         let waiting = self.enemy_waiting_rank(owner) >= cap;
-        let candidates: Vec<_> = if waiting {
+        let mut candidates: Vec<_> = if waiting {
             definition
                 .back_row
                 .iter()
-                .filter_map(|&(index, weight)| {
-                    self.enemy_choice_eligible(
-                        owner,
-                        usize::from(index),
-                        &definition.choices[usize::from(index)],
-                        None,
-                    )
-                    .then_some((usize::from(index), u64::from(weight)))
-                })
+                .map(|&(index, weight)| (index, u64::from(weight)))
                 .collect()
         } else {
             definition
                 .choices
                 .iter()
                 .enumerate()
-                .filter(|(index, row)| self.enemy_choice_eligible(owner, *index, row, None))
-                .map(|(index, row)| (index, u64::from(row.weight)))
+                .map(|(index, row)| (EnemyChoiceId(index), u64::from(row.weight)))
                 .collect()
         };
+        candidates.retain(|&(index, _)| {
+            self.enemy_choice_eligible(owner, index, &definition.choices[index.0], None)
+        });
         // The first action is the basic fallback. Its approach closes the gap
         // when no action is currently in range; rear-row enemies still wait.
         let fallback = (!waiting
-            && definition
-                .choices
-                .first()
-                .is_some_and(|row| self.enemy_choice_available(owner, 0, row, None)))
-        .then_some(0);
+            && definition.choices.first().is_some_and(|row| {
+                self.enemy_choice_available(owner, EnemyChoiceId(0), row, None)
+            }))
+        .then_some(EnemyChoiceId(0));
         let selected = self
             .weighted_enemy_choice(owner, candidates, waiting)?
             .or(fallback);
         self.runtime[owner.index()].enemy_choice = selected;
         if let Some(index) = selected {
             let definition = self.enemy_decision(owner)?;
-            let row = &definition.choices[index];
+            let row = &definition.choices[index.0];
             let strategy = row.target_policy.unwrap_or(definition.strategy);
             let target_allies = row.target_allies;
             let guard_chance = row.guard_chance;
@@ -428,33 +426,32 @@ impl Battle {
         Ok(selected)
     }
 
-    pub(crate) fn refresh_enemy_choice(&mut self, owner: ActorId) -> Result<()> {
+    pub(crate) fn refresh_enemy_choice(&mut self, owner: ActorId) {
         let runtime = &self.runtime[owner.index()];
         if runtime.task().action().is_some()
             || runtime
                 .enemy_choice
                 .is_none_or(|row| self.enemy_behavior_allows_choice(owner, row))
         {
-            return Ok(());
+            return;
         }
         let approaching = runtime.task().approach().is_some();
         self.runtime[owner.index()].enemy_choice = None;
         if approaching {
-            self.cancel_approach(owner.index())?;
+            self.cancel_approach(owner.index());
         }
-        Ok(())
     }
 
     fn weighted_enemy_choice(
         &mut self,
         owner: ActorId,
-        candidates: Vec<(usize, u64)>,
+        candidates: Vec<(EnemyChoiceId, u64)>,
         waiting: bool,
-    ) -> Result<Option<usize>> {
+    ) -> Result<Option<EnemyChoiceId>> {
         let definition = self.enemy_decision(owner)?;
         let priority = candidates
             .iter()
-            .find(|&&(index, _)| definition.choices[index].requirements.priority)
+            .find(|&&(index, _)| definition.choices[index.0].requirements.priority)
             .map(|&(index, _)| index);
         let total = candidates.iter().try_fold(0_u64, |sum, (_, weight)| {
             sum.checked_add(*weight)
@@ -491,21 +488,21 @@ impl Battle {
         let runtime = &mut self.runtime[actor.index()];
         let selected = runtime
             .enemy_choice
-            .filter(|&index| definition.choices[index].action == action)
+            .filter(|&index| definition.choices[index.0].action == action)
             .or_else(|| {
                 definition
                     .choices
                     .iter()
                     .position(|row| row.action == action)
+                    .map(EnemyChoiceId)
             });
         runtime.enemy_choice = selected;
         runtime.last_executed_enemy_row = selected;
         runtime.enemy_effective_hit = false;
         if let Some(index) = selected
-            && definition.choices[index].requirements.once_per_battle
-            && !runtime.used_enemy_choices.contains(&index)
+            && definition.choices[index.0].requirements.once_per_battle
         {
-            runtime.used_enemy_choices.push(index);
+            runtime.used_enemy_choices.insert(index);
         }
     }
 
@@ -524,7 +521,7 @@ impl Battle {
         let mut previous = 0;
         for input in &mut inputs {
             ensure!(
-                input.actor == actor && input.row < count && input.clock > previous,
+                input.actor == actor && input.row.0 < count && input.clock > previous,
                 "invalid ordered enemy chain input"
             );
             previous = input.clock;
@@ -544,7 +541,7 @@ impl Battle {
     }
 
     #[cfg(feature = "test-support")]
-    pub fn fixture_enemy_choice(&self, actor: ActorId) -> Option<usize> {
+    pub fn fixture_enemy_choice(&self, actor: ActorId) -> Option<EnemyChoiceId> {
         self.runtime[actor.index()].enemy_choice
     }
 
@@ -552,12 +549,12 @@ impl Battle {
     pub fn select_fixture_enemy_row(
         &mut self,
         actor: ActorId,
-        row: usize,
+        row: EnemyChoiceId,
     ) -> Result<crate::ActionKey> {
         let action = self
             .enemy_decision(actor)?
             .choices
-            .get(row)
+            .get(row.0)
             .context("unknown observed enemy row")?
             .action;
         self.runtime[actor.index()].enemy_choice = Some(row);
@@ -597,7 +594,7 @@ impl Battle {
         let Some(index) = self.runtime[actor.index()].enemy_choice else {
             return Ok(false);
         };
-        let row = &self.enemy_decision(actor)?.choices[index];
+        let row = &self.enemy_decision(actor)?.choices[index.0];
         let chance = row.followup_chance;
         let followup = row.chain_group != 0;
         let Some(group) = row.chain_group.checked_add(1) else {
@@ -645,12 +642,17 @@ impl Battle {
                 (!followup || row.chain_group == group)
                     && self.enemy_choice_eligible(
                         actor,
-                        *index,
+                        EnemyChoiceId(*index),
                         row,
                         followup.then_some(self.runtime[actor.index()].enemy_effective_hit),
                     )
             })
-            .map(|(index, row)| (index, if followup { 1 } else { u64::from(row.weight) }))
+            .map(|(index, row)| {
+                (
+                    EnemyChoiceId(index),
+                    if followup { 1 } else { u64::from(row.weight) },
+                )
+            })
             .collect();
         let total: u64 = candidates.iter().map(|(_, weight)| weight).sum();
         if total == 0 {
@@ -670,7 +672,7 @@ impl Battle {
         let index = candidates
             .into_iter()
             .find_map(|(index, weight)| {
-                if threshold < weight || definition.choices[index].requirements.priority {
+                if threshold < weight || definition.choices[index.0].requirements.priority {
                     Some(index)
                 } else {
                     threshold -= weight;
@@ -678,7 +680,7 @@ impl Battle {
                 }
             })
             .expect("positive candidate total must select a row");
-        let row = &self.enemy_decision(actor)?.choices[index];
+        let row = &self.enemy_decision(actor)?.choices[index.0];
         let action = row.action;
         let guard_chance = row.guard_chance;
         self.runtime[actor.index()].enemy_choice = Some(index);
@@ -747,11 +749,11 @@ impl Battle {
             return Ok(());
         }
         let Some(selected) = self.choose_enemy_action(owner)? else {
-            self.begin_taunt(owner)?;
+            self.begin_taunt(owner);
             return Ok(());
         };
         let definition = self.enemy_decision(owner)?;
-        let row = &definition.choices[selected];
+        let row = &definition.choices[selected.0];
         let action = row.action;
         let target = self.target(owner).context("enemy has no target")?;
         if matches!(
@@ -787,23 +789,11 @@ mod tests {
 
     fn choice(action: crate::ActionKey, weight: u8) -> EnemyChoice {
         EnemyChoice {
-            action,
-            physical_arte: false,
             weight,
-            chain_group: 0,
-            followup_chance: 0,
-            requirements: EnemyRequirements::default(),
-            target_policy: None,
-            target_allies: false,
             return_to_formation: true,
-            returning: None,
-            return_speed: None,
             guard_chance: 20,
-            range: [0, 0],
-            tp: 0,
-            approach_minimum: 0.,
             approach_range: 80.,
-            approach: None,
+            ..crate::tests::enemy_choice(action)
         }
     }
 
@@ -827,20 +817,7 @@ mod tests {
         let mut setup = vec![crate::ActorSetup::default(); actors.len()];
         for row in setup.iter_mut().skip(1) {
             *row = crate::ActorSetup {
-                enemy_decision: Some(EnemyDecisionDefinition {
-                    enemy_id: 0,
-                    disabled_choices: Vec::new(),
-                    strategy: TargetPolicy::Nearest,
-                    difficulty: 0,
-                    choices: choices.clone(),
-                    back_row: vec![],
-                    walk_speed: 2.,
-                    walk_override: None,
-                    behavior: None,
-                    walk_motion: None,
-                    run_motion: None,
-                    turn_ticks: 8,
-                }),
+                enemy_decision: Some(crate::tests::enemy_decision(choices.clone())),
                 ..Default::default()
             };
         }
@@ -1143,7 +1120,7 @@ mod tests {
                     .as_mut()
                     .unwrap()
                     .disabled_choices
-                    .push(1);
+                    .push(EnemyChoiceId(1));
             }
             prepared.actors[1].movement.turning_disabled = true;
             for (index, definition) in prepared.resources.actions.entries.iter_mut().enumerate() {
@@ -1224,11 +1201,20 @@ mod tests {
         followup.requirements.priority = true;
         followup.requirements.followup_only = true;
         let mut battle = battle(vec![counter, followup, choice(crate::ActionKey(2), 1)])?;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(2));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(2))
+        );
         battle.actors[0].guard.active = true;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(0));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(0))
+        );
         battle.actors[0].guard.active = false;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(2));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(2))
+        );
         Ok(())
     }
 
@@ -1274,13 +1260,13 @@ mod tests {
             assert_eq!(
                 battle.enemy_choice_eligible(
                     ActorId(1),
-                    1,
+                    EnemyChoiceId(1),
                     &next,
                     Some(battle.runtime[1].enemy_effective_hit)
                 ),
                 eligible
             );
-            assert!(!battle.enemy_choice_eligible(ActorId(1), 1, &next, None));
+            assert!(!battle.enemy_choice_eligible(ActorId(1), EnemyChoiceId(1), &next, None));
             battle.record_enemy_action(ActorId(1), crate::ActionKey(1));
             assert!(!battle.runtime[1].enemy_effective_hit);
         }
@@ -1293,9 +1279,15 @@ mod tests {
         limited.requirements.priority = true;
         limited.requirements.max_enemies = Some(2);
         let mut battle = prepared(vec![limited, choice(crate::ActionKey(1), 1)], 3)?.finish()?;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(1));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(1))
+        );
         battle.actors[3].availability = crate::ActorAvailability::Dead;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(0));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(0))
+        );
         battle.prepared.actor_setup[1]
             .enemy_decision
             .as_mut()
@@ -1303,14 +1295,20 @@ mod tests {
             .choices[0]
             .requirements
             .max_enemies = Some(1);
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(1));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(1))
+        );
         battle.actors[2].availability = crate::ActorAvailability::Dead;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(0));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(0))
+        );
         let owner = battle.prepared.actor_setup[1]
             .enemy_decision
             .as_mut()
             .unwrap();
-        owner.enemy_id = 10;
+        owner.enemy_id = EnemyId(10);
         owner.choices[0].requirements.max_enemies = None;
         owner.choices[0].requirements.predicates =
             vec![resonance_content::battle_action::EnemyPredicate::AllyAbsent(10)];
@@ -1318,11 +1316,17 @@ mod tests {
             .enemy_decision
             .as_mut()
             .unwrap()
-            .enemy_id = 10;
+            .enemy_id = EnemyId(10);
         battle.actors[2].availability = crate::ActorAvailability::Active;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(1));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(1))
+        );
         battle.actors[2].availability = crate::ActorAvailability::Dead;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(0));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(0))
+        );
         Ok(())
     }
 
@@ -1343,7 +1347,7 @@ mod tests {
             .skip(1)
         {
             let decision = setup.enemy_decision.as_mut().unwrap();
-            decision.enemy_id = if index == 3 { 30 } else { 31 };
+            decision.enemy_id = if index == 3 { EnemyId(30) } else { EnemyId(31) };
             decision.walk_speed = 1.8;
             decision.turn_ticks = 20;
             decision.choices[1].approach_range = 0.;
@@ -1353,14 +1357,17 @@ mod tests {
         prepared.actors[2].position = [870., 0., 0.];
         prepared.actors[3].position = [1000., 0., 0.];
         let mut battle = prepared.with_arena_boundary().finish()?;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(0));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(0))
+        );
         battle.actors[3].hp = 0;
         battle.actors[3].availability = crate::ActorAvailability::Dead;
         let mut selected = std::collections::BTreeSet::new();
         for _ in 0..32 {
             selected.insert(battle.choose_enemy_action(ActorId(1))?.unwrap());
         }
-        assert_eq!(selected, [0, 1].into_iter().collect());
+        assert_eq!(selected, [EnemyChoiceId(0), EnemyChoiceId(1)].into());
 
         // Select departures for this lifecycle check; the weighted competition above stays intact.
         for owner in [ActorId(1), ActorId(2)] {
@@ -1422,8 +1429,11 @@ mod tests {
         let mut battle = battle(vec![first, choice(crate::ActionKey(1), 1)])?;
         battle.advance_enemy_ai(ActorId(1), &mut Vec::new())?;
         assert_eq!(battle.activity(ActorId(1)), crate::Activity::Approaching);
-        battle.cancel_approach(1)?;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(0));
+        battle.cancel_approach(1);
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(0))
+        );
         battle.start_admitted_action(
             crate::ActionRequest {
                 actor: ActorId(1),
@@ -1433,7 +1443,10 @@ mod tests {
             &mut Vec::new(),
         )?;
         battle.interrupt_actor(ActorId(1), &mut Vec::new());
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(1));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(1))
+        );
         Ok(())
     }
 
@@ -1449,29 +1462,38 @@ mod tests {
             .enemy_decision
             .as_mut()
             .unwrap()
-            .back_row = vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 255)];
+            .back_row = vec![
+            (EnemyChoiceId(0), 0),
+            (EnemyChoiceId(1), 0),
+            (EnemyChoiceId(2), 0),
+            (EnemyChoiceId(3), 0),
+            (EnemyChoiceId(4), 255),
+        ];
         let mut battle = candidate.finish()?;
         for _ in 0..16 {
             assert!(
                 battle
                     .choose_enemy_action(ActorId(1))?
-                    .is_some_and(|index| index < 300)
+                    .is_some_and(|index| index.0 < 300)
             );
         }
-        assert_eq!(battle.choose_enemy_action(ActorId(3))?, Some(4));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(3))?,
+            Some(EnemyChoiceId(4))
+        );
         battle.prepared.actor_setup[3]
             .enemy_decision
             .as_mut()
             .unwrap()
             .disabled_choices
-            .push(4);
+            .push(EnemyChoiceId(4));
         assert_eq!(battle.choose_enemy_action(ActorId(3))?, None);
         let mut invalid = prepared(vec![choice(crate::ActionKey(0), 1)], 1)?;
         invalid.resources.actor_setup[1]
             .enemy_decision
             .as_mut()
             .unwrap()
-            .back_row = vec![(1, 1)];
+            .back_row = vec![(EnemyChoiceId(1), 1)];
         assert!(invalid.finish().is_err());
         Ok(())
     }
@@ -1485,14 +1507,17 @@ mod tests {
         let mut battle = battle(vec![nearby, distant])?;
         assert_eq!(
             battle.runtime[1].enemy_choice,
-            Some(1),
+            Some(EnemyChoiceId(1)),
             "entry uses the real initial gap"
         );
         for (x, expected) in [(50., 0), (500., 1), (1400., 0)] {
             let enemy = &mut battle.actors[1];
             enemy.position[0] = x;
 
-            assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(expected));
+            assert_eq!(
+                battle.choose_enemy_action(ActorId(1))?,
+                Some(EnemyChoiceId(expected))
+            );
         }
         Ok(())
     }
@@ -1512,7 +1537,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .disabled_choices
-            .push(0);
+            .push(EnemyChoiceId(0));
         assert_eq!(battle.choose_enemy_action(enemy)?, None);
         battle.prepared.actor_setup[1]
             .enemy_decision
@@ -1534,7 +1559,12 @@ mod tests {
 
     #[test]
     fn combined_formations_scale_engagement_without_restricting_nearby_enemies() -> Result<()> {
-        for (difficulty, party_count, allowance) in [(0, 1, 2), (0, 4, 3), (1, 4, 3), (2, 4, 8)] {
+        for (difficulty, party_count, allowance) in [
+            (Difficulty::Normal, 1, 2),
+            (Difficulty::Normal, 4, 3),
+            (Difficulty::Hard, 4, 3),
+            (Difficulty::Mania, 4, 8),
+        ] {
             for formations in 1..=3 {
                 let source = prepared(vec![choice(crate::ActionKey(0), 1)], 25)?;
                 let mut participants: Vec<_> = source
@@ -1556,12 +1586,15 @@ mod tests {
                 for index in 1..=25 {
                     assert_eq!(
                         battle.choose_enemy_action(ActorId(index))?,
-                        (usize::from(index) <= active).then_some(0),
-                        "difficulty={difficulty}, party={party_count}, formations={formations}, actor={index}"
+                        (usize::from(index) <= active).then_some(EnemyChoiceId(0)),
+                        "difficulty={difficulty:?}, party={party_count}, formations={formations}, actor={index}"
                     );
                 }
                 battle.actors[25].position = [0., 0., 250.];
-                assert_eq!(battle.choose_enemy_action(ActorId(25))?, Some(0));
+                assert_eq!(
+                    battle.choose_enemy_action(ActorId(25))?,
+                    Some(EnemyChoiceId(0))
+                );
             }
         }
         Ok(())
@@ -1593,9 +1626,12 @@ mod tests {
         let mut battle = battle(vec![costly, hard, choice(crate::ActionKey(2), 1)])?;
         battle.actors[1].tp = 0;
         for _ in 0..10 {
-            assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(2));
+            assert_eq!(
+                battle.choose_enemy_action(ActorId(1))?,
+                Some(EnemyChoiceId(2))
+            );
         }
-        assert_eq!(battle.runtime[1].enemy_choice, Some(2));
+        assert_eq!(battle.runtime[1].enemy_choice, Some(EnemyChoiceId(2)));
         assert_eq!(battle.actors[1].guard.enemy_chance, 20);
         assert_eq!(battle.target(ActorId(1)), Some(ActorId(0)));
         assert_eq!(battle.actors[1].movement.target_direction, [-1., 0., 0.]);
@@ -1606,7 +1642,10 @@ mod tests {
             .unwrap()
             .choices[0]
             .tp = 0;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(2));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(2))
+        );
         battle.actors[0].availability = crate::ActorAvailability::Dead;
         assert_eq!(battle.choose_enemy_action(ActorId(1))?, None);
         assert_eq!(battle.runtime[1].enemy_choice, None);
@@ -1619,16 +1658,25 @@ mod tests {
         priority.requirements.priority = true;
         priority.requirements.hp_percent = Some(25);
         let mut battle = battle(vec![priority, choice(crate::ActionKey(1), 1)])?;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(1));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(1))
+        );
         battle.actors[1].hp = 1;
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(0));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(0))
+        );
         battle.prepared.actor_setup[1]
             .enemy_decision
             .as_mut()
             .unwrap()
             .disabled_choices
-            .push(0);
-        assert_eq!(battle.choose_enemy_action(ActorId(1))?, Some(1));
+            .push(EnemyChoiceId(0));
+        assert_eq!(
+            battle.choose_enemy_action(ActorId(1))?,
+            Some(EnemyChoiceId(1))
+        );
         battle.actors[1].tp = 0;
         let prepared = &mut battle.prepared;
         for row in &mut prepared.actor_setup[1]
@@ -1662,17 +1710,17 @@ mod tests {
         let mut battle = battle(vec![primary, choice(crate::ActionKey(1), 1)])?;
         let owner = ActorId(1);
         // Reconsidering an approach does not consume the repeat restriction.
-        assert_eq!(battle.choose_enemy_action(owner)?, Some(0));
-        assert_eq!(battle.choose_enemy_action(owner)?, Some(0));
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(0)));
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(0)));
         battle.record_enemy_action(owner, crate::ActionKey(0));
-        assert_eq!(battle.choose_enemy_action(owner)?, Some(1));
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(1)));
         battle.record_enemy_action(owner, crate::ActionKey(1));
         battle.actors[1].position[0] = 600.;
-        assert_eq!(battle.choose_enemy_action(owner)?, Some(0));
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(0)));
         battle.actors[1].position[0] = 601.;
-        assert_eq!(battle.choose_enemy_action(owner)?, Some(1));
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(1)));
         battle.actors[1].position[0] = 499.;
-        assert_eq!(battle.choose_enemy_action(owner)?, Some(1));
+        assert_eq!(battle.choose_enemy_action(owner)?, Some(EnemyChoiceId(1)));
         battle.actors[1].position[0] = 500.;
         battle.actors[0].availability = crate::ActorAvailability::Dead;
         assert_eq!(battle.choose_enemy_action(owner)?, None);

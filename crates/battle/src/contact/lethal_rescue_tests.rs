@@ -12,10 +12,6 @@ fn rescued_contact_keeps_the_target_and_awards_no_kill_rewards() -> Result<()> {
     let mut battle = candidate.finish()?;
     battle.set_diagnostics(resonance_content::diagnostics::Diagnostics::new(false));
     let mut definition = crate::tests::contact_projectile(false, false);
-    definition.velocity = [0.; 3];
-    definition.acceleration = [0.; 3];
-    definition.offset = [0.; 3];
-    definition.active = None;
     definition.contact.as_mut().unwrap().hit.power = Power::Fixed(54);
     battle.emit(
         Arc::new(definition),
