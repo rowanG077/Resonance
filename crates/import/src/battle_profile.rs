@@ -77,7 +77,7 @@ pub(crate) fn read(
             .context("intrinsic conditions")?,
         immunities: conditions(<[u32; 2]>::read(b, 0x18)?, true).context("immunities")?,
         weight: b[0x28],
-        species: u16::read(b, 0x2a)?,
+        species: resonance_content::battle_profile::Species(u16::read(b, 0x2a)?),
         stun_resistance: b[0x2d],
         stagger_threshold: b[0x2e],
         guard_reduction: b[0x2f],

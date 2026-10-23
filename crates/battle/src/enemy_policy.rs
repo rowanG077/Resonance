@@ -166,7 +166,7 @@ impl PreparedBattle {
                 }) => ensure!(
                     actions.len() == decision.choices.len()
                         && !anchors.is_empty()
-                        && drop_on_hurt.is_none_or(|(drop, _)| drop.slot < 2
+                        && drop_on_hurt.is_none_or(|(drop, _)| drop.slot.is_primary()
                             && drop.hp_percent <= 100
                             && drop.upward_speed.is_finite()
                             && drop.upward_speed > 0.
@@ -290,7 +290,7 @@ impl Battle {
                 if let Some(falling) = &runtime.enemy_behavior.dropped_weapon {
                     self.model_requests.push(crate::ModelRequest::DropWeapon {
                         actor: owner,
-                        slot: WeaponSlot(drop.slot),
+                        slot: drop.slot,
                         world: falling.world,
                     });
                 }

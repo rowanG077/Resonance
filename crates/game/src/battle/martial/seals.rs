@@ -1,5 +1,6 @@
 //! Seal follow-ups retain the character's authored pose and contact sequence.
-use super::{PreparedAttack, Sound, Technique};
+use super::{PreparedAttack, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result, bail};
 use resonance_battle::{
     AttackEvent, EffectAppearance, RecoveryKind, SealDefinition, conditions::Condition,
@@ -12,9 +13,7 @@ const PINION_RELEASE_TICK: u16 = 44;
 const PINION_PROJECTILE: usize = 12;
 const STAT_REDUCTION_DURATION: u16 = 900;
 
-impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
-    crate::battle::encounter::resources::Resources<'_, S>
-{
+impl Resources<'_> {
     pub(crate) fn seal(&mut self, catalogue: u16) -> Result<SealDefinition> {
         let (condition, effect) = match catalogue {
             126..=128 => (Condition::DefenseDown, 134),
@@ -42,9 +41,9 @@ impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
 }
 
 impl Technique {
-    pub(super) fn prepare_seal<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    pub(super) fn prepare_seal(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let timeline = self.authored_timeline(resources.voices.party_table())?;

@@ -30,8 +30,8 @@ pub(crate) fn load(
 }
 
 /// Falcon's Crest keeps its artwork on the same elapsed schedule as its prepared attack.
-pub(crate) fn falcon<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>(
-    resources: &mut super::encounter::resources::Resources<'_, S>,
+pub(crate) fn falcon(
+    resources: &mut super::encounter::resources::Resources<'_>,
     attack: &mut resonance_battle::PreparedAttack,
     model: &resonance_battle::ModelDefinition,
 ) -> Result<()> {

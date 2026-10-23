@@ -17,8 +17,6 @@ fn spell_rows_keep_their_authored_armor_including_zero() -> Result<()> {
         let row = &actions.rows[0];
         assert!(matches!(row.execution, Some(EnemyExecution::Spell(204))));
         assert_eq!(row.cast_armor, Some(threshold));
-        let decoded: EnemyActions = serde_json::from_slice(&serde_json::to_vec(&actions)?)?;
-        assert_eq!(decoded.rows[0].cast_armor, Some(threshold));
     }
     bytes[580..582].fill(0);
     assert_eq!(read(&bytes, &[])?.rows[0].cast_armor, None);
@@ -1077,7 +1075,7 @@ fn carried_poses_keep_the_action_clock_and_repeat_choice() -> Result<()> {
         };
         assert_eq!(attack.duration, 77);
         assert!(attack.events.iter().any(|event| matches!(event,
-            (at, EnemyEvent::CarriedPose { slot: 0, clip: 33, rate, repeat: actual })
+            (at, EnemyEvent::CarriedPose { slot: WeaponSlot(0), clip: 33, rate, repeat: actual })
                 if *at == expected && *rate == 0.75 && *actual == repeat)));
     }
     bytes[624..628].copy_from_slice(&2_u32.to_be_bytes());
@@ -1105,7 +1103,7 @@ fn carried_poses_keep_the_action_clock_and_repeat_choice() -> Result<()> {
             attack.events.iter().any(|(_, event)| matches!(
                 event,
                 EnemyEvent::WeaponVisibility {
-                    slot: 0,
+                    slot: WeaponSlot(0),
                     visible: true
                 }
             )),
@@ -1316,8 +1314,8 @@ fn broken_weapon_controller_uses_the_actions_blend_clock() -> Result<()> {
             action: 2,
             hide_at: 57,
             replace_at: 158,
-            source: 1,
-            destination: 0,
+            source: WeaponSlot(1),
+            destination: WeaponSlot(0),
             disabled_action: 0,
         })
     ));

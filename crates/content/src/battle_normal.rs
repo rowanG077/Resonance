@@ -1,6 +1,6 @@
 //! Authored normal attacks, prepared on one elapsed gameplay timeline.
 use crate::{
-    battle_action::{ActionHit, ActionPose, MeleeContact},
+    battle_action::{ActionHit, ActionPose, MeleeContact, WeaponSlot},
     battle_voice::Sound,
 };
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,7 @@ pub enum Event {
         feedback: Option<crate::battle_martial::ProjectileFeedback>,
     },
     Throw {
-        slot: u8,
+        slot: WeaponSlot,
         flight: WeaponFlight,
         radius: f32,
         hit: ActionHit,
@@ -51,11 +51,11 @@ pub enum Event {
     PassThrough(bool),
     Braking(f32),
     WeaponVisibility {
-        slot: u8,
+        slot: WeaponSlot,
         visible: bool,
     },
     Trail {
-        slot: u8,
+        slot: WeaponSlot,
         duration: u16,
     },
     Sound(u16),

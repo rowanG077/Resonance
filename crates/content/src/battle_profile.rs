@@ -6,6 +6,11 @@ use std::collections::BTreeMap;
 
 pub const PARTY_PATH: &str = "battle/party-profiles.json";
 
+/// Actor category matched by species-specific weapon bonuses.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Species(pub u16);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Table {
@@ -217,7 +222,7 @@ pub struct Profile {
     pub immunities: ConditionSet,
     pub weight: u8,
     /// Actor species category used by weapon damage bonuses.
-    pub species: u16,
+    pub species: Species,
     pub stun_resistance: u8,
     pub stagger_threshold: u8,
     pub stagger_ticks: u8,

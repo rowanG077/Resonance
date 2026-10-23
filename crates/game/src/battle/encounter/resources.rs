@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-pub(crate) struct Resources<'a, S> {
+pub(crate) struct Resources<'a> {
     pub files: &'a Files,
     pub catalogue: &'a resonance_content::arte::Catalogue,
     pub unison: &'a resonance_content::battle_unison::Catalogue,
@@ -27,10 +27,10 @@ pub(crate) struct Resources<'a, S> {
     pub prepared: ActionResources,
     pub feedback: &'a mut battle::feedback::Feedback,
     pub spells: BTreeMap<u16, Arc<resonance_battle::PreparedSpell>>,
-    pub sound: S,
+    pub sound: &'a mut dyn FnMut(Sound) -> Result<Option<Sound>>,
 }
 
-impl<S: FnMut(battle::voice::Sound) -> Result<Option<Sound>>> Resources<'_, S> {
+impl Resources<'_> {
     pub(super) fn prepare(&mut self) -> Result<()> {
         self.prepared.effect(self.common.clone())?;
         if !self.techniques.members.is_empty() {

@@ -1,6 +1,7 @@
 //! Decode the shared party action directory into native attack events.
 use crate::read::Field;
 use anyhow::{Context, Result, ensure};
+use resonance_content::battle_action::WeaponSlot;
 use resonance_content::{
     battle_martial::{
         Attack, Binding, Catalogue, Flight, Member, PoseStart, PoseStep, gameplay_tick,
@@ -424,7 +425,7 @@ fn attack(
                     ensure!(visible <= 1, "invalid martial weapon visibility");
                     (
                         Event::WeaponVisibility {
-                            slot,
+                            slot: WeaponSlot(slot),
                             visible: visible != 0,
                         },
                         6,
@@ -915,7 +916,7 @@ mod tests {
             && matches!(
                 event,
                 Event::Trail {
-                    slot: 1,
+                    slot: WeaponSlot(1),
                     duration: 90
                 }
             )));
@@ -1059,7 +1060,7 @@ mod tests {
             && matches!(
                 event,
                 Event::Trail {
-                    slot: 1,
+                    slot: WeaponSlot(1),
                     duration: 90
                 }
             )));

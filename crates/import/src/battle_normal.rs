@@ -1,6 +1,7 @@
 //! Decode the party's seven directional attack tables into elapsed events.
 use crate::{read::Field, rel::Rel};
 use anyhow::{Context, Result, ensure};
+use resonance_content::battle_action::WeaponSlot;
 use resonance_content::battle_normal::{Attack, Continuation, Event, WeaponFlight};
 
 pub(crate) fn read(module: &Rel) -> Result<Vec<[Attack; 7]>> {
@@ -108,7 +109,7 @@ fn decode(
                 "unsupported thrown weapon contact"
             );
             Event::Throw {
-                slot: row[4],
+                slot: WeaponSlot(row[4]),
                 flight: flights[match row[2] as i8 {
                     -3 => 0,
                     -4 => 1,
@@ -142,7 +143,7 @@ fn decode(
                 ensure!(operand & 255 <= 1, "invalid normal weapon visibility");
                 (
                     Event::WeaponVisibility {
-                        slot: (operand >> 8) as u8,
+                        slot: WeaponSlot((operand >> 8) as u8),
                         visible: operand & 255 != 0,
                     },
                     6,

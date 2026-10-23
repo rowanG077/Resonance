@@ -1,5 +1,6 @@
 //! Bind the party action table to the encounter's model, sound, and effect banks.
 use super::{Character, Sequence, Sound, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result, bail, ensure};
 use resonance_battle::{AttackEvent, AttackPose, EffectAppearance, PreparedAttack};
 use resonance_content::{
@@ -114,20 +115,18 @@ impl Technique {
             .cloned()
     }
 
-    pub(super) fn prepare_authored<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    pub(super) fn prepare_authored(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let attack = self.authored_timeline(resources.voices.party_table())?;
         self.prepare_authored_attack(resources, model, attack)
     }
 
-    pub(super) fn prepare_authored_attack<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_authored_attack(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
         mut attack: resonance_content::battle_martial::Attack,
     ) -> Result<PreparedAttack> {

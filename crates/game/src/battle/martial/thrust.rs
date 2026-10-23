@@ -1,15 +1,14 @@
 //! Hurricane Thrust adds a detached ground burst after its opening strike connects.
-use super::{PreparedAttack, Sound, Technique};
+use super::{PreparedAttack, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result};
 use resonance_battle::{AttackEvent, EffectAppearance, HitShape};
 use std::sync::Arc;
 
 impl Technique {
-    pub(super) fn prepare_hurricane_thrust<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_hurricane_thrust(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let mut timeline = self.authored_timeline(resources.voices.party_table())?;

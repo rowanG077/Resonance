@@ -1,12 +1,13 @@
 //! Physical arte callbacks add only emissions absent from the authored action track.
-use super::{PreparedAttack, Sound, Technique};
+use super::{PreparedAttack, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result, bail};
 use resonance_battle::{AttackEvent, AttackOrigin, AttackPose, EffectAppearance, ModelDefinition};
 
 impl Technique {
-    pub(super) fn prepare_eagle<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    pub(super) fn prepare_eagle(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let timeline = self.authored_timeline(resources.voices.party_table())?;
@@ -38,11 +39,9 @@ impl Technique {
         Ok(action)
     }
 
-    pub(super) fn prepare_destruction<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_destruction(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let timeline = self.authored_timeline(resources.voices.party_table())?;

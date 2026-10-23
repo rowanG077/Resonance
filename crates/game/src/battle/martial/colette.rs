@@ -1,5 +1,6 @@
 //! Colette's projectile families share authored tracks and prepared launches.
-use super::{PreparedAttack, Sound, Technique};
+use super::{PreparedAttack, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
     AttackEvent, EffectAppearance, HammerProjectile, HammerRing, ProjectileScatter, ProjectileShot,
@@ -10,11 +11,9 @@ use resonance_content::battle_martial::{
 use std::sync::Arc;
 
 impl Technique {
-    pub(super) fn prepare_colette_projectiles<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_colette_projectiles(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let source = self.authored_timeline(resources.voices.party_table())?;
@@ -153,11 +152,9 @@ impl Technique {
         Ok(definition)
     }
 
-    pub(super) fn prepare_hammer_volley<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_hammer_volley(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let mut source = self.authored_timeline(resources.voices.party_table())?;

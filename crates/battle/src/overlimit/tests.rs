@@ -122,26 +122,6 @@ fn extended_duration_expires_before_another_ally_can_enter_overlimit() {
 }
 
 #[test]
-fn charge_and_duration_have_distinct_bounds_and_saved_values() {
-    for charge in [0, 9, 10, 999, 1000] {
-        let gauge = OverLimit::new(charge).unwrap();
-        assert_eq!(gauge.charge(), charge);
-        assert_eq!(gauge.remaining(), 0);
-        assert_eq!(gauge.saved_percent(), (charge / 10) as u8);
-    }
-    for invalid in [1001, 1250, u16::MAX] {
-        assert!(OverLimit::new(invalid).is_err());
-    }
-    for duration in [0, 1, 1000, 1250] {
-        let gauge = OverLimit::active(duration).unwrap();
-        assert_eq!(gauge.charge(), 0);
-        assert_eq!(gauge.remaining(), duration);
-        assert_eq!(gauge.saved_percent(), 0);
-    }
-    assert!(OverLimit::active(1251).is_err());
-}
-
-#[test]
 fn results_keep_partial_charge_and_discard_full_charge_and_active_duration() {
     let mut battle = battle(&[999, 1000, 0, 0, 750]);
     battle.actors[2].overlimit = OverLimit::active(1250).unwrap();

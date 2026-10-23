@@ -33,10 +33,10 @@ pub(super) fn carried_motions(
         .attachments
         .keys()
         .copied()
-        .chain(requested.iter().map(|&(slot, _)| slot))
+        .chain(requested.iter().map(|&(slot, _)| slot.0))
         .collect::<std::collections::BTreeSet<_>>();
     if let Some(EnemyBehavior::CarriedAnimationRate { slot, .. }) = &actions.policy.behavior {
-        slots.insert(*slot);
+        slots.insert(slot.0);
     }
     let members = crate::model_preview::PointerMembers::new(bytes, 0x18..0x1e8)?;
     let mut decoded = crate::scene::decoded::Package::default();
@@ -119,7 +119,7 @@ pub(super) fn carried_motions(
         {
             publish(0, &crate::animation::read_member(&package[range])?, true)?;
         }
-        for &(_, clip) in requested.iter().filter(|(part, _)| *part == slot) {
+        for &(_, clip) in requested.iter().filter(|(part, _)| part.0 == slot) {
             let field = 0x20 + usize::from(clip) * 4;
             ensure!(field < 0x160, "carried clip exceeds the enemy motion table");
             let animation = members

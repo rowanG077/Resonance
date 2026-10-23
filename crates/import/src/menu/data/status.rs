@@ -22,9 +22,9 @@ pub(super) fn properties(id: usize, row: &Definition) -> Result<EquipmentPropert
             .collect(),
         critical_chance_bonus: row.critical_chance_bonus,
         technique_drift: row.technique_drift,
-        species_bonus: (97..=108)
-            .contains(&row.primary_effect)
-            .then(|| u16::from(row.primary_effect - 96)),
+        species_bonus: (97..=108).contains(&row.primary_effect).then(|| {
+            resonance_content::battle_profile::Species(u16::from(row.primary_effect - 96))
+        }),
         physical_damage_boost: id == 415,
         physical_damage_reduction: id == 416,
         magic_damage_boost: id == 417,
@@ -143,7 +143,10 @@ fn equipment_properties_decode_native_behavior_and_independent_captions() {
         value.resistance,
         [(Element::Water, -2), (Element::Darkness, 3)].into()
     );
-    assert_eq!(value.species_bonus, Some(3));
+    assert_eq!(
+        value.species_bonus,
+        Some(resonance_content::battle_profile::Species(3))
+    );
     assert_eq!(
         value.immunities,
         [EquipmentAilment::Paralysis, EquipmentAilment::Poison].into()

@@ -159,12 +159,12 @@ pub(super) fn has_pair(native: u16, participants: &[Participant<'_>]) -> bool {
     })
 }
 
-pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
+pub(super) fn prepare(
     combination: &Combination,
     scene: &Scene,
     bank: &EffectResource,
     participants: &[Participant<'_>],
-    resources: &mut Resources<'_, S>,
+    resources: &mut Resources<'_>,
     actions: &mut ActionDefinitions,
 ) -> Result<Option<UnisonCombination>> {
     let Some(family) = Family::from_id(combination.native_id) else {
@@ -268,7 +268,7 @@ pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
+fn decorate(
     combination: &Combination,
     family: Family,
     role: usize,
@@ -277,7 +277,7 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
     settings: &Settings,
     scene: &Scene,
     bank: &EffectResource,
-    resources: &mut Resources<'_, S>,
+    resources: &mut Resources<'_>,
     attack: &mut resonance_battle::PreparedAttack,
 ) -> Result<()> {
     let appearance = |member| EffectAppearance {
@@ -498,12 +498,12 @@ fn decorate<S: FnMut(Sound) -> Result<Option<Sound>>>(
     Ok(())
 }
 
-fn projectile<S: FnMut(Sound) -> Result<Option<Sound>>>(
+fn projectile(
     scene: &Scene,
     member: usize,
     rule: usize,
     bank: &EffectResource,
-    resources: &mut Resources<'_, S>,
+    resources: &mut Resources<'_>,
 ) -> Result<Arc<resonance_battle::ProjectileDefinition>> {
     let row = scene
         .projectiles

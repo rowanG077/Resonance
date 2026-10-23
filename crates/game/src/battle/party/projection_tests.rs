@@ -110,8 +110,8 @@ fn gear_bonuses_saturate_and_weapon_species_uses_only_the_primary_weapon() -> Re
     for item in &mut menus.items[1..=6] {
         item.properties.critical_chance_bonus = 50;
     }
-    menus.items[1].properties.species_bonus = Some(6);
-    menus.items[2].properties.species_bonus = Some(1);
+    menus.items[1].properties.species_bonus = Some(resonance_content::battle_profile::Species(6));
+    menus.items[2].properties.species_bonus = Some(resonance_content::battle_profile::Species(1));
     menus.items[1].properties.neutral_resistance = 64;
     menus.items[2].properties.neutral_resistance = 64;
     menus.items[1]
@@ -123,7 +123,10 @@ fn gear_bonuses_saturate_and_weapon_species_uses_only_the_primary_weapon() -> Re
         .resistance
         .insert(Element::Fire, 64);
     let attributes = loadout(&menus, &member, Character::Lloyd)?.attributes;
-    assert_eq!(attributes.damage.weapon_species, Some(6));
+    assert_eq!(
+        attributes.damage.weapon_species,
+        Some(resonance_content::battle_profile::Species(6))
+    );
     assert_eq!(attributes.damage.critical_chance_bonus, 100);
     assert_eq!(attributes.affinities[0], Affinity::Absorb);
     assert_eq!(

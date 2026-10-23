@@ -126,7 +126,7 @@ impl Owner {
         battle: &mut Battle,
     ) -> Result<Visit> {
         if let Phase::Inventory(list) = &mut self.phase {
-            let (_, returned, cues) =
+            let (returned, cues) =
                 list.step(input.shared_menu, |item| battle.item_policy(item).is_some());
             let mut visit = Visit {
                 cues,
@@ -380,7 +380,7 @@ impl List {
         &mut self,
         input: InventoryInput,
         supported: impl Fn(u16) -> bool,
-    ) -> (ListFrame, Option<Option<u16>>, Vec<u16>) {
+    ) -> (Option<Option<u16>>, Vec<u16>) {
         if self.blend == 0 {
             self.previous = self.selected().unwrap_or(0);
         }
@@ -417,7 +417,7 @@ impl List {
         if current != 0 {
             fade_description(&mut self.blend, current != self.previous);
         }
-        (self.frame(), returned, cues)
+        (returned, cues)
     }
 
     fn frame(&self) -> ListFrame {
@@ -527,31 +527,21 @@ mod tests {
     }
 
     #[test]
-    fn inventory_returns_the_confirmed_item_after_closing() {
-        let mut list = ready(2);
-        let (_, returned, cues) = list.step(Some(MenuAction::Confirm), |_| true);
-        assert_eq!((returned, cues), (None, vec![2]));
-        let mut choice = None;
-        for _ in 0..16 {
-            let (_, returned, _) = list.step(InventoryInput::default(), |_| true);
-            if returned.is_some() {
-                choice = returned;
-                break;
-            }
+    fn inventory_returns_confirmation_or_cancellation_after_closing() {
+        for (input, cue, expected) in [
+            (MenuAction::Confirm, 2, Some(13)),
+            (MenuAction::Cancel, 3, None),
+        ] {
+            let mut list = ready(14);
+            list.row = 12;
+            let (returned, cues) = list.step(Some(input), |item| {
+                crate::battle::items::policies().contains_key(&item)
+            });
+            assert_eq!((returned, cues), (None, vec![cue]));
+            let choice = (0..16).find_map(|_| list.step(InventoryInput::default(), |_| true).0);
+            assert_eq!(choice, Some(expected));
+            assert_eq!(list.frame().selected, 12);
         }
-        assert_eq!(choice, Some(Some(1)));
-    }
-
-    #[test]
-    fn cancel_closes_and_confirm_keeps_the_current_selection() {
-        let mut list = ready(3);
-        list.step(Some(MenuAction::Cancel), |_| true);
-        assert_eq!(list.closing, Some(None));
-        assert_eq!(list.row, 0);
-        let mut list = ready(3);
-        list.step(Some(MenuAction::Confirm), |_| true);
-        assert_eq!(list.closing, Some(Some(1)));
-        assert_eq!(list.row, 0);
     }
 
     #[test]
@@ -573,30 +563,16 @@ mod tests {
     }
 
     #[test]
-    fn anti_magic_bottle_row_enters_close_from_the_cold_battle_menu() {
-        let mut list = ready(14);
-        list.row = 12;
-        let (frame, returned, cues) = list.step(Some(MenuAction::Confirm), |item| {
-            crate::battle::items::policies().contains_key(&item)
-        });
-        assert_eq!(frame.rows.len(), 14);
-        assert_eq!(frame.rows[frame.selected].id, 13);
-        assert_eq!(cues, [2]);
-        assert_eq!(returned, None);
-        assert_eq!(list.closing, Some(Some(13)));
-    }
-
-    #[test]
     fn unsupported_rows_remain_visible_and_never_enter_a_close_or_queue() {
         let mut list = ready(23);
         list.row = 21;
-        let (frame, returned, cues) = list.step(Some(MenuAction::Confirm), |item| {
+        let (returned, cues) = list.step(Some(MenuAction::Confirm), |item| {
             crate::battle::items::policies().contains_key(&item)
         });
-        assert_eq!(frame.rows[frame.selected].id, 22);
+        assert_eq!(list.selected(), Some(22));
         assert_eq!(cues, [4]);
         assert!(returned.is_none() && list.closing.is_none());
-        let (_, _, cues) = list.step(Some(MenuAction::Details), |item| {
+        let (_, cues) = list.step(Some(MenuAction::Details), |item| {
             crate::battle::items::policies().contains_key(&item)
         });
         assert_eq!(cues, [1]);
@@ -605,7 +581,7 @@ mod tests {
     #[test]
     fn details_action_does_not_also_move_the_inventory_selection() {
         let mut list = ready(32);
-        let (_, _, cues) = list.step(Some(MenuAction::Details), |_| true);
+        let (_, cues) = list.step(Some(MenuAction::Details), |_| true);
         assert_eq!(cues, [1]);
         assert_eq!(list.row, 0);
     }
@@ -613,10 +589,10 @@ mod tests {
     #[test]
     fn empty_inventory_can_cancel_but_cannot_confirm_or_age_description() {
         let mut list = ready(0);
-        let (frame, _, cues) = list.step(Some(MenuAction::Confirm), |_| true);
-        assert_eq!(frame.description_blend, 240);
+        let (_, cues) = list.step(Some(MenuAction::Confirm), |_| true);
+        assert_eq!(list.frame().description_blend, 240);
         assert!(cues.is_empty() && list.closing.is_none());
-        let (_, _, cues) = list.step(Some(MenuAction::Cancel), |_| true);
+        let (_, cues) = list.step(Some(MenuAction::Cancel), |_| true);
         assert_eq!(cues, [3]);
         assert_eq!(list.closing, Some(None));
     }

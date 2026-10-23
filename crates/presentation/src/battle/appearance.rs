@@ -190,24 +190,17 @@ pub(crate) fn outline(actor: &Actor, combat: bool, update: u64, alpha: u8) -> [u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_battle::{BattleResult, ModelFrame, PreparedBattle, WeaponFrame};
+    use resonance_battle::{BattleResult, ModelFrame, WeaponFrame};
 
     #[test]
     fn appearance_follows_conditions_targets_holds_and_results_without_changing_actors() {
         let mut actors = vec![crate::test_support::actor(Side::Party, 100, 20)];
         actors.extend((0..2).map(|_| crate::test_support::actor(Side::Enemy, 100, 20)));
         actors[0].control = Control::Manual;
-        let core = PreparedBattle::new(
-            (actors)
-                .into_iter()
-                .map(|actor| (actor, Default::default()))
-                .collect(),
-            Default::default(),
-            1,
-        )
-        .unwrap()
-        .finish()
-        .unwrap();
+        let core = crate::test_support::prepare_battle(actors)
+            .unwrap()
+            .finish()
+            .unwrap();
         let mut frame = core.snapshot();
         let ids: Vec<_> = core.actor_ids().collect();
         frame.models = ids

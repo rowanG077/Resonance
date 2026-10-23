@@ -334,7 +334,7 @@ pub(crate) fn read(
                             // Policy effects run after this update advances the action clock.
                             at - 1,
                             EnemyEvent::CarriedEffect {
-                                slot: 0,
+                                slot: WeaponSlot(0),
                                 bone: 0,
                                 member: if index < 4 { 8 } else { 7 },
                             },
@@ -386,15 +386,15 @@ pub(crate) fn read(
         }),
         behavior: match source[8] {
             5 => Some(EnemyBehavior::CarriedAnimationRate {
-                slot: 0,
+                slot: WeaponSlot(0),
                 rate: 0.15,
             }),
             9 => Some(EnemyBehavior::ReplaceWeapon {
                 action: 2,
                 hide_at: weapon_change_at[0],
                 replace_at: weapon_change_at[1],
-                source: 1,
-                destination: 0,
+                source: WeaponSlot(1),
+                destination: WeaponSlot(0),
                 disabled_action: 0,
             }),
             7 => Some(EnemyBehavior::Transformation {
@@ -451,9 +451,9 @@ pub(crate) fn read(
             }),
             18 => Some(EnemyBehavior::ActionWeapons {
                 groups: vec![
-                    vec![(0, 0), (1, 1)],
-                    vec![(3, 0), (1, 1)],
-                    vec![(2, 0), (1, 1)],
+                    vec![(0, WeaponSlot(0)), (1, WeaponSlot(1))],
+                    vec![(3, WeaponSlot(0)), (1, WeaponSlot(1))],
+                    vec![(2, WeaponSlot(0)), (1, WeaponSlot(1))],
                 ],
                 actions: (0..rows.len())
                     .map(|row| {
@@ -468,7 +468,7 @@ pub(crate) fn read(
                 effect: 6,
                 anchors: vec![0],
                 drop_on_hurt: Some(WeaponDrop {
-                    slot: 1,
+                    slot: WeaponSlot(1),
                     hp_percent: 50,
                     upward_speed: 10.,
                     gravity: -0.9,
@@ -477,10 +477,10 @@ pub(crate) fn read(
             }),
             24 => Some(EnemyBehavior::ActionWeapons {
                 groups: vec![
-                    vec![(0, 0), (1, 1)],
-                    vec![(2, 0)],
-                    vec![(3, 0), (3, 1)],
-                    vec![(4, 0)],
+                    vec![(0, WeaponSlot(0)), (1, WeaponSlot(1))],
+                    vec![(2, WeaponSlot(0))],
+                    vec![(3, WeaponSlot(0)), (3, WeaponSlot(1))],
+                    vec![(4, WeaponSlot(0))],
                 ],
                 actions: (0..rows.len())
                     .map(|row| match row {

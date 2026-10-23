@@ -1,14 +1,13 @@
 //! Tiger Blade's two strikes share one launch and finish after returning to the floor.
-use super::{PreparedAttack, Sound, Technique};
+use super::{PreparedAttack, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result};
 use resonance_battle::{AttackEvent, ModelDefinition};
 
 impl Technique {
-    pub(super) fn prepare_tiger_blade<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_tiger_blade(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let action = self.prepare_authored(resources, model)?;

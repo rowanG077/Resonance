@@ -1,5 +1,4 @@
 //! Prepare native enemy actions and hit volumes.
-use resonance_battle::WeaponSlot;
 
 use super::ActionDefinition;
 use anyhow::{Context, Result};
@@ -186,9 +185,7 @@ fn contact_anchors(
     Ok(anchors)
 }
 
-impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
-    super::encounter::resources::Resources<'_, S>
-{
+impl super::encounter::resources::Resources<'_> {
     pub(crate) fn enemy(
         &mut self,
         enemy: u8,
@@ -393,7 +390,7 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     EnemyEvent::CarriedEffect { slot, bone, member } => {
                         let weapon = weapons
                             .iter()
-                            .find(|weapon| weapon.slot == Some(WeaponSlot(*slot)))
+                            .find(|weapon| weapon.slot == Some(*slot))
                             .context("carried effect weapon is not prepared")?;
                         anyhow::ensure!(
                             usize::from(*bone) < weapon.bone_count(),
@@ -439,14 +436,7 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                         ))?;
                         Event::ReleaseSpell {
                             definition,
-                            slot: match slot {
-                                resonance_content::battle_action::SpellSlot::Primary => {
-                                    resonance_battle::SpellSlot::Primary
-                                }
-                                resonance_content::battle_action::SpellSlot::Secondary => {
-                                    resonance_battle::SpellSlot::Secondary
-                                }
-                            },
+                            slot: *slot,
                             effect,
                             tint,
                             sound,
@@ -519,13 +509,12 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     } => {
                         anyhow::ensure!(
                             model.is_some_and(|model| model.weapons.iter().any(|weapon| {
-                                weapon.slot == Some(WeaponSlot(*slot))
-                                    && weapon.has_carried_motion(*clip)
+                                weapon.slot == Some(*slot) && weapon.has_carried_motion(*clip)
                             })),
-                            "enemy {enemy} has no independent carried clip {clip} in slot {slot}"
+                            "enemy {enemy} has no independent carried clip {clip} in slot {slot:?}"
                         );
                         Event::CarriedPose {
-                            slot: WeaponSlot(*slot),
+                            slot: *slot,
                             clip: *clip,
                             rate: *rate,
                             repeat: *repeat,
@@ -676,14 +665,14 @@ impl<S: FnMut(super::voice::Sound) -> Result<Option<resonance_battle::Sound>>>
                     },
                     EnemyEvent::Stun => Event::Stun,
                     EnemyEvent::WeaponVisibility { slot, visible } => {
-                        Event::WeaponVisibility(vec![(Some(WeaponSlot(*slot)), *visible)])
+                        Event::WeaponVisibility(vec![(Some(*slot), *visible)])
                     }
                     EnemyEvent::PassThrough { enabled, duration } => Event::PassThrough {
                         enabled: *enabled,
                         duration: *duration,
                     },
                     EnemyEvent::Trail { slot, duration } => Event::Trail {
-                        slot: WeaponSlot(*slot),
+                        slot: *slot,
                         duration: *duration,
                     },
                     EnemyEvent::Sound(cue) => {
