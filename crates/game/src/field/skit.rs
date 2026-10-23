@@ -259,7 +259,7 @@ mod tests {
     fn catalog(id: u16, condition: SkitCondition) -> Arc<SkitCatalog> {
         Arc::new(SkitCatalog {
             preview_order: Vec::new(),
-            version: 2,
+            version: resonance_content::skit::VERSION,
             skits: vec![resonance_content::skit::SkitDefinition {
                 id,
                 title: "Test skit".into(),

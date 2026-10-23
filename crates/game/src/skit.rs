@@ -9,6 +9,7 @@ use symphonia_script::Program;
 pub struct Prepared {
     id: u16,
     title: String,
+    allow_skip: bool,
     program: Arc<Program>,
     resources: Arc<ResourceLibrary>,
 }
@@ -18,6 +19,7 @@ impl Prepared {
         files: &Files,
         resources: &ResourceLibrary,
     ) -> Result<BTreeMap<u16, Self>> {
+        catalog.validate()?;
         catalog
             .resources
             .iter()
@@ -26,6 +28,7 @@ impl Prepared {
                     id,
                     Self {
                         id,
+                        allow_skip: paths.allow_skip,
                         title: catalog
                             .skits
                             .iter()
@@ -109,8 +112,7 @@ impl Playback {
             events,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
-            skippable: skippable
-                && !matches!(id, 472 | 657 | 680 | 696 | 251 | 452 | 618 | 827 | 833),
+            skippable: skippable && prepared.allow_skip,
             preview,
             completion,
             finished: false,
@@ -206,5 +208,61 @@ impl Playback {
         ]);
         self.finished = true;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prepared_skip_policy_combines_with_caller_and_preserves_minimum_play_time() -> Result<()> {
+        // Both IDs share a script. Deliberately reverse their original permissions
+        // to prove playback uses per-ID prepared data rather than an ID blacklist.
+        let mut words = vec![4u16, 0, 0, 0];
+        words.extend([
+            0, 0x3000, 0x4000, 0x0200, 1000, 0, 0x3000, 0x4000, 0x2064, 0x20ff,
+        ]);
+        let bytes: Vec<_> = words.into_iter().flat_map(u16::to_be_bytes).collect();
+        let program = Arc::new(Program::decode(&bytes)?);
+        let mut files = Files::default();
+        files.insert("wait.ssb".into(), bytes.into());
+        files.insert("messages.json".into(), b"[]".to_vec().into());
+        let mut catalog: SkitCatalog = serde_json::from_value(serde_json::json!({
+            "version": resonance_content::skit::VERSION,
+            "skits": [], "preview_order": [], "portrait_recipes": [],
+            "resources": {
+                "472": {"script":"wait.ssb", "messages":"messages.json", "allow_skip":true},
+                "450": {"script":"wait.ssb", "messages":"messages.json", "allow_skip":false}
+            }
+        }))?;
+        let mut parent = EventRuntime::new(program, Arc::default())?;
+        let prepared = Prepared::load(Arc::new(catalog.clone()), &files, parent.resources())?;
+        for (id, caller_permission, expected) in [
+            (472, true, true),
+            (472, false, false),
+            (450, true, false),
+            (450, false, false),
+        ] {
+            let mut playback =
+                Playback::start(&prepared[&id], &mut parent, caller_permission, true, None)?;
+            assert_eq!(playback.skippable, expected);
+            let input = Input {
+                skip: true,
+                ..Default::default()
+            };
+            for _ in 0..119 {
+                assert!(!playback.step(&mut parent, input)?);
+            }
+            assert_eq!(playback.step(&mut parent, input)?, expected);
+            if expected {
+                let commands = parent.world.audio_commands.len();
+                assert!(playback.step(&mut parent, input)?);
+                assert_eq!(parent.world.audio_commands.len(), commands);
+            }
+        }
+        catalog.version = 2;
+        assert!(Prepared::load(Arc::new(catalog), &files, parent.resources()).is_err());
+        Ok(())
     }
 }
