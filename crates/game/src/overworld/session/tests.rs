@@ -965,7 +965,7 @@ fn restored_play_time_unlocks_overworld_skits_as_exploration_continues() -> Resu
     let mut checkpoint = session.checkpoint()?;
     checkpoint.played_ticks = (REQUIRED_SECONDS - 1) * 60;
     let catalog = Arc::new(serde_json::from_value(serde_json::json!({
-        "version": 2, "preview_order": [], "portrait_recipes": [],
+        "version": resonance_content::skit::VERSION, "preview_order": [], "portrait_recipes": [],
         "skits": [{"id": 788, "title": "Time to talk", "party_mask": 0,
             "location": "anywhere", "story": null,
             "condition": {"range": {"value": "played_seconds", "min": REQUIRED_SECONDS}}}]
@@ -1005,13 +1005,14 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
     ]);
     let catalog = Arc::new(SkitCatalog {
         preview_order: Vec::new(),
-        version: 2,
+        version: resonance_content::skit::VERSION,
         skits: vec![],
         resources: [(
             450,
             SkitResourcePaths {
                 script: "skit.ssb".into(),
                 messages: "messages.json".into(),
+                allow_skip: true,
                 title: Some("Event scene".into()),
             },
         )]

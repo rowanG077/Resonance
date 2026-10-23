@@ -304,7 +304,7 @@ fn complete_field_includes_hidden_actors_all_clips_and_deduplicates_files() {
     let skits = "game/skits.json";
     root.json(
         skits,
-        &json!({"version":2,"skits":[],"preview_order":[],"portrait_recipes":[],"portraits":{
+        &json!({"version":3,"skits":[],"preview_order":[],"portrait_recipes":[],"portraits":{
             "851968":{"size":[16,16],"images":[
                 {"texture":"textures/shared.ktx2","size":[16,16]},
                 {"texture":expression,"size":[8,8]}
