@@ -116,7 +116,8 @@ pub(super) fn install(app: &mut App) {
         Update,
         (retire, begin, convert, effects, complete, guard)
             .chain()
-            .after(super::field_view::FieldPreparation),
+            .after(super::field_view::FieldPreparation)
+            .run_if(super::battle::field_running),
     );
     app.get_sub_app_mut(bevy::render::RenderApp)
         .unwrap()
@@ -694,7 +695,9 @@ fn rendered(
     if report.map.is_none() {
         return;
     }
-
+    if resident.battle.load(Ordering::Acquire) {
+        return;
+    }
     if resident.active.load(Ordering::Acquire) {
         let error = report.pipelines.iter().find_map(|&pipeline| {
             if let CachedPipelineState::Err(error) = cache.get_render_pipeline_state(pipeline)

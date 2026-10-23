@@ -76,6 +76,7 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
             })
             .collect(),
         titles: vec![],
+        title_awards: Default::default(),
         initial_names: std::array::from_fn(|member| format!("Member {member}")),
         techniques: (0..=12)
             .map(|_| Technique {
@@ -116,6 +117,7 @@ pub fn fixture() -> (Arc<SessionData>, MenuData, Party) {
             locations: Default::default(),
             field_locations: Default::default(),
             shops: vec![],
+            shop_visit_groups: vec![],
         },
         ex_skills: ExSkillData {
             foraging: Default::default(),

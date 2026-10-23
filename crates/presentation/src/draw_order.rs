@@ -16,6 +16,8 @@ pub(super) enum Layer {
     Scene(u32),
     FieldOverlay(u32),
     Shadows,
+    Actor(usize, ActorLayer),
+    Foreground(u8),
     Effects,
     ModelEffects(u32),
     EffectOverlay,
@@ -28,6 +30,15 @@ impl Layer {
         matches!(self, Self::Scene(stage)
             if stage == DrawStage::Actors.offset() || stage == DrawStage::LateActors.offset())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum ActorLayer {
+    Behind,
+    BackWeapon(u8, bool),
+    Body,
+    FrontWeapon(u8, bool),
+    Front,
 }
 
 /// Layer, instance order, then material order within that instance.
@@ -142,7 +153,7 @@ mod tests {
     fn unsynced_visible_meshes_publish_current_orders_and_remove_stale_draws() {
         let mut main = MainWorld::default();
         let field_order = DrawOrder(Layer::Scene(2), 0, 1);
-        let actor_order = DrawOrder(Layer::Scene(0), 0, 0);
+        let actor_order = DrawOrder(Layer::Actor(0, ActorLayer::Body), 0, 0);
         // Ordinary mesh draws use main-world keys without a RenderEntity.
         let field = main.spawn((field_order, ViewVisibility::VISIBLE)).id();
         let actor = main.spawn((actor_order, ViewVisibility::HIDDEN)).id();
@@ -161,7 +172,7 @@ mod tests {
                 .contains_key(&actor_key)
         );
 
-        let changed_order = DrawOrder(Layer::FieldOverlay(1), 3, 4);
+        let changed_order = DrawOrder(Layer::Actor(1, ActorLayer::Front), 3, 4);
         {
             let mut main = render.resource_mut::<MainWorld>();
             main.entity_mut(field).insert(ViewVisibility::HIDDEN);

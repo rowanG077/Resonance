@@ -45,6 +45,11 @@ impl Preferences {
     }
 
     pub fn apply(&self, session: &mut Session, new_game: bool) {
+        // Offline replays do not load a user configuration. Their default title
+        // preferences must not replace the checkpoint's settings or forget artes.
+        if !new_game && self.file.is_none() {
+            return;
+        }
         let apply = |party: &mut resonance_events::party::Party| {
             let settings = &mut party.settings.preferences;
             let forget_opposite_path =

@@ -13,6 +13,7 @@ use std::{
 };
 
 pub(crate) struct Sources {
+    pub module: String,
     pub usual: String,
     pub enemy: String,
     pub weapons: String,
@@ -32,6 +33,7 @@ impl Sources {
         let module = Rel::read(&files.join(&module_path))?;
         let declaration = |offset| declared_path(&files, &module.text((4, offset))?);
         Ok(Self {
+            module: module_path,
             usual: declared_path(&files, &dol::text(executable, 0x8017e53c)?)?,
             enemy: declaration(0x2404)?,
             weapons: declaration(0xdfc)?,

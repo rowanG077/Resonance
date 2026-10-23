@@ -69,6 +69,9 @@ fn advance(
     mut pending: ResMut<PendingInput>,
     sounds: Res<audio::MenuSounds>,
     mut preferences: ResMut<Preferences>,
+    game_over: Option<Res<crate::game_over::Active>>,
+    battle_audio: Option<Res<crate::battle_audio::Playback>>,
+    mut failures: field_view::Failures,
     scenario: Option<ResMut<ScenarioInput>>,
 ) {
     let Some(menu) = &mut menu else {
@@ -100,17 +103,30 @@ fn advance(
             );
         }
     }
-    if let Some(cue) = cue
-        && let Some(control) = &sounds.control
-    {
-        let name = match cue {
-            1 | 38 => "navigate",
-            2 => "confirm",
-            3 => "back",
-            _ => "error",
-        };
-        if let Err(error) = control.play(name) {
-            error!("Menu cue failed: {error:#}");
+    if let Some(cue) = cue {
+        if game_over.is_some() {
+            if let Some(audio) = &battle_audio {
+                let result = u16::try_from(cue)
+                    .context("invalid load-menu sound ID")
+                    .and_then(|cue| audio.system_cue(cue));
+                if let Err(error) = result
+                    && !failures.skip("load menu cue", error)
+                {
+                    return;
+                }
+            }
+        } else if let Some(control) = &sounds.control {
+            let name = match cue {
+                1 | 38 => "navigate",
+                2 => "confirm",
+                3 => "back",
+                _ => "error",
+            };
+            if let Err(error) = control.play(name)
+                && !failures.skip("load menu cue", error)
+            {
+                return;
+            }
         }
     }
     if menu.0.closed {

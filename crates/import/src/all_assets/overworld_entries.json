@@ -1,0 +1,10 @@
+{
+  "provenance": "GQSEAF world entry rules select landmark, direction, fixed X/Z and mount. Saved heading/camera units and center height are extracted from REL section 5. World height storage uses hundredths; heading and camera scales use movement constants at offsets 0x958 and 0xa0c.",
+  "entries": {
+    "2": {"direction":6,"placement":{"kind":"fixed","position":[9770,24160,0]},"heading_offset":3132,"camera_yaw_offset":3136},
+    "264": {"placement":{"kind":"perimeter","allow_disabled":true},"mount":"ship"},
+    "266": {"placement":{"kind":"landmark_center","height":0},"height_offset":3140,"mount":"rheairds","heading_offset":2268,"camera_yaw_offset":2268},
+    "280": {"placement":{"kind":"fixed","position":[36930,23915,0]},"heading_offset":3144,"camera_yaw_offset":3148},
+    "304": {"placement":{"kind":"landmark_center","height":0},"height_offset":2268,"mount":"rheairds","heading_offset":2268,"camera_yaw_offset":2268}
+  }
+}

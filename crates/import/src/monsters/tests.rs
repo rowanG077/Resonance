@@ -67,6 +67,7 @@ fn shared_monster_preparation_preserves_every_catalogue_record_and_preview() -> 
         let executable = fs::read(extracted.join("sys/main.dol"))?;
         let sources = crate::source_assets::Sources::read_with(&extracted, &executable)?;
         let usual = fs::read(extracted.join("files").join(&sources.usual))?;
+        crate::battle_effect::publish(&usual, output.path(), "battle")?;
         let actual = prepare(
             &extracted,
             output.path(),

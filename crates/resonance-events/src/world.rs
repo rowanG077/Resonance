@@ -1039,6 +1039,15 @@ impl TreasureReward {
     }
 }
 impl GameWorld {
+    /// Instance keys belonging to a script actor, including duplicate scene models.
+    pub fn scene_actor_ids(&self, script: i32) -> impl Iterator<Item = i32> + '_ {
+        std::iter::once(script).chain(
+            self.duplicate_actors
+                .iter()
+                .filter_map(move |(&id, &key)| (key == script).then_some(id)),
+        )
+    }
+
     pub(crate) fn scene_actor_key(&self, script: i32) -> Result<i32, String> {
         // Retired models survive one presentation, but no longer own the script ID.
         if self.actors.get(&script).is_none_or(|actor| actor.retiring) {

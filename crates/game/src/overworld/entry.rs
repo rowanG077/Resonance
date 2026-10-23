@@ -5,8 +5,8 @@ use super::{
     travel::{Mount, State},
 };
 use anyhow::{Context, Result, ensure};
-use resonance_content::overworld::{Interaction, MovementParameters};
-use std::f32::consts::{FRAC_PI_4, PI, TAU};
+use resonance_content::overworld::{EntryPlacement, Interaction, MovementParameters};
+use std::f32::consts::TAU;
 
 pub(super) fn resolve(
     locations: &Locations,
@@ -40,31 +40,24 @@ pub(super) fn resolve(
         altitude: 0.,
     });
     state.world = world;
-    match id {
-        2 if direction == 6 => {
-            state.position = Position::from_map([9770., 24160., 0.])?;
-            state.heading = quantize(PI, parameters.heading_quantization);
-            state.camera_yaw = quantize(PI, parameters.camera_yaw_quantization);
+    let rule = landmark.entry_overrides.iter().find(|rule| {
+        rule.direction
+            .is_none_or(|expected| i16::from(expected) == direction)
+    });
+    match rule
+        .map(|rule| rule.placement)
+        .unwrap_or(EntryPlacement::Perimeter {
+            allow_disabled: false,
+        }) {
+        EntryPlacement::Fixed { position } => state.position = Position::from_map(position)?,
+        EntryPlacement::LandmarkCenter { height } => {
+            state.position =
+                Position::from_map([landmark.position[0], landmark.position[1], height])?;
         }
-        266 | 304 => {
-            state.position = Position::from_map([
-                landmark.position[0],
-                landmark.position[1],
-                if id == 266 { 500. } else { 0. },
-            ])?;
-            state.mount = Mount::Rheairds;
-            state.heading = 0.;
-            state.camera_yaw = 0.;
-        }
-        280 => {
-            state.position = Position::from_map([36930., 23915., 0.])?;
-            state.heading = quantize(FRAC_PI_4, parameters.heading_quantization);
-            state.camera_yaw = quantize(7. * FRAC_PI_4, parameters.camera_yaw_quantization);
-        }
-        _ => {
-            // Disabled entrances retain the preceding world position. The bridge
-            // embark point has an explicit placement even while disabled.
-            if id == 264 || locations.appearance(id).unwrap().interaction != Interaction::Disabled {
+        EntryPlacement::Perimeter { allow_disabled } => {
+            if allow_disabled
+                || locations.appearance(id).unwrap().interaction != Interaction::Disabled
+            {
                 let radius = (landmark.radius + 100.).trunc();
                 let diagonal = (radius / 2.0f32.sqrt()).trunc();
                 let (dx, dz, heading) = match direction {
@@ -94,9 +87,17 @@ pub(super) fn resolve(
                     "disabled world return has no saved location"
                 );
             }
-            if id == 264 {
-                state.mount = Mount::Ship;
-            }
+        }
+    }
+    if let Some(rule) = rule {
+        if let Some(mount) = rule.mount {
+            state.mount = mount;
+        }
+        if let Some(heading) = rule.heading {
+            state.heading = quantize(heading, parameters.heading_quantization);
+        }
+        if let Some(yaw) = rule.camera_yaw {
+            state.camera_yaw = quantize(yaw, parameters.camera_yaw_quantization);
         }
     }
     // World initialization starts flight at 300, then the controller resolves
@@ -121,6 +122,41 @@ mod tests {
         travel::tests::{parameters, state},
     };
     use std::sync::Arc;
+
+    fn entry_definitions() -> resonance_content::overworld::Landmarks {
+        let mut data = definitions();
+        for (id, json) in [
+            (
+                2,
+                serde_json::json!({"direction":6,"placement":{"kind":"fixed","position":[9770,24160,0]},"mount":null,"heading":12867./4096.,"camera_yaw":100./32.}),
+            ),
+            (
+                264,
+                serde_json::json!({"direction":null,"placement":{"kind":"perimeter","allow_disabled":true},"mount":"ship","heading":null,"camera_yaw":null}),
+            ),
+            (
+                266,
+                serde_json::json!({"direction":null,"placement":{"kind":"landmark_center","height":500},"mount":"rheairds","heading":0,"camera_yaw":0}),
+            ),
+            (
+                280,
+                serde_json::json!({"direction":null,"placement":{"kind":"fixed","position":[36930,23915,0]},"mount":null,"heading":3216./4096.,"camera_yaw":175./32.}),
+            ),
+            (
+                304,
+                serde_json::json!({"direction":null,"placement":{"kind":"landmark_center","height":0},"mount":"rheairds","heading":0,"camera_yaw":0}),
+            ),
+        ] {
+            data.worlds
+                .iter_mut()
+                .flatten()
+                .find(|entry| entry.id == id)
+                .unwrap()
+                .entry_overrides
+                .push(serde_json::from_value(json).unwrap());
+        }
+        data
+    }
 
     #[test]
     fn exits_use_requested_landmark_direction_and_retain_the_mount() -> Result<()> {
@@ -155,7 +191,7 @@ mod tests {
     #[test]
     fn authored_special_exits_keep_their_positions_and_mount_modes() -> Result<()> {
         let locations = Locations::new(
-            Arc::new(definitions()),
+            Arc::new(entry_definitions()),
             Default::default(),
             crate::overworld::scripts::fixture(),
         )?;
@@ -172,6 +208,54 @@ mod tests {
         assert_eq!(exire.altitude, 300.);
         let bridge = resolve(&locations, &p, None, 264, 0)?;
         assert_eq!(bridge.mount, Mount::Ship);
+        Ok(())
+    }
+
+    #[test]
+    fn entry_overrides_follow_content_and_reject_ambiguous_or_invalid_placement() -> Result<()> {
+        let mut data = entry_definitions();
+        let mut rule = data.worlds[0][1].entry_overrides.remove(0);
+        rule.placement = EntryPlacement::Fixed {
+            position: [1111., 2222., 7.],
+        };
+        rule.mount = Some(Mount::Noishe);
+        data.worlds[0][0].entry_overrides.push(rule.clone());
+        let locations = Locations::new(
+            Arc::new(data.clone()),
+            Default::default(),
+            crate::overworld::scripts::fixture(),
+        )?;
+        let previous = state(Mount::Foot);
+        let next = resolve(&locations, &parameters(), Some(&previous), 1, 6)?;
+        assert_eq!(next.position.map(), [1111., 2222., 7.]);
+        assert_eq!(next.mount, Mount::Noishe);
+        assert_eq!(next.altitude, 7.);
+        // The source landmark no longer has its former special case.
+        assert!(resolve(&locations, &parameters(), None, 2, 6).is_err());
+        // A nonmatching direction still respects a disabled entrance.
+        let retained = resolve(&locations, &parameters(), Some(&previous), 1, 5)?;
+        assert_eq!(retained.position, previous.position);
+        assert_eq!(retained.mount, previous.mount);
+        data.worlds[0][0].entry_overrides.push(rule);
+        assert!(
+            Locations::new(
+                Arc::new(data.clone()),
+                Default::default(),
+                crate::overworld::scripts::fixture()
+            )
+            .is_err()
+        );
+        data.worlds[0][0].entry_overrides.truncate(1);
+        data.worlds[0][0].entry_overrides[0].placement =
+            EntryPlacement::LandmarkCenter { height: f32::NAN };
+        assert!(
+            Locations::new(
+                Arc::new(data),
+                Default::default(),
+                crate::overworld::scripts::fixture()
+            )
+            .is_err()
+        );
         Ok(())
     }
 }

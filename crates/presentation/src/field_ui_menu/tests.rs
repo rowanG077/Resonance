@@ -148,6 +148,29 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
     queue.apply(&mut world);
     assert!(meshes.is_empty(), "unused menu planes allocated meshes");
     assert!(artwork.layers.is_empty());
+    let state = resonance_game::menu::strategy::Strategy {
+        focus: StrategyFocus::Rename,
+        preset_opacity: 255,
+        rename_opacity: 255,
+        ..Default::default()
+    };
+    artwork.render_battle_strategy(
+        state.page(&fixture.party, &fixture.data),
+        &fixture.font,
+        &fixture.dialogue,
+        &fixture.party.settings.preferences,
+        100,
+        &mut Commands::new(&mut queue, &world),
+        &mut meshes,
+    )?;
+    queue.apply(&mut world);
+    assert!(
+        artwork
+            .layers
+            .values()
+            .all(|layer| world.get::<RenderLayers>(layer.entity)
+                == Some(&RenderLayers::layer(crate::battle_view::LAYER)))
+    );
     let mut menu = fixture.field_menu();
     menu.page = Page::Tech;
     menu.tech.character = 3;
@@ -183,7 +206,7 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
                 .unwrap()
                 .translation()
                 .z,
-            DepthBand::Field.at(1, DrawRole::Text.depth()),
+            DepthBand::Battle.at(1, DrawRole::Text.depth()),
             "first text publication must have its menu depth before propagation",
         );
         for layer in submitted {
@@ -194,6 +217,33 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
             ));
         }
     }
+    let list = resonance_game::battle::command::ListFrame {
+        rows: vec![],
+        selected: 0,
+        first: 0,
+        scroll: 0,
+        fade: 0,
+        description_previous: 0,
+        description_blend: 255,
+    };
+    artwork.render_battle_items(
+        &list,
+        &fixture.data,
+        &fixture.font,
+        &fixture.dialogue,
+        &fixture.party.settings.preferences,
+        101,
+        &mut Commands::new(&mut queue, &world),
+        &mut meshes,
+    )?;
+    queue.apply(&mut world);
+    assert!(
+        artwork
+            .layers
+            .range((2, DrawRole::Background, MaterialKey::Texture(0))..)
+            .map(|(_, layer)| layer)
+            .all(|layer| !layer.visible)
+    );
     let mut images = world.remove_resource::<Assets<Image>>().unwrap();
     for image in artwork.drawn_images() {
         images.insert(image.id(), Image::default())?;
@@ -213,12 +263,13 @@ fn menu_submission_retires_layers_and_requires_a_new_draw() -> Result<()> {
     queue.apply(&mut world);
     assert!(artwork.layers.values().all(|layer| !layer.visible
         && world.get::<Visibility>(layer.entity) == Some(&Visibility::Hidden)));
-    artwork.render(
-        Source::Title(Some(&menu)),
+    artwork.render_battle_items(
+        &list,
+        &fixture.data,
         &fixture.font,
         &fixture.dialogue,
+        &fixture.party.settings.preferences,
         103,
-        crate::Resolution::default(),
         &mut Commands::new(&mut queue, &world),
         &mut meshes,
     )?;
@@ -263,15 +314,20 @@ fn equipment_focus_always_has_a_visible_cursor() -> Result<()> {
             focus,
             ..Default::default()
         };
-        let mut menu = fixture.field_menu();
-        menu.page = Page::Equip;
-        menu.equipment = state;
-        artwork.render(
-            Source::Title(Some(&menu)),
+        let page = resonance_game::menu::equipment::Page {
+            state: &state,
+            party: &fixture.party,
+            session: &fixture.session,
+            data: &fixture.data,
+            names: &fixture.data.initial_names,
+            character: 0,
+        };
+        artwork.render_battle_equipment(
+            page,
             &fixture.font,
             &fixture.dialogue,
+            &fixture.party.settings.preferences,
             100,
-            crate::Resolution::default(),
             &mut Commands::new(&mut queue, &world),
             &mut meshes,
         )?;

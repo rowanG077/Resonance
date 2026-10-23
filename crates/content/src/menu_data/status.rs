@@ -72,7 +72,7 @@ pub struct EquipmentProperties {
     pub resistance: BTreeMap<Element, i8>,
     pub critical_chance_bonus: u8,
     pub technique_drift: i8,
-    pub species_bonus: Option<u16>,
+    pub species_bonus: Option<crate::battle_profile::Species>,
     pub stat_bonuses: Vec<ExStatBonus>,
     pub tp_discount: TpDiscount,
     pub rescue: Option<EquipmentRescue>,

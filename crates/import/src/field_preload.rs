@@ -212,7 +212,7 @@ fn close_shared(inventory: &mut Inventory<'_>) -> Result<()> {
         }
     }
     close_skits(inventory, &font)?;
-    Ok(())
+    close_battle_audio(inventory)
 }
 
 #[cfg(test)]
@@ -254,6 +254,25 @@ fn close_skits(inventory: &mut Inventory<'_>, font: &BitmapFont) -> Result<()> {
             inventory.add(&voice.asset.path, Some(&voice.asset.sha256), Role::Voice)?;
         }
     }
+    Ok(())
+}
+
+fn close_battle_audio(inventory: &mut Inventory<'_>) -> Result<()> {
+    // Battle packages are prepared only when an encounter is requested, but its
+    // descriptor belongs to this verified snapshot. It is produced after the
+    // shared field descriptors, before final inventory publication.
+    if inventory
+        .files
+        .contains_key(resonance_content::battle_formation::PATH)
+    {
+        let path = resonance_content::battle_audio::PATH;
+        if input_exists(inventory.root, path)? {
+            let audio: resonance_content::battle_audio::Audio =
+                inventory.json(path, None, Role::Data)?;
+            audio.validate()?;
+        }
+    }
+
     Ok(())
 }
 

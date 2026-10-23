@@ -49,6 +49,9 @@ pub struct Probe {
     pub stick: [f32; 2],
     #[serde(default)]
     pub cinematic: Option<u16>,
+    /// Continuous presentation phase before the requested gameplay updates.
+    #[serde(default)]
+    pub presentation_start: u32,
     /// Observe a prepared skit's dialogue through the world UI.
     #[serde(default)]
     pub skit: Option<u16>,
@@ -72,6 +75,7 @@ struct Capture {
 }
 
 pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()> {
+    let mut clock = resonance_game::clock::PresentationClock::new(probe.presentation_start);
     let root = root.canonicalize()?;
     let package = Arc::new(game::Prepared::load(
         &root,
@@ -169,6 +173,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             confirm: probe.confirm_ticks.contains(&tick),
             ..Default::default()
         })?;
+        clock.advance();
         if let Some(destination) = session.world_destination() {
             let persistent = session.events.persistent_state()?;
             session = session.change_world(package.assets(destination, &persistent)?)?;
@@ -182,8 +187,10 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             },
             ..Default::default()
         })?;
+        clock.advance();
         for _ in 0..20 {
             session.step(Default::default())?;
+            clock.advance();
         }
     }
     let mut scene = super::Scene::new(session, package.clone())?;
@@ -196,6 +203,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             },
             ..Default::default()
         })?;
+        clock.advance();
     }
     let mut app = App::new();
     crate::loading::install(&mut app, &root);
@@ -233,6 +241,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
     .init_resource::<crate::display::Display>()
     .init_resource::<crate::scene::SampledImages>()
     .insert_resource(Scene(scene))
+    .insert_resource(crate::Clock(clock))
     .insert_resource(Capture {
         path: output.into(),
         start: std::time::Instant::now(),
@@ -368,6 +377,7 @@ fn capture(
     mut commands: Commands,
     mut capture: ResMut<Capture>,
     mut scene: ResMut<Scene>,
+    mut clock: ResMut<crate::Clock>,
     art: Option<Res<Art>>,
     parts: Query<(Entity, &Instance)>,
     children: Query<&Children>,
@@ -402,6 +412,8 @@ fn capture(
         if let Err(error) = scene.0.step(Default::default()) {
             error!("World capture simulation failed: {error:#}");
             exit.write(AppExit::error());
+        } else {
+            clock.0.advance();
         }
         return;
     }
@@ -421,7 +433,7 @@ fn capture(
             .map(|(slot, _)| slot.0).collect::<Vec<_>>()})
         })
         .collect();
-    let state = serde_json::json!({"kind":"overworld-development-observer", "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "late_asset_reads": resident.unprepared_reads.load(Ordering::Acquire)});
+    let state = serde_json::json!({"kind":"overworld-development-observer", "presentation_tick": clock.0.tick(), "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "late_asset_reads": resident.unprepared_reads.load(Ordering::Acquire)});
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
         move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
             match crate::screenshot::write(&event.image, &path, Some(&state)) {

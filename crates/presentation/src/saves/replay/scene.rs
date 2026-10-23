@@ -7,6 +7,7 @@ pub(super) enum Phase {
     Boot,
     Field,
     World,
+    Battle,
     GameOver,
     Load,
     Loading,
@@ -18,6 +19,7 @@ pub(super) enum Phase {
 struct Owners {
     session: bool,
     world: bool,
+    battle: bool,
     game_over_loading: Option<bool>,
     load: bool,
     starting: bool,
@@ -28,7 +30,8 @@ struct Owners {
 impl Owners {
     fn phase(self) -> Result<Phase> {
         ensure!(
-            self.session || !self.field_loading && self.game_over_loading != Some(false),
+            self.session
+                || !self.battle && !self.field_loading && self.game_over_loading != Some(false),
             "recording lost a retained field session"
         );
         if self.starting || self.field_loading {
@@ -44,7 +47,9 @@ impl Owners {
         if self.game_over_loading.is_some() {
             return Ok(Phase::GameOver);
         }
-
+        if self.battle {
+            return Ok(Phase::Battle);
+        }
         if self.session {
             return Ok(if self.world {
                 Phase::World
@@ -79,9 +84,10 @@ pub(super) fn phase(world: &World) -> Result<Phase> {
         world: world
             .get_resource::<new_game::Session>()
             .is_some_and(|s| !s.is_field()),
+        battle: world.contains_resource::<crate::battle::Owner>(),
         game_over_loading: world
-            .get_resource::<crate::session_screen::GameOver>()
-            .map(|_| false),
+            .get_resource::<crate::game_over::Active>()
+            .map(|active| active.loading()),
         load: world.contains_resource::<super::super::title::TitleMenu>(),
         starting: world.contains_resource::<loading::Pending>()
             || world.contains_resource::<new_game::Request>()
@@ -108,8 +114,17 @@ pub(super) fn ready(world: &mut World, phase: Phase) -> bool {
                     .get_resource::<super::super::title::TitleMenu>()
                     .is_some_and(|menu| !menu.0.busy)
         }
-        Phase::Field | Phase::World | Phase::GameOver => {
+        Phase::Field | Phase::World | Phase::Battle | Phase::GameOver => {
             new_game::scene_ready(world)
+                && world.get_resource::<crate::battle::Owner>().map_or_else(
+                    || {
+                        world
+                            .resource::<loading::Resident>()
+                            .active
+                            .load(Ordering::Acquire)
+                    },
+                    |battle| battle.capture_ready(),
+                )
                 && world.get_resource::<new_game::Session>().is_some_and(|s| {
                     (!s.is_field() || s.ready_for_field)
                         && s.audio.is_none()
@@ -142,7 +157,9 @@ pub(crate) fn diagnostic(world: &World) -> Result<serde_json::Value> {
         "boot":world.get_resource::<crate::boot::Playback>().filter(|boot|boot.active()).map(|boot| &boot.logos),
         "movie":world.get_resource::<crate::movie::Playback>().filter(|movie| movie.active)
             .map(|movie| serde_json::json!({"resource":movie.resource,"frame":movie.presented_frame})),
-        "game_over":world.contains_resource::<crate::session_screen::GameOver>(),
+        "battle_entry":world.get_resource::<crate::battle::Owner>()
+            .and_then(|battle| battle.entry_diagnostic(world)),
+        "game_over":world.get_resource::<crate::game_over::Active>().map(|active|active.diagnostic()),
         "load":world.get_resource::<super::super::title::TitleMenu>().map(|load| {
             let menu = &load.0;
             serde_json::json!({"page":format!("{:?}",menu.page), "bank":menu.bank,
@@ -157,6 +174,7 @@ pub(crate) fn diagnostic(world: &World) -> Result<serde_json::Value> {
             "preparing":world.contains_resource::<crate::game_over::Returning>()
         })),
         "audio":{
+            "battle_owner":world.contains_resource::<crate::battle_audio::Playback>(),
             "field_source_frame":world.get_resource::<crate::field_audio::Control>().map(|control|control.rendered_frames()),
             "title_owner":world.get_resource::<crate::audio::MenuSounds>().is_some_and(|sounds|sounds.control.is_some()),
         },
@@ -219,6 +237,14 @@ mod tests {
             assert_eq!(owners.phase().unwrap(), expected);
         }
         assert!(Owners::default().phase().is_err());
+        assert!(
+            Owners {
+                battle: true,
+                ..Default::default()
+            }
+            .phase()
+            .is_err()
+        );
         assert!(
             Owners {
                 field_loading: true,

@@ -127,6 +127,11 @@ pub(crate) enum Event {
         story: Option<i32>,
         max_x: Option<f32>,
     },
+    Battle {
+        encounter: u16,
+        phase: BattleStage,
+        combat_tick: Option<u32>,
+    },
     Menu {
         page: MenuPage,
     },
@@ -209,6 +214,15 @@ fn menu_settled(world: &World, menu: &resonance_game::menu::Menu) -> bool {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum BattleStage {
+    Entry,
+    Combat,
+    Ending,
+    Results,
+    Finished,
+}
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum MenuPage {
@@ -303,6 +317,7 @@ impl Event {
                 session.field().map_id == *map_id
                     && session.ready_for_field
                     && !world.resource::<crate::movie::Playback>().active
+                    && !world.contains_resource::<crate::battle::Owner>()
                     && (!free_control || session.field().player_has_control())
                     && story
                         .is_none_or(|story| session.field().story_progress().ok() == Some(story))
@@ -316,6 +331,26 @@ impl Event {
                             .is_some_and(|actor| actor.position[0] <= x)
                     })
             }),
+            Self::Battle {
+                encounter,
+                phase,
+                combat_tick,
+            } => world
+                .get_resource::<crate::battle::Owner>()
+                .and_then(|owner| owner.replay_phase())
+                .is_some_and(|(actual, stage, tick)| {
+                    actual == *encounter
+                        && combat_tick.is_none_or(|expected| tick == expected)
+                        && match phase {
+                            BattleStage::Entry => stage == resonance_battle::BattlePhase::Entry,
+                            BattleStage::Combat => stage == resonance_battle::BattlePhase::Combat,
+                            BattleStage::Ending => stage == resonance_battle::BattlePhase::Ending,
+                            BattleStage::Results => stage == resonance_battle::BattlePhase::Results,
+                            BattleStage::Finished => {
+                                stage == resonance_battle::BattlePhase::Finished
+                            }
+                        }
+                }),
             Self::Menu { page } => current_menu(world).is_some_and(|menu| {
                 menu.page == page.page() && !menu.busy && !menu.main_animating()
             }),
@@ -729,50 +764,34 @@ pub(crate) fn install_benchmark_replay(
     app.add_systems(Last, move |world: &mut World| {
         let result = (|| -> Result<()> {
             let _ = settle_cursor(world);
-            ensure!(
-                !world.resource::<ScenarioInput>().failed,
-                "benchmark replay input failed"
-            );
-            while let Some(name) = world
-                .resource::<ScenarioInput>()
-                .capture()
-                .map(str::to_owned)
-            {
-                serde_json::to_writer(
-                    &mut markers,
-                    &serde_json::json!({
-                        "name":name, "elapsed_seconds":began.elapsed().as_secs_f64(),
-                        "updates":world.resource::<ScenarioInput>().updates,
-                        "scene":recording_scene(world)?,
-                    }),
-                )?;
+            ensure!(!world.resource::<ScenarioInput>().failed, "benchmark replay input failed");
+            while let Some(name) = world.resource::<ScenarioInput>().capture().map(str::to_owned) {
+                let battle = world.get_resource::<crate::battle::Owner>();
+                serde_json::to_writer(&mut markers, &serde_json::json!({
+                    "name":name, "elapsed_seconds":began.elapsed().as_secs_f64(),
+                    "updates":world.resource::<ScenarioInput>().updates,
+                    "scene":recording_scene(world)?,
+                    "battle":battle.and_then(|owner| owner.replay_phase())
+                        .map(|(encounter, phase, tick)| serde_json::json!({
+                            "encounter":encounter, "phase":format!("{phase:?}"), "combat_tick":tick,
+                        })),
+                    "model_particles":battle.and_then(|owner| owner.model_particle_stats()),
+                }))?;
                 markers.write_all(b"\n")?;
                 world.resource_mut::<ScenarioInput>().index += 1;
                 let _ = settle_cursor(world);
             }
             if world.resource::<ScenarioInput>().complete() {
                 markers.flush()?;
-                let unprepared = world
-                    .resource::<loading::Resident>()
-                    .unprepared_reads
-                    .load(Ordering::Relaxed);
-                let diagnostics = world
-                    .resource::<crate::diagnostics::Diagnostics>()
-                    .0
-                    .entries();
-                fs::write(
-                    output.join("recording.json"),
-                    serde_json::to_vec_pretty(&serde_json::json!({
-                        "complete":true, "valid":unprepared == 0 && diagnostics.is_empty(),
-                        "source":"wall_clock_benchmark", "captures":"markers_only",
-                        "updates":world.resource::<ScenarioInput>().updates,
-                        "unprepared_reads":unprepared, "diagnostics":diagnostics,
-                    }))?,
-                )?;
-                ensure!(
-                    unprepared == 0 && diagnostics.is_empty(),
-                    "benchmark replay reported diagnostics or unprepared reads"
-                );
+                let unprepared = world.resource::<loading::Resident>().unprepared_reads.load(Ordering::Relaxed);
+                let diagnostics = world.resource::<crate::diagnostics::Diagnostics>().0.entries();
+                fs::write(output.join("recording.json"), serde_json::to_vec_pretty(&serde_json::json!({
+                    "complete":true, "valid":unprepared == 0 && diagnostics.is_empty(),
+                    "source":"wall_clock_benchmark", "captures":"markers_only",
+                    "updates":world.resource::<ScenarioInput>().updates,
+                    "unprepared_reads":unprepared, "diagnostics":diagnostics,
+                }))?)?;
+                ensure!(unprepared == 0 && diagnostics.is_empty(), "benchmark replay reported diagnostics or unprepared reads");
                 completed.store(true, Ordering::Release);
                 world.write_message(AppExit::Success);
             }
@@ -874,6 +893,54 @@ pub fn record_checkpoint(
     options: CheckpointRecordingOptions<'_>,
 ) -> Result<()> {
     record(root, Some(save), output, spec, options)
+}
+
+/// Start a fixture encounter through ordinary preparation and battle ownership.
+pub fn record_battle(
+    root: &Path,
+    save: &Path,
+    output: &Path,
+    setup: resonance_events::battle::Setup,
+    spec: &CheckpointReplay,
+    options: CheckpointRecordingOptions<'_>,
+) -> Result<()> {
+    spec.validate()?;
+    let mut app = probe::app_with_saves_mode(
+        root,
+        output,
+        SaveOptions {
+            directory: Some(
+                options
+                    .save_directory
+                    .map_or_else(|| output.join("slots"), Path::to_path_buf),
+            ),
+            quick_slot: Some("probe".into()),
+            load: Some(save.into()),
+        },
+        options.resolution,
+        options.paranoid,
+    )?;
+    let mut requested = false;
+    app.add_systems(Update, move |world: &mut World| {
+        if requested
+            || !new_game::scene_ready(world)
+            || !world.contains_resource::<crate::field_audio::Control>()
+        {
+            return;
+        }
+        if let Some(mut session) = world.get_resource_mut::<new_game::Session>()
+            && session.is_field()
+            && session.field().player_has_control()
+        {
+            let result = session.events_mut().world.request_battle(setup.clone());
+            requested = true;
+            if let Err(error) = result {
+                error!("Battle fixture failed: {error}");
+                world.write_message(AppExit::error());
+            }
+        }
+    });
+    record_app(app, output, spec, options.gamepad)
 }
 
 /// Record ordinary input through the player's window loop and wall clock.
@@ -1285,7 +1352,8 @@ fn observe(
     let mut capture = serde_json::json!({"name":name, "update":update, "audio_frame":audio_frame,
         "quicksave_available":quicksave_available,
         "asset_reads":world.resource::<loading::Resident>().memory_reads.load(Ordering::Acquire),
-        "scene":recording_scene(world)?, "presentation_counter":world.resource::<Clock>().0.tick()});
+        "scene":recording_scene(world)?, "presentation_counter":world.resource::<Clock>().0.tick(),
+        "battle":world.get_resource::<crate::battle::Owner>().and_then(|owner|owner.diagnostic())});
     if let Some(session) = world
         .get_resource::<new_game::Session>()
         .filter(|s| s.is_field())
@@ -1435,12 +1503,31 @@ pub(super) fn wait_ready(app: &mut App, timed_out: &mut bool) -> Result<()> {
         if *timed_out {
             return Ok(());
         }
+        if world
+            .get_resource::<crate::battle::Owner>()
+            .is_some_and(|battle| battle.failed())
+        {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("battle preparation failed during checkpoint replay"),
+            )?;
+            return Ok(());
+        }
+        let battle_clock = app
+            .world()
+            .get_resource::<crate::battle::Owner>()
+            .and_then(|battle| battle.capture_clock());
         let presentation_tick = app.world().resource::<Clock>().0.tick();
         let field_tick = (phase == scene::Phase::Field)
             .then(|| app.world().get_resource::<new_game::Session>())
             .flatten()
             .map(|s| (s.field().map_id, s.field().events.tick()));
-        if began.elapsed().as_secs() >= 60 {
+        let timeout = if app.world().contains_resource::<crate::battle::Owner>() {
+            120
+        } else {
+            60
+        };
+        if began.elapsed().as_secs() >= timeout {
             diagnostics.report(
                 "checkpoint preparation",
                 anyhow::anyhow!("checkpoint scene preparation timed out"),
@@ -1471,7 +1558,17 @@ pub(super) fn wait_ready(app: &mut App, timed_out: &mut bool) -> Result<()> {
                 anyhow::anyhow!("field advanced during checkpoint preparation"),
             )?;
         }
-
+        if let Some(clock) = battle_clock
+            && world
+                .get_resource::<crate::battle::Owner>()
+                .and_then(|battle| battle.capture_clock())
+                != Some(clock)
+        {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("battle advanced during checkpoint preparation"),
+            )?;
+        }
         thread::sleep(std::time::Duration::from_millis(1));
     }
 }

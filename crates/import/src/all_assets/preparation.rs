@@ -21,6 +21,64 @@ pub(super) struct Field<'a> {
 
 pub(super) struct PreparedField(pub u32, pub BTreeSet<String>);
 
+pub(super) struct PreparedParty {
+    pub files: BTreeSet<String>,
+    pub outputs: BTreeMap<String, Vec<String>>,
+}
+
+pub(super) fn party<'a>(
+    dag: &mut pool::Dag<'a, ()>,
+    sources: &'a [crate::battle_model::party::Source],
+    packages: &BTreeMap<String, pool::Output<super::CookedJob>>,
+    output: &'a Path,
+) -> Result<pool::Output<PreparedParty>> {
+    let inputs = sources
+        .iter()
+        .flat_map(|source| &source.keys)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|key| {
+            packages
+                .get(key)
+                .copied()
+                .context("unqueued party battle source")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let task = dag.add(
+        "party battle models",
+        inputs
+            .iter()
+            .map(|input| input.dependency())
+            .collect::<Vec<_>>(),
+        move |_, resolver| {
+            let mut decoded = Package::default();
+            for input in &inputs {
+                let package = resolver.get(*input)?;
+                package.require_success()?;
+                decoded.extend(&package.decoded);
+            }
+            let mut result = PreparedParty {
+                files: BTreeSet::new(),
+                outputs: BTreeMap::new(),
+            };
+            for source in sources {
+                let path = crate::battle_model::party::publish(source, &decoded, output)?;
+                result.files.insert(path.clone());
+                for key in source.source_keys() {
+                    result
+                        .outputs
+                        .entry(key.clone())
+                        .or_default()
+                        .push(path.clone());
+                }
+            }
+            Ok(result)
+        },
+    );
+    dag.estimate(task, 4096, 128 * 1024 * 1024)?;
+    Ok(task)
+}
+
 pub(super) fn discover<'a>(
     discs: &BTreeMap<u8, &'a Path>,
     documents: &BTreeMap<u8, Arc<super::Document>>,
@@ -147,6 +205,7 @@ pub(super) fn add<'a>(
     fields: &'a [Field<'a>],
     packages: &BTreeMap<String, pool::Output<super::CookedJob>>,
     shared: pool::Output<crate::shared::Prepared>,
+    party: pool::Output<PreparedParty>,
     output: &'a Path,
 ) -> Result<()> {
     for field in fields {
@@ -164,7 +223,7 @@ pub(super) fn add<'a>(
             inputs
                 .iter()
                 .map(|input| input.dependency())
-                .chain([shared.dependency()])
+                .chain([shared.dependency(), party.dependency()])
                 .collect::<Vec<_>>(),
             move |_, resolver| {
                 let mut decoded = Package::default();
@@ -179,6 +238,7 @@ pub(super) fn add<'a>(
                     &decoded,
                 )?;
                 let shared = resolver.get(shared)?;
+                resolver.get(party)?;
                 let (assets, paths) = crate::field::prepare(
                     field.id,
                     output,
@@ -228,11 +288,113 @@ pub(super) fn finish(
     }
     crate::media::prepare_title_audio(session.workspace(primary)?)?;
     crate::media::prepare_title_sounds(session.workspace(primary)?)?;
-    crate::field::finish(options.output, prepared, shared_paths)?;
+    crate::battle_audio::publish_all_in(options.discs, session, sources)?;
+    let disc = crate::disc_number(primary)?;
+    let events = crate::battle_event::publish(primary, options.output, options.output)?;
+    let mut shared_paths = shared_paths.clone();
+    shared_paths.extend(events.paths.iter().cloned());
+    for input in events.inputs {
+        let source = input.strip_prefix("files/").unwrap_or(&input);
+        let aliases = sources.entry(format!("disc{disc}/{source}")).or_default();
+        aliases.extend(events.paths.iter().cloned());
+        aliases.sort();
+        aliases.dedup();
+    }
+    crate::field::finish(options.output, prepared, &shared_paths)?;
     ensure!(
         !fields.is_empty(),
         "field catalogue produced no scripted fields"
     );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires original disc 1 and current party publications; no field/media recook"]
+fn original_party_bindings_use_the_production_graph() -> Result<()> {
+    let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
+    let extracted = local.join("extracted/disc1");
+    let output = tempfile::tempdir()?;
+    let discs = [extracted.clone()];
+    let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
+    let mut identities = BTreeMap::new();
+    let sources = crate::battle_model::party::discover(&extracted, 1, &catalogue, &mut identities)?;
+    let mut aliases = BTreeMap::<String, Vec<String>>::new();
+    for (label, hash) in identities {
+        aliases.entry(hash).or_default().push(
+            label
+                .strip_prefix("disc1/")
+                .context("invalid source identity")?
+                .into(),
+        );
+    }
+    let options = super::Options {
+        discs: &discs,
+        output: output.path(),
+        jobs: 3,
+        memory_budget: 2 * 1024 * 1024 * 1024,
+    };
+    let mut dag = pool::Dag::new();
+    let mut packages = BTreeMap::new();
+    for (key, names) in aliases {
+        let file = super::File {
+            hash: key.clone(),
+            relative: names[0].clone(),
+            role: None,
+        };
+        let options = &options;
+        let extracted = &extracted;
+        let package = dag.add(file.relative.clone(), [], move |_, _| {
+            let mut decoded = Package::default();
+            let mut report = Report::default();
+            let paths = super::cook_file(
+                options,
+                extracted,
+                &file,
+                &Err(anyhow::anyhow!("model job requested audio")),
+                &mut report,
+                super::PackageInput {
+                    map: None,
+                    models: &mut decoded,
+                    aliases: &names,
+                },
+            )?;
+            Ok(super::CookedJob {
+                key: file.hash.clone(),
+                paths,
+                report,
+                decoded: Arc::new(decoded),
+            })
+        });
+        packages.insert(key, package);
+    }
+    party(&mut dag, &sources, &packages, output.path())?;
+    let mut complete = false;
+    for result in dag.run(
+        3,
+        || (),
+        |completion| {
+            if let Ok(party) = completion.result::<PreparedParty>() {
+                assert_eq!(party.files.len(), sources.len());
+                assert!(sources.iter().all(|source| {
+                    source
+                        .keys
+                        .iter()
+                        .all(|key| party.outputs[key].contains(&source.path()))
+                }));
+                complete = true;
+            }
+        },
+    )? {
+        result?;
+    }
+    assert!(complete);
+    for character in 1..=9 {
+        let path = resonance_content::battle_model::party_path(character);
+        assert_eq!(
+            fs::read(output.path().join(&path))?,
+            fs::read(local.join("all-assets").join(path))?
+        );
+    }
     Ok(())
 }
 
@@ -257,6 +419,7 @@ fn original_representative_fields_share_the_production_graph() -> Result<()> {
         discs: &paths,
         output,
         jobs: 3,
+        memory_budget: 2 * 1024 * 1024 * 1024,
     };
     let _publications = crate::publication::Session::start_if_needed(output)?;
     let discs = super::source_discs(&paths)?;
@@ -296,6 +459,9 @@ fn original_representative_fields_share_the_production_graph() -> Result<()> {
     .into_iter()
     .collect();
     let document = &documents[&1];
+    let party_files = (1..=document.catalogues.resources.party_bodies.len())
+        .map(|id| Ok(resonance_content::battle_model::party_path(id.try_into()?)))
+        .collect::<Result<BTreeSet<_>>>()?;
     let published: Shared = read(&media, resonance_content::field_preload::SHARED_PATH)?;
     let mut shared_paths: BTreeSet<String> = [
         "game/session-data.json",
@@ -310,6 +476,7 @@ fn original_representative_fields_share_the_production_graph() -> Result<()> {
     .map(str::to_owned)
     .collect();
     shared_paths.extend(effect_files.iter().cloned());
+    shared_paths.extend(party_files.iter().cloned());
     shared_paths.extend(
         published
             .files
@@ -384,6 +551,10 @@ fn original_representative_fields_share_the_production_graph() -> Result<()> {
         save_point_no_gem: reference.save_point_no_gem,
         files: shared_paths.clone(),
     });
+    let party_value = Arc::new(PreparedParty {
+        files: party_files,
+        outputs: BTreeMap::new(),
+    });
     let needed = fields
         .iter()
         .flat_map(|field| field.dependencies.iter().cloned())
@@ -401,6 +572,9 @@ fn original_representative_fields_share_the_production_graph() -> Result<()> {
     let mut dag = pool::Dag::new();
     let shared = dag.add_shared("retained shared presentation", [], |_, _| {
         Ok(Arc::clone(&shared_value))
+    });
+    let party = dag.add_shared("retained party bindings", [], |_, _| {
+        Ok(Arc::clone(&party_value))
     });
     let mut packages = BTreeMap::new();
     for hash in needed {
@@ -455,7 +629,7 @@ fn original_representative_fields_share_the_production_graph() -> Result<()> {
         });
         packages.insert(hash, package);
     }
-    add(&mut dag, &fields, &packages, shared, output)?;
+    add(&mut dag, &fields, &packages, shared, party, output)?;
     let mut prepared = BTreeMap::new();
     for result in dag.run(
         3,

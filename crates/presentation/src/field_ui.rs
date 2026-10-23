@@ -1,4 +1,6 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
+#[path = "battle_ui.rs"]
+mod battle_ui;
 #[path = "field_ui_coverage.rs"]
 mod coverage;
 #[path = "credits.rs"]
@@ -12,6 +14,12 @@ pub(crate) mod session_screen;
 pub(super) use failure::update as transition_failure;
 #[path = "field_ui_fade.rs"]
 mod fade;
+pub(super) use battle_ui::{
+    ActorMarkers, Artwork as BattleHud, EnemyHud as BattleEnemyHud, PartyHudInput, RibbonInput,
+};
+#[path = "game_over_ui.rs"]
+mod game_over_ui;
+pub(super) use game_over_ui::Artwork as GameOverArt;
 #[path = "field_ui_menu.rs"]
 mod menu;
 #[cfg(test)]
@@ -50,6 +58,43 @@ use resonance_events::dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, TextT
 use resonance_game::{dialogue::DialoguePlayer, field::FieldSession};
 use std::{collections::BTreeMap, fs, path::Path};
 pub(super) use world::Artwork as WorldArtwork;
+
+/// Decode before activation. Callers decide whether failure is fatal or optional.
+fn ui_image(
+    path: &str,
+    size: [u32; 2],
+    repeat: bool,
+    read: &impl Fn(&str) -> Result<Vec<u8>>,
+) -> Result<Image> {
+    use bevy::image::{CompressedImageFormats, ImageType};
+    let extension = path
+        .rsplit_once('.')
+        .context("UI image has no extension")?
+        .1;
+    let address = if repeat {
+        ImageAddressMode::Repeat
+    } else {
+        ImageAddressMode::ClampToEdge
+    };
+    let image = Image::from_buffer(
+        &read(path)?,
+        ImageType::Extension(extension),
+        CompressedImageFormats::NONE,
+        false,
+        ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: address,
+            address_mode_v: address,
+            ..ImageSamplerDescriptor::linear()
+        }),
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_context(|| format!("UI image {path}"))?;
+    anyhow::ensure!(
+        [image.width(), image.height()] == size,
+        "UI image dimensions differ from its descriptor: {path}"
+    );
+    Ok(image)
+}
 
 /// Retained dialogue text may outlive its visible window or request owner.
 pub(super) fn displayed_dialogue<'a>(
@@ -779,6 +824,103 @@ impl Artwork {
     }
 }
 
+/// Scene-owned dialogue surfaces using the same layout and drawing as fields.
+/// Battle borrows no retained field entities or attachment history.
+pub(super) struct DialogueOverlay {
+    images: Vec<Handle<Image>>,
+    surfaces: Vec<Handle<Surface>>,
+    layers: BTreeMap<(u8, usize), Layer>,
+    head_heights: BTreeMap<u64, f32>,
+    choice_trail: super::choice_cursor::Trail,
+}
+
+impl DialogueOverlay {
+    fn load(
+        spec: &DialogueArt,
+        font: &BitmapFont,
+        files: &resonance_content::prepared::Files,
+        materials: &mut Assets<Surface>,
+        image_assets: &mut Assets<Image>,
+    ) -> Result<Self> {
+        let read = |path: &str| Ok(files.read(path)?.to_vec());
+        let images = spec
+            .textures
+            .iter()
+            .map(|texture| (texture.path.as_str(), [texture.width, texture.height]))
+            .chain([
+                (font.texture.as_str(), [font.width, font.height]),
+                (
+                    spec.cursor.path.as_str(),
+                    [spec.cursor.width, spec.cursor.height],
+                ),
+            ])
+            .enumerate()
+            .map(|(index, (path, size))| {
+                let mut image = ui_image(path, size, true, &read)?;
+                if index < 9 {
+                    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                        address_mode_u: ImageAddressMode::Repeat,
+                        address_mode_v: ImageAddressMode::Repeat,
+                        ..ImageSamplerDescriptor::nearest()
+                    });
+                }
+                Ok(image_assets.add(image))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let surfaces = images
+            .iter()
+            .map(|image| {
+                materials.add(Surface {
+                    source: image.clone(),
+                    sampling: image.clone(),
+                    frame_mask: images[0].clone(),
+                    color_mask: images[1].clone(),
+                    coverage: Coverage::default(),
+                    opaque: false,
+                    additive: false,
+                    texture_effect: Default::default(),
+                })
+            })
+            .collect();
+        Ok(Self {
+            images,
+            surfaces,
+            layers: BTreeMap::new(),
+            head_heights: BTreeMap::new(),
+            choice_trail: Default::default(),
+        })
+    }
+    pub(super) fn prepare(
+        &mut self,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<Surface>,
+    ) {
+        prepare_dialogue(
+            &mut self.layers,
+            &self.surfaces,
+            commands,
+            meshes,
+            materials,
+        );
+    }
+    pub(super) fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.layers.values().map(|layer| layer.entity)
+    }
+    pub(super) fn hide(&mut self, commands: &mut Commands) {
+        for layer in self.layers.values_mut() {
+            layer.show(false, commands);
+        }
+        self.head_heights.clear();
+        self.choice_trail = Default::default();
+    }
+    pub(super) fn despawn(self, world: &mut World) {
+        for entity in self.entities() {
+            world.despawn(entity);
+        }
+    }
+}
+
 fn prepare_dialogue(
     layers: &mut BTreeMap<(u8, usize), Layer>,
     surfaces: &[Handle<Surface>],
@@ -862,9 +1004,9 @@ impl DialogueDraw<'_> {
                     .get(&id)
                     .copied()
                     .unwrap_or_else(|| Vec3::from_array(actor.position));
-                self.head_heights.entry(request.operation.id()).or_insert(
-                    ((*head - position).dot(camera.up)).trunc() + HEAD_ANCHOR_PADDING,
-                );
+                self.head_heights
+                    .entry(request.operation.id())
+                    .or_insert(((*head - position).dot(camera.up)).trunc() + HEAD_ANCHOR_PADDING);
             }
         }
         for (&slot, player) in dialogue {
@@ -1182,6 +1324,23 @@ impl<'a> DialogueCamera<'a> {
                 .map_or(0., |camera| camera.fov_degrees()),
             up: Vec3::Z,
         }
+    }
+    fn battle(
+        world: &'a resonance_events::GameWorld,
+        frame: &resonance_battle::BattleFrame,
+    ) -> Result<Self> {
+        let camera = frame.camera.context("battle dialogue has no camera")?;
+        Ok(Self {
+            world,
+            transform: Some(
+                Transform::from_translation(Vec3::from_array(camera.eye))
+                    .looking_at(Vec3::from_array(camera.focus), Vec3::Y),
+            ),
+            fov_degrees: frame
+                .camera_fov_degrees
+                .unwrap_or(resonance_battle::VERTICAL_FOV_DEGREES),
+            up: Vec3::Y,
+        })
     }
 }
 

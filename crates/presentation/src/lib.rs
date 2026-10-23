@@ -1,5 +1,7 @@
 //! Desktop presentation for the high-level title controller.
 mod diagnostics;
+#[cfg(test)]
+mod test_support;
 use anyhow::{Context, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
@@ -23,6 +25,8 @@ use std::{
 };
 mod audio;
 mod audio_output;
+mod battle;
+mod battle_view;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
 mod camera;
@@ -42,6 +46,7 @@ mod field_animation;
 mod field_audio;
 #[cfg(test)]
 mod field_test;
+pub(crate) use field_audio::battle as battle_audio;
 mod sparse_animation;
 pub use field_audio::record_field_audio;
 mod field_audit;
@@ -72,9 +77,11 @@ mod overworld;
 pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
-    CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
-    prepare_overworld_test_fixture, record_checkpoint, record_checkpoint_window, record_new_game,
-    run_menu_probe, run_overworld_field_probe, run_quicksave_probe, run_title_load_probe,
+    CheckpointRecordingOptions, CheckpointReplay, IdentityRepair, SaveOptions,
+    check_checkpoint_identity, prepare_checkpoint_fixture, prepare_overworld_test_fixture,
+    record_battle, record_checkpoint, record_checkpoint_window, record_new_game,
+    repair_checkpoint_identity, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
+    run_title_load_probe,
 };
 mod new_game_capture;
 mod performance;
@@ -91,8 +98,6 @@ pub use field_view::{
 };
 
 pub use field_probe::{FieldCapture, capture_field, capture_field_sequence};
-#[cfg(test)]
-mod test_support;
 mod timing;
 mod title_field;
 use audio::{GameAudio, PlaybackAssets};
@@ -412,7 +417,9 @@ fn build_app_with_display(
                 timing::advance_clock,
                 boot::advance,
                 advance.run_if(dungeons::running),
-                new_game::advance.run_if(dungeons::running),
+                new_game::advance
+                    .run_if(dungeons::running)
+                    .run_if(battle::field_running),
             )
                 .chain(),
         )
@@ -423,7 +430,9 @@ fn build_app_with_display(
                 new_game::enter,
                 new_game::skip_test_battles.run_if(dungeons::running),
                 (
-                    new_game::transition.run_if(dungeons::running),
+                    new_game::transition
+                        .run_if(dungeons::running)
+                        .run_if(battle::field_running),
                     session_screen::update,
                 )
                     .chain(),
@@ -440,7 +449,7 @@ fn build_app_with_display(
                 movie::update,
                 new_game::movie_handoff,
                 start_audio,
-                field_audio::update,
+                field_audio::update.run_if(battle::field_running),
                 layout,
             )
                 .chain(),
@@ -472,6 +481,7 @@ fn build_app_with_display(
             check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
         );
     field_warm::install(&mut app);
+    battle::install(&mut app);
     game_over::install(&mut app)?;
     renderer::configure(&mut app);
     Ok((app, recording))
@@ -803,7 +813,7 @@ fn advance(
     new_game: Option<Res<new_game::Session>>,
     loading: Option<Res<loading::Pending>>,
     title_menu: Option<Res<saves::title::TitleMenu>>,
-    game_over: Option<Res<session_screen::GameOver>>,
+    game_over: Option<Res<game_over::Active>>,
     scenario: Option<ResMut<saves::ScenarioInput>>,
 ) {
     if game_over.is_some()

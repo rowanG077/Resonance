@@ -416,9 +416,9 @@ pub(crate) fn publish_field_audio(
             AudioCommand::Voice { resource, .. } => {
                 world.voice = Some(resonance_events::VoicePlayback {
                     resource: *resource,
-                    end_tick: world.tick.saturating_add(
-                        world.voice_durations.get(resource).copied().unwrap_or(0),
-                    ),
+                    end_tick: world
+                        .tick
+                        .saturating_add(world.voice_durations.get(resource).copied().unwrap_or(0)),
                 });
             }
             AudioCommand::StopVoice => world.voice = None,

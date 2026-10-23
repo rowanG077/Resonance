@@ -1,0 +1,273 @@
+//! Bind prepared enemy choices to executable battle actions.
+use anyhow::{Context, Result, ensure};
+use resonance_battle::{Difficulty, EnemyChoice, EnemyChoiceId, EnemyDecisionDefinition, EnemyId};
+use resonance_content::battle_enemy;
+use std::collections::BTreeSet;
+
+pub fn disabled_by_flags(
+    rows: &[resonance_content::battle_action::EnemyAction],
+    flags: &BTreeSet<u16>,
+) -> Vec<EnemyChoiceId> {
+    rows.iter()
+        .enumerate()
+        .filter(|(_, row)| row.required_flag.is_some_and(|flag| !flags.contains(&flag)))
+        .map(|(index, _)| EnemyChoiceId(index))
+        .collect()
+}
+
+pub fn definition(
+    enemy_id: u8,
+    source: &battle_enemy::Definition,
+    action_ids: &[resonance_battle::ActionKey],
+    difficulty: Difficulty,
+    model: Option<&resonance_battle::ModelDefinition>,
+) -> Result<EnemyDecisionDefinition> {
+    let policy = &source.actions.policy;
+    if let Some(reason) = &policy.unsupported_reason {
+        anyhow::bail!("{reason}");
+    }
+    ensure!(
+        action_ids.len() == source.actions.rows.len(),
+        "enemy action/decision row count differs"
+    );
+    if let (Some(walk), Some(model)) = (policy.walk_override, model) {
+        let (clip, replacement) = walk.motion_alias;
+        ensure!(
+            model.motions.contains_key(&clip) && model.motions.contains_key(&replacement),
+            "missing low-health walking motion"
+        );
+    }
+    let choices = source
+        .actions
+        .rows
+        .iter()
+        .zip(action_ids)
+        .map(|(row, &action)| {
+            use resonance_content::battle_action::EnemyApproach;
+            let approach = match row.approach {
+                EnemyApproach::Walk => None,
+                EnemyApproach::Run => Some((
+                    super::model::common_motion(model, super::model::MotionRole::Run),
+                    0.5,
+                    source.profile.run_speed,
+                )),
+                EnemyApproach::Custom { clip, rate, speed } => {
+                    Some((super::model::motion(model, clip), rate, speed))
+                }
+            };
+            choice(
+                row,
+                action,
+                approach.map(
+                    |(motion, motion_rate, speed)| resonance_battle::ApproachParameters {
+                        minimum: f32::from(row.approach_minimum),
+                        maximum: f32::from(row.approach_range),
+                        motion,
+                        motion_rate,
+                        speed,
+                        turn_ticks: source.profile.turn_ticks,
+                    },
+                ),
+                super::model::common_motion(
+                    model.filter(|_| !source.profile.traits.body_motion_disabled),
+                    if row.run_return {
+                        super::model::MotionRole::Run
+                    } else {
+                        super::model::MotionRole::Walk
+                    },
+                ),
+                row.run_return.then_some(source.profile.run_speed),
+            )
+        })
+        .collect::<Result<_>>()?;
+    Ok(EnemyDecisionDefinition {
+        enemy_id: EnemyId(enemy_id),
+        disabled_choices: Vec::new(),
+        strategy: source
+            .target_strategy
+            .context("unsupported enemy target strategy")?,
+        difficulty,
+        choices,
+        back_row: policy
+            .back_row
+            .iter()
+            .map(|row| (EnemyChoiceId(usize::from(row.action)), row.weight))
+            .collect(),
+        walk_speed: source.profile.walk_speed,
+        walk_override: policy.walk_override,
+        behavior: policy
+            .behavior
+            .as_ref()
+            .map(|behavior_source| behavior(behavior_source, model, &source.null_motions))
+            .transpose()?
+            .flatten(),
+        walk_motion: None,
+        run_motion: super::model::common_motion(model, super::model::MotionRole::Run),
+        turn_ticks: source.profile.turn_ticks,
+    })
+}
+
+fn behavior(
+    source: &resonance_content::battle_action::EnemyBehavior,
+    model: Option<&resonance_battle::ModelDefinition>,
+    null_motions: &BTreeSet<u16>,
+) -> Result<Option<resonance_battle::EnemyBehavior>> {
+    use resonance_battle::EnemyBehavior;
+    use resonance_content::battle_action::EnemyBehavior as Source;
+    Ok(Some(match source {
+        Source::ActionWeapons { .. } => return Ok(None),
+        Source::Retreat {
+            hp_percent,
+            after_ticks,
+        } => EnemyBehavior::Retreat {
+            hp_percent: *hp_percent,
+            after_ticks: *after_ticks,
+        },
+        Source::HealthStage {
+            hp_percent,
+            initial_station,
+            initial_actions,
+            final_actions,
+        } => EnemyBehavior::HealthStage {
+            hp_percent: *hp_percent,
+            initial_station: *initial_station,
+            initial_actions: EnemyChoiceId(usize::from(initial_actions.start))
+                ..EnemyChoiceId(usize::from(initial_actions.end)),
+            final_actions: EnemyChoiceId(usize::from(final_actions.start))
+                ..EnemyChoiceId(usize::from(final_actions.end)),
+        },
+        Source::CarriedAnimationRate { slot, rate } => EnemyBehavior::CarriedAnimationRate {
+            slot: *slot,
+            rate: *rate,
+        },
+        Source::ThreeStations {
+            stations,
+            change_at,
+        } => EnemyBehavior::ThreeStations {
+            stations: *stations,
+            change_at: u32::from(*change_at),
+        },
+        Source::ReplaceWeapon {
+            action,
+            hide_at,
+            replace_at,
+            source,
+            destination,
+            disabled_action,
+        } => {
+            let model = model.context("enemy weapon replacement requires a prepared body")?;
+            ensure!(
+                [source, destination].into_iter().all(|slot| model
+                    .weapons
+                    .iter()
+                    .any(|weapon| weapon.slot == Some(*slot))),
+                "enemy weapon replacement has an unprepared slot"
+            );
+            EnemyBehavior::ReplaceWeapon {
+                action: EnemyChoiceId(usize::from(*action)),
+                hide_at: u32::from(*hide_at),
+                replace_at: u32::from(*replace_at),
+                source: *source,
+                destination: *destination,
+                disabled_action: EnemyChoiceId(usize::from(*disabled_action)),
+            }
+        }
+        Source::Transformation {
+            reveal_hp_percent,
+            revealed_bones,
+            airborne_hp_percent,
+            airborne_walk_speed,
+            airborne_motions,
+            hover_height,
+            initial_actions,
+            final_actions,
+        } => {
+            let model = model.context("enemy transformation requires a prepared body")?;
+            EnemyBehavior::Transformation {
+                reveal_hp_percent: *reveal_hp_percent,
+                revealed_bones: revealed_bones
+                    .iter()
+                    .map(|name| {
+                        let bone = model
+                            .skeleton
+                            .bones
+                            .iter()
+                            .position(|bone| bone.name == *name)
+                            .with_context(|| format!("missing transformation bone {name}"))?;
+                        Ok(u16::try_from(bone)?)
+                    })
+                    .collect::<Result<_>>()?,
+                airborne_hp_percent: *airborne_hp_percent,
+                airborne_walk_speed: *airborne_walk_speed,
+                airborne_motions: airborne_motions
+                    .iter()
+                    .map(|&(clip, replacement)| {
+                        let replacement =
+                            (!null_motions.contains(&replacement)).then_some(replacement);
+                        ensure!(
+                            replacement.is_none_or(|clip| model.motions.contains_key(&clip)),
+                            "missing transformed enemy motion"
+                        );
+                        Ok((clip, replacement))
+                    })
+                    .collect::<Result<_>>()?,
+                hover_height: *hover_height,
+                initial_actions: EnemyChoiceId(usize::from(initial_actions.start))
+                    ..EnemyChoiceId(usize::from(initial_actions.end)),
+                final_actions: EnemyChoiceId(usize::from(final_actions.start))
+                    ..EnemyChoiceId(usize::from(final_actions.end)),
+            }
+        }
+        Source::ModelParts { bone_scales } => {
+            let model = model.context("enemy part overrides require a prepared body")?;
+            EnemyBehavior::ModelParts {
+                bone_scales: bone_scales
+                    .iter()
+                    .map(|(name, scale)| {
+                        let bone = model
+                            .skeleton
+                            .bones
+                            .iter()
+                            .position(|bone| bone.name == *name)
+                            .with_context(|| format!("missing enemy part bone {name}"))?;
+                        Ok((u16::try_from(bone)?, [*scale; 3]))
+                    })
+                    .collect::<Result<_>>()?,
+            }
+        }
+    }))
+}
+
+fn choice(
+    row: &resonance_content::battle_action::EnemyAction,
+    action: resonance_battle::ActionKey,
+    approach: Option<resonance_battle::ApproachParameters>,
+    returning: Option<resonance_battle::MotionBinding>,
+    return_speed: Option<f32>,
+) -> Result<EnemyChoice> {
+    if let Some(reason) = &row.unsupported_reason {
+        anyhow::bail!("{reason}");
+    }
+    Ok(EnemyChoice {
+        action,
+        physical_arte: matches!(
+            &row.execution,
+            Some(resonance_content::battle_action::EnemyExecution::Physical { .. })
+        ),
+        weight: row.weight,
+        chain_group: row.chain_group,
+        followup_chance: row.followup_chance,
+        requirements: row.requirements.clone(),
+        target_policy: row.target_policy,
+        target_allies: row.target_allies,
+        return_to_formation: row.return_to_formation,
+        returning,
+        return_speed,
+        guard_chance: row.guard_chance,
+        range: row.range,
+        tp: u16::from(row.tp),
+        approach_minimum: f32::from(row.approach_minimum),
+        approach_range: f32::from(row.approach_range),
+        approach,
+    })
+}

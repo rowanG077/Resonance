@@ -43,6 +43,7 @@ pub(crate) fn prepare(source: &source::Catalogue) -> Result<Landmarks> {
                     source::Marker::Unknown { value } => bail!("unknown world marker {value}"),
                 },
                 automatic: name.starts_with('*'),
+                entry_overrides: Vec::new(),
                 ship_camera_clearance: None,
                 name,
             });

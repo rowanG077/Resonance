@@ -1,22 +1,198 @@
-//! Return failed sessions to the prepared title scene.
-use super::{audio, loading, new_game, saves};
-use anyhow::Result;
-use bevy::prelude::*;
+//! Fatal defeat owns the retained caller until loading a save or returning to title.
+use super::{audio, battle_audio, field_ui::GameOverArt, loading, new_game, saves};
+use anyhow::{Result, ensure};
+use bevy::{camera::visibility::RenderLayers, prelude::*};
+use resonance_game::game_over::{Cue, Destination, Screen};
 use std::sync::atomic::Ordering;
 
 #[derive(Resource)]
+pub(super) struct Active {
+    screen: Screen,
+    art: GameOverArt,
+    loading: bool,
+}
+impl Active {
+    pub(super) fn loading(&self) -> bool {
+        self.loading
+    }
+
+    pub(super) fn diagnostic(&self) -> serde_json::Value {
+        serde_json::json!({
+            "selected": self.screen.selected,
+            "alpha": self.screen.alpha,
+            "closing": self.screen.closing(),
+            "loading": self.loading,
+            "destination": self.screen.destination().map(|destination| match destination {
+                Destination::Load => "load",
+                Destination::Title => "title",
+            }),
+        })
+    }
+}
+#[derive(Resource)]
 pub(super) struct Returning(Option<audio::PlaybackAssets>);
-/// Reuse the retained title resources when recovering a session.
+/// Fatal defeat shares the retained title resources with ordinary session returns.
 pub(super) fn install(app: &mut App) -> Result<()> {
-    app.add_systems(
-        Update,
-        finish_return
-            .after(super::timing::prepare)
-            .before(super::loading::black_hold),
-    );
+    app.add_systems(FixedUpdate, advance.after(super::timing::advance_clock))
+        .add_systems(Update, (transition, render).chain().after(super::layout))
+        .add_systems(
+            Update,
+            finish_return
+                .after(super::timing::prepare)
+                .before(super::loading::black_hold),
+        );
     Ok(())
 }
 
+/// Called only with battle-warmed surfaces, after its cameras have retired.
+pub(super) fn enter(world: &mut World, art: GameOverArt) -> Result<()> {
+    ensure!(
+        !world.contains_resource::<Active>(),
+        "game-over screen already active"
+    );
+    ensure!(
+        art.ready(world.resource::<Assets<Image>>()),
+        "game-over artwork is not ready"
+    );
+    ensure!(
+        world.contains_resource::<new_game::Session>(),
+        "fatal defeat has no retained caller"
+    );
+    for entity in art.entities() {
+        world.entity_mut(entity).insert(RenderLayers::default());
+    }
+    for mut camera in world
+        .query_filtered::<&mut Camera, With<super::FieldCamera>>()
+        .iter_mut(world)
+    {
+        camera.is_active = false;
+    }
+    for mut camera in world
+        .query_filtered::<&mut Camera, With<super::FieldOverlayCamera>>()
+        .iter_mut(world)
+    {
+        camera.is_active = true;
+        camera.clear_color = ClearColorConfig::Custom(Color::BLACK);
+    }
+    super::materials::TitleOutput::update(&mut world.resource_mut(), |b| {
+        *b = Vec4::new(1., 0., 0., 0.)
+    });
+    world
+        .resource_mut::<super::field_view::Controls>()
+        .clear_actions();
+    clear_title_input(world);
+    world.insert_resource(Active {
+        screen: Screen::default(),
+        art,
+        loading: false,
+    });
+    Ok(())
+}
+
+fn advance(world: &mut World) {
+    let Some(mut active) = world.remove_resource::<Active>() else {
+        return;
+    };
+    if !active.loading {
+        let input = world
+            .resource_mut::<super::field_view::Controls>()
+            .consume();
+        if let Some(mut scenario) = world.get_resource_mut::<saves::ScenarioInput>() {
+            scenario.acknowledge_input();
+        }
+        let result = active
+            .screen
+            .step(input, world.resource::<super::Clock>().0.tick());
+        if let Some(cue) = result.cue
+            && let Some(audio) = world.get_resource::<battle_audio::Playback>()
+        {
+            let result = (|| -> Result<()> {
+                if cue == Cue::Confirm {
+                    audio.music(None, 0)?;
+                }
+                audio.system_cue(if cue == Cue::Navigate { 1 } else { 2 })
+            })();
+            if !audio_result(world, result) {
+                world.insert_resource(active);
+                return;
+            }
+        }
+        match result.destination {
+            Some(Destination::Load) => {
+                let server = world.resource::<AssetServer>().clone();
+                let menu = active.art.load_menu(
+                    &server,
+                    &mut world.resource_mut::<Assets<super::field_ui::Surface>>(),
+                );
+                let menu = match menu {
+                    Ok(menu) => menu,
+                    Err(error) => {
+                        world.insert_resource(active);
+                        fail(world, error);
+                        return;
+                    }
+                };
+                // Never complete the suspended battle operation with a success code.
+                discard_field(world);
+                active.art.hide(&mut world.commands());
+                world.insert_resource(menu);
+                world.insert_resource(saves::title::TitleMenu::load());
+                active.loading = true;
+                clear_title_input(world);
+            }
+            Some(Destination::Title) => {
+                world.insert_resource(active);
+                if let Err(error) = return_to_title(world) {
+                    fail(world, error);
+                }
+                return;
+            }
+            None => {}
+        }
+    }
+    world.insert_resource(active);
+}
+fn transition(world: &mut World) {
+    if world
+        .get_resource::<Active>()
+        .is_some_and(|active| active.loading)
+        && !world.contains_resource::<saves::title::TitleMenu>()
+        && let Err(error) = return_to_title(world)
+    {
+        fail(world, error);
+    }
+}
+fn render(world: &mut World) {
+    let Some(mut active) = world.remove_resource::<Active>() else {
+        return;
+    };
+    if !active.loading {
+        let result = world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+            active
+                .art
+                .render(&active.screen, &mut world.commands(), &mut meshes)
+        });
+        if let Err(error) = result {
+            world.insert_resource(active);
+            fail(world, error);
+            return;
+        }
+    }
+    world.insert_resource(active);
+}
+
+/// The save loader calls this only after its complete replacement is validated.
+pub(super) fn loaded(world: &mut World) {
+    if !world.contains_resource::<Active>() {
+        return;
+    }
+    retire(world);
+    restore_cameras(world);
+    world
+        .resource::<loading::Resident>()
+        .battle
+        .store(false, Ordering::Release);
+}
 fn discard_field(world: &mut World) {
     if let Some(mut session) = world.remove_resource::<new_game::Session>() {
         session.events_mut().cancel();
@@ -24,9 +200,13 @@ fn discard_field(world: &mut World) {
     super::field_view::retire_live(world);
 }
 fn retire(world: &mut World) {
+    if let Some(active) = world.remove_resource::<Active>() {
+        active.art.despawn(world);
+    }
     saves::title::retire(world);
     // Title/load replacement retires the entire mixer, with no field playback
     // left to resume and no consumer available for a queued End request.
+    world.remove_resource::<battle_audio::Playback>();
     super::field_audio::retire(world);
 }
 fn restore_cameras(world: &mut World) {
@@ -64,6 +244,7 @@ pub(super) fn return_to_title(world: &mut World) -> Result<()> {
     let resident = world.resource::<loading::Resident>();
     *resident.files.write().unwrap() = None;
     resident.active.store(false, Ordering::Release);
+    resident.battle.store(false, Ordering::Release);
     if let Some(mut old) = world.remove_resource::<super::Events>() {
         old.0.cancel();
     }
@@ -130,4 +311,45 @@ fn clear_title_input(world: &mut World) {
     world
         .resource_mut::<super::field_view::Controls>()
         .clear_actions();
+}
+fn fail(world: &mut World, error: anyhow::Error) {
+    let diagnostics = super::diagnostics::policy(world);
+    if diagnostics.report("game-over transition", error).is_err() {
+        world.write_message(AppExit::error());
+    } else if let Err(error) = return_to_title(world) {
+        let _ = diagnostics.report("game-over recovery", error);
+    }
+}
+
+fn audio_result(world: &mut World, result: Result<()>) -> bool {
+    if let Err(error) = result
+        && super::diagnostics::policy(world)
+            .report("game-over audio", error)
+            .is_err()
+    {
+        world.write_message(AppExit::error());
+        return false;
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_audio_is_optional_only_in_tolerant_mode() {
+        for paranoid in [false, true] {
+            let mut world = World::new();
+            let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
+            world.insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()));
+            world.init_resource::<Messages<AppExit>>();
+            assert_eq!(
+                audio_result(&mut world, Err(anyhow::anyhow!("missing cue"))),
+                !paranoid
+            );
+            assert!(diagnostics.has_errors());
+            assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
+        }
+    }
 }

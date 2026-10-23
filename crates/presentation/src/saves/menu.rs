@@ -53,6 +53,7 @@ pub(super) fn update(world: &mut World) {
         world.remove_resource::<Loading>();
         match result {
             Ok(candidate) => {
+                crate::game_over::loaded(world);
                 if let Some(mut session) = world.get_resource_mut::<new_game::Session>() {
                     let changing = session.map_id() != candidate.map_id()
                         || session.overworld().is_some()

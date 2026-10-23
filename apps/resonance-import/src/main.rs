@@ -11,11 +11,29 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Bind one authored package motion to a party body for an isolated replay fixture.
+    BindFixtureMotion {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long)]
+        package: PathBuf,
+        #[arg(long)]
+        package_clip: u16,
+        #[arg(long)]
+        character: u8,
+        #[arg(long, default_value_t = 0)]
+        costume: u8,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Cook every asset from the supplied discs; no resource selection.
     CookAll {
         /// Parallel asset workers; codecs run within this worker limit.
         #[arg(long, default_value_t = std::thread::available_parallelism().map_or(1, |n| n.get().min(resonance_import::all_assets::MAX_WORKERS)) as u8, value_parser = clap::value_parser!(u8).range(1..=resonance_import::all_assets::MAX_WORKERS as i64))]
         jobs: u8,
+        /// Estimated retained data and scratch budget; not a process RSS limit.
+        #[arg(long, default_value_t = 2048, value_parser = clap::value_parser!(u16).range(1..))]
+        memory_budget_mib: u16,
         #[arg(long, num_args=1.., default_values=["local/extracted/disc1", "local/extracted/disc2"])]
         extracted: Vec<PathBuf>,
         #[arg(long, default_value = "local/all-assets")]
@@ -143,14 +161,35 @@ enum Action {
 
 fn main() -> anyhow::Result<()> {
     match Args::parse().command {
+        Action::BindFixtureMotion {
+            extracted,
+            package,
+            package_clip,
+            character,
+            costume,
+            output,
+        } => {
+            let receipt = resonance_import::battle_model::bind_party_motion(
+                &extracted,
+                &package,
+                package_clip,
+                character,
+                costume,
+                &output,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
+            Ok(())
+        }
         Action::CookAll {
             jobs,
+            memory_budget_mib,
             extracted,
             output,
         } => {
             let report =
                 resonance_import::all_assets::cook(&resonance_import::all_assets::Options {
                     jobs: usize::from(jobs),
+                    memory_budget: usize::from(memory_budget_mib) * 1024 * 1024,
                     discs: &extracted,
                     output: &output,
                 })?;

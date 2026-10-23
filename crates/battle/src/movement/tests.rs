@@ -1,0 +1,296 @@
+use super::*;
+use crate::conditions::{Condition, ConditionSet};
+use crate::{
+    ActionRequest, ActorId, Battle, BattleInput, Cue, Side,
+    tests::{actor, prepared},
+};
+use std::sync::Arc;
+
+#[test]
+fn movement_bonuses_and_heavy_condition_scale_walk_run_and_animation() {
+    let mut movement = actor(Side::Party);
+    movement.equipment.speed_multiplier = 1.1;
+    for (conditions, walk, run, motion) in [
+        (ConditionSet::EMPTY, 6.875, 11., 0.55),
+        (
+            ConditionSet::of(&[Condition::MovementBoost, Condition::Heavy]),
+            3.75,
+            6.5,
+            0.3,
+        ),
+    ] {
+        crate::tests::assert_close(movement.walk_speed(5., 1.25, conditions), walk, 0.0001);
+        crate::tests::assert_close(movement.run_limit(10., conditions), run, 0.0001);
+        crate::tests::assert_close(movement.motion_rate(0.5, conditions), motion, 0.0001);
+    }
+    assert_eq!(actor(Side::Party).equipment.speed_multiplier, 1.);
+}
+
+fn battle(attack: crate::PreparedAttack) -> Battle {
+    let mut owner = actor(Side::Party);
+    owner.movement.direction = [1., 0., 0.];
+    let mut prepared = prepared(vec![owner, actor(Side::Enemy)], attack.end_at);
+    prepared.actors[0].equipment.combo_traits.aerial_arte = true;
+    prepared.resources.actor_setup[0].techniques[0]
+        .capabilities
+        .aerial = true;
+    Arc::make_mut(&mut prepared.resources.actions.entries[0]).execution =
+        crate::ActionExecution::Attack(attack);
+    prepared.finish().unwrap()
+}
+
+fn start() -> BattleInput {
+    BattleInput::from(ActionRequest {
+        actor: ActorId(0),
+        action: crate::ActionKey(0),
+        target: ActorId(1),
+    })
+}
+
+#[test]
+fn braking_stops_without_reversing_and_preserves_airborne_hurt() {
+    for (height, speed, braking, expected) in [
+        (0., 0.55, 0., 0.),
+        (0., 0.56, 0., 0.56),
+        (0., 1.04, 0.5, 0.),
+        (0., 1.06, 0.5, 0.56),
+        (0., 2.49, 1.5, 0.99),
+        (20., 0.1, 3., 0.),
+        (20., 0.55, 3., 0.),
+        (20., 0.56, 3., 0.56),
+    ] {
+        for direction in [-1., 1.] {
+            let mut movement = Movement {
+                forward: direction * speed,
+                braking,
+                ..Default::default()
+            };
+            movement.integrate_along(&mut [0.; 3], [1., 0., 0.]);
+            movement.brake(height, Activity::Idle);
+            assert_eq!(movement.forward_step, direction * speed);
+            crate::tests::assert_close(movement.forward, direction * expected, 0.00001);
+        }
+    }
+    for speed in [-10., -1., 0., 1., 10.] {
+        let mut movement = Movement {
+            forward: speed,
+            braking: 3.,
+            ..Default::default()
+        };
+        for _ in 0..4 {
+            let previous = movement.forward;
+            movement.brake(0., Activity::Idle);
+            assert!(movement.forward.abs() <= previous.abs());
+            assert!(movement.forward == 0. || movement.forward.signum() == speed.signum());
+        }
+        assert_eq!(movement.forward, 0.);
+    }
+    let mut movement = Movement {
+        flying: true,
+        forward: 0.5,
+        braking: 3.,
+        ..Default::default()
+    };
+    assert!(!movement.brake(1., Activity::Hurt));
+    assert_eq!(movement.forward, 0.5);
+    assert!(movement.brake(1., Activity::Idle));
+    assert_eq!(movement.forward, 0.);
+}
+
+#[test]
+fn ground_clamp_uses_strict_negative_height() {
+    let mut owner = actor(Side::Party);
+    owner.movement.vertical = -1.;
+    floor(&mut owner);
+    assert_eq!(owner.movement.vertical, -1.);
+    owner.position[1] = -f32::MIN_POSITIVE;
+    floor(&mut owner);
+    assert_eq!((owner.position[1], owner.movement.vertical), (0., 0.));
+}
+
+#[test]
+fn local_hit_stop_holds_actor_commands_and_motion_but_ticks_common_timers() {
+    for target_direction in [-1., 1.] {
+        let mut battle = battle(crate::PreparedAttack {
+            events: vec![
+                (0, crate::AttackEvent::Braking(0.)),
+                (
+                    0,
+                    crate::AttackEvent::Move {
+                        forward: Some(3.),
+                        vertical: None,
+                    },
+                ),
+                (1, crate::AttackEvent::Braking(0.5)),
+                (
+                    1,
+                    crate::AttackEvent::Move {
+                        forward: Some(6.),
+                        vertical: None,
+                    },
+                ),
+                (1, crate::AttackEvent::FaceTarget),
+            ],
+            ..crate::tests::attack(1)
+        });
+        battle.actors[0].heading = 90.;
+        battle.actors[0].hit_stop = 2;
+        battle.actors[1].position[0] = target_direction * 100.;
+        for remaining in [1, 0] {
+            let frame = battle
+                .step(if remaining == 1 {
+                    start()
+                } else {
+                    BattleInput::default()
+                })
+                .unwrap();
+            assert_eq!(frame.actors[0].position, [0.; 3]);
+            assert_eq!(frame.actors[0].hit_stop, remaining);
+            assert_eq!(frame.actors[0].heading, 90.);
+            assert_eq!(frame.actions[0].2, 0);
+        }
+        let center = battle.actors[0].effect_origin();
+        let frame = battle.step(BattleInput::default()).unwrap();
+        assert_eq!(frame.actors[0].position[0], 3.);
+        assert_eq!(
+            crate::EffectFollow::Center(ActorId(0)).position(&frame),
+            Some(center)
+        );
+        assert_eq!(battle.actors[0].movement.forward, 3.);
+        assert_eq!(frame.actions[0].2, 1);
+        let center = battle.actors[0].effect_origin();
+        let resumed = battle.step(BattleInput::default()).unwrap();
+        assert_eq!(
+            crate::EffectFollow::Center(ActorId(0)).position(&resumed),
+            Some(center)
+        );
+        assert_eq!(resumed.actors[0].position[0], 3. + 6. * target_direction);
+        assert_eq!(resumed.actors[0].heading, 90. * target_direction);
+        for direction in [
+            battle.actors[0].facing_direction,
+            battle.actors[0].movement.direction,
+        ] {
+            for (actual, expected) in direction.into_iter().zip([target_direction, 0., 0.]) {
+                crate::tests::assert_close(actual, expected, 1e-6);
+            }
+        }
+        assert_eq!(battle.actors[0].movement.forward, 5.5);
+        assert_eq!(resumed.actors[0].activity, Activity::Recovering);
+    }
+}
+
+#[test]
+fn recovery_pauses_under_hit_stop_and_completes_once() {
+    let mut battle = battle(crate::PreparedAttack {
+        events: vec![
+            (0, crate::AttackEvent::Braking(0.)),
+            (
+                0,
+                crate::AttackEvent::Move {
+                    forward: Some(3.),
+                    vertical: None,
+                },
+            ),
+        ],
+        recovery: 2,
+        ..crate::tests::attack(2)
+    });
+    let id = battle.step(start()).unwrap().actions[0].0;
+    for _ in 0..2 {
+        battle.step(BattleInput::default()).unwrap();
+    }
+    assert_eq!(battle.activity(ActorId(0)), Activity::Recovering);
+    let remaining = battle.action_recovery_remaining(id);
+    battle.actors[0].hit_stop = 4;
+    for _ in 0..4 {
+        battle.step(BattleInput::default()).unwrap();
+        assert_eq!(battle.action_recovery_remaining(id), remaining);
+    }
+    let mut completions = 0;
+    for _ in 0..32 {
+        let position = battle.actors[0].position;
+        let frame = battle.step(BattleInput::default()).unwrap();
+        let completed = frame
+            .cues
+            .iter()
+            .filter(|c| matches!(c, Cue::Completed { .. }))
+            .count();
+        if completed != 0 {
+            assert_eq!(frame.actors[0].position, position);
+        }
+        completions += completed;
+    }
+    assert_eq!(completions, 1);
+    assert!(battle.sequences().next().is_none());
+    assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+    assert_eq!(battle.actors[0].movement.forward, 0.);
+}
+
+#[test]
+fn airborne_recovery_waits_for_the_floor_and_menu_pause_preserves_the_countdown() {
+    let mut battle = battle(crate::PreparedAttack {
+        events: vec![(0, crate::AttackEvent::Gravity(-0.25))],
+        recovery: 2,
+        ..crate::tests::attack(0)
+    });
+    battle.actors[0].position[1] = 2.;
+    battle.actors[0].movement.vertical = 2.;
+    let started = battle.step(start()).unwrap();
+    assert_eq!(started.actors[0].position[1], 4.);
+    let action = started.actions[0].0;
+    let before = battle.actors[0].clone();
+    let remaining = battle.action_recovery_remaining(action);
+    assert_eq!(remaining, Some(2));
+    let paused = battle
+        .step(BattleInput {
+            paused: true,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(paused.actors[0].state, before);
+    assert_eq!(battle.action_recovery_remaining(action), remaining);
+    // Recovery gravity already affected the velocity on its entry update.
+    let resumed = battle.step(BattleInput::default()).unwrap();
+    assert_eq!(resumed.actors[0].position[1], 5.);
+    let mut completions = 0;
+    for _ in 0..12 {
+        let frame = battle.step(BattleInput::default()).unwrap();
+        if frame.cues.contains(&Cue::Completed { action }) {
+            assert_eq!(frame.actors[0].position[1], 0.);
+            completions += 1;
+        }
+        if battle.actor_command_ready(ActorId(0)) {
+            break;
+        }
+        assert_eq!(frame.actors[0].activity, Activity::Recovering);
+    }
+    assert_eq!(completions, 1);
+    assert!(
+        battle.actor_command_ready(ActorId(0)),
+        "airborne recovery must finish after landing"
+    );
+}
+
+#[test]
+fn floating_actors_finish_recovery_without_landing() {
+    for (flying, hover_height, fixed_height, completes) in [
+        (true, 0., false, true),
+        (false, 20., false, false),
+        (false, 0., true, true),
+    ] {
+        let mut battle = battle(crate::tests::attack(0));
+        battle.actors[0].position[1] = 20.;
+        battle.actors[0].movement.flying = flying;
+        battle.actors[0].movement.hover_height = hover_height;
+        battle.actors[0].movement.fixed_height = fixed_height;
+        battle.step(start()).unwrap();
+        assert_eq!(
+            battle
+                .step(BattleInput::default())
+                .unwrap()
+                .actions
+                .is_empty(),
+            completes
+        );
+    }
+}

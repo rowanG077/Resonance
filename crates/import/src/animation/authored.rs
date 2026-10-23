@@ -124,6 +124,10 @@ struct Curve {
 }
 
 impl Animation {
+    pub(crate) fn duration_frames(&self) -> f32 {
+        self.duration_frames
+    }
+
     /// Bind authored channels without changing their keys or interpolation.
     pub(crate) fn motion(&self, model: &super::ModelBindings) -> Result<super::Motion> {
         let [descriptor] = self.descriptors.as_slice() else {

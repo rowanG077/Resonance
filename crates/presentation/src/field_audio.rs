@@ -2,6 +2,8 @@
 //! The same source feeds Bevy and the device-free recorder.
 use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
 use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
+#[path = "battle_audio.rs"]
+pub(crate) mod battle;
 #[path = "field_audio_record.rs"]
 mod record;
 #[path = "field_audio_validation.rs"]
@@ -552,6 +554,7 @@ fn voice_completion(command: &AudioCommand) -> Option<Arc<AtomicBool>> {
 }
 
 enum Message {
+    Battle(u64, battle::Command),
     LeaveField,
     EnterField(Arc<Assets>),
     Script(AudioCommand),
@@ -743,6 +746,7 @@ impl Spoken {
 }
 pub(super) struct Frames {
     synth: Synthesizer,
+    battle: Option<battle::State>,
     completions: Completions,
     assets: Arc<Assets>,
     receive: Option<Receiver<Message>>,
@@ -799,6 +803,7 @@ impl Frames {
         }
         self.music = None;
         self.sounds.clear();
+        self.battle = None;
     }
     fn stop_voice(&mut self) -> Result<()> {
         if let Some(voice) = self.voice.take()
@@ -989,6 +994,9 @@ impl Frames {
         }
         loop {
             match self.receive.as_ref().unwrap().try_recv() {
+                Ok(Message::Battle(command_id, command)) => {
+                    self.battle_command(command_id, command)?
+                }
                 Ok(Message::LeaveField) => {
                     self.sounds.clear();
                     self.stop_voice()?;
@@ -1030,11 +1038,16 @@ impl Frames {
         }
         if self.frame.is_multiple_of(BLOCK_FRAMES as u64) {
             self.stream_block.fill([[0; 2]; 3]);
+            if let Some(battle) = &mut self.battle {
+                battle.prepare_stream_block(&mut self.stream_block, self.frame, &self.synth);
+            }
         }
         let mut buses = [[0; 2]; 3];
         let master = self.master;
-        let levels = self.levels;
-
+        let mut levels = self.levels;
+        if let Some(battle) = &self.battle {
+            levels[1..].copy_from_slice(&battle.event_audio_levels());
+        }
         let [music_level, effects_level, _] = levels.map(|v| f32::from(v) * (1. / 127.));
         let voice_level = self.assets.voice_gains[usize::from(levels[2])];
         let diagnostics = self.assets.diagnostics.clone();
@@ -1068,7 +1081,9 @@ impl Frames {
                 self.sounds.remove(index);
             }
         }
-
+        if let Some(battle) = &mut self.battle {
+            battle.prepare_shared()?;
+        }
         // The synthesizer has already retired only failed entries and prepared
         // the healthy players' current frame before reporting its errors.
         diagnostics.attempt("audio synthesizer", self.synth.advance())?;
@@ -1081,6 +1096,11 @@ impl Frames {
         }
         if let Some(music) = &mut self.music {
             music.fade.advance(1);
+            if self.battle.as_ref().is_some_and(|state| state.stop_music())
+                && music.fade.value() == 0.
+            {
+                self.music = None;
+            }
         }
         self.master.advance(1);
         let mut index = 0;
@@ -1110,7 +1130,9 @@ impl Frames {
             }
             index += 1;
         }
-
+        if let Some(battle) = &mut self.battle {
+            battle.frame(&mut buses, self.frame, &self.completions)?;
+        }
         // Read after every player so submitted PCM and release tails reach
         // the shared studio exactly once, including after a player stops.
         for (bus, unread) in buses.iter_mut().zip(self.synth.unread_frame()) {
@@ -1207,6 +1229,7 @@ impl Decodable for FieldSource {
     fn decoder(&self) -> Frames {
         Frames {
             synth: Synthesizer::default(),
+            battle: None,
             completions: self.completions.clone(),
             assets: self.assets.clone(),
             receive: self
@@ -1235,7 +1258,9 @@ impl Decodable for FieldSource {
 }
 
 pub(super) fn update(world: &mut World) {
-    if world.contains_resource::<super::new_game::TransitionFailure>() {
+    if world.contains_resource::<battle::Playback>()
+        || world.contains_resource::<super::new_game::TransitionFailure>()
+    {
         return;
     }
     if !world.contains_resource::<super::new_game::Session>() {
@@ -2704,7 +2729,7 @@ mod tests {
         };
         files.insert(
             "game/skits.json".into(),
-            br#"{"version":2,"skits":[],"portrait_recipes":[]}"#.as_slice().into(),
+            br#"{"version":3,"skits":[],"portrait_recipes":[]}"#.as_slice().into(),
         );
         (
             files,
@@ -2740,6 +2765,143 @@ mod tests {
             }
             assert!(files.diagnostics().has_errors());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn battle_audio_preparation_skips_unavailable_descriptors_and_independent_bad_entries()
+    -> Result<()> {
+        use resonance_content::{battle_audio, field_preload::File};
+        let (base_files, base) = prepared_bank(Diagnostics::default());
+        let inventory = [
+            (base.music[&1].clone(), AudioRole::AudioPackage),
+            (base.voices[&7].asset.clone(), AudioRole::Voice),
+        ]
+        .into_iter()
+        .map(|(asset, role)| {
+            let bytes = base_files.read(&asset.path).unwrap().len() as u64;
+            (
+                asset.path,
+                File {
+                    sha256: asset.sha256,
+                    bytes,
+                    roles: [role].into(),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+        let descriptor = serde_json::to_value(battle_audio::Audio {
+            assets: base,
+            files: inventory,
+            effect_spatial: [320., 5., 64., 0., 127.],
+            voice_spatial: [320., 5., 64., 24., 104.],
+        })?;
+        // An unrequested, well-formed binding must not load its absent PCM.
+        let mut unselected = descriptor.clone();
+        unselected["assets"]["voices"]["8"] = unselected["assets"]["voices"]["7"].clone();
+        let voice_path = unselected["assets"]["voices"]["7"]["path"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        unselected["assets"]["voices"]["8"]["path"] = "audio/unselected.wav".into();
+        unselected["files"]["audio/unselected.wav"] = unselected["files"][&voice_path].clone();
+        let (mut selected_files, _) = prepared_bank(Diagnostics::new(true));
+        selected_files.insert(
+            battle_audio::PATH.into(),
+            serde_json::to_vec(&unselected)?.into(),
+        );
+        let selected_descriptor = resonance_game::battle::audio::read(&selected_files)?;
+        let (selected_files, selected_descriptor) = resonance_game::battle::audio::prepare(
+            &std::env::temp_dir(),
+            selected_files,
+            selected_descriptor,
+            &battle_audio::Selection {
+                streams: [7].into(),
+                ..Default::default()
+            },
+            &mut resonance_content::prepared::Cache::default(),
+            || false,
+        )?;
+        let selected_descriptor = selected_descriptor.unwrap();
+        assert_eq!(
+            selected_descriptor
+                .assets
+                .voices
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            [7]
+        );
+        assert!(selected_descriptor.assets.music.is_empty());
+        assert!(selected_descriptor.assets.sounds.is_empty());
+        assert!(selected_files.read("audio/unselected.wav").is_err());
+        assert!(!selected_files.diagnostics().has_errors());
+
+        let mut bad_header = descriptor.clone();
+        bad_header["assets"]["version"] = 0.into();
+        let mut bad_entry = descriptor;
+        bad_entry["assets"]["voices"]["8"] = bad_entry["assets"]["voices"]["7"].clone();
+        bad_entry["assets"]["voices"]["8"]["path"] = "audio/broken.wav".into();
+        bad_entry["files"]["audio/broken.wav"] = serde_json::json!(false);
+        for (bytes, available) in [
+            (None, false),
+            (Some(b"invalid JSON".to_vec()), false),
+            (Some(serde_json::to_vec(&bad_header)?), false),
+            (Some(serde_json::to_vec(&bad_entry)?), true),
+        ] {
+            for paranoid in [false, true] {
+                let (mut files, _) = prepared_bank(Diagnostics::new(paranoid));
+                if let Some(bytes) = &bytes {
+                    files.insert(battle_audio::PATH.into(), bytes.clone().into());
+                }
+                let prepared = (|| {
+                    let descriptor = resonance_game::battle::audio::read(&files)?;
+                    resonance_game::battle::audio::prepare(
+                        &std::env::temp_dir(),
+                        files,
+                        descriptor,
+                        &battle_audio::Selection {
+                            music: [1].into(),
+                            sounds: [2].into(),
+                            streams: [7].into(),
+                            ..Default::default()
+                        },
+                        &mut resonance_content::prepared::Cache::default(),
+                        || false,
+                    )
+                })();
+                if paranoid {
+                    assert!(prepared.is_err());
+                    continue;
+                }
+                let (mut files, descriptor) = prepared?;
+                assert_eq!(descriptor.is_some(), available);
+                assert!(files.diagnostics().has_errors());
+                // Playback uses the admitted descriptor; it does not decode it again.
+                files.remove(battle_audio::PATH);
+                let previous = files.diagnostics().entries();
+                let _loaded =
+                    battle::Assets::load(&files, descriptor.as_ref(), &mut Cache::default())?;
+                if let Some(descriptor) = descriptor {
+                    assert_eq!(
+                        descriptor.assets.voices.keys().copied().collect::<Vec<_>>(),
+                        [7]
+                    );
+                    assert_eq!(files.diagnostics().entries(), previous);
+                }
+            }
+        }
+        assert!(
+            resonance_game::battle::audio::prepare(
+                &std::env::temp_dir(),
+                base_files,
+                None,
+                &battle_audio::Selection::default(),
+                &mut resonance_content::prepared::Cache::default(),
+                || true,
+            )
+            .is_err()
+        );
         Ok(())
     }
 

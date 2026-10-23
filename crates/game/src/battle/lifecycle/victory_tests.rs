@@ -1,0 +1,290 @@
+use super::victory_selection::*;
+use crate::battle::party::Character::{self, *};
+use crate::battle::results::PreparedGroup;
+use resonance_battle::{Control, Sound};
+use resonance_content::battle_victory::{Condition, RandomGate, SelectionRule};
+
+fn context<'a>(characters: &[Character], groups: &'a [PreparedGroup]) -> Context<'a> {
+    Context {
+        leader: characters[0],
+        formation: 1,
+        party: characters
+            .iter()
+            .map(|&character| Participant {
+                character,
+                available: true,
+                dead: false,
+                hp_percent: 100,
+                close_to_lloyd: false,
+                distant_from_lloyd: false,
+                participation: 0,
+                poisoned: false,
+                control: Control::Auto,
+                kills: 0,
+            })
+            .collect(),
+        colette: ColetteState::Normal,
+        presea_recovered: true,
+        regal_recovered: true,
+        party_was_hit: false,
+        enemy_was_scanned: false,
+        level_difference: 0,
+        enemy_count: 1,
+        prepared_groups: groups,
+    }
+}
+
+fn group(id: u8, participants: &[Character], condition: Condition) -> PreparedGroup {
+    PreparedGroup {
+        id: VictoryGroupId(id),
+        leader: participants[0],
+        participants: participants.to_vec(),
+        required_leader: None,
+        condition,
+        // Synthetic rules preserve these tests' established odds and ordering.
+        selection: match id {
+            46 | 47 => SelectionRule::Encounter {
+                formations: vec![31],
+                priority: u8::from(id == 46),
+            },
+            _ => SelectionRule::Ordinary {
+                priority: if id == 38 { 0 } else { id },
+                gate: match id {
+                    26 => RandomGate {
+                        mask: 4,
+                        accepted: 4,
+                    },
+                    15 | 39 => RandomGate {
+                        mask: 7,
+                        accepted: 0,
+                    },
+                    _ => RandomGate {
+                        mask: 1,
+                        accepted: 1,
+                    },
+                },
+            },
+        },
+        voice: Sound::Cue(0),
+    }
+}
+
+#[test]
+fn dialogue_identity_does_not_override_declared_formation_or_random_gate() {
+    let mut ordinary = group(47, &[Lloyd], Condition::Always);
+    ordinary.selection = SelectionRule::Ordinary {
+        priority: 0,
+        gate: RandomGate {
+            mask: 128,
+            accepted: 128,
+        },
+    };
+    let groups = [ordinary];
+    let mut state = context(&[Lloyd], &groups);
+    state.formation = 31;
+    let mut draws = [0, 128].into_iter();
+    assert_eq!(
+        select(&state, || draws.next().unwrap()),
+        Selection::Group(VictoryGroupId(47))
+    );
+    assert_eq!(draws.next(), None);
+
+    let mut forced = group(15, &[Lloyd, Colette], Condition::Always);
+    forced.selection = SelectionRule::Encounter {
+        priority: 0,
+        formations: vec![900],
+    };
+    let groups = [forced];
+    let mut state = context(&[Lloyd, Colette], &groups);
+    state.formation = 900;
+    state.colette = ColetteState::Silent;
+    state.party[1].dead = true;
+    state.party[1].available = false;
+    assert_eq!(
+        select(&state, || panic!(
+            "declared encounter dialogue drew randomness"
+        )),
+        Selection::Group(VictoryGroupId(15))
+    );
+}
+
+#[test]
+fn solo_celebrations_never_require_absent_companions() {
+    let groups = [group(15, &[Lloyd, Colette, Genis], Condition::Always)];
+    for character in [
+        Lloyd, Colette, Genis, Raine, Sheena, Zelos, Presea, Regal, Kratos,
+    ] {
+        for sample in [0, 1] {
+            let selection = select(&context(&[character], &groups), || sample);
+            assert!(matches!(selection, Selection::Solo(0..=4)));
+        }
+    }
+}
+
+#[test]
+fn colettes_normal_poses_keep_the_chakram_grip_even_when_injured() {
+    let mut context = context(&[Colette], &[]);
+    for hp in [1, 25, 100] {
+        context.party[0].hp_percent = hp;
+        for sample in [0, 1] {
+            assert!(matches!(
+                select(&context, || sample),
+                Selection::Solo(2 | 3)
+            ));
+        }
+    }
+    context.colette = ColetteState::Alternate;
+    context.party[0].hp_percent = 1;
+    assert_eq!(select(&context, || 0), Selection::Solo(1));
+}
+
+#[test]
+fn unavailable_and_silent_characters_do_not_join_dialogue() {
+    let groups = [group(15, &[Lloyd, Colette, Genis], Condition::Always)];
+    let mut context = context(&[Lloyd, Colette, Genis], &groups);
+    assert_eq!(select(&context, || 0), Selection::Group(VictoryGroupId(15)));
+    for state in [ColetteState::Silent, ColetteState::Sealed] {
+        context.colette = state;
+        assert!(matches!(select(&context, || 0), Selection::Solo(_)));
+    }
+    context.colette = ColetteState::Normal;
+    context.party[2].available = false;
+    assert!(matches!(select(&context, || 0), Selection::Solo(_)));
+}
+
+#[test]
+fn fallen_companion_dialogue_needs_a_survivor_and_the_fallen_member() {
+    for (id, condition, survivor, fallen) in [
+        (2, Condition::RaineFallen, Sheena, vec![Raine]),
+        (3, Condition::SheenaFallen, Raine, vec![Sheena]),
+        (
+            4,
+            Condition::RaineAndSheenaFallen,
+            Kratos,
+            vec![Raine, Sheena],
+        ),
+        (26, Condition::ColetteFallen, Lloyd, vec![Colette]),
+        (37, Condition::KratosFallen, Raine, vec![Kratos]),
+        (
+            40,
+            Condition::GenisFallenBeforePreseaRecovery,
+            Presea,
+            vec![Genis],
+        ),
+    ] {
+        let characters: Vec<_> = [survivor].into_iter().chain(fallen).collect();
+        let groups = [group(id, &characters, condition)];
+        let mut context = context(&characters, &groups);
+        context.presea_recovered = false;
+        assert!(matches!(select(&context, || 0), Selection::Solo(_)));
+        for member in &mut context.party[1..] {
+            member.available = false;
+            member.dead = true;
+            member.hp_percent = 0;
+            member.close_to_lloyd = true;
+        }
+        let mut draws = [0, if id == 26 { 4 } else { 1 }].into_iter();
+        assert_eq!(
+            select(&context, || draws.next().unwrap()),
+            Selection::Group(VictoryGroupId(id))
+        );
+        context.party[0].available = false;
+        assert!(matches!(select(&context, || 0), Selection::Solo(_)));
+    }
+}
+
+#[test]
+fn group_selection_keeps_ordered_odds_and_only_draws_for_eligible_choices() {
+    let groups = [group(15, &[Lloyd, Colette, Genis], Condition::Always)];
+    let isolated = context(&[Lloyd, Colette, Genis], &groups);
+    let mut selected = 0;
+    for gate in 0..2 {
+        for branch in 0..8 {
+            let mut draws = [gate, branch, 1].into_iter();
+            selected += usize::from(
+                select(&isolated, || draws.next().unwrap()) == Selection::Group(VictoryGroupId(15)),
+            );
+        }
+    }
+    assert_eq!(selected, 1, "group 15 needs both the half and eighth gates");
+
+    // Input order does not replace exchange precedence.
+    let groups = [
+        group(39, &[Kratos, Colette, Genis], Condition::Always),
+        group(38, &[Kratos, Colette, Genis], Condition::Flawless),
+    ];
+    let mut context = context(&[Kratos, Colette, Genis], &groups);
+    for (draws, expected) in [(vec![0, 1], 38), (vec![0, 0, 0], 39)] {
+        let mut draws = draws.into_iter();
+        assert_eq!(
+            select(&context, || draws.next().unwrap()),
+            Selection::Group(VictoryGroupId(expected))
+        );
+        assert_eq!(draws.next(), None);
+    }
+    context.party_was_hit = true;
+    let mut draws = [0, 0].into_iter();
+    assert_eq!(
+        select(&context, || draws.next().unwrap()),
+        Selection::Group(VictoryGroupId(39))
+    );
+    assert_eq!(draws.next(), None, "ineligible group 38 consumes no draw");
+}
+
+#[test]
+fn encounter_exchange_uses_prepared_roster_priority_without_random_draws() {
+    let groups = [
+        group(46, &[Lloyd], Condition::Always),
+        group(47, &[Lloyd, Kratos], Condition::Always),
+    ];
+    let mut context = context(&[Lloyd, Kratos], &groups);
+    context.formation = 31;
+    context.party[1].dead = true;
+    context.party[1].available = false;
+    assert_eq!(
+        select(&context, || panic!("forced group drew randomness")),
+        Selection::Group(VictoryGroupId(47))
+    );
+    context.prepared_groups = &groups[..1];
+    assert_eq!(
+        select(&context, || panic!("forced group drew randomness")),
+        Selection::Group(VictoryGroupId(46))
+    );
+    context.prepared_groups = &groups;
+    context.party.pop();
+    assert_eq!(
+        select(&context, || panic!("forced group drew randomness")),
+        Selection::Group(VictoryGroupId(46))
+    );
+}
+
+#[test]
+fn solo_speech_uses_the_condition_selected_celebration() {
+    let voices: Vec<_> = (0..5)
+        .map(|pose| [Some(Sound::Cue(pose * 2)), Some(Sound::Cue(pose * 2 + 1))])
+        .collect();
+    let mut state = context(&[Lloyd], &[]);
+    state.party_was_hit = true;
+    for (hp, expected_pose) in [(100, 0), (75, 0), (74, 2), (25, 2), (24, 1)] {
+        state.party[0].hp_percent = hp;
+        let selection = select(&state, || 1);
+        assert_eq!(selection, Selection::Solo(expected_pose));
+        for variation in 0..2 {
+            assert_eq!(
+                ordinary_voice(Lloyd, expected_pose, variation, &voices),
+                Some(Sound::Cue(u16::from(expected_pose) * 2 + variation)),
+            );
+        }
+    }
+    for sample in 0..2 {
+        assert_eq!(
+            ordinary_voice(Colette, 2, sample, &voices),
+            Some(Sound::Cue(6))
+        );
+        assert_eq!(
+            ordinary_voice(Colette, 3, sample, &voices),
+            Some(Sound::Cue(7))
+        );
+    }
+    assert_eq!(ordinary_voice(Lloyd, 0, 0, &[]), None);
+}

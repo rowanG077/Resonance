@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 pub const TILE_SIZE: u32 = 8;
 pub const MAX_PORTRAITS: usize = 32;
+pub const VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkitCatalog {
@@ -26,6 +27,8 @@ pub struct SkitCatalog {
 pub struct SkitResourcePaths {
     pub script: String,
     pub messages: String,
+    /// Authored permission, additionally constrained by the playback caller.
+    pub allow_skip: bool,
     /// Event-only skits have titles but never produce an ambient notification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -169,7 +172,7 @@ impl SkitCondition {
 
 impl SkitCatalog {
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.version == 2, "unsupported skit catalog");
+        ensure!(self.version == VERSION, "unsupported skit catalog");
         ensure!(self.skits.len() <= 512, "too many skit definitions");
         ensure!(
             self.preview_order

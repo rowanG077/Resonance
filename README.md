@@ -110,7 +110,7 @@ clock. Simulation remains at 60000/1001 updates per second.
 | Pause / resume | F7 | — |
 | Skip current cutscene / cancel skip | F8 | — |
 
-Combat is not implemented on this branch. Battle skipping is off by default. Open **Shift+Tab** and click **Skip battles**
+Battle skipping is off by default. Open **Shift+Tab** and click **Skip battles**
 or press **B** while the menu is open to toggle it for the session. Skipped
 encounters count as victories without loot. The `--skip-battles` launch option
 starts with skipping enabled. Unsupported field scripts still report errors

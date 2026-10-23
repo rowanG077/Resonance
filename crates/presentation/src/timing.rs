@@ -37,19 +37,23 @@ pub(super) fn advance_clock(
     quickload: Option<Res<super::saves::Quickload>>,
     resident: Option<Res<super::loading::Resident>>,
     mut session: Option<ResMut<super::new_game::Session>>,
-    game_over: Option<Res<super::session_screen::GameOver>>,
+    battle: Option<Res<super::battle::Owner>>,
+    game_over: Option<Res<super::game_over::Active>>,
 ) {
     // Presentation age continues across movies and title entries;
     // pure loading waits do not advance it.
     if loading.is_none()
         && quickload.is_none()
-        && (session.is_none()
+        && (battle.as_ref().is_some_and(|battle| battle.presenting())
+            || session.is_none()
             || resident
                 .as_ref()
                 .is_none_or(|r| r.active.load(Ordering::Acquire)))
-        && session
-            .as_ref()
-            .is_none_or(|session| !session.events().battle_pending() || game_over.is_some())
+        && session.as_ref().is_none_or(|session| {
+            !session.events().battle_pending()
+                || game_over.is_some()
+                || battle.as_ref().is_some_and(|battle| battle.presenting())
+        })
         && session
             .as_ref()
             .is_none_or(|s| s.events().world.field_transition.is_none())

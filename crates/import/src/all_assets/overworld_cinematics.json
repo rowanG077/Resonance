@@ -1,0 +1,1525 @@
+{
+  "provenance": "GQSEAF world presentation parameters combine authored setup rules with extracted opacity, atlas and sound tables. Atlas and ship tracks use scene ticks; scrolling uses the continuous presentation counter. Camera and actor frames run at 30 Hz; tracks use nominal 60 Hz. Slot 15 is the reserved loop channel; sound 25 belongs to ship travel.",
+  "retained_sounds": [
+    25
+  ],
+  "atlas_sequences": {
+    "four-frame-loop": {
+      "denominator": 4,
+      "runs": [
+        {
+          "ticks": 8,
+          "frame": 0
+        },
+        {
+          "ticks": 8,
+          "frame": 1
+        },
+        {
+          "ticks": 8,
+          "frame": 2
+        },
+        {
+          "ticks": 8,
+          "frame": 3
+        }
+      ]
+    },
+    "eight-frame-burst": {
+      "denominator": 8,
+      "runs": [
+        {
+          "ticks": 5,
+          "frame": 1
+        },
+        {
+          "ticks": 6,
+          "frame": 2
+        },
+        {
+          "ticks": 6,
+          "frame": 3
+        },
+        {
+          "ticks": 6,
+          "frame": 4
+        },
+        {
+          "ticks": 6,
+          "frame": 5
+        },
+        {
+          "ticks": 6,
+          "frame": 6
+        },
+        {
+          "ticks": 6,
+          "frame": 7
+        },
+        {
+          "ticks": 6,
+          "frame": 8
+        }
+      ]
+    },
+    "four-frame-pulse": {
+      "denominator": 4,
+      "runs": [
+        {
+          "ticks": 6,
+          "frame": 1
+        },
+        {
+          "ticks": 12,
+          "frame": 2
+        },
+        {
+          "ticks": 14,
+          "frame": 3
+        },
+        {
+          "ticks": 16,
+          "frame": 4
+        },
+        {
+          "ticks": 10,
+          "frame": 3
+        },
+        {
+          "ticks": 10,
+          "frame": 2
+        },
+        {
+          "ticks": 18,
+          "frame": 1
+        },
+        {
+          "ticks": 9,
+          "frame": 0
+        }
+      ]
+    }
+  },
+  "scenes": {
+    "513": {
+      "world": "sylvarant",
+      "fade": {
+        "white": false,
+        "end_rate": 4,
+        "intro_rate": 4,
+        "flashes": []
+      },
+      "initial_audio": [
+        {
+          "kind": "sound",
+          "id": 177,
+          "pan": 64,
+          "volume": 127,
+          "slot": 15,
+          "repeat": true
+        }
+      ],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": null,
+      "actors": {
+        "1": {
+          "render": {},
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": null,
+                "sequence": "four-frame-loop"
+              },
+              "clock": "scene"
+            }
+          ]
+        }
+      }
+    },
+    "514": {
+      "world": "sylvarant",
+      "fade": {
+        "white": false,
+        "end_rate": 4,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [
+        {
+          "kind": "sound",
+          "id": 177,
+          "pan": 64,
+          "volume": 127,
+          "slot": 15,
+          "repeat": true
+        }
+      ],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": null,
+      "actors": {
+        "1": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        }
+      }
+    },
+    "515": {
+      "world": "sylvarant",
+      "fade": {
+        "white": false,
+        "end_rate": 4,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [
+        {
+          "kind": "sound",
+          "id": 177,
+          "pan": 64,
+          "volume": 127,
+          "slot": 15,
+          "repeat": true
+        }
+      ],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": null,
+      "actors": {
+        "1": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        }
+      }
+    },
+    "516": {
+      "world": "sylvarant",
+      "fade": {
+        "white": true,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [
+        {
+          "kind": "sound",
+          "id": 24,
+          "pan": 64,
+          "volume": 127,
+          "slot": 15,
+          "repeat": true
+        }
+      ],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": {
+        "offset": 836,
+        "count": 5
+      },
+      "actors": {
+        "1": {
+          "render": {
+            "blend": "alpha"
+          },
+          "opacity_table": 804,
+          "uv": []
+        },
+        "2": {
+          "render": {
+            "blend": "alpha"
+          },
+          "opacity_table": 808,
+          "uv": []
+        },
+        "3": {
+          "render": {
+            "blend": "alpha"
+          },
+          "opacity_table": 812,
+          "uv": []
+        },
+        "4": {
+          "render": {
+            "blend": "alpha"
+          },
+          "opacity_table": 816,
+          "uv": []
+        },
+        "5": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": 820,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "6": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": 824,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "7": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": 828,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "8": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": 832,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "9": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 1,
+              "delay_ticks": 1,
+              "motion": {
+                "kind": "linear",
+                "axis": 1,
+                "hold": 240,
+                "pieces": [
+                  {
+                    "start": 0,
+                    "offset": {
+                      "offset": 2268
+                    },
+                    "rate": {
+                      "offset": 2684
+                    }
+                  },
+                  {
+                    "start": 60,
+                    "offset": {
+                      "offset": 2688
+                    },
+                    "rate": {
+                      "offset": 2692
+                    }
+                  },
+                  {
+                    "start": 210,
+                    "offset": {
+                      "offset": 2612
+                    },
+                    "rate": {
+                      "offset": 2684
+                    }
+                  }
+                ]
+              },
+              "clock": "scene"
+            },
+            {
+              "texture": 2,
+              "delay_ticks": 1,
+              "motion": {
+                "kind": "linear",
+                "axis": 1,
+                "hold": 40,
+                "pieces": [
+                  {
+                    "start": 0,
+                    "offset": {
+                      "offset": 2268
+                    },
+                    "rate": {
+                      "offset": 3184,
+                      "reciprocal": true
+                    }
+                  }
+                ]
+              },
+              "clock": "scene"
+            }
+          ]
+        }
+      }
+    },
+    "517": {
+      "world": "tethe_alla",
+      "fade": {
+        "white": true,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [
+        {
+          "kind": "sound",
+          "id": 24,
+          "pan": 64,
+          "volume": 127,
+          "slot": 15,
+          "repeat": true
+        }
+      ],
+      "audio": [
+        {
+          "tick": 540,
+          "before_dialogue": true,
+          "action": {
+            "kind": "sound",
+            "id": 438,
+            "pan": 64,
+            "volume": 127,
+            "slot": null,
+            "repeat": false
+          }
+        },
+        {
+          "tick": 540,
+          "before_dialogue": true,
+          "action": {
+            "kind": "volume",
+            "slot": 15,
+            "volume": 32
+          }
+        },
+        {
+          "tick": 1620,
+          "before_dialogue": true,
+          "action": {
+            "kind": "sound",
+            "id": 437,
+            "pan": 64,
+            "volume": 127,
+            "slot": null,
+            "repeat": false
+          }
+        }
+      ],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": {
+        "offset": 856,
+        "count": 7
+      },
+      "actors": {
+        "1": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "2": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "3": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "4": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "5": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "6": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "7": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "8": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        }
+      },
+      "dialogue": {
+        "table_offset": 0,
+        "archive": "FIELD/e04.d",
+        "member": 9,
+        "lines": [
+          {
+            "duration": 120,
+            "speaker": 1
+          },
+          {
+            "duration": 120,
+            "speaker": 5
+          },
+          {
+            "duration": 140,
+            "speaker": 4
+          },
+          {
+            "duration": 240,
+            "speaker": 5
+          },
+          {
+            "duration": 120,
+            "speaker": 5
+          },
+          {
+            "duration": 80,
+            "speaker": 3
+          },
+          {
+            "duration": 120,
+            "speaker": 5
+          },
+          {
+            "duration": 60,
+            "speaker": 1
+          },
+          {
+            "duration": 60,
+            "speaker": 3
+          }
+        ],
+        "first_voice": 917923
+      }
+    },
+    "518": {
+      "world": "tethe_alla",
+      "fade": {
+        "white": false,
+        "end_rate": 4,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [
+        {
+          "kind": "sound",
+          "id": 24,
+          "pan": 64,
+          "volume": 127,
+          "slot": 15,
+          "repeat": true
+        }
+      ],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": {
+        "offset": 884,
+        "count": 4
+      },
+      "actors": {
+        "1": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "2": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "3": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "4": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "5": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "6": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "7": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "8": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 128
+              },
+              "clock": "presentation"
+            }
+          ]
+        }
+      }
+    },
+    "519": {
+      "world": "tethe_alla",
+      "fade": {
+        "white": false,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": {
+        "offset": 900,
+        "count": 2
+      },
+      "actors": {
+        "1": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "2": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        }
+      }
+    },
+    "520": {
+      "world": "tethe_alla",
+      "fade": {
+        "white": true,
+        "end_rate": 4,
+        "intro_rate": 4,
+        "flashes": []
+      },
+      "initial_audio": [
+        {
+          "kind": "sound",
+          "id": 183,
+          "pan": 64,
+          "volume": 127,
+          "slot": 15,
+          "repeat": true
+        }
+      ],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": {
+        "offset": 908,
+        "count": 3
+      },
+      "actors": {
+        "1": {
+          "render": {},
+          "opacity_table": null,
+          "uv": []
+        },
+        "2": {
+          "render": {
+            "depth_write": false,
+            "depth_test": false,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": []
+        }
+      }
+    },
+    "521": {
+      "world": "tethe_alla",
+      "fade": {
+        "white": false,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": [
+          {
+            "start": 299,
+            "white": true,
+            "alpha": [
+              127,
+              255,
+              255,
+              127
+            ]
+          }
+        ]
+      },
+      "initial_audio": [
+        {
+          "kind": "sound",
+          "id": 182,
+          "pan": 64,
+          "volume": 127,
+          "slot": 15,
+          "repeat": true
+        }
+      ],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": {
+        "offset": 920,
+        "count": 1
+      },
+      "actors": {
+        "1": {
+          "render": {
+            "background": true,
+            "depth_write": false
+          },
+          "opacity_table": null,
+          "uv": []
+        },
+        "2": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "alpha"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 0,
+                "period": 512
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "3": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "alpha"
+          },
+          "opacity_table": null,
+          "uv": []
+        },
+        "4": {
+          "render": {
+            "depth_write": false,
+            "depth_test": false,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": []
+        }
+      }
+    },
+    "522": {
+      "world": "sylvarant",
+      "fade": {
+        "white": false,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": {
+        "offset": 924,
+        "count": 5
+      },
+      "actors": {
+        "1": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 636,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "2": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 644,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "3": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 652,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "4": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 708,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "5": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 716,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "6": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 724,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "7": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 732,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        }
+      }
+    },
+    "523": {
+      "world": "sylvarant",
+      "fade": {
+        "white": false,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": {
+        "offset": 924,
+        "count": 5
+      },
+      "actors": {
+        "1": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 660,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "2": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 668,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "3": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 676,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "4": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 740,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "5": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 748,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "6": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 756,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "7": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 764,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        }
+      }
+    },
+    "524": {
+      "world": "sylvarant",
+      "fade": {
+        "white": false,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [],
+      "audio": [],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": null,
+      "actors": {
+        "1": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 684,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "2": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 692,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "3": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 700,
+                "sequence": "eight-frame-burst"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "4": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 772,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "5": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 780,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "6": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 788,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        },
+        "7": {
+          "render": {
+            "depth_write": false,
+            "depth_test": true,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "atlas",
+                "axis": 1,
+                "window_table": 796,
+                "sequence": "four-frame-pulse"
+              },
+              "clock": "scene"
+            }
+          ]
+        }
+      }
+    },
+    "525": {
+      "world": "sylvarant",
+      "fade": {
+        "white": false,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [],
+      "audio": [
+        {
+          "tick": 1,
+          "before_dialogue": false,
+          "action": {
+            "kind": "sound",
+            "id": 445,
+            "pan": 64,
+            "volume": 127,
+            "slot": null,
+            "repeat": false
+          }
+        }
+      ],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": null,
+      "actors": {
+        "1": {
+          "render": {
+            "depth_write": false,
+            "depth_test": false,
+            "blend": "additive"
+          },
+          "opacity_table": null,
+          "uv": [
+            {
+              "texture": 0,
+              "motion": {
+                "kind": "scroll",
+                "axis": 1,
+                "period": 32
+              },
+              "clock": "presentation"
+            }
+          ]
+        },
+        "2": {
+          "render": {
+            "depth_write": false,
+            "depth_test": false,
+            "blend": "alpha"
+          },
+          "opacity_table": null,
+          "uv": []
+        }
+      }
+    },
+    "526": {
+      "world": "tethe_alla",
+      "fade": {
+        "white": false,
+        "end_rate": 8,
+        "intro_rate": null,
+        "flashes": []
+      },
+      "initial_audio": [],
+      "audio": [
+        {
+          "tick": 1,
+          "before_dialogue": false,
+          "action": {
+            "kind": "sound",
+            "id": 160,
+            "pan": 64,
+            "volume": 127,
+            "slot": null,
+            "repeat": false
+          }
+        }
+      ],
+      "end_audio": [
+        {
+          "kind": "stop",
+          "slot": 15
+        }
+      ],
+      "sound_table": null,
+      "actors": {
+        "1": {
+          "render": {
+            "depth_write": false,
+            "depth_test": false,
+            "blend": "alpha",
+            "background": true
+          },
+          "opacity_table": null,
+          "uv": []
+        },
+        "2": {
+          "render": {
+            "depth_write": false,
+            "depth_test": false,
+            "blend": "alpha"
+          },
+          "opacity_table": null,
+          "uv": []
+        }
+      }
+    }
+  }
+}

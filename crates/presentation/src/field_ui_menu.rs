@@ -99,11 +99,13 @@ impl DrawRole {
 #[derive(Clone, Copy)]
 pub(super) enum DepthBand {
     Field,
+    Battle,
 }
 impl DepthBand {
     pub(super) fn at(self, plane: usize, order: f32) -> f32 {
         let base = match self {
             Self::Field => 100.,
+            Self::Battle => super::battle_ui::menu_depth(),
         };
         base + plane as f32 * 32. + order
     }
@@ -594,10 +596,9 @@ impl MenuArtwork {
         }
     }
 
-    #[cfg(test)]
     pub(super) fn prepare_windows(&mut self, resolution: super::super::Resolution) {
         self.resolution = resolution;
-        self.band = DepthBand::Field;
+        self.band = DepthBand::Battle;
     }
     #[cfg(test)]
     pub(super) fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
@@ -701,6 +702,7 @@ impl MenuArtwork {
                     let material = prepared.material.clone();
                     let render_layers = match self.band {
                         DepthBand::Field => RenderLayers::default(),
+                        DepthBand::Battle => RenderLayers::layer(crate::battle_view::LAYER),
                     };
                     let transform = Transform::from_xyz(0., 0., self.band.at(plane, role.depth()));
                     let entity = commands
@@ -745,6 +747,89 @@ impl MenuArtwork {
         }
         commands.insert_resource(self.draws.clone());
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_battle_scan_panel(
+        &mut self,
+        [x, y, width, height]: [f32; 4],
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), 0)?;
+        let mut color = preferences.colors.choice;
+        color[..3].iter_mut().for_each(|channel| *channel /= 2);
+        color[3] = 160;
+        // Battle text uses 480 rows; the shared window renderer uses 448.
+        draw.colored_frame(
+            [x, y * SCENE_HEIGHT as f32 / HEIGHT as f32, width, height],
+            false,
+            color,
+        )?;
+        self.submit_drawing(draw.batches, commands, meshes)
+    }
+
+    pub(crate) fn render_battle_results_panel(
+        &mut self,
+        offsets: impl Iterator<Item = f32>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), 0)?;
+        for offset in offsets {
+            draw.colored_frame([96. + offset, 351., 520., 39.], false, draw.popup_color())?;
+        }
+        let mut batches = draw.batches;
+        // Results already use the 480-row overlay canvas. Undo the menu's
+        // 448-row expansion for this panel, including its frame corners.
+        let center = HEIGHT as f32 / 2.;
+        let scale = SCENE_HEIGHT as f32 / HEIGHT as f32;
+        for position in batches.values_mut().flat_map(|batch| &mut batch.positions) {
+            position[1] = center + (position[1] - center) * scale;
+        }
+        self.submit_drawing(batches, commands, meshes)
+    }
+
+    /// Render the field-owned Tech page from a battle page borrow.  Both
+    /// callers use the same `Drawing` methods and page state; battle only
+    /// supplies a different backdrop and skips field-only input plumbing.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_battle_tech(
+        &mut self,
+        page: resonance_game::menu::techniques::Page<'_>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        tick: u32,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        self.set_page(Some(ActivePage::Menu(Page::Tech)));
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
+        draw.opacity = 255;
+        draw.shade(draw.screen);
+        draw.plane = 1;
+        let anchor = draw.techniques_page(page)?;
+        draw.tech_cursors_page(page);
+        let modal = matches!(
+            page.state.focus,
+            TechFocus::CannotForget | TechFocus::Forget { .. }
+        );
+        let alpha = if modal { 127 } else { 255 };
+        draw.cursor_trail(anchor, alpha);
+        if let Some(anchor) = draw.tech_popup_page(page)? {
+            draw.cursor_trail(anchor, 255);
+        }
+        let trail = draw.trail;
+        let drawing = draw.batches;
+        self.trail = trail;
+        self.submit_drawing(drawing, commands, meshes)
     }
 
     #[allow(clippy::too_many_arguments)] // Compose shared artwork with the live viewport and clock.

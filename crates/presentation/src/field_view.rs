@@ -47,6 +47,8 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
+#[cfg(test)]
+mod retirement_tests;
 #[path = "field_sequence.rs"]
 mod sequence;
 #[derive(Resource)]
@@ -142,7 +144,8 @@ impl Plugin for FieldPlugin {
                 Update,
                 super::field_ui::subtitles
                     .after(super::movie::update)
-                    .after(load_live),
+                    .after(load_live)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PreUpdate,
@@ -161,6 +164,7 @@ impl Plugin for FieldPlugin {
                 (advance_live, recover)
                     .chain()
                     .before(super::new_game::advance)
+                    .run_if(super::battle::field_running)
                     .run_if(super::dungeons::running),
             )
             .add_systems(
@@ -172,10 +176,12 @@ impl Plugin for FieldPlugin {
                 (
                     (retire_live, load_live, recover)
                         .chain()
+                        .run_if(super::battle::field_running)
                         .run_if(super::dungeons::running),
                     scene_systems()
                         .run_if(resource_exists::<Art>)
-                        .run_if(has_session),
+                        .run_if(has_session)
+                        .run_if(super::battle::field_presenting),
                 )
                     .chain()
                     .after(super::new_game::movie_handoff)
@@ -214,13 +220,15 @@ impl Plugin for FieldRendering {
                     .chain()
                     .before(super::field_pose::restore)
                     .run_if(resource_exists::<Art>)
-                    .run_if(has_session),
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
                 sample_poses()
                     .before(super::field_animation::blend)
-                    .run_if(has_session),
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
@@ -245,14 +253,16 @@ impl Plugin for FieldRendering {
                     .before(bevy::asset::AssetEventSystems)
                     .before(bevy::transform::TransformSystems::Propagate)
                     .run_if(resource_exists::<Art>)
-                    .run_if(has_session),
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
                 audit::check
                     .after(bevy::transform::TransformSystems::Propagate)
                     .run_if(resource_exists::<Art>)
-                    .run_if(has_session),
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             );
     }
 }
@@ -949,6 +959,7 @@ pub(super) fn advance_live(
     server: Res<AssetServer>,
     parts: Query<&ActorPart>,
     mut controls: ResMut<Controls>,
+    mut menu_memory: Option<ResMut<super::battle::MenuMemory>>,
     mut failures: Failures,
     resident: Res<super::loading::Resident>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
@@ -1023,13 +1034,22 @@ pub(super) fn advance_live(
     if let Some(mut scenario) = scenario {
         scenario.acknowledge_input();
     }
-
+    if let Some(memory) = &menu_memory {
+        session
+            .field_mut()
+            .set_unison_character(memory.unison_character);
+    }
     if let Err(error) = session.field_mut().step(input) {
         // The VM may already have changed state. Cancel this lifetime and
         // return to title; never retry a partially applied field update.
         session.field_mut().events.cancel();
         session.ready_for_field = false;
         failures.fatal("field update", error);
+    } else if let Some(memory) = &mut menu_memory {
+        memory.unison_character = session.field().unison_character();
+        if let Some(menu) = &session.field().menu {
+            memory.character = menu.character;
+        }
     }
 }
 

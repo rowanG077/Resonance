@@ -59,6 +59,7 @@ pub(super) fn discover(
     let controller = crate::rel::Rel::read(&module)?;
     let mut landmarks = overworld_landmarks::prepare(&world)?;
     overworld_landmarks::bind_camera_clearance(&mut landmarks, &controller)?;
+    super::overworld_entries::bind(&mut landmarks, &controller)?;
     let map = crate::menu::world_map(
         &world,
         &crate::field_catalogue::read(executable)?,
@@ -302,6 +303,15 @@ pub(super) fn prepare(
     let audio: resonance_content::field_audio::FieldAudio =
         serde_json::from_slice(&fs::read(output.join("worlds/audio.json"))?)?;
     audio.validate()?;
+    for scene in package.visuals.cinematics.values() {
+        scene.presentation.validate_audio(&audio)?;
+        for line in &scene.dialogue {
+            ensure!(
+                audio.voices.contains_key(&line.voice),
+                "cinematic voice is not prepared"
+            );
+        }
+    }
     paths.insert("worlds/audio.json".into());
     for reference in audio.music.values().chain(audio.sounds.values()) {
         paths.insert(reference.path.clone());
@@ -374,9 +384,20 @@ pub(super) fn prepare(
 }
 
 #[test]
-#[ignore = "prepares original numbered scenes into RESONANCE_WORLD_ASSETS; reuses prepared terrain"]
+#[ignore = "reads a complete current cook at RESONANCE_WORLD_ASSETS and original disc 1"]
 fn original_world_cinematic_packages_bind_cameras_and_all_actor_motion() -> Result<()> {
-    let (output, package) = prepare_cinematic_fixture()?;
+    let output = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    ensure!(
+        output.join("sources.json").is_file(),
+        "complete cook required"
+    );
+    let package: Package = serde_json::from_slice(&fs::read(output.join(PACKAGE_PATH))?)?;
+    package.validate()?;
+    let original = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../local/extracted/disc1/files/US_r_Top2field.rel");
+    let (expected, _) = super::overworld_cinematics::read(&crate::rel::Rel::read(&original)?)?;
     assert_eq!(package.visuals.cinematics.len(), 14);
     let files = resonance_content::prepared::Files::from_inventory(
         &output,
@@ -385,6 +406,7 @@ fn original_world_cinematic_packages_bind_cameras_and_all_actor_motion() -> Resu
         || false,
     )?;
     let audio: resonance_content::field_audio::FieldAudio = files.json("worlds/audio.json")?;
+    audio.validate()?;
     assert_eq!(package.visuals.cinematics[&517].dialogue.len(), 9);
     for line in &package.visuals.cinematics[&517].dialogue {
         let voice = &audio.voices[&line.voice];
@@ -397,6 +419,16 @@ fn original_world_cinematic_packages_bind_cameras_and_all_actor_motion() -> Resu
         assert!(audio.sounds.contains_key(&id));
     }
     for (&id, scene) in &package.visuals.cinematics {
+        scene.presentation.validate_audio(&audio)?;
+        assert_eq!(
+            serde_json::to_value(&scene.presentation)?,
+            serde_json::to_value(&expected[&id].presentation)?,
+            "scene {id}"
+        );
+        assert_eq!(
+            serde_json::to_value(&scene.dialogue)?,
+            serde_json::to_value(&expected[&id].dialogue)?
+        );
         assert_eq!(
             scene.actors.len(),
             [1, 1, 1, 9, 8, 8, 2, 2, 4, 7, 7, 7, 2, 2][usize::from(id - 513)]
@@ -418,64 +450,6 @@ fn original_world_cinematic_packages_bind_cameras_and_all_actor_motion() -> Resu
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-fn prepare_cinematic_fixture() -> Result<(std::path::PathBuf, Package)> {
-    let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
-    let output = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
-    );
-    let _publication = crate::publication::Session::start_if_needed(&output)?;
-    let previous: Package = serde_json::from_slice(&fs::read(output.join(PACKAGE_PATH))?)?;
-    let sources = fs::read_dir(extracted.join("files/FIELD"))?
-        .map(|entry| {
-            let path = entry?.path();
-            Ok((
-                format!(
-                    "disc1/FIELD/{}",
-                    path.file_name().unwrap().to_str().unwrap()
-                ),
-                crate::media::hash_file(&path)?,
-            ))
-        })
-        .collect::<Result<BTreeMap<_, _>>>()?;
-    let plan = discover(
-        &extracted,
-        &sources,
-        &fs::read(extracted.join("sys/main.dol"))?,
-    )?;
-    let tiles = previous
-        .worlds
-        .into_iter()
-        .flatten()
-        .flat_map(|tile| std::iter::once(tile.base).chain(tile.alternate))
-        .map(|tile| (tile.source_sha256.clone(), tile))
-        .collect();
-    let visuals = {
-        let mut world_audio = crate::media::FieldAudioCooker::new(
-            crate::media::Workspace::open(&extracted, &output)?,
-            Some(extracted.parent().unwrap().join("disc2")),
-        )?;
-        world_audio.world(&fs::read(extracted.join("files").join(&plan.script))?)?;
-        drop(world_audio);
-        let audio = visual_test_audio(&extracted, &output)?;
-        let mut decoded = decoded::Package::default();
-        for (hash, name) in &plan.visuals.dependencies {
-            let bytes = std::sync::Arc::new(fs::read(extracted.join("files").join(name))?);
-            decoded.extend(&decoded::Package::cook_with_audio(
-                &bytes,
-                &format!("assets/{hash}"),
-                &output,
-                super::geometry::Input::File,
-                Some(&audio),
-            )?);
-            decoded.remember_source(name, bytes);
-        }
-        plan.visuals.prepare(&output, &decoded)?
-    };
-    let package = prepare(&plan, &extracted, &output, &tiles, visuals)?;
-    Ok((output, package))
 }
 
 #[test]
@@ -550,28 +524,6 @@ fn original_world_terrain_shapes_bind_source_geometry() -> Result<()> {
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-fn visual_test_audio(extracted: &Path, output: &Path) -> Result<crate::media::library::Cooker> {
-    let files = fs::read_dir(extracted.join("files/S"))?
-        .map(|entry| -> Result<_> {
-            let path = entry?.path();
-            Ok((
-                format!("S/{}", path.file_name().unwrap().to_str().unwrap()),
-                path,
-            ))
-        })
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|(name, _)| name.ends_with(".song"))
-        .map(|(name, path)| Ok((name, crate::media::hash_file(&path)?)))
-        .collect::<Result<BTreeMap<_, _>>>()?;
-    crate::media::library::Cooker::new(
-        extracted,
-        &crate::media::OutputSession::open(output)?,
-        &files,
-    )
 }
 
 #[test]

@@ -129,22 +129,12 @@ impl Playback {
     ) -> Result<()> {
         ensure!(!self.active, "another movie is still playing");
         asset.validate()?;
-        let texture = self.texture.clone();
         // The preceding movie's final image must not flash while this one
         // prebuffers. Its surface remains black until the first decoded frame.
-        let mut image = images
-            .get_mut(&texture)
-            .context("movie surface is not initialized")?;
-        image.resize(Extent3d {
-            width: asset.width,
-            height: asset.height,
-            depth_or_array_layers: 1,
-        });
-        image
-            .data
-            .as_mut()
-            .context("movie surface has no pixels")?
-            .fill(0);
+        // A resized Image gets a new GPU texture, but an existing material can
+        // retain its old binding. Give each playback its own image handle so
+        // the surface explicitly binds the texture receiving decoded frames.
+        let texture = images.add(surface_image(asset.width, asset.height));
         *self = Self {
             active: true,
             resource: Some(resource),
@@ -217,6 +207,22 @@ pub(super) struct MovieCamera;
 #[derive(Component)]
 pub(super) struct MovieSurface;
 
+fn surface_image(width: u32, height: u32) -> Image {
+    let mut image = Image::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        vec![0; width as usize * height as usize * 4],
+        TextureFormat::Rgba8Unorm,
+        default(),
+    );
+    image.sampler = ImageSampler::linear();
+    image
+}
+
 pub(super) fn setup(
     commands: &mut Commands,
     images: &mut Assets<Image>,
@@ -230,19 +236,7 @@ pub(super) fn setup(
         .asset
         .as_ref()
         .map_or((WIDTH, HEIGHT), |a| (a.width, a.height));
-    let mut image = Image::new(
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        vec![0; width as usize * height as usize * 4],
-        TextureFormat::Rgba8Unorm,
-        default(),
-    );
-    image.sampler = ImageSampler::linear();
-    movie.texture = images.add(image);
+    movie.texture = images.add(surface_image(width, height));
     commands.spawn((
         MovieSurface,
         Mesh2d(meshes.add(Rectangle::new(1., 1.))),
@@ -322,7 +316,8 @@ pub(super) fn update(
     mut movie: ResMut<Playback>,
     mut pending: ResMut<PendingInput>,
     mut cameras: Query<&mut Camera, With<MovieCamera>>,
-    mut surfaces: Query<&mut Transform, With<MovieSurface>>,
+    mut surfaces: Query<(&mut Transform, &MeshMaterial2d<TitleText>), With<MovieSurface>>,
+    mut materials: ResMut<Assets<TitleText>>,
     mut images: ResMut<Assets<Image>>,
     mut audio_assets: ResMut<Assets<MovieAudio>>,
     sinks: Query<&AudioSink>,
@@ -342,8 +337,14 @@ pub(super) fn update(
         return;
     }
     if let Some(asset) = &movie.asset {
-        for mut surface in &mut surfaces {
+        for (mut surface, material) in &mut surfaces {
             surface.scale = Vec3::new(asset.width as f32, asset.height as f32, 1.);
+            if materials
+                .get(&material.0)
+                .is_some_and(|material| material.source != movie.texture)
+            {
+                materials.get_mut(&material.0).unwrap().source = movie.texture.clone();
+            }
         }
     }
     let settings = session
