@@ -7,6 +7,7 @@ pub mod arte;
 pub mod battle_action;
 pub mod battle_audio;
 pub mod battle_conditions;
+pub mod battle_defense_system;
 pub mod battle_effect;
 pub mod battle_enemy;
 pub mod battle_event;

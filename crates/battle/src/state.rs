@@ -1159,6 +1159,15 @@ impl Battle {
             pending_cues: Vec::new(),
             actor_start_centers: actors.iter().map(Actor::effect_origin).collect(),
             actor_emission_centers: actors.iter().map(Actor::effect_origin).collect(),
+            defense_system: crate::defense_system::State::new(
+                prepared
+                    .resources
+                    .defense_system
+                    .as_ref()
+                    .map_or(0, |definition| {
+                        actors[definition.core.index()].equipment.stats.defense
+                    }),
+            ),
             actors,
             random: Random::new(prepared.random_seed),
             model_requests: Vec::new(),
@@ -1182,7 +1191,6 @@ impl Battle {
             unison: Default::default(),
             summon_entry: Default::default(),
             enemy_presentation,
-            defense_system: Default::default(),
             timed_hold: None,
             event_boss: None,
             clock: BattleClock::Running,

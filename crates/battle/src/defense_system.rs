@@ -1,13 +1,15 @@
-//! A mechanical encounter shares deployment, attachments and core defeat.
+//! A mechanical encounter shares deployment, attachments, repair and core defeat.
 #[cfg(test)]
 use crate::ResourceId;
 use crate::{
     ActorId, Battle, Cue, MeleeAnchor, ModelRequest, MotionBinding, Pose, PreparedBattle, Side,
 };
 use anyhow::{Context, Result, ensure};
+use resonance_content::battle_defense_system::{Messages, RepairCycle};
 use std::collections::BTreeSet;
 
-const DEPLOYMENT_HP_PERCENT: i16 = 66;
+#[cfg(test)]
+mod repair_tests;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DefenseArm {
@@ -20,10 +22,17 @@ pub struct DefenseSystemDefinition {
     pub core: ActorId,
     /// Repair unit and its fixed arena position.
     pub repair: (ActorId, [f32; 3]),
+    pub repair_heading: f32,
+    pub orbits: Vec<ActorId>,
+    pub repair_cycle: RepairCycle,
+    pub repair_sound: crate::Sound,
+    pub repair_sound_priority: u8,
+    pub messages: Messages,
     pub components: Vec<ActorId>,
     pub arms: [DefenseArm; 4],
     pub deployment: MotionBinding,
     pub deployment_ticks: u16,
+    pub deployment_hp_percent: u8,
     pub deployment_pose: Pose,
 }
 
@@ -31,6 +40,19 @@ pub struct DefenseSystemDefinition {
 pub(crate) struct State {
     deployment_age: Option<u16>,
     cleaned_up: bool,
+    base_defense: i32,
+    self_age: u32,
+    repeat_delay: u32,
+    orbit_ages: [u32; 2],
+}
+
+impl State {
+    pub(crate) fn new(base_defense: i32) -> Self {
+        Self {
+            base_defense,
+            ..Default::default()
+        }
+    }
 }
 
 impl PreparedBattle {
@@ -39,8 +61,11 @@ impl PreparedBattle {
             self.resources.defense_system.is_none(),
             "duplicate Defense System group"
         );
+        definition.repair_cycle.validate()?;
+        definition.messages.validate()?;
         ensure!(
             definition.deployment_ticks > 0
+                && (1..=100).contains(&definition.deployment_hp_percent)
                 && definition.deployment_pose.rate.is_finite()
                 && definition.deployment_pose.rate > 0.,
             "empty Defense System deployment"
@@ -72,8 +97,21 @@ impl PreparedBattle {
         ensure!(
             definition.components.contains(&repair)
                 && !arms.contains(&repair)
-                && position.iter().all(|value| value.is_finite()),
+                && position.iter().all(|value| value.is_finite())
+                && definition.repair_heading.is_finite(),
             "invalid Defense System repair anchor"
+        );
+        let mut orbits = BTreeSet::new();
+        ensure!(
+            (1..=2).contains(&definition.orbits.len())
+                && definition.components.len() == 5 + definition.orbits.len()
+                && definition.orbits.iter().all(|&actor| {
+                    orbits.insert(actor)
+                        && definition.components.contains(&actor)
+                        && actor != repair
+                        && !arms.contains(&actor)
+                }),
+            "invalid Defense System orbit membership"
         );
         self.actors[definition.core.index()]
             .movement
@@ -138,7 +176,7 @@ impl Battle {
         if self.defense_system.cleaned_up {
             return;
         }
-        if self.actors[definition.core.index()].availability == crate::ActorAvailability::Dead {
+        if !self.actors[definition.core.index()].available() {
             for actor in definition.components.clone() {
                 self.release_capture_links(actor);
                 self.cancel_pending_item(actor);
@@ -154,21 +192,101 @@ impl Battle {
             self.defense_system.cleaned_up = true;
             return;
         }
-        let core = &self.actors[definition.core.index()];
-        if !core.available() || core.hit_stop != 0 || core.time_stop != 0 {
+        let repair_active = self.actors[definition.repair.0.index()].available();
+        let core = &mut self.actors[definition.core.index()];
+        if core.time_stop == 0 {
+            core.equipment.stats.defense = if repair_active {
+                self.defense_system.base_defense
+            } else {
+                self.defense_system.base_defense
+                    / i32::from(definition.repair_cycle.defense_divisor)
+                    * i32::from(definition.repair_cycle.defense_multiplier)
+            };
+        }
+        if core.hit_stop == 0 && core.time_stop == 0 {
+            if in_combat && let Some(age) = &mut self.defense_system.deployment_age {
+                *age = age.saturating_add(1).min(definition.deployment_ticks);
+            } else if self.defense_system.deployment_age.is_none()
+                && core.hp_percent() <= i16::from(definition.deployment_hp_percent)
+            {
+                self.model_requests.push(ModelRequest::Play {
+                    actor: definition.core,
+                    motion: definition.deployment,
+                    pose: definition.deployment_pose,
+                });
+                cues.push(Cue::EffectNotice {
+                    actor: definition.core,
+                    text: definition.messages.deployment.clone(),
+                    duration: definition.messages.duration,
+                });
+                self.defense_system.deployment_age = Some(0);
+            }
+        }
+        if in_combat {
+            self.advance_defense_repairs(cues);
+        }
+    }
+
+    fn advance_defense_repairs(&mut self, cues: &mut Vec<Cue>) {
+        let definition = self.prepared.defense_system.as_ref().unwrap();
+        let repair = definition.repair.0;
+        // The repair actor owns these clocks, independently of core hit stop.
+        if self.actors[repair.index()].time_stop != 0 {
             return;
         }
-        if in_combat && let Some(age) = &mut self.defense_system.deployment_age {
-            *age = age.saturating_add(1).min(definition.deployment_ticks);
-        } else if self.defense_system.deployment_age.is_none()
-            && core.hp_percent() <= DEPLOYMENT_HP_PERCENT
-        {
-            self.model_requests.push(ModelRequest::Play {
-                actor: definition.core,
-                motion: definition.deployment,
-                pose: definition.deployment_pose,
-            });
-            self.defense_system.deployment_age = Some(0);
+        let cycle = definition.repair_cycle;
+        let state = &mut self.defense_system;
+        let mut revivals = [None; 2];
+        if self.actors[repair.index()].availability == crate::ActorAvailability::Dead {
+            state.self_age = state.self_age.saturating_add(1);
+            if state.self_age >= u32::from(cycle.self_ticks).saturating_add(state.repeat_delay) {
+                revivals[0] = Some((repair, cycle.self_percent, true));
+                state.repeat_delay = state
+                    .repeat_delay
+                    .saturating_add(u32::from(cycle.repeat_ticks));
+                state.self_age = 0;
+            }
+        } else {
+            for (index, &orbit) in definition.orbits.iter().enumerate() {
+                if self.actors[orbit.index()].availability == crate::ActorAvailability::Dead {
+                    state.orbit_ages[index] = state.orbit_ages[index].saturating_add(1);
+                    if state.orbit_ages[index] >= u32::from(cycle.orbit_ticks) {
+                        revivals[index] = Some((orbit, cycle.orbit_percent, false));
+                        state.orbit_ages[index] = 0;
+                    }
+                }
+            }
+        }
+        for (actor, percent, automatic) in revivals.into_iter().flatten() {
+            let definition = self.prepared.defense_system.as_ref().unwrap();
+            let sound = Cue::Sound {
+                actor,
+                sound: definition.repair_sound,
+                position: self.actors[actor.index()].position,
+                priority: definition.repair_sound_priority,
+            };
+            let notice = Cue::EffectNotice {
+                actor: repair,
+                text: if automatic {
+                    &definition.messages.automatic
+                } else {
+                    &definition.messages.orbit
+                }
+                .clone(),
+                duration: definition.messages.duration,
+            };
+            if automatic {
+                cues.extend([sound, notice]);
+            } else {
+                cues.extend([notice, sound]);
+            }
+            self.enter_revival(actor, cues);
+            cues.push(self.actors[actor.index()].recover_percent(
+                actor,
+                crate::RecoveryKind::Hp,
+                i32::from(percent),
+                true,
+            ));
         }
     }
 
@@ -198,10 +316,9 @@ impl Battle {
             return;
         };
         let (repair, position) = definition.repair;
-        let heading = self.actors[definition.core.index()].heading;
         let actor = &mut self.actors[repair.index()];
         actor.position = position;
-        actor.heading = heading;
+        actor.heading = definition.repair_heading;
         let Some(positions) = positions else {
             return;
         };
@@ -232,7 +349,7 @@ impl Battle {
             self.actors[definition.core.index()].available(),
             "fixture core is unavailable"
         );
-        self.defense_system = State::default();
+        self.defense_system.deployment_age = None;
         Ok(())
     }
 
@@ -256,11 +373,92 @@ impl Battle {
 mod tests {
     use super::*;
 
+    fn cycle() -> RepairCycle {
+        RepairCycle {
+            self_ticks: 1500,
+            repeat_ticks: 120,
+            orbit_ticks: 900,
+            self_percent: 100,
+            orbit_percent: 75,
+            defense_divisor: 4,
+            defense_multiplier: 3,
+        }
+    }
+
+    fn messages() -> Messages {
+        Messages {
+            automatic: "Auto Repair".into(),
+            orbit: "Repair".into(),
+            deployment: "Alert".into(),
+            duration: 90,
+        }
+    }
+
+    #[test]
+    fn deployment_uses_prepared_health_threshold_and_duration() -> Result<()> {
+        for (threshold, ticks) in [(20, 3), (80, 7)] {
+            let core = ActorId(1);
+            let participants = std::iter::once(crate::tests::actor(Side::Party))
+                .chain((0..8).map(|_| crate::tests::actor(Side::Enemy)))
+                .map(|actor| (actor, Default::default()))
+                .collect();
+            let definition = DefenseSystemDefinition {
+                core,
+                repair: (ActorId(6), [200., 0., 0.]),
+                repair_heading: -90.,
+                orbits: vec![ActorId(7), ActorId(8)],
+                repair_cycle: cycle(),
+                repair_sound: crate::Sound::Cue(104),
+                repair_sound_priority: 2,
+                messages: messages(),
+                components: (2..9).map(ActorId).collect(),
+                arms: std::array::from_fn(|index| DefenseArm {
+                    actor: ActorId(index as u8 + 2),
+                    anchor: MeleeAnchor {
+                        resource: ResourceId(7),
+                        bone: index as u16,
+                    },
+                }),
+                deployment: MotionBinding {
+                    model: ResourceId(7),
+                    clip: 9,
+                },
+                deployment_ticks: ticks,
+                deployment_hp_percent: threshold,
+                deployment_pose: Pose {
+                    rate: 0.75,
+                    blend: 2,
+                    ..Default::default()
+                },
+            };
+            let mut battle = PreparedBattle::new(participants, Default::default(), 1)?
+                .with_defense_system(definition)?
+                .finish()?;
+            battle.actors[core.index()].hp = i32::from(threshold) + 1;
+            let mut cues = Vec::new();
+            battle.advance_defense_system_on_clock(&mut cues, true);
+            assert!(battle.defense_system.deployment_age.is_none());
+            battle.actors[core.index()].hp = i32::from(threshold);
+            battle.advance_defense_system_on_clock(&mut cues, true);
+            assert_eq!(battle.defense_system.deployment_age, Some(0));
+            assert!(battle.model_requests.iter().any(|request| matches!(request,
+                ModelRequest::Play { actor, motion, pose }
+                if *actor == core && motion.clip == 9 && pose.rate == 0.75 && pose.blend == 2)));
+            for age in 1..=ticks {
+                assert!(battle.defense_arm_waiting(ActorId(2)));
+                battle.advance_defense_system_on_clock(&mut cues, true);
+                assert_eq!(battle.defense_system.deployment_age, Some(age));
+            }
+            assert!(!battle.defense_arm_waiting(ActorId(2)));
+        }
+        Ok(())
+    }
+
     #[test]
     fn fixed_components_and_deployed_arms_survive_ordinary_movement() -> Result<()> {
         let core = ActorId(1);
         let mut participants: Vec<_> = std::iter::once(crate::tests::actor(Side::Party))
-            .chain((0..6).map(|_| crate::tests::actor(Side::Enemy)))
+            .chain((0..8).map(|_| crate::tests::actor(Side::Enemy)))
             .map(|actor| (actor, Default::default()))
             .collect();
         participants[core.index()].0.position = [850., 0., 0.];
@@ -273,10 +471,20 @@ mod tests {
         let repair = ActorId(6);
         let repair_position = [200., 0., 0.];
         participants[repair.index()].0.position = repair_position;
+        for (actor, _) in &mut participants[7..] {
+            actor.hp = 0;
+            actor.availability = crate::ActorAvailability::Dead;
+        }
         let definition = DefenseSystemDefinition {
             core,
             repair: (repair, repair_position),
-            components: (2..7).map(ActorId).collect(),
+            repair_heading: 27.,
+            orbits: vec![ActorId(7), ActorId(8)],
+            repair_cycle: cycle(),
+            repair_sound: crate::Sound::Cue(104),
+            repair_sound_priority: 2,
+            messages: messages(),
+            components: (2..9).map(ActorId).collect(),
             arms: std::array::from_fn(|index| DefenseArm {
                 actor: ActorId(index as u8 + 2),
                 anchor,
@@ -286,6 +494,7 @@ mod tests {
                 clip: 32,
             },
             deployment_ticks: 120,
+            deployment_hp_percent: 66,
             deployment_pose: Pose {
                 rate: 0.5,
                 blend: 0,
@@ -294,7 +503,7 @@ mod tests {
         };
         let prepared = PreparedBattle::new(participants, Default::default(), 1)?
             .with_entry_choices(
-                (0..7)
+                (0..9)
                     .map(|actor| crate::EntryChoice {
                         actor: ActorId(actor),
                         strategy: crate::TargetPolicy::Nearest,
@@ -363,6 +572,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             ],
             Default::default(),
             resonance_content::diagnostics::Diagnostics::new(true),
@@ -390,7 +601,7 @@ mod tests {
             assert_eq!(frame.actors[core.index()].heading, -90.);
             assert_eq!(frame.actors[core.index()].movement.forward, 0.);
             assert_eq!(frame.actors[repair.index()].position, repair_position);
-            assert_eq!(frame.actors[repair.index()].heading, -90.);
+            assert_eq!(frame.actors[repair.index()].heading, 27.);
             for arm in &frame.actors[2..6] {
                 assert_eq!(arm.position, expected);
                 assert_eq!(arm.heading, 45.);
@@ -543,6 +754,12 @@ mod tests {
         let definition = DefenseSystemDefinition {
             core,
             repair: (ActorId(6), [200., 0., 0.]),
+            repair_heading: -90.,
+            orbits: vec![ActorId(7), ActorId(8)],
+            repair_cycle: cycle(),
+            repair_sound: crate::Sound::Cue(104),
+            repair_sound_priority: 2,
+            messages: messages(),
             components: (2..9).map(ActorId).collect(),
             arms: std::array::from_fn(|index| DefenseArm {
                 actor: ActorId(index as u8 + 2),
@@ -556,6 +773,7 @@ mod tests {
                 clip: 32,
             },
             deployment_ticks: 120,
+            deployment_hp_percent: 66,
             deployment_pose: Pose {
                 rate: 0.5,
                 blend: 0,

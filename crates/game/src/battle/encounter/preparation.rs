@@ -1422,9 +1422,10 @@ impl Inputs {
             row.actor.position[0] = x;
             row.actor.position[2] = z;
             if let model::ModelSource::Enemy(enemy) = row.source
-                && let Some(position) = battle::defense_system::initial_position(enemy)
+                && let Some(member) = self.defense_system.fixed_member(enemy)
             {
-                row.actor.position = position;
+                row.actor.position = member.position;
+                row.actor.heading = member.heading;
             }
         }
         for row in &mut rows {
@@ -1688,7 +1689,9 @@ impl Inputs {
             .iter()
             .zip(&ids)
             .filter_map(|(row, &actor)| match row.source {
-                model::ModelSource::Enemy(enemy @ 211..=214) => Some((actor, enemy)),
+                model::ModelSource::Enemy(enemy) if self.defense_system.contains(enemy) => {
+                    Some((actor, enemy))
+                }
                 _ => None,
             })
             .collect();
@@ -1697,15 +1700,17 @@ impl Inputs {
         } else {
             let core = defense_members
                 .iter()
-                .find(|(_, enemy)| *enemy == 211)
+                .find(|(_, enemy)| *enemy == self.defense_system.core.enemy)
                 .context("Defense System formation is missing its core")?
                 .0;
             Some(battle::defense_system::definition(
+                &self.defense_system,
                 &defense_members,
                 rows[core.index()]
                     .model
                     .as_deref()
                     .context("Defense System core body is not prepared")?,
+                &mut *resources.sound,
             )?)
         };
         let mut hosted_participants = Vec::new();
@@ -2022,7 +2027,7 @@ impl Inputs {
             auto_zoom: party.settings.preferences.battle_auto_zoom,
             yaw_limits: defense_system
                 .as_ref()
-                .map(|_| battle::defense_system::CAMERA_YAW_LIMITS),
+                .map(|_| self.defense_system.camera_yaw_limits),
         };
         let items_forbidden = self
             .enemy_definitions
