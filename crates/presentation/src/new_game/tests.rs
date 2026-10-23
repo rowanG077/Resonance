@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 
 use crate::test_support::field_checkpoint;
 
+mod ending_movie;
+
 impl Session {
     pub(crate) fn reload(&mut self, root: &Path, checkpoint: FieldCheckpoint) -> Result<()> {
         let candidate = Self::load_prepared(
@@ -1856,9 +1858,9 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
             .insert(path.clone(), std::fs::read(root.join(path))?.into());
     }
     let package = Arc::new(package);
-    // Play the scene's own movie completely, check every movie on that same
-    // request path, then return to it after resizing for other formats.
-    resources.insert(0, 4);
+    // Let the scene's own movie and the ending movie finish naturally, check
+    // every format on this request path, then return to the original format.
+    resources.splice(0..0, [4, 7]);
     resources.push(4);
     for (playback, resource) in resources.into_iter().enumerate() {
         {
@@ -1949,7 +1951,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
                     output.next().context("offline movie output stopped")?;
                 }
             }
-            if playback > 0 && movie.presented_frame.is_some() {
+            if playback >= 2 && movie.presented_frame.is_some() {
                 break;
             }
             ensure!(
@@ -1959,7 +1961,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         super::super::movie::tests::verify_surface(&mut app);
-        if playback == 0 {
+        if playback < 2 {
             let movie = app.world().resource::<movie::Playback>();
             assert!(movie.completed_naturally);
             assert_eq!(
