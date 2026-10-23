@@ -1,5 +1,7 @@
 use super::*;
+use crate::TechniqueId;
 use crate::conditions::{Condition, ConditionSet};
+use crate::tests::step_idle;
 use crate::{RegalArteFamily, TechniqueCapabilities};
 
 const DIVE: crate::ActionKey = crate::ActionKey(7);
@@ -35,7 +37,7 @@ fn fixture(mode: Control) -> Battle {
         ..crate::tests::technique(action, catalogue)
     })
     .to_vec();
-    Arc::make_mut(setup[0].control.as_mut().unwrap()).shortcuts = [185; 4];
+    Arc::make_mut(setup[0].control.as_mut().unwrap()).shortcuts = [Some(TechniqueId(185)); 4];
     prepared.actors[0].control = mode;
     let prepared = prepared
         .with_technique_learning_members(vec![crate::tests::counted_techniques(
@@ -58,22 +60,30 @@ fn fixture(mode: Control) -> Battle {
 }
 
 fn buttons(attack: bool, technique: bool) -> BattleInput {
-    BattleInput {
-        controllers: vec![ControlInput {
-            attack: ButtonInput {
-                pressed: attack,
-                held: attack,
-                ..Default::default()
-            },
-            technique: ButtonInput {
-                pressed: technique,
-                held: technique,
-                ..Default::default()
-            },
-            ..ControlInput::neutral(ActorId(0))
-        }],
+    let button = |pressed| ButtonInput {
+        pressed,
+        held: pressed,
         ..Default::default()
-    }
+    };
+    BattleInput::from(ControlInput {
+        attack: button(attack),
+        technique: button(technique),
+        ..ControlInput::neutral(ActorId(0))
+    })
+}
+
+#[track_caller]
+fn assert_command(battle: &Battle, pending: Option<crate::ActionKey>, tp: u16, uses: u16) {
+    let actor = ActorId(0);
+    let target = pending.map(|_| ActorId(1));
+    assert_eq!(battle.pending_technique(actor), pending);
+    assert_eq!(battle.pending_technique_target(actor), target);
+    assert_eq!(
+        battle.pending_technique_issuer(actor),
+        pending.map(|_| crate::ControllerPort::One)
+    );
+    assert_eq!(battle.actors[0].tp, tp);
+    assert_eq!(battle.technique_uses(actor, TechniqueId(185)), Some(uses));
 }
 
 #[test]
@@ -81,24 +91,16 @@ fn falling_queue_targets_the_live_opponent_and_pays_once() -> Result<()> {
     for mode in [Control::Manual, Control::SemiAuto, Control::Auto] {
         let mut battle = fixture(mode);
         assert!(!battle.queue_technique_target(ActorId(0), DIVE, ActorId(0))?);
-        assert_eq!(battle.actors[0].tp, 20);
-        assert_eq!(battle.technique_uses(ActorId(0), 185), Some(49));
-        assert_eq!(battle.pending_technique(ActorId(0)), None);
+        assert_command(&battle, None, 20, 49);
         assert!(battle.queue_technique(ActorId(0), DIVE)?);
-        for _ in 0..4 {
-            battle.step(BattleInput::default())?;
-        }
+        step_idle(&mut battle, 4)?;
         let action = battle
             .sequences()
             .map(|(_, sequence)| sequence)
             .find(|row| row.action == DIVE)
             .unwrap();
         assert_eq!(action.target, ActorId(1));
-        assert_eq!(battle.actors[0].tp, 12);
-        assert_eq!(battle.technique_uses(ActorId(0), 185), Some(50));
-        assert_eq!(battle.pending_technique(ActorId(0)), None);
-        assert_eq!(battle.pending_technique_target(ActorId(0)), None);
-        assert_eq!(battle.pending_technique_issuer(ActorId(0)), None);
+        assert_command(&battle, None, 12, 50);
     }
     Ok(())
 }
@@ -108,11 +110,7 @@ fn rejected_falling_queue_is_consumed_without_spending_tp() -> Result<()> {
     for reason in 0..4 {
         let mut battle = fixture(Control::Manual);
         assert!(battle.queue_technique(ActorId(0), DIVE)?);
-        assert_eq!(
-            battle.pending_technique_target(ActorId(0)),
-            Some(ActorId(1))
-        );
-        assert_eq!(battle.pending_technique_issuer(ActorId(0)), Some(0));
+        assert_command(&battle, Some(DIVE), 20, 49);
         match reason {
             0 => battle.actors[0].position[1] = 0.,
             1 => battle.actors[0].tp = 7,
@@ -124,21 +122,13 @@ fn rejected_falling_queue_is_consumed_without_spending_tp() -> Result<()> {
                     })
             }
             3 => {
-                battle.learning_members[0].member.forget(185)?;
+                battle.learning_members[0].member.forget(TechniqueId(185))?;
             }
             _ => unreachable!(),
         }
         let tp = battle.actors[0].tp;
         battle.step(BattleInput::default())?;
-        assert_eq!(
-            battle.pending_technique(ActorId(0)),
-            None,
-            "reason {reason}"
-        );
-        assert_eq!(battle.pending_technique_target(ActorId(0)), None);
-        assert_eq!(battle.pending_technique_issuer(ActorId(0)), None);
-        assert_eq!(battle.actors[0].tp, tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 185), Some(49));
+        assert_command(&battle, None, tp, 49);
     }
     let mut other = fixture(Control::Manual);
     assert!(other.queue_technique(ActorId(0), GROUND)?);
@@ -155,17 +145,11 @@ fn queued_dive_waits_for_descent_and_respects_menu_pause() -> Result<()> {
     battle.step(BattleInput::default())?;
     assert_eq!(battle.pending_technique(ActorId(0)), Some(DIVE));
     let position = battle.actors[0].position;
-    battle.step(BattleInput {
-        paused: true,
-        ..Default::default()
-    })?;
+    pause(&mut battle);
     assert_eq!(battle.actors[0].position, position);
     battle.actors[0].movement.vertical = -1.;
-    for _ in 0..3 {
-        battle.step(BattleInput::default())?;
-    }
-    assert_eq!(battle.pending_technique(ActorId(0)), None);
-    assert_eq!(battle.actors[0].tp, 12);
+    step_idle(&mut battle, 3)?;
+    assert_command(&battle, None, 12, 50);
     Ok(())
 }
 
@@ -173,17 +157,14 @@ fn queued_dive_waits_for_descent_and_respects_menu_pause() -> Result<()> {
 fn fresh_aerial_technique_takes_priority_and_is_paid_once() -> Result<()> {
     let mut battle = fixture(Control::Manual);
     battle.step(buttons(true, true))?;
-    for _ in 0..3 {
-        battle.step(BattleInput::default())?;
-    }
+    step_idle(&mut battle, 3)?;
     assert!(
         battle
             .sequences()
             .map(|(_, sequence)| sequence)
             .any(|row| row.action == DIVE)
     );
-    assert_eq!(battle.actors[0].tp, 12);
-    assert_eq!(battle.technique_uses(ActorId(0), 185), Some(50));
+    assert_command(&battle, None, 12, 50);
     Ok(())
 }
 
@@ -194,14 +175,13 @@ fn held_aerial_technique_does_not_execute_without_a_fresh_edge() -> Result<()> {
     input.controllers[0].technique.held = true;
     battle.step(input)?;
     assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
-    assert_eq!(battle.actors[0].tp, 20);
-    assert_eq!(battle.technique_uses(ActorId(0), 185), Some(49));
+    assert_command(&battle, None, 20, 49);
     Ok(())
 }
 
 #[test]
 fn rebound_allows_one_queued_aerial_technique_from_breakfall() {
-    for enabled in [false, true] {
+    for (enabled, tp, uses) in [(false, 20, 49), (true, 12, 50)] {
         let mut battle = fixture(Control::Manual);
         battle.actors[0].equipment.control_ex.rebound = enabled;
         battle.set_task(
@@ -210,13 +190,8 @@ fn rebound_allows_one_queued_aerial_technique_from_breakfall() {
         );
         assert!(battle.queue_technique(ActorId(0), DIVE).unwrap());
         let position = battle.actors[0].position;
-        let paused = battle
-            .step(BattleInput {
-                paused: true,
-                ..Default::default()
-            })
-            .unwrap();
-        assert_eq!(battle.pending_technique(ActorId(0)), Some(DIVE));
+        let paused = pause(&mut battle);
+        assert_command(&battle, Some(DIVE), 20, 49);
         assert_eq!(battle.actors[0].position, position);
         assert!(
             !paused
@@ -224,9 +199,6 @@ fn rebound_allows_one_queued_aerial_technique_from_breakfall() {
                 .iter()
                 .any(|cue| matches!(cue, Cue::Started { .. }))
         );
-        assert_eq!(battle.actors[0].tp, 20);
-        assert_eq!(battle.technique_uses(ActorId(0), 185), Some(49));
-
         let mut started = Vec::new();
         for _ in 0..12 {
             let frame = battle.step(BattleInput::default()).unwrap();
@@ -235,19 +207,15 @@ fn rebound_allows_one_queued_aerial_technique_from_breakfall() {
                 _ => None,
             }));
         }
-        assert_eq!(battle.pending_technique(ActorId(0)), None);
+        assert_command(&battle, None, tp, uses);
         if enabled {
             assert_eq!(started.len(), 1);
             let action = battle.sequence(&started[0]).unwrap();
             assert_eq!(action.action, DIVE);
             assert_eq!(action.target, ActorId(1));
-            assert_eq!(battle.actors[0].tp, 12);
-            assert_eq!(battle.technique_uses(ActorId(0), 185), Some(50));
         } else {
             assert!(started.is_empty());
             assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
-            assert_eq!(battle.actors[0].tp, 20);
-            assert_eq!(battle.technique_uses(ActorId(0), 185), Some(49));
         }
     }
 }

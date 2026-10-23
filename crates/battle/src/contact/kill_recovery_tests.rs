@@ -107,12 +107,7 @@ fn killer(side: Side, conditions: ConditionSet) -> Actor {
 }
 
 fn battle(owner: Actor, victim: Actor) -> Result<Battle> {
-    let prepared = crate::PreparedBattle::new(
-        vec![(owner, Default::default()), (victim, Default::default())],
-        Default::default(),
-        1,
-    )?;
-    prepared.finish()
+    crate::tests::prepare_actors(vec![owner, victim], 1).finish()
 }
 
 fn resolve(battle: &mut Battle, power: u16, prevents_defeat: bool) -> Result<Vec<Cue>> {
@@ -226,17 +221,7 @@ fn last_hit_recovery_tracks_damage_but_ignores_absorption_and_contacts_after_com
             actual.recognize_result();
         }
         let cues = resolve(&mut actual, 101, false)?;
-        let amount = cues
-            .iter()
-            .find_map(|cue| match cue {
-                Cue::Hit {
-                    actor: ActorId(1),
-                    result,
-                    ..
-                } => Some(result.amount),
-                _ => None,
-            })
-            .unwrap();
+        let amount = hit_result(&cues).amount;
         let expected = if ended || matches!(affinity, Affinity::Absorb | Affinity::Immune) {
             73
         } else {
@@ -260,21 +245,16 @@ fn contact_kill_recovery_uses_released_projectile_owner_and_skips_owner_dead_aft
 -> Result<()> {
     for dead_after_emission in [false, true] {
         // An ally keeps combat live after the projectile owner dies.
-        let mut actual = crate::PreparedBattle::new(
+        let mut actual = crate::tests::prepare_actors(
             vec![
-                (killer(Side::Party, BOTH), Default::default()),
-                (target(Side::Enemy, 1), Default::default()),
-                (crate::tests::actor(Side::Party), Default::default()),
+                killer(Side::Party, BOTH),
+                target(Side::Enemy, 1),
+                crate::tests::actor(Side::Party),
             ],
-            Default::default(),
             1,
-        )?
+        )
         .finish()?;
         let mut projectile = crate::tests::contact_projectile(false, false);
-        projectile.velocity = [0.; 3];
-        projectile.acceleration = [0.; 3];
-        projectile.offset = [0.; 3];
-        projectile.active = None;
         projectile.contact.as_mut().unwrap().hit = rule(100);
         actual.emit(
             Arc::new(projectile),
@@ -330,13 +310,7 @@ fn contact_half_damage_budget_updates_guard_and_skips_avoided_contact() -> Resul
         actual.runtime[1].recovery.last_hit_damage = 149;
         actual.runtime[1].recovery.last_hit_recovery = 73;
         let cues = resolve(&mut actual, 101, false)?;
-        let result = cues
-            .iter()
-            .find_map(|cue| match cue {
-                Cue::Hit { result, .. } => Some(result),
-                _ => None,
-            })
-            .unwrap();
+        let result = hit_result(&cues);
         if avoided {
             assert_eq!(result.protection, crate::HitProtection::Avoided);
             assert_eq!(

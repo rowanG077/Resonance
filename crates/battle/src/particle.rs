@@ -13,7 +13,7 @@ pub use resonance_content::battle_effect::{ParticleGeometry, ParticleState, Part
 
 #[derive(Debug, Clone)]
 pub struct ParticleDefinition {
-    pub resource: u32,
+    pub resource: crate::ResourceId,
     pub member: u16,
     pub model: Option<resonance_content::battle_effect::ModelBinding>,
     pub data: ParticleTemplate,
@@ -42,7 +42,7 @@ pub struct ParticleFrame {
     pub owner: ActorId,
     pub owner_bone: Option<u8>,
     pub draw_after: Option<ActorId>,
-    pub resource: u32,
+    pub resource: crate::ResourceId,
     pub member: u16,
     pub origin: [f32; 3],
     pub heading: f32,

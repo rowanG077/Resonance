@@ -563,23 +563,15 @@ pub fn publish(
 ) -> Result<String> {
     let module = crate::rel::Rel::read(module)?;
     let reset_scale = f32::read(module.at((4, 0xce8))?, 0)?;
-    ensure!(
-        reset_scale.is_finite(),
-        "invalid projectile velocity reset scale"
-    );
     let mut table = read_with_scale(crate::source_assets::section(usual, 7)?, Some(reset_scale))?;
-    table.resident_spells = resident_spells(crate::source_assets::section(usual, 9)?)?;
+    let parameters = crate::source_assets::section(usual, 9)?;
+    table.resident_spells = resident_spells(parameters)?;
     let fire_ball = module.at((4, 0x3928))?;
     table.fire_ball = Some(FireBall {
-        velocities: [
-            <[f32; 3]>::read(fire_ball, 0)?,
-            <[f32; 3]>::read(fire_ball, 12)?,
-            <[f32; 3]>::read(fire_ball, 24)?,
-        ],
+        velocities: <[[f32; 3]; 3]>::read(fire_ball, 0)?,
         height_offset: f32::read(fire_ball, 36)?,
         center_height_scale: f32::read(fire_ball, 40)?,
     });
-    let parameters = crate::source_assets::section(usual, 9)?;
     for spell in [239_u16, 242, 245, 248, 254, 273, 274, 275] {
         let index = usize::from(spell - 200);
         ensure!(
@@ -624,19 +616,17 @@ fn resident_spells(bytes: &[u8]) -> Result<std::collections::BTreeMap<u16, Resid
         let rules = parameters
             .get(begin..end)
             .context("missing resident spell hit rules")?;
-        let mut contact = [0; 32];
-        contact[17] = 2; // Magic contact.
-        contact[20] = recoil;
         Ok((
             spell,
             ResidentSpell {
                 duration: u16::read(parameters, 16)?,
-                hit: crate::battle_action::hit(rules, &contact)?,
+                hit: crate::battle_action::hit_rule(rules, 0, DamageKind::Magic, recoil)?,
                 followup_hit: if spell == 220 {
-                    contact[20] = 7;
-                    Some(crate::battle_action::hit(
+                    Some(crate::battle_action::hit_rule(
                         rules.get(28..56).context("missing Icicle follow-up rule")?,
-                        &contact,
+                        0,
+                        DamageKind::Magic,
+                        7,
                     )?)
                 } else {
                     None

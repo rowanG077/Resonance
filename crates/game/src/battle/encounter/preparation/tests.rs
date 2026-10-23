@@ -1,4 +1,5 @@
 use super::*;
+use resonance_battle::TechniqueId;
 use resonance_content::prepared::Files;
 
 #[test]
@@ -94,25 +95,37 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
         }
         let actor = battle.actor_ids().next().unwrap();
         let supported = battle
-            .prepared_technique(actor, 1)
+            .prepared_technique(actor, TechniqueId(1))
             .context("supported Demon Fang missing")?
             .action;
-        assert!(battle.prepared_technique(actor, 2).is_some());
-        assert_eq!(battle.technique_is_current(actor, 2), Some(true));
-        assert_eq!(battle.technique_uses(actor, 1), Some(17));
-        assert_eq!(battle.technique_uses(actor, 2), Some(23));
-        assert_eq!(battle.shortcuts(actor).unwrap(), &[1, 2, 0, 0]);
+        assert!(battle.prepared_technique(actor, TechniqueId(2)).is_some());
+        assert_eq!(
+            battle.technique_is_current(actor, TechniqueId(2)),
+            Some(true)
+        );
+        assert_eq!(battle.technique_uses(actor, TechniqueId(1)), Some(17));
+        assert_eq!(battle.technique_uses(actor, TechniqueId(2)), Some(23));
+        assert_eq!(
+            battle.shortcuts(actor).unwrap(),
+            &[Some(TechniqueId(1)), Some(TechniqueId(2)), None, None]
+        );
         let guard = battle
-            .prepared_technique(actor, 34)
+            .prepared_technique(actor, TechniqueId(34))
             .context("dormant Special Guard capacity missing")?
             .action;
-        assert_eq!(battle.technique_is_current(actor, 34), Some(false));
+        assert_eq!(
+            battle.technique_is_current(actor, TechniqueId(34)),
+            Some(false)
+        );
         let genis = battle.actor_ids().nth(1).unwrap();
         let stalagmite = battle
-            .prepared_technique(genis, 75)
+            .prepared_technique(genis, TechniqueId(75))
             .context("unlearned Stalagmite capacity missing")?
             .action;
-        assert_eq!(battle.technique_is_current(genis, 75), Some(false));
+        assert_eq!(
+            battle.technique_is_current(genis, TechniqueId(75)),
+            Some(false)
+        );
         for _ in 0..600 {
             let frame = battle.step(Default::default())?;
             if battle.phase() == resonance_battle::BattlePhase::Combat && !frame.clock.paused() {
@@ -120,31 +133,65 @@ fn supported_actions_prepare_independently_of_saved_membership() -> Result<()> {
             }
         }
         assert!(battle.phase() != resonance_battle::BattlePhase::Entry);
-        assert_eq!(battle.record_technique_acquisition(genis, 75)?, stalagmite);
-        assert_eq!(battle.technique_is_current(genis, 75), Some(true));
-        assert_eq!(battle.record_technique_acquisition(actor, 34)?, guard);
-        assert_eq!(battle.shortcuts(actor).unwrap(), &[1, 2, 34, 0]);
+        assert_eq!(
+            battle.record_technique_acquisition(genis, TechniqueId(75))?,
+            stalagmite
+        );
+        assert_eq!(
+            battle.technique_is_current(genis, TechniqueId(75)),
+            Some(true)
+        );
+        assert_eq!(
+            battle.record_technique_acquisition(actor, TechniqueId(34))?,
+            guard
+        );
+        assert_eq!(
+            battle.shortcuts(actor).unwrap(),
+            &[
+                Some(TechniqueId(1)),
+                Some(TechniqueId(2)),
+                Some(TechniqueId(34)),
+                None
+            ]
+        );
         battle.forget_technique(actor, guard)?;
-        battle.prepare_shortcut(actor, 1, None)?.commit();
-        battle.record_technique_acquisition(actor, 34)?;
-        assert_eq!(battle.shortcuts(actor).unwrap(), &[1, 34, 0, 0]);
-        battle.prepare_shortcut(actor, 1, Some(supported))?.commit();
+        battle
+            .prepare_shortcut(actor, resonance_battle::ShortcutSlot::Up, None)?
+            .commit();
+        battle.record_technique_acquisition(actor, TechniqueId(34))?;
+        assert_eq!(
+            battle.shortcuts(actor).unwrap(),
+            &[Some(TechniqueId(1)), Some(TechniqueId(34)), None, None]
+        );
+        battle
+            .prepare_shortcut(actor, resonance_battle::ShortcutSlot::Up, Some(supported))?
+            .commit();
         battle.forget_technique(actor, guard)?;
-        battle.record_technique_acquisition(actor, 34)?;
-        assert_eq!(battle.shortcuts(actor).unwrap(), &[1, 1, 34, 0]);
-        assert_eq!(battle.technique_is_current(actor, 2), Some(true));
+        battle.record_technique_acquisition(actor, TechniqueId(34))?;
+        assert_eq!(
+            battle.shortcuts(actor).unwrap(),
+            &[
+                Some(TechniqueId(1)),
+                Some(TechniqueId(1)),
+                Some(TechniqueId(34)),
+                None
+            ]
+        );
+        assert_eq!(
+            battle.technique_is_current(actor, TechniqueId(2)),
+            Some(true)
+        );
         let target = battle
             .target(actor)
             .context("prepared action has no target")?;
-        battle.step(resonance_battle::BattleInput {
-            actions: vec![resonance_battle::ActionRequest {
+        battle.step(resonance_battle::BattleInput::from(
+            resonance_battle::ActionRequest {
                 actor,
                 action: supported,
                 target,
-            }],
-            ..Default::default()
-        })?;
-        assert_eq!(battle.technique_uses(actor, 1), Some(18));
+            },
+        ))?;
+        assert_eq!(battle.technique_uses(actor, TechniqueId(1)), Some(18));
         assert!(!battle.is_diagnostic());
     }
     Ok(())
@@ -216,7 +263,7 @@ fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<(
                 }
                 "body" => {
                     for actor in &mut inputs.party_actors {
-                        actor.source.as_mut().unwrap().body.skeleton.bones[0].parent = Some(0);
+                        actor.source.body.skeleton.bones[0].parent = Some(0);
                     }
                     for (source, _) in inputs.enemy_models.values_mut() {
                         source.body.skeleton.bones[0].parent = Some(0);
@@ -265,13 +312,10 @@ fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<(
             for _ in 0..4 {
                 candidate.world_update(
                     battle,
-                    BattleInput {
-                        controllers: vec![ControlInput {
-                            stick: [127, 0],
-                            ..ControlInput::neutral(user)
-                        }],
-                        ..Default::default()
-                    },
+                    BattleInput::from(ControlInput {
+                        stick: [127, 0],
+                        ..ControlInput::neutral(user)
+                    }),
                 )?;
             }
             assert_ne!(battle.actors()[user.index()].position, origin, "{fault}");
@@ -293,7 +337,10 @@ fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<(
                 step(candidate, battle)?;
             }
             let tp = battle.actors()[user.index()].tp;
-            let action = battle.prepared_technique(user, 66).unwrap().action;
+            let action = battle
+                .prepared_technique(user, TechniqueId(66))
+                .unwrap()
+                .action;
             let request = ActionRequest {
                 actor: user,
                 target: battle.target(user).context("missing opponent")?,
@@ -315,7 +362,7 @@ fn optional_body_art_preserves_placement_casting_items_and_results() -> Result<(
             }
             assert!(released, "{fault}");
             assert!(battle.actors()[user.index()].tp < tp, "{fault}");
-            assert_eq!(battle.technique_uses(user, 66), Some(1));
+            assert_eq!(battle.technique_uses(user, TechniqueId(66)), Some(1));
             assert!(!battle.is_diagnostic(), "{fault}");
             let outcome = escape(candidate, battle)?;
             let completed = fixture.candidate.finish(battle, &outcome)?;

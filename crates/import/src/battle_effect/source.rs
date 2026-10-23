@@ -81,9 +81,18 @@ fn read_with_owner(
     bytes: &[u8],
     body: Option<&resonance_content::animation::Skeleton>,
 ) -> Result<(SourceBank, Vec<u8>)> {
-    let programs = super::timelines(bytes)?;
+    ensure!(
+        bytes.len() >= 20 && &bytes[..4] == b"ef1\0",
+        "invalid battle effect bank"
+    );
     let half = |i| u16::from_be_bytes([bytes[i], bytes[i + 1]]) as usize;
     let offsets: Vec<_> = (8..20).step_by(2).map(half).collect();
+    ensure!(
+        offsets
+            .iter()
+            .all(|&offset| (20..=bytes.len()).contains(&offset)),
+        "battle effect section outside bank"
+    );
     let pool = |start| {
         let end = offsets
             .iter()
@@ -93,6 +102,10 @@ fn read_with_owner(
             .unwrap_or(bytes.len());
         &bytes[start..end]
     };
+    let roots = pool(offsets[4])
+        .get(..usize::from(bytes[4]) * 2)
+        .context("truncated effect program table")?;
+    let programs = super::timelines(pool(offsets[1]), roots)?;
     // The table starts immediately after the data pools, even when an empty pool
     // shares its offset. Do not interpret the table as actor/UV declarations.
     let data_pool = |start| {
@@ -297,12 +310,17 @@ fn compile_program(
                 anyhow::bail!("effect declaration {}: {reason}", record.command);
             }
         }
-        if record.command < 254 && record.command != 252 && record.operand != 0 {
+        if record.command < 254
+            && record.command != 252
+            && record.operand != 0
+            && let std::collections::btree_map::Entry::Vacant(entry) =
+                modifiers.entry(record.operand)
+        {
             let at = usize::from(record.operand)
                 .checked_sub(modifier_start)
                 .context("effect modifier outside modifier pool")?;
             let words = super::modifier(modifier_bytes, at)?;
-            modifiers.insert(record.operand, words);
+            entry.insert(words);
         }
     }
     Ok(super::timeline::decode_grouped(

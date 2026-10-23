@@ -17,7 +17,7 @@ import struct
 from battle_fixture import (BattleFixture, DTM_BUTTONS, PARTY_SETTINGS_POINTER, enemy_package,
                             neutral_movie, prepare_entry)
 from battle_identity import EnemyCatalogue
-from battle_state import watch_locations
+from battle_state import projectile_locations, watch_locations
 from enemy_catalogue import ACTION_BYTES, section
 from state import State, digest, inspect
 
@@ -68,11 +68,7 @@ def locations():
                              (ACTION_TABLE_POINTER, "action_table_pointer"),
                              (SELECTED_ROW_POINTER, "selected_row_pointer")]:
             result[f"{BATTLE_POINTER} {base + offset:x}"] = f"enemy_{slot}_{name}"
-    for slot in range(16):
-        node = f"{BATTLE_POINTER} 75c44" + " 4" * slot
-        result[node] = f"projectile_{slot}_address"
-        for offset in (0x10, 0x28, 0x2C, 0x30, 0x34, 0x3C, 0x6C, 0x70, 0x74):
-            result[f"{node} {offset:x}"] = f"projectile_{slot}_{offset:x}"
+    result.update(projectile_locations(BATTLE_POINTER))
     return result
 
 

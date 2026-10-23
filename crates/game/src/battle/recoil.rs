@@ -1,27 +1,16 @@
 //! Resolve shared recoil parameters from the encounter snapshot.
 use anyhow::{Context, Result};
-use resonance_battle::{RecoilProfile, VerticalRecoil};
+use resonance_battle::{Character, RecoilProfile, VerticalRecoil};
 use resonance_content::{battle_recoil, prepared::Files};
 
 pub struct Parameters {
-    impulses: Vec<[f32; 2]>,
-    suppression_distance: f32,
-    guard_speed: f32,
-    light_vertical_scale: f32,
-    heavy_vertical_scale: f32,
-    default_guard_recovery_bonuses: Vec<u8>,
+    source: battle_recoil::Table,
 }
 
 impl Parameters {
     pub fn load(files: &Files) -> Result<Self> {
-        let source: battle_recoil::Table = files.json(battle_recoil::PATH)?;
         Ok(Self {
-            impulses: source.impulses,
-            suppression_distance: source.suppression_distance,
-            guard_speed: source.guard_speed,
-            light_vertical_scale: source.light_vertical_scale,
-            heavy_vertical_scale: source.heavy_vertical_scale,
-            default_guard_recovery_bonuses: source.default_guard_recovery_bonuses,
+            source: files.json(battle_recoil::PATH)?,
         })
     }
 
@@ -31,6 +20,7 @@ impl Parameters {
     ) -> Result<resonance_battle::RecoilRule> {
         Ok(resonance_battle::RecoilRule {
             impulse: *self
+                .source
                 .impulses
                 .get(usize::from(hit.recoil))
                 .context("missing action recoil impulse")?,
@@ -38,16 +28,17 @@ impl Parameters {
             knock_down: hit.knock_down,
             launch: hit.launch,
             lift_guard: hit.lift_guard,
-            guard_speed: self.guard_speed,
-            suppression_distance: self.suppression_distance,
+            guard_speed: self.source.guard_speed,
+            suppression_distance: self.source.suppression_distance,
         })
     }
 
     /// Resolve the saved position choice, using the cooked bonus for its default.
-    pub fn guard_recovery_bonus(&self, position: u8, actor_kind: u8) -> Result<u8> {
+    pub fn guard_recovery_bonus(&self, position: u8, character: Character) -> Result<u8> {
         if position == 0 {
-            self.default_guard_recovery_bonuses
-                .get(usize::from(actor_kind))
+            self.source
+                .default_guard_recovery_bonuses
+                .get(character as usize)
                 .copied()
                 .context("missing actor guard recovery bonus")
         } else {
@@ -63,8 +54,8 @@ impl Parameters {
     ) -> RecoilProfile {
         RecoilProfile {
             vertical: match weight {
-                1 => VerticalRecoil::Scale(self.light_vertical_scale),
-                2 => VerticalRecoil::Scale(self.heavy_vertical_scale),
+                1 => VerticalRecoil::Scale(self.source.light_vertical_scale),
+                2 => VerticalRecoil::Scale(self.source.heavy_vertical_scale),
                 3 => VerticalRecoil::Grounded,
                 _ => VerticalRecoil::Unchanged,
             },

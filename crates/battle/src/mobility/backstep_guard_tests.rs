@@ -1,8 +1,8 @@
 use super::*;
 use crate::conditions::{Condition, ConditionSet};
 use crate::{
-    ActionId, ActorAvailability, DamageKind, GuardRule, HitElement, HitProtection, HitResult,
-    HitRule, MeleeDefinition, Power, Protection, ProtectionMode, ReactionRule, contact::Contacts,
+    ActionId, ActorAvailability, HitProtection, HitResult, HitRule, MeleeDefinition, Power,
+    Protection, ProtectionMode, ReactionRule, contact::Contacts,
 };
 
 fn guarding(enabled: bool, control: Control) -> Battle {
@@ -33,25 +33,15 @@ fn contact(battle: &mut Battle, stun_chance: u8) -> HitResult {
             ActionId(1),
             &MeleeDefinition {
                 hit: HitRule {
-                    sound: None,
-                    kind: DamageKind::Slash,
-                    arte: false,
-                    effect_on_guard: false,
-                    effect: None,
                     overlimit_pause: true,
                     power: Power::Fixed(9),
-                    element: HitElement::Neutral,
-                    prevents_defeat: false,
-                    finisher_grade: false,
-                    hp_drain: false,
-                    guard: GuardRule::default(),
                     reaction: ReactionRule {
                         hitstun: 60,
                         stagger: if stun_chance == 0 { 0 } else { 200 },
                         stun_chance,
                         ..Default::default()
                     },
-                    condition: None,
+                    ..crate::tests::hit()
                 },
                 trail: None,
                 volume: crate::MeleeVolume::Fixed {
@@ -80,15 +70,7 @@ fn backstep_starts_moving_with_optional_armor() {
         let mut battle = guarding(enabled, Control::Manual);
         let mut model = crate::tests::model_definition(1, [(0, 30.), (1, 30.)]);
         model.reactions.backstep = Some(1);
-        battle.set_models(
-            crate::Models::new(
-                battle.actors(),
-                vec![Some(Arc::new(model)), None],
-                Default::default(),
-                Default::default(),
-            )
-            .unwrap(),
-        );
+        set_model(&mut battle, model);
 
         let position = battle.actors[0].position;
         let frame = begin(&mut battle);
@@ -186,12 +168,7 @@ fn backstep_guard_common_clock_holds_in_menus_and_expires_during_local_hit_stop(
     let mut battle = guarding(true, Control::Manual);
     begin(&mut battle);
     let position = battle.actors[0].position;
-    battle
-        .step(BattleInput {
-            paused: true,
-            ..Default::default()
-        })
-        .unwrap();
+    pause(&mut battle);
     assert!(!battle.is_diagnostic());
     assert_eq!(battle.actors[0].reaction.protection.remaining, 29);
     assert_eq!(battle.actors[0].position, position);
@@ -238,9 +215,7 @@ fn backstep_armor_allows_damage_but_prevents_interruption() {
             }
         );
         assert_eq!(battle.actors[1].tp, 1);
-        for _ in 0..120 {
-            battle.step(BattleInput::default()).unwrap();
-        }
+        crate::tests::step_idle(&mut battle, 120).unwrap();
         assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
     }
 }

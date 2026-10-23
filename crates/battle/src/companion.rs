@@ -15,7 +15,6 @@ pub struct CompanionPolicy {
 pub struct PolicyLimits {
     pub tp: u8,
     pub healing: u8,
-    pub support_level: i8,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,12 +30,42 @@ pub struct CompanionDefinition {
     pub initial_policy: [u8; 3],
     pub defaults: [u8; 3],
     pub limits: [PolicyLimits; 9],
-    pub level: u8,
-    pub level_difference: i8,
+}
+
+/// Resolved behavior; numeric choices stay at the save/menu boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PositionStrategy {
+    Melee = 1,
+    Balanced,
+    Guarded,
+    Ranged,
+    Magic,
+    Unrestricted,
+}
+
+impl PositionStrategy {
+    fn ranged(self) -> bool {
+        matches!(self, Self::Ranged | Self::Magic)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OffensiveUse {
+    Never,
+    AboveReserve,
+    ReducedBelowReserve,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ResolvedPolicy {
+    target: crate::TargetPolicy,
+    position: PositionStrategy,
+    offense: OffensiveUse,
+    limits: PolicyLimits,
 }
 
 impl CompanionDefinition {
-    fn resolve(&self, choices: [u8; 3]) -> Result<[u8; 3]> {
+    fn resolve(&self, choices: [u8; 3]) -> Result<ResolvedPolicy> {
         ensure!(
             self.defaults
                 .iter()
@@ -48,24 +77,39 @@ impl CompanionDefinition {
                     .all(|(&value, maximum)| value <= maximum),
             "invalid companion strategy choices"
         );
-        Ok(std::array::from_fn(|i| {
+        let [target, techniques, position] = std::array::from_fn(|i| {
             if choices[i] == 0 {
                 self.defaults[i]
             } else {
                 choices[i]
             }
-        }))
+        });
+        Ok(ResolvedPolicy {
+            target: crate::TargetPolicy::try_from(target)?,
+            position: match position {
+                1 => PositionStrategy::Melee,
+                2 => PositionStrategy::Balanced,
+                3 => PositionStrategy::Guarded,
+                4 => PositionStrategy::Ranged,
+                5 => PositionStrategy::Magic,
+                6 => PositionStrategy::Unrestricted,
+                _ => unreachable!("validated position strategy"),
+            },
+            offense: match techniques {
+                1..=4 => OffensiveUse::AboveReserve,
+                5 => OffensiveUse::Never,
+                _ => OffensiveUse::ReducedBelowReserve,
+            },
+            limits: self.limits[usize::from(techniques)],
+        })
     }
 
     fn validate(&self) -> Result<()> {
         self.resolve(self.initial_policy)?;
         ensure!(
-            self.level != 0
-                && (-8..=8).contains(&self.level_difference)
-                && self
-                    .limits
-                    .iter()
-                    .all(|row| row.tp <= 100 && row.healing <= 100),
+            self.limits
+                .iter()
+                .all(|row| row.tp <= 100 && row.healing <= 100),
             "invalid companion policy parameters"
         );
         Ok(())
@@ -117,15 +161,15 @@ impl Battle {
         self.runtime.get(actor.index())?.companion_policy
     }
 
-    fn resolved_companion_policy(&self, owner: ActorId) -> Result<[u8; 3]> {
+    fn resolved_companion_policy(&self, owner: ActorId) -> Result<ResolvedPolicy> {
         let policy = self
             .companion_policy(owner)
             .context("actor has no live companion policy")?;
         self.companion(owner)?.resolve(policy.choices)
     }
 
-    pub(crate) fn companion_position(&self, owner: ActorId) -> Result<u8> {
-        Ok(self.resolved_companion_policy(owner)?[2])
+    pub(crate) fn companion_position(&self, owner: ActorId) -> Result<PositionStrategy> {
+        Ok(self.resolved_companion_policy(owner)?.position)
     }
 
     pub fn refresh_strategy(&mut self, rows: &[StrategyRefresh]) -> Result<()> {
@@ -155,11 +199,12 @@ impl Battle {
             );
         }
         for row in rows {
-            let position = self.companion(row.actor)?.resolve(row.choices)?[2];
+            let position = self.companion(row.actor)?.resolve(row.choices)?.position;
             self.runtime[row.actor.index()].companion_policy = Some(CompanionPolicy {
                 choices: row.choices,
             });
-            self.actors[row.actor.index()].guard.recovery_bonus = strategy_guard_recovery(position);
+            self.actors[row.actor.index()].guard.recovery_bonus =
+                strategy_guard_recovery(position as u8);
         }
         Ok(())
     }
@@ -325,50 +370,53 @@ impl Battle {
         &mut self,
         owner: ActorId,
         target: ActorId,
-        strategy: [u8; 3],
-    ) -> Result<Option<CompanionAction>> {
-        let limits = self.companion(owner)?.limits[usize::from(strategy[1])];
-        let reserve_reached =
-            strategy[2] != 6 && self.actors[owner.index()].tp_percent() <= i16::from(limits.tp);
-        if strategy[1] == 5 || matches!(strategy[1], 1..=4) && reserve_reached {
-            return Ok(None);
+        strategy: ResolvedPolicy,
+    ) -> Option<CompanionAction> {
+        let limits = strategy.limits;
+        let reserve_reached = strategy.position != PositionStrategy::Unrestricted
+            && self.actors[owner.index()].tp_percent() <= i16::from(limits.tp);
+        if strategy.offense == OffensiveUse::Never
+            || strategy.offense == OffensiveUse::AboveReserve && reserve_reached
+        {
+            return None;
         }
         let mut choices: Vec<_> = self
             .companion_techniques(owner)
             .filter(|row| row.capabilities.offensive && self.usable_companion_technique(owner, row))
-            .filter(|row| match strategy[2] {
-                1 => row.capabilities.uses_weapon_reach,
-                4 => !row.capabilities.uses_weapon_reach && !row.capabilities.spell,
-                5 => row.capabilities.spell,
+            .filter(|row| match strategy.position {
+                PositionStrategy::Melee => row.capabilities.uses_weapon_reach,
+                PositionStrategy::Ranged => {
+                    !row.capabilities.uses_weapon_reach && !row.capabilities.spell
+                }
+                PositionStrategy::Magic => row.capabilities.spell,
                 _ => true,
             })
             .filter(|row| {
                 !matches!(
-                    self.actors[target.index()].equipment.affinities[usize::from(row.element)],
+                    self.actors[target.index()].affinity(row.element),
                     crate::Affinity::Absorb | crate::Affinity::Immune
                 )
             })
             .cloned()
             .collect();
-        if choices.iter().any(|row| {
-            self.actors[target.index()].equipment.affinities[usize::from(row.element)]
-                == crate::Affinity::Weak
-        }) {
+        if choices
+            .iter()
+            .any(|row| self.actors[target.index()].affinity(row.element) == crate::Affinity::Weak)
+        {
             choices.retain(|row| {
-                self.actors[target.index()].equipment.affinities[usize::from(row.element)]
-                    == crate::Affinity::Weak
+                self.actors[target.index()].affinity(row.element) == crate::Affinity::Weak
             });
         }
         if choices.is_empty() {
-            return Ok(None);
+            return None;
         }
         let choice = &choices[usize::from(self.random.next_u16()) % choices.len()];
         // Moderation, healing and support policies reduce offensive use below
         // their reserve instead of refusing every affordable technique.
         if reserve_reached && self.random.next_u16() % 100 >= 25 {
-            return Ok(None);
+            return None;
         }
-        Ok(Some(CompanionAction::technique(choice, target)))
+        Some(CompanionAction::technique(choice, target))
     }
 
     fn normal_choice(&mut self, owner: ActorId, target: ActorId) -> Result<CompanionAction> {
@@ -404,17 +452,15 @@ impl Battle {
             return Ok(());
         }
         let strategy = self.resolved_companion_policy(owner)?;
-        let Some(target) =
-            self.decision_target(owner, crate::TargetPolicy::try_from(strategy[0])?)?
-        else {
+        let Some(target) = self.decision_target(owner, strategy.target)? else {
             return Ok(());
         };
         self.set_decision_target(owner, target)?;
-        let limits = self.companion(owner)?.limits[usize::from(strategy[1])];
-        let action = if strategy[1] != 5 {
+        let limits = strategy.limits;
+        let action = if strategy.offense != OffensiveUse::Never {
             self.support_choice(owner, limits.healing).or_else(|| {
-                let allow_buffs =
-                    strategy[2] == 6 || self.actors[index].tp_percent() > i16::from(limits.tp);
+                let allow_buffs = strategy.position == PositionStrategy::Unrestricted
+                    || self.actors[index].tp_percent() > i16::from(limits.tp);
                 self.condition_choice(owner, allow_buffs)
             })
         } else {
@@ -423,14 +469,15 @@ impl Battle {
         let action = match action {
             Some(action) => Some(action),
             None if self.companion(owner)?.normal_attack_opening
-                && !matches!(strategy[2], 4..=6)
+                && !strategy.position.ranged()
+                && strategy.position != PositionStrategy::Unrestricted
                 && self.actors[index].hp_percent() >= NORMAL_OPENING_MIN_HP_PERCENT =>
             {
                 None
             }
-            None => self.offensive_choice(owner, target, strategy)?,
+            None => self.offensive_choice(owner, target, strategy),
         };
-        let defensive = matches!(strategy[2], 4 | 5);
+        let defensive = strategy.position.ranged();
         let action = match action {
             Some(action) => action,
             None if defensive
@@ -514,7 +561,7 @@ impl Battle {
         let target = self
             .target(owner)
             .context("companion combo has no target")?;
-        if let Some(action) = self.offensive_choice(owner, target, strategy)?
+        if let Some(action) = self.offensive_choice(owner, target, strategy)
             && self
                 .prepared
                 .actions

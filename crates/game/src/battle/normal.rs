@@ -1,7 +1,8 @@
 //! Bind authored normal attacks to the actor's model and encounter resources.
 use super::{ActionDefinition, voice::Sound};
 use anyhow::{Context, Result};
-use resonance_battle::{AttackEvent, AttackPose, NormalAttack};
+use resonance_battle::WeaponSlot;
+use resonance_battle::{AttackEvent, NormalAttack};
 use resonance_content::battle_normal::{Attack, Event, WeaponFlight};
 use std::sync::Arc;
 
@@ -19,7 +20,7 @@ pub(super) fn controls(
 
 /// Prepared actor inputs shared by encounter and focused action preparation.
 pub struct Resources<'a> {
-    pub character: u8,
+    pub character: super::party::Character,
     pub model: Option<&'a resonance_battle::ModelDefinition>,
     pub common: Option<&'a super::EffectResource>,
     pub tints: Option<&'a resonance_content::battle_effect::Tints>,
@@ -32,27 +33,12 @@ pub fn prepare_resources(
     resources: &mut super::ActionResources,
     sound: &mut impl FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
 ) -> Result<Vec<ActionDefinition>> {
-    let index = usize::from(
-        actor
-            .character
-            .checked_sub(1)
-            .context("zero character ID")?,
-    );
+    let index = actor.character.index();
     let attacks = resolver
         .party_table()
         .normal_attacks
         .get(index)
         .context("missing normal attack table")?;
-    let pose = |source: resonance_content::battle_action::ActionPose| {
-        super::model::motion(actor.model, source.clip).map(|motion| AttackPose {
-            motion,
-            start: source.start,
-            end: source.end,
-            rate: source.rate,
-            blend: source.blend,
-            repeat: source.repeat,
-        })
-    };
     let mut bindings = Vec::with_capacity(attacks.len());
     for (index, attack) in attacks.iter().enumerate() {
         let mut events = Vec::new();
@@ -76,7 +62,9 @@ pub fn prepare_resources(
         for (at, event) in &attack.events {
             let event = match event {
                 Event::Pose(source) => {
-                    let Some(pose) = pose(*source) else { continue };
+                    let Some(pose) = super::model::action_pose(actor.model, *source) else {
+                        continue;
+                    };
                     AttackEvent::Pose(pose)
                 }
                 Event::Contact(contact) => AttackEvent::Contact {
@@ -108,38 +96,6 @@ pub fn prepare_resources(
                     hit.overlimit_pause = false;
                     AttackEvent::Throw(Arc::new(flight(*slot, *profile, *radius, hit)))
                 }
-                Event::Braking(value) => AttackEvent::Braking(*value),
-                Event::Gravity(value) => AttackEvent::Gravity(*value),
-                Event::AnimationRate(value) => AttackEvent::AnimationRate(*value),
-                Event::CameraDistance { distance, duration } => AttackEvent::CameraDistance {
-                    distance: *distance,
-                    duration: *duration,
-                },
-                Event::Turn(value) => AttackEvent::Turn(*value),
-                Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
-                Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {
-                    enabled: *enabled,
-                    duration: *duration,
-                },
-                Event::PassThrough(value) => AttackEvent::PassThrough {
-                    enabled: *value,
-                    duration: 0,
-                },
-                Event::Forward(value) => AttackEvent::Move {
-                    forward: Some(*value),
-                    vertical: None,
-                },
-                Event::Vertical(value) => AttackEvent::Move {
-                    forward: None,
-                    vertical: Some(*value),
-                },
-                Event::WeaponVisibility { slot, visible } => {
-                    AttackEvent::WeaponVisibility(vec![(*slot, *visible)])
-                }
-                Event::Trail { slot, duration } => AttackEvent::Trail {
-                    slot: *slot,
-                    duration: *duration,
-                },
                 Event::Sound(cue) => AttackEvent::Sound(sound(Sound::Cue(*cue))?),
                 Event::Voice(voice) => {
                     let Some(line) = resolver.absolute(
@@ -157,15 +113,10 @@ pub fn prepare_resources(
                 }
                 Event::Effect(member) => {
                     let common = actor.common.context("missing normal attack effect bank")?;
-                    let mut effect = common.clone();
-                    effect.members = vec![*member];
-                    super::require_effect(&mut resources.effects, effect)?;
+                    let appearance = resources.effect_member(common, *member)?;
                     AttackEvent::Effect {
                         centered: false,
-                        appearance: resonance_battle::EffectAppearance {
-                            resource: common.resource,
-                            member: *member,
-                        },
+                        appearance,
                         tints: std::array::from_fn(|element| {
                             actor
                                 .tints
@@ -174,6 +125,7 @@ pub fn prepare_resources(
                         }),
                     }
                 }
+                other => crate::battle::normal::movement_event(other)?,
             };
             events.push((*at, event));
         }
@@ -201,7 +153,7 @@ fn flight(
     hit: resonance_battle::HitRule,
 ) -> resonance_battle::WeaponFlightDefinition {
     resonance_battle::WeaponFlightDefinition {
-        slot,
+        slot: WeaponSlot(slot),
         origin: [0., 70., 25.],
         outbound_ticks: u32::from(profile.outbound_ticks),
         speed: profile.speed,
@@ -210,4 +162,52 @@ fn flight(
         hit,
         radius,
     }
+}
+
+/// Movement and visibility commands have the same meaning for normal attacks,
+/// martial artes, and combined Unison attacks.
+pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
+    Ok(match event {
+        Event::Braking(value) => AttackEvent::Braking(*value),
+        Event::Gravity(value) => AttackEvent::Gravity(*value),
+        Event::AnimationRate(value) => AttackEvent::AnimationRate(*value),
+        Event::CameraDistance { distance, duration } => AttackEvent::CameraDistance {
+            distance: *distance,
+            duration: *duration,
+        },
+        Event::Turn(value) => AttackEvent::Turn(*value),
+        Event::ReactionArmor(duration) => AttackEvent::ReactionArmor(*duration),
+        Event::SecondaryWind { enabled, duration } => AttackEvent::SecondaryWind {
+            enabled: *enabled,
+            duration: *duration,
+        },
+        Event::PassThrough(value) => AttackEvent::PassThrough {
+            enabled: *value,
+            duration: 0,
+        },
+        Event::Forward(value) => AttackEvent::Move {
+            forward: Some(*value),
+            vertical: None,
+        },
+        Event::Vertical(value) => AttackEvent::Move {
+            forward: None,
+            vertical: Some(*value),
+        },
+        Event::WeaponVisibility { slot, visible } => {
+            AttackEvent::WeaponVisibility(vec![(Some(WeaponSlot(*slot)), *visible)])
+        }
+        Event::Trail { slot, duration } => AttackEvent::Trail {
+            slot: WeaponSlot(*slot),
+            duration: *duration,
+        },
+        Event::Pose(_)
+        | Event::Contact(_)
+        | Event::Projectile { .. }
+        | Event::Throw { .. }
+        | Event::Sound(_)
+        | Event::Voice(_)
+        | Event::Effect(_) => {
+            anyhow::bail!("attack event requires actor resources")
+        }
+    })
 }

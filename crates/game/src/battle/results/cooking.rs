@@ -1,11 +1,12 @@
 //! A result meal is a game transaction; notices display its completed outcome.
 use super::{Candidate, ResultNotice};
+use crate::battle::party::Character;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{Battle, BattlePhase, Side};
 
 struct Reload {
     actor: resonance_battle::ActorId,
-    member: usize,
+    character: Character,
     max_hp: i32,
     max_tp: u16,
     conditions: resonance_battle::conditions::Conditions,
@@ -29,7 +30,7 @@ impl Candidate {
         let Ok(meal) = party.cook(&self.menus, || random.next_u32()) else {
             return Ok(());
         };
-        let character = party.cooking.chef + 1;
+        let character = Character::from_index(usize::from(party.cooking.chef))?;
         let reloads = self
             .setup
             .actors
@@ -43,9 +44,8 @@ impl Candidate {
                     live.side == Side::Party,
                     "cooking actor is not a party member"
                 );
-                let index = usize::from(character - 1);
-                let member = &party.members[index];
-                let loadout = super::super::party::loadout(&self.menus, member, index)?;
+                let member = &party.members[character.index()];
+                let loadout = super::super::party::loadout(&self.menus, member, character)?;
                 let max_hp = loadout.attributes.max_hp;
                 let max_tp = loadout.attributes.max_tp;
                 let [base_hp, base_tp] = member.maximum_vitals();
@@ -66,7 +66,7 @@ impl Candidate {
                 )?;
                 Ok(Reload {
                     actor,
-                    member: index,
+                    character,
                     max_hp,
                     max_tp,
                     conditions,
@@ -75,7 +75,7 @@ impl Candidate {
             })
             .collect::<Result<Vec<_>>>()?;
         for reload in reloads {
-            let member = &party.members[reload.member];
+            let member = &party.members[reload.character.index()];
             battle.refresh_result_member_conditions(
                 reload.actor,
                 i32::from(member.hp),

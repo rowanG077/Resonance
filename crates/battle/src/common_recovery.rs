@@ -1,6 +1,5 @@
 use crate::state::ActorTask;
 use crate::{ActorId, Battle, Cue, RecoveryKind};
-use anyhow::Result;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CommonRecoveryTraits {
@@ -34,11 +33,6 @@ const IDLE_RECOVERY_INTERVAL: u16 = 120;
 const LAST_HIT_INTERVAL: u8 = 2;
 
 impl Battle {
-    pub fn common_recovery_state(&self, actor: ActorId) -> Result<CommonRecoveryState> {
-        self.actor(actor)?;
-        Ok(self.runtime[actor.index()].recovery)
-    }
-
     /// Flat recovery runs on combat updates, independent of HUD animation.
     pub(crate) fn advance_common_flat_recovery(&mut self, index: usize, combat: bool) {
         let actor = &mut self.actors[index];
@@ -67,9 +61,9 @@ impl Battle {
         index: usize,
         combat: bool,
         cues: &mut Vec<Cue>,
-    ) -> Result<()> {
+    ) {
         if !combat {
-            return Ok(());
+            return;
         }
         let id = ActorId(index as u8);
         let traits = self.actors[index].equipment.recovery.common;
@@ -102,7 +96,7 @@ impl Battle {
         let clock = &mut self.runtime[index].recovery.idle_updates;
         if !idle {
             *clock = 0;
-            return Ok(());
+            return;
         }
         *clock += 1;
         if *clock == IDLE_RECOVERY_INTERVAL {
@@ -117,33 +111,14 @@ impl Battle {
                 }
             }
         }
-        Ok(())
     }
 
     fn common_idle_recovery(&mut self, id: ActorId, hp: bool, tp: bool, cues: &mut Vec<Cue>) {
         let actor = &mut self.actors[id.index()];
-        if hp {
-            let before = actor.hp;
-            let (value, nominal) = actor.recovered_hp(1);
-            actor.hp = value;
-            cues.push(Cue::Recovered {
-                floating: false,
-                kind: crate::RecoveryKind::Hp,
-                actor: id,
-                nominal,
-                applied: value - before,
-            });
-        }
-        if tp {
-            let (value, nominal) = actor.recovered_tp(1);
-            cues.push(Cue::Recovered {
-                floating: false,
-                actor: id,
-                kind: RecoveryKind::Tp,
-                nominal,
-                applied: i32::from(value) - i32::from(actor.tp),
-            });
-            actor.tp = value;
+        for (enabled, kind) in [(hp, RecoveryKind::Hp), (tp, RecoveryKind::Tp)] {
+            if enabled {
+                cues.push(actor.recover_percent(id, kind, 1, false));
+            }
         }
     }
 }

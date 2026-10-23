@@ -18,10 +18,7 @@ pub(crate) fn read(
         .get(..BYTES)
         .context("truncated battle actor profile")?;
     let overlimit_scale = f32::read(b, 0xb0)?;
-    ensure!(
-        overlimit_scale.is_finite() && overlimit_scale >= 0.,
-        "invalid Over Limit effect scale"
-    );
+    ensure!(overlimit_scale >= 0., "invalid Over Limit effect scale");
     let channels = usize::from(b[0xce]);
     ensure!(channels <= 4, "too many actor texture channels");
     let weapons = usize::from(b[0x1e4]);
@@ -45,16 +42,6 @@ pub(crate) fn read(
     if let Some(blink) = &blink {
         blink.validate(&texture_channels)?;
     }
-    let target_offset = <[f32; 3]>::read(b, 0x78)?;
-    ensure!(
-        target_offset.iter().all(|value| value.is_finite()),
-        "invalid target anchor offset"
-    );
-    let head_offset = <[f32; 3]>::read(b, 0x6c)?;
-    ensure!(
-        head_offset.iter().all(|value| value.is_finite()),
-        "invalid head anchor offset"
-    );
     let body = u16::read(b, 0xb4)?;
     Ok(Profile {
         walk_speed: f32::read(b, 0x20)?,
@@ -107,11 +94,11 @@ pub(crate) fn read(
         center_offset: <[f32; 3]>::read(b, 0x60)?,
         target_anchor: resonance_content::battle_profile::TargetAnchor {
             bone: b[0x51],
-            offset: target_offset,
+            offset: <[f32; 3]>::read(b, 0x78)?,
         },
         head_anchor: resonance_content::battle_profile::HeadAnchor {
             bone: b[0x9f],
-            offset: head_offset,
+            offset: <[f32; 3]>::read(b, 0x6c)?,
         },
         model_scale: f32::read(b, 0x84)?,
         shadow_scale: f32::read(b, 0x88)?,
@@ -265,44 +252,24 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
         .at((5, 0x3d30))?
         .get(..11 * BYTES)
         .context("truncated party profile table")?;
-    let item_use_offsets = <[[f32; 3]; 9]>::read(module.at((5, 0xc3c))?, 0)?;
-    ensure!(
-        item_use_offsets
-            .iter()
-            .flatten()
-            .all(|value| value.is_finite()),
-        "invalid item-use effect offset"
-    );
     for profile in bytes.chunks_exact(BYTES) {
         let rate = f32::read(profile, 0xa0)?;
         ensure!(
-            rate.is_finite() && rate > 0. && profile[0xa8] == 0,
+            rate > 0. && profile[0xa8] == 0,
             "unsupported party casting playback"
         );
     }
     let table = Table {
         source_sha256: crate::digest(&module.bytes),
-        item_use_offsets,
+        item_use_offsets: <[[f32; 3]; 9]>::read(module.at((5, 0xc3c))?, 0)?,
         normal_attacks: crate::battle_normal::read(&module)?,
         martial_attacks: crate::battle_martial::read(usual, &module)?,
         contact_sounds: resonance_content::battle_profile::ContactSounds {
-            party: (0..9)
-                .map(|index| u16::read(module.at((4, 0x1d30))?, index * 2))
-                .collect::<Result<Vec<_>>>()?
-                .try_into()
-                .unwrap(),
+            party: <[u16; 9]>::read(module.at((4, 0x1d30))?, 0)?,
             elements: element_contact_sounds(&module)?,
         },
-        overlimit_voices: (0..9)
-            .map(|index| {
-                Ok(crate::battle_voice::sound(u16::read(
-                    module.at((4, 0x1264))?,
-                    index * 2,
-                )?))
-            })
-            .collect::<Result<Vec<_>>>()?
-            .try_into()
-            .unwrap(),
+        overlimit_voices: <[u16; 9]>::read(module.at((4, 0x1264))?, 0)?
+            .map(crate::battle_voice::sound),
         default_strategy: {
             let columns = module
                 .at((4, 0x10dc))?

@@ -1,4 +1,5 @@
 use super::*;
+use battle::party::Character;
 use resonance_battle::{ActorAvailability, BattleResult, Playback};
 
 #[test]
@@ -9,35 +10,36 @@ fn every_character_can_play_a_prepared_celebration() -> Result<()> {
     let field = Files::load(&root, &["fields/map-340.preload.json"], &mut cache, || {
         false
     })?;
-    let characters: Vec<_> = (1..=9).collect();
+    let characters = Character::ALL;
     let sources: Vec<_> = characters
         .iter()
-        .map(|&id| battle::model::ModelSource::Party(id))
+        .map(|&character| battle::model::ModelSource::Party(character))
         .collect();
     let files = battle::model::load_files(&root, field, &sources, &mut cache, || false)?;
     let bodies = characters
         .iter()
         .map(|&character| {
-            let body: resonance_content::battle_model::Party =
-                files.json(&resonance_content::battle_model::party_path(character))?;
+            let body: resonance_content::battle_model::Party = files.json(
+                &resonance_content::battle_model::party_path(character as u8),
+            )?;
             Ok((character, body.body_sha256))
         })
         .collect::<Result<Vec<_>>>()?;
     let selected: Vec<_> = bodies
         .iter()
-        .map(|(character, hash)| (*character, hash.as_str()))
+        .map(|(character, hash)| (*character as u8, hash.as_str()))
         .collect();
     let (files, source) = battle::victory::load(&root, files, &selected, &mut cache, || false)?;
     for character in characters {
         let member = single_party_fixture(
             &files,
-            character,
+            character as u8,
             0,
             battle::party::Setup {
                 position: [0.; 3],
                 heading: 0.,
                 model: Some(battle::model::ModelSetup {
-                    resource: u32::from(character),
+                    resource: resonance_battle::ResourceId(character as u32),
                     initial: Playback {
                         clip: 0,
                         frame: 0.,
@@ -48,7 +50,9 @@ fn every_character_can_play_a_prepared_celebration() -> Result<()> {
                 }),
             },
         )?;
-        let body = files.json(&resonance_content::battle_model::party_path(character))?;
+        let body = files.json(&resonance_content::battle_model::party_path(
+            character as u8,
+        ))?;
         let (model, performances) = battle::victory::prepare(
             &files,
             &source,
@@ -90,7 +94,7 @@ fn every_character_can_play_a_prepared_celebration() -> Result<()> {
                 owner,
                 &[(owner, character)],
                 &[posture],
-                0,
+                battle::lifecycle::victory_selection::ColetteState::Normal,
             )?;
             let mut playing = battle::victory::Playing::start(&mut live, owner, selected)?;
             let mut opening = live.publish(Vec::new());

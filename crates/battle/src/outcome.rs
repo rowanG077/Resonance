@@ -588,14 +588,11 @@ mod tests {
                 u32::from(crate::prepare::ENTRY_RESUME_UPDATE)
             );
             assert!(battle.ledger.combat_ticks < battle.ledger.elapsed_ticks);
-            battle.step(BattleInput {
-                actions: vec![ActionRequest {
-                    actor: ActorId(1),
-                    action: ActionKey(0),
-                    target: ActorId(0),
-                }],
-                ..Default::default()
-            })?;
+            battle.step(BattleInput::from(ActionRequest {
+                actor: ActorId(1),
+                action: ActionKey(0),
+                target: ActorId(0),
+            }))?;
             assert!(battle.casting_remaining(ActorId(1)).is_some());
             battle.actors[1].hp = hp;
             battle.step(BattleInput {

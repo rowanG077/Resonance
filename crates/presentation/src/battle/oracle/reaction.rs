@@ -3,7 +3,7 @@
 //! Ordinary hurt poses and a pinned delayed vertical recoil are checked per run.
 //! Horizontal movement, heading, knockdown and the selected owner's pose remain
 //! exact comparisons; an unqualified trace gets no exemption.
-use super::Trace;
+use super::{Trace, exactly_one};
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -101,15 +101,11 @@ fn authored_rule(source: &Trace, native: &Trace) -> Result<Option<Rule>> {
         let Some(registrations) = source.setup["stored_scenes"]["registrations"].as_array() else {
             return Ok(None);
         };
-        let matching: Vec<_> = registrations
-            .iter()
-            .filter(|entry| {
-                entry["kind"] == "spell"
-                    && entry["physical_release"] == false
-                    && (party_spell || entry["native"] == execution["spell"])
-            })
-            .collect();
-        let [registration] = matching.as_slice() else {
+        let Some(registration) = exactly_one(registrations.iter().filter(|entry| {
+            entry["kind"] == "spell"
+                && entry["physical_release"] == false
+                && (party_spell || entry["native"] == execution["spell"])
+        })) else {
             return Ok(None);
         };
         ensure!(
@@ -368,11 +364,11 @@ fn vertical_rule(source: &Trace, native: &Trace, scene: &Value) -> Result<Option
     let Some(entries) = scene["projectiles"].as_array() else {
         return Ok(None);
     };
-    let matching: Vec<_> = entries
-        .iter()
-        .filter(|entry| entry["projectile"]["lifetime"].as_u64() == Some(life.len() as u64 - 1))
-        .collect();
-    let [entry] = matching.as_slice() else {
+    let Some(entry) =
+        exactly_one(entries.iter().filter(|entry| {
+            entry["projectile"]["lifetime"].as_u64() == Some(life.len() as u64 - 1)
+        }))
+    else {
         return Ok(None);
     };
     let hit = &entry["hit"];
@@ -503,15 +499,13 @@ fn witnessed_stuns(trace: &Trace, target: u64, native: bool) -> Result<Vec<Stun>
             first > 0 && life.len() == last - first + 1,
             "stun particle lifetime is discontinuous"
         );
-        let matching: Vec<_> = hit_frames
-            .iter()
-            .enumerate()
-            .filter(|(_, frame)| **frame + 1 == first)
-            .collect();
-        let [matching] = matching.as_slice() else {
-            anyhow::bail!("stun effect has no unique attributed contact");
-        };
-        let (hit_index, hit) = (matching.0, *matching.1);
+        let (hit_index, &hit) = exactly_one(
+            hit_frames
+                .iter()
+                .enumerate()
+                .filter(|(_, frame)| **frame + 1 == first),
+        )
+        .context("stun effect has no unique attributed contact")?;
         let event = hits[hit_index];
         ensure!(
             event["guard"].is_null()
@@ -558,20 +552,14 @@ fn witnessed_stuns(trace: &Trace, target: u64, native: bool) -> Result<Vec<Stun>
                 "stun recipient pose differs at frame {frame}"
             );
         }
-        let declarations: Vec<_> = trace
-            .events
-            .iter()
-            .filter(|declaration| {
-                declaration["kind"] == "declaration_started"
-                    && declaration["owner"] == target
-                    && declaration["bank"] == STUN_BANK
-                    && declaration["member"] == 19
-                    && at(trace, declaration) == Some(first)
-            })
-            .collect();
-        let [declaration] = declarations.as_slice() else {
-            anyhow::bail!("stun effect lacks unique bound declaration");
-        };
+        let declaration = exactly_one(trace.events.iter().filter(|declaration| {
+            declaration["kind"] == "declaration_started"
+                && declaration["owner"] == target
+                && declaration["bank"] == STUN_BANK
+                && declaration["member"] == 19
+                && at(trace, declaration) == Some(first)
+        }))
+        .context("stun effect lacks unique bound declaration")?;
         stuns.push(Stun {
             hit,
             end: pose_end,
@@ -588,13 +576,11 @@ fn witnessed_stuns(trace: &Trace, target: u64, native: bool) -> Result<Vec<Stun>
             .as_array()
             .context("native stun outcomes missing")?;
         for (hit, frame) in hits.iter().zip(&hit_frames) {
-            let matching: Vec<_> = outcomes
-                .iter()
-                .filter(|outcome| outcome["target"] == target && outcome["clock"] == hit["clock"])
-                .collect();
-            let [outcome] = matching.as_slice() else {
-                anyhow::bail!("native stun outcome lacks unique contact");
-            };
+            let outcome =
+                exactly_one(outcomes.iter().filter(|outcome| {
+                    outcome["target"] == target && outcome["clock"] == hit["clock"]
+                }))
+                .context("native stun outcome lacks unique contact")?;
             ensure!(
                 outcome["stunned"].as_bool() == Some(stuns.iter().any(|stun| stun.hit == *frame)),
                 "native stun cue and visible lifetime disagree"
@@ -939,16 +925,11 @@ fn vertical_motion(
 // origin retains the pre-clamp landing height. The vertical proof above makes
 // that height independently recoverable from the preceding two gravity steps.
 fn landing_feedback(trace: &Trace, target: u64) -> Result<(u64, u64, u64)> {
-    let crossings: Vec<_> = (2..trace.frames.len())
-        .filter(|&index| {
-            height(&trace.frames[index - 1], target).is_some_and(|y| y > 0.)
-                && height(&trace.frames[index], target) == Some(0.)
-        })
-        .collect();
-    let [landing] = crossings.as_slice() else {
-        anyhow::bail!("landing feedback lacks a unique proved floor crossing");
-    };
-    let landing = *landing;
+    let landing = exactly_one((2..trace.frames.len()).filter(|&index| {
+        height(&trace.frames[index - 1], target).is_some_and(|y| y > 0.)
+            && height(&trace.frames[index], target) == Some(0.)
+    }))
+    .context("landing feedback lacks a unique proved floor crossing")?;
     let previous = height(&trace.frames[landing - 1], target).unwrap();
     let unclamped = 2. * previous
         - height(&trace.frames[landing - 2], target).context("missing landing gravity sample")?

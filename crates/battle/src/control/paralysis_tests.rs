@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 use crate::conditions::Condition;
 
 fn paralyzed_player() -> Battle {
@@ -27,18 +28,7 @@ fn enter(battle: &mut Battle) -> Result<()> {
 fn arm_enemy_hit(battle: &mut PreparedBattle, amount: u16) {
     let contact = Arc::new(crate::MeleeDefinition {
         hit: crate::HitRule {
-            sound: None,
-            effect_on_guard: false,
-            effect: None,
-            overlimit_pause: false,
-            condition: None,
-            arte: false,
-            kind: crate::DamageKind::Slash,
             power: crate::Power::Fixed(amount),
-            element: crate::HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
             guard: crate::GuardRule {
                 enabled: false,
                 ..Default::default()
@@ -47,6 +37,7 @@ fn arm_enemy_hit(battle: &mut PreparedBattle, amount: u16) {
                 hitstun: 5,
                 ..Default::default()
             },
+            ..crate::tests::hit()
         },
         trail: None,
         volume: crate::MeleeVolume::Fixed {
@@ -55,29 +46,20 @@ fn arm_enemy_hit(battle: &mut PreparedBattle, amount: u16) {
             half_height: 200.,
         },
     });
-    battle
-        .resources
-        .actions
-        .entries
-        .push(Arc::new(crate::ActionDefinition {
-            normal: None,
-            tp_cost: 0,
-            execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-                contact_recovery: None,
-                chain_at: None,
-                end_at: 2,
-                opening: None,
-                events: vec![(
-                    0,
-                    crate::AttackEvent::Contact {
-                        definition: contact,
-                        duration: 1,
-                    },
-                )],
-                recovery: 0,
-            }),
-        }));
-    crate::tests::assign_action(battle, 1, crate::ActionKey(11));
+    let action = battle.resources.actions.insert(crate::ActionDefinition {
+        execution: crate::ActionExecution::Attack(crate::PreparedAttack {
+            events: vec![(
+                0,
+                crate::AttackEvent::Contact {
+                    definition: contact,
+                    duration: 1,
+                },
+            )],
+            ..crate::tests::attack(2)
+        }),
+        ..crate::tests::action(2)
+    });
+    crate::tests::assign_action(battle, 1, action);
     battle.actors[0].body.collider = Some(crate::Collider::sphere(1.));
 }
 
@@ -90,12 +72,12 @@ fn paralysis_blocks_commands_without_payment_and_recovers_without_artwork() -> R
             assert_eq!(battle.activity(ActorId(0)), Activity::Guarding);
         }
         let tp = battle.actors[0].tp;
-        let uses = battle.technique_uses(ActorId(0), 1);
+        let uses = battle.technique_uses(ActorId(0), TechniqueId(1));
         let frame = battle.step(player_buttons(!technique, technique, guard, [0; 2]))?;
         assert_eq!(frame.actors[0].activity, Activity::Approaching);
         assert!(frame.actions.is_empty());
         assert_eq!(battle.actors[0].tp, tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 1), uses);
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), uses);
         let frame = battle.step(BattleInput::default())?;
         assert_eq!(frame.actors[0].activity, Activity::Hurt);
         assert!(frame.actions.is_empty());
@@ -117,7 +99,7 @@ fn paralysis_blocks_commands_without_payment_and_recovers_without_artwork() -> R
         }
         assert!(battle.actor_command_ready(ActorId(0)));
         assert_eq!(battle.actors[0].tp, tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 1), uses);
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), uses);
         assert!(
             battle.actors[0]
                 .conditions
@@ -163,14 +145,11 @@ fn new_contact_or_death_replaces_the_paralysis_task() -> Result<()> {
                 value: 0,
             });
         enter(&mut battle)?;
-        let frame = battle.step(BattleInput {
-            actions: vec![crate::ActionRequest {
-                actor: ActorId(1),
-                target: ActorId(0),
-                action: crate::ActionKey(11),
-            }],
-            ..Default::default()
-        })?;
+        let frame = battle.step(BattleInput::from(crate::ActionRequest {
+            actor: ActorId(1),
+            target: ActorId(0),
+            action: crate::ActionKey(11),
+        }))?;
         assert!(frame.cues.iter().any(|cue| matches!(
             cue,
             Cue::Hit {

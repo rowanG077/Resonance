@@ -1,4 +1,6 @@
 //! A captured actor follows one body attachment until release or interruption.
+#[cfg(test)]
+use crate::ResourceId;
 use crate::{ActionId, ActorId, Battle, MeleeAnchor, state::ActorTask};
 use anyhow::{Context, Result, ensure};
 
@@ -278,10 +280,10 @@ mod tests {
             victim_model
                 .weapons
                 .push(Arc::new(crate::WeaponDefinition::new(
-                    0,
+                    crate::WeaponSlot(0),
                     0,
                     vec![crate::WeaponLayerDefinition {
-                        resource: 9,
+                        resource: ResourceId(9),
                         skeleton: victim_model.skeleton.clone(),
                         motions: BTreeMap::new(),
                         playback: crate::WeaponPlayback::Rigid,
@@ -298,7 +300,7 @@ mod tests {
                     definition: Arc::new(crate::MeleeDefinition {
                         volume: crate::MeleeVolume::Attached {
                             anchors: vec![MeleeAnchor {
-                                resource: 7,
+                                resource: ResourceId(7),
                                 bone: 1,
                             }],
                             shape: crate::HitShape::Sphere,
@@ -307,24 +309,15 @@ mod tests {
                         },
                         trail: None,
                         hit: crate::HitRule {
-                            kind: crate::DamageKind::Slash,
                             power: crate::Power::Fixed(5),
-                            element: crate::HitElement::Neutral,
                             arte: true,
                             prevents_defeat: true,
-                            finisher_grade: false,
-                            hp_drain: false,
-                            overlimit_pause: false,
-                            effect: None,
-                            effect_on_guard: false,
-                            sound: None,
-                            condition: None,
-                            guard: Default::default(),
                             reaction: crate::ReactionRule {
                                 capture: true,
                                 hitstun: 12,
                                 ..Default::default()
                             },
+                            ..crate::tests::hit()
                         },
                     }),
                 },
@@ -368,14 +361,11 @@ mod tests {
                 BTreeMap::new(),
                 resonance_content::diagnostics::Diagnostics::new(true),
             )?);
-            let frame = battle.step(BattleInput {
-                actions: vec![crate::ActionRequest {
-                    actor: captor,
-                    target: victim,
-                    action: ActionKey(0),
-                }],
-                ..Default::default()
-            })?;
+            let frame = battle.step(BattleInput::from(crate::ActionRequest {
+                actor: captor,
+                target: victim,
+                action: ActionKey(0),
+            }))?;
             assert!(frame.cues.iter().any(|cue| matches!(cue,
                 Cue::Hit { source: ContactSource::Melee { .. }, actor, .. } if *actor == victim
             )));
@@ -416,7 +406,7 @@ mod tests {
             battle.actors[victim.index()].hit_stop = 4;
             battle.captured_velocity(captor, Some(6.), Some(16.));
             let anchor = MeleeAnchor {
-                resource: 7,
+                resource: ResourceId(7),
                 bone: 1,
             };
             let previous_anchor = battle.models.as_ref().unwrap().anchor(captor, anchor)?;
@@ -494,7 +484,7 @@ mod tests {
                 victim,
                 action,
                 MeleeAnchor {
-                    resource: 7,
+                    resource: ResourceId(7),
                     bone: 1,
                 },
             )?;

@@ -1,4 +1,5 @@
 //! Repeated hammers choose their contact variant independently at each release.
+use super::HammerVariant;
 use crate::{ActionId, ActorId, Battle, Element, HitElement, ProjectileDefinition, Random};
 use anyhow::{Result, ensure};
 use std::sync::Arc;
@@ -8,7 +9,7 @@ pub struct HammerProjectile {
     /// Plain, Ice and Toss Hammer, with their own contact and appearance.
     pub choices: [Arc<ProjectileDefinition>; 3],
     /// Hammer Rain uses Pow Pow Hammer's experience.
-    pub uses_catalogue: u16,
+    pub uses_catalogue: crate::TechniqueId,
     pub ring: Option<HammerRing>,
 }
 
@@ -69,7 +70,7 @@ impl HammerProjectile {
         let element = crate::damage::resolve_element(HitElement::Inherited, actor);
         for index in 0..self.ring.map_or(1, |ring| ring.count) {
             let choice = choose(uses, luck, element, &mut battle.random);
-            let mut projectile = Arc::clone(&self.choices[choice]);
+            let mut projectile = Arc::clone(&self.choices[choice as usize]);
             if let Some(ring) = self.ring {
                 #[cfg(any(test, feature = "test-support"))]
                 let observed = battle
@@ -79,8 +80,8 @@ impl HammerProjectile {
                         inputs.hammer_ring(
                             crate::random_inputs::Key {
                                 clock: battle.ledger.elapsed_ticks,
-                                owner: owner.index(),
-                                target: target.index(),
+                                owner: owner,
+                                target: target,
                                 action: action.0,
                                 contact: crate::random_inputs::Contact::Projectile(
                                     battle.next_projectile,
@@ -104,14 +105,16 @@ impl HammerProjectile {
     }
 }
 
-fn choose(uses: u16, luck: u16, element: Option<Element>, random: &mut Random) -> usize {
+fn choose(uses: u16, luck: u16, element: Option<Element>, random: &mut Random) -> HammerVariant {
     const EXPERIENCED_USES: u16 = 200;
     if uses < EXPERIENCED_USES {
-        0
+        HammerVariant::Ordinary
     } else if random.next_u16() % 100 < luck / 16 {
-        2
+        HammerVariant::Toss
+    } else if element == Some(Element::Ice) && random.next_u16() & 3 == 0 {
+        HammerVariant::Ice
     } else {
-        usize::from(element == Some(Element::Ice) && random.next_u16() & 3 == 0)
+        HammerVariant::Ordinary
     }
 }
 

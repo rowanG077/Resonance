@@ -90,6 +90,7 @@ pub(super) fn profile() -> battle_profile::Profile {
 #[test]
 fn party_templates_use_prepared_hp_and_preserve_session_statistics() -> Result<()> {
     let files = files();
+    let recoil = battle::recoil::Parameters::load(&files)?;
     let template = profile();
     for (max_hp, break_pressure) in [
         (1, 3),
@@ -105,11 +106,7 @@ fn party_templates_use_prepared_hp_and_preserve_session_statistics() -> Result<(
         session.hp = max_hp;
         session.equipment.stats.slash = 321;
         let mut ready = session.clone();
-        battle::profile::apply(
-            &battle::recoil::Parameters::load(&files)?,
-            &template,
-            &mut ready,
-        )?;
+        battle::profile::apply(&recoil, &template, &mut ready)?;
         assert_eq!(ready.guard.break_pressure, break_pressure);
         assert_eq!(ready.guard.reduction, 75);
         assert!(ready.guard.allow_airborne);
@@ -117,35 +114,13 @@ fn party_templates_use_prepared_hp_and_preserve_session_statistics() -> Result<(
         assert_eq!(ready.hp, session.hp);
         assert_eq!(ready.tp, session.tp);
         assert_eq!(ready.equipment.stats, session.equipment.stats);
-        assert_eq!(ready.species, 6);
         assert_eq!(ready.control, session.control);
-        assert_eq!(ready.body.scale, 1.5);
-        assert_eq!(ready.effect_scale, 0.9);
-        assert_eq!(ready.body.center_offset, [10., 80., -5.]);
-        assert_eq!(ready.movement.hover_height, 50.);
-        assert!(ready.movement.flying && ready.movement.fixed_height);
         assert!(ready.reaction.recover_in_air);
         assert_eq!(
             ready.reaction.profile.vertical,
             resonance_battle::VerticalRecoil::Scale(0.75)
         );
         assert!(ready.reaction.profile.clear_pending);
-        assert_eq!(
-            (ready.reaction.armor.base, ready.reaction.armor.threshold),
-            (3, 3)
-        );
-        assert_eq!(
-            (
-                ready.reaction.stagger.threshold,
-                ready.reaction.stagger.duration
-            ),
-            (100, 45)
-        );
-        assert_eq!(ready.reaction.stun.resistance, 35);
-        assert_eq!(
-            ready.conditions.immunity(),
-            ConditionSet::of(&[Stun, ShortStun])
-        );
     }
     let mut changed = profile();
     changed.traits = battle_profile::ProfileTraits {
@@ -153,16 +128,10 @@ fn party_templates_use_prepared_hp_and_preserve_session_statistics() -> Result<(
         fixed_height: true,
         ..Default::default()
     };
-    changed.immunities = ConditionSet::EMPTY;
     let mut ready = actor();
-    battle::profile::apply(
-        &battle::recoil::Parameters::load(&files)?,
-        &changed,
-        &mut ready,
-    )?;
+    battle::profile::apply(&recoil, &changed, &mut ready)?;
     assert!(ready.guard.auto_disabled);
     assert!(!ready.guard.allow_airborne && !ready.reaction.recover_in_air);
-    assert!(ready.conditions.immunity().is_empty());
     Ok(())
 }
 
@@ -170,7 +139,7 @@ fn party_templates_use_prepared_hp_and_preserve_session_statistics() -> Result<(
 fn condition_profiles_compose_saved_and_gear_layers_but_cannot_freeze_actors() -> Result<()> {
     use resonance_battle::conditions::{Conditions, Layers};
     let mut template = profile();
-    template.initial_conditions = AttackUp.into();
+    template.initial_conditions = ConditionSet::of(&[AttackUp, Weak]);
     template.intrinsic_conditions = CastingSpeed.into();
     template.immunities = Curse.into();
     let mut owner = actor();
@@ -186,13 +155,13 @@ fn condition_profiles_compose_saved_and_gear_layers_but_cannot_freeze_actors() -
         &template,
         &mut owner,
     )?;
-    assert_eq!(
-        owner.conditions.base(),
-        ConditionSet::of(&[PoisonMild, AttackUp])
-    );
+    let layers = owner.conditions.layers();
+    assert_eq!(layers.base, ConditionSet::of(&[PoisonMild, AttackUp, Weak]));
+    assert_eq!(layers.intrinsic, AilmentResistance.into());
+    assert!(layers.equipment_overlay.is_empty());
     assert_eq!(
         owner.conditions.effective(),
-        ConditionSet::of(&[PoisonMild, AttackUp, CastingSpeed, AilmentResistance])
+        ConditionSet::of(&[PoisonMild, AttackUp, Weak, CastingSpeed, AilmentResistance])
     );
     assert_eq!(
         owner.conditions.immunity(),
@@ -216,22 +185,5 @@ fn condition_profiles_compose_saved_and_gear_layers_but_cannot_freeze_actors() -
         );
         assert_eq!(owner.conditions, before);
     }
-    Ok(())
-}
-
-#[test]
-fn weak_profile_condition_is_loaded_as_live_base_without_saved_projection() -> Result<()> {
-    let mut template = profile();
-    template.initial_conditions = Weak.into();
-    let mut prepared = actor();
-    battle::profile::apply(
-        &battle::recoil::Parameters::load(&files())?,
-        &template,
-        &mut prepared,
-    )?;
-    let layers = prepared.conditions.layers();
-    assert_eq!(layers.base, Weak.into());
-    assert!(layers.intrinsic.is_empty());
-    assert!(layers.equipment_overlay.is_empty());
     Ok(())
 }

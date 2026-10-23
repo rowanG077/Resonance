@@ -1,6 +1,6 @@
 //! A skill portrait uses the ordinary HUD surface and its owning action's lifetime.
 use super::*;
-use resonance_battle::{ActionId, Cue};
+use resonance_battle::{ActionId, Cue, TechniqueId};
 
 const PORTRAIT_TOP: f32 = 40.;
 const VIEWPORT_WIDTH: f32 = 640.;
@@ -9,14 +9,14 @@ const SLIDE_DISTANCE: f32 = 87.5;
 
 #[derive(Default)]
 pub(super) struct State {
-    pub(super) layers: BTreeMap<u16, HudLayer>,
+    pub(super) layers: BTreeMap<TechniqueId, HudLayer>,
     active: Option<Active>,
     last_update: Option<u64>,
 }
 
 struct Active {
     action: ActionId,
-    catalogue: u16,
+    catalogue: TechniqueId,
     age: u16,
     duration: u16,
 }
@@ -41,7 +41,7 @@ impl Artwork {
                 required: true,
             });
             self.cutin.layers.insert(
-                catalogue,
+                TechniqueId(catalogue),
                 HudLayer::load(
                     LayerDefinition::new(
                         image.clone(),

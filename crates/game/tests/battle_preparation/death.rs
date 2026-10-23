@@ -1,4 +1,5 @@
 use super::*;
+use resonance_battle::ResourceId;
 
 #[test]
 fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
@@ -50,18 +51,18 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
         "gald": 0, "spent_gald": 0, "settings": resonance_events::party::Settings::default(),
     }))?;
     let actors = [
-        ModelSource::Party(1),
-        ModelSource::Party(2),
-        ModelSource::Party(3),
+        ModelSource::Party(battle::party::Character::Lloyd),
+        ModelSource::Party(battle::party::Character::Colette),
+        ModelSource::Party(battle::party::Character::Genis),
         ModelSource::Enemy(36),
     ];
     let resolve = |sound| Ok(Some(sound));
     let enemy_profile = profile::profile();
     let resolver = battle::voice::Resolver::new(&files, &table, [(36, &enemy_profile)]);
-    let feedback = battle::death::feedback(&resolver, &actors, &party, 3, resolve)?;
+    let feedback = battle::death::feedback(&resolver, &actors, &party, ResourceId(3), resolve)?;
     assert_eq!(
         (feedback.appearance.resource, feedback.appearance.member),
-        (3, 14)
+        (ResourceId(3), 14)
     );
     assert_eq!(feedback.sound, resolve(Sound::Cue(73))?);
     let selected: Vec<_> = feedback
@@ -78,7 +79,7 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
         ]
     );
     party.members[3].affinity = 100; // Absent Raine outranks every combat participant.
-    let absent = battle::death::feedback(&resolver, &actors, &party, 3, resolve)?;
+    let absent = battle::death::feedback(&resolver, &actors, &party, ResourceId(3), resolve)?;
     assert_eq!(
         absent
             .allies

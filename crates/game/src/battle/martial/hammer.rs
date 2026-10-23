@@ -1,7 +1,7 @@
 //! Pow Hammer shares the authored pose/voice timeline and one ballistic recipe.
-use super::{ActionDefinition, Sound, Technique};
+use super::{PreparedAttack, Sound, Technique};
 use anyhow::{Context, Result};
-use resonance_battle::{ActionExecution, AttackEvent, EffectAppearance, ProjectileContactFeedback};
+use resonance_battle::{AttackEvent, EffectAppearance, ProjectileContactFeedback};
 use resonance_content::battle_martial::HammerPattern;
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ impl Technique {
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
         ice_hammer: bool,
-    ) -> Result<ActionDefinition> {
+    ) -> Result<PreparedAttack> {
         let mut source = resources
             .voices
             .party_table()
@@ -25,7 +25,7 @@ impl Technique {
         let HammerPattern::Single { alternate_events } = &hammer.pattern else {
             anyhow::bail!("Pow Hammer has a different release pattern");
         };
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+        let recoil = resources.recoil;
         let row = resources
             .projectiles
             .records
@@ -50,13 +50,9 @@ impl Technique {
             if index != 0 {
                 timeline.events.clone_from(alternate_events);
             }
-            let mut definition =
-                self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
-            let ActionExecution::Attack(attack) = &mut definition.execution else {
-                unreachable!()
-            };
+            let mut definition = self.prepare_authored_attack(resources, model, timeline)?;
             if index != 0 && !ice_hammer {
-                attack
+                definition
                     .events
                     .retain(|(_, event)| !matches!(event, AttackEvent::Notice { .. }));
             }
@@ -65,7 +61,7 @@ impl Technique {
             let mut projectile = resources.prepared.projectile(
                 resources.files,
                 &row,
-                crate::battle::hit::authored(hit, &recoil)?,
+                crate::battle::hit::authored(hit, recoil)?,
                 &[(1, &resources.techniques)],
             )?;
             let projectile_data = Arc::make_mut(&mut projectile);
@@ -78,23 +74,25 @@ impl Technique {
             projectile_data.effects.spin_on_rebound = true;
             // Measured paid-entry to release interval, including the initial blend.
             const RELEASE_TICK: u16 = 25;
-            attack
+            definition
                 .events
                 .push((RELEASE_TICK, AttackEvent::Projectile(projectile)));
-            attack.events.sort_by_key(|(at, _)| *at);
+            definition.events.sort_by_key(|(at, _)| *at);
             if ice_hammer {
                 return Ok(definition);
             }
-            variants.push(Arc::new(definition));
+            variants.push(definition);
         }
-        let variants: [Arc<ActionDefinition>; 3] = variants
+        let variants: [PreparedAttack; 3] = variants
             .try_into()
             .map_err(|_| anyhow::anyhow!("missing hammer variant"))?;
-        let mut definition = (*variants[0]).clone();
-        let ActionExecution::Attack(attack) = &mut definition.execution else {
-            unreachable!()
-        };
-        attack.events = vec![(0, AttackEvent::ChooseHammer(variants))];
+        let mut definition = variants[0].clone();
+        definition.events = vec![(
+            0,
+            AttackEvent::ChooseHammer(
+                variants.map(|attack| Arc::new(super::attack_definition(attack, tp_cost))),
+            ),
+        )];
         Ok(definition)
     }
 }

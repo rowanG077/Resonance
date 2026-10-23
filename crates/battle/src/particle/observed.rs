@@ -31,7 +31,7 @@ impl FixtureParticle {
         let element_tint = template.element_tint;
         Ok(Self(Particle {
             definition: Arc::new(ParticleDefinition {
-                resource: 0,
+                resource: crate::ResourceId(0),
                 member: 0,
                 model: None,
                 data: template,
@@ -41,7 +41,7 @@ impl FixtureParticle {
                 owner: ActorId(0),
                 owner_bone: None,
                 draw_after: None,
-                resource: 0,
+                resource: crate::ResourceId(0),
                 member: 0,
                 origin,
                 heading: 0.,

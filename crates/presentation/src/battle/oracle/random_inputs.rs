@@ -1,7 +1,7 @@
 use super::Trace;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
-    HammerRing, ProjectileScatter,
+    ActorId, HammerRing, ProjectileScatter,
     random_inputs::{
         Ailment, Contact, Critical, CriticalRole, HammerRingLaunch, Key, Positioning,
         RecordedInputs, Scatter, Seal, Stun, TargetChoice, Velocity,
@@ -64,12 +64,16 @@ impl TryFrom<InputKey> for Key {
         };
         Ok(Self {
             clock: key.clock,
-            owner: key.owner,
-            target: key.target,
+            owner: ActorId::from_index(key.owner)?,
+            target: ActorId::from_index(key.target)?,
             action: key.action,
             contact,
         })
     }
+}
+
+fn input_key(row: &Value) -> Result<Key> {
+    InputKey::deserialize(row)?.try_into()
 }
 
 pub(super) type Inputs = RecordedInputs;
@@ -129,8 +133,7 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                 event_matches(row, "projectile_started"),
                 "target choice has no unique source launch"
             );
-            let key: InputKey = serde_json::from_value(row.clone())?;
-            let key = Key::try_from(key)?;
+            let key = input_key(row)?;
             let observed_roster: Vec<usize> = serde_json::from_value(row["roster"].clone())?;
             let release = (key.clock, key.owner, key.action);
             if previous_release != Some(release) {
@@ -138,7 +141,7 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                     .as_array()
                     .context("missing actors")?;
                 let owner = actors
-                    .get(key.owner)
+                    .get(key.owner.index())
                     .context("missing target-choice owner")?;
                 roster = actors
                     .iter()
@@ -165,7 +168,7 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                 let target = roster[usize::from(*value) % roster.len()];
                 ensure!(
                     if index + 1 == values.len() {
-                        target == key.target && remaining.contains(&target)
+                        target == key.target.index() && remaining.contains(&target)
                     } else {
                         !remaining.contains(&target)
                     },
@@ -174,10 +177,16 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
             }
             let index = remaining
                 .iter()
-                .position(|target| *target == key.target)
+                .position(|target| *target == key.target.index())
                 .unwrap();
             remaining.swap_remove(index);
-            choices.push(TargetChoice { key, candidates });
+            choices.push(TargetChoice {
+                key,
+                candidates: candidates
+                    .into_iter()
+                    .map(ActorId::from_index)
+                    .collect::<Result<_>>()?,
+            });
         }
         inputs.targets = Some(choices);
     }
@@ -259,8 +268,8 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
             );
             recorded.push(Positioning {
                 clock,
-                owner,
-                target,
+                owner: ActorId::from_index(owner)?,
+                target: ActorId::from_index(target)?,
                 action,
                 values,
             });
@@ -294,8 +303,7 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
             serde_json::to_value(remainders)? == row["signed_remainders"],
             "scatter input signed range differs"
         );
-        let key: InputKey = serde_json::from_value(row.clone())?;
-        let key = Key::try_from(key)?;
+        let key = input_key(row)?;
         ensure!(
             matches!(key.contact, Contact::Projectile(_)),
             "scatter input is not a projectile"
@@ -332,9 +340,8 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                 serde_json::to_value(remainders)? == row["signed_remainders"],
                 "hammer ring signed range differs"
             );
-            let key: InputKey = serde_json::from_value(row.clone())?;
             inputs.hammer_ring.push(HammerRingLaunch {
-                key: key.try_into()?,
+                key: input_key(row)?,
                 index,
                 values,
                 distribution,
@@ -349,8 +356,7 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                     && event_matches(row, "projectile_started"),
                 "velocity jitter input has no unique source launch"
             );
-            let key: InputKey = serde_json::from_value(row.clone())?;
-            let key = Key::try_from(key)?;
+            let key = input_key(row)?;
             let axis: usize = serde_json::from_value(row["axis"].clone())?;
             let amplitude: f32 = serde_json::from_value(row["amplitude"].clone())?;
             let value: u16 = serde_json::from_value(row["value"].clone())?;
@@ -390,9 +396,8 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                     .context("missing stun range witness")?,
             "stun input range differs"
         );
-        let key: InputKey = serde_json::from_value(row.clone())?;
         inputs.stun.push(Stun {
-            key: key.try_into()?,
+            key: input_key(row)?,
             value,
             chance_percent,
         });
@@ -409,8 +414,7 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                 event_matches(row, "hit"),
                 "critical input has no unique source contact"
             );
-            let key: InputKey = serde_json::from_value(row.clone())?;
-            let key = Key::try_from(key)?;
+            let key = input_key(row)?;
             for (role, name) in [
                 (CriticalRole::Chance, "chance_value"),
                 (CriticalRole::Roll, "value"),
@@ -440,9 +444,8 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                 row["remainder"] == value % 100,
                 "ailment input range differs"
             );
-            let key: InputKey = serde_json::from_value(row.clone())?;
             ailments.push(Ailment {
-                key: key.try_into()?,
+                key: input_key(row)?,
                 condition: serde_json::from_value(row["condition"].clone())?,
                 resistance: serde_json::from_value(row["resistance"].clone())?,
                 value,
@@ -463,8 +466,7 @@ pub(super) fn qualify(source: &Trace, proof: &Value) -> Result<Inputs> {
                 event_matches(&contact, "hit"),
                 "seal input has no unique source contact"
             );
-            let key: InputKey = serde_json::from_value(row.clone())?;
-            let key = Key::try_from(key)?;
+            let key = input_key(row)?;
             let contact_clock: u32 = serde_json::from_value(row["contact_clock"].clone())?;
             ensure!(
                 contact_clock < key.clock

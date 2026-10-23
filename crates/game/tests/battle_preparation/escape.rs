@@ -23,7 +23,10 @@ fn all_party_escape_voices_are_prepared() -> Result<()> {
         member.compound_ex_skills.clear();
         member.recent_compound_ex_skills.clear();
     }
-    let sources: Vec<_> = (1..=9).map(ModelSource::Party).collect();
+    let sources: Vec<_> = battle::party::Character::ALL
+        .into_iter()
+        .map(ModelSource::Party)
+        .collect();
     let files = battle::model::load_files(&root, files, &sources, &mut cache, || false)?;
     let profiles: battle_profile::Table = files.json(battle_profile::PARTY_PATH)?;
     let prepared = resonance_battle::PreparedBattle::new(
@@ -62,7 +65,10 @@ fn all_party_escape_voices_are_prepared() -> Result<()> {
         }
     }
     assert!(!files.diagnostics().has_errors());
-    let roster = [(actor_id, ModelSource::Party(9))];
+    let roster = [(
+        actor_id,
+        ModelSource::Party(battle::party::Character::Kratos),
+    )];
     for bad_level in [-9, 9] {
         assert!(
             battle::escape::prepare(

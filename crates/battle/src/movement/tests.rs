@@ -40,14 +40,11 @@ fn battle(attack: crate::PreparedAttack) -> Battle {
 }
 
 fn start() -> BattleInput {
-    BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(0),
-            action: crate::ActionKey(0),
-            target: ActorId(1),
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(ActionRequest {
+        actor: ActorId(0),
+        action: crate::ActionKey(0),
+        target: ActorId(1),
+    })
 }
 
 #[test]

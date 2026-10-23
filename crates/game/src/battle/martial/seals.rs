@@ -1,9 +1,8 @@
 //! Seal follow-ups retain the character's authored pose and contact sequence.
-use super::{ActionDefinition, Sound, Technique};
+use super::{PreparedAttack, Sound, Technique};
 use anyhow::{Context, Result, bail};
 use resonance_battle::{
-    ActionExecution, AttackEvent, EffectAppearance, RecoveryKind, SealDefinition,
-    conditions::Condition,
+    AttackEvent, EffectAppearance, RecoveryKind, SealDefinition, conditions::Condition,
 };
 use std::sync::Arc;
 
@@ -47,23 +46,14 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let timeline = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .clone();
-        let mut definition =
-            self.prepare_authored_attack(resources, model, tp_cost, timeline.clone())?;
-        let ActionExecution::Attack(attack) = &mut definition.execution else {
-            unreachable!()
-        };
+    ) -> Result<PreparedAttack> {
+        let timeline = self.authored_timeline(resources.voices.party_table())?;
+        let mut definition = self.prepare_authored_attack(resources, model, timeline.clone())?;
         match self.catalogue {
             125 => {}
             126..=134 => {
                 let seal = resources.seal(self.catalogue)?;
-                attack
+                definition
                     .events
                     .push((FOLLOW_UP_TICK, AttackEvent::Seal(seal)));
                 if matches!(self.catalogue, 127 | 130 | 133) {
@@ -71,7 +61,7 @@ impl Technique {
                         .callback_hits
                         .get(&1)
                         .context("missing Pinion Seal projectile hit")?;
-                    let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+                    let recoil = resources.recoil;
                     let row = resources
                         .projectiles
                         .records
@@ -80,7 +70,7 @@ impl Technique {
                     let mut projectile = resources.prepared.projectile(
                         resources.files,
                         row,
-                        crate::battle::hit::authored(hit, &recoil)?,
+                        crate::battle::hit::authored(hit, recoil)?,
                         &[(1, &resources.techniques)],
                     )?;
                     let prepared = Arc::make_mut(&mut projectile);
@@ -90,13 +80,13 @@ impl Technique {
                         .as_mut()
                         .context("Pinion Seal projectile has no contact")?
                         .cooldown = hit.cooldown;
-                    attack
+                    definition
                         .events
                         .push((PINION_RELEASE_TICK, AttackEvent::Projectile(projectile)));
                 }
             }
             135 | 136 => {
-                attack.events.push((
+                definition.events.push((
                     FOLLOW_UP_TICK,
                     AttackEvent::Drain {
                         kind: if self.catalogue == 135 {
@@ -110,7 +100,7 @@ impl Technique {
             }
             _ => bail!("unsupported seal follow-up"),
         }
-        attack.events.sort_by_key(|(at, _)| *at);
+        definition.events.sort_by_key(|(at, _)| *at);
         Ok(definition)
     }
 }

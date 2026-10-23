@@ -11,22 +11,19 @@ fn eagle_dive_waits_for_landing_then_recovers() -> Result<()> {
         }
         let mut input = ControlInput::neutral(owner);
         input.stick = [0, 127];
-        battle.step(BattleInput {
-            controllers: vec![input],
-            ..Default::default()
-        })?;
+        battle.step(BattleInput::from(input))?;
     }
     assert!(battle.actors()[owner.index()].position[1] > 0.);
-    let action = battle.prepared_technique(owner, 185).unwrap().action;
+    let action = battle
+        .prepared_technique(owner, resonance_battle::TechniqueId(185))
+        .unwrap()
+        .action;
     let tp = battle.actors()[owner.index()].tp;
-    let first = battle.step(BattleInput {
-        actions: vec![resonance_battle::ActionRequest {
-            actor: owner,
-            action,
-            target: battle.target(owner).context("missing target")?,
-        }],
-        ..Default::default()
-    })?;
+    let first = battle.step(BattleInput::from(resonance_battle::ActionRequest {
+        actor: owner,
+        action,
+        target: battle.target(owner).context("missing target")?,
+    }))?;
     let handle = first
         .actions
         .iter()
@@ -44,7 +41,10 @@ fn eagle_dive_waits_for_landing_then_recovers() -> Result<()> {
         if frame.cues.contains(&Cue::Completed { action: handle }) {
             assert!(landed);
             assert_eq!(actor.tp, tp - 8);
-            assert_eq!(battle.technique_uses(owner, 185), Some(1));
+            assert_eq!(
+                battle.technique_uses(owner, resonance_battle::TechniqueId(185)),
+                Some(1)
+            );
             assert!(!battle.is_diagnostic());
             return Ok(());
         }

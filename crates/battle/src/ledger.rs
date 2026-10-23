@@ -1,6 +1,6 @@
 //! Combat statistics and grade accounting.
 use crate::conditions::{ConditionSet, PHYSICAL_AILMENTS};
-use crate::{ActorId, Battle, BattlePhase, PreparedBattle, Side};
+use crate::{ActorId, Battle, BattlePhase, Difficulty, PreparedBattle, Side};
 use anyhow::{Result, ensure};
 
 mod achievements;
@@ -39,12 +39,12 @@ pub struct Ledger {
     pub normal_variety: Vec<u8>,
     reward_exclusions: Vec<ActorId>,
     grade: i16,
-    rank: u8,
+    rank: Difficulty,
     finalized: bool,
 }
 
 impl Ledger {
-    pub(crate) fn new(actors: usize, rank: u8) -> Self {
+    pub(crate) fn new(actors: usize, rank: Difficulty) -> Self {
         Self {
             achievements: vec![ActorAchievements::default(); actors],
             damage_outside_unison: false,
@@ -96,7 +96,7 @@ impl Ledger {
     }
 
     pub(crate) fn adjust(&mut self, amount: i64) {
-        let limit = (i64::from(self.rank) + 1) * 500;
+        let limit = (self.rank as i64 + 1) * 500;
         self.grade = i64::from(self.grade)
             .saturating_add(amount)
             .clamp(-limit, limit) as i16;
@@ -139,41 +139,15 @@ impl Ledger {
 }
 
 impl PreparedBattle {
-    pub fn with_grade_rank(mut self, rank: u8) -> Result<Self> {
-        ensure!(rank <= 2, "invalid battle grade rank");
+    pub fn with_grade_rank(mut self, rank: Difficulty) -> Self {
         self.resources.grade_rank = rank;
-        Ok(self)
+        self
     }
 }
 
 impl Battle {
     pub fn ledger(&self) -> &Ledger {
         &self.ledger
-    }
-
-    /// Record actual party item use.
-    pub fn record_item_use(&mut self, actor: ActorId) -> Result<()> {
-        ensure!(
-            self.phase() == BattlePhase::Combat && self.actor(actor)?.side == Side::Party,
-            "item use outside combat"
-        );
-        self.ledger.item_effect();
-        self.ledger.item_consumed(actor);
-        Ok(())
-    }
-
-    /// Record the completed Magic Lens effect, after the item executor scans
-    /// its enemy. This does not perform or authorize an unsupported item action.
-    pub fn record_enemy_scan(&mut self, actor: ActorId, target: ActorId) -> Result<()> {
-        ensure!(
-            self.phase() == BattlePhase::Combat
-                && self.actor(actor)?.side == Side::Party
-                && self.actor(actor)?.available()
-                && self.actor(target)?.side == Side::Enemy,
-            "enemy scan outside an active party item dispatch"
-        );
-        self.ledger.enemy_was_scanned = true;
-        Ok(())
     }
 
     /// Construct results before experience growth and recovery, preserving party and reward-
@@ -269,7 +243,7 @@ mod tests {
 
     #[test]
     fn each_grade_change_clamps_before_the_next_change() {
-        let mut ledger = Ledger::new(2, 0);
+        let mut ledger = Ledger::new(2, Difficulty::Normal);
         ledger.adjust(490);
         ledger.adjust(100);
         ledger.adjust(-100);
@@ -287,7 +261,7 @@ mod tests {
 
     #[test]
     fn clocks_and_actor_statistics_stay_within_gameplay_bounds() {
-        let mut ledger = Ledger::new(2, 2);
+        let mut ledger = Ledger::new(2, Difficulty::Mania);
         assert_eq!(ledger.maximum_combo, 1);
         ledger.combat_ticks = 359_999;
         ledger.advance(true);

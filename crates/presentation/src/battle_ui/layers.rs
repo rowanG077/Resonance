@@ -46,8 +46,8 @@ impl LayerDefinition {
             texture_effect: TextureEffect::Plain,
         }
     }
-    pub(super) fn foreground(mut self) -> Self {
-        self.depth += 1.;
+    pub(super) fn offset_depth(mut self, offset: f32) -> Self {
+        self.depth += offset;
         self
     }
     pub(super) fn nearest(mut self) -> Self {

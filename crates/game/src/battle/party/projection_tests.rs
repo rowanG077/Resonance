@@ -97,9 +97,9 @@ fn costume_titles_do_not_prevent_battle_loadouts() -> Result<()> {
     menus.titles[0][usize::from(member.title - 1)].costume =
         Some(resonance_content::menu_data::Costume::Variant2);
     member.costume = 2;
-    loadout(&menus, &member, 0)?;
+    loadout(&menus, &member, Character::Lloyd)?;
     member.title = u8::MAX;
-    assert!(loadout(&menus, &member, 0).is_err());
+    assert!(loadout(&menus, &member, Character::Lloyd).is_err());
     Ok(())
 }
 
@@ -122,7 +122,7 @@ fn gear_bonuses_saturate_and_weapon_species_uses_only_the_primary_weapon() -> Re
         .properties
         .resistance
         .insert(Element::Fire, 64);
-    let attributes = loadout(&menus, &member, 0)?.attributes;
+    let attributes = loadout(&menus, &member, Character::Lloyd)?.attributes;
     assert_eq!(attributes.damage.weapon_species, Some(6));
     assert_eq!(attributes.damage.critical_chance_bonus, 100);
     assert_eq!(attributes.affinities[0], Affinity::Absorb);
@@ -132,14 +132,14 @@ fn gear_bonuses_saturate_and_weapon_species_uses_only_the_primary_weapon() -> Re
     );
     menus.items[1].properties.species_bonus = None;
     assert_eq!(
-        loadout(&menus, &member, 0)?
+        loadout(&menus, &member, Character::Lloyd)?
             .attributes
             .damage
             .weapon_species,
         None
     );
     menus.items[1].properties.unsupported_modifier = true;
-    assert!(loadout(&menus, &member, 0).is_err());
+    assert!(loadout(&menus, &member, Character::Lloyd).is_err());
     Ok(())
 }
 
@@ -156,7 +156,9 @@ fn damage_rings_rebuild_without_stacking_and_keep_live_vitals() -> Result<()> {
         ([1, 3], [true, false, true]),
     ] {
         member.equipment[4..].copy_from_slice(&items);
-        let damage = loadout(&menus, &member, 0)?.attributes.damage;
+        let damage = loadout(&menus, &member, Character::Lloyd)?
+            .attributes
+            .damage;
         assert_eq!(
             [
                 damage.physical_damage_boost,
@@ -167,7 +169,7 @@ fn damage_rings_rebuild_without_stacking_and_keep_live_vitals() -> Result<()> {
         );
     }
     let current = actor(
-        &loadout(&menus, &member, 0)?,
+        &loadout(&menus, &member, Character::Lloyd)?,
         &member,
         Control::Manual,
         [0.; 3],
@@ -177,11 +179,8 @@ fn damage_rings_rebuild_without_stacking_and_keep_live_vitals() -> Result<()> {
     let id = prepared.actor_ids().next().unwrap();
     let mut battle = prepared.finish()?;
     member.equipment[4..].copy_from_slice(&[2, 0]);
-    let (attributes, conditions) = loadout(&menus, &member, 0)?.equipment_attributes(
-        &member,
-        &battle.actors()[0].conditions,
-        false,
-    )?;
+    let (attributes, conditions) = loadout(&menus, &member, Character::Lloyd)?
+        .equipment_attributes(&member, &battle.actors()[0].conditions, false)?;
     battle.replace_equipment_batch(vec![EquipmentReplacement {
         actor: id,
         attributes,
@@ -213,12 +212,12 @@ fn equipped_compounds_supply_critical_and_cost_traits_without_learned_history() 
     member.equipment[0] = 1;
     menus.items[1].properties.critical_chance_bonus = 92;
     member.ex_skills = [1, 2, 0, 0];
-    let equipped = loadout(&menus, &member, 0)?;
+    let equipped = loadout(&menus, &member, Character::Lloyd)?;
     assert_eq!(equipped.attributes.damage.critical_chance_bonus, 97);
     assert!(equipped.attributes.tp_cost_reduction);
     menus.items[1].properties.critical_chance_bonus = 100;
     assert_eq!(
-        loadout(&menus, &member, 0)?
+        loadout(&menus, &member, Character::Lloyd)?
             .attributes
             .damage
             .critical_chance_bonus,
@@ -227,7 +226,7 @@ fn equipped_compounds_supply_critical_and_cost_traits_without_learned_history() 
     member.compound_ex_skills.extend([0, 1]);
     menus.items[1].properties.critical_chance_bonus = 92;
     member.ex_skills[1] = 0;
-    let removed = loadout(&menus, &member, 0)?;
+    let removed = loadout(&menus, &member, Character::Lloyd)?;
     assert!(!removed.attributes.tp_cost_reduction);
     assert_eq!(removed.attributes.damage.critical_chance_bonus, 92);
     Ok(())
@@ -242,7 +241,7 @@ fn spell_charge_is_available_to_each_character_that_equips_it() -> Result<()> {
         .insert(ex::SPELL_CHARGE, menus.ex_skills.skills[&1].clone());
     member.ex_skills = [0, 0, 0, ex::SPELL_CHARGE];
     for character in [Character::Genis, Character::Zelos, Character::Kratos] {
-        assert!(loadout(&menus, &member, character as usize - 1)?.spell_charge);
+        assert!(loadout(&menus, &member, character)?.spell_charge);
     }
     Ok(())
 }
@@ -268,14 +267,14 @@ fn seal_and_aerial_compounds_follow_equipped_recipes_without_spell_charge() -> R
             });
     }
     member.ex_skills = [1, 2, 0, 0];
-    let equipped = loadout(&menus, &member, 0)?;
+    let equipped = loadout(&menus, &member, Character::Lloyd)?;
     assert!(equipped.attributes.recovery.life_drain);
     assert!(equipped.attributes.recovery.spirit_drain);
     assert!(equipped.aerial_spells);
     assert!(equipped.attributes.damage.charge_guard_break);
     assert!(!equipped.spell_charge);
     member.ex_skills[1] = 0;
-    let removed = loadout(&menus, &member, 0)?;
+    let removed = loadout(&menus, &member, Character::Lloyd)?;
     assert!(!removed.attributes.recovery.life_drain);
     assert!(!removed.attributes.recovery.spirit_drain);
     assert!(!removed.aerial_spells);
@@ -293,11 +292,11 @@ fn movement_ignores_empty_items_and_combines_dash_with_heavy_boots() -> Result<(
         .ailments
         .insert(EquipmentAilment::Heavy);
     member.ex_skills = [6, 0, 0, 0];
-    let attributes = loadout(&menus, &member, 0)?.attributes;
+    let attributes = loadout(&menus, &member, Character::Lloyd)?.attributes;
     assert!((attributes.speed_multiplier - 1.1).abs() < 0.0001);
     member.equipment[3] = 1;
-    let (attributes, conditions) =
-        loadout(&menus, &member, 0)?.equipment_attributes(&member, &Default::default(), true)?;
+    let (attributes, conditions) = loadout(&menus, &member, Character::Lloyd)?
+        .equipment_attributes(&member, &Default::default(), true)?;
     assert!((attributes.speed_multiplier - 1.0).abs() < 0.0001);
     assert_eq!(
         conditions.layers().equipment_overlay,
@@ -345,7 +344,7 @@ fn caption_suppression_does_not_remove_equipment_gameplay() -> Result<()> {
         "discounts belong to properties, regardless of item identity"
     );
     let owner = actor(
-        &loadout(&menus, &member, 0)?,
+        &loadout(&menus, &member, Character::Lloyd)?,
         &member,
         Control::Manual,
         [0.; 3],
@@ -354,14 +353,9 @@ fn caption_suppression_does_not_remove_equipment_gameplay() -> Result<()> {
     let action = resonance_battle::ActionDefinition {
         normal: None,
         tp_cost: 12,
-        execution: resonance_battle::ActionExecution::Attack(resonance_battle::PreparedAttack {
-            contact_recovery: None,
-            opening: None,
-            events: vec![],
-            chain_at: None,
-            end_at: 0,
-            recovery: 0,
-        }),
+        execution: resonance_battle::ActionExecution::Attack(
+            resonance_battle::PreparedAttack::new(0),
+        ),
     };
     let prepared =
         PreparedBattle::new(vec![(owner, Default::default())], (vec![action]).into(), 1)?;
@@ -391,8 +385,11 @@ fn regeneration_stacks_independently_of_caption_suppression() -> Result<()> {
         .suppresses
         .push(50);
     assert_eq!(member.equipment_captions(&menus).unwrap(), [52]);
-    let (_, conditions) =
-        loadout(&menus, &member, 0)?.equipment_attributes(&member, &Default::default(), true)?;
+    let (_, conditions) = loadout(&menus, &member, Character::Lloyd)?.equipment_attributes(
+        &member,
+        &Default::default(),
+        true,
+    )?;
     assert_eq!(
         conditions.gear_regeneration(),
         conditions::GearRegeneration {
@@ -406,7 +403,7 @@ fn regeneration_stacks_independently_of_caption_suppression() -> Result<()> {
     ] {
         menus.items[1].properties.kill_hp_recovery = hp;
         menus.items[1].properties.kill_tp_recovery = tp;
-        let (_, conditions) = loadout(&menus, &member, 0)?.equipment_attributes(
+        let (_, conditions) = loadout(&menus, &member, Character::Lloyd)?.equipment_attributes(
             &member,
             &Default::default(),
             true,
@@ -427,7 +424,7 @@ fn actor_projection_keeps_saved_overlimit_and_clamps_negative_luck() -> Result<(
     for value in [0, 99, 100] {
         member.overlimit = value;
         let projected = actor(
-            &loadout(&menus, &member, 0)?,
+            &loadout(&menus, &member, Character::Lloyd)?,
             &member,
             Control::Manual,
             [0.; 3],
@@ -439,7 +436,7 @@ fn actor_projection_keeps_saved_overlimit_and_clamps_negative_luck() -> Result<(
     }
     for value in [101, 125, 255] {
         member.overlimit = value;
-        assert!(loadout(&menus, &member, 0).is_err());
+        assert!(loadout(&menus, &member, Character::Lloyd).is_err());
     }
     // Unbound saves must use the explicit character's compound rules for luck too.
     member.overlimit = 0;
@@ -461,14 +458,29 @@ fn actor_projection_keeps_saved_overlimit_and_clamps_negative_luck() -> Result<(
             stat: resonance_content::menu_data::ExStat::Luck,
             percent: 10,
         });
-    assert_eq!(loadout(&menus, &member, 1)?.attributes.luck, 7);
+    assert_eq!(
+        loadout(&menus, &member, Character::Colette)?
+            .attributes
+            .luck,
+        7
+    );
     member.compound_ex_skills.insert(0);
     let saved = serde_json::to_value(&member)?;
-    assert!(loadout(&menus, &member, 0).is_err());
-    assert_eq!(loadout(&menus, &member, 1)?.attributes.luck, 7);
+    assert!(loadout(&menus, &member, Character::Lloyd).is_err());
+    assert_eq!(
+        loadout(&menus, &member, Character::Colette)?
+            .attributes
+            .luck,
+        7
+    );
     assert_eq!(serde_json::to_value(&member)?, saved);
     member.ex_skills[1] = 0;
-    assert_eq!(loadout(&menus, &member, 1)?.attributes.luck, 5);
+    assert_eq!(
+        loadout(&menus, &member, Character::Colette)?
+            .attributes
+            .luck,
+        5
+    );
     Ok(())
 }
 
@@ -482,7 +494,7 @@ fn rescue_equipment_uses_capabilities_and_retains_consumption_slot_order() -> Re
     menus.items[2].properties.rescue = Some(EquipmentRescue::Chance);
     menus.items[3].properties.rescue = Some(EquipmentRescue::Consumable);
     assert_eq!(
-        loadout(&menus, &member, 0)?
+        loadout(&menus, &member, Character::Lloyd)?
             .attributes
             .recovery
             .lethal

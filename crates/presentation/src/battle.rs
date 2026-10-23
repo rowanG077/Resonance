@@ -1,4 +1,6 @@
 //! The battle scene borrows presentation while retaining the complete field owner.
+#[cfg(test)]
+use resonance_battle::TechniqueId;
 pub(crate) mod appearance;
 mod capture;
 mod event_models;
@@ -17,7 +19,7 @@ use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     prelude::*,
 };
-use resonance_battle::{ActorId, Battle, BattleFrame, Side};
+use resonance_battle::{ActorId, Battle, BattleFrame, Character, Side};
 use resonance_content::{menu_data::MenuData, prepared::Files, session::SessionData};
 use resonance_events::{battle::Request, party::Party};
 use resonance_game::battle::{encounter, lifecycle, results};
@@ -205,7 +207,7 @@ struct Scene {
     particles: Vec<resonance_battle::ParticleFrame>,
     lifecycle: lifecycle::Lifecycle,
     candidate: Option<results::Candidate>,
-    characters: Vec<u8>,
+    characters: Vec<Character>,
     action_names: BTreeMap<resonance_battle::ActionKey, String>,
     music: u16,
     frame: Option<BattleFrame>,
@@ -633,7 +635,7 @@ fn enemy_hud(
 
 fn action_names(
     battle: &Battle,
-    actors: &[(ActorId, u8)],
+    actors: &[(ActorId, resonance_battle::Character)],
     menus: &MenuData,
     feedback: &resonance_game::battle::feedback::Feedback,
 ) -> BTreeMap<resonance_battle::ActionKey, String> {
@@ -656,7 +658,7 @@ fn action_names(
         .filter_map(|(action, catalogue)| {
             // Missing optional text is reported if this action emits a notice.
             menus
-                .technique_text(catalogue)
+                .technique_text(catalogue.0)
                 .ok()
                 .map(|text| (action, text.name.clone()))
         })
@@ -1668,7 +1670,7 @@ fn render(
                 .iter()
                 .map(|&character| {
                     scene.candidate.as_ref().and_then(|candidate| {
-                        candidate.persistent_party().members[usize::from(character - 1)]
+                        candidate.persistent_party().members[character.index()]
                             .name
                             .as_deref()
                     })
@@ -1714,7 +1716,7 @@ fn render(
                 ),
             )?;
             let order = scene.lifecycle.order_selection();
-            let order_label = match scene.candidate.as_ref().filter(|_| order != 0) {
+            let order_label = match scene.candidate.as_ref() {
                 Some(candidate) => candidate.order_name(order)?,
                 None => "Cancel orders",
             };
@@ -1939,7 +1941,10 @@ pub(crate) mod tests {
         );
         let owner = prepared.results.actors[0].0;
         let mut battle = prepared.core;
-        assert_eq!(battle.technique_is_current(owner, 201), Some(false));
+        assert_eq!(
+            battle.technique_is_current(owner, TechniqueId(201)),
+            Some(false)
+        );
         let mut ready = false;
         for _ in 0..300 {
             let frame = battle.step(BattleInput::default())?;
@@ -1951,8 +1956,11 @@ pub(crate) mod tests {
             }
         }
         ensure!(ready, "Regal did not finish entry");
-        let action = battle.record_technique_acquisition(owner, 201)?;
-        assert_eq!(battle.technique_is_current(owner, 201), Some(true));
+        let action = battle.record_technique_acquisition(owner, TechniqueId(201))?;
+        assert_eq!(
+            battle.technique_is_current(owner, TechniqueId(201)),
+            Some(true)
+        );
         let target = battle
             .target(owner)
             .context("learned technique has no target")?;
@@ -1998,7 +2006,7 @@ pub(crate) mod tests {
                 matches!(cue,
                 Cue::Notice { actor, action: used, .. } if *actor == owner && *used == action)
             }) {
-                assert_eq!(battle.technique_uses(owner, 201), Some(1));
+                assert_eq!(battle.technique_uses(owner, TechniqueId(201)), Some(1));
                 assert_eq!(hud.party_notice_text(), Some("Mirage"));
                 assert!(!diagnostics.has_errors());
                 return Ok(());

@@ -16,13 +16,13 @@ use bevy::{
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
 };
-use resonance_battle::{BattleFrame, ParticleFrame};
+use resonance_battle::{BattleFrame, ParticleFrame, ResourceId};
 use resonance_content::{
     TextureBinding, TextureWrap,
     battle_effect::EffectTexture as Texture,
     battle_effect::{
         declaration::Declaration,
-        visual::{ModelVisual, ParticleVisual},
+        visual::{ModelVisual, ParticleTexture},
     },
     diagnostics::Diagnostics,
 };
@@ -33,6 +33,32 @@ struct LoadedTexture {
     spec: Texture,
     images: BTreeMap<usize, Handle<Image>>,
 }
+impl LoadedTexture {
+    fn load(
+        spec: Texture,
+        pages: impl IntoIterator<Item = usize>,
+        server: &AssetServer,
+    ) -> Result<Self> {
+        let images = pages
+            .into_iter()
+            .map(|page| {
+                let image = spec
+                    .images
+                    .get(page)
+                    .context("particle texture page missing")?;
+                let handle = server
+                    .load_builder()
+                    .with_settings(|settings: &mut ImageLoaderSettings| {
+                        settings.is_srgb = false;
+                        settings.sampler = ImageSampler::linear();
+                    })
+                    .load(image.path.clone());
+                Ok((page, handle))
+            })
+            .collect::<Result<_>>()?;
+        Ok(Self { spec, images })
+    }
+}
 
 struct Bank {
     declarations: BTreeMap<u16, Declaration>,
@@ -42,12 +68,17 @@ struct Bank {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct MaterialKey {
-    resource: u32,
+struct Atlas {
+    resource: ResourceId,
     slot: u8,
     color: usize,
     alpha: Option<usize>,
-    blend: u8,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct MaterialKey {
+    atlas: Option<Atlas>,
+    blend: Blend,
     depth_test: bool,
     depth_write: bool,
     clip_below_floor: bool,
@@ -76,27 +107,53 @@ impl ModelStyle {
     }
 }
 
-impl MaterialKey {
-    fn new(
-        resource: u32,
-        visual: &ParticleVisual,
-        color: usize,
-        alpha: Option<usize>,
+impl Bank {
+    fn material(
+        &self,
+        resource: ResourceId,
+        declaration: &Declaration,
+        palettes: [u8; 2],
         cull_back: bool,
         blend: Option<u8>,
-        clip_below_floor: bool,
-    ) -> Self {
-        Self {
-            resource,
-            slot: visual.texture.slot().unwrap_or(255),
-            color,
-            alpha,
-            blend: blend.unwrap_or(visual.blend),
-            depth_test: visual.depth_test,
-            depth_write: visual.depth_write,
-            clip_below_floor,
-            cull_back,
-        }
+    ) -> Result<(MaterialKey, [u32; 2])> {
+        let visual = declaration.particle_visual()?;
+        let (atlas, size) = match visual.texture {
+            ParticleTexture::Untextured => (None, [1; 2]),
+            ParticleTexture::Atlas {
+                slot,
+                dual,
+                palette_set,
+            } => {
+                let textures = &self.textures[&slot];
+                let color = textures[0].spec.palette_image(palette_set, palettes[0])?;
+                let alpha = dual
+                    .then(|| textures[1].spec.palette_image(palette_set, palettes[1]))
+                    .transpose()?;
+                let page = &textures[0].spec.images[color];
+                (
+                    Some(Atlas {
+                        resource,
+                        slot,
+                        color,
+                        alpha,
+                    }),
+                    [page.width, page.height],
+                )
+            }
+        };
+        Ok((
+            MaterialKey {
+                atlas,
+                blend: *Blend::ALL
+                    .get(usize::from(blend.unwrap_or(visual.blend)))
+                    .context("unsupported particle blend")?,
+                depth_test: visual.depth_test,
+                depth_write: visual.depth_write,
+                clip_below_floor: declaration.template()?.state.effect_group.is_some(),
+                cull_back,
+            },
+            size,
+        ))
     }
 }
 
@@ -107,14 +164,14 @@ struct Draw {
 
 pub(super) struct Effects {
     diagnostics: Diagnostics,
-    banks: BTreeMap<u32, Bank>,
+    banks: BTreeMap<ResourceId, Bank>,
     materials: BTreeMap<MaterialKey, Handle<TitleSurface>>,
     warm: Vec<Entity>,
     draws: Vec<Draw>,
     // Scene-sampling triangles stay on the CPU instead of being uploaded as a draw.
     sample_mesh: Mesh,
     vertices: geometry::Vertices,
-    wing_resource: Option<u32>,
+    wing_resource: Option<ResourceId>,
     prepared: bool,
 }
 
@@ -194,43 +251,24 @@ impl Effects {
             }
             let textures = diagnostics.attempt(
                 &format!("battle particle textures {}", bank.resource),
-                (|| {
-                    let textures = bank
-                        .textures
-                        .into_iter()
-                        .filter(|(slot, _)| wanted.keys().any(|(s, _)| s == slot))
-                        .map(|(slot, textures)| {
-                            let textures = textures
-                                .into_iter()
-                                .enumerate()
-                                .map(|(index, spec)| {
-                                    let images = wanted
-                                        .get(&(slot, index))
-                                        .into_iter()
-                                        .flatten()
-                                        .map(|&page| {
-                                            let image = spec
-                                                .images
-                                                .get(page)
-                                                .context("particle texture page missing")?;
-                                            let handle = server
-                                                .load_builder()
-                                                .with_settings(|s: &mut ImageLoaderSettings| {
-                                                    s.is_srgb = false;
-                                                    s.sampler = ImageSampler::linear();
-                                                })
-                                                .load(image.path.clone());
-                                            Ok((page, handle))
-                                        })
-                                        .collect::<Result<_>>()?;
-                                    Ok(LoadedTexture { spec, images })
-                                })
-                                .collect::<Result<_>>()?;
-                            Ok((slot, textures))
-                        })
-                        .collect::<Result<_>>()?;
-                    Ok(textures)
-                })(),
+                bank.textures
+                    .into_iter()
+                    .filter(|(slot, _)| wanted.keys().any(|(s, _)| s == slot))
+                    .map(|(slot, textures)| {
+                        let textures = textures
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, spec)| {
+                                LoadedTexture::load(
+                                    spec,
+                                    wanted.get(&(slot, index)).into_iter().flatten().copied(),
+                                    server,
+                                )
+                            })
+                            .collect::<Result<_>>()?;
+                        Ok((slot, textures))
+                    })
+                    .collect::<Result<_>>(),
             )?;
             let Some(textures) = textures else {
                 continue;
@@ -242,38 +280,23 @@ impl Effects {
                 )?;
                 continue;
             }
-            ensure!(
-                prepared
-                    .insert(
-                        bank.resource,
-                        Bank {
-                            declarations,
-                            palettes,
-                            blends,
-                            textures
-                        }
-                    )
-                    .is_none(),
-                "duplicate particle resource {}",
-                bank.resource
+            prepared.insert(
+                bank.resource,
+                Bank {
+                    declarations,
+                    palettes,
+                    blends,
+                    textures,
+                },
             );
         }
         if let Some(wings) = wings {
             let spec = wings.sparkle_texture.clone();
-            let images = WingAccessory::SPARKLE_PALETTES
+            let pages = WingAccessory::SPARKLE_PALETTES
+                .map(|palette| spec.palette_image(0, palette))
                 .into_iter()
-                .map(|palette| {
-                    let page = spec.palette_image(0, palette)?;
-                    let handle = server
-                        .load_builder()
-                        .with_settings(|s: &mut ImageLoaderSettings| {
-                            s.is_srgb = false;
-                            s.sampler = ImageSampler::linear();
-                        })
-                        .load(spec.images[page].path.clone());
-                    Ok((page, handle))
-                })
-                .collect::<Result<_>>()?;
+                .collect::<Result<Vec<_>>>()?;
+            let texture = LoadedTexture::load(spec, pages, server)?;
             ensure!(
                 prepared
                     .insert(
@@ -282,7 +305,7 @@ impl Effects {
                             declarations: BTreeMap::new(),
                             palettes: BTreeMap::new(),
                             blends: BTreeMap::new(),
-                            textures: BTreeMap::from([(0, vec![LoadedTexture { spec, images }])]),
+                            textures: BTreeMap::from([(0, vec![texture])]),
                         }
                     )
                     .is_none(),
@@ -354,10 +377,8 @@ impl Effects {
                            page: usize,
                            images: &mut Assets<Image>,
                            sampled: &mut SampledImages| {
-                if key.slot == 255 {
-                    return None;
-                }
-                let t = &self.banks[&key.resource].textures[&key.slot][index];
+                let atlas = key.atlas?;
+                let t = &self.banks[&atlas.resource].textures[&atlas.slot][index];
                 sampled_image(
                     Some((
                         t.images[&page].clone(),
@@ -374,13 +395,18 @@ impl Effects {
                     sampled,
                 )
             };
-            let color = texture(0, key.color, images, sampled);
-            let alpha = key.alpha.and_then(|page| texture(1, page, images, sampled));
+            let color = key
+                .atlas
+                .and_then(|atlas| texture(0, atlas.color, images, sampled));
+            let alpha = key
+                .atlas
+                .and_then(|atlas| atlas.alpha)
+                .and_then(|page| texture(1, page, images, sampled));
             let surface = surfaces.add(TitleSurface {
                 tint: Vec4::new(2., 2., 2., 1.),
+                multiply_alpha_only: alpha.is_some(),
                 multiply: alpha,
-                multiply_alpha_only: key.alpha.is_some(),
-                blend: Some(Blend::try_from(i32::from(key.blend)).map_err(anyhow::Error::msg)?),
+                blend: Some(key.blend),
                 depth_test: key.depth_test,
                 depth_write: key.depth_write,
                 clip_below_floor: key.clip_below_floor,
@@ -442,7 +468,7 @@ impl Effects {
     pub fn apply(
         &mut self,
         (frame, actor_shadows): (&BattleFrame, &[([f32; 3], f32, [u8; 4])]),
-        models: &BTreeMap<u32, super::Model>,
+        models: &BTreeMap<ResourceId, super::Model>,
         particles: &[ParticleFrame],
         wing_sparkles: &[super::wings::Sparkle],
         camera: Mat3,
@@ -470,7 +496,13 @@ impl Effects {
                 if matches!(declaration, Declaration::ModelParticle { .. }) {
                     return Ok(());
                 }
-                let (key, size) = self.key(particle, declaration)?;
+                let (key, size) = bank.material(
+                    particle.resource,
+                    declaration,
+                    particle.state.palettes,
+                    particle.state.cull_back,
+                    particle.state.blend,
+                )?;
                 let bone_world = particle
                     .owner_bone
                     .map(|index| -> Result<Mat4> {
@@ -557,8 +589,11 @@ impl Effects {
                     return Ok(());
                 }
                 if let Some(offset) = scene_sample {
-                    let alpha = key.alpha.context("scene particle has no opacity palette")?;
-                    let mask = bank.textures[&key.slot][1].images[&alpha].clone();
+                    let atlas = key.atlas.context("scene particle has no atlas")?;
+                    let alpha = atlas
+                        .alpha
+                        .context("scene particle has no opacity palette")?;
+                    let mask = bank.textures[&atlas.slot][1].images[&alpha].clone();
                     scene_samples.push(
                         mesh,
                         mask,
@@ -660,49 +695,6 @@ impl Effects {
         Ok(scene_samples)
     }
 
-    fn key(
-        &self,
-        particle: &ParticleFrame,
-        declaration: &Declaration,
-    ) -> Result<(MaterialKey, [u32; 2])> {
-        let visual = declaration.particle_visual()?;
-        let Some(slot) = visual.texture.slot() else {
-            return Ok((
-                MaterialKey::new(
-                    particle.resource,
-                    visual,
-                    0,
-                    None,
-                    particle.state.cull_back,
-                    particle.state.blend,
-                    declaration.template()?.state.effect_group.is_some(),
-                ),
-                [1; 2],
-            ));
-        };
-        let textures = &self.banks[&particle.resource].textures[&slot];
-        let set = visual.texture.palette_set();
-        let color = palette(&textures[0].spec, particle.state.palettes[0], set)?;
-        let alpha = if visual.texture.dual() {
-            Some(palette(&textures[1].spec, particle.state.palettes[1], set)?)
-        } else {
-            None
-        };
-        let page = &textures[0].spec.images[color];
-        Ok((
-            MaterialKey::new(
-                particle.resource,
-                visual,
-                color,
-                alpha,
-                particle.state.cull_back,
-                particle.state.blend,
-                declaration.template()?.state.effect_group.is_some(),
-            ),
-            [page.width, page.height],
-        ))
-    }
-
     pub fn despawn(self, commands: &mut Commands) {
         for entity in self.entities() {
             commands.entity(entity).despawn();
@@ -772,14 +764,14 @@ fn select_declaration(
             validate_texture(color)?;
             let set = visual.texture.palette_set();
             for pair in &pairs {
-                let page = palette(color, pair[0], set)?;
+                let page = color.palette_image(set, pair[0])?;
                 selected_pages.entry((slot, 0)).or_default().insert(page);
                 if visual.texture.dual() {
                     let alpha = textures
                         .get(1)
                         .context("particle texture has no alpha image")?;
                     validate_texture(alpha)?;
-                    let alpha_page = palette(alpha, pair[1], set)?;
+                    let alpha_page = alpha.palette_image(set, pair[1])?;
                     ensure!(
                         color.images[page].width == alpha.images[alpha_page].width
                             && color.images[page].height == alpha.images[alpha_page].height,
@@ -807,11 +799,12 @@ fn validate_texture(texture: &Texture) -> Result<()> {
 
 fn shadow_key(additive: bool) -> MaterialKey {
     MaterialKey {
-        resource: 0,
-        slot: 255,
-        color: 0,
-        alpha: None,
-        blend: u8::from(additive),
+        atlas: None,
+        blend: if additive {
+            Blend::Additive
+        } else {
+            Blend::Alpha
+        },
         depth_test: true,
         depth_write: false,
         clip_below_floor: false,
@@ -820,22 +813,20 @@ fn shadow_key(additive: bool) -> MaterialKey {
     }
 }
 
-fn wing_key(resource: u32, color: usize) -> MaterialKey {
+fn wing_key(resource: ResourceId, color: usize) -> MaterialKey {
     MaterialKey {
-        resource,
-        slot: 0,
-        color,
-        alpha: None,
-        blend: 1,
+        atlas: Some(Atlas {
+            resource,
+            slot: 0,
+            color,
+            alpha: None,
+        }),
+        blend: Blend::Additive,
         depth_test: true,
         depth_write: false,
         clip_below_floor: false,
         cull_back: false,
     }
-}
-
-fn palette(texture: &Texture, index: u8, set: u8) -> Result<usize> {
-    texture.palette_image(set, index)
 }
 
 fn spawn(commands: &mut Commands, mesh: Handle<Mesh>, surface: Handle<TitleSurface>) -> Entity {
@@ -869,7 +860,7 @@ fn warm_mesh() -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, vec![[0., 0.], [1., 0.], [0., 1.]])
 }
 
-fn material_keys(resource: u32, bank: &Bank) -> Result<BTreeSet<MaterialKey>> {
+fn material_keys(resource: ResourceId, bank: &Bank) -> Result<BTreeSet<MaterialKey>> {
     let mut keys = BTreeSet::new();
     for (&member, declaration) in &bank.declarations {
         let Declaration::Particle { visual, .. } = declaration else {
@@ -879,33 +870,12 @@ fn material_keys(resource: u32, bank: &Bank) -> Result<BTreeSet<MaterialKey>> {
             continue;
         }
         for pair in &bank.palettes[&member] {
-            let (color, alpha) = if visual.texture.slot().is_none() {
-                (0, None)
-            } else {
-                let textures = &bank.textures[&visual.texture.slot().unwrap()];
-                let color = palette(&textures[0].spec, pair[0], visual.texture.palette_set())?;
-                let alpha = if visual.texture.dual() {
-                    Some(palette(
-                        &textures[1].spec,
-                        pair[1],
-                        visual.texture.palette_set(),
-                    )?)
-                } else {
-                    None
-                };
-                (color, alpha)
-            };
             for cull in [false, true] {
                 for &blend in &bank.blends[&member] {
-                    keys.insert(MaterialKey::new(
-                        resource,
-                        visual,
-                        color,
-                        alpha,
-                        cull,
-                        Some(blend),
-                        declaration.template()?.state.effect_group.is_some(),
-                    ));
+                    keys.insert(
+                        bank.material(resource, declaration, *pair, cull, Some(blend))?
+                            .0,
+                    );
                 }
             }
         }
@@ -917,7 +887,7 @@ fn material_keys(resource: u32, bank: &Bank) -> Result<BTreeSet<MaterialKey>> {
 mod tests {
     use super::*;
     use resonance_content::{
-        battle_effect::visual::{ParticleShape, ParticleTexture},
+        battle_effect::visual::{ParticleShape, ParticleVisual},
         font::UiTexture,
         texture::{Filter, Sampler, TextureLod},
     };
@@ -951,7 +921,7 @@ mod tests {
             palette_set: 0,
         };
         RenderEffect {
-            resource: 7,
+            resource: ResourceId(7),
             source: std::sync::Arc::new(resonance_content::battle_effect::SourceBank {
                 source_sha256: "fixture".into(),
                 programs: vec![],
@@ -979,7 +949,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            effects.banks[&7]
+            effects.banks[&ResourceId(7)]
                 .declarations
                 .keys()
                 .copied()
@@ -1021,7 +991,7 @@ mod tests {
             art: None,
         };
         let mut input = RenderEffect {
-            resource: 77,
+            resource: ResourceId(77),
             source: std::sync::Arc::new(source),
             textures: BTreeMap::from([(0, vec![texture(true, 64), texture(true, 32)])]),
             members: BTreeSet::from([0]),
@@ -1075,22 +1045,23 @@ mod tests {
                 })
                 .collect(),
         };
-        let keys = material_keys(77, &bank).unwrap();
+        let keys = material_keys(ResourceId(77), &bank).unwrap();
         for cull in [false, true] {
             for (color, blend) in [(9, None), (26, Some(0))] {
-                assert!(keys.contains(&MaterialKey::new(
-                    77,
-                    declaration.particle_visual().unwrap(),
-                    color,
-                    Some(1),
-                    cull,
-                    blend,
-                    declaration.template().unwrap().state.effect_group.is_some(),
-                )));
+                let (key, size) = bank
+                    .material(ResourceId(77), &declaration, [color, 1], cull, blend)
+                    .unwrap();
+                assert!(keys.contains(&key));
+                assert_eq!(size, [512; 2]);
+                let atlas = key.atlas.unwrap();
+                assert_eq!(
+                    (atlas.resource, atlas.slot, atlas.color, atlas.alpha),
+                    (ResourceId(77), 0, usize::from(color), Some(1))
+                );
             }
         }
         bank.palettes.insert(0, BTreeSet::from([[64, 1]]));
-        assert!(material_keys(77, &bank).is_err());
+        assert!(material_keys(ResourceId(77), &bank).is_err());
     }
 
     #[test]
@@ -1106,9 +1077,12 @@ mod tests {
             textures: BTreeMap::new(),
         };
         geometry::validate(&declaration).unwrap();
-        let keys = material_keys(1, &bank).unwrap();
+        let keys = material_keys(ResourceId(1), &bank).unwrap();
         assert_eq!(keys.len(), 2);
-        assert!(keys.iter().all(|key| key.blend == 2 && key.slot == 255));
+        assert!(
+            keys.iter()
+                .all(|key| key.blend == Blend::Subtractive && key.atlas.is_none())
+        );
 
         let mut model = Declaration::ModelParticle {
             template: declaration.template().unwrap().clone(),
@@ -1163,18 +1137,5 @@ mod tests {
                 })
                 .collect(),
         }
-    }
-
-    #[test]
-    fn palette_selection_uses_prepared_sets_and_checks_image_bounds() {
-        let mut texture = texture(true, 3);
-        texture.palette_sets.push(vec![Some(2), None, Some(0)]);
-        assert_eq!(palette(&texture, 0, 1).unwrap(), 2);
-        assert_eq!(palette(&texture, 2, 1).unwrap(), 0);
-        assert!(palette(&texture, 1, 1).is_err());
-        assert!(palette(&texture, 3, 0).is_err());
-        assert!(palette(&texture, 0, 2).is_err());
-        texture.palette_sets[0][0] = Some(3);
-        assert!(palette(&texture, 0, 0).is_err());
     }
 }

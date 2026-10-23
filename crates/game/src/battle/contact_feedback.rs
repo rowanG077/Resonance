@@ -37,7 +37,10 @@ pub fn admission(
     Some([r, g, b])
 }
 
-pub fn prepare(source: &Tints, common_resource: u32) -> (ContactArt, Vec<u16>) {
+pub fn prepare(
+    source: &Tints,
+    common_resource: resonance_battle::ResourceId,
+) -> (ContactArt, Vec<u16>) {
     let appearance = |member| EffectAppearance {
         resource: common_resource,
         member,

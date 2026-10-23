@@ -1,32 +1,19 @@
 use super::*;
-use crate::{
-    ActionDefinition, Battle, BattleInput, DamageKind, HitElement, Power, PreparedBattle, Side,
-};
+use crate::WeaponSlot;
+use crate::{Battle, BattleInput, Power, Side};
 use anyhow::Context;
 
 fn definition(slot: u8, outbound_ticks: u32, direction_y: f32) -> Arc<WeaponFlightDefinition> {
     Arc::new(WeaponFlightDefinition {
-        slot,
+        slot: WeaponSlot(slot),
         origin: [0., 70., 25.],
         outbound_ticks,
         speed: 25.,
         return_speed: 25.,
         direction_y,
         hit: HitRule {
-            sound: None,
-            kind: DamageKind::Slash,
-            arte: false,
-            effect_on_guard: false,
-            effect: None,
-            overlimit_pause: false,
             power: Power::Fixed(10),
-            element: HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
-            reaction: Default::default(),
-            guard: Default::default(),
-            condition: None,
+            ..crate::tests::hit()
         },
         radius: 40.,
     })
@@ -39,46 +26,22 @@ fn battle(launch_at: u16, definition: Arc<WeaponFlightDefinition>) -> Battle {
     let mut target = crate::tests::actor(Side::Enemy);
     target.position = [0., 0., 500.];
 
-    let action = ActionDefinition {
-        normal: None,
-        execution: crate::ActionExecution::Attack(crate::PreparedAttack {
-            contact_recovery: None,
-            chain_at: None,
-            end_at: 200,
-            opening: None,
-            events: vec![(launch_at, crate::AttackEvent::Throw(definition))],
-            recovery: 1,
-        }),
-        tp_cost: 0,
-    };
-    PreparedBattle::new(
-        vec![
-            (
-                owner,
-                crate::ActorSetup {
-                    techniques: vec![crate::tests::technique(crate::ActionKey(0), 2)],
-                    ..Default::default()
-                },
-            ),
-            (target, crate::ActorSetup::default()),
-        ],
-        (vec![action]).into(),
-        17,
-    )
-    .unwrap()
-    .finish()
-    .unwrap()
+    let mut prepared = crate::tests::prepare_actors(vec![owner, target], 17);
+    let mut action = crate::tests::action(200);
+    let attack = crate::tests::attack_mut(&mut action);
+    attack.events = vec![(launch_at, crate::AttackEvent::Throw(definition))];
+    attack.recovery = 1;
+    let key = prepared.resources.actions.insert(action);
+    prepared.resources.actor_setup[0].techniques = vec![crate::tests::technique(key, 2)];
+    prepared.finish().unwrap()
 }
 
 fn start() -> BattleInput {
-    BattleInput {
-        actions: vec![crate::ActionRequest {
-            actor: ActorId(0),
-            target: ActorId(1),
-            action: crate::ActionKey(0),
-        }],
-        ..Default::default()
-    }
+    BattleInput::from(crate::ActionRequest {
+        actor: ActorId(0),
+        target: ActorId(1),
+        action: crate::ActionKey(0),
+    })
 }
 
 #[test]
@@ -128,7 +91,7 @@ fn launched_weapon_keeps_direction_and_power_after_owner_changes() -> Result<()>
         battle.actors[0].facing_direction = [0., 0., -1.];
         battle.actors[1].body.collider = Some(crate::Collider::sphere(2.));
         battle.throw_weapon(ActorId(0), ActionId(1), definition);
-        let launch = battle.weapon_flights[&(ActorId(0), 0)].position;
+        let launch = battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].position;
         battle.actors[1].position = [launch[0], launch[1], launch[2] - 25.];
         battle.actors[0].facing_direction = [1., 0., 0.];
         battle.actors[0].attack_power = next_power;
@@ -139,7 +102,7 @@ fn launched_weapon_keeps_direction_and_power_after_owner_changes() -> Result<()>
             cue,
             crate::Cue::WeaponTrail {
                 actor: ActorId(0),
-                slot: 0,
+                slot: WeaponSlot(0),
                 duration: 1,
                 highlighted: false,
             }
@@ -174,7 +137,7 @@ fn released_weapon_survives_interruption_stops_and_owner_death_without_artwork()
     }
     let flight = battle
         .weapon_flights
-        .get(&(ActorId(0), 0))
+        .get(&(ActorId(0), WeaponSlot(0)))
         .context("scheduled weapon launch did not occur")?;
     let action = flight.action;
     let position = flight.position;
@@ -183,11 +146,11 @@ fn released_weapon_survives_interruption_stops_and_owner_death_without_artwork()
     battle.actors[0].time_stop = 3;
     battle.step(Default::default())?;
     assert_eq!(battle.sequence(&action).unwrap().age, age);
-    assert!(battle.weapon_flights[&(ActorId(0), 0)].position[2] > position[2]);
-    let position = battle.weapon_flights[&(ActorId(0), 0)].position;
+    assert!(battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].position[2] > position[2]);
+    let position = battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].position;
     battle.begin_hurt(ActorId(0), 20, &mut vec![]);
     battle.step(Default::default())?;
-    assert!(battle.weapon_flights[&(ActorId(0), 0)].position[2] > position[2]);
+    assert!(battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].position[2] > position[2]);
     battle.actors[0].availability = crate::ActorAvailability::Dead;
     battle.actors[0].position[0] += 100.;
     let mut cues = vec![];
@@ -212,23 +175,29 @@ fn each_slot_hits_each_target_once_and_keeps_an_occupied_launch() -> Result<()> 
     let mut battle = battle(0, definition(0, 14, 0.));
     battle.step(start())?;
     battle.step(Default::default())?;
-    let original = battle.weapon_flights[&(ActorId(0), 0)].position;
+    let original = battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].position;
     battle.throw_weapon(ActorId(0), ActionId(99), definition(0, 8, 0.4));
-    assert_eq!(battle.weapon_flights[&(ActorId(0), 0)].position, original);
-    assert_ne!(battle.weapon_flights[&(ActorId(0), 0)].action, ActionId(99));
+    assert_eq!(
+        battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].position,
+        original
+    );
+    assert_ne!(
+        battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].action,
+        ActionId(99)
+    );
     battle.throw_weapon(ActorId(0), ActionId(2), definition(1, 10, -0.7));
     battle
         .weapon_flights
-        .get_mut(&(ActorId(0), 0))
+        .get_mut(&(ActorId(0), WeaponSlot(0)))
         .unwrap()
         .hit(ActorId(1));
-    assert!(!battle.weapon_flights[&(ActorId(0), 0)].can_hit(ActorId(1)));
-    assert!(battle.weapon_flights[&(ActorId(0), 1)].can_hit(ActorId(1)));
-    assert!(battle.weapon_flights[&(ActorId(0), 0)].can_hit(ActorId(2)));
+    assert!(!battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].can_hit(ActorId(1)));
+    assert!(battle.weapon_flights[&(ActorId(0), WeaponSlot(1))].can_hit(ActorId(1)));
+    assert!(battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].can_hit(ActorId(2)));
     for _ in 0..3 {
         battle.advance_weapon_flights(ActorId(0), &mut Default::default(), &mut vec![])?;
     }
-    assert!(!battle.weapon_flights[&(ActorId(0), 0)].can_hit(ActorId(1)));
+    assert!(!battle.weapon_flights[&(ActorId(0), WeaponSlot(0))].can_hit(ActorId(1)));
     Ok(())
 }
 
@@ -258,7 +227,11 @@ fn finishing_a_battle_with_a_thrown_weapon_seals_the_outcome() -> Result<()> {
     assert!(battle.finish_result().is_err());
     assert!(battle.set_actor_vitals(ActorId(0), 1, 1, 0, 0).is_err());
     assert!(battle.end_overlimit(ActorId(0)).is_err());
-    assert!(battle.record_technique_acquisition(ActorId(0), 1).is_err());
+    assert!(
+        battle
+            .record_technique_acquisition(ActorId(0), crate::TechniqueId(1))
+            .is_err()
+    );
     assert_eq!(battle.snapshot(), finished);
     assert!(battle.owns_outcome(&outcome));
     Ok(())

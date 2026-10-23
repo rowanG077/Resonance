@@ -1,5 +1,8 @@
 //! Prepare party techniques with resolved action and feedback resources.
 use super::{ActionDefinition, party::Character, voice::Sound};
+use resonance_battle::{
+    AttackEvent, AttackPose, HitShape, PreparedAttack, ProjectileContact, ProjectileDefinition,
+};
 
 mod advanced_seals;
 mod attack;
@@ -25,15 +28,11 @@ pub(crate) struct SpecialGuard {
     pub voice: Sound,
 }
 
-pub(crate) fn special_guard(character: u8) -> Option<SpecialGuard> {
-    let index = usize::from(character.checked_sub(1)?);
-    Some(SpecialGuard {
-        catalogue: *[34, 202, 203, 203, 204, 34, 205, 206, 34].get(index)?,
-        effect: if character == Character::Genis as u8 {
-            2
-        } else {
-            1
-        },
+pub(crate) fn special_guard(character: Character) -> SpecialGuard {
+    let index = character.index();
+    SpecialGuard {
+        catalogue: [34, 202, 203, 203, 204, 34, 205, 206, 34][index],
+        effect: if character == Character::Genis { 2 } else { 1 },
         voice: [
             Sound::Stream(92),
             Sound::Stream(202),
@@ -45,11 +44,11 @@ pub(crate) fn special_guard(character: u8) -> Option<SpecialGuard> {
             Sound::Stream(892),
             Sound::Stream(995),
         ][index],
-    })
+    }
 }
 
-pub(crate) fn is_special_guard(character: u8, catalogue: u16) -> bool {
-    special_guard(character).is_some_and(|row| row.catalogue == catalogue)
+pub(crate) fn is_special_guard(character: Character, catalogue: u16) -> bool {
+    special_guard(character).catalogue == catalogue
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -85,7 +84,7 @@ pub struct Technique {
     sequence: Sequence,
 }
 
-pub fn technique(character: u8, catalogue: u16) -> Option<Technique> {
+pub fn technique(character: Character, catalogue: u16) -> Option<Technique> {
     use Character::*;
     use Sequence::*;
     if let Some(variant) = resonance_content::arte::elemental::find(catalogue) {
@@ -94,9 +93,8 @@ pub fn technique(character: u8, catalogue: u16) -> Option<Technique> {
         technique.sequence = Elemental;
         return Some(technique);
     }
-    let character = Character::try_from(character).ok()?;
     let sequence = match (character, catalogue) {
-        _ if is_special_guard(character as u8, catalogue) => SpecialGuard,
+        _ if is_special_guard(character, catalogue) => SpecialGuard,
         (Lloyd, 1 | 2) | (Zelos | Kratos, 207 | 208) => Authored,
         (Lloyd, 4) | (Zelos | Kratos, 209) => FierceDemonFang,
         (Lloyd, 3 | 5 | 8 | 9 | 10 | 12 | 13 | 14 | 15 | 16 | 20 | 21 | 22 | 24 | 26 | 27 | 28)
@@ -119,66 +117,19 @@ pub fn technique(character: u8, catalogue: u16) -> Option<Technique> {
         (Colette, 59) => Spell(270),
         (Colette, 251) => Spell(296),
         (Colette | Zelos, 58) | (Kratos, 252) => Spell(269),
-        (Genis, 62) => Spell(200),
-        (Genis, 63) => Spell(201),
-        (Genis, 64) => Spell(202),
-        (Genis, 65) => Spell(203),
-        (Genis, 85) => Spell(223),
-        (Genis, 90) => Spell(228),
-        (Genis, 94) => Spell(232),
-        (Genis, 66) | (Zelos | Kratos, 213) => Spell(204),
-        (Genis, 67) | (Zelos | Kratos, 214) => Spell(205),
-        (Genis, 68) => Spell(206),
-        (Genis, 69) => Spell(207),
-        (Genis, 70) | (Zelos | Kratos, 215) => Spell(208),
-        (Genis, 71) | (Zelos | Kratos, 216) => Spell(209),
-        (Genis, 72) => Spell(210),
-        (Genis, 73) => Spell(211),
-        (Genis, 74) | (Zelos | Kratos, 217) => Spell(212),
-        (Genis, 75) => Spell(213),
-        (Genis, 76) => Spell(214),
-        (Genis, 77) | (Zelos | Kratos, 218) => Spell(215),
-        (Genis, 78) | (Zelos | Kratos, 219) => Spell(216),
-        (Genis, 79) => Spell(217),
-        (Genis, 82) => Spell(220),
-        (Genis, 80) => Spell(218),
-        (Genis, 81) | (Zelos | Kratos, 220) => Spell(219),
-        (Genis, 83) => Spell(221),
-        (Genis, 84) => Spell(222),
-        (Genis, 86) => Spell(224),
-        (Genis, 88) => Spell(226),
-        (Genis, 89) => Spell(227),
-        (Genis, 91) => Spell(229),
-        (Genis, 92) => Spell(230),
-        (Genis, 93) => Spell(231),
-        (Genis, 95) => Spell(233),
+        (Genis, 62..=86 | 88..=95)
+        | (Raine, 98..=116 | 119..=123)
+        | (Zelos | Kratos, 117..=118) => Spell(catalogue + 138),
         (Genis, 248) => Spell(280),
-        (Raine, 98) | (Zelos | Kratos, 221) => Spell(236),
-        (Raine, 99) => Spell(237),
-        (Raine, 100) => Spell(238),
-        (Raine, 101) => Spell(239),
-        (Raine, 102) => Spell(240),
-        (Raine, 103) => Spell(241),
-        (Raine, 104) => Spell(242),
-        (Raine, 105) => Spell(243),
-        (Raine, 106) => Spell(244),
-        (Raine, 107) => Spell(245),
-        (Raine, 108) => Spell(246),
-        (Raine, 109) => Spell(247),
-        (Raine, 110) => Spell(248),
-        (Raine, 111) => Spell(249),
-        (Raine, 112) => Spell(250),
-        (Raine, 113) => Spell(251),
-        (Raine, 114) => Spell(252),
-        (Raine, 115) => Spell(253),
-        (Raine, 116) => Spell(254),
-        (Zelos | Kratos, 117) => Spell(255),
-        (Zelos | Kratos, 118) => Spell(256),
-        (Raine, 119) => Spell(257),
-        (Raine, 120) => Spell(258),
-        (Raine, 121) => Spell(259),
-        (Raine, 122) => Spell(260),
-        (Raine, 123) => Spell(261),
+        (Zelos | Kratos, 213) => Spell(204),
+        (Zelos | Kratos, 214) => Spell(205),
+        (Zelos | Kratos, 215) => Spell(208),
+        (Zelos | Kratos, 216) => Spell(209),
+        (Zelos | Kratos, 217) => Spell(212),
+        (Zelos | Kratos, 218) => Spell(215),
+        (Zelos | Kratos, 219) => Spell(216),
+        (Zelos | Kratos, 220) => Spell(219),
+        (Zelos | Kratos, 221) => Spell(236),
         (Raine, 222) => Spell(263),
         (Raine, 246) => Spell(278),
         (Raine, 250) => Spell(283),
@@ -196,9 +147,7 @@ pub fn technique(character: u8, catalogue: u16) -> Option<Technique> {
         (Presea, 159..=165 | 167..=169 | 172 | 173 | 175) => Authored,
         (Regal, 176..=184 | 188..=191 | 195 | 197 | 201) => Authored,
         (Regal, 185..=187) => EagleDive,
-        (Regal, 192) => Spell(273),
-        (Regal, 193) => Spell(274),
-        (Regal, 194) => Spell(275),
+        (Regal, 192..=194) => Spell(catalogue + 81),
         _ => return None,
     };
     Some(Technique {
@@ -219,4 +168,46 @@ impl Technique {
             _ => None,
         }
     }
+}
+
+fn attack_definition(attack: PreparedAttack, tp_cost: u16) -> ActionDefinition {
+    ActionDefinition {
+        normal: None,
+        tp_cost,
+        execution: super::ActionExecution::Attack(attack),
+    }
+}
+
+fn recovery_pose(attack: &PreparedAttack) -> Option<AttackPose> {
+    attack.events.iter().find_map(|(at, event)| match event {
+        AttackEvent::Pose(pose) if *at == attack.end_at => Some(*pose),
+        _ => None,
+    })
+}
+
+/// A stationary hit volume; each callback supplies its placement and visuals.
+fn stationary_contact(
+    hit: &resonance_content::battle_action::ActionHit,
+    recoil: &crate::battle::recoil::Parameters,
+    lifetime: u32,
+    shape: HitShape,
+    [radius, height]: [f32; 2],
+) -> anyhow::Result<ProjectileDefinition> {
+    Ok(ProjectileDefinition {
+        lifetime: Some(lifetime),
+        contact: Some(ProjectileContact {
+            hit: crate::battle::hit::authored(hit, recoil)?,
+            cooldown: hit.cooldown,
+            repeat_limit: 0,
+            radius,
+            height,
+            shape,
+            offset: [0.; 3],
+            radius_growth: 0.,
+            height_growth: 0.,
+            survives_contact: true,
+            clashes: false,
+        }),
+        ..Default::default()
+    })
 }

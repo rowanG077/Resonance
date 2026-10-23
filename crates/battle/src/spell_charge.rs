@@ -38,10 +38,9 @@ impl Battle {
             .casting(action)
             .context("stored cast is not prepared")?;
         Ok(match self.actors[index].control {
-            crate::Control::Manual | crate::Control::SemiAuto => self
-                .cast_inputs
-                .get(usize::from(self.actors[index].control_slot))
-                .is_some_and(|input| input.attack),
+            crate::Control::Manual | crate::Control::SemiAuto => {
+                self.cast_inputs[self.actors[index].control_slot.index()].attack
+            }
             crate::Control::Auto => {
                 cast.threat.is_some_and(|threat| threat.offensive)
                     && binding.automatic
@@ -56,7 +55,7 @@ impl Battle {
         actor: ActorId,
         action: crate::ActionKey,
         cues: &mut Vec<Cue>,
-    ) -> Result<()> {
+    ) {
         let index = actor.index();
         cues.push(Cue::Casting {
             actor,
@@ -77,7 +76,6 @@ impl Battle {
         {
             self.clear_cast_memory(actor);
         }
-        Ok(())
     }
 
     pub(crate) fn discharge_stored_spell(
@@ -191,11 +189,12 @@ impl Battle {
         }) else {
             return Ok(());
         };
-        let direction = crate::NormalAttack::from_input(input.stick, false);
+        let direction = crate::ShortcutSlot::from_input(input.stick);
         let Some(action) = self.runtime[index]
             .control
             .as_ref()
-            .and_then(|control| self.shortcut_action(actor, control.shortcuts[direction as usize]))
+            .and_then(|control| control.shortcuts[direction.index()])
+            .and_then(|id| self.shortcut_action(actor, id))
         else {
             return Ok(());
         };

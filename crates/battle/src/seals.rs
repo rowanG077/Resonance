@@ -125,8 +125,8 @@ impl Battle {
                 inputs.seal(
                     crate::random_inputs::Key {
                         clock: self.ledger.elapsed_ticks,
-                        owner: owner.index(),
-                        target: target.index(),
+                        owner: owner,
+                        target: target,
                         action: action.0,
                         contact,
                     },
@@ -217,8 +217,8 @@ mod tests {
                         seals: Some(vec![Seal {
                             key: Key {
                                 clock: 2,
-                                owner: 0,
-                                target: 1,
+                                owner: ActorId(0),
+                                target: ActorId(1),
                                 action: 1,
                                 contact: Contact::Attached,
                             },
@@ -239,7 +239,7 @@ mod tests {
                 condition: Condition::DefenseDown,
                 duration: 900,
                 effect: EffectAppearance {
-                    resource: 0,
+                    resource: crate::ResourceId(0),
                     member: 1,
                 },
                 tint: [255, 128, 128],

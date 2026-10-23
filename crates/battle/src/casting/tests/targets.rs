@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 
 fn released(frame: &crate::BattleFrame, actor: ActorId) -> Option<ActionId> {
     frame.cues.iter().find_map(|cue| match cue {
@@ -20,7 +21,7 @@ fn ordinary_and_stored_casts_keep_support_and_opponent_targets_without_repaying(
             release.projectiles.clear();
             release.policy = crate::SpellPolicy::TransferRecovery {
                 appearance: crate::EffectAppearance {
-                    resource: 0,
+                    resource: crate::ResourceId(0),
                     member: 1,
                 },
                 apex: 120.,
@@ -63,7 +64,7 @@ fn ordinary_and_stored_casts_keep_support_and_opponent_targets_without_repaying(
         }
         let resident = resident.expect("cast should release once");
         assert_eq!(battle.actors[0].tp, initial_tp - cost);
-        assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(50));
         assert_eq!(
             battle.volleys[&resident].target,
             if support { ActorId(2) } else { ActorId(1) },
@@ -74,7 +75,7 @@ fn ordinary_and_stored_casts_keep_support_and_opponent_targets_without_repaying(
             let frame = battle.step(BattleInput::default()).unwrap();
             assert!(released(&frame, ActorId(0)).is_none());
             assert_eq!(battle.actors[0].tp, initial_tp - cost);
-            assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+            assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(66)), Some(50));
         }
     }
 }
@@ -85,9 +86,9 @@ fn special_guard_can_cancel_the_retargeted_partys_unfinished_cast() {
         let mut prepared = spell_charge::charged_prepared(Control::Manual, 0);
         casting_definition(&mut prepared).duration = 30;
         casting_definition(&mut prepared).threat = Some(crate::CastingThreat {
-            catalogue: 66,
+            catalogue: TechniqueId(66),
             offensive: true,
-            element: 1,
+            element: Some(crate::Element::Water),
         });
         prepared.actors[2].side = Side::Enemy;
         prepared.actors[2].control = Control::Enemy;
@@ -171,7 +172,7 @@ fn special_guard_can_cancel_the_retargeted_partys_unfinished_cast() {
                 battle.runtime[2].target = ActorId(0);
             }
             assert_eq!(battle.runtime[0].special_guard_pending, None);
-            if battle.runtime[1].special_guard_pending == Some(34) {
+            if battle.runtime[1].special_guard_pending == Some(TechniqueId(34)) {
                 threatened = true;
                 break;
             }

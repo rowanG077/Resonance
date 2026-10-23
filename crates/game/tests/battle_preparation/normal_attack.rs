@@ -10,7 +10,7 @@ pub(super) fn resources(
         bank: Some(Arc::new(
             files.json(resonance_content::battle_effect::COMMON_PATH)?,
         )),
-        resource: 30,
+        resource: resonance_battle::ResourceId(30),
         members: vec![],
         models: Default::default(),
     };
@@ -21,7 +21,7 @@ pub(super) fn resources(
     let bindings = battle::normal::prepare_resources(
         &resolver,
         &battle::normal::Resources {
-            character,
+            character: character.try_into()?,
             recoil: &recoil,
             model: Some(model),
             common: Some(&common),
@@ -45,5 +45,5 @@ pub(super) fn control(
         &profiles.normal_attacks[usize::from(character - 1)],
         std::array::from_fn(resonance_battle::ActionKey),
         battle::control::motions(Some(model)),
-    )?))
+    )))
 }

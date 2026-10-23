@@ -1,4 +1,6 @@
 //! Released volleys retain their origin; projectiles own their flight.
+#[cfg(test)]
+use crate::ResourceId;
 use crate::{
     ActionId, ActorId, Battle, Cue, EffectAppearance, ProjectileDefinition, Sound, SpellSlot,
 };
@@ -90,7 +92,7 @@ pub enum SpellPolicy {
     /// Party portrait, optional technique reveal, and their presentation hold.
     Cutin {
         at: u16,
-        catalogue: u16,
+        catalogue: crate::TechniqueId,
         duration: u16,
         hold_ticks: u16,
         /// Replace a concealed technique caption on the spell's existing clock.
@@ -526,6 +528,23 @@ impl SpellOrigin {
 }
 
 impl PreparedSpell {
+    pub fn new(origin: SpellOrigin, duration: u16) -> Self {
+        Self {
+            summon: None,
+            policy: SpellPolicy::Static,
+            projectiles: vec![],
+            effects: vec![],
+            recovery: vec![],
+            origin,
+            transition_ticks: 0,
+            stage_tint: None,
+            camera: None,
+            duration,
+            startup: None,
+            sound: None,
+        }
+    }
+
     pub(crate) fn uses_support_target(&self) -> bool {
         !self.recovery.is_empty() || matches!(self.policy, SpellPolicy::TransferRecovery { .. })
     }
@@ -1393,64 +1412,46 @@ impl Volley {
             let side = battle.actors[self.actor.index()].side;
             let eligible =
                 |actor: &crate::Actor| actor.side == side && recovery.benefit.accepts(actor);
-            let targets: Vec<_> = match recovery.targets {
-                RecoveryTargets::Caster => eligible(&battle.actors[self.actor.index()])
-                    .then_some(self.actor)
-                    .into_iter()
-                    .collect(),
-                RecoveryTargets::Target => {
-                    let target = if eligible(&battle.actors[self.target.index()]) {
-                        Some(self.target)
-                    } else {
-                        battle
-                            .actors
-                            .iter()
-                            .position(eligible)
-                            .map(|index| ActorId(index as u8))
-                    };
-                    if let Some(target) = target {
-                        self.target = target;
+            if matches!(recovery.targets, RecoveryTargets::Target)
+                && !eligible(&battle.actors[self.target.index()])
+                && let Some(index) = battle.actors.iter().position(eligible)
+            {
+                self.target = ActorId(index as u8);
+            }
+            let targets: Vec<_> = battle
+                .actors
+                .iter()
+                .enumerate()
+                .filter_map(|(index, actor)| {
+                    if !recovery.benefit.accepts(actor) {
+                        return None;
                     }
-                    target.into_iter().collect()
-                }
-                RecoveryTargets::LivingAllies => battle
-                    .actors
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, actor)| eligible(actor).then_some(ActorId(index as u8)))
-                    .collect(),
-                RecoveryTargets::LivingOpponents => battle
-                    .actors
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, actor)| {
-                        (actor.side != side && recovery.benefit.accepts(actor))
-                            .then_some(ActorId(index as u8))
-                    })
-                    .collect(),
-                RecoveryTargets::Area { radius, inclusive } => battle
-                    .actors
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, actor)| {
-                        let distance =
-                            (actor.position[0] - origin[0]).hypot(actor.position[2] - origin[2]);
-                        (eligible(actor)
-                            && match recovery.benefit {
-                                SpellBenefit::Cure(cure) => {
-                                    cure.eligible_base(actor.conditions.effective())
+                    let id = ActorId(index as u8);
+                    let selected = match recovery.targets {
+                        RecoveryTargets::Caster => id == self.actor && actor.side == side,
+                        RecoveryTargets::Target => id == self.target && actor.side == side,
+                        RecoveryTargets::LivingAllies => actor.side == side,
+                        RecoveryTargets::LivingOpponents => actor.side != side,
+                        RecoveryTargets::Area { radius, inclusive } => {
+                            let distance = (actor.position[0] - origin[0])
+                                .hypot(actor.position[2] - origin[2]);
+                            actor.side == side
+                                && match recovery.benefit {
+                                    SpellBenefit::Cure(cure) => {
+                                        cure.eligible_base(actor.conditions.effective())
+                                    }
+                                    _ => true,
                                 }
-                                _ => true,
-                            }
-                            && if inclusive {
-                                distance <= radius
-                            } else {
-                                distance < radius
-                            })
-                        .then_some(ActorId(index as u8))
-                    })
-                    .collect(),
-            };
+                                && if inclusive {
+                                    distance <= radius
+                                } else {
+                                    distance < radius
+                                }
+                        }
+                    };
+                    selected.then_some(id)
+                })
+                .collect();
             for target in targets {
                 let flash = recovery.flash.filter(|_| match recovery.benefit {
                     SpellBenefit::Stat { condition, .. } => {
@@ -1759,7 +1760,7 @@ mod advanced_tests {
         definition.startup = Some((
             2,
             SpellStartup::CasterGroundEffect(EffectAppearance {
-                resource: 2,
+                resource: ResourceId(2),
                 member: 1,
             }),
         ));
@@ -1771,7 +1772,7 @@ mod advanced_tests {
         .map(|placement| SpellEffect {
             at: 2,
             appearance: EffectAppearance {
-                resource: 2,
+                resource: ResourceId(2),
                 member: 3,
             },
             placement,
@@ -1785,7 +1786,7 @@ mod advanced_tests {
             flash: None,
             at: 3,
             benefit: SpellBenefit::Sacrifice(EffectAppearance {
-                resource: 2,
+                resource: ResourceId(2),
                 member: 2,
             }),
             targets: RecoveryTargets::Caster,
@@ -1856,7 +1857,10 @@ mod advanced_tests {
         let (_, mut volley) = fixture(SpellPolicy::CasterPose {
             at: 2,
             pose: Some(crate::AttackPose {
-                motion: crate::MotionBinding { model: 7, clip: 80 },
+                motion: crate::MotionBinding {
+                    model: ResourceId(7),
+                    clip: 80,
+                },
                 start: 0.,
                 end: None,
                 rate: 0.5,
@@ -1877,7 +1881,7 @@ mod advanced_tests {
             flash: None,
             at: 4,
             benefit: SpellBenefit::Sacrifice(EffectAppearance {
-                resource: 2,
+                resource: ResourceId(2),
                 member: 2,
             }),
             targets: RecoveryTargets::Caster,
@@ -2113,7 +2117,7 @@ mod advanced_tests {
             },
             effect: Some((
                 EffectAppearance {
-                    resource: 0,
+                    resource: ResourceId(0),
                     member: 1,
                 },
                 Default::default(),
@@ -2202,7 +2206,10 @@ mod advanced_tests {
         let ticks = 12;
         battle.prepared.actor_setup[1].revival = Some((
             crate::AttackPose {
-                motion: crate::MotionBinding { model: 0, clip: 9 },
+                motion: crate::MotionBinding {
+                    model: ResourceId(0),
+                    clip: 9,
+                },
                 start: 0.,
                 end: None,
                 repeat: false,

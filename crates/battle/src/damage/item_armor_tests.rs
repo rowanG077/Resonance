@@ -3,25 +3,16 @@ use crate::{Control, HitProtection, ProtectionMode, Side, tests::actor};
 
 fn rule(kind: DamageKind) -> HitRule {
     HitRule {
-        sound: None,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
         kind,
-        arte: false,
         power: Power::Fixed(8),
-        element: HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        guard: GuardRule::default(),
         reaction: crate::ReactionRule {
             hitstun: 60,
             stagger: 200,
             stun_chance: 255,
             ..Default::default()
         },
-        condition: None,
+        ..crate::tests::hit()
     }
 }
 

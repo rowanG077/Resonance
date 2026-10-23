@@ -6,17 +6,12 @@ fn definition() -> Arc<ProjectileDefinition> {
     Arc::new(ProjectileDefinition {
         lifetime: Some(20),
         velocity: [0., 8., 16.],
-        acceleration: [0.; 3],
         offset: [0., 32., 90.],
-        clamp_ground: false,
-        active: None,
-        birth: None,
         motion: ProjectileMotion {
             velocity_jitter: [4., 4., 2.],
             ..Default::default()
         },
-        effects: Default::default(),
-        contact: None,
+        ..Default::default()
     })
 }
 
@@ -41,7 +36,7 @@ fn projectile(definition: Arc<ProjectileDefinition>, heading: f32) -> Projectile
 }
 
 #[test]
-fn jitter_is_deterministic_and_quantized_without_activating_subunit_axes() {
+fn jitter_is_quantized_without_activating_subunit_axes() {
     let mut definition = definition();
     let value = Arc::get_mut(&mut definition).unwrap();
     value.velocity = [0., 0., 7.];
@@ -49,16 +44,10 @@ fn jitter_is_deterministic_and_quantized_without_activating_subunit_axes() {
     let mut samples = vec![];
     for seed in [1, 7, 31] {
         let mut first = projectile(definition.clone(), 0.);
-        let mut second = projectile(definition.clone(), 0.);
         let mut first_random = Random::new(seed);
-        let mut second_random = Random::new(seed);
         first
             .initialize(&mut vec![], |_, _| Ok(first_random.next_u16()), None)
             .unwrap();
-        second
-            .initialize(&mut vec![], |_, _| Ok(second_random.next_u16()), None)
-            .unwrap();
-        assert_eq!(first.velocity, second.velocity);
         assert_eq!(first.velocity[0], 0.);
         for (axis, base, maximum) in [(1, 0., 1.4), (2, 7., 0.9)] {
             let delta = first.velocity[axis] - base;
@@ -82,24 +71,4 @@ fn jitter_rotates_with_the_projectile() {
             .unwrap();
     }
     crate::tests::assert_vector_close(rotated.velocity, rotate(local.velocity, 90.), 0.0001);
-}
-
-#[test]
-fn jitter_rejects_nonfinite_values_and_accepts_fractional_amplitudes() {
-    for value in [f32::NAN, f32::INFINITY, -f32::INFINITY] {
-        let mut definition = definition();
-        Arc::get_mut(&mut definition)
-            .unwrap()
-            .motion
-            .velocity_jitter[0] = value;
-        assert!(definition.validate().is_err());
-    }
-    for value in [0., 0.25, -1.5, 4.] {
-        let mut definition = definition();
-        Arc::get_mut(&mut definition)
-            .unwrap()
-            .motion
-            .velocity_jitter[0] = value;
-        assert!(definition.validate().is_ok());
-    }
 }

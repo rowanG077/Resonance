@@ -1,7 +1,7 @@
 //! Decode enemy decisions, including model contacts required by their projectiles.
 use crate::read::u16 as half;
 use anyhow::{Context, Result, ensure};
-use resonance_content::battle_enemy::{Definition, Presentation, WeaponVisibility};
+use resonance_content::battle_enemy::{Definition, EntranceCamera, Presentation, WeaponVisibility};
 use resonance_content::battle_voice::TimedVoice;
 use std::{fs, path::Path};
 
@@ -41,16 +41,10 @@ fn publish(extracted: &Path, output: &Path, cached: bool) -> Result<Vec<String>>
                 "cached enemy {id} body differs from source"
             );
             crate::battle_model::refresh_enemy_attachment_animation(&bytes, &mut model)?;
-            if cached {
+            if let Some(shared) = shared.as_mut() {
                 paths.push(
-                    refresh_effects(
-                        &bytes,
-                        id as u8,
-                        &mut model,
-                        shared.as_mut().unwrap(),
-                        output,
-                    )
-                    .with_context(|| format!("refresh cached enemy {id} effect bank"))?,
+                    refresh_effects(&bytes, id as u8, &mut model, shared, output)
+                        .with_context(|| format!("refresh cached enemy {id} effect bank"))?,
                 );
             }
             let motions = crate::battle_model::publish_enemy_carried_motions(
@@ -286,6 +280,7 @@ fn presentation(
     profile: &mut resonance_content::battle_profile::Profile,
     voices: &crate::battle_voice::Source,
 ) -> Result<Option<Presentation>> {
+    use resonance_content::battle_enemy::Opening;
     let policy = usize::from(half(bytes, 12)?);
     let selector = *bytes
         .get(policy + 8)
@@ -311,41 +306,28 @@ fn presentation(
     }
     let defeat = timed(profile.voices.as_ref().and_then(|voices| voices.defeat))?;
     let opening = match selector {
-        2 => Some(resonance_content::battle_enemy::Opening::Entrance(
-            sword_dancer_entrance(),
-        )),
-        10 => Some(resonance_content::battle_enemy::Opening::Entrance(
-            descending_entrance(),
-        )),
-        12 => Some(resonance_content::battle_enemy::Opening::Entrance(
-            falling_entrance(bytes, metadata)?,
-        )),
-        15 => Some(resonance_content::battle_enemy::Opening::Entrance(
-            duel_entrance(),
-        )),
-        3 | 6 | 8 | 19 | 20 | 23 | 24 => Some(resonance_content::battle_enemy::Opening::Voice(
-            timed(crate::battle_voice::sound(half(metadata, 0xf6)?))?,
-        )),
-        21 => Some(resonance_content::battle_enemy::Opening::Entrance(
-            confrontation_entrance(),
-        )),
-        22 => Some(resonance_content::battle_enemy::Opening::Entrance(
-            betrayal_entrance(timed(crate::battle_voice::sound(half(metadata, 0xf6)?))?),
-        )),
-        26 => Some(resonance_content::battle_enemy::Opening::Entrance(
-            final_entrance(profile),
-        )),
-        _ => None,
+        3 | 6 | 8 | 19 | 20 | 23 | 24 => Some(Opening::Voice(timed(crate::battle_voice::sound(
+            half(metadata, 0xf6)?,
+        ))?)),
+        _ => match selector {
+            2 => Some(sword_dancer_entrance()),
+            10 => Some(descending_entrance()),
+            12 => Some(falling_entrance(bytes, metadata)?),
+            15 => Some(duel_entrance()),
+            21 => Some(confrontation_entrance()),
+            22 => Some(betrayal_entrance(timed(crate::battle_voice::sound(half(
+                metadata, 0xf6,
+            )?))?)),
+            26 => Some(final_entrance(profile)),
+            _ => None,
+        }
+        .map(Opening::Entrance),
     };
     Ok(Some(Presentation { opening, defeat }))
 }
 
-fn confrontation_entrance() -> resonance_content::battle_enemy::Entrance {
-    use resonance_content::battle_enemy::{
-        Entrance, EntranceCamera, EntranceCue as Cue, EntranceShot, EntranceStaging,
-    };
-    use resonance_content::battle_voice::Sound;
-    let camera = |radius, focus_height, yaw| EntranceCamera {
+fn stationary_camera(radius: f32, focus_height: f32, yaw: f32, elevation: f32) -> EntranceCamera {
+    EntranceCamera {
         radius,
         height_radius: 1500.,
         focus_height,
@@ -353,11 +335,18 @@ fn confrontation_entrance() -> resonance_content::battle_enemy::Entrance {
         yaw,
         yaw_step: 0.,
         maximum_yaw: None,
-        elevation: 5.,
+        elevation,
         elevation_step: 0.,
-        minimum_elevation: 5.,
+        minimum_elevation: elevation,
+    }
+}
+
+fn confrontation_entrance() -> resonance_content::battle_enemy::Entrance {
+    use resonance_content::battle_enemy::{
+        Entrance, EntranceCue as Cue, EntranceShot, EntranceStaging,
     };
-    let opening = camera(1150., 75., -170.);
+    use resonance_content::battle_voice::Sound;
+    let opening = stationary_camera(1150., 75., -170., 5.);
     Entrance {
         ticks: 715,
         gravity: 0.,
@@ -419,7 +408,7 @@ fn confrontation_entrance() -> resonance_content::battle_enemy::Entrance {
                     301,
                     EntranceShot {
                         party: false,
-                        camera: camera(1300., 100., -10.),
+                        camera: stationary_camera(1300., 100., -10., 5.),
                         lateral: 19.75,
                         lateral_step: -0.25,
                         vertical: 0.,
@@ -430,7 +419,7 @@ fn confrontation_entrance() -> resonance_content::battle_enemy::Entrance {
                     551,
                     EntranceShot {
                         party: false,
-                        camera: camera(850., 100., 170.),
+                        camera: stationary_camera(850., 100., 170., 5.),
                         lateral: 0.,
                         lateral_step: 0.,
                         vertical: 0.,
@@ -481,18 +470,7 @@ fn duel_entrance() -> resonance_content::battle_enemy::Entrance {
         Entrance, EntranceCamera, EntranceCue as Cue, EntranceShot, EntranceStaging,
     };
     use resonance_content::battle_voice::Sound;
-    let camera = EntranceCamera {
-        radius: 1150.,
-        height_radius: 1500.,
-        focus_height: 100.,
-        focus_height_step: 0.,
-        yaw: -170.,
-        yaw_step: 0.,
-        maximum_yaw: None,
-        elevation: 7.5,
-        elevation_step: 0.,
-        minimum_elevation: 7.5,
-    };
+    let camera = stationary_camera(1150., 100., -170., 7.5);
     Entrance {
         ticks: 430,
         gravity: 0.,
@@ -567,22 +545,10 @@ fn duel_entrance() -> resonance_content::battle_enemy::Entrance {
 
 fn betrayal_entrance(fallback: TimedVoice) -> resonance_content::battle_enemy::Entrance {
     use resonance_content::battle_enemy::{
-        Entrance, EntranceCamera, EntranceCue as Cue, EntranceShot, EntranceStaging,
+        Entrance, EntranceCue as Cue, EntranceShot, EntranceStaging,
     };
     use resonance_content::battle_voice::Sound;
-    let camera = |radius, focus_height, yaw| EntranceCamera {
-        radius,
-        height_radius: 1500.,
-        focus_height,
-        focus_height_step: 0.,
-        yaw,
-        yaw_step: 0.,
-        maximum_yaw: None,
-        elevation: 5.,
-        elevation_step: 0.,
-        minimum_elevation: 5.,
-    };
-    let opening = camera(1150., 75., -170.);
+    let opening = stationary_camera(1150., 75., -170., 5.);
     Entrance {
         ticks: 660,
         gravity: 0.,
@@ -647,7 +613,7 @@ fn betrayal_entrance(fallback: TimedVoice) -> resonance_content::battle_enemy::E
                     211,
                     EntranceShot {
                         party: false,
-                        camera: camera(1000., 100., -10.),
+                        camera: stationary_camera(1000., 100., -10., 5.),
                         lateral: 19.75,
                         lateral_step: -0.25,
                         vertical: 0.,
@@ -658,7 +624,7 @@ fn betrayal_entrance(fallback: TimedVoice) -> resonance_content::battle_enemy::E
                     331,
                     EntranceShot {
                         party: false,
-                        camera: camera(700., 100., 170.),
+                        camera: stationary_camera(700., 100., 170., 5.),
                         lateral: 0.,
                         lateral_step: 0.,
                         vertical: -49.75,
@@ -669,7 +635,7 @@ fn betrayal_entrance(fallback: TimedVoice) -> resonance_content::battle_enemy::E
                     530,
                     EntranceShot {
                         party: false,
-                        camera: camera(700., 100., 170.),
+                        camera: stationary_camera(700., 100., 170., 5.),
                         lateral: 0.,
                         lateral_step: 0.,
                         vertical: 0.,
@@ -695,16 +661,13 @@ fn final_entrance(
         launches: vec![],
         cues: vec![(210, EntranceCue::Dissolve)],
         camera: EntranceCamera {
-            radius: 1950.,
-            height_radius: 1500.,
-            focus_height: profile.center_offset[1] * profile.model_scale - 20.,
             focus_height_step: 0.1,
-            yaw: 180.,
-            yaw_step: 0.,
-            maximum_yaw: None,
-            elevation: 9.,
-            elevation_step: 0.,
-            minimum_elevation: 9.,
+            ..stationary_camera(
+                1950.,
+                profile.center_offset[1] * profile.model_scale - 20.,
+                180.,
+                9.,
+            )
         },
         staging: None,
     }

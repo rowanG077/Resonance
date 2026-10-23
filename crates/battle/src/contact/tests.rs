@@ -9,37 +9,20 @@ mod damage_modifier_tests;
 mod kill_recovery_tests;
 #[path = "unison_tests.rs"]
 mod unison_tests;
-use crate::{
-    Activity, Affinity, Battle, Control, DamageKind, GuardResult, GuardRule, HitElement, Power,
-    ProjectileDefinition,
-};
+use crate::{Activity, Affinity, Battle, Control, DamageKind, GuardResult, GuardRule, Power};
 use std::sync::Arc;
 
 fn rule(power: u16) -> HitRule {
     HitRule {
-        sound: None,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
-        kind: DamageKind::Slash,
         arte: true,
         power: Power::Fixed(power),
-        element: HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        reaction: Default::default(),
-        guard: GuardRule {
-            pressure: 0,
-            ..Default::default()
-        },
-        condition: None,
+        ..crate::tests::hit()
     }
 }
 
-fn strike(battle: &mut Battle, rule: HitRule) -> Result<Vec<Cue>> {
-    let mut contacts = Contacts::default();
-    contacts.push(Contact {
+pub(super) fn contact_fixture(rule: HitRule) -> Contact {
+    Contact {
         source: ContactSource::Melee {
             actor: ActorId(0),
             action: ActionId(1),
@@ -52,10 +35,33 @@ fn strike(battle: &mut Battle, rule: HitRule) -> Result<Vec<Cue>> {
         rule,
         clashes: false,
         struck: Vec::new(),
-    })?;
+    }
+}
+
+fn strike(battle: &mut Battle, rule: HitRule) -> Result<Vec<Cue>> {
+    resolve_contact(battle, contact_fixture(rule))
+}
+
+pub(super) fn resolve_contact(battle: &mut Battle, contact: Contact) -> Result<Vec<Cue>> {
+    let mut contacts = Contacts::default();
+    contacts.push(contact)?;
     let mut cues = vec![];
     contacts.resolve(battle, &mut cues, &[])?;
     Ok(cues)
+}
+
+#[track_caller]
+pub(super) fn hit_result(cues: &[Cue]) -> crate::HitResult {
+    cues.iter()
+        .find_map(|cue| match cue {
+            Cue::Hit {
+                actor: ActorId(1),
+                result,
+                ..
+            } => Some(*result),
+            _ => None,
+        })
+        .expect("the contact must hit")
 }
 
 #[test]
@@ -92,14 +98,7 @@ fn instant_kill_only_finishes_damaging_enemy_contacts() -> Result<()> {
                     .any(|c| matches!(c, Cue::Defeated { actor: ActorId(1) })),
                 expected_hp == 0
             );
-            let result = cues
-                .iter()
-                .find_map(|c| match c {
-                    Cue::Hit { result, .. } => Some(result),
-                    _ => None,
-                })
-                .unwrap();
-            assert_eq!(result.hp_change, expected_hp - 500);
+            assert_eq!(hit_result(&cues).hp_change, expected_hp - 500);
         }
     }
     Ok(())
@@ -164,21 +163,14 @@ fn contact_uses_the_first_overlapping_marker_once_for_damage_and_feedback() -> R
         )?);
         let mut contacts = Contacts::default();
         contacts.push(Contact {
-            source: ContactSource::Melee {
-                actor: ActorId(0),
-                action: ActionId(1),
-            },
-            owner: ActorId(0),
             origin: Origin::Bone(crate::MeleeAnchor {
-                resource: 8,
+                resource: crate::ResourceId(8),
                 bone: 1,
             }),
             radius: 0.,
             height: 0.,
             shape: HitShape::Sphere,
-            rule: rule(10),
-            clashes: false,
-            struck: Vec::new(),
+            ..contact_fixture(rule(10))
         })?;
         let mut cues = Vec::new();
         // The attachment uses its current pose with the placement before movement.
@@ -333,13 +325,7 @@ fn post_contact_power_preserves_current_damage_guard_and_projectile_ownership() 
             for count in 1..=2 {
                 battle.actors[1].guard.active = guarded;
                 let cues = strike(&mut battle, hit)?;
-                let result = cues
-                    .iter()
-                    .find_map(|cue| match cue {
-                        Cue::Hit { result, .. } => Some(result),
-                        _ => None,
-                    })
-                    .expect("the contact must hit");
+                let result = hit_result(&cues);
                 assert_eq!(matches!(result.guard, GuardResult::Blocked { .. }), guarded);
                 assert_eq!(
                     battle.actors[0].attack_power as i16,
@@ -366,20 +352,14 @@ fn post_contact_power_preserves_current_damage_guard_and_projectile_ownership() 
         [0.; 3],
     )?;
     battle.actors[0].attack_power = 80;
-    let mut contacts = Contacts::default();
-    contacts.push(Contact {
+    let contact = Contact {
         source: ContactSource::Projectile(id),
-        owner: ActorId(0),
-        origin: Origin::World([0.; 3]),
         radius: 5.,
         height: 5.,
         shape: HitShape::Sphere,
-        rule: hit,
-        clashes: false,
-        struck: Vec::new(),
-    })?;
-    let mut cues = Vec::new();
-    contacts.resolve(&mut battle, &mut cues, &[])?;
+        ..contact_fixture(hit)
+    };
+    let cues = resolve_contact(&mut battle, contact)?;
     assert!(cues.iter().any(|cue| matches!(cue, Cue::Hit { .. })));
     assert_eq!(battle.actors[0].attack_power, 65);
     assert_eq!(battle.projectiles[&id].attack_power, 100);
@@ -484,13 +464,7 @@ fn suppressed_contact_keeps_damage_and_ailments_without_guard_reaction_or_succes
             );
         }
         let cues = strike(&mut battle, hit)?;
-        let result = cues
-            .iter()
-            .find_map(|cue| match cue {
-                Cue::Hit { result, .. } => Some(*result),
-                _ => None,
-            })
-            .unwrap();
+        let result = hit_result(&cues);
         assert_eq!(result.amount, 40);
         assert_eq!(result.guard, GuardResult::None);
         assert_eq!(result.reaction_suppressed, !lethal);
@@ -525,7 +499,7 @@ fn suppressed_contact_keeps_damage_and_ailments_without_guard_reaction_or_succes
 #[test]
 fn authored_contact_effect_uses_the_hit_point_and_respects_guard_permission() -> Result<()> {
     let effect = crate::EffectAppearance {
-        resource: 2,
+        resource: crate::ResourceId(2),
         member: 7,
     };
     let mut results = [None; 2];
@@ -615,12 +589,7 @@ fn combo_grade_contact(
     target.reaction.combo_hits = prior_hits;
     target.reaction.combo_damage = 210;
     target.body.collider = Some(crate::Collider::sphere(2.));
-    let mut battle = crate::PreparedBattle::new(
-        vec![(owner, Default::default()), (target, Default::default())],
-        Default::default(),
-        1,
-    )?
-    .finish()?;
+    let mut battle = crate::tests::prepare_actors(vec![owner, target], 1).finish()?;
     let cues = strike(&mut battle, rule(54))?;
     Ok((battle, cues))
 }
@@ -739,32 +708,14 @@ fn native_melee_volume_turns_scales_and_follows_the_owner_without_a_model() -> R
 
 #[test]
 fn hit_condition_label_matches_the_condition_and_application_pose() -> Result<()> {
+    use crate::conditions::ConditionLabel::{Applied, StatusDown};
+
     for (condition, expected_label, duration) in [
-        (
-            HitAilment::Weak,
-            crate::conditions::ConditionLabel::StatusDown,
-            None,
-        ),
-        (
-            HitAilment::Curse,
-            crate::conditions::ConditionLabel::Applied,
-            None,
-        ),
-        (
-            HitAilment::Paralysis,
-            crate::conditions::ConditionLabel::Applied,
-            Some(600),
-        ),
-        (
-            HitAilment::PoisonMild,
-            crate::conditions::ConditionLabel::Applied,
-            None,
-        ),
-        (
-            HitAilment::PoisonSevere,
-            crate::conditions::ConditionLabel::Applied,
-            None,
-        ),
+        (HitAilment::Weak, StatusDown, None),
+        (HitAilment::Curse, Applied, None),
+        (HitAilment::Paralysis, Applied, Some(600)),
+        (HitAilment::PoisonMild, Applied, None),
+        (HitAilment::PoisonSevere, Applied, None),
     ] {
         let owner = crate::tests::actor(Side::Party);
         let mut target = crate::tests::actor(Side::Enemy);
@@ -773,45 +724,21 @@ fn hit_condition_label_matches_the_condition_and_application_pose() -> Result<()
         target.position = [10., 20., 30.];
         target.body.center_offset = [1., 2., 3.];
         target.body.collider = Some(crate::Collider::sphere(2.));
-        let mut battle = crate::tests::prepared(vec![owner, target], 1)
-            .finish()
-            .unwrap();
-        let mut contacts = Contacts::default();
-        contacts.push(Contact {
-            source: ContactSource::Melee {
-                actor: ActorId(0),
-                action: ActionId(1),
-            },
-            owner: ActorId(0),
+        let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
+        let contact = Contact {
             origin: Origin::World(battle.actors[1].position),
-            radius: 20.,
-            height: 20.,
-            shape: HitShape::Box,
-            rule: HitRule {
-                sound: None,
-                effect_on_guard: false,
-                effect: None,
+            ..contact_fixture(HitRule {
                 overlimit_pause: true,
-                kind: DamageKind::Slash,
-                arte: false,
                 power: Power::Fixed(1),
-                element: HitElement::Neutral,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
-                reaction: Default::default(),
-                guard: GuardRule::default(),
                 condition: Some(crate::HitCondition {
                     condition,
                     chance: 100,
                     value: 0,
                 }),
-            },
-            clashes: false,
-            struck: Vec::new(),
-        })?;
-        let mut cues = vec![];
-        contacts.resolve(&mut battle, &mut cues, &[])?;
+                ..crate::tests::hit()
+            })
+        };
+        let cues = resolve_contact(&mut battle, contact)?;
         assert_eq!(battle.actors[1].conditions.effective(), condition.into());
         assert_eq!(battle.actors[1].conditions.remaining(condition), duration);
         if crate::conditions::POISON.contains(condition) {
@@ -822,15 +749,8 @@ fn hit_condition_label_matches_the_condition_and_application_pose() -> Result<()
             Cue::ConditionLabel {
                 actor: ActorId(1),
                 kind,
-                ..
-            } if *kind == expected_label
-        )));
-        assert!(cues.iter().any(|cue| matches!(
-            cue,
-            Cue::ConditionLabel {
                 position: [12., 24., 36.],
-                ..
-            }
+            } if *kind == expected_label
         )));
     }
     Ok(())
@@ -842,47 +762,20 @@ fn petrified_contact_is_skipped_without_condition_or_rng() -> Result<()> {
     let mut target = crate::tests::actor(Side::Enemy);
     target.availability = crate::ActorAvailability::Petrified;
     target.body.collider = Some(crate::Collider::sphere(2.));
-    let mut battle = crate::tests::prepared(vec![owner, target], 1)
-        .finish()
-        .unwrap();
-    let mut contacts = Contacts::default();
-    contacts.push(Contact {
-        source: ContactSource::Melee {
-            actor: ActorId(0),
-            action: ActionId(1),
-        },
-        owner: ActorId(0),
-        origin: Origin::World([0.; 3]),
-        radius: 20.,
-        height: 20.,
-        shape: HitShape::Box,
-        rule: HitRule {
-            sound: None,
-            effect_on_guard: false,
-            effect: None,
-            overlimit_pause: true,
-            kind: DamageKind::Slash,
-            arte: false,
-            power: Power::Fixed(1),
-            element: HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
-            reaction: Default::default(),
-            guard: GuardRule::default(),
-            condition: Some(crate::HitCondition {
-                condition: resonance_content::battle_action::Condition::Paralysis,
-                chance: 100,
-                value: 0,
-            }),
-        },
-        clashes: false,
-        struck: Vec::new(),
-    })?;
+    let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
     let random = battle.random_state();
     let hp = battle.actors[1].hp;
-    let mut cues = vec![];
-    contacts.resolve(&mut battle, &mut cues, &[])?;
+    let hit = HitRule {
+        overlimit_pause: true,
+        power: Power::Fixed(1),
+        condition: Some(crate::HitCondition {
+            condition: resonance_content::battle_action::Condition::Paralysis,
+            chance: 100,
+            value: 0,
+        }),
+        ..crate::tests::hit()
+    };
+    let cues = strike(&mut battle, hit)?;
     assert_eq!(battle.random_state(), random);
     assert_eq!(battle.actors[1].hp, hp);
     assert_eq!(battle.actors[1].conditions.effective(), ConditionSet::EMPTY);
@@ -925,16 +818,10 @@ fn accepted_combo_contacts_adjust_grade_for_each_victim_side() -> Result<()> {
     let (battle, cues) = combo_grade_contact(Side::Enemy, 5, 1000, true)?;
     assert_eq!(battle.actors[1].reaction.combo_hits, 5);
     assert_eq!(battle.ledger().grade(), 0);
-    assert!(cues.iter().any(|cue| matches!(
-        cue,
-        Cue::Hit {
-            result: crate::HitResult {
-                guard: GuardResult::Blocked { .. },
-                ..
-            },
-            ..
-        }
-    )));
+    assert!(matches!(
+        hit_result(&cues).guard,
+        GuardResult::Blocked { .. }
+    ));
     Ok(())
 }
 
@@ -988,16 +875,7 @@ fn combo_feedback_includes_unselected_targets_and_automatic_allies() -> Result<(
         if side == Side::Enemy {
             other.control = Control::Manual;
         }
-        let mut battle = crate::PreparedBattle::new(
-            vec![
-                (owner, Default::default()),
-                (target, Default::default()),
-                (other, Default::default()),
-            ],
-            Default::default(),
-            1,
-        )?
-        .finish()?;
+        let mut battle = crate::tests::prepare_actors(vec![owner, target, other], 1).finish()?;
         battle.runtime[0].target = ActorId(2);
         let cues = strike(&mut battle, rule(25))?;
         assert!(cues.iter().any(|cue| matches!(
@@ -1023,12 +901,7 @@ fn defeat_commits_credit_once() -> Result<()> {
         target.overlimit = crate::OverLimit::new(73)?;
         target.body.collider = Some(crate::Collider::sphere(1.));
 
-        let prepared = crate::PreparedBattle::new(
-            vec![(owner, Default::default()), (target, Default::default())],
-            Default::default(),
-            1,
-        )?;
-        let mut battle = prepared.finish()?;
+        let mut battle = crate::tests::prepare_actors(vec![owner, target], 1).finish()?;
         battle.set_diagnostics(resonance_content::diagnostics::Diagnostics::new(false));
         let hit = rule(100);
         strike(&mut battle, hit)?;
@@ -1077,9 +950,7 @@ fn overlapping_projectiles_each_hit_once_restore_tp_and_retire() -> Result<()> {
         target.hp = 100;
         target.position = [10., 0., 0.];
         target.body.collider = Some(crate::Collider::sphere(1.));
-        let mut battle = crate::tests::prepared(vec![owner, target], 1)
-            .finish()
-            .unwrap();
+        let mut battle = crate::tests::prepared(vec![owner, target], 1).finish()?;
         let active_id = ActionId(if matching_action { 1 } else { 2 });
         battle.put_sequence(
             active_id,
@@ -1091,45 +962,14 @@ fn overlapping_projectiles_each_hit_once_restore_tp_and_retire() -> Result<()> {
                 0,
             )),
         );
-        let projectile = Arc::new(ProjectileDefinition {
-            lifetime: Some(20),
-            velocity: [2., 0., 0.],
-            acceleration: [0.; 3],
-            offset: [0.; 3],
-            clamp_ground: true,
-            active: None,
-            birth: None,
-            motion: Default::default(),
-            effects: Default::default(),
-            contact: Some(crate::ProjectileContact {
-                hit: HitRule {
-                    sound: None,
-                    effect_on_guard: false,
-                    effect: None,
-                    overlimit_pause: false,
-                    kind: DamageKind::Slash,
-                    arte: false,
-                    power: Power::Fixed(8),
-                    element: HitElement::Neutral,
-                    prevents_defeat: false,
-                    finisher_grade: false,
-                    hp_drain: false,
-                    guard: GuardRule::default(),
-                    reaction: Default::default(),
-                    condition: None,
-                },
-                cooldown: 20,
-                repeat_limit: 0,
-                radius: 1.,
-                height: 2.,
-                shape: HitShape::Sphere,
-                offset: [0.; 3],
-                radius_growth: 0.,
-                height_growth: 0.,
-                survives_contact: false,
-                clashes: false,
-            }),
-        });
+        let mut projectile = crate::tests::contact_projectile(false, false);
+        projectile.velocity = [2., 0., 0.];
+        let contact = projectile.contact.as_mut().unwrap();
+        contact.hit.power = Power::Fixed(8);
+        contact.cooldown = 20;
+        contact.radius = 1.;
+        contact.height = 2.;
+        let projectile = Arc::new(projectile);
         for _ in 0..2 {
             battle.emit(
                 Arc::clone(&projectile),
@@ -1252,8 +1092,7 @@ fn companion_hit_suppresses_selected_enemy_recoil_until_the_leaders_own_hit() ->
     let previous_direction = [0., 0., -1.];
     battle.actors[2].reaction.direction = previous_direction;
     for (owner, expected_speed) in [(ActorId(1), 0.), (ActorId(0), 4.)] {
-        let mut contacts = Contacts::default();
-        contacts.push(Contact {
+        let contact = Contact {
             source: ContactSource::Melee {
                 actor: owner,
                 action: ActionId(1),
@@ -1262,19 +1101,7 @@ fn companion_hit_suppresses_selected_enemy_recoil_until_the_leaders_own_hit() ->
             origin: Origin::World(battle.actors[2].position),
             radius: 2.,
             height: 2.,
-            shape: HitShape::Box,
-            rule: HitRule {
-                sound: None,
-                effect_on_guard: false,
-                effect: None,
-                overlimit_pause: true,
-                kind: DamageKind::Slash,
-                arte: true,
-                power: Power::Fixed(25),
-                element: HitElement::Neutral,
-                prevents_defeat: false,
-                finisher_grade: false,
-                hp_drain: false,
+            ..contact_fixture(HitRule {
                 reaction: crate::ReactionRule {
                     recoil: crate::RecoilRule {
                         impulse: [4., 0.],
@@ -1284,13 +1111,10 @@ fn companion_hit_suppresses_selected_enemy_recoil_until_the_leaders_own_hit() ->
                     hitstun: 40,
                     ..Default::default()
                 },
-                guard: Default::default(),
-                condition: None,
-            },
-            clashes: false,
-            struck: Vec::new(),
-        })?;
-        contacts.resolve(&mut battle, &mut vec![], &[])?;
+                ..rule(25)
+            })
+        };
+        resolve_contact(&mut battle, contact)?;
         let target = &battle.actors[2];
         assert_eq!(battle.activity(ActorId(2)), Activity::Hurt);
         assert_eq!(target.movement.forward, expected_speed);
@@ -1320,15 +1144,7 @@ fn defeat_retargets_a_surviving_opponent() -> Result<()> {
     actors[1].hp = 1;
     actors[1].body.collider = Some(crate::Collider::sphere(1.));
     actors[2].position = [300., 0., 0.];
-    let mut battle = crate::PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        1,
-    )?
-    .finish()?;
+    let mut battle = crate::tests::prepare_actors(actors, 1).finish()?;
     battle.set_decision_target(ActorId(0), ActorId(1))?;
     strike(&mut battle, rule(25))?;
     assert_eq!(battle.activity(ActorId(1)), Activity::Defeated);
@@ -1370,45 +1186,19 @@ fn contacts_update_gauge_and_defeat_state() -> Result<()> {
                 target.reaction.protection.mode = crate::ProtectionMode::Armor;
             }
             target.body.collider = Some(crate::Collider::sphere(1.));
-            let mut prepared = crate::PreparedBattle::new(
-                vec![(owner, Default::default()), (target, Default::default())],
-                Default::default(),
-                1,
-            )?;
+            let mut prepared = crate::tests::prepare_actors(vec![owner, target], 1);
             prepared.resources.actor_setup[1].overlimit_gain = 15;
             let mut battle = prepared.finish()?;
-            let mut contacts = Contacts::default();
-            contacts.push(Contact {
-                source: ContactSource::Melee {
-                    actor: ActorId(0),
-                    action: ActionId(1),
-                },
-                owner: ActorId(0),
-                origin: Origin::World([0.; 3]),
+            let contact = Contact {
                 radius: 2.,
                 height: 2.,
                 shape: HitShape::Sphere,
-                rule: HitRule {
-                    sound: None,
-                    kind: DamageKind::Slash,
-                    arte: true,
-                    effect_on_guard: false,
-                    effect: None,
+                ..contact_fixture(HitRule {
                     overlimit_pause: eligible,
-                    power: Power::Fixed(100),
-                    element: HitElement::Neutral,
-                    prevents_defeat: false,
-                    finisher_grade: false,
-                    hp_drain: false,
-                    reaction: Default::default(),
-                    guard: Default::default(),
-                    condition: None,
-                },
-                clashes: false,
-                struck: Vec::new(),
-            })?;
-            let mut cues = vec![];
-            contacts.resolve(&mut battle, &mut cues, &[])?;
+                    ..rule(100)
+                })
+            };
+            resolve_contact(&mut battle, contact)?;
             if active && !lethal {
                 assert_eq!(battle.actors[1].overlimit.remaining(), expected);
             } else {
@@ -1446,45 +1236,21 @@ fn ailment_ward_reports_feedback_without_erasing_critical_damage() -> Result<()>
     target.position = [10., 20., 30.];
     target.body.center_offset = [1., 2., 3.];
     target.body.collider = Some(crate::Collider::sphere(2.));
-    let mut battle = crate::tests::prepared(vec![owner, target], 0)
-        .finish()
-        .unwrap();
-    let mut contacts = Contacts::default();
-    contacts.push(Contact {
-        source: ContactSource::Melee {
-            actor: ActorId(0),
-            action: ActionId(1),
-        },
-        owner: ActorId(0),
+    let mut battle = crate::tests::prepared(vec![owner, target], 0).finish()?;
+    let contact = Contact {
         origin: Origin::World(battle.actors[1].position),
-        radius: 20.,
-        height: 20.,
-        shape: HitShape::Box,
-        rule: HitRule {
-            sound: None,
-            effect_on_guard: false,
-            effect: None,
+        ..contact_fixture(HitRule {
             overlimit_pause: true,
-            kind: DamageKind::Slash,
             arte: true,
-            power: Power::Normal,
-            element: HitElement::Neutral,
-            prevents_defeat: false,
-            finisher_grade: false,
-            hp_drain: false,
-            reaction: Default::default(),
-            guard: GuardRule::default(),
             condition: Some(crate::HitCondition {
                 condition: resonance_content::battle_action::Condition::Weak,
                 chance: 100,
                 value: 0,
             }),
-        },
-        clashes: false,
-        struck: Vec::new(),
-    })?;
-    let mut cues = Vec::new();
-    contacts.resolve(&mut battle, &mut cues, &[])?;
+            ..crate::tests::hit()
+        })
+    };
+    let cues = resolve_contact(&mut battle, contact)?;
     assert!(cues.iter().any(|cue| matches!(
         cue,
         Cue::ConditionLabel {

@@ -1,29 +1,25 @@
 use super::*;
-use crate::{PreparedBattle, Side};
+use crate::WeaponSlot;
+use crate::{
+    PreparedBattle, ResourceId, Side,
+    tests::{models, prepare_actors},
+};
 use resonance_content::animation::{
     Bone, Track, Transform, TransformChannels, VectorCurve, VectorInterpolation,
 };
 
 fn definition() -> Arc<ModelDefinition> {
-    let skeleton = Skeleton {
-        bones: vec![
-            Bone {
-                name: "root".into(),
-                parent: None,
-                bind_channels: TransformChannels(8),
-                bind: Transform::default(),
-            },
-            Bone {
-                name: "hand".into(),
-                parent: Some(0),
-                bind_channels: TransformChannels(8),
-                bind: Transform {
-                    translation: [2., 0., 3.],
-                    ..Default::default()
-                },
-            },
-        ],
-    };
+    let mut definition = crate::tests::model_definition(7, [(0, 10.), (1, 10.)]);
+    definition.initial.rate = 0.;
+    definition.skeleton.bones.push(Bone {
+        name: "hand".into(),
+        parent: Some(0),
+        bind_channels: TransformChannels(8),
+        bind: Transform {
+            translation: [2., 0., 3.],
+            ..Default::default()
+        },
+    });
     let motion = Motion {
         duration_frames: 10.,
         tracks: vec![Track {
@@ -44,33 +40,8 @@ fn definition() -> Arc<ModelDefinition> {
             matrices: None,
         }],
     };
-    Arc::new(ModelDefinition {
-        tint: [64, 64, 64, 255],
-        body_spheres: vec![],
-        reception_spheres: None,
-        fade_on_defeat: false,
-        secondary_motion: vec![],
-        reactions: Default::default(),
-        idle_motions: [None; 2],
-        idle_expression: [0; 4],
-        active_expression: [0; 4],
-        forced_eye_frame: None,
-        blink: None,
-        resource: 7,
-        skeleton,
-        motions: BTreeMap::from([(0, motion.clone()), (1, motion)]),
-        initial: Playback {
-            clip: 0,
-            frame: 0.,
-            rate: 0.,
-            repeat: true,
-        },
-
-        shadow: None,
-        weapons: vec![],
-
-        suppress_root_translation: [false; 3],
-    })
+    definition.motions = BTreeMap::from([(0, motion.clone()), (1, motion)]);
+    Arc::new(definition)
 }
 
 #[test]
@@ -83,7 +54,10 @@ fn partial_pose_keeps_advancing_during_body_blend_and_blends_out_from_visible_po
     motion.tracks.push(root);
     let actor = actor();
     let mut model = Model::new(Arc::new(definition), ActorId(0), &actor)?;
-    let binding = |clip| MotionBinding { model: 7, clip };
+    let binding = |clip| MotionBinding {
+        model: ResourceId(7),
+        clip,
+    };
     let outgoing = model.composed_local()[1].value();
     let mut blending = model.clone();
     blending.play_part(
@@ -164,7 +138,16 @@ fn model_playback_loops_freezes_or_finishes_at_its_directional_endpoint() -> Res
     }
     let actor = actor();
     let mut model = Model::new(definition(), ActorId(0), &actor)?;
-    model.play(MotionBinding { model: 7, clip: 0 }, 2.4, 0.8, false, 0)?;
+    model.play(
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 0,
+        },
+        2.4,
+        0.8,
+        false,
+        0,
+    )?;
     model.set_end(35.2)?;
     for _ in 0..50 {
         model.step(&actor, true)?;
@@ -191,10 +174,10 @@ fn trimmed_body_animation_keeps_components_in_sync_without_trimming_carried_loop
     .enumerate()
     {
         definition.weapons.push(Arc::new(WeaponDefinition::new(
-            slot as u8,
+            WeaponSlot(slot as u8),
             0,
             vec![WeaponLayerDefinition {
-                resource: 8 + slot as u32,
+                resource: ResourceId(8 + slot as u32),
                 skeleton: definition.skeleton.clone(),
                 motions: definition.motions.clone(),
                 playback,
@@ -208,7 +191,16 @@ fn trimmed_body_animation_keeps_components_in_sync_without_trimming_carried_loop
     let actor = actor();
     for repeat in [false, true] {
         let mut model = Model::new(Arc::clone(&definition), ActorId(0), &actor)?;
-        model.play(MotionBinding { model: 7, clip: 0 }, 0., 0.5, repeat, 0)?;
+        model.play(
+            MotionBinding {
+                model: ResourceId(7),
+                clip: 0,
+            },
+            0.,
+            0.5,
+            repeat,
+            0,
+        )?;
         model.set_end(3.)?;
         assert!(model.set_end(f32::NAN).is_err());
         let mut carried_passed_end = false;
@@ -246,13 +238,13 @@ fn entry_pose_and_attachments_begin_at_final_placement_and_pause_without_drift()
         collision_plane: None,
     });
     definition.weapons.push(Arc::new(WeaponDefinition {
-        slot: 0,
+        slot: Some(WeaponSlot(0)),
         attachment: Some(1),
         effect_interval: None,
         initially_visible: true,
         layers: vec![crate::WeaponLayerDefinition {
             texture_animation: None,
-            resource: 8,
+            resource: ResourceId(8),
             skeleton: definition.skeleton.clone(),
             motions: definition.motions.clone(),
             playback: WeaponPlayback::Owner {
@@ -275,12 +267,7 @@ fn entry_pose_and_attachments_begin_at_final_placement_and_pause_without_drift()
     actor.body.scale = 2.;
     let mut enemy = crate::tests::actor(Side::Enemy);
     enemy.position = [200., 0., 100.];
-    let prepared = PreparedBattle::new(
-        vec![(actor, Default::default()), (enemy, Default::default())],
-        Default::default(),
-        1,
-    )?
-    .with_entry_choices(
+    let prepared = prepare_actors(vec![actor, enemy], 1).with_entry_choices(
         (0..2)
             .map(|index| crate::EntryChoice {
                 actor: ActorId(index),
@@ -427,11 +414,9 @@ fn body_gap_uses_posed_spheres_at_current_placement_without_advancing() -> Resul
     first.position = [0.; 3];
     let mut second = first.clone();
     second.position = [100., 40., 0.];
-    let mut models = Models::new(
+    let mut models = models(
         &[first.clone(), second.clone()],
         vec![Some(Arc::new(definition)); 2],
-        Default::default(),
-        resonance_content::diagnostics::Diagnostics::new(true),
     )?;
     let gap = |first: &Actor, second: &Actor| {
         models
@@ -577,7 +562,10 @@ fn absent_reaction_slots_preserve_playback_and_declared_missing_clips_fail() {
     assert_eq!(transformed.shown.bones[1][3][0], 20.);
     transformed
         .play_part(
-            MotionBinding { model: 7, clip: 0 },
+            MotionBinding {
+                model: ResourceId(7),
+                clip: 0,
+            },
             Pose {
                 blend: 0,
                 ..Default::default()
@@ -587,7 +575,16 @@ fn absent_reaction_slots_preserve_playback_and_declared_missing_clips_fail() {
         .unwrap();
     transformed.set_motion_aliases([(0, None), (1, None)].into());
     transformed
-        .play(MotionBinding { model: 7, clip: 0 }, 0., 0.5, false, 0)
+        .play(
+            MotionBinding {
+                model: ResourceId(7),
+                clip: 0,
+            },
+            0.,
+            0.5,
+            false,
+            0,
+        )
         .unwrap();
     transformed.hurt(true).unwrap();
     transformed
@@ -653,9 +650,7 @@ fn reaction_poses_follow_native_state_and_keep_active_clocks() -> Result<()> {
         owner.position[1] = 1000.;
         let mut definition = (*definition).clone();
         definition.reactions.falling_blend = falling_blend;
-        let mut battle =
-            PreparedBattle::new(vec![(owner, Default::default())], Default::default(), 1)?
-                .finish()?;
+        let mut battle = prepare_actors(vec![owner], 1).finish()?;
         battle.set_models(crate::Models::new(
             battle.actors(),
             vec![Some(Arc::new(definition))],
@@ -808,12 +803,7 @@ fn reaction_poses_follow_native_state_and_keep_active_clocks() -> Result<()> {
         recovery_definition.reactions.get_up = get_up;
         let mut recovery_actor = actor.clone();
         recovery_actor.reaction.recoil.kind = RecoilKind::Normal;
-        let mut recovery = PreparedBattle::new(
-            vec![(recovery_actor, Default::default())],
-            Default::default(),
-            1,
-        )?
-        .finish()?;
+        let mut recovery = prepare_actors(vec![recovery_actor], 1).finish()?;
         recovery.set_models(crate::Models::new(
             recovery.actors(),
             vec![Some(Arc::new(recovery_definition))],
@@ -822,9 +812,7 @@ fn reaction_poses_follow_native_state_and_keep_active_clocks() -> Result<()> {
         )?);
         recovery.actors[0].reaction.recoil.kind = RecoilKind::SettledLaunch;
         recovery.enter_get_up(ActorId(0));
-        for _ in 0..crate::knockdown::GET_UP_DURATION {
-            recovery.step(crate::BattleInput::default())?;
-        }
+        crate::tests::step_idle(&mut recovery, crate::knockdown::GET_UP_DURATION)?;
         if get_up.is_some() {
             assert_eq!(recovery.activity(ActorId(0)), Activity::GettingUp);
             let before = recovery.snapshot();
@@ -868,7 +856,7 @@ fn reaction_poses_follow_native_state_and_keep_active_clocks() -> Result<()> {
         .push(Arc::new(WeaponDefinition::body(
             None,
             vec![WeaponLayerDefinition {
-                resource: 8,
+                resource: ResourceId(8),
                 skeleton: definition.skeleton.clone(),
                 motions: definition
                     .motions
@@ -892,10 +880,7 @@ fn reaction_poses_follow_native_state_and_keep_active_clocks() -> Result<()> {
         Default::default(),
         Default::default(),
     )?;
-    let base =
-        crate::PreparedBattle::new(vec![(actor, Default::default())], Default::default(), 1)?
-            .finish()?
-            .snapshot();
+    let base = prepare_actors(vec![actor], 1).finish()?.snapshot();
     for (pose, clip) in [
         (crate::CommonPose::Jump, 44),
         (crate::CommonPose::Backstep, 45),
@@ -992,7 +977,16 @@ fn sparse_clips_retain_omitted_channels_until_replaced() {
         let mut model = Model::new(Arc::clone(&definition), ActorId(0), &subject).unwrap();
         let rotation = model.shown.bones[1][0];
         model
-            .play(MotionBinding { model: 7, clip: 2 }, 0., 0.5, false, blend)
+            .play(
+                MotionBinding {
+                    model: ResourceId(7),
+                    clip: 2,
+                },
+                0.,
+                0.5,
+                false,
+                blend,
+            )
             .unwrap();
         // Blending approaches the bind translation; subsequent sparse samples
         // retain its last mixed value. Without a blend, it never changes.
@@ -1008,7 +1002,16 @@ fn sparse_clips_retain_omitted_channels_until_replaced() {
         // A whole omitted track retains its pose even during a new blend.
         let retained = model.shown.bones.clone();
         model
-            .play(MotionBinding { model: 7, clip: 3 }, 0., 0.5, false, blend)
+            .play(
+                MotionBinding {
+                    model: ResourceId(7),
+                    clip: 3,
+                },
+                0.,
+                0.5,
+                false,
+                blend,
+            )
             .unwrap();
         for _ in 0..u16::from(blend) + 2 {
             model.step(&subject, true).unwrap();
@@ -1016,7 +1019,16 @@ fn sparse_clips_retain_omitted_channels_until_replaced() {
         }
         // A later authored translation replaces the retained channel normally.
         model
-            .play(MotionBinding { model: 7, clip: 1 }, 0., 0.5, false, 0)
+            .play(
+                MotionBinding {
+                    model: ResourceId(7),
+                    clip: 1,
+                },
+                0.,
+                0.5,
+                false,
+                0,
+            )
             .unwrap();
         model.step(&subject, true).unwrap();
         assert_eq!(model.shown.bones, retained);
@@ -1038,7 +1050,16 @@ fn selected_clip_holds_its_start_frame_through_blending() -> Result<()> {
     ] {
         let mut model = Model::new(definition(), ActorId(0), &actor)?;
         let outgoing = model.shown.bones.clone();
-        model.play(MotionBinding { model: 7, clip: 1 }, 3., 0.5, false, blend)?;
+        model.play(
+            MotionBinding {
+                model: ResourceId(7),
+                clip: 1,
+            },
+            3.,
+            0.5,
+            false,
+            blend,
+        )?;
         for &weight in weights {
             model.step(&actor, true)?;
             assert_eq!(model.shown.frame, 3.);
@@ -1058,7 +1079,16 @@ fn selected_clip_holds_its_start_frame_through_blending() -> Result<()> {
         assert_eq!(model.shown.bones[1][3][0], 5.5);
     }
     let mut model = Model::new(definition(), ActorId(0), &actor)?;
-    model.play(MotionBinding { model: 7, clip: 1 }, 3.5, 0.5, false, 0)?;
+    model.play(
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        },
+        3.5,
+        0.5,
+        false,
+        0,
+    )?;
     model.step(&actor, true)?;
     model.set_rate(0.)?;
     model.step(&actor, true)?;
@@ -1080,7 +1110,10 @@ fn selected_clip_holds_its_start_frame_through_blending() -> Result<()> {
 #[test]
 fn replacement_during_blend_retains_its_baseline_and_reaches_each_endpoint() -> Result<()> {
     let actor = actor();
-    let binding = MotionBinding { model: 7, clip: 1 };
+    let binding = MotionBinding {
+        model: ResourceId(7),
+        clip: 1,
+    };
     for elapsed in [1, 4] {
         let mut model = Model::new(definition(), ActorId(0), &actor)?;
         model.play(binding, 8., 0.5, false, 4)?;
@@ -1127,12 +1160,7 @@ fn replacement_during_blend_retains_its_baseline_and_reaches_each_endpoint() -> 
                 rate: 0.,
                 repeat: false,
             };
-            let mut models = Models::new(
-                battle.actors(),
-                vec![Some(Arc::new(definition))],
-                BTreeMap::new(),
-                resonance_content::diagnostics::Diagnostics::new(true),
-            )?;
+            let mut models = models(battle.actors(), [Some(Arc::new(definition))])?;
             models.models[0].as_mut().unwrap().set_rate(0.5)?;
             let mut frame = battle.publish(Vec::new());
             if resuming {
@@ -1158,7 +1186,10 @@ fn replacement_during_blend_retains_its_baseline_and_reaches_each_endpoint() -> 
             for start in [8., 4.] {
                 frame.model_requests.push(ModelRequest::Play {
                     actor: ActorId(0),
-                    motion: MotionBinding { model: 7, clip: 0 },
+                    motion: MotionBinding {
+                        model: ResourceId(7),
+                        clip: 0,
+                    },
                     pose: Pose {
                         frame: start,
                         blend,
@@ -1217,7 +1248,16 @@ fn invalid_playback_is_rejected_before_replacing_a_visible_pose() -> Result<()> 
             let before = model.shown.clone();
             assert!(
                 model
-                    .play(MotionBinding { model: 7, clip: 1 }, frame, rate, false, 4)
+                    .play(
+                        MotionBinding {
+                            model: ResourceId(7),
+                            clip: 1
+                        },
+                        frame,
+                        rate,
+                        false,
+                        4
+                    )
                     .is_err()
             );
             assert_eq!(model.shown, before);
@@ -1267,7 +1307,16 @@ fn resting_pose_uses_health_and_keeps_actions_and_active_idle_clocks() -> Result
     model.settle(&subject, Activity::Idle, &mut false)?;
     model.step(&subject, false)?;
     assert_eq!(model.shown.clip, 41);
-    model.play(MotionBinding { model: 7, clip: 1 }, 0., 1., false, 0)?;
+    model.play(
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        },
+        0.,
+        1.,
+        false,
+        0,
+    )?;
     model.settle(&subject, Activity::Action, &mut false)?;
     model.step(&subject, false)?;
     assert_eq!(model.shown.clip, 1);
@@ -1289,7 +1338,16 @@ fn resting_pose_uses_health_and_keeps_actions_and_active_idle_clocks() -> Result
     model.settle(&subject, Activity::Recovering, &mut false)?;
     model.step(&subject, false)?;
     assert_eq!(model.shown.clip, 41);
-    model.play(MotionBinding { model: 7, clip: 1 }, 0., 0.5, true, 0)?;
+    model.play(
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        },
+        0.,
+        0.5,
+        true,
+        0,
+    )?;
     subject.movement.forward = 5.;
     model.settle(&subject, Activity::Idle, &mut false)?;
     model.step(&subject, false)?;
@@ -1306,11 +1364,29 @@ fn resting_pose_uses_health_and_keeps_actions_and_active_idle_clocks() -> Result
     for side in [Side::Party, Side::Enemy] {
         subject.side = side;
         for clip in [43, 44] {
-            model.play(MotionBinding { model: 7, clip }, 0., 0.5, true, 0)?;
+            model.play(
+                MotionBinding {
+                    model: ResourceId(7),
+                    clip,
+                },
+                0.,
+                0.5,
+                true,
+                0,
+            )?;
             model.settle(&subject, Activity::Idle, &mut false)?;
             assert_eq!(model.clip, 41, "stopping locomotion permits immediate rest");
         }
-        model.play(MotionBinding { model: 7, clip: 1 }, end, 1., true, 0)?;
+        model.play(
+            MotionBinding {
+                model: ResourceId(7),
+                clip: 1,
+            },
+            end,
+            1.,
+            true,
+            0,
+        )?;
         model.settle(&subject, Activity::Idle, &mut false)?;
         assert_eq!(model.clip, 1, "looping poses finish a cycle before rest");
         model.step(&subject, true)?;
@@ -1322,13 +1398,31 @@ fn resting_pose_uses_health_and_keeps_actions_and_active_idle_clocks() -> Result
     subject.hp = 1;
     model.settle(&subject, Activity::Idle, &mut false)?;
     assert_eq!(model.clip, 41);
-    model.play(MotionBinding { model: 7, clip: 41 }, 3., 0.5, false, 0)?;
+    model.play(
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 41,
+        },
+        3.,
+        0.5,
+        false,
+        0,
+    )?;
     model.settle(&subject, Activity::Idle, &mut false)?;
     model.step(&subject, false)?;
     assert_eq!(model.shown.frame, 3.);
     assert!(model.animation.clock.repeat);
     let end = model.definition.motions[&41].duration_frames;
-    model.play(MotionBinding { model: 7, clip: 41 }, end, 0.5, false, 0)?;
+    model.play(
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 41,
+        },
+        end,
+        0.5,
+        false,
+        0,
+    )?;
     model.step(&subject, true)?;
     model.step(&subject, true)?;
     model.settle(&subject, Activity::Idle, &mut false)?;
@@ -1357,13 +1451,13 @@ fn resting_pose_uses_health_and_keeps_actions_and_active_idle_clocks() -> Result
         Default::default(),
     )?;
     models.models[0] = Some(model);
-    let mut frame =
-        PreparedBattle::new(vec![(subject, Default::default())], Default::default(), 1)?
-            .finish()?
-            .snapshot();
+    let mut frame = prepare_actors(vec![subject], 1).finish()?.snapshot();
     for repeat in [true, false] {
         models.models[0].as_mut().unwrap().play(
-            MotionBinding { model: 7, clip: 41 },
+            MotionBinding {
+                model: ResourceId(7),
+                clip: 41,
+            },
             3.,
             0.5,
             repeat,
@@ -1496,11 +1590,11 @@ fn melee_groups_select_each_carried_weapon_without_combining_their_blades() -> R
             skeleton.bones.push(tip);
         }
         model.weapons.push(Arc::new(WeaponDefinition::new(
-            slot,
+            WeaponSlot(slot),
             1,
             vec![WeaponLayerDefinition {
                 texture_animation: None,
-                resource: u32::from(slot) + 8,
+                resource: ResourceId(u32::from(slot) + 8),
                 skeleton,
                 motions: BTreeMap::new(),
                 playback: WeaponPlayback::Rigid,
@@ -1519,12 +1613,14 @@ fn melee_groups_select_each_carried_weapon_without_combining_their_blades() -> R
         assert_eq!(
             anchors
                 .iter()
-                .map(|a| (a.resource, a.bone))
+                .map(|a| (a.resource.0, a.bone))
                 .collect::<Vec<_>>(),
             expected
         );
     }
-    model.weapons.retain(|weapon| weapon.slot == 0);
+    model
+        .weapons
+        .retain(|weapon| weapon.slot == Some(WeaponSlot(0)));
     let mut opening_groups = vec![0, 1];
     opening_groups.retain(|group| !model.contact_group_anchors(*group).is_empty());
     assert_eq!(opening_groups, [0]);
@@ -1579,7 +1675,10 @@ fn melee_uses_this_updates_pose_and_drawing_does_not_advance_it_twice() -> Resul
             end_at: 4,
             recovery: 1,
             opening: Some(AttackPose {
-                motion: MotionBinding { model: 7, clip: 1 },
+                motion: MotionBinding {
+                    model: ResourceId(7),
+                    clip: 1,
+                },
                 start: 0.,
                 end: Some(5.),
                 rate: 1.,
@@ -1592,20 +1691,8 @@ fn melee_uses_this_updates_pose_and_drawing_does_not_advance_it_twice() -> Resul
                     duration: 3,
                     definition: Arc::new(MeleeDefinition {
                         hit: HitRule {
-                            sound: None,
-                            kind: crate::DamageKind::Slash,
-                            arte: false,
-                            effect_on_guard: false,
-                            effect: None,
-                            overlimit_pause: false,
                             power: crate::Power::Fixed(1),
-                            element: crate::HitElement::Neutral,
-                            prevents_defeat: false,
-                            finisher_grade: false,
-                            hp_drain: false,
-                            guard: Default::default(),
-                            reaction: Default::default(),
-                            condition: None,
+                            ..crate::tests::hit()
                         },
                         volume: MeleeVolume::Attached {
                             anchors,
@@ -1626,20 +1713,12 @@ fn melee_uses_this_updates_pose_and_drawing_does_not_advance_it_twice() -> Resul
     )?;
     crate::tests::assign_action(&mut prepared, 0, ActionKey(0));
     let mut battle = prepared.finish()?;
-    battle.set_models(Models::new(
-        battle.actors(),
-        vec![Some(definition), None],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
-    )?);
-    battle.step(BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(0),
-            target: ActorId(1),
-            action: ActionKey(0),
-        }],
-        ..Default::default()
-    })?;
+    battle.set_models(models(battle.actors(), [Some(definition), None])?);
+    battle.step(BattleInput::from(ActionRequest {
+        actor: ActorId(0),
+        target: ActorId(1),
+        action: ActionKey(0),
+    }))?;
     assert_eq!(battle.actors()[1].hp, hp);
     let mut frame = battle.step(BattleInput::default())?;
     // The old pose's hand is at X=2; this update moves it to X=3 before contact.
@@ -1685,13 +1764,8 @@ fn bone_projectile_uses_current_pose_and_moves_on_its_authored_update() -> Resul
     };
     let projectile = Arc::new(ProjectileDefinition {
         lifetime: Some(10),
-        velocity: [0.; 3],
-        acceleration: [0.; 3],
-        offset: [0.; 3],
-        clamp_ground: false,
-        active: None,
         birth: Some(EffectAppearance {
-            resource: 1,
+            resource: ResourceId(1),
             member: 0,
         }),
         motion: ProjectileMotion {
@@ -1700,8 +1774,7 @@ fn bone_projectile_uses_current_pose_and_moves_on_its_authored_update() -> Resul
             speed: Some(2.),
             ..Default::default()
         },
-        effects: Default::default(),
-        contact: None,
+        ..Default::default()
     });
     let mut owner = crate::tests::actor(Side::Party);
     owner.body.collider = None;
@@ -1711,7 +1784,10 @@ fn bone_projectile_uses_current_pose_and_moves_on_its_authored_update() -> Resul
     let action =
         crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0]));
     action.opening = Some(AttackPose {
-        motion: MotionBinding { model: 7, clip: 1 },
+        motion: MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        },
         start: 0.,
         end: None,
         rate: 0.5,
@@ -1720,20 +1796,12 @@ fn bone_projectile_uses_current_pose_and_moves_on_its_authored_update() -> Resul
     });
     action.events = vec![(1, AttackEvent::Projectile(projectile))];
     let mut battle = prepared.finish()?;
-    battle.set_models(Models::new(
-        battle.actors(),
-        vec![Some(definition()), None],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
-    )?);
-    let first = battle.step(BattleInput {
-        actions: vec![ActionRequest {
-            actor: ActorId(0),
-            target: ActorId(1),
-            action: ActionKey(0),
-        }],
-        ..Default::default()
-    })?;
+    battle.set_models(models(battle.actors(), [Some(definition()), None])?);
+    let first = battle.step(BattleInput::from(ActionRequest {
+        actor: ActorId(0),
+        target: ActorId(1),
+        action: ActionKey(0),
+    }))?;
     assert!(first.projectiles.is_empty());
     let mut frame = battle.step(BattleInput::default())?;
     let models = battle.models().unwrap();
@@ -1741,7 +1809,15 @@ fn bone_projectile_uses_current_pose_and_moves_on_its_authored_update() -> Resul
         models.main_motion_observation(ActorId(0)).unwrap().frame,
         0.5
     );
-    let anchor = |bone| models.anchor(ActorId(0), crate::MeleeAnchor { resource: 7, bone });
+    let anchor = |bone| {
+        models.anchor(
+            ActorId(0),
+            crate::MeleeAnchor {
+                resource: ResourceId(7),
+                bone,
+            },
+        )
+    };
     let origin = anchor(1)?;
     let root = anchor(0)?;
     let direction =
@@ -1758,7 +1834,7 @@ fn bone_projectile_uses_current_pose_and_moves_on_its_authored_update() -> Resul
             .cues
             .iter()
             .any(|cue| matches!(cue, Cue::InitializedEffect(effect)
-        if effect.appearance.resource == 1 && effect.origin == origin))
+        if effect.appearance.resource == ResourceId(1) && effect.origin == origin))
     );
     let position = shot.position;
     battle.advance_models(&mut frame, crate::BattleClock::Running, false)?;
@@ -1840,12 +1916,7 @@ fn reception_markers_follow_current_placement_for_both_sides() -> Result<()> {
             radius: 160.,
         },
     ]);
-    battle.set_models(Models::new(
-        battle.actors(),
-        vec![Some(Arc::new(definition))],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
-    )?);
+    battle.set_models(models(battle.actors(), [Some(Arc::new(definition))])?);
     let translation = |point| Mat4::from_translation(Vec3::from_array(point)).to_cols_array_2d();
     let model = battle.models.as_mut().unwrap().models[0].as_mut().unwrap();
     model.shown.bones = Arc::new(vec![

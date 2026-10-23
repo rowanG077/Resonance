@@ -1,22 +1,15 @@
 //! Physical arte callbacks add only emissions absent from the authored action track.
-use super::{ActionDefinition, Sound, Technique};
+use super::{PreparedAttack, Sound, Technique};
 use anyhow::{Context, Result, bail};
-use resonance_battle::{
-    ActionExecution, AttackEvent, AttackOrigin, AttackPose, EffectAppearance, ModelDefinition,
-};
+use resonance_battle::{AttackEvent, AttackOrigin, AttackPose, EffectAppearance, ModelDefinition};
 
 impl Technique {
     pub(super) fn prepare_eagle<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let timeline = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .clone();
+    ) -> Result<PreparedAttack> {
+        let timeline = self.authored_timeline(resources.voices.party_table())?;
         let landing_ring = if self.catalogue == 187 {
             let hit = timeline
                 .callback_hits
@@ -28,9 +21,9 @@ impl Technique {
                 .get(16)
                 .context("missing Eagle Fall landing projectile")?
                 .clone();
-            let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+            let recoil = resources.recoil;
             Some(super::sword::projectile(
-                resources, &row, hit, None, &recoil,
+                resources, &row, hit, None, recoil,
             )?)
         } else {
             None
@@ -40,11 +33,8 @@ impl Technique {
             resource: resources.techniques.resource,
             member: 92,
         };
-        let mut action = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
-        let ActionExecution::Attack(attack) = &mut action.execution else {
-            unreachable!("martial preparation produces an attack")
-        };
-        prepare_eagle_landing(attack, model, landing_effect, landing_ring)?;
+        let mut action = self.prepare_authored_attack(resources, model, timeline)?;
+        prepare_eagle_landing(&mut action, model, landing_effect, landing_ring)?;
         Ok(action)
     }
 
@@ -54,13 +44,8 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let timeline = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .clone();
+    ) -> Result<PreparedAttack> {
+        let timeline = self.authored_timeline(resources.voices.party_table())?;
         let hit = timeline
             .callback_hits
             .get(&0)
@@ -84,14 +69,11 @@ impl Technique {
             _ => bail!("missing Destruction volley schedule"),
         };
         rock.spawn_offset[2] += AXE_RELEASE_FORWARD;
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
-        let projectile = super::sword::projectile(resources, &rock, hit, None, &recoil)?;
-        let mut action = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
-        let ActionExecution::Attack(attack) = &mut action.execution else {
-            unreachable!("martial preparation produces an attack")
-        };
+        let recoil = resources.recoil;
+        let projectile = super::sword::projectile(resources, &rock, hit, None, recoil)?;
+        let mut action = self.prepare_authored_attack(resources, model, timeline)?;
         for &(start, count) in volleys {
-            attack.events.extend((0..count).map(|index| {
+            action.events.extend((0..count).map(|index| {
                 (
                     start + index * RELEASE_INTERVAL,
                     AttackEvent::ProjectileAt {
@@ -104,26 +86,19 @@ impl Technique {
                 )
             }));
         }
-        attack.events.sort_by_key(|(at, _)| *at);
+        action.events.sort_by_key(|(at, _)| *at);
         Ok(action)
     }
 }
 
 /// Complete the dive on landing for every actor that uses this physical arte.
 pub(in crate::battle) fn prepare_eagle_landing(
-    attack: &mut resonance_battle::PreparedAttack,
+    attack: &mut PreparedAttack,
     model: Option<&ModelDefinition>,
     landing_effect: EffectAppearance,
     landing_ring: Option<std::sync::Arc<resonance_battle::ProjectileDefinition>>,
 ) -> Result<()> {
-    let recovery_pose = attack
-        .events
-        .iter()
-        .find_map(|(at, event)| match event {
-            AttackEvent::Pose(pose) if *at == attack.end_at => Some(*pose),
-            _ => None,
-        })
-        .context("missing Eagle recovery pose")?;
+    let recovery_pose = super::recovery_pose(attack).context("missing Eagle recovery pose")?;
     let landing_at = attack
         .events
         .iter()

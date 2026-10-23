@@ -118,91 +118,23 @@ pub(crate) fn read(usual: &[u8], module: &crate::rel::Rel) -> Result<Catalogue> 
         bind(catalogue, member, 6, 1);
         bind(catalogue, member, 9, 2);
     }
-    for (catalogue, member) in [
-        (145, 81),
-        (146, 82),
-        (147, 83),
-        (148, 84),
-        (149, 85),
-        (150, 86),
-        (151, 87),
-    ] {
+    for (catalogue, member) in (145..=151).zip(81..=87) {
         bind(catalogue, member, 6, 0);
         bind(catalogue, member, 9, 1);
     }
     for id in [36, 37, 38, 39, 41, 42, 46, 48, 50, 52] {
         bind(id, id, 2, 0);
     }
-    for (catalogue, member) in [
-        (125, 62),
-        (126, 63),
-        (127, 64),
-        (128, 65),
-        (129, 66),
-        (130, 67),
-        (131, 68),
-        (132, 69),
-        (133, 70),
-        (134, 71),
-        (135, 72),
-        (136, 73),
-        (140, 77),
-        (141, 78),
-        (143, 80),
-    ] {
+    for (catalogue, member) in (125..=136)
+        .zip(62..=73)
+        .chain([(140, 77), (141, 78), (143, 80)])
+    {
         bind(catalogue, member, 5, 0);
     }
-    for (catalogue, member) in [
-        (154, 90),
-        (155, 91),
-        (156, 92),
-        (157, 93),
-        (158, 94),
-        (159, 95),
-        (160, 96),
-        (161, 97),
-        (162, 98),
-        (163, 99),
-        (164, 100),
-        (165, 101),
-        (166, 102),
-        (167, 103),
-        (168, 104),
-        (169, 105),
-        (170, 106),
-        (171, 107),
-        (172, 108),
-        (173, 109),
-        (174, 110),
-        (175, 111),
-    ] {
+    for (catalogue, member) in (154..=175).zip(90..=111) {
         bind(catalogue, member, 7, 0);
     }
-    for (catalogue, member) in [
-        (176, 112),
-        (177, 113),
-        (178, 114),
-        (179, 115),
-        (180, 116),
-        (181, 117),
-        (182, 118),
-        (183, 119),
-        (184, 120),
-        (185, 121),
-        (186, 122),
-        (187, 123),
-        (188, 124),
-        (189, 125),
-        (190, 126),
-        (191, 127),
-        (195, 131),
-        (196, 132),
-        (197, 133),
-        (198, 134),
-        (199, 135),
-        (200, 136),
-        (201, 137),
-    ] {
+    for (catalogue, member) in (176..=191).zip(112..=127).chain((195..=201).zip(131..=137)) {
         bind(catalogue, member, 8, 0);
     }
     Ok(Catalogue { members, bindings })
@@ -329,9 +261,7 @@ fn attack(
     steal_success: bool,
     combined: bool,
 ) -> Result<Attack> {
-    let offsets = (0..4)
-        .map(|index| u32::read(bytes, index * 4).map(|v| v as usize))
-        .collect::<Result<Vec<_>>>()?;
+    let offsets = <[u32; 4]>::read(bytes, 0)?.map(|offset| offset as usize);
     ensure!(
         offsets[0] >= 44 && offsets.windows(2).all(|p| p[0] <= p[1]),
         "invalid martial action sections"
@@ -701,38 +631,38 @@ pub(crate) fn projectile_hit(
     Option<resonance_content::battle_martial::ProjectileFeedback>,
 )> {
     let offset = usize::from(contact[18]) * 28;
-    let source = rules
-        .get(offset..offset + 28)
-        .context("missing martial projectile hit")?;
+    let mut row = <[u8; 28]>::read(rules, offset).context("missing martial projectile hit")?;
     const EFFECT_ON_GUARD: u16 = 0x0800;
-    let flags = u16::read(source, 0)?;
+    let flags = u16::read(&row, 0)?;
     // Party-default and explicit techniques selectors use the same bank.
     ensure!(
-        source[22] == 0 || source[24] <= 1,
+        row[22] == 0 || row[24] <= 1,
         "martial projectile contact effect bank is not prepared"
     );
-    let sound = u16::read(source, 16)?;
+    let sound = u16::read(&row, 16)?;
     let on_guard = flags & EFFECT_ON_GUARD != 0;
     ensure!(
-        source[22] != 0 || sound == 0 || !on_guard,
+        row[22] != 0 || sound == 0 || !on_guard,
         "martial projectile guard sound without an effect is not prepared"
     );
     let feedback =
-        (source[22] != 0).then_some(resonance_content::battle_martial::ProjectileFeedback {
-            effect: u16::from(source[22]),
+        (row[22] != 0).then_some(resonance_content::battle_martial::ProjectileFeedback {
+            effect: u16::from(row[22]),
             sound,
             on_guard,
         });
     // Feedback owns the guard flag, sound and bank selector. The strict shared
     // decoder still checks every remaining damage and reaction field.
-    let mut row = source.to_vec();
     row[..2].copy_from_slice(&(flags & !EFFECT_ON_GUARD).to_be_bytes());
     row[16..18].fill(0);
     row[22] = 0;
     row[24] = 0;
-    let mut contact = contact.to_vec();
-    contact[18] = 0;
-    let mut hit = crate::battle_action::hit(&row, &contact)?;
+    let mut hit = crate::battle_action::hit_rule(
+        &row,
+        0,
+        crate::battle_action::damage_kind(contact[17])?,
+        contact[20],
+    )?;
     if feedback.is_none() && sound != 0 {
         hit.sound = Some(sound);
     }
@@ -789,11 +719,7 @@ fn hammer(
         41 => {
             let data = module.at((4, 0x4018))?;
             HammerPattern::Volley {
-                offset: [
-                    f32::read(data, 0)?,
-                    f32::read(data, 4)?,
-                    f32::read(data, 8)?,
-                ],
+                offset: <[f32; 3]>::read(data, 0)?,
                 forward: f32::read(data, 12)?,
                 jitter: f32::read(data, 16)?,
             }
@@ -801,11 +727,7 @@ fn hammer(
         42 => {
             let data = module.at((4, 0x31f0))?;
             HammerPattern::Ring {
-                offset: [
-                    f32::read(data, 0)?,
-                    f32::read(data, 4)?,
-                    f32::read(data, 8)?,
-                ],
+                offset: <[f32; 3]>::read(data, 0)?,
                 radians: f32::read(data, 12)?,
                 step: f32::read(data, 16)?,
                 speed: f32::read(data, 20)?,
@@ -842,9 +764,12 @@ fn hammer(
             row[..2].copy_from_slice(&(flags & !EFFECT_ON_GUARD).to_be_bytes());
             row[16..18].fill(0);
             row[22] = 0;
-            let mut contact = [0; 32];
-            contact[20] = projectile[0x13];
-            crate::battle_action::hit(&row, &contact)
+            crate::battle_action::hit_rule(
+                &row,
+                0,
+                resonance_content::battle_projectile::DamageKind::Slash,
+                projectile[0x13],
+            )
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(resonance_content::battle_martial::Hammer {
@@ -895,26 +820,20 @@ fn steal(
     let projectile = projectiles
         .get(HAMMER_PROJECTILE * PROJECTILE_BYTES..(HAMMER_PROJECTILE + 1) * PROJECTILE_BYTES)
         .context("missing Item Thief bonus projectile")?;
-    let mut contact = [0; 32];
-    contact[18] = 2;
-    contact[20] = projectile[0x13];
     let parameters = module.at((4, 0x3540))?;
-    let [zero, height, speed, jitter]: [f32; 4] = [0, 4, 8, 12]
-        .map(|offset| f32::read(parameters, offset))
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .unwrap();
-    ensure!(
-        [zero, height, speed, jitter].iter().all(|v| v.is_finite()) && jitter >= 0.,
-        "invalid Item Thief bonus motion"
-    );
+    let [zero, height, speed, jitter] = <[f32; 4]>::read(parameters, 0)?;
+    ensure!(jitter >= 0., "invalid Item Thief bonus motion");
     Ok(resonance_content::battle_martial::Steal {
         attempt_at: 60 + opening_blend,
         bonus_at: 40 + opening_blend,
         success_duration: success.duration,
         success_events: success.events,
-        bonus_hit: crate::battle_action::hit(rules, &contact)?,
+        bonus_hit: crate::battle_action::hit_rule(
+            rules,
+            2,
+            resonance_content::battle_projectile::DamageKind::Slash,
+            projectile[0x13],
+        )?,
         bonus_offset: [zero, zero, height],
         bonus_forward_speed: speed,
         bonus_velocity_jitter: [jitter; 3],

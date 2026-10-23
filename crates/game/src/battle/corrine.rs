@@ -1,10 +1,10 @@
 //! Corrine lands on the selected enemy, returns to the caster, then departs.
 use super::{
     ActionResources, EffectResource, recoil,
-    stored_spells::{self, ACTIVE_START_TICKS, SCENE_BOUNDARY_TICKS, TRANSITION_TICKS},
+    stored_spells::{self, ACTIVE_START_TICKS, TRANSITION_TICKS},
 };
 use anyhow::{Context, Result};
-use resonance_battle::{EffectAppearance, PreparedSpell, SpellOrigin, SpellProjectile};
+use resonance_battle::{PreparedSpell, SpellOrigin, SpellProjectile};
 use resonance_content::{battle_effect::ModelAnimation, battle_scene::Scene, prepared::Files};
 use std::sync::Arc;
 
@@ -29,28 +29,15 @@ pub(super) fn prepare(
         .get(1)
         .context("missing Corrine projectile")?;
     let rule = source.hit()?;
-    let mut hit = super::hit::authored(rule, &recoil::Parameters::load(files)?)?;
-    if let Some(member) = rule.effect {
-        let mut required = bank.clone();
-        required.members = vec![member];
-        resources.effect(required)?;
-        hit.effect = Some(EffectAppearance {
-            resource: bank.resource,
-            member,
-        });
-    }
-    let mut projectile = resources.projectile(
+    let mut projectile = resources.scene_projectile(
         files,
         &source.projectile,
-        hit,
+        rule,
+        &recoil::Parameters::load(files)?,
+        bank,
         &[(0, common), (1, techniques), (2, bank), (6, bank)],
     )?;
     let definition = Arc::make_mut(&mut projectile);
-    definition
-        .contact
-        .as_mut()
-        .context("Corrine projectile has no contact")?
-        .cooldown = rule.cooldown;
     definition.effects.departure_animation = Some(ModelAnimation {
         model: 0,
         clip: 0,
@@ -60,20 +47,10 @@ pub(super) fn prepare(
         blend_ticks: 4,
     });
     Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
         projectiles: vec![SpellProjectile::new(
             TRANSITION_TICKS + ACTIVE_START_TICKS + APPEAR_TICK,
             projectile,
         )],
-        effects: vec![],
-        recovery: vec![],
-        origin: SpellOrigin::SceneAboveTarget,
-        transition_ticks: TRANSITION_TICKS,
-        stage_tint: stored_spells::stage_tint(scene.stage_color, ACTIVE_SCENE_TICKS)?,
-        camera: stored_spells::scene_camera(scene.camera, ACTIVE_SCENE_TICKS)?,
-        duration: TRANSITION_TICKS + ACTIVE_SCENE_TICKS + SCENE_BOUNDARY_TICKS,
-        startup: None,
-        sound: None,
+        ..stored_spells::scene_spell(scene, SpellOrigin::SceneAboveTarget, ACTIVE_SCENE_TICKS)?
     })
 }

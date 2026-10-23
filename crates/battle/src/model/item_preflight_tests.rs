@@ -1,46 +1,26 @@
 //! Model admission for synchronous item release must finish before any clock write.
 use super::*;
+use crate::ResourceId;
 use crate::model::{Model, ModelDefinition, MotionBinding};
-use resonance_content::animation::{Bone, Transform, TransformChannels};
 
 fn definition() -> ModelDefinition {
-    let skeleton = Skeleton {
-        bones: vec![Bone {
-            name: "root".into(),
-            parent: None,
-            bind_channels: TransformChannels(8),
-            bind: Transform::default(),
-        }],
-    };
-    let motions = |entries: &[(u16, f32)]| {
-        entries
-            .iter()
-            .map(|&(clip, duration_frames)| {
-                (
-                    clip,
-                    Motion {
-                        duration_frames,
-                        tracks: vec![],
-                    },
-                )
-            })
-            .collect()
-    };
+    let mut definition = crate::tests::model_definition(7, [(1, 8.), (2, 10.)]);
+    definition.initial.frame = 1.;
     let child = |slot, offset, mapped| {
         let mut entries = vec![(offset, 2.), (offset + 1, 8.)];
         if mapped {
             entries.push((offset + 2, 5.));
         }
         Arc::new(WeaponDefinition {
-            slot,
+            slot: Some(crate::WeaponSlot(slot)),
             attachment: Some(0),
             effect_interval: None,
             initially_visible: true,
             layers: vec![crate::WeaponLayerDefinition {
                 texture_animation: None,
-                resource: u32::from(offset),
-                skeleton: skeleton.clone(),
-                motions: motions(&entries),
+                resource: ResourceId(u32::from(offset)),
+                skeleton: definition.skeleton.clone(),
+                motions: crate::tests::model_definition(u32::from(offset), entries).motions,
                 playback: WeaponPlayback::Owner {
                     offset,
                     fallback: offset,
@@ -56,32 +36,8 @@ fn definition() -> ModelDefinition {
             links: vec![],
         })
     };
-    ModelDefinition {
-        tint: [64, 64, 64, 255],
-        body_spheres: vec![],
-        reception_spheres: None,
-        fade_on_defeat: false,
-        resource: 7,
-        skeleton: skeleton.clone(),
-        motions: motions(&[(1, 8.), (2, 10.)]),
-        initial: Playback {
-            clip: 1,
-            frame: 1.,
-            rate: 0.5,
-            repeat: true,
-        },
-        secondary_motion: vec![],
-        reactions: Default::default(),
-        idle_motions: [None; 2],
-        idle_expression: [0; 4],
-        active_expression: [0; 4],
-        forced_eye_frame: None,
-        blink: None,
-        weapons: vec![child(0, 60, true), child(1, 100, false)],
-
-        shadow: None,
-        suppress_root_translation: [false; 3],
-    }
+    definition.weapons = vec![child(0, 60, true), child(1, 100, false)];
+    definition
 }
 
 fn fixture() -> Result<(Model, crate::Actor)> {
@@ -100,7 +56,16 @@ fn rejected_play_preserves_visible_body_children_and_continuation() -> Result<()
     let mut control = model.clone();
     assert!(
         model
-            .play(MotionBinding { model: 7, clip: 99 }, 4., 0.5, false, 2)
+            .play(
+                MotionBinding {
+                    model: ResourceId(7),
+                    clip: 99
+                },
+                4.,
+                0.5,
+                false,
+                2
+            )
             .is_err()
     );
     assert_eq!(model.shown, control.shown);
@@ -120,7 +85,10 @@ fn rejected_play_preserves_visible_body_children_and_continuation() -> Result<()
 fn prepared_play_preserves_global_holds_and_independent_child_endpoints() -> Result<()> {
     let (mut model, actor) = fixture()?;
     let before = model.shown.clone();
-    let binding = MotionBinding { model: 7, clip: 2 };
+    let binding = MotionBinding {
+        model: ResourceId(7),
+        clip: 2,
+    };
     let prepared = model.prepare_play(binding, 4., 0.5, false, 2)?;
     model.apply_play(prepared);
     model.step(&actor, false)?;

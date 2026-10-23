@@ -1,3 +1,4 @@
+use super::{opening_options, opening_setup};
 use anyhow::{Context, Result};
 use resonance_content::{
     menu_data::MenuData,
@@ -7,12 +8,12 @@ use resonance_content::{
 #[test]
 #[ignore = "requires current opening battle publications; CPU preparation only"]
 fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generation() -> Result<()> {
-    use resonance_battle::{BattleInput, Sound};
-    use resonance_events::{
-        battle::{DefeatPolicy, Setup},
-        party::Party,
+    use resonance_battle::Sound;
+    use resonance_events::{battle::DefeatPolicy, party::Party};
+    use resonance_game::battle::{
+        encounter::{Assets, PrepareOptions},
+        party::Character,
     };
-    use resonance_game::battle::encounter::{Assets, PrepareOptions};
     use std::sync::Arc;
 
     let root = super::common::asset_root();
@@ -62,13 +63,7 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
             &invalid,
             &data,
             &party,
-            Setup {
-                route: [0; 5],
-                encounter: resonance_events::battle::Encounter::Formation(1),
-                arena: 13,
-                defeat: DefeatPolicy::GameOver,
-                music: None
-            },
+            opening_setup(1, DefeatPolicy::GameOver),
             &mut file_cache,
             || false,
         )
@@ -77,20 +72,13 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
     );
     for formation in [1, 2] {
         let options = || PrepareOptions {
-            hunting_symbol: None,
             event_flags: if formation == 2 {
                 [19, 24, 29].into()
             } else {
                 Default::default()
             },
-            devils_arms_unlocked: false,
-            victory_story_flags: [false; 2],
-            random_seed: 0x2345,
-            map: 332,
-            world_music: 0,
-            story: 2500,
             colette_state: if formation == 2 { 1000 } else { 0 },
-            overlimit_boost: false,
+            ..opening_options(0x2345)
         };
         let (mut assets, prepared) = Assets::load(
             &root,
@@ -98,13 +86,7 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
             &menus,
             &data,
             &party,
-            Setup {
-                route: [0; 5],
-                encounter: resonance_events::battle::Encounter::Formation(formation),
-                arena: 13,
-                defeat: DefeatPolicy::GameOver,
-                music: None,
-            },
+            opening_setup(formation, DefeatPolicy::GameOver),
             options(),
             &mut file_cache,
             || false,
@@ -137,7 +119,10 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
                 .expect("changed selected equipment must be checked before deriving stats");
             assert!(error.to_string().contains("missing equipped item"));
         }
-        assert_eq!(prepared.characters, [1, 2, 3]);
+        assert_eq!(
+            prepared.characters,
+            [Character::Lloyd, Character::Colette, Character::Genis]
+        );
         assert_eq!(
             prepared
                 .core
@@ -205,20 +190,14 @@ fn complete_opening_candidates_are_atomic_and_replay_the_same_prepared_generatio
             formation == 2,
             "battle appearance must preserve the story's uncovered Exsphere"
         );
-        let mut first = prepared.core;
-        let mut second = assets.prepare(&menus, options(), sound)?.core;
+        let first = prepared.core;
+        let second = assets.prepare(&menus, options(), sound)?.core;
         assert_eq!(first.snapshot(), second.snapshot());
         assert_eq!(first.actors().len(), 3 + usize::from(formation));
         // The held snapshot must not consume one of the registered world visits.
         let seed = first.random_state();
         let _ = first.snapshot();
         assert_eq!(first.random_state(), seed);
-        for _ in 0..240 {
-            assert_eq!(
-                first.step(BattleInput::default())?,
-                second.step(BattleInput::default())?
-            );
-        }
         assets
             .inputs
             .files

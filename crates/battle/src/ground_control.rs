@@ -83,15 +83,16 @@ impl Battle {
         } else if away {
             intent.motion = GroundMotion::Stop;
         } else if input.technique.pressed {
-            let direction = NormalAttack::from_input(input.stick, false) as usize;
+            let direction = crate::ShortcutSlot::from_input(input.stick).index();
             let shortcut = self.runtime[index].control.as_ref().unwrap().shortcuts[direction];
-            intent.action = if let Some(binding) = self.shortcut_action(actor, shortcut) {
-                self.project_local_technique(actor, binding, cues)
-            } else {
-                let normal = definition.normals[direction];
-                self.action_candidate(actor, normal.action, [0., normal.reach])
-                    .ok()
-            };
+            intent.action =
+                if let Some(binding) = shortcut.and_then(|id| self.shortcut_action(actor, id)) {
+                    self.project_local_technique(actor, binding, cues)
+                } else {
+                    let normal = definition.normals[direction];
+                    self.action_candidate(actor, normal.action, [0., normal.reach])
+                        .ok()
+                };
         }
         let control = self.runtime[index].control.as_mut().unwrap();
         intent.jump = control.jump_charge.sample(
@@ -115,9 +116,9 @@ impl Battle {
     ) -> Option<ActionCandidate> {
         let actor = input.actor;
         let control = self.runtime[actor.index()].control.as_ref().unwrap();
-        let direction = NormalAttack::from_input(input.stick, false) as usize;
+        let direction = crate::ShortcutSlot::from_input(input.stick).index();
         let technique = if input.technique.pressed {
-            self.shortcut_action(actor, control.shortcuts[direction])
+            control.shortcuts[direction].and_then(|id| self.shortcut_action(actor, id))
         } else {
             input
                 .assist

@@ -1,24 +1,17 @@
 use super::*;
-use crate::{ActorSetup, AttackEvent, BattleInput, Control, MeleeDefinition, MeleeVolume};
+use crate::TechniqueId;
+use crate::{
+    ActorSetup, AttackEvent, BattleInput, Control, MeleeDefinition, MeleeVolume, ResourceId,
+};
 
 // Deliberately synthetic timings and artwork: these cases exercise runtime ownership.
 fn hit(power: u16, finisher_grade: bool) -> Arc<MeleeDefinition> {
     Arc::new(MeleeDefinition {
         hit: crate::HitRule {
-            sound: None,
-            kind: crate::DamageKind::Slash,
-            effect_on_guard: false,
-            effect: None,
             arte: true,
-            overlimit_pause: false,
             power: crate::Power::Fixed(power),
-            element: crate::HitElement::Neutral,
-            prevents_defeat: false,
             finisher_grade,
-            hp_drain: false,
-            guard: Default::default(),
-            reaction: Default::default(),
-            condition: None,
+            ..crate::tests::hit()
         },
         volume: MeleeVolume::Fixed {
             offset: [0.; 3],
@@ -71,7 +64,7 @@ fn fixture(combination: bool) -> Battle {
                 control: (side == Side::Party).then(|| {
                     Arc::new(crate::ControlDefinition {
                         normals,
-                        shortcuts: [1, 0, 0, 0],
+                        shortcuts: [Some(TechniqueId(1)), None, None, None],
                         walk_speed: 1.,
                         run_speed: 2.,
                         turn_ticks: 1,
@@ -106,12 +99,15 @@ fn fixture(combination: bool) -> Battle {
                     actor: ActorId(index),
                     opener: crate::tests::attack(8),
                     opener_contact_ticks: 3,
-                    windup_motion: MotionBinding { model: 1, clip: 1 },
+                    windup_motion: MotionBinding {
+                        model: ResourceId(1),
+                        clip: 1,
+                    },
                     windup_pose: Default::default(),
                     windup_voice: None,
                     artes: vec![UnisonArte {
                         action: ActionKey(0),
-                        native_id: 1,
+                        native_id: crate::UnisonArteId(1),
                         duration: 24,
                         distance: 10.,
                         altitude: 0.,
@@ -126,18 +122,18 @@ fn fixture(combination: bool) -> Battle {
             immune_targets: Default::default(),
             retain_gauge: false,
             windup_effect: EffectAppearance {
-                resource: 1,
+                resource: ResourceId(1),
                 member: 1,
             },
             windup_sound: Sound::Stream(1),
             windup_color: Some([1, 2, 3]),
             recipes: combination.then(|| {
                 vec![UnisonRecipe {
-                    id: 1,
-                    native_id: 301,
+                    id: crate::UnisonRecipeId(1),
+                    native_id: crate::UnisonArteId(301),
                     duration: 24,
                     camera_pitch: 0.,
-                    ingredients: vec![vec![1, 1]],
+                    ingredients: vec![vec![crate::UnisonArteId(1); 2]],
                     execution: Some(UnisonCombination {
                         roles: std::array::from_fn(|index| {
                             vec![UnisonRole {
@@ -165,7 +161,7 @@ fn fixture(combination: bool) -> Battle {
                 },
                 color: Some([64; 3]),
                 effect: EffectAppearance {
-                    resource: 1,
+                    resource: ResourceId(1),
                     member: 1,
                 },
                 sound: Sound::Stream(1),
@@ -188,13 +184,28 @@ fn opening(battle: &mut Battle) -> ActionId {
     assert_eq!(frame.unison.unwrap().phase, UnisonPhase::Windup);
     assert_eq!(battle.ledger.achievements[0].unison_starts, starts + 1);
     assert_eq!(battle.unison_gauge(), 0);
-    for _ in 0..70 {
+    advance_to_phase(battle, UnisonPhase::Opening, 70);
+    battle.unison.run.as_ref().unwrap().opener_action.unwrap()
+}
+
+fn advance_to_phase(battle: &mut Battle, phase: UnisonPhase, max_ticks: u32) {
+    for _ in 0..max_ticks {
         let frame = battle.step(Default::default()).unwrap();
-        if frame.unison.unwrap().phase == UnisonPhase::Opening {
-            return battle.unison.run.as_ref().unwrap().opener_action.unwrap();
+        if frame.unison.unwrap().phase == phase {
+            return;
         }
     }
-    panic!("opener did not start");
+    panic!("unison did not reach {phase:?}");
+}
+
+fn select(pressed_slots: u8) -> BattleInput {
+    BattleInput {
+        unison: Some(UnisonInput::Select {
+            pressed_slots,
+            shortcut: crate::ShortcutSlot::Neutral,
+        }),
+        ..Default::default()
+    }
 }
 
 fn contact(battle: &mut Battle, action: ActionId) {
@@ -227,32 +238,13 @@ fn unison_elemental_conversion_keeps_base_counts_and_recipe_identity() {
             &[(variant.base, 199), (variant.id, 49)],
         );
         battle
-            .prepare_shortcut(ActorId(0), 0, Some(ActionKey(0)))
+            .prepare_shortcut(ActorId(0), crate::ShortcutSlot::Neutral, Some(ActionKey(0)))
             .unwrap()
             .commit();
         let opener = opening(&mut battle);
         contact(&mut battle, opener);
-        for _ in 0..4 {
-            if battle
-                .step(Default::default())
-                .unwrap()
-                .unison
-                .unwrap()
-                .phase
-                == UnisonPhase::Selecting
-            {
-                break;
-            }
-        }
-        battle
-            .step(BattleInput {
-                unison: Some(UnisonInput::Select {
-                    pressed_slots: 1,
-                    shortcut: 0,
-                }),
-                ..Default::default()
-            })
-            .unwrap();
+        advance_to_phase(&mut battle, UnisonPhase::Selecting, 4);
+        battle.step(select(1)).unwrap();
         battle.step(Default::default()).unwrap();
         let sequence = battle
             .sequences()
@@ -264,12 +256,18 @@ fn unison_elemental_conversion_keeps_base_counts_and_recipe_identity() {
             "{} was not converted",
             variant.name
         );
-        assert_eq!(battle.technique_uses(ActorId(0), variant.base), Some(200));
-        assert_eq!(battle.technique_uses(ActorId(0), variant.id), Some(49));
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(variant.base)),
+            Some(200)
+        );
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(variant.id)),
+            Some(49)
+        );
         assert!(battle.technique_acquisitions().is_empty());
         assert_eq!(battle.actors[0].tp, 0);
         let run = battle.unison.run.as_ref().unwrap();
-        assert_eq!(run.selections[0].arte.native_id, 1);
+        assert_eq!(run.selections[0].arte.native_id, crate::UnisonArteId(1));
         assert!(run.deadline >= 120, "longer elemental action was truncated");
     }
 }
@@ -327,9 +325,12 @@ fn unison_elemental_hammer_rolls_once_and_preserves_lucky_toss() {
                 .iter()
                 .any(|(_, event)| matches!(event, AttackEvent::ChooseHammer(_)))
         );
-        assert_eq!(battle.technique_uses(ActorId(0), 40), Some(200));
         assert_eq!(
-            battle.technique_uses(ActorId(0), elemental::ICE_HAMMER),
+            battle.technique_uses(ActorId(0), TechniqueId(40)),
+            Some(200)
+        );
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(elemental::ICE_HAMMER)),
             Some(49)
         );
     }
@@ -397,12 +398,7 @@ fn normal_finisher_keeps_the_combo_through_unison_opening_and_selection() {
         assert_eq!(battle.actors[2].reaction.combo_hits, 1);
         let mut input = crate::ControlInput::neutral(owner);
         input.attack.pressed = true;
-        battle
-            .step(BattleInput {
-                controllers: vec![input],
-                ..Default::default()
-            })
-            .unwrap();
+        battle.step(BattleInput::from(input)).unwrap();
         for _ in 0..8 {
             if battle.actors[2].reaction.combo_hits == 2 {
                 break;
@@ -420,9 +416,7 @@ fn normal_finisher_keeps_the_combo_through_unison_opening_and_selection() {
                 .normal,
             Some(crate::NormalAttack::Finisher)
         );
-        for _ in 0..delay {
-            battle.step(Default::default()).unwrap();
-        }
+        crate::tests::step_idle(&mut battle, delay).unwrap();
         let remaining = match battle.runtime[2].task() {
             crate::state::ActorTask::Hurt { remaining } => Some(*remaining),
             crate::state::ActorTask::Recovering {
@@ -471,15 +465,7 @@ fn normal_finisher_keeps_the_combo_through_unison_opening_and_selection() {
             assert_eq!(frame.unison.unwrap().phase, UnisonPhase::Selecting);
             assert_eq!(battle.actors[2].reaction.combo_hits, 3);
         }
-        battle
-            .step(BattleInput {
-                unison: Some(UnisonInput::Select {
-                    pressed_slots: 1,
-                    shortcut: 0,
-                }),
-                ..Default::default()
-            })
-            .unwrap();
+        battle.step(select(1)).unwrap();
         battle.step(Default::default()).unwrap();
         assert_eq!(battle.actors[2].reaction.combo_hits, 4);
     }
@@ -498,9 +484,7 @@ fn opening_combo_handoff_releases_on_miss_and_excludes_finished_or_immune_target
             crate::state::ActorTask::Hurt { remaining: 1 }
         ));
         if expired {
-            for _ in 0..3 {
-                battle.step(Default::default()).unwrap();
-            }
+            crate::tests::step_idle(&mut battle, 3).unwrap();
             assert_eq!(battle.actors[2].reaction.combo_hits, 0);
         }
         if immune {
@@ -546,9 +530,7 @@ fn opening_combo_handoff_releases_on_miss_and_excludes_finished_or_immune_target
                 battle.runtime[2].task(),
                 crate::state::ActorTask::Hurt { remaining: 0 }
             ));
-            for _ in 0..2 {
-                battle.step(Default::default()).unwrap();
-            }
+            crate::tests::step_idle(&mut battle, 2).unwrap();
         }
         assert_eq!(battle.actors[2].reaction.combo_hits, 0);
         assert_eq!(battle.actors[2].reaction.combo_damage, 0);
@@ -657,13 +639,6 @@ fn surviving_target_keeps_combo_through_unison_and_ordinary_recovery() {
             contact(&mut battle, action);
             assert_eq!(battle.actors[2].reaction.combo_hits, 2);
 
-            let select = |pressed_slots| BattleInput {
-                unison: Some(UnisonInput::Select {
-                    pressed_slots,
-                    shortcut: 0,
-                }),
-                ..Default::default()
-            };
             let mut selecting = 0;
             let mut second_selected = false;
             let mut saw_combination_pose = false;
@@ -804,16 +779,16 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
         )
         .unwrap();
         battle
-            .prepare_shortcut(ActorId(1), 0, None)
+            .prepare_shortcut(ActorId(1), crate::ShortcutSlot::Neutral, None)
             .unwrap()
             .commit();
         assert!(
             battle.unison.definition.as_ref().unwrap().members[1]
-                .selected_arte(&battle, 0)
+                .selected_arte(&battle, crate::ShortcutSlot::Neutral)
                 .is_none()
         );
         battle
-            .prepare_shortcut(ActorId(1), 0, Some(ActionKey(0)))
+            .prepare_shortcut(ActorId(1), crate::ShortcutSlot::Neutral, Some(ActionKey(0)))
             .unwrap()
             .commit();
         let action = opening(&mut battle);
@@ -821,26 +796,8 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
         battle.actors[2].reaction.combo_damage = 30;
         battle.actors[2].reaction.contributor_hits[0] = 3;
         contact(&mut battle, action);
-        for _ in 0..4 {
-            if battle
-                .step(Default::default())
-                .unwrap()
-                .unison
-                .unwrap()
-                .phase
-                == UnisonPhase::Selecting
-            {
-                break;
-            }
-        }
+        advance_to_phase(&mut battle, UnisonPhase::Selecting, 4);
         let positions: Vec<_> = battle.actors.iter().map(|actor| actor.position).collect();
-        let select = |pressed_slots| BattleInput {
-            unison: Some(UnisonInput::Select {
-                pressed_slots,
-                shortcut: 0,
-            }),
-            ..Default::default()
-        };
         let staged = battle.step(select(0b11)).unwrap().unison.unwrap();
         assert_eq!(staged.phase, UnisonPhase::Staging);
         assert_eq!(staged.selected, [ActorId(0)]);
@@ -923,8 +880,8 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
             battle.last_unison_completion(),
             Some(&if combination {
                 UnisonCompletion::CombinationExecuted {
-                    id: 1,
-                    native_id: 301,
+                    id: crate::UnisonRecipeId(1),
+                    native_id: crate::UnisonArteId(301),
                     actors: vec![ActorId(0), ActorId(1)],
                 }
             } else {
@@ -941,7 +898,7 @@ fn selected_artes_defer_defeat_then_restore_the_ordinary_battle() {
         );
         for actor in [ActorId(0), ActorId(1)] {
             assert_eq!(battle.actors[actor.index()].tp, 0);
-            assert_eq!(battle.technique_uses(actor, 1), Some(1));
+            assert_eq!(battle.technique_uses(actor, TechniqueId(1)), Some(1));
         }
     }
 }

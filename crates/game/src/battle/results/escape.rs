@@ -24,11 +24,7 @@ impl Candidate {
             .iter()
             .find_map(|&(id, character)| (id == leader).then_some(character))
             .context("ordinary escape leader is not a prepared party member")?;
-        ensure!(
-            (1..=9).contains(&character),
-            "invalid escape leader character"
-        );
-        self.party.battles.record_ordinary_escape(character);
+        self.party.battles.record_ordinary_escape(character as u8);
         self.recorded_ordinary_escape = true;
         Ok(())
     }

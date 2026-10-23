@@ -48,18 +48,6 @@ pub(super) fn prepare(
     };
     resources.effect(artwork)?;
     let mut spell = PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        projectiles: vec![],
-        effects: vec![],
-        recovery: vec![],
-        origin: SpellOrigin::CasterRoot,
-        transition_ticks: stored_spells::TRANSITION_TICKS,
-        stage_tint: stored_spells::stage_tint(scene.stage_color, active_ticks)?,
-        camera: stored_spells::scene_camera(scene.camera, active_ticks)?,
-        duration: stored_spells::TRANSITION_TICKS
-            + active_ticks
-            + stored_spells::SCENE_BOUNDARY_TICKS,
         startup: Some((
             stored_spells::TRANSITION_TICKS + 1,
             if catalogue == HOLY_SONG {
@@ -68,7 +56,7 @@ pub(super) fn prepare(
                 SpellStartup::Effect(appearance(1))
             },
         )),
-        sound: None,
+        ..stored_spells::scene_spell(scene, SpellOrigin::CasterRoot, active_ticks)?
     };
     if matches!(catalogue, HOLY_SONG | SACRIFICE) {
         const PRAYER_AGE: u16 = 15;
@@ -115,7 +103,7 @@ pub(super) fn prepare(
             const PORTRAIT_DURATION: u16 = 104;
             spell.policy = SpellPolicy::Cutin {
                 at: at(90),
-                catalogue,
+                catalogue: resonance_battle::TechniqueId(catalogue),
                 duration: PORTRAIT_DURATION,
                 hold_ticks: PORTRAIT_HOLD,
                 reveal: Some((at(150), "Holy Judgment")),
@@ -210,33 +198,18 @@ fn contact(
     member: usize,
     variant: usize,
 ) -> Result<Arc<resonance_battle::ProjectileDefinition>> {
-    let appearance = |member| EffectAppearance {
-        resource: bank.resource,
-        member,
-    };
     let source = scene
         .projectiles
         .get(member)
         .context("angel scene has no requested contact")?;
     let rule = source.hit_variant(variant)?;
     let recoil = recoil::Parameters::load(files)?;
-    let mut hit = super::hit::authored(rule, &recoil)?;
-    if let Some(member) = rule.effect {
-        let mut required = bank.clone();
-        required.members = vec![member];
-        resources.effect(required)?;
-        hit.effect = Some(appearance(member));
-    }
-    let mut projectile = resources.projectile(
+    resources.scene_projectile(
         files,
         &source.projectile,
-        hit,
+        rule,
+        &recoil,
+        bank,
         &[(0, bank), (2, bank), (6, bank)],
-    )?;
-    Arc::make_mut(&mut projectile)
-        .contact
-        .as_mut()
-        .context("angel projectile has no contact")?
-        .cooldown = rule.cooldown;
-    Ok(projectile)
+    )
 }

@@ -164,13 +164,12 @@ fn hurt_interrupts_actor_tasks_and_rejects_commands_without_spending_tp() {
     crate::tests::attack_mut(Arc::make_mut(&mut prepared.resources.actions.entries[0])).events =
         vec![(2, crate::AttackEvent::Sound(Some(crate::Sound::Stream(1))))];
     let mut battle = prepared.finish().unwrap();
-    let input = || BattleInput {
-        actions: vec![ActionRequest {
+    let input = || {
+        BattleInput::from(ActionRequest {
             actor: ActorId(0),
             action: crate::ActionKey(0),
             target: ActorId(1),
-        }],
-        ..Default::default()
+        })
     };
     let started = battle.step(input()).unwrap();
     let id = started.actions[0].0;
@@ -301,17 +300,9 @@ fn lethal_damage_preserves_leader_suppression_operands_until_response() {
     let previous_direction = [0., 0., -1.];
     battle.actors[0].reaction.direction = previous_direction;
     let rule = crate::HitRule {
-        sound: None,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
-        kind: crate::DamageKind::Slash,
         arte: true,
         power: crate::Power::Fixed(25),
-        element: crate::HitElement::Neutral,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
         reaction: ReactionRule {
             recoil: crate::RecoilRule {
                 impulse: [4., 0.],
@@ -320,8 +311,7 @@ fn lethal_damage_preserves_leader_suppression_operands_until_response() {
             },
             ..Default::default()
         },
-        guard: Default::default(),
-        condition: None,
+        ..crate::tests::hit()
     };
     let suppressed = battle.suppress_recoil(ActorId(3), ActorId(0), 400.);
     assert!(suppressed);

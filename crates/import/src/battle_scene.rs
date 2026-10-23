@@ -3,6 +3,7 @@ use crate::{
     battle_model::{RigKind, files, rig},
     character::Clip,
     model_preview::{Layer, PointerMembers, layers_with_clips},
+    read::Field,
     rel::Rel,
     scene::decoded::Package,
     source_assets::{Sources, physical_ranges, read_range},
@@ -57,15 +58,8 @@ pub(crate) fn publish_skill_source(
     let usual = fs::read(extracted.join("files").join(&sources.usual))?;
     let mut shared = crate::battle_effect::SharedPalettes::read(&usual, output)?;
     let module = Rel::read(&extracted.join("files").join(&sources.module))?;
-    let offsets = module
-        .at((5, 0x11c4))?
-        .get(..4 * 4)
-        .context("truncated skill directory")?
-        .chunks_exact(4)
-        .map(|row| crate::read::u32(row, 0))
-        .collect::<Result<Vec<_>>>()?;
     let archive = extracted.join("files").join(&sources.skill);
-    let range = physical_ranges(&offsets, 1, fs::metadata(&archive)?.len())?
+    let range = skill_ranges(&module, &archive)?
         .into_iter()
         .find_map(|(slot, range)| (slot == package).then_some(range))
         .context("skill package selector has no physical range")?;
@@ -100,21 +94,17 @@ pub(crate) fn publish_source(
         .context("spell has no physical package")?;
     let bytes = read_range(&archive, range)?;
     let path = format!("{prefix}/scenes/{technique:03}.json");
+    let element_sounds = crate::battle_profile::element_contact_sounds(&module)?;
     let mut scene = read(
         &bytes,
         &format!("{prefix}/scenes/{technique:03}.effects.json"),
         output,
         Some(technique),
-        &crate::battle_profile::element_contact_sounds(&module)?,
+        &element_sounds,
         &mut shared,
     )?;
     scene_settings(&module, technique, &mut scene)?;
-    scene_actions(
-        &bytes,
-        technique,
-        &crate::battle_profile::element_contact_sounds(&module)?,
-        &mut scene,
-    )?;
+    scene_actions(&bytes, technique, &element_sounds, &mut scene)?;
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&scene)?)?;
     Ok(path)
 }
@@ -135,6 +125,12 @@ fn magic_ranges(module: &Rel, archive: &Path) -> Result<Vec<(u16, std::ops::Rang
         .collect())
 }
 
+fn skill_ranges(module: &Rel, archive: &Path) -> Result<Vec<(u16, std::ops::Range<usize>)>> {
+    let offsets =
+        <[u32; 4]>::read(module.at((5, 0x11c4))?, 0).context("truncated skill directory")?;
+    physical_ranges(&offsets, 1, fs::metadata(archive)?.len())
+}
+
 fn scene_settings(module: &Rel, spell: u16, scene: &mut Scene) -> Result<()> {
     scene.stage_color = None;
     scene.camera = None;
@@ -147,7 +143,7 @@ fn scene_settings(module: &Rel, spell: u16, scene: &mut Scene) -> Result<()> {
     }
     .map(|offset| -> Result<_> {
         let radius = crate::read::f32(module.at((4, offset))?, 0)?;
-        ensure!(radius.is_finite() && radius > 0., "invalid recovery radius");
+        ensure!(radius > 0., "invalid recovery radius");
         Ok(radius)
     })
     .transpose()?;
@@ -163,18 +159,7 @@ fn scene_settings(module: &Rel, spell: u16, scene: &mut Scene) -> Result<()> {
             .get(..count * 12)
             .context("truncated scene strike pattern")?
             .chunks_exact(12)
-            .map(|row| {
-                let point = [
-                    crate::read::f32(row, 0)?,
-                    crate::read::f32(row, 4)?,
-                    crate::read::f32(row, 8)?,
-                ];
-                ensure!(
-                    point.into_iter().all(f32::is_finite),
-                    "invalid scene strike point"
-                );
-                Ok(point)
-            })
+            .map(|row| <[f32; 3]>::read(row, 0))
             .collect::<Result<Vec<_>>>()
     })
     .transpose()?

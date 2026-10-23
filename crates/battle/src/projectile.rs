@@ -6,9 +6,9 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProjectileId(pub(crate) u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EffectAppearance {
-    pub resource: u32,
+    pub resource: crate::ResourceId,
     pub member: u16,
 }
 
@@ -64,7 +64,8 @@ pub struct ProjectileContact {
     pub clashes: bool,
 }
 
-#[derive(Debug, Clone)]
+/// Defaults to a stationary, persistent projectile with no contact or effects.
+#[derive(Debug, Clone, Default)]
 pub struct ProjectileDefinition {
     pub lifetime: Option<u32>,
     pub velocity: [f32; 3],
@@ -709,16 +710,9 @@ mod tests {
     fn instance(velocity: [f32; 3], motion: ProjectileMotion) -> Projectile {
         Projectile::new(
             Arc::new(ProjectileDefinition {
-                lifetime: None,
                 velocity,
-                acceleration: [0.; 3],
-                offset: [0.; 3],
-                clamp_ground: false,
-                active: None,
-                birth: None,
-                contact: None,
                 motion,
-                effects: Default::default(),
+                ..Default::default()
             }),
             ActionId(1),
             ProjectileFrame {
@@ -1070,20 +1064,8 @@ mod tests {
                 Arc::get_mut(&mut projectile.definition).unwrap().contact =
                     Some(ProjectileContact {
                         hit: crate::HitRule {
-                            sound: None,
-                            kind: crate::DamageKind::Slash,
-                            arte: false,
-                            effect_on_guard: false,
-                            effect: None,
-                            overlimit_pause: false,
-                            power: crate::Power::Normal,
                             element: crate::HitElement::Inherited,
-                            prevents_defeat: false,
-                            finisher_grade: false,
-                            hp_drain: false,
-                            guard: Default::default(),
-                            reaction: Default::default(),
-                            condition: None,
+                            ..crate::tests::hit()
                         },
                         cooldown,
                         repeat_limit: limit,

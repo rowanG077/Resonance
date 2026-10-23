@@ -1,16 +1,15 @@
 //! Prepared Unison pages edit persistent and live shortcuts while battle is paused.
 use super::item_tests::{
-    Display, PreparedFixture, enter_battle, escape, prepared_fixture_with_story, step,
+    PreparedFixture, command_visit as visit, edge, enter_battle, escape,
+    prepared_fixture_with_story, step,
 };
 use super::*;
-use crate::battle::{command, lifecycle};
+use crate::battle::command;
 use crate::menu::{
     MenuAction,
     unison::{Focus, UNLOCK_STORY, Unison},
 };
-use resonance_battle::{
-    ActionRequest, Activity, BattleFrame, BattleInput, ButtonInput, item::Release,
-};
+use resonance_battle::{ActionRequest, Activity, BattleFrame, BattleInput, item::Release};
 
 fn fixture(story: i32) -> Result<PreparedFixture> {
     prepared_fixture_with_story(&[3, 1], 2, &[(3, 66), (1, 1)], story, |party, _, _| {
@@ -23,30 +22,8 @@ fn fixture(story: i32) -> Result<PreparedFixture> {
         Ok(())
     })
 }
-fn edge() -> ButtonInput {
-    ButtonInput {
-        held: true,
-        pressed: true,
-        released: false,
-    }
-}
 fn ready(f: &mut PreparedFixture) -> Result<()> {
     enter_battle(&mut f.candidate, &mut f.battle)
-}
-fn visit(
-    f: &mut PreparedFixture,
-    command: command::Input,
-) -> Result<(BattleFrame, Vec<command::Event>)> {
-    let frame = f.lifecycle.step(
-        &mut f.battle,
-        lifecycle::Input {
-            command,
-            ..Default::default()
-        },
-        &mut f.candidate,
-        &mut Display,
-    )?;
-    Ok((frame, f.lifecycle.take_command_events()))
 }
 fn shared(
     f: &mut PreparedFixture,
@@ -55,7 +32,7 @@ fn shared(
     visit(
         f,
         command::Input {
-            controller: 3,
+            controller: resonance_battle::ControllerPort::Four,
             shared_menu: input,
             ..Default::default()
         },
@@ -169,17 +146,18 @@ fn unison_edits_actual_party_and_live_slots_without_reloading_held_cast_or_item(
         let actor = f.candidate.setup.actors[0].0;
         if casting {
             let target = f.battle.target(actor).context("missing Fire Ball target")?;
-            let action = f.battle.prepared_technique(actor, 66).unwrap().action;
+            let action = f
+                .battle
+                .prepared_technique(actor, resonance_battle::TechniqueId(66))
+                .unwrap()
+                .action;
             f.candidate.world_update(
                 &mut f.battle,
-                BattleInput {
-                    actions: vec![ActionRequest {
-                        actor,
-                        target,
-                        action,
-                    }],
-                    ..Default::default()
-                },
+                BattleInput::from(ActionRequest {
+                    actor,
+                    target,
+                    action,
+                }),
             )?;
             for _ in 0..4 {
                 step(&mut f.candidate, &mut f.battle)?;
@@ -207,11 +185,14 @@ fn unison_edits_actual_party_and_live_slots_without_reloading_held_cast_or_item(
         let pending = f.battle.pending_item();
         shared(&mut f, Some(MenuAction::Alternate))?;
         assert_eq!(f.candidate.party.members[2].shortcuts[0], 0);
-        assert_eq!(f.battle.shortcuts(actor).unwrap()[0], 0);
+        assert_eq!(f.battle.shortcuts(actor).unwrap()[0], None);
         shared(&mut f, Some(MenuAction::Down))?;
         assign(&mut f)?;
         assert_eq!(f.candidate.party.members[2].shortcuts, [0, 66, 0, 0]);
-        assert_eq!(f.battle.shortcuts(actor).unwrap()[1], 66);
+        assert_eq!(
+            f.battle.shortcuts(actor).unwrap()[1],
+            Some(resonance_battle::TechniqueId(66))
+        );
         assert_eq!(f.field.members[2].shortcuts, [66, 0, 0, 0]);
         assert_eq!(f.battle.snapshot().actors, held.actors);
         assert_eq!(f.battle.snapshot().actions, held.actions);

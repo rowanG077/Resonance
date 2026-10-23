@@ -1,6 +1,9 @@
 //! Final rewards and paged notices. Gameplay owns result timing and commits.
 use super::*;
-use resonance_game::battle::results::{ResultNotice, Results as Model};
+use resonance_game::battle::{
+    party::Character,
+    results::{ResultNotice, Results as Model},
+};
 
 const ITEMS_PER_PAGE: usize = 2;
 const STAT_ADVANCE: f32 = 18.;
@@ -9,11 +12,10 @@ const BONUS_TRANSFER_DELAY: u32 = 150;
 // Large awards transfer quickly, then slow down near the final total.
 const BONUS_TRANSFER_STEPS: [u32; 3] = [111, 11, 1];
 
-#[derive(serde::Serialize)]
 struct Row {
     text: String,
     overflow: bool,
-    character: Option<u8>,
+    character: Option<Character>,
 }
 
 pub(super) struct Results {
@@ -60,7 +62,7 @@ impl Results {
                 travel.map_or(0., |distance| self.slide_width - distance),
             )))
     }
-    pub(super) fn page_characters(&self) -> impl Iterator<Item = (u8, f32)> {
+    pub(super) fn page_characters(&self) -> impl Iterator<Item = (Character, f32)> {
         self.visible_pages().filter_map(|(page, offset)| {
             self.page_rows(page)
                 .0
@@ -102,18 +104,6 @@ impl Results {
     }
 }
 
-fn character_name(model: &Model, character: u8) -> Result<&str> {
-    model
-        .character_names
-        .get(usize::from(
-            character
-                .checked_sub(1)
-                .context("invalid result character")?,
-        ))
-        .map(String::as_str)
-        .context("invalid result character")
-}
-
 fn result_text(
     batch: &mut Batch,
     font: &BitmapFont,
@@ -121,26 +111,18 @@ fn result_text(
     [x, y]: [f32; 2],
     colors: [[u8; 4]; 2],
 ) -> Result<()> {
-    for (offset, gradient) in [
-        (2., [[16, 16, 24, 220]; 4]),
-        (0., [colors[0], colors[0], colors[1], colors[1]]),
-    ] {
-        for (column, character) in text.chars().enumerate().filter(|(_, ch)| *ch != ' ') {
-            let glyph = font
-                .glyphs
-                .get(&character)
-                .context("missing result glyph")?;
-            let [u, v, w, h] = glyph.rect.map(|value| value as f32);
-            let left = x + column as f32 * STAT_ADVANCE + offset;
-            let top = y + offset;
-            party::slanted_quad(
-                batch,
-                [left, top, left + 20., top + 28.],
-                [u, v, u + w, v + h],
-                12.,
-                gradient,
-            );
-        }
+    for (offset, gradient) in [(2., [[16, 16, 24, 220]; 2]), (0., colors)] {
+        text::italic(
+            batch,
+            font,
+            text,
+            [x + offset, y + offset],
+            [20., 28.],
+            STAT_ADVANCE,
+            12.,
+            gradient,
+        )
+        .map_err(|_| anyhow::anyhow!("missing result glyph"))?;
     }
     Ok(())
 }
@@ -153,8 +135,18 @@ impl Artwork {
     }
     pub(crate) fn results_diagnostic(&self) -> Option<serde_json::Value> {
         let state = self.results.as_ref()?;
+        let rows: Vec<_> = state
+            .rows
+            .iter()
+            .map(|row| {
+                serde_json::json!({
+                    "text": row.text, "overflow": row.overflow,
+                    "character": row.character.map(|character| character as u8),
+                })
+            })
+            .collect();
         Some(
-            serde_json::json!({"page": state.page, "pages": state.pages(), "ready": state.ready(), "rows": state.rows, "chef": state.chef, "slide_age": state.slide_age, "age": state.age, "experience": state.experience(), "bonus": state.remaining_bonus}),
+            serde_json::json!({"page": state.page, "pages": state.pages(), "ready": state.ready(), "rows": rows, "chef": state.chef, "slide_age": state.slide_age, "age": state.age, "experience": state.experience(), "bonus": state.remaining_bonus}),
         )
     }
     pub fn results_on_last_page(&self) -> bool {
@@ -230,7 +222,7 @@ impl Artwork {
                     character,
                     format!(
                         "Earned the title, \"{}\"",
-                        self.menu_data.title_text(character, title)?.name
+                        self.menu_data.title_text(character as u8, title)?.name
                     ),
                 ),
                 ResultNotice::CompoundEx { character } => {
@@ -252,7 +244,6 @@ impl Artwork {
                     ),
                 ),
             };
-            character_name(model, character)?;
             rows.push(Row {
                 text: message,
                 overflow: false,
@@ -261,8 +252,7 @@ impl Artwork {
         }
         let chef = model
             .cook_prompt
-            .map(|character| character_name(model, character).map(str::to_owned))
-            .transpose()?;
+            .map(|character| model.character_names[character.index()].clone());
         for text in rows.iter().map(|row| &row.text).chain(chef.iter()) {
             self.font.validate_text(text)?;
         }
@@ -485,7 +475,7 @@ mod tests {
                 combat_ticks: 0,
                 character_names: Default::default(),
                 notices: vec![ResultNotice::Cooking {
-                    character: 1,
+                    character: Character::Lloyd,
                     recipe: 0,
                     success: true,
                 }],
@@ -501,7 +491,7 @@ mod tests {
                 Row {
                     text: "Cooked Sandwich".into(),
                     overflow: false,
-                    character: Some(1),
+                    character: Some(Character::Lloyd),
                 },
             ],
             item_count: 1,
@@ -552,7 +542,7 @@ mod tests {
             );
             assert_eq!(
                 state.page_characters().collect::<Vec<_>>(),
-                [(1, width / 2.)]
+                [(Character::Lloyd, width / 2.)]
             );
             state.next_page();
             state.advance(10);
@@ -595,38 +585,40 @@ mod tests {
             character_names: std::array::from_fn(|_| "R%s".into()),
             notices: vec![
                 ResultNotice::Technique {
-                    character: 8,
+                    character: Character::Regal,
                     technique: 201,
                 },
                 ResultNotice::MaximumVital {
-                    character: 1,
+                    character: Character::Lloyd,
                     vital: MaximumVital::Hp,
                     amount: 5,
                 },
                 ResultNotice::HappinessExperience {
-                    character: 3,
+                    character: Character::Genis,
                     amount: 100,
                 },
                 ResultNotice::HappinessGald {
-                    character: 4,
+                    character: Character::Raine,
                     amount: 200,
                 },
-                ResultNotice::CompoundEx { character: 9 },
+                ResultNotice::CompoundEx {
+                    character: Character::Kratos,
+                },
                 ResultNotice::Level {
-                    character: 1,
+                    character: Character::Lloyd,
                     level: 29,
                 },
                 ResultNotice::TpRecovery {
-                    character: 1,
+                    character: Character::Lloyd,
                     amount: 1,
                 },
                 ResultNotice::MaximumVital {
-                    character: 1,
+                    character: Character::Lloyd,
                     vital: MaximumVital::Tp,
                     amount: 5,
                 },
             ],
-            cook_prompt: Some(8),
+            cook_prompt: Some(Character::Regal),
             overflow: vec![true],
         };
         let (mut hud, materials, _app) = test_artwork()?;
@@ -643,7 +635,7 @@ mod tests {
         assert!(hud.results_on_last_page());
         assert_eq!(hud.take_result_sounds(), vec![1; pages - 1]);
         model.notices.push(ResultNotice::Cooking {
-            character: 8,
+            character: Character::Regal,
             recipe: 0,
             success: false,
         });
@@ -691,7 +683,11 @@ mod tests {
         queue.apply(&mut world);
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
-            model.cook_prompt = Some(0);
+            model.cook_prompt = Some(Character::Regal);
+            let chef = std::mem::replace(
+                &mut model.character_names[Character::Regal.index()],
+                "\u{10ffff}".into(),
+            );
             assert_eq!(
                 hud.synchronize_results(&model, &diagnostics).is_err(),
                 paranoid
@@ -699,7 +695,7 @@ mod tests {
             assert!(
                 diagnostics.has_errors() && hud.results.is_none() && hud.results_on_last_page()
             );
-            model.cook_prompt = Some(8);
+            model.character_names[Character::Regal.index()] = chef;
             hud.synchronize_results(&model, &Diagnostics::new(true))?;
             hud.render_results(&mut Commands::new(&mut queue, &world), &mut meshes)?;
             queue.apply(&mut world);

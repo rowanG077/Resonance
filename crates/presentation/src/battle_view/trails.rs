@@ -1,7 +1,8 @@
 //! Weapon ribbons own their short pose history; drawing never advances it.
 use super::*;
 use bevy::{asset::RenderAssetUsages, mesh::PrimitiveTopology};
-use resonance_battle::{ActorId, Cue, WeaponFrame};
+use resonance_battle::WeaponSlot;
+use resonance_battle::{ActorId, Cue, ResourceId, WeaponFrame};
 use resonance_content::{
     battle_model::TrailMaterial,
     font::UiTexture,
@@ -22,8 +23,8 @@ struct Draw {
 }
 pub(super) struct Trails {
     diagnostics: Diagnostics,
-    ribbons: BTreeMap<u32, Ribbon>,
-    history: BTreeMap<(ActorId, u8), Trail>,
+    ribbons: BTreeMap<ResourceId, Ribbon>,
+    history: BTreeMap<(ActorId, WeaponSlot), Trail>,
     ropes: Vec<Draw>,
     ready: bool,
 }
@@ -197,7 +198,7 @@ impl Trails {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         order: &ActorOrder,
-        models: &BTreeMap<u32, super::Model>,
+        models: &BTreeMap<ResourceId, super::Model>,
     ) -> Result<()> {
         for entity in self.entities() {
             commands.entity(entity).insert(Visibility::Hidden);
@@ -231,7 +232,11 @@ impl Trails {
                             trail.highlighted,
                             trail.fade,
                         )?,
-                        DrawOrder(weapon_layer(order.get(actor)?, slot, style, true), 0, 0),
+                        DrawOrder(
+                            weapon_layer(order.get(actor)?, Some(slot), style, true),
+                            0,
+                            0,
+                        ),
                         commands,
                         meshes,
                     )
@@ -419,15 +424,12 @@ const STILL_DISTANCE: f32 = 0.1;
 // Sixteen opacity steps fade the retained path after its activation ends.
 const FADE_UPDATES: u8 = 16;
 
-struct Sample {
-    points: Vec<Vec3>,
-}
 struct Trail {
-    resource: u32,
+    resource: ResourceId,
     remaining: u16,
     highlighted: bool,
     fade: u8,
-    samples: VecDeque<Sample>,
+    samples: VecDeque<Vec<Vec3>>,
 }
 
 impl Ribbon {
@@ -465,7 +467,7 @@ impl Trails {
         let weapon = |actor, slot| {
             frame.weapons.iter().find(|weapon| {
                 weapon.owner == actor
-                    && weapon.slot == slot
+                    && weapon.slot == Some(slot)
                     && self.ribbons.contains_key(&weapon.resource)
             })
         };
@@ -511,7 +513,6 @@ impl Trails {
                     Ok(points) => {
                         let held = trail.samples.front().is_some_and(|sample| {
                             sample
-                                .points
                                 .iter()
                                 .zip(&points)
                                 .all(|(a, b)| (*a - *b).abs().max_element() < STILL_DISTANCE)
@@ -521,7 +522,7 @@ impl Trails {
                             // would consume its UV span and erase the visible arc.
                             trail.samples.pop_back();
                         } else {
-                            trail.samples.push_front(Sample { points });
+                            trail.samples.push_front(points);
                             trail.samples.truncate(HISTORY_SAMPLES);
                         }
                     }
@@ -543,19 +544,17 @@ impl Trails {
 }
 
 fn ribbon_mesh(
-    samples: &VecDeque<Sample>,
+    samples: &VecDeque<Vec<Vec3>>,
     material: &TrailMaterial,
     size: [u32; 2],
     highlighted: bool,
     fade: u8,
 ) -> Result<Mesh> {
-    let endpoints = samples.front().map_or(0, |sample| sample.points.len());
+    let endpoints = samples.front().map_or(0, Vec::len);
     ensure!(
         (2..=3).contains(&endpoints)
             && samples.len() >= 2
-            && samples
-                .iter()
-                .all(|sample| sample.points.len() == endpoints)
+            && samples.iter().all(|sample| sample.len() == endpoints)
             && size.iter().all(|&n| n > 0),
         "invalid battle ribbon geometry"
     );
@@ -577,14 +576,14 @@ fn ribbon_mesh(
             let a = &samples[column];
             let b = &samples[column + 1];
             let point = |row: usize, t: f32| {
-                let start = a.points[row];
-                let end = b.points[row];
+                let start = a[row];
+                let end = b[row];
                 let previous = column
                     .checked_sub(1)
-                    .map_or(start * 2. - end, |i| samples[i].points[row]);
+                    .map_or(start * 2. - end, |i| samples[i][row]);
                 let next = samples
                     .get(column + 2)
-                    .map_or(end * 2. - start, |sample| sample.points[row]);
+                    .map_or(end * 2. - start, |sample| sample[row]);
                 curved_edge(previous, start, end, next, t)
             };
             let color = |t: f32| {
@@ -661,7 +660,7 @@ mod tests {
                 .into_iter()
                 .map(|(id, bones)| {
                     (
-                        id,
+                        ResourceId(id),
                         Ribbon {
                             bones,
                             material,
@@ -678,11 +677,11 @@ mod tests {
         frame.weapons.push(WeaponFrame {
             texture_scroll: None,
             owner: actor,
-            slot: 0,
+            slot: Some(WeaponSlot(0)),
             visible: true,
             tint: [255; 4],
             material: ModelMaterial::Normal,
-            resource: 7,
+            resource: ResourceId(7),
             clip: None,
             frame: 0.,
             world: Mat4::from_translation(Vec3::new(10., 20., 30.)).to_cols_array_2d(),
@@ -695,7 +694,7 @@ mod tests {
         });
         let request = Cue::WeaponTrail {
             actor,
-            slot: 0,
+            slot: WeaponSlot(0),
             duration: 20,
             highlighted: false,
         };
@@ -705,7 +704,7 @@ mod tests {
         frame.weapons[0].world[3][0] += 2.;
         trails.advance(&frame, false)?;
         let mesh = |trails: &Trails| {
-            let trail = &trails.history[&(actor, 0)];
+            let trail = &trails.history[&(actor, WeaponSlot(0))];
             ribbon_mesh(
                 &trail.samples,
                 &material,
@@ -734,12 +733,12 @@ mod tests {
         }
         frame.cues = vec![Cue::WeaponTrail {
             actor,
-            slot: 0,
+            slot: WeaponSlot(0),
             duration: 20,
             highlighted: true,
         }];
         trails.advance(&frame, true)?;
-        assert!(trails.history[&(actor, 0)].highlighted);
+        assert!(trails.history[&(actor, WeaponSlot(0))].highlighted);
         let bright = mesh(&trails)?;
         let Some(VertexAttributeValues::Float32x4(colors)) =
             bright.attribute(Mesh::ATTRIBUTE_COLOR)
@@ -753,7 +752,7 @@ mod tests {
             panic!("missing trail color")
         };
         assert_eq!(colors[0][..3], [0.5, 0.25, 0.25]);
-        assert_eq!(trails.history[&(actor, 0)].samples.len(), 2);
+        assert_eq!(trails.history[&(actor, WeaponSlot(0))].samples.len(), 2);
         frame.cues.clear();
         // Finishing the swing must retain a visible arc across a held pose.
         for _ in 0..6 {
@@ -773,10 +772,10 @@ mod tests {
             let [a, b, c] = std::array::from_fn(|i| Vec3::from_array(triangle[i]));
             (b - a).cross(c - a).length_squared() > 0.01
         }));
-        let remaining = trails.history[&(actor, 0)].remaining;
+        let remaining = trails.history[&(actor, WeaponSlot(0))].remaining;
         frame.paused_actors.push(actor);
         trails.advance(&frame, false)?;
-        assert_eq!(trails.history[&(actor, 0)].remaining, remaining);
+        assert_eq!(trails.history[&(actor, WeaponSlot(0))].remaining, remaining);
         assert_eq!(
             mesh(&trails)?.attribute(Mesh::ATTRIBUTE_POSITION),
             held_swing.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -785,9 +784,9 @@ mod tests {
         for _ in 0..4 {
             trails.advance(&frame, false)?;
         }
-        assert!(trails.history[&(actor, 0)].samples.len() < 2);
+        assert!(trails.history[&(actor, WeaponSlot(0))].samples.len() < 2);
         // Switching a held weapon must never connect its new pose to the old blade.
-        frame.weapons[0].resource = 8;
+        frame.weapons[0].resource = ResourceId(8);
         frame.weapons[0].world[3][0] = 300.;
         trails.advance(&frame, true)?;
         trails.advance(&frame, false)?;
@@ -803,13 +802,13 @@ mod tests {
         // A third ribbon endpoint can move while its first two remain fixed.
         Arc::make_mut(&mut frame.weapons[0].bones)[1][3][2] += 2.;
         trails.advance(&frame, false)?;
-        assert_eq!(trails.history[&(actor, 0)].samples.len(), 3);
+        assert_eq!(trails.history[&(actor, WeaponSlot(0))].samples.len(), 3);
         for _ in 0..30 {
             trails.advance(&frame, false)?;
         }
         assert!(trails.history.is_empty());
         // Malformed optional artwork is isolated from simulation in tolerant mode.
-        trails.ribbons.get_mut(&8).unwrap().bones[0] = u16::MAX;
+        trails.ribbons.get_mut(&ResourceId(8)).unwrap().bones[0] = u16::MAX;
         frame.cues = vec![request.clone()];
         for paranoid in [false, true] {
             trails.diagnostics = Diagnostics::new(paranoid);
@@ -822,7 +821,7 @@ mod tests {
                     .all(|trail| trail.samples.is_empty())
             );
         }
-        trails.ribbons.get_mut(&8).unwrap().bones[0] = 2;
+        trails.ribbons.get_mut(&ResourceId(8)).unwrap().bones[0] = 2;
         trails.advance(&frame, false)?;
         frame.weapons[0].visible = false;
         trails.advance(&frame, true)?;

@@ -2,8 +2,8 @@
 use super::{ActionResources, EffectResource};
 use anyhow::{Context, Result};
 use resonance_battle::{
-    EffectAppearance, Element, PreparedSpell, RecoveryTargets, SpellBenefit, SpellOrigin,
-    SpellRecovery, conditions::Buff,
+    Element, PreparedSpell, RecoveryTargets, SpellBenefit, SpellOrigin, SpellRecovery,
+    conditions::Buff,
 };
 use resonance_content::{arte::Catalogue, battle_effect::Tints};
 
@@ -29,22 +29,12 @@ pub(super) fn prepare(
         .copied()
         .context("elemental seal has no enchantment element")?;
     const ENCHANT_EFFECT: u16 = 47;
-    let mut artwork = bank.clone();
-    artwork.members = vec![ENCHANT_EFFECT];
-    resources.effect(artwork)?;
-    let effect = EffectAppearance {
-        resource: bank.resource,
-        member: ENCHANT_EFFECT,
-    };
+    let effect = resources.effect_member(bank, ENCHANT_EFFECT)?;
     let tint = tints
         .effect(usize::from(index))
         .context("missing elemental seal colors")?;
     let [r, g, b, _] = tints.actors.buff;
     Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        projectiles: vec![],
-        effects: vec![],
         recovery: vec![SpellRecovery {
             duration: 1,
             effect_placement: Default::default(),
@@ -54,12 +44,6 @@ pub(super) fn prepare(
             targets: RecoveryTargets::Target,
             effect: Some((effect, tint)),
         }],
-        origin: SpellOrigin::Caster,
-        transition_ticks: 0,
-        stage_tint: None,
-        camera: None,
-        duration: 90,
-        startup: None,
-        sound: None,
+        ..PreparedSpell::new(SpellOrigin::Caster, 90)
     })
 }

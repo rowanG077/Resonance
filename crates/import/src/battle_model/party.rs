@@ -228,29 +228,10 @@ fn publish_extra_motions(
     record: &mut Party,
     output: &Path,
 ) -> Result<()> {
+    use resonance_content::field_preload::{File, Role};
     if source.extra_motions.is_empty() {
         return Ok(());
     }
-    let clips = bind_motions(body, &source.extra_motions, record, output)?;
-    for (part, clips) in record.parts.iter_mut().zip(clips) {
-        part.clips.retain(|clip| {
-            !source
-                .extra_motions
-                .iter()
-                .any(|(slot, _)| *slot == clip.resource_slot)
-        });
-        part.clips.extend(clips);
-    }
-    Ok(())
-}
-
-fn bind_motions(
-    body: &[u8],
-    motions: &[(u16, Arc<crate::animation::AuthoredAnimation>)],
-    record: &mut Party,
-    output: &Path,
-) -> Result<Vec<Vec<resonance_content::SceneClip>>> {
-    use resonance_content::field_preload::{File, Role};
     let layers = crate::field::sections(body)?
         .into_iter()
         .take(2)
@@ -260,8 +241,7 @@ fn bind_motions(
         layers.len() == record.parts.len(),
         "party motion body layers differ"
     );
-    let mut clips = Vec::new();
-    for (range, part) in layers.into_iter().zip(&record.parts) {
+    for (range, part) in layers.into_iter().zip(&mut record.parts) {
         let (_, resource) = crate::geometry::model_resource(&body[range])?;
         let model =
             crate::model::Model::parse(&resource[crate::geometry::skeleton_range(resource)?])?;
@@ -275,9 +255,14 @@ fn bind_motions(
             binary: Arc::new(Vec::new()),
             motions: Vec::new(),
         };
-        let mut layer = Vec::new();
-        for (slot, animation) in motions {
-            layer.push(resonance_content::SceneClip {
+        part.clips.retain(|clip| {
+            !source
+                .extra_motions
+                .iter()
+                .any(|(slot, _)| *slot == clip.resource_slot)
+        });
+        for (slot, animation) in &source.extra_motions {
+            part.clips.push(resonance_content::SceneClip {
                 resource_slot: *slot,
                 ..glb.animate(animation.motion(&bindings)?)?
             });
@@ -293,9 +278,8 @@ fn bind_motions(
                 },
             );
         }
-        clips.push(layer);
     }
-    Ok(clips)
+    Ok(())
 }
 
 fn null_motions(archive: &MapArchive) -> Result<BTreeSet<u16>> {

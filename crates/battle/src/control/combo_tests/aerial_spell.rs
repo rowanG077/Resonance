@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 
 fn prepared_fixture(mode: Control, enabled: bool) -> PreparedBattle {
     let mut prepared = shared_prepared(mode);
@@ -18,8 +19,9 @@ fn prepared_fixture(mode: Control, enabled: bool) -> PreparedBattle {
         target: crate::TechniqueTarget::Enemy,
         ..Default::default()
     };
-    command.catalogue = 213;
-    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts[1] = 213;
+    command.catalogue = TechniqueId(213);
+    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts[1] =
+        Some(TechniqueId(213));
     prepared = prepared
         .with_technique_learning_members(vec![crate::tests::counted_techniques(
             ActorId(0),
@@ -87,7 +89,10 @@ fn secondary_release_keeps_aerial_parent_and_counts_without_learning() -> Result
         battle.actors[0].attack_power = 70;
         battle.actors[0].stored_spell = Some(crate::ActionKey(8));
         let frame = battle.step(BattleInput::default())?;
-        assert_eq!(battle.technique_uses(ActorId(0), 213), Some(50));
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(213)),
+            Some(50)
+        );
         assert_eq!(battle.actors[0].tp, before_tp - 7);
         assert_eq!(battle.actors[0].attack_power, 100);
         assert_eq!(battle.actors[0].stored_spell, Some(crate::ActionKey(8)));
@@ -126,7 +131,7 @@ fn secondary_busy_rejects_without_payment_while_primary_remains_independent() ->
             before_tp - if released { 7 } else { 0 }
         );
         assert_eq!(
-            battle.technique_uses(ActorId(0), 213),
+            battle.technique_uses(ActorId(0), TechniqueId(213)),
             Some(if released { 50 } else { 49 })
         );
         assert_eq!(actor_sequence(&battle).0, parent);
@@ -157,7 +162,10 @@ fn quote_rejection_disabled_ex_and_holds_preserve_count_payment_and_dispatch() -
         battle.actors[0].tp = tp;
         battle.step(BattleInput::default())?;
         assert_eq!(battle.actors[0].tp, tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 213), Some(49));
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(213)),
+            Some(49)
+        );
         assert!(!battle.spell_active(ActorId(0), crate::SpellSlot::Secondary));
     }
     let mut battle = fixture(Control::Manual, true);
@@ -167,7 +175,10 @@ fn quote_rejection_disabled_ex_and_holds_preserve_count_payment_and_dispatch() -
     let before_tp = battle.actors[0].tp;
     battle.step(BattleInput::default())?;
     assert_eq!(battle.actors[0].tp, before_tp);
-    assert_eq!(battle.technique_uses(ActorId(0), 213), Some(49));
+    assert_eq!(
+        battle.technique_uses(ActorId(0), TechniqueId(213)),
+        Some(49)
+    );
     assert!(!battle.spell_active(ActorId(0), crate::SpellSlot::Secondary));
     Ok(())
 }
@@ -189,7 +200,10 @@ fn preparation_rejects_wrong_identity_and_ground_or_auto_has_no_aerial_prefix() 
         battle.actors[0].position[1] = height;
         let mut cues = vec![];
         battle.try_aerial_spell_selection(ActorId(0), crate::ActionKey(8), None, &mut cues)?;
-        assert_eq!(battle.technique_uses(ActorId(0), 213), Some(49));
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(213)),
+            Some(49)
+        );
         assert!(cues.is_empty());
     }
     Ok(())
@@ -207,7 +221,10 @@ fn menu_holds_release_and_interrupting_the_parent_preserves_its_resident() -> Re
         ..Default::default()
     })?;
     assert_eq!(battle.actors[0].tp, before_tp);
-    assert_eq!(battle.technique_uses(ActorId(0), 213), Some(49));
+    assert_eq!(
+        battle.technique_uses(ActorId(0), TechniqueId(213)),
+        Some(49)
+    );
     assert_eq!(actor_sequence(&battle).1.age, before_age);
     assert!(!battle.spell_active(ActorId(0), crate::SpellSlot::Secondary));
     battle.step(BattleInput::default())?;
@@ -218,6 +235,9 @@ fn menu_holds_release_and_interrupting_the_parent_preserves_its_resident() -> Re
     })?;
     assert!(battle.sequence(&parent).is_none());
     assert!(battle.spell_active(ActorId(0), crate::SpellSlot::Secondary));
-    assert_eq!(battle.technique_uses(ActorId(0), 213), Some(50));
+    assert_eq!(
+        battle.technique_uses(ActorId(0), TechniqueId(213)),
+        Some(50)
+    );
     Ok(())
 }

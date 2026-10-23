@@ -148,10 +148,7 @@ def prepare(state, battle, initialized, case, assets):
             state, recipient, assets / f"battle/party/{battle['party_order'][0]:02}.json")
         separation = battle_geometry.separation_for_gap(host_body, recipient_body, HOST_ATTACK_GAP)
         x, z = host["position"][0] - separation, host["position"][2]
-        for offset, value in ((0x18C0, x), (0x18C8, z),
-                              (0x195C, recipient["center"][0] + x - recipient["position"][0]),
-                              (0x1964, recipient["center"][2] + z - recipient["position"][2])):
-            state.write(recipient["address"] + offset, "f", value)
+        battle_geometry.place_actor(state, recipient, x, z)
     recipient_approach = case.get("contact_fixture", {}).get("recipient_approach", False)
     owner_movement = case.get("contact_fixture", {}).get("owner_movement", False)
     if inputs["physical_defeats"] or inputs["target_attacking"] or recipient_approach or owner_movement:

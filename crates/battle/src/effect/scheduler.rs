@@ -381,11 +381,7 @@ impl Active {
                 if let Some(handle) = self.spawned[*spawn]
                     && let Some(particle) = effects.particles.get_mut(&handle)
                 {
-                    for (current, assigned) in particle.frame.state.offset.iter_mut().zip(offset) {
-                        if let Some(value) = assigned {
-                            *current = *value;
-                        }
-                    }
+                    assign(&mut particle.frame.state.offset, offset);
                     if let Some(animation) = animation {
                         particle
                             .model
@@ -393,28 +389,8 @@ impl Active {
                             .context("delayed animation has no model")?
                             .play(*animation)?;
                     }
-                    for (current, assigned) in particle
-                        .frame
-                        .state
-                        .acceleration
-                        .iter_mut()
-                        .zip(acceleration)
-                    {
-                        if let Some(value) = assigned {
-                            *current = *value;
-                        }
-                    }
-                    for (current, assigned) in particle
-                        .frame
-                        .state
-                        .angular_velocity
-                        .iter_mut()
-                        .zip(angular_velocity)
-                    {
-                        if let Some(value) = assigned {
-                            *current = *value;
-                        }
-                    }
+                    assign(&mut particle.frame.state.acceleration, acceleration);
+                    assign(&mut particle.frame.state.angular_velocity, angular_velocity);
                     if let Some(motion) = forward_motion {
                         if let Some(value) = motion.velocity {
                             particle.frame.state.velocity =
@@ -458,16 +434,9 @@ impl Active {
                             } => (value, velocity, acceleration),
                             _ => return Ok(()),
                         };
-                    for (current, assigned) in current_size
-                        .iter_mut()
-                        .zip(size)
-                        .chain(current_velocity.iter_mut().zip(size_velocity))
-                        .chain(current_acceleration.iter_mut().zip(size_acceleration))
-                    {
-                        if let Some(value) = assigned {
-                            *current = *value;
-                        }
-                    }
+                    assign(current_size, size);
+                    assign(current_velocity, size_velocity);
+                    assign(current_acceleration, size_acceleration);
                 }
             }
             EffectOperation::Spawn {
@@ -593,6 +562,14 @@ impl Active {
             }
         }
         Ok(())
+    }
+}
+
+fn assign<const N: usize>(output: &mut [f32; N], values: &[Option<f32>; N]) {
+    for (output, value) in output.iter_mut().zip(values) {
+        if let Some(value) = value {
+            *output = *value;
+        }
     }
 }
 

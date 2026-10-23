@@ -2,17 +2,12 @@ use super::*;
 
 #[test]
 fn pending_command_blocks_autonomous_choice_when_unaffordable() -> Result<()> {
-    let mut prepared = prepared()?;
+    let mut prepared = prepared_with_spell(crate::TechniqueCapabilities {
+        spell: true,
+        target: crate::TechniqueTarget::Enemy,
+        ..Default::default()
+    })?;
     Arc::make_mut(&mut prepared.resources.actions.entries[7]).tp_cost = 20;
-    prepared.resources.actor_setup[2].techniques = vec![technique(
-        crate::ActionKey(7),
-        66,
-        crate::TechniqueCapabilities {
-            spell: true,
-            target: crate::TechniqueTarget::Enemy,
-            ..Default::default()
-        },
-    )];
     let mut battle = prepared.finish().unwrap();
     assert!(battle.queue_technique(ActorId(2), crate::ActionKey(7))?);
     battle.actors[2].tp = 0;
@@ -28,16 +23,11 @@ fn pending_command_blocks_autonomous_choice_when_unaffordable() -> Result<()> {
 
 #[test]
 fn explicit_command_bypasses_autonomous_enable_setting() -> Result<()> {
-    let mut prepared = prepared()?;
-    prepared.resources.actor_setup[2].techniques = vec![technique(
-        crate::ActionKey(7),
-        66,
-        crate::TechniqueCapabilities {
-            spell: true,
-            target: crate::TechniqueTarget::Enemy,
-            ..Default::default()
-        },
-    )];
+    let prepared = prepared_with_spell(crate::TechniqueCapabilities {
+        spell: true,
+        target: crate::TechniqueTarget::Enemy,
+        ..Default::default()
+    })?;
     let mut battle = prepared.finish().unwrap();
     battle.runtime[2]
         .control
@@ -78,18 +68,10 @@ fn explicit_command_bypasses_autonomous_enable_setting() -> Result<()> {
 
 #[test]
 fn queued_support_spell_waits_for_idle_target_resolution() -> Result<()> {
-    let mut prepared = prepared()?;
-    prepared.resources.actor_setup[2].techniques = vec![technique(
-        crate::ActionKey(7),
-        66,
-        crate::TechniqueCapabilities {
-            spell: true,
-            healing: true,
-            uses_weapon_reach: true,
-            target: crate::TechniqueTarget::Ally,
-            ..Default::default()
-        },
-    )];
+    let prepared = prepared_with_spell(crate::TechniqueCapabilities {
+        uses_weapon_reach: true,
+        ..spell_capabilities(true)
+    })?;
     let mut battle = prepared.finish().unwrap();
     let owner = ActorId(2);
     let recipient = ActorId(1);

@@ -7,6 +7,14 @@ import re
 import struct
 
 
+def place_actor(state, actor, x, z):
+    """Move a fixture root while preserving its observed center offset."""
+    for offset, value in [(0x18C0, x), (0x18C8, z),
+                          (0x195C, actor["center"][0] + x - actor["position"][0]),
+                          (0x1964, actor["center"][2] + z - actor["position"][2])]:
+        state.write(actor["address"] + offset, "f", value)
+
+
 def model_world(origin, offset, angles, scale, flags, elevation, parent=None):
     """Ordinary model instance TRS; shared displayed scene matrices are not instances."""
     if flags & (0x40000000 | 0x20000) and parent is None:

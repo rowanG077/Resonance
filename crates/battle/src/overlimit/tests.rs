@@ -3,24 +3,11 @@ use crate::PreparedBattle;
 use crate::{Actor, ActorAvailability, BattleInput};
 
 fn candidate(actors: Vec<Actor>) -> PreparedBattle {
-    PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| {
-                (
-                    actor,
-                    crate::ActorSetup {
-                        overlimit_gain: 15,
-                        ..Default::default()
-                    },
-                )
-            })
-            .collect(),
-        Default::default(),
-        77,
-    )
-    .unwrap()
-    .with_overlimit_boost(false)
+    let mut prepared = crate::tests::prepare_actors(actors, 77);
+    for setup in &mut prepared.resources.actor_setup {
+        setup.overlimit_gain = 15;
+    }
+    prepared.with_overlimit_boost(false)
 }
 
 pub(crate) fn battle(gauges: &[u16]) -> Battle {
@@ -206,25 +193,7 @@ fn admitted_actor_group_pushes_real_bodies_after_entry_but_held_visits_keep_prio
     for actor in &mut actors {
         actor.body.collider = Some(crate::Collider::sphere(30.));
     }
-    let prepared = PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| {
-                (
-                    actor,
-                    crate::ActorSetup {
-                        overlimit_gain: 15,
-                        ..Default::default()
-                    },
-                )
-            })
-            .collect(),
-        Default::default(),
-        77,
-    )
-    .unwrap()
-    .with_overlimit_boost(false);
-    let mut battle = prepared.finish().unwrap();
+    let mut battle = candidate(actors).finish().unwrap();
     let admission = battle.step(BattleInput::default()).unwrap();
     assert!(admission.actors[0].overlimit.is_active());
     assert!(

@@ -1,7 +1,8 @@
 //! Prepare optional carried models and their independent animation.
 use anyhow::{Result, ensure};
 use resonance_battle::{
-    Playback, WeaponDefinition, WeaponLayerDefinition, WeaponPlayback, WeaponTextureAnimation,
+    Playback, ResourceId, WeaponDefinition, WeaponLayerDefinition, WeaponPlayback,
+    WeaponTextureAnimation,
 };
 use resonance_content::{
     animation::Motion,
@@ -16,13 +17,13 @@ pub(super) fn prepare(
     part: &ModelPart,
     slot: u8,
     attachment: u16,
-    resources: &[u32],
+    resources: &[ResourceId],
     playback: Option<WeaponPlayback>,
     animation: Option<&AttachmentAnimation>,
 ) -> Result<Arc<WeaponDefinition>> {
     let layers = layers(files, part, resources, playback, animation)?;
     let mut weapon = WeaponDefinition::new(
-        slot,
+        resonance_battle::WeaponSlot(slot),
         attachment,
         layers,
         if matches!(playback, Some(WeaponPlayback::Owner { .. })) {
@@ -45,7 +46,7 @@ pub(super) fn prepare(
 pub(super) fn secondary_body(
     files: &Files,
     source: &resonance_content::battle_model::SecondaryBody,
-    resources: &[u32],
+    resources: &[ResourceId],
     attachment: Option<u16>,
     initial: Playback,
 ) -> Result<Arc<WeaponDefinition>> {
@@ -65,7 +66,7 @@ pub(super) fn secondary_body(
 fn layers(
     files: &Files,
     part: &ModelPart,
-    resources: &[u32],
+    resources: &[ResourceId],
     playback: Option<WeaponPlayback>,
     animation: Option<&AttachmentAnimation>,
 ) -> Result<Vec<WeaponLayerDefinition>> {

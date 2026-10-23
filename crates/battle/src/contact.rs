@@ -479,8 +479,8 @@ impl Contact {
                         };
                         let key = crate::random_inputs::Key {
                             clock: battle.ledger.elapsed_ticks,
-                            owner: self.owner.index(),
-                            target: actor.index(),
+                            owner: self.owner,
+                            target: actor,
                             action: source_action.0,
                             contact,
                         };
@@ -721,8 +721,8 @@ impl Contact {
                         return inputs.stun(
                             crate::random_inputs::Key {
                                 clock: battle.ledger.elapsed_ticks,
-                                owner: self.owner.index(),
-                                target: actor.index(),
+                                owner: self.owner,
+                                target: actor,
                                 action: source_action.0,
                                 contact,
                             },

@@ -1,7 +1,7 @@
 use super::*;
 use crate::battle::results::{
     Results,
-    item_tests::{PreparedFixture, native_fixture},
+    item_tests::{PreparedFixture, native_battle, native_fixture},
 };
 use resonance_battle::{ActorAvailability, PreparedBattle, Side};
 
@@ -24,15 +24,7 @@ fn fixture(defeated: Option<Side>) -> Result<PreparedFixture> {
             setup.style.play_music = true;
             setup.style.celebrate = true;
             setup.enemies[0].reward.gald = 50;
-            PreparedBattle::new(
-                (actors)
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
+            native_battle(actors)
         },
     )
 }
@@ -61,10 +53,10 @@ fn enemy_retreat_returns_after_departure_without_rewards_or_escape_history() -> 
             enemy.hp = 1;
             enemy.equipment.max_hp = 2;
             let decision = EnemyDecisionDefinition {
-                enemy_id: 0,
+                enemy_id: resonance_battle::EnemyId(0),
                 disabled_choices: Vec::new(),
                 strategy: TargetPolicy::Nearest,
-                difficulty: 0,
+                difficulty: resonance_battle::Difficulty::Normal,
                 choices: vec![EnemyChoice {
                     action: ActionKey(0),
                     physical_arte: false,
@@ -109,14 +101,7 @@ fn enemy_retreat_returns_after_departure_without_rewards_or_escape_history() -> 
                 vec![ActionDefinition {
                     normal: None,
                     tp_cost: 0,
-                    execution: ActionExecution::Attack(PreparedAttack {
-                        contact_recovery: None,
-                        chain_at: None,
-                        end_at: 0,
-                        opening: None,
-                        events: vec![],
-                        recovery: 0,
-                    }),
+                    execution: ActionExecution::Attack(PreparedAttack::new(0)),
                 }]
                 .into(),
                 1,
@@ -334,7 +319,7 @@ fn victory_fades_and_confirmation_keep_the_result_opening_readable() -> Result<(
             assert_eq!(fixture.battle.actors()[0].tp, 19);
             assert!(pending.results.notices.contains(
                 &crate::battle::results::ResultNotice::TpRecovery {
-                    character: 1,
+                    character: crate::battle::party::Character::Lloyd,
                     amount: 10
                 }
             ));

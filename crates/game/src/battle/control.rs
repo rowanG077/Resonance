@@ -1,6 +1,6 @@
 //! Bind prepared normal attacks and player movement before battle entry.
-use super::model::MotionRole;
-use anyhow::{Result, ensure};
+use super::{model::MotionRole, party::Character};
+use anyhow::{Context, Result, ensure};
 use resonance_battle::{ControlDefinition, ControlMotions};
 use resonance_content::battle_profile::Profile;
 
@@ -20,24 +20,24 @@ pub fn party(
     normal_attacks: &[resonance_content::battle_normal::Attack; 7],
     actions: [resonance_battle::ActionKey; 7],
     motions: Option<ControlMotions>,
-) -> Result<ControlDefinition> {
-    Ok(ControlDefinition {
+) -> ControlDefinition {
+    ControlDefinition {
         normals: super::normal::controls(normal_attacks, actions),
-        shortcuts: [0; 4],
+        shortcuts: [None; 4],
         walk_speed: profile.walk_speed,
         run_speed: profile.run_speed,
         turn_ticks: profile.turn_ticks,
         motions,
-    })
+    }
 }
 
 /// Technique metadata shared by player control, companion policy, learning and commands.
 pub fn techniques(
     catalogue: &resonance_content::arte::Catalogue,
-    character: u8,
+    character: Character,
     actions: &std::collections::BTreeMap<u16, resonance_battle::ActionKey>,
 ) -> Result<Vec<resonance_battle::PreparedTechnique>> {
-    let learned_by = catalogue.learned_by(character)?;
+    let learned_by = catalogue.learned_by(character as u8)?;
     actions
         .iter()
         .map(|(&id, &action)| {
@@ -50,11 +50,21 @@ pub fn techniques(
                 descriptor.capabilities.target != resonance_battle::TechniqueTarget::Unavailable,
                 "technique target is unavailable"
             );
+            let element = descriptor
+                .element
+                .checked_sub(1)
+                .map(|index| {
+                    resonance_battle::Element::ALL
+                        .get(usize::from(index))
+                        .copied()
+                        .context("invalid technique element")
+                })
+                .transpose()?;
             let special_guard = super::martial::is_special_guard(character, id);
             if special_guard {
                 return Ok(resonance_battle::PreparedTechnique {
                     action,
-                    catalogue: id,
+                    catalogue: resonance_battle::TechniqueId(id),
                     player_range: [0.; 2],
                     ai_range: [0.; 2],
                     capabilities: resonance_battle::TechniqueCapabilities {
@@ -62,7 +72,7 @@ pub fn techniques(
                         target: resonance_battle::TechniqueTarget::SelfTarget,
                         ..Default::default()
                     },
-                    element: descriptor.element,
+                    element,
                 });
             }
             let maximum = descriptor.action_range;
@@ -80,11 +90,11 @@ pub fn techniques(
             };
             Ok(resonance_battle::PreparedTechnique {
                 action,
-                catalogue: id,
+                catalogue: resonance_battle::TechniqueId(id),
                 player_range: [0., maximum],
                 ai_range: [ai_minimum, maximum],
                 capabilities,
-                element: descriptor.element,
+                element,
             })
         })
         .collect()

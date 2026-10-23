@@ -1,5 +1,5 @@
 //! Tiger Blade's two strikes share one launch and finish after returning to the floor.
-use super::{ActionDefinition, Sound, Technique};
+use super::{PreparedAttack, Sound, Technique};
 use anyhow::{Context, Result};
 use resonance_battle::{AttackEvent, ModelDefinition};
 
@@ -10,32 +10,21 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let action = self.prepare_authored(resources, model, tp_cost)?;
+    ) -> Result<PreparedAttack> {
+        let action = self.prepare_authored(resources, model)?;
         finish_on_landing(action)
     }
 }
 
-pub(super) fn finish_on_landing(mut action: ActionDefinition) -> Result<ActionDefinition> {
-    let crate::battle::ActionExecution::Attack(attack) = &mut action.execution else {
-        unreachable!("martial preparation produces an attack")
-    };
-    let finish = attack
-        .events
-        .iter()
-        .find_map(|(at, event)| match event {
-            AttackEvent::Pose(pose) if *at == attack.end_at => Some(*pose),
-            _ => None,
-        })
-        .context("missing Tiger Blade recovery pose")?;
+pub(super) fn finish_on_landing(mut action: PreparedAttack) -> Result<PreparedAttack> {
+    let finish = super::recovery_pose(&action).context("missing Tiger Blade recovery pose")?;
     // The final idle pose waits for the floor; the strikes and launch keep
     // their authored times, independently of animation blending.
-    attack
+    action
         .events
-        .retain(|(at, event)| *at != attack.end_at || !matches!(event, AttackEvent::Pose(_)));
-    attack.events.push((
-        attack.end_at,
+        .retain(|(at, event)| *at != action.end_at || !matches!(event, AttackEvent::Pose(_)));
+    action.events.push((
+        action.end_at,
         AttackEvent::Land {
             pose: Some(finish),
             effect: None,
@@ -43,6 +32,6 @@ pub(super) fn finish_on_landing(mut action: ActionDefinition) -> Result<ActionDe
             recovery_pose: None,
         },
     ));
-    attack.events.sort_by_key(|(at, _)| *at);
+    action.events.sort_by_key(|(at, _)| *at);
     Ok(action)
 }

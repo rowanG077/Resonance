@@ -18,54 +18,15 @@ fn ailment() -> HitRule {
 
 #[test]
 fn ailment_chance_combines_luck_and_one_resistance_source() {
+    use ConditionLabel::{Applied, EquipmentEffect, ExSkillEffect};
     for (luck, equipment, skill, incoming, saving, applied, label) in [
-        (0, false, false, 99, 0, true, Some(ConditionLabel::Applied)),
-        (0, false, true, 99, 20, true, Some(ConditionLabel::Applied)),
-        (
-            0,
-            false,
-            true,
-            99,
-            19,
-            false,
-            Some(ConditionLabel::ExSkillEffect),
-        ),
-        (
-            0,
-            true,
-            false,
-            99,
-            19,
-            false,
-            Some(ConditionLabel::EquipmentEffect),
-        ),
-        (
-            0,
-            true,
-            true,
-            99,
-            19,
-            false,
-            Some(ConditionLabel::ExSkillEffect),
-        ),
-        (
-            200,
-            false,
-            true,
-            89,
-            40,
-            true,
-            Some(ConditionLabel::Applied),
-        ),
-        (
-            200,
-            false,
-            true,
-            89,
-            39,
-            false,
-            Some(ConditionLabel::ExSkillEffect),
-        ),
+        (0, false, false, 99, 0, true, Some(Applied)),
+        (0, false, true, 99, 20, true, Some(Applied)),
+        (0, false, true, 99, 19, false, Some(ExSkillEffect)),
+        (0, true, false, 99, 19, false, Some(EquipmentEffect)),
+        (0, true, true, 99, 19, false, Some(ExSkillEffect)),
+        (200, false, true, 89, 40, true, Some(Applied)),
+        (200, false, true, 89, 39, false, Some(ExSkillEffect)),
         (200, false, true, 90, 0, false, None),
     ] {
         let mut target = actor(Side::Enemy);

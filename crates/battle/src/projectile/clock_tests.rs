@@ -5,24 +5,18 @@ fn elapsed_time_and_trails_continue_past_short_clocks_until_optional_retirement(
     for lifetime in [None, Some(40_000)] {
         let definition = Arc::new(ProjectileDefinition {
             lifetime,
-            velocity: [0.; 3],
-            acceleration: [0.; 3],
-            offset: [0.; 3],
-            clamp_ground: false,
             active: Some([33_000, 40_000]),
-            birth: None,
-            motion: Default::default(),
             effects: ProjectileEffects {
                 trail: Some((
                     EffectAppearance {
-                        resource: 1,
+                        resource: crate::ResourceId(1),
                         member: 2,
                     },
                     10_000,
                 )),
                 ..Default::default()
             },
-            contact: None,
+            ..Default::default()
         });
         definition.validate().unwrap();
         let mut invalid = (*definition).clone();

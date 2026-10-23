@@ -8,10 +8,7 @@ fn held(actor: ActorId, guard: bool, technique: bool) -> BattleInput {
     let mut input = crate::ControlInput::neutral(actor);
     input.guard.held = guard;
     input.technique.held = technique;
-    BattleInput {
-        controllers: vec![input],
-        ..Default::default()
-    }
+    BattleInput::from(input)
 }
 
 #[test]
@@ -31,7 +28,10 @@ fn guard_cancels_unfinished_casts_without_payment_or_release() {
             assert_eq!(frame.actors[0].activity, crate::Activity::Idle);
             assert_eq!(frame.actors[0].tp, tp);
             assert_eq!(battle.actors[0].casting_state.interrupted, None);
-            assert_eq!(battle.technique_uses(ActorId(0), 66), Some(49));
+            assert_eq!(
+                battle.technique_uses(ActorId(0), crate::TechniqueId(66)),
+                Some(49)
+            );
             assert!(
                 !frame
                     .cues
@@ -111,6 +111,9 @@ fn ready_delayed_cast_survives_guard_and_releases_once_when_unheld() {
         }
         assert_eq!(releases, 1);
         assert_eq!(battle.actors[0].tp, tp - 7);
-        assert_eq!(battle.technique_uses(ActorId(0), 66), Some(50));
+        assert_eq!(
+            battle.technique_uses(ActorId(0), crate::TechniqueId(66)),
+            Some(50)
+        );
     }
 }

@@ -39,11 +39,7 @@ impl Battle {
         self.advance_condition_callbacks(index, combat, cues);
         let actor = &mut self.actors[index];
         actor.reaction.protection.step();
-        if let Err(error) = self.advance_common_ex_recovery(index, combat, cues) {
-            self.diagnostics
-                .report("battle common EX recovery", error)?;
-            self.diagnostic = true;
-        }
+        self.advance_common_ex_recovery(index, combat, cues);
         self.actors[index].control_ex_state.advance_charge();
         self.advance_enemy_behavior(index, action_advanced)?;
         Ok(())

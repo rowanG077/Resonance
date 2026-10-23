@@ -1004,9 +1004,9 @@ impl DialogueDraw<'_> {
                     .get(&id)
                     .copied()
                     .unwrap_or_else(|| Vec3::from_array(actor.position));
-                self.head_heights.entry(request.operation.id()).or_insert(
-                    ((*head - position).dot(camera.up)).trunc() + HEAD_ANCHOR_PADDING,
-                );
+                self.head_heights
+                    .entry(request.operation.id())
+                    .or_insert(((*head - position).dot(camera.up)).trunc() + HEAD_ANCHOR_PADDING);
             }
         }
         for (&slot, player) in dialogue {

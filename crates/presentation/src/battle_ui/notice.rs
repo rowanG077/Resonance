@@ -35,12 +35,7 @@ pub(super) fn layers(
 ) -> Vec<HudLayer> {
     let mut definitions = vec![
         palette.solid.clone().at(Depth::Notice),
-        palette
-            .main_font
-            .clone()
-            .at(Depth::Notice)
-            .foreground()
-            .foreground(),
+        palette.main_font.clone().at(Depth::Notice).offset_depth(2.),
     ];
     for (index, texture) in [&art.notices.frame, &art.notices.fill]
         .into_iter()
@@ -54,7 +49,7 @@ pub(super) fn layers(
         definitions.push(if index == FILL - FRAME {
             definition
         } else {
-            definition.foreground()
+            definition.offset_depth(1.)
         });
     }
     // Each side has its own frame batches; enemy icons follow both frames.
@@ -68,7 +63,7 @@ pub(super) fn layers(
             let image = load(texture, false, true);
             LayerDefinition::new(image, [texture.width, texture.height], Depth::Notice)
                 .nearest()
-                .foreground()
+                .offset_depth(1.)
         } else {
             palette.solid.clone().at(Depth::Notice)
         };
@@ -77,17 +72,12 @@ pub(super) fn layers(
     palette.layers(definitions, materials)
 }
 
-fn draw_face(character: u8, destination: [f32; 4], alpha: u8, batches: &mut [Batch]) -> Result<()> {
-    let index = usize::from(
-        character
-            .checked_sub(1)
-            .context("unknown notice character")?,
-    );
-    ensure!(index < 9, "unknown notice character");
+fn draw_face(character: Character, destination: [f32; 4], alpha: u8, batches: &mut [Batch]) {
+    let index = character.index();
     let (x, width) = match character {
-        7 => (256., 40.),
-        8 => (296., 32.),
-        9 => (328., 32.),
+        Character::Presea => (256., 40.),
+        Character::Regal => (296., 32.),
+        Character::Kratos => (328., 32.),
         _ => (64. + index as f32 * 32., 32.),
     };
     batches[FACES + index].quad(
@@ -95,7 +85,6 @@ fn draw_face(character: u8, destination: [f32; 4], alpha: u8, batches: &mut [Bat
         [x, 104., x + width, 136.],
         hud_color([128, 128, 128, alpha]),
     );
-    Ok(())
 }
 
 fn draw_text(font: &BitmapFont, text: &str, [mut x, y]: [f32; 2], alpha: u8, batch: &mut Batch) {
@@ -279,6 +268,44 @@ impl Artwork {
         Ok(())
     }
 
+    fn draw_notice(
+        &self,
+        text: &str,
+        icon: Icon,
+        [offset, top]: [f32; 2],
+        tint: [u8; 4],
+        alpha: u8,
+        batches: &mut [Batch],
+    ) -> f32 {
+        let width = text
+            .chars()
+            .map(|ch| self.font.glyphs[&ch].advance)
+            .sum::<u32>();
+        let text_width = width * GLYPH_WIDTH / TILE_WIDTH;
+        let tiles = text_width / TILE_WIDTH + 1;
+        let left = 320. - 48. - (((width / TILE_WIDTH + 1) * GLYPH_WIDTH + 4) / 2) as f32 + offset;
+        draw_frame(left, top, tiles, tint, alpha, batches);
+        draw_text(
+            &self.font,
+            text,
+            [
+                left + 66. - ((text_width % TILE_WIDTH) / 2) as f32,
+                top + 11.,
+            ],
+            alpha,
+            &mut batches[TEXT],
+        );
+        let icon = icon as usize;
+        let [u, v] = self.art.notices.icon_origins[icon].map(f32::from);
+        let right = left + 56. + (tiles * TILE_WIDTH) as f32;
+        batches[ICONS + icon].quad(
+            [right + 5., top + 21., right + 29., top + 45.],
+            [u, v, u + 24., v + 24.],
+            hud_color([128, 128, 128, alpha]),
+        );
+        left
+    }
+
     pub(super) fn draw_notices(
         &self,
         frame: &BattleFrame,
@@ -288,7 +315,7 @@ impl Artwork {
             .map(|_| Batch::default())
             .collect::<Vec<_>>();
         if let Some(character) = self.results.as_ref().and_then(|r| r.model.cook_prompt) {
-            draw_face(character, [480., 416., 512., 448.], 255, &mut batches)?;
+            draw_face(character, [480., 416., 512., 448.], 255, &mut batches);
         }
         for (character, offset) in self
             .results
@@ -301,7 +328,7 @@ impl Artwork {
                 [104. + offset, 357., 136. + offset, 389.],
                 255,
                 &mut batches,
-            )?;
+            );
         }
         if frame.recognized_result.is_none() && self.scan.is_none() {
             for (side, message) in self.notices.messages.iter().enumerate() {
@@ -312,20 +339,12 @@ impl Artwork {
                 } else {
                     subdued(message.alpha())
                 };
-                let width = message
-                    .text
-                    .chars()
-                    .map(|ch| self.font.glyphs[&ch].advance)
-                    .sum::<u32>();
-                let text_width = width * GLYPH_WIDTH / TILE_WIDTH;
-                let tiles = text_width / TILE_WIDTH + 1;
                 let fading = message.age.saturating_sub(u64::from(message.duration)) as f32;
-                let left = 320. - 48. - (((width / TILE_WIDTH + 1) * GLYPH_WIDTH + 4) / 2) as f32
-                    + if side == Side::Party as usize {
-                        -fading
-                    } else {
-                        fading
-                    };
+                let offset = if side == Side::Party as usize {
+                    -fading
+                } else {
+                    fading
+                };
                 let top = if newest { 15. } else { 3. };
                 let start = if side == Side::Party as usize {
                     0
@@ -337,10 +356,10 @@ impl Artwork {
                 } else {
                     self.settings.colors.choice
                 };
-                draw_frame(
-                    left,
-                    top,
-                    tiles,
+                let left = self.draw_notice(
+                    &message.text,
+                    message.icon,
+                    [offset, top],
                     tint,
                     alpha,
                     &mut batches[start..start + FACES],
@@ -359,12 +378,17 @@ impl Artwork {
                         [
                             left + 20.,
                             top + 11.,
-                            left + 20. + if character == 7 { 40. } else { 32. },
+                            left + 20.
+                                + if character == Character::Presea {
+                                    40.
+                                } else {
+                                    32.
+                                },
                             top + 43.,
                         ],
                         alpha,
                         &mut batches,
-                    )?;
+                    );
                 } else if let Some(enemy) = self
                     .combat
                     .enemies
@@ -378,42 +402,15 @@ impl Artwork {
                         hud_color([128, 128, 128, alpha]),
                     );
                 }
-                draw_text(
-                    &self.font,
-                    &message.text,
-                    [
-                        left + 66. - ((text_width % TILE_WIDTH) / 2) as f32,
-                        top + 11.,
-                    ],
-                    alpha,
-                    &mut batches[start + TEXT],
-                );
-                let icon = message.icon as usize;
-                let [u, v] = self.art.notices.icon_origins[icon].map(f32::from);
-                let right = left + 56. + (tiles * TILE_WIDTH) as f32;
-                batches[start + ICONS + icon].quad(
-                    [right + 5., top + 21., right + 29., top + 45.],
-                    [u, v, u + 24., v + 24.],
-                    hud_color([128, 128, 128, alpha]),
-                );
             }
         }
         if let Some(age) = self.notices.defeat_age {
-            let text = &self.art.notices.defeated;
-            let width = text
-                .chars()
-                .map(|ch| self.font.glyphs[&ch].advance)
-                .sum::<u32>();
-            let text_width = width * GLYPH_WIDTH / TILE_WIDTH;
-            let tiles = text_width / TILE_WIDTH + 1;
-            let left = 320. - 48. - (((width / TILE_WIDTH + 1) * GLYPH_WIDTH + 4) / 2) as f32;
             let top = 27.;
             let alpha = (age.min(FADE_IN_TICKS) * 256 / FADE_IN_TICKS).min(255) as u8;
-            let color = hud_color([128, 128, 128, alpha]);
-            draw_frame(
-                left,
-                top,
-                tiles,
+            let left = self.draw_notice(
+                &self.art.notices.defeated,
+                Icon::Outcome,
+                [0., top],
                 self.settings.colors.popup,
                 alpha,
                 &mut batches,
@@ -421,25 +418,7 @@ impl Artwork {
             batches[FRAME].quad(
                 [left + 20., top + 11., left + 52., top + 43.],
                 [384., 384., 416., 416.],
-                color,
-            );
-            draw_text(
-                &self.font,
-                text,
-                [
-                    left + 66. - ((text_width % TILE_WIDTH) / 2) as f32,
-                    top + 11.,
-                ],
-                alpha,
-                &mut batches[TEXT],
-            );
-            let icon = Icon::Outcome as usize;
-            let [u, v] = self.art.notices.icon_origins[icon].map(f32::from);
-            let right = left + 56. + (tiles * TILE_WIDTH) as f32;
-            batches[ICONS + icon].quad(
-                [right + 5., top + 21., right + 29., top + 45.],
-                [u, v, u + 24., v + 24.],
-                color,
+                hud_color([128, 128, 128, alpha]),
             );
         }
         Ok(batches)
@@ -482,7 +461,7 @@ mod tests {
         enemy.side = Side::Enemy;
         frame.actors.push(enemy);
         let party = PartyHudInput {
-            characters: &[3],
+            characters: &[Character::Genis],
             queued_techniques: &[false],
             names: &[None],
         };
@@ -538,8 +517,8 @@ mod tests {
             stage_color: None,
             completion: None,
             combination: Some(resonance_battle::UnisonCombinationFrame {
-                id: 12,
-                native_id: 311,
+                id: resonance_battle::UnisonRecipeId(12),
+                native_id: resonance_battle::UnisonArteId(311),
                 actors: [actor; 2],
             }),
             feedback: None,

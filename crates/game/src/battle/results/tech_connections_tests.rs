@@ -1,12 +1,14 @@
 //! Live Tech commands use current controller connections and commit edits to the battle.
-use super::item_tests::{Display, PreparedFixture, enter_battle, prepared_fixture_with_party};
+use super::item_tests::{
+    Display, PreparedFixture, edge, enter_battle, prepared_fixture_with_party,
+};
 use super::*;
 use crate::battle::{command, lifecycle};
 use crate::menu::{
     MenuAction,
     techniques::{Focus, Tech},
 };
-use resonance_battle::{ButtonInput, Control};
+use resonance_battle::Control;
 
 const PLUGGED: [bool; 4] = [false, true, false, false];
 const NO_PADS: [bool; 4] = [false; 4];
@@ -23,14 +25,6 @@ fn fixture() -> Result<PreparedFixture> {
     Ok(fixture)
 }
 
-fn edge() -> ButtonInput {
-    ButtonInput {
-        pressed: true,
-        held: true,
-        released: false,
-    }
-}
-
 #[test]
 #[ignore = "requires locally cooked battle assets; CPU only"]
 fn tech_page_uses_live_cost_and_rejects_unaffordable_confirmation() -> Result<()> {
@@ -41,12 +35,9 @@ fn tech_page_uses_live_cost_and_rejects_unaffordable_confirmation() -> Result<()
     let mut equipped = f.candidate.party.members[2].clone();
     const FAIRY_RING: u16 = 407;
     equipped.equipment[3] = FAIRY_RING;
-    let (mut attributes, conditions) = crate::battle::party::loadout(
-        &f.candidate.menus,
-        &equipped,
-        2,
-    )?
-    .equipment_attributes(&equipped, &original_conditions, false)?;
+    let (mut attributes, conditions) =
+        crate::battle::party::loadout(&f.candidate.menus, &equipped, Character::Genis)?
+            .equipment_attributes(&equipped, &original_conditions, false)?;
     attributes.max_tp = 3;
     f.battle
         .replace_equipment_batch(vec![EquipmentReplacement {
@@ -279,7 +270,7 @@ fn control_edits_update_live_actors_and_gate_auto_shortcuts() -> Result<()> {
         .setup
         .actors
         .iter()
-        .find(|(_, member)| *member == 3)
+        .find(|(_, character)| *character == Character::Genis)
         .unwrap()
         .0;
     for (saved, live) in [

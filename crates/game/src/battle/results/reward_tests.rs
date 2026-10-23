@@ -1,9 +1,9 @@
 //! Candidate-level reward effect extraction. These fixtures exercise the
 //! prepared party and live actor namespaces separately from reward arithmetic.
-use super::item_tests::PreparedFixture;
-use super::{ResultNotice, Selection};
+use super::item_tests::{PreparedFixture, native_battle};
+use super::{Character, ResultNotice, Selection};
 use anyhow::Result;
-use resonance_battle::{BattleResult, PreparedBattle, Side};
+use resonance_battle::{BattleResult, Side};
 use resonance_content::{
     menu_data::{CompoundExSkill, MenuData, ex_effect as ex},
     session::SessionData,
@@ -52,15 +52,7 @@ fn local_fixture(
                     actor.hp = 0;
                 }
             }
-            PreparedBattle::new(
-                (actors)
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
+            native_battle(actors)
         },
     )
 }
@@ -156,15 +148,7 @@ fn field_handoff_preserves_battle_duration_and_formation_count() -> Result<()> {
             |_, _, _| Ok(()),
             |actors, setup| {
                 setup.formation_count = formations;
-                PreparedBattle::new(
-                    actors
-                        .into_iter()
-                        .map(|a| (a, Default::default()))
-                        .collect(),
-                    Default::default(),
-                    1,
-                )?
-                .finish()
+                native_battle(actors)
             },
         )?;
         for _ in 0..1201 {
@@ -310,10 +294,10 @@ fn reward_transaction_recovers_tp_once_using_active_skills() -> Result<()> {
                 .clear();
         }
         construct_result(&mut fixture)?;
-        let sheena = actor_for(&fixture, 5);
+        let sheena = actor_for(&fixture, Character::Sheena);
         let notices = &fixture.candidate.results.as_ref().unwrap().notices;
         assert!(notices.contains(&ResultNotice::TpRecovery {
-            character: 5,
+            character: Character::Sheena,
             amount: if nearly_full {
                 1
             } else if active_skill {
@@ -323,7 +307,7 @@ fn reward_transaction_recovers_tp_once_using_active_skills() -> Result<()> {
             }
         }));
         assert!(notices.contains(&ResultNotice::TpRecovery {
-            character: 1,
+            character: Character::Lloyd,
             amount: if nearly_full { 1 } else { 20 }
         }));
         assert_eq!(
@@ -366,7 +350,7 @@ fn reward_transaction_recovers_tp_once_using_active_skills() -> Result<()> {
     Ok(())
 }
 
-fn actor_for(fixture: &PreparedFixture, character: u8) -> resonance_battle::ActorId {
+fn actor_for(fixture: &PreparedFixture, character: Character) -> resonance_battle::ActorId {
     fixture
         .candidate
         .setup
@@ -409,18 +393,20 @@ fn result_advancement_feedback_uses_the_result_clock_and_pauses_with_it() -> Res
     assert_eq!(fixture.battle.phase(), BattlePhase::Results);
     fixture.candidate.results.as_mut().unwrap().notices = vec![
         ResultNotice::Level {
-            character: 1,
+            character: Character::Lloyd,
             level: 2,
         },
         ResultNotice::Level {
-            character: 2,
+            character: Character::Colette,
             level: 2,
         },
         ResultNotice::Technique {
-            character: 1,
+            character: Character::Lloyd,
             technique: 1,
         },
-        ResultNotice::CompoundEx { character: 2 },
+        ResultNotice::CompoundEx {
+            character: Character::Colette,
+        },
     ];
     for age in 0..=181 {
         if age == 100 {
@@ -495,7 +481,7 @@ fn presea_tough_recipe_reads_live_hp_bands() -> Result<()> {
         party.members[6].ex_skills = [1, 2, 0, 0];
         Ok(())
     })?;
-    let presea = actor_for(&fixture, 7);
+    let presea = actor_for(&fixture, Character::Presea);
 
     for (hp, expected) in [(249, 15), (250, 10), (500, 5), (750, 0), (1000, 0)] {
         fixture.battle.set_actor_vitals(presea, hp, 1000, 0, 100)?;

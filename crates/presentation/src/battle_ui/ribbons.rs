@@ -1,6 +1,7 @@
 //! Sliding quick orders and the enemy-name list shown by battle selection.
 use super::*;
 use resonance_battle::ActorId;
+use resonance_game::battle::lifecycle::QuickOrder;
 
 const SLIDE_SPEED: f32 = 16.;
 const ORDER_ENTRY: f32 = -160.;
@@ -24,8 +25,7 @@ pub(crate) struct Input<'a> {
     pub menu_open: bool,
     /// A selected enemy, rather than the actor owning the target selector.
     pub target: Option<ActorId>,
-    /// Cancel, left preset, upper preset, right preset.
-    pub order: u8,
+    pub order: QuickOrder,
     pub order_revision: u32,
     pub order_label: &'a str,
 }
@@ -86,7 +86,6 @@ impl State {
         enemies: &[EnemyHud],
         frame: &BattleFrame,
     ) -> Result<[Batch; 3]> {
-        ensure!(input.order <= 3, "invalid quick order selection");
         let [mut panels, mut labels, mut arrows] = std::array::from_fn(|_| Batch::default());
         if frame.recognized_result.is_some() {
             *self = Self::default();
@@ -103,7 +102,7 @@ impl State {
         let [orders_x, enemies_x] = self.presented;
         if orders_x + width + 24. > 0. {
             let x = orders_x;
-            let color = if input.order == 0 {
+            let color = if input.order == QuickOrder::Cancel {
                 CANCEL_BACKDROP
             } else {
                 PRESET_BACKDROP
@@ -120,17 +119,25 @@ impl State {
             if (self.phase / 8).is_multiple_of(2) {
                 for (omitted, rect, uv) in [
                     (
-                        0,
+                        QuickOrder::Cancel,
                         [x + (width / 2.).trunc(), 360., 32., 20.],
                         [224., 64., 248., 48.],
                     ),
                     (
-                        2,
+                        QuickOrder::UpperPreset,
                         [x + (width / 2.).trunc(), 316., 32., 20.],
                         [224., 48., 248., 64.],
                     ),
-                    (1, [x, 334., 20., 28.], [208., 48., 192., 72.]),
-                    (3, [x + width, 334., 20., 28.], [192., 48., 208., 72.]),
+                    (
+                        QuickOrder::LeftPreset,
+                        [x, 334., 20., 28.],
+                        [208., 48., 192., 72.],
+                    ),
+                    (
+                        QuickOrder::RightPreset,
+                        [x + width, 334., 20., 28.],
+                        [192., 48., 208., 72.],
+                    ),
                 ] {
                     if input.order != omitted {
                         let [x, y, w, h] = rect;
@@ -224,31 +231,8 @@ fn label(
     Ok(())
 }
 
-/// A colored strip with separately feathered edges and optional slant.
 fn backdrop(batch: &mut Batch, [x, y, w, h]: [f32; 4], colors: [[u8; 4]; 4], edge: f32, skew: f32) {
-    let [tl, tr, bl, br] = colors;
-    let clear = |mut color: [u8; 4]| {
-        color[3] = 0;
-        color
-    };
-    for (rect, colors) in [
-        ([x, y, x + w, y + h], colors),
-        (
-            [x + skew, y - edge, x + w + skew, y],
-            [clear(tl), clear(tr), tl, tr],
-        ),
-        (
-            [x - skew, y + h, x + w - skew, y + h + edge],
-            [bl, br, clear(bl), clear(br)],
-        ),
-        ([x - edge, y, x, y + h], [clear(tl), tl, clear(bl), bl]),
-        (
-            [x + w, y, x + w + edge, y + h],
-            [tr, clear(tr), br, clear(br)],
-        ),
-    ] {
-        party::slanted_quad(batch, rect, [0.5; 4], skew, colors);
-    }
+    party::backdrop(batch, [x, y, x + w, y + h], colors, edge, skew);
 }
 
 #[cfg(test)]
@@ -262,7 +246,7 @@ mod tests {
             tick: 1,
             menu_open: false,
             target: None,
-            order: 0,
+            order: QuickOrder::Cancel,
             order_revision: 0,
             order_label: "Cancel orders",
         };
@@ -283,7 +267,7 @@ mod tests {
         state.advance(input, 13);
         assert_eq!((state.presented, state.phase), placement);
         input.menu_open = false;
-        input.order = 1;
+        input.order = QuickOrder::LeftPreset;
         input.order_revision = 1;
         for tick in 26..=86 {
             input.tick = tick;

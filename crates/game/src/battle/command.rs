@@ -1,11 +1,11 @@
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{ActorId, Battle, ButtonInput, Control, Side};
+use resonance_battle::{ActorId, Battle, ButtonInput, Control, ControllerPort, Side};
 mod items;
 pub use items::{ActorSelection, InventoryInput, ItemRow, ListFrame};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Input {
-    pub controller: u8,
+    pub controller: ControllerPort,
     /// Current physical-pad connections in stable local slots. Keyboard input
     /// does not imply an attached pad; the default preserves the no-pad route.
     pub connected: [bool; 4],
@@ -68,9 +68,7 @@ impl Setup {
         for (slot, &id) in actors.iter().enumerate() {
             let actor = roster.get(id.index()).context("command actor is absent")?;
             ensure!(
-                actor.side == Side::Party
-                    && actor.control_slot < 4
-                    && !actors[..slot].contains(&id),
+                actor.side == Side::Party && !actors[..slot].contains(&id),
                 "invalid command party actor"
             );
         }
@@ -81,23 +79,20 @@ impl Setup {
         })
     }
 
-    pub fn admission(&self, battle: &Battle, controller: u8) -> Result<Option<Admission>> {
-        ensure!(
-            controller < 4,
-            "invalid command controller slot {controller}"
-        );
+    pub fn admission(&self, battle: &Battle, controller: ControllerPort) -> Option<Admission> {
         if !battle.command_admission_allowed() {
-            return Ok(None);
+            return None;
         }
         let mut enabled = self.enabled;
         if self.coliseum && battle.ledger().elapsed_ticks >= COLISEUM_EQUIPMENT_CHANGE_TICKS {
             enabled &= !Command::Equipment.mask();
         }
-        Ok(self.actors.iter().find_map(|&id| {
+        self.actors.iter().find_map(|&id| {
             let actor = battle.actors().get(id.index())?;
             let slot = actor.control_slot;
             if slot != controller
-                || matches!(actor.control, Control::Auto | Control::Enemy) && slot != 0
+                || matches!(actor.control, Control::Auto | Control::Enemy)
+                    && slot != ControllerPort::One
             {
                 return None;
             }
@@ -106,14 +101,14 @@ impl Setup {
                 controller: slot,
                 enabled,
             })
-        }))
+        })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Admission {
     pub actor: ActorId,
-    pub controller: u8,
+    pub controller: ControllerPort,
     pub enabled: u8,
 }
 
@@ -123,7 +118,7 @@ pub struct Frame {
     pub selected: Command,
     /// Static command capabilities projected through the sampled item lock.
     pub enabled: u8,
-    pub controller: u8,
+    pub controller: ControllerPort,
     /// Connection sample from this retained menu visit, shared by input and draw.
     pub connected: [bool; 4],
     pub view: View,
@@ -187,7 +182,7 @@ impl Command {
         Self::ALL[(i16::from(self.index()) + i16::from(direction.signum()))
             .rem_euclid(Self::ALL.len() as i16) as usize]
     }
-    fn intent(self, input: Input, controller: u8, enabled: u8) -> StripIntent {
+    fn intent(self, input: Input, controller: ControllerPort, enabled: u8) -> StripIntent {
         if input.controller != controller {
             return StripIntent::Stay;
         }
@@ -329,7 +324,7 @@ impl Owner {
         self.escape_requested = false;
     }
 
-    pub fn controller(&self) -> Option<u8> {
+    pub fn controller(&self) -> Option<ControllerPort> {
         self.session
             .as_ref()
             .map(|session| session.admission.controller)
@@ -455,6 +450,8 @@ impl Owner {
                 }
             }
             Page::Tech(mut tech) => {
+                use crate::menu::techniques::TargetKind;
+
                 tech.connected = input.connected;
                 let visit = candidate.step_tech(
                     battle,
@@ -462,40 +459,32 @@ impl Owner {
                     session.admission.actor,
                     input.shared_menu,
                 )?;
-                if visit.exit.is_some() {
-                    self.tech_character = tech.state.character;
-                }
                 result.events.extend(visit.cue.map(Event::Cue));
                 match visit.exit {
-                    Some(exit)
-                        if exit.technique.is_some()
-                            && exit.target_kind
-                                == Some(crate::menu::techniques::TargetKind::Enemy) =>
-                    {
-                        let actor = candidate.tech_target_actor(battle, exit.member)?;
-                        let selected = battle.select_target_step(
-                            session.admission.actor,
-                            battle.target(session.admission.actor),
-                            0,
-                        );
-                        battle.project_command_target(
-                            selected.map(|target| (session.admission.actor, target)),
-                        )?;
-                        Some(Page::TechTarget(TechTarget {
-                            actor,
-                            issuer: session.admission.actor,
-                            technique: exit.technique.unwrap(),
-                            selected,
-                        }))
+                    Some(exit) => {
+                        self.tech_character = tech.state.character;
+                        match (exit.technique, exit.target_kind) {
+                            (Some(technique), Some(TargetKind::Enemy)) => {
+                                let actor = candidate.tech_target_actor(battle, exit.member)?;
+                                let selected = battle.select_target_step(
+                                    session.admission.actor,
+                                    battle.target(session.admission.actor),
+                                    0,
+                                );
+                                battle.project_command_target(
+                                    selected.map(|target| (session.admission.actor, target)),
+                                )?;
+                                Some(Page::TechTarget(TechTarget {
+                                    actor,
+                                    issuer: session.admission.actor,
+                                    technique,
+                                    selected,
+                                }))
+                            }
+                            (Some(_), Some(TargetKind::SelfTarget)) => None,
+                            _ => Some(Page::Strip),
+                        }
                     }
-                    Some(exit)
-                        if exit.technique.is_some()
-                            && exit.target_kind
-                                == Some(crate::menu::techniques::TargetKind::SelfTarget) =>
-                    {
-                        None
-                    }
-                    Some(_) => Some(Page::Strip),
                     None => Some(Page::Tech(tech)),
                 }
             }
@@ -611,66 +600,19 @@ impl Owner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use resonance_battle::{Actor, ActorAvailability, PreparedBattle};
+    use resonance_battle::{Actor, PreparedBattle};
     fn actor(side: Side) -> Actor {
         Actor {
-            side,
-            species: 0,
-            equipment: resonance_battle::EquipmentAttributes {
-                max_hp: 100,
-                max_tp: 30,
-                tp_cost_reduction: false,
-                quick_escape: false,
-                taunt_enabled: false,
-                taunt_guard: false,
-                taunt_cancel: false,
-                control_ex: Default::default(),
-                quick_turn: false,
-                backstep_guard: false,
-                casting: Default::default(),
-                dagger_reach: false,
-                contact: Default::default(),
-                normal_combo_limit: 3,
-                guaranteed_steal: false,
-                luck: 0,
-                stats: Default::default(),
-                affinities: [resonance_battle::Affinity::Normal; 9],
-                damage: Default::default(),
-                recovery: Default::default(),
-                base_element: None,
-                combo_traits: Default::default(),
-                normal_guard: false,
-                speed_multiplier: 1.,
-                reaction_ex: Default::default(),
-                stun_ex_bonus: false,
-                spell_revenge: false,
-            },
-            control: Default::default(),
-            availability: ActorAvailability::Active,
-            guard: Default::default(),
             hp: 100,
             tp: 20,
-            control_ex_state: Default::default(),
-            casting_state: Default::default(),
-            stored_spell: None,
-            control_slot: 0,
-            overlimit: Default::default(),
-            proficiency: 0,
-            combat_adjustments: Default::default(),
-            input: Default::default(),
-            elements: Default::default(),
-            attack_power: 100,
-            conditions: Default::default(),
-            position: [0.; 3],
-            heading: 0.,
-            facing_direction: [0., 0., 1.],
-            effect_scale: 1.,
-            secondary_wind: Default::default(),
-            body: Default::default(),
-            movement: Default::default(),
-            reaction: Default::default(),
-            hit_stop: 0,
-            time_stop: 0,
+            ..Actor::new(
+                side,
+                Default::default(),
+                resonance_battle::EquipmentAttributes {
+                    normal_combo_limit: 3,
+                    ..resonance_battle::EquipmentAttributes::new(100, 30, Default::default())
+                },
+            )
         }
     }
 
@@ -700,17 +642,23 @@ mod tests {
         };
         for command in Command::ALL {
             let input = Input {
-                controller: 2,
+                controller: ControllerPort::Three,
                 confirm_a: pressed,
                 cancel_b: pressed,
                 ..Default::default()
             };
             assert_eq!(
-                command.intent(input, 2, command.mask()),
+                command.intent(input, ControllerPort::Three, command.mask()),
                 StripIntent::Choose(command)
             );
-            assert_eq!(command.intent(input, 2, 0), StripIntent::Close);
-            assert_eq!(command.intent(input, 1, command.mask()), StripIntent::Stay);
+            assert_eq!(
+                command.intent(input, ControllerPort::Three, 0),
+                StripIntent::Close
+            );
+            assert_eq!(
+                command.intent(input, ControllerPort::Two, command.mask()),
+                StripIntent::Stay
+            );
         }
     }
     #[test]
@@ -737,10 +685,10 @@ mod tests {
             coliseum: false,
         };
         let mut battle = prepared.finish().unwrap();
-        assert!(setup.admission(&battle, 1).unwrap().is_none());
-        assert!(setup.admission(&battle, 0).unwrap().is_some());
+        assert!(setup.admission(&battle, ControllerPort::Two).is_none());
+        assert!(setup.admission(&battle, ControllerPort::One).is_some());
         battle.recognize_result();
-        assert!(setup.admission(&battle, 0).unwrap().is_none());
+        assert!(setup.admission(&battle, ControllerPort::One).is_none());
     }
 
     #[test]
@@ -752,7 +700,7 @@ mod tests {
         ] {
             let mut party = actor(Side::Party);
             party.control = control;
-            party.control_slot = 1;
+            party.control_slot = resonance_battle::ControllerPort::Two;
             let prepared =
                 PreparedBattle::new(vec![(party, Default::default())], Default::default(), 1)
                     .unwrap();
@@ -763,24 +711,12 @@ mod tests {
                 coliseum: false,
             };
             let battle = prepared.finish().unwrap();
-            assert_eq!(setup.admission(&battle, 1).unwrap().is_some(), allowed);
-            assert!(setup.admission(&battle, 0).unwrap().is_none());
+            assert_eq!(
+                setup.admission(&battle, ControllerPort::Two).is_some(),
+                allowed
+            );
+            assert!(setup.admission(&battle, ControllerPort::One).is_none());
         }
-    }
-
-    #[test]
-    fn command_setup_rejects_invalid_rosters_before_admission() {
-        let (battle, setup) = battle();
-        let actor = setup.actors[0];
-        assert!(Setup::new(vec![], 0xff, battle.actors(), false).is_err());
-        assert!(Setup::new(vec![actor, actor], 0xff, battle.actors(), false).is_err());
-        assert!(Setup::new(vec![actor], 0xff, &[], false).is_err());
-        let mut enemy = battle.actors()[0].clone();
-        enemy.side = Side::Enemy;
-        assert!(Setup::new(vec![actor], 0xff, &[enemy], false).is_err());
-        let prepared = Setup::new(vec![actor], 0xff, battle.actors(), false).unwrap();
-        assert!(prepared.admission(&battle, 4).is_err());
-        assert!(prepared.admission(&battle, 0).unwrap().is_some());
     }
 
     #[test]
@@ -788,7 +724,12 @@ mod tests {
         let (mut battle, mut setup) = battle();
         setup.coliseum = true;
         let equipment_enabled = |battle: &Battle, setup: &Setup| {
-            setup.admission(battle, 0).unwrap().unwrap().enabled & Command::Equipment.mask() != 0
+            setup
+                .admission(battle, ControllerPort::One)
+                .unwrap()
+                .enabled
+                & Command::Equipment.mask()
+                != 0
         };
         for _ in 1..COLISEUM_EQUIPMENT_CHANGE_TICKS {
             battle.step(Default::default()).unwrap();

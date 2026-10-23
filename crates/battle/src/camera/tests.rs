@@ -1,9 +1,10 @@
 use super::*;
+use crate::tests::{actor, prepare_actors, step_idle};
 
 fn actors() -> Vec<Actor> {
-    let mut leader = crate::tests::actor(crate::Side::Party);
+    let mut leader = actor(crate::Side::Party);
     leader.control = Control::Manual;
-    let mut target = crate::tests::actor(crate::Side::Enemy);
+    let mut target = actor(crate::Side::Enemy);
     target.position = [400., 0., 0.];
     let mut other = target.clone();
     other.position = [-4000., 0., 0.];
@@ -14,18 +15,17 @@ fn actors() -> Vec<Actor> {
     vec![leader, target, other]
 }
 
+fn definition(auto_zoom: bool) -> CameraDefinition {
+    CameraDefinition {
+        leader: ActorId(0),
+        stage_pitch: 0.,
+        auto_zoom,
+        yaw_limits: None,
+    }
+}
+
 fn camera(actors: &[Actor], auto_zoom: bool) -> Camera {
-    Camera::new(
-        CameraDefinition {
-            leader: ActorId(0),
-            stage_pitch: 0.,
-            auto_zoom,
-            yaw_limits: None,
-        },
-        actors,
-        ActorId(u8::from(actors.len() > 1)),
-    )
-    .unwrap()
+    Camera::new(definition(auto_zoom), actors, ActorId(1)).unwrap()
 }
 
 #[test]
@@ -36,10 +36,8 @@ fn arena_yaw_limits_keep_entry_tracking_and_selection_in_front_of_wall() -> Resu
     actors[1].position = [850., 0., 0.];
     let mut camera = Camera::new(
         CameraDefinition {
-            leader: ActorId(0),
-            stage_pitch: 0.,
-            auto_zoom: true,
             yaw_limits: Some([102., 256.]),
+            ..definition(true)
         },
         &actors,
         ActorId(1),
@@ -115,10 +113,8 @@ fn controlled_camera_matches_recorded_combat_updates() -> Result<()> {
         }
         let mut camera = Camera::new(
             CameraDefinition {
-                leader: ActorId(0),
                 stage_pitch: recording.stage_pitch,
-                auto_zoom: recording.auto_zoom,
-                yaw_limits: None,
+                ..definition(recording.auto_zoom)
             },
             &actors,
             ActorId(1),
@@ -158,7 +154,6 @@ fn selection_uses_explicit_target_while_gameplay_is_held() -> Result<()> {
     assert_eq!(camera.pose, before);
     camera.step(&actors, ActorId(1), false, Update::Selecting(ActorId(2)))?;
     assert!(camera.pose.focus[0] < before.focus[0]);
-    camera.step(&actors, ActorId(1), false, Update::Tracking)?;
     Ok(())
 }
 
@@ -217,25 +212,11 @@ fn leader_death_and_revival_ease_between_controlled_and_group_views() -> Result<
         companion.control = Control::Auto;
         companion.position = [-2000., 0., 0.];
         subjects.push(companion);
-        let mut battle = crate::PreparedBattle::new(
-            subjects
-                .into_iter()
-                .map(|actor| (actor, Default::default()))
-                .collect(),
-            Default::default(),
-            1,
-        )?
-        .with_camera(CameraDefinition {
-            leader: ActorId(0),
-            stage_pitch: 0.,
-            auto_zoom,
-            yaw_limits: None,
-        })?
-        .finish()?;
+        let mut battle = prepare_actors(subjects, 1)
+            .with_camera(definition(auto_zoom))?
+            .finish()?;
         battle.set_decision_target(ActorId(0), ActorId(1))?;
-        for _ in 0..120 {
-            battle.step(Default::default())?;
-        }
+        step_idle(&mut battle, 120)?;
         let controlled = battle.frame(vec![], None).camera.unwrap();
         battle.actors[0].hp = 0;
         battle.enter_death(ActorId(0), &mut vec![]);
@@ -318,15 +299,8 @@ fn result_party_matches_recorded_three_and_four_member_victories() -> Result<()>
             ],
         ),
     ] {
-        let mut battle = crate::PreparedBattle::new(
-            positions
-                .iter()
-                .map(|_| (crate::tests::actor(crate::Side::Party), Default::default()))
-                .collect(),
-            Default::default(),
-            1,
-        )?
-        .finish()?;
+        let mut battle =
+            prepare_actors(vec![actor(crate::Side::Party); positions.len()], 1).finish()?;
         battle.terminal.result = Some(crate::BattleResult::Victory);
         battle.retire_combat()?;
         battle.arrange_result_actors(ActorId(celebrant))?;
@@ -392,22 +366,9 @@ fn active_scene_camera_starts_at_initialization_holds_then_restores_tracking() -
     let mut actors = actors();
     actors.truncate(2);
     actors[1].position = [100., 0., 0.];
-    let mut battle = crate::PreparedBattle::new(
-        actors
-            .iter()
-            .cloned()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        1,
-    )?
-    .with_camera(CameraDefinition {
-        leader: ActorId(0),
-        stage_pitch: 0.,
-        auto_zoom: true,
-        yaw_limits: None,
-    })?
-    .finish()?;
+    let mut battle = prepare_actors(actors.clone(), 1)
+        .with_camera(definition(true))?
+        .finish()?;
     let framing = SpellCamera {
         bounds: CameraBounds {
             minimum_distance: 2450.,
@@ -481,21 +442,9 @@ fn target_settling_waits_for_actor_updates_and_then_resumes_normal_tracking() ->
     let mut subjects = actors();
     subjects[1].position = [100., 0., 0.];
     subjects[2].position = [200., 0., 0.];
-    let mut battle = crate::PreparedBattle::new(
-        subjects
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        1,
-    )?
-    .with_camera(CameraDefinition {
-        leader: ActorId(0),
-        stage_pitch: 0.,
-        auto_zoom: true,
-        yaw_limits: None,
-    })?
-    .finish()?;
+    let mut battle = prepare_actors(subjects, 1)
+        .with_camera(definition(true))?
+        .finish()?;
     battle.set_decision_target(ActorId(0), ActorId(2))?;
     battle.camera.as_mut().unwrap().pose.focus = [75., FOCUS_HEIGHT, 0.];
     for _ in 0..150 {

@@ -129,11 +129,11 @@ pub enum ConditionLabel {
     StatUp(Condition),
     Applied,
     StatusDown,
-    /// Native category9, shared by EX13 resistance and other EX activations.
+    /// An EX skill activated.
     ExSkillEffect,
-    /// Native category8, used by equipment13 without single EX13.
+    /// Equipment supplied the effect without an equivalent EX skill.
     EquipmentEffect,
-    /// Native category14 MAGIC/EFFECT, selected by the Revive rescue owner.
+    /// Revive rescued the actor from a lethal hit.
     Revive,
     /// A one-use revival has been granted.
     RevivalEffect,

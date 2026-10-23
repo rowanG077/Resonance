@@ -1,6 +1,6 @@
 //! Physical prompts and accepted arte rows accompany the shared shortcut editor.
 use super::*;
-use resonance_battle::{ActionKey, ActorId, UnisonFrame, UnisonPhase};
+use resonance_battle::{ActionKey, ActorId, UnisonFrame, UnisonPhase, UnisonRecipeId};
 use resonance_game::menu::unison::Page;
 
 const BUTTONS: [[f32; 2]; 4] = [[528., 320.], [488., 340.], [568., 312.], [512., 288.]];
@@ -12,7 +12,7 @@ const FACES: usize = BUTTON_ART + 2;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RowKey {
     Arte(ActorId, ActionKey),
-    Combined(u8, [ActorId; 2]),
+    Combined(UnisonRecipeId, [ActorId; 2]),
 }
 
 struct Row {
@@ -27,7 +27,7 @@ pub(super) struct State {
     generation: Option<u64>,
     phase: Option<UnisonPhase>,
     rows: Vec<Row>,
-    combination_names: BTreeMap<u8, String>,
+    combination_names: BTreeMap<UnisonRecipeId, String>,
 }
 
 fn rows_visible(frame: &UnisonFrame) -> bool {
@@ -43,32 +43,21 @@ pub(super) fn layers(
 ) -> Vec<HudLayer> {
     let mut definitions = vec![
         palette.solid.clone().at(Depth::Unison),
-        palette.solid.clone().at(Depth::Unison).foreground(),
-        palette
-            .main_font
-            .clone()
-            .at(Depth::Unison)
-            .foreground()
-            .foreground()
-            .foreground(),
+        palette.solid.clone().at(Depth::Unison).offset_depth(1.),
+        palette.main_font.clone().at(Depth::Unison).offset_depth(3.),
     ];
     for texture in &art.unison_buttons {
         let image = load(texture, false, true);
         definitions.push(
             LayerDefinition::new(image, [texture.width, texture.height], Depth::Unison)
-                .foreground()
-                .foreground(),
+                .offset_depth(2.),
         );
     }
-    definitions.extend(notice::face_layers(notices).iter().map(|layer| {
-        layer
-            .definition
-            .clone()
-            .at(Depth::Unison)
-            .foreground()
-            .foreground()
-            .foreground()
-    }));
+    definitions.extend(
+        notice::face_layers(notices)
+            .iter()
+            .map(|layer| layer.definition.clone().at(Depth::Unison).offset_depth(3.)),
+    );
     palette.layers(definitions, materials)
 }
 
@@ -83,7 +72,7 @@ impl Artwork {
         self.unison.combination_names = catalogue
             .combinations
             .iter()
-            .map(|row| (row.id, row.name.clone()))
+            .map(|row| (UnisonRecipeId(row.id), row.name.clone()))
             .collect();
         Ok(())
     }
@@ -224,7 +213,7 @@ impl Artwork {
                     );
                     if let Some(&character) = party.characters.get(slot) {
                         let [dx, dy] = FACE_OFFSETS[slot];
-                        face(&mut batches, character, [x + dx, y + dy], tint)?;
+                        face(&mut batches, character, [x + dx, y + dy], tint);
                     }
                 }
             }
@@ -237,7 +226,7 @@ impl Artwork {
                 let x = (684. - f32::from(row.age) * 24.).max(624. - width);
                 let y = 104. + index as f32 * 32.;
                 let icon_width = row.actors.len() as f32 * 32.;
-                panel(
+                party::backdrop(
                     &mut batches[1],
                     [
                         x - icon_width,
@@ -246,6 +235,8 @@ impl Artwork {
                         y + 28.,
                     ],
                     self.art.combo.bar_colors[1],
+                    3.,
+                    4.,
                 );
                 label(&mut batches[TEXT], &self.font, &row.name, [x, y])?;
                 for (index, actor) in row.actors.iter().enumerate() {
@@ -259,8 +250,8 @@ impl Artwork {
                         character,
                         [left - 2., y - 2.],
                         [0., 0., 0., 128. / 255.],
-                    )?;
-                    face(&mut batches, character, [left - 4., y - 4.], [1.; 4])?;
+                    );
+                    face(&mut batches, character, [left - 4., y - 4.], [1.; 4]);
                 }
             }
         }
@@ -289,16 +280,10 @@ impl Artwork {
     }
 }
 
-fn face(batches: &mut [Batch], character: u8, [x, y]: [f32; 2], tint: [f32; 4]) -> Result<()> {
-    let index = usize::from(
-        character
-            .checked_sub(1)
-            .context("unknown Unison character")?,
-    );
-    ensure!(index < 9, "unknown Unison character");
+fn face(batches: &mut [Batch], character: Character, [x, y]: [f32; 2], tint: [f32; 4]) {
+    let index = character.index();
     let u = 64. + index as f32 * 32.;
     batches[FACES + index].quad([x, y, x + 32., y + 32.], [u, 104., u + 32., 136.], tint);
-    Ok(())
 }
 
 fn advance(font: &BitmapFont, character: char) -> f32 {
@@ -334,29 +319,4 @@ fn label(batch: &mut Batch, font: &BitmapFont, name: &str, [x, y]: [f32; 2]) -> 
         }
     }
     Ok(())
-}
-
-fn panel(batch: &mut Batch, [left, top, right, bottom]: [f32; 4], colors: [[u8; 4]; 4]) {
-    let clear = colors.map(|[r, g, b, _]| [r, g, b, 0]);
-    for (rect, colors) in [
-        ([left, top, right, bottom], colors),
-        (
-            [left + 4., top - 3., right + 4., top],
-            [clear[0], clear[1], colors[0], colors[1]],
-        ),
-        (
-            [left - 4., bottom, right - 4., bottom + 3.],
-            [colors[2], colors[3], clear[2], clear[3]],
-        ),
-        (
-            [left - 3., top, left, bottom],
-            [clear[0], colors[0], clear[2], colors[2]],
-        ),
-        (
-            [right, top, right + 3., bottom],
-            [colors[1], clear[1], colors[3], clear[3]],
-        ),
-    ] {
-        party::slanted_quad(batch, rect, [0.5; 4], 4., colors);
-    }
 }

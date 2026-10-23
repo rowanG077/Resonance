@@ -1,6 +1,6 @@
 //! Owned, verified encounter inputs. Loading never changes the retained field.
 use super::{Enemies, PrepareOptions, Prepared, enemies, placement::party_positions};
-use crate::battle::{audio, effect_program, model, stage};
+use crate::battle::{audio, effect_program, model, party::Character, stage};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     arte,
@@ -74,9 +74,9 @@ pub struct Inputs {
 }
 
 pub(super) struct PartyInput {
-    pub character: u8,
+    pub character: Character,
     pub position: [f32; 3],
-    pub(super) source: Option<battle_model::Party>,
+    pub(super) source: battle_model::Party,
     pub(super) equipment: BTreeMap<u16, EquipmentKind>,
     pub(super) motions: BTreeMap<u16, resonance_content::animation::Motion>,
 }
@@ -139,16 +139,12 @@ impl Inputs {
             .party_actors
             .get_mut(actor)
             .context("fixture motion party actor is absent")?;
-        let source = input
-            .source
-            .as_ref()
-            .context("fixture motion party body is absent")?;
         ensure!(clip >= 100, "fixture motion must use an external slot");
         ensure!(
             !input.motions.contains_key(&clip),
             "fixture motion slot is already bound"
         );
-        motion.validate(&source.body.skeleton)?;
+        motion.validate(&input.source.body.skeleton)?;
         input.motions.insert(clip, motion);
         Ok(())
     }
@@ -340,7 +336,8 @@ impl Inputs {
         }
         let mut party_actors = Vec::new();
         for (&character, position) in party.formation.iter().zip(party_positions) {
-            let member_index = usize::from(character - 1);
+            let character = Character::try_from(character)?;
+            let member_index = character.index();
             let member = &party.members[member_index];
             let mut items = BTreeMap::new();
             for (&item, &(kind, allowed_characters)) in &available_equipment {
@@ -350,13 +347,15 @@ impl Inputs {
                     items.insert(item, kind);
                 }
             }
-            let source: battle_model::Party =
-                retained.json(&battle_model::party_costume_path(character, member.costume))?;
+            let source: battle_model::Party = retained.json(&battle_model::party_costume_path(
+                character as u8,
+                member.costume,
+            ))?;
             party_actors.push(PartyInput {
                 character,
                 position,
                 equipment: items,
-                source: Some(source),
+                source,
                 motions: BTreeMap::new(),
             });
         }
@@ -368,8 +367,7 @@ impl Inputs {
             &mut inventory,
             party_actors
                 .iter()
-                .filter_map(|actor| actor.source.as_ref())
-                .flat_map(|source| source.files.clone()),
+                .flat_map(|actor| actor.source.files.clone()),
         )?;
         let mut enemy_definitions = BTreeMap::<u8, battle_enemy::Definition>::new();
         let mut enemy_models = BTreeMap::new();
@@ -416,11 +414,7 @@ impl Inputs {
             retained
                 .clone()
                 .with_dependencies(root, inventory.clone(), cache, &cancelled)?;
-        let weapon_ids: Vec<_> = weapons.keys().copied().collect();
-        for item in weapon_ids {
-            let Some(weapon) = weapons.get(&item) else {
-                continue;
-            };
+        for (&item, weapon) in &weapons {
             let mut candidate_inventory = inventory.clone();
             let merged = weapon
                 .files
@@ -438,9 +432,7 @@ impl Inputs {
         let victory_bodies: Vec<_> = party_actors
             .iter()
             .filter(|_| enemies.settings.celebrate)
-            .filter_map(|actor| {
-                Some((actor.character, actor.source.as_ref()?.body_sha256.as_str()))
-            })
+            .map(|actor| (actor.character as u8, actor.source.body_sha256.as_str()))
             .collect();
         let (mut files, victory) =
             crate::battle::victory::load(root, files, &victory_bodies, cache, &cancelled)?;
@@ -572,21 +564,23 @@ impl Inputs {
             }
         }
         for input in &mut party_actors {
-            if let Some(source) = &input.source {
-                input.motions = files
-                    .diagnostics()
-                    .attempt(
-                        "party body motions",
-                        (|| {
-                            model::motions(
-                                &files,
-                                source.parts.first().context("missing party body scene")?,
-                                &source.body.skeleton,
-                            )
-                        })(),
-                    )?
-                    .unwrap_or_default();
-            }
+            input.motions = files
+                .diagnostics()
+                .attempt(
+                    "party body motions",
+                    (|| {
+                        model::motions(
+                            &files,
+                            input
+                                .source
+                                .parts
+                                .first()
+                                .context("missing party body scene")?,
+                            &input.source.body.skeleton,
+                        )
+                    })(),
+                )?
+                .unwrap_or_default();
         }
         for resource in &enemies.resources {
             let enemy = &resource.monster;

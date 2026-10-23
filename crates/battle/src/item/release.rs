@@ -91,7 +91,8 @@ impl Battle {
                 };
                 let hp =
                     (hp_percent != 0).then(|| actor.recovered_hp(i32::from(percent(hp_percent))));
-                let tp = (tp_percent != 0).then(|| actor.recovered_tp(percent(tp_percent)));
+                let tp =
+                    (tp_percent != 0).then(|| actor.recovered_tp(i32::from(percent(tp_percent))));
                 recoveries.push(Recovery { actor: id, hp, tp });
             }
         }

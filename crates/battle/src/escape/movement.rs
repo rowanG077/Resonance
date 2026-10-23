@@ -28,20 +28,16 @@ impl Battle {
     }
 
     /// Departure replaces combat activity and owns movement until the battle ends.
-    pub(crate) fn advance_escape_actor(
-        &mut self,
-        actor: ActorId,
-        cues: &mut Vec<Cue>,
-    ) -> Result<bool> {
+    pub(crate) fn advance_escape_actor(&mut self, actor: ActorId, cues: &mut Vec<Cue>) -> bool {
         let index = actor.index();
         if !self.escape_ending_phase()
             || self.actors[index].side != Side::Party
             || !self.actors[index].available()
         {
-            return Ok(false);
+            return false;
         }
         let Some(definition) = &self.prepared.actor_setup[index].control else {
-            return Ok(false);
+            return false;
         };
         let (run_speed, turn_ticks, motion) = (
             definition.run_speed,
@@ -63,8 +59,8 @@ impl Battle {
             owner.movement.locomotion = Locomotion::Run;
             owner.movement.direction = direction;
         }
-        self.advance_departure_movement(actor, run_speed, turn_ticks, motion)?;
-        Ok(true)
+        self.advance_departure_movement(actor, run_speed, turn_ticks, motion);
+        true
     }
 
     fn begin_enemy_departure(&mut self, actor: ActorId, target: ActorId) -> Result<()> {
@@ -125,7 +121,7 @@ impl Battle {
             definition.walk_speed,
             definition.turn_ticks,
             definition.run_motion,
-        )?;
+        );
         if let Some((_, sequence)) = self.runtime[index].action_mut() {
             sequence.age += 1;
         }
@@ -145,7 +141,7 @@ impl Battle {
         speed: f32,
         turn_ticks: u8,
         motion: Option<crate::MotionBinding>,
-    ) -> Result<()> {
+    ) {
         let index = actor.index();
         let owner = &mut self.actors[index];
         let conditions = owner.conditions.effective();
@@ -156,7 +152,7 @@ impl Battle {
         owner.movement.forward =
             (owner.movement.forward + crate::movement::RUN_ACCELERATION).min(speed);
         owner.movement.integrate(&mut owner.position);
-        self.advance_hover(index, true)?;
+        self.advance_hover(index, true);
 
         self.request_pose(
             actor,
@@ -169,7 +165,6 @@ impl Battle {
                 ..Default::default()
             },
         );
-        Ok(())
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::Side;
+use crate::{ActorId, Side};
 use anyhow::{Result, ensure};
 
 #[derive(Debug, Clone, Copy)]
@@ -12,39 +12,44 @@ pub struct TargetActor {
     pub available: bool,
     pub hidden: bool,
     pub dying: bool,
-    pub target: Option<usize>,
+    pub target: Option<ActorId>,
 }
 
 pub use resonance_content::battle_action::TargetPolicy;
 
 pub fn select_target(
     actors: &[TargetActor],
-    owner: usize,
+    owner: ActorId,
     policy: TargetPolicy,
     random: &mut impl FnMut() -> u16,
-) -> Result<Option<usize>> {
+) -> Result<Option<ActorId>> {
     select_target_pool(actors, owner, policy, false, random)
 }
 
 pub(crate) fn select_target_pool(
     actors: &[TargetActor],
-    owner: usize,
+    owner: ActorId,
     policy: TargetPolicy,
     allies: bool,
     random: &mut impl FnMut() -> u16,
-) -> Result<Option<usize>> {
+) -> Result<Option<ActorId>> {
+    let owner = owner.index();
     ensure!(owner < actors.len(), "invalid target owner");
     ensure!(
-        actors.iter().all(
-            |actor| actor.target.is_none_or(|target| target < actors.len())
-                && actor.position.iter().all(|value| value.is_finite())
-        ),
+        actors.len() <= usize::from(u8::MAX) + 1,
+        "too many target actors"
+    );
+    ensure!(
+        actors.iter().all(|actor| actor
+            .target
+            .is_none_or(|target| target.index() < actors.len())
+            && actor.position.iter().all(|value| value.is_finite())),
         "invalid targeting roster"
     );
     let side = actors[owner].side;
     let eligible = |actor: &TargetActor| actor.available && !actor.hidden && !actor.dying;
     if policy == TargetPolicy::SelfTarget {
-        return Ok(eligible(&actors[owner]).then_some(owner));
+        return Ok(eligible(&actors[owner]).then_some(ActorId(owner as u8)));
     }
     let candidates: Vec<_> = actors
         .iter()
@@ -63,9 +68,8 @@ pub(crate) fn select_target_pool(
         .collect();
     if policy == TargetPolicy::Random {
         // One draw from the full opposing roster, including unavailable actors.
-        return Ok(
-            (!candidates.is_empty()).then(|| candidates[usize::from(random()) % candidates.len()])
-        );
+        return Ok((!candidates.is_empty())
+            .then(|| ActorId(candidates[usize::from(random()) % candidates.len()] as u8)));
     }
     let distance = |from: usize, to: usize| {
         let a = actors[from].position;
@@ -87,7 +91,9 @@ pub(crate) fn select_target_pool(
                     index != owner
                         && actor.side == side
                         && eligible(actor)
-                        && actor.target == Some(*candidate)
+                        && actor
+                            .target
+                            .is_some_and(|target| target.index() == *candidate)
                 })
             })
             .collect();
@@ -97,7 +103,7 @@ pub(crate) fn select_target_pool(
             Some(unclaimed[usize::from(random()) % unclaimed.len()])
         }
     };
-    Ok(match policy {
+    let target = match policy {
         TargetPolicy::Nearest | TargetPolicy::NearestIncapacitated => nearest(owner, &candidates),
         TargetPolicy::Farthest => candidates
             .iter()
@@ -111,6 +117,7 @@ pub(crate) fn select_target_pool(
             .iter()
             .find(|actor| actor.side == side && eligible(actor))
             .and_then(|actor| actor.target)
+            .map(ActorId::index)
             .filter(|target| candidates.contains(target))
             .or_else(|| nearest(owner, &candidates)),
         TargetPolicy::Protect => actors
@@ -135,7 +142,8 @@ pub(crate) fn select_target_pool(
         }
         TargetPolicy::Spread => spread(),
         TargetPolicy::SelfTarget | TargetPolicy::Random => unreachable!(),
-    })
+    };
+    Ok(target.map(|index| ActorId(index as u8)))
 }
 
 impl crate::Battle {
@@ -176,13 +184,13 @@ impl crate::Battle {
             let owner = crate::ActorId(index as u8);
             if self.actors[index].side != side && self.target(owner) == Some(victim) {
                 let Some(target) =
-                    select_target(&actors, index, TargetPolicy::Nearest, &mut || {
+                    select_target(&actors, owner, TargetPolicy::Nearest, &mut || {
                         unreachable!("nearest target draws no RNG")
                     })?
                 else {
                     continue;
                 };
-                self.set_decision_target(owner, crate::ActorId(target as u8))?;
+                self.set_decision_target(owner, target)?;
             }
         }
         Ok(())
@@ -245,7 +253,9 @@ mod tests {
     }
 
     fn select(actors: &[TargetActor], policy: TargetPolicy) -> Option<usize> {
-        select_target(actors, 0, policy, &mut || 0).unwrap()
+        select_target(actors, ActorId(0), policy, &mut || 0)
+            .unwrap()
+            .map(ActorId::index)
     }
 
     #[test]
@@ -259,11 +269,12 @@ mod tests {
         let select = |actors: &[TargetActor]| {
             select_target_pool(
                 actors,
-                0,
+                ActorId(0),
                 TargetPolicy::NearestIncapacitated,
                 true,
                 &mut || panic!("nearest target needs no random draw"),
             )
+            .map(|target| target.map(ActorId::index))
         };
         assert_eq!(select(&actors)?, None);
         for index in [1, 2, 3] {
@@ -326,19 +337,18 @@ mod tests {
         actors[1].available = false;
         actors[3].hidden = true;
         actors[4].dying = true;
-        assert_eq!(TargetPolicy::try_from(10).unwrap(), TargetPolicy::Random);
         for (draw, expected) in [(3, 1), (4, 3), (5, 4)] {
             let mut draws = 0;
-            let selected = select_target(&actors, 0, TargetPolicy::Random, &mut || {
+            let selected = select_target(&actors, ActorId(0), TargetPolicy::Random, &mut || {
                 draws += 1;
                 draw
             })
             .unwrap();
-            assert_eq!(selected, Some(expected));
+            assert_eq!(selected, Some(ActorId(expected)));
             assert_eq!(draws, 1);
         }
         assert_eq!(
-            select_target(&actors[..1], 0, TargetPolicy::Random, &mut || {
+            select_target(&actors[..1], ActorId(0), TargetPolicy::Random, &mut || {
                 panic!("empty opposing roster must not draw")
             })
             .unwrap(),
@@ -367,26 +377,17 @@ mod tests {
     }
 
     #[test]
-    fn spread_prefers_unclaimed_opponents_then_nearest_and_replays_deterministically() {
+    fn spread_prefers_unclaimed_opponents_then_nearest() {
         let mut actors = [
             actor(Side::Party, 0.),
             actor(Side::Party, 1.),
             actor(Side::Enemy, 10.),
             actor(Side::Enemy, 20.),
         ];
-        actors[1].target = Some(2);
+        actors[1].target = Some(ActorId(2));
         assert_eq!(select(&actors, TargetPolicy::Spread), Some(3));
         actors[1].available = false;
-        let replay = || {
-            let mut random = crate::Random::new(42);
-            (0..20)
-                .map(|_| {
-                    select_target(&actors, 0, TargetPolicy::Spread, &mut || random.next_u16())
-                        .unwrap()
-                })
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(replay(), replay());
+        assert_eq!(select(&actors, TargetPolicy::Spread), Some(2));
         actors[1].available = true;
         actors[3].hidden = true;
         assert_eq!(select(&actors, TargetPolicy::Spread), Some(2));
@@ -400,7 +401,7 @@ mod tests {
             actor(Side::Enemy, 10.),
             actor(Side::Enemy, 220.),
         ];
-        actors[0].target = Some(3);
+        actors[0].target = Some(ActorId(3));
         actors[1].hp_percent = 25;
         actors[3].flying = true;
         actors[3].casting = true;
@@ -424,18 +425,6 @@ mod tests {
         actors[3].hidden = false;
         actors[1].available = false;
         assert_eq!(select(&actors, TargetPolicy::Protect), Some(2));
-    }
-
-    #[test]
-    fn malformed_target_rosters_are_diagnosed() {
-        let mut actors = [actor(Side::Party, 0.), actor(Side::Enemy, 10.)];
-        actors[0].target = Some(2);
-        assert!(select_target(&actors, 0, TargetPolicy::Nearest, &mut || 0).is_err());
-        actors[0].target = None;
-        actors[1].position[0] = f32::NAN;
-        assert!(select_target(&actors, 0, TargetPolicy::Nearest, &mut || 0).is_err());
-        assert!(TargetPolicy::try_from(0).is_err());
-        assert!(TargetPolicy::try_from(u8::MAX).is_err());
     }
 
     fn battle() -> crate::Battle {

@@ -48,21 +48,12 @@ fn launch_impact_preserves_landed_bit_for_contact_getup_and_is_once_only() {
             breakfall: Some(6),
             ..Default::default()
         };
-        battle.set_models(
-            crate::Models::new(
-                battle.actors(),
-                vec![Some(Arc::new(model)), None],
-                Default::default(),
-                Default::default(),
-            )
-            .unwrap(),
-        );
+        set_model(&mut battle, model);
 
         hit_recoil(&mut battle, 0, true);
         let hp = battle.actors[0].hp;
         let nominal = battle.runtime[0].recovery.last_hit_damage;
         let impact = (i64::from(nominal) * 25 / 100) as i32;
-        let mut impacted = false;
         let mut getup = false;
         let mut down_finished = false;
         let mut impacts = 0;
@@ -78,12 +69,8 @@ fn launch_impact_preserves_landed_bit_for_contact_getup_and_is_once_only() {
             battle
                 .advance_models(&mut frame, crate::BattleClock::Running, true)
                 .unwrap();
-            let pose = battle
-                .models
-                .as_ref()
-                .unwrap()
-                .main_motion_observation(ActorId(0))
-                .unwrap();
+            let models = battle.models.as_ref().unwrap();
+            let pose = models.main_motion_observation(ActorId(0)).unwrap();
             down_finished |= pose.clip == 2 && pose.finished;
             if frame
                 .cues
@@ -95,7 +82,7 @@ fn launch_impact_preserves_landed_bit_for_contact_getup_and_is_once_only() {
                     (2, 0.),
                     "impact follows the down transition, before playback advances"
                 );
-                assert!(!battle.models.as_ref().unwrap().motion_blending(ActorId(0)));
+                assert!(!models.motion_blending(ActorId(0)));
                 if replay_guard {
                     assert!(request_guard);
                 } else {
@@ -111,7 +98,6 @@ fn launch_impact_preserves_landed_bit_for_contact_getup_and_is_once_only() {
             );
             let kind = battle.actors[0].reaction.recoil.kind;
             if kind == RecoilKind::SettledLaunch {
-                impacted = true;
                 assert_eq!(battle.actors[0].hp, hp - impact);
                 assert_eq!(battle.runtime[0].recovery.last_hit_damage, impact);
             }
@@ -120,43 +106,36 @@ fn launch_impact_preserves_landed_bit_for_contact_getup_and_is_once_only() {
                 assert!(down_finished, "get-up waits for the down pose to finish");
                 assert_eq!(kind, RecoilKind::SettledLaunch);
             }
-            if impacted && battle.activity(ActorId(0)) == Activity::Idle {
+            if impacts > 0 && battle.activity(ActorId(0)) == Activity::Idle {
                 break;
             }
         }
-        assert!(impacted && getup);
+        assert!(getup);
         assert_eq!(impacts, 1);
-        assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
-        assert_eq!(
-            battle.actors[0].reaction.recoil.kind,
-            RecoilKind::SettledLaunch
-        );
-        let remaining = battle.actors[0].reaction.protection.remaining;
+        let protection = battle.actors[0].reaction.protection;
+        let remaining = protection.remaining;
         assert!(remaining > 0);
-        assert_eq!(
-            battle.actors[0].reaction.protection.mode,
-            crate::ProtectionMode::Recovery
-        );
+        assert_eq!(protection.mode, crate::ProtectionMode::Recovery);
         let budget = (
             battle.runtime[0].recovery.last_hit_damage,
             battle.runtime[0].recovery.last_hit_recovery,
         );
+        let assert_settled = |battle: &Battle| {
+            let actor = &battle.actors[0];
+            let recovery = &battle.runtime[0].recovery;
+            assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
+            assert_eq!(actor.reaction.recoil.kind, RecoilKind::SettledLaunch);
+            assert_eq!(actor.hp, hp - impact);
+            assert_eq!(
+                (recovery.last_hit_damage, recovery.last_hit_recovery),
+                budget
+            );
+        };
+        assert_settled(&battle);
         for expected in (0..remaining).rev() {
             battle.step(BattleInput::default()).unwrap();
             assert_eq!(battle.actors[0].reaction.protection.remaining, expected);
-            assert_eq!(battle.activity(ActorId(0)), Activity::Idle);
-            assert_eq!(
-                battle.actors[0].reaction.recoil.kind,
-                RecoilKind::SettledLaunch
-            );
-            assert_eq!(battle.actors[0].hp, hp - impact);
-            assert_eq!(
-                (
-                    battle.runtime[0].recovery.last_hit_damage,
-                    battle.runtime[0].recovery.last_hit_recovery,
-                ),
-                budget
-            );
+            assert_settled(&battle);
         }
         assert_eq!(battle.actors[0].reaction.protection, Default::default());
         hit_recoil(&mut battle, 0, false);
@@ -188,13 +167,7 @@ fn automatic_breakfall_waits_for_descent_and_survives_hit_stop() {
     battle.actors[0].hit_stop = 3;
     battle.step(BattleInput::default()).unwrap();
     assert_eq!(battle.activity(ActorId(0)), Activity::Hurt);
-    for _ in 0..4 {
-        battle.step(BattleInput::default()).unwrap();
-        if battle.activity(ActorId(0)) == Activity::Jumping {
-            break;
-        }
-    }
-    assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
+    step_until(&mut battle, Activity::Jumping, 4);
     assert_eq!(battle.actors[0].reaction.recoil.kind, RecoilKind::Normal);
 }
 

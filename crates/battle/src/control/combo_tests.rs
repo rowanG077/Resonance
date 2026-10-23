@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 
 #[path = "combo_tests/aerial_spell.rs"]
 mod aerial_spell;
@@ -38,16 +39,11 @@ fn shared_prepared(mode: Control) -> PreparedBattle {
     let mut prepared = shortcuts_prepared(mode);
     for row in &mut prepared.resources.actions.entries[7..] {
         let row = Arc::make_mut(row);
-        {
-            row.execution = crate::ActionExecution::Attack(crate::PreparedAttack {
-                contact_recovery: None,
-                opening: None,
-                chain_at: Some(3),
-                end_at: 12,
-                recovery: 4,
-                events: vec![],
-            });
-        }
+        row.execution = crate::ActionExecution::Attack(crate::PreparedAttack {
+            chain_at: Some(3),
+            recovery: 4,
+            ..crate::tests::attack(12)
+        });
     }
     //Three distinct no-EX families and one descriptor without a family bit.
     for row in &mut prepared.resources.actor_setup[0].techniques {
@@ -60,18 +56,7 @@ fn shared_prepared(mode: Control) -> PreparedBattle {
         row.capabilities.offensive = true;
         row.capabilities.target = crate::TechniqueTarget::Enemy;
     }
-    prepared.resources.actor_setup[0].companion = Some(crate::CompanionDefinition {
-        normal_attack_opening: false,
-        initial_policy: [0; 3],
-        defaults: [3, 6, 2],
-        limits: [crate::PolicyLimits {
-            tp: 30,
-            healing: 65,
-            support_level: 2,
-        }; 9],
-        level: 1,
-        level_difference: 0,
-    });
+    prepared.resources.actor_setup[0].companion = Some(companion_policy(2));
     let definition = crate::DecisionDefinition {
         idle_ticks: 0,
         idle_variation: 0,
@@ -162,7 +147,9 @@ fn buffered_shortcut_keeps_its_action_when_mapping_changes_and_pays_once() -> Re
         battle.step(player_buttons(false, true, false, [0, 80]))?;
         assert_eq!(actor_sequence(&battle).1.age, age);
 
-        battle.prepare_shortcut(ActorId(0), 1, shortcut)?.commit();
+        battle
+            .prepare_shortcut(ActorId(0), crate::ShortcutSlot::Up, shortcut)?
+            .commit();
         if cursed {
             battle.actors[0]
                 .conditions
@@ -179,14 +166,14 @@ fn buffered_shortcut_keeps_its_action_when_mapping_changes_and_pays_once() -> Re
         if cursed {
             assert!(battle.sequence(&old).is_some());
             assert_eq!(battle.actors[0].tp, before);
-            assert_eq!(battle.technique_uses(ActorId(0), 35), Some(49));
+            assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(35)), Some(49));
             continue;
         }
         assert!(battle.sequence(&old).is_none());
         assert_eq!(actor_sequence(&battle).1.action, crate::ActionKey(8));
         assert_eq!(actor_sequence(&battle).1.age, 0);
-        assert_eq!(battle.technique_uses(ActorId(0), 34), Some(49));
-        assert_eq!(battle.technique_uses(ActorId(0), 35), Some(50));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(49));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(35)), Some(50));
         assert_eq!(battle.actors[0].tp, before - 4);
         assert_eq!(
             battle.actors[0].reaction.protection.mode,
@@ -227,8 +214,8 @@ fn normal_combo_accepts_immediate_technique_input_and_chains_families() -> Resul
     battle.step(BattleInput::default())?;
     assert!(battle.sequence(&first).is_none());
     assert_eq!(actor_sequence(&battle).1.action, crate::ActionKey(8));
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(50));
-    assert_eq!(battle.technique_uses(ActorId(0), 35), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(50));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(35)), Some(50));
     assert_eq!(battle.actors[0].tp, 32);
     battle.step(BattleInput::default())?;
     assert_eq!(battle.actors[0].tp, 32);
@@ -246,10 +233,7 @@ fn queued_combo_revalidates_target_and_cost_after_final_contacts() -> Result<()>
         let mut prepared = shared_prepared(Control::Auto);
         let action = Arc::make_mut(&mut prepared.resources.actions.entries[0]);
         action.execution = crate::ActionExecution::Attack(crate::PreparedAttack {
-            contact_recovery: None,
-            opening: None,
             chain_at: Some(15),
-            end_at: 15,
             recovery: 4,
             events: vec![(
                 15,
@@ -257,20 +241,9 @@ fn queued_combo_revalidates_target_and_cost_after_final_contacts() -> Result<()>
                     duration: 1,
                     definition: Arc::new(crate::MeleeDefinition {
                         hit: crate::HitRule {
-                            sound: None,
-                            kind: crate::DamageKind::Slash,
-                            arte: false,
-                            effect_on_guard: false,
-                            effect: None,
                             overlimit_pause: pause,
                             power: crate::Power::Fixed(5),
-                            element: crate::HitElement::Neutral,
-                            prevents_defeat: false,
-                            finisher_grade: false,
-                            hp_drain: false,
-                            guard: Default::default(),
-                            reaction: Default::default(),
-                            condition: None,
+                            ..crate::tests::hit()
                         },
                         trail: None,
                         volume: crate::MeleeVolume::Fixed {
@@ -281,6 +254,7 @@ fn queued_combo_revalidates_target_and_cost_after_final_contacts() -> Result<()>
                     }),
                 },
             )],
+            ..crate::tests::attack(15)
         });
 
         prepared.actors[2].body.collider = Some(crate::Collider::sphere(1.));
@@ -317,7 +291,7 @@ fn queued_combo_revalidates_target_and_cost_after_final_contacts() -> Result<()>
         assert!(battle.actors[1].available(), "another opponent must remain");
         let starts = affordable && survives;
         assert_eq!(
-            battle.technique_uses(ActorId(0), 1),
+            battle.technique_uses(ActorId(0), TechniqueId(1)),
             Some(if starts { 50 } else { 49 })
         );
         assert_eq!(
@@ -401,10 +375,14 @@ fn regal_fixture(mode: Control) -> Battle {
             ..Default::default()
         };
         prepared.resources.actor_setup[0].techniques[i].capabilities = capabilities;
-        prepared.resources.actor_setup[0].techniques[i].catalogue = catalogue;
+        prepared.resources.actor_setup[0].techniques[i].catalogue = TechniqueId(catalogue);
     }
-    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts =
-        [176, 177, 185, 0];
+    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts = [
+        Some(TechniqueId(176)),
+        Some(TechniqueId(177)),
+        Some(TechniqueId(185)),
+        None,
+    ];
     prepared = prepared
         .with_technique_learning_members(vec![crate::tests::counted_techniques(
             ActorId(0),
@@ -428,7 +406,7 @@ fn requested_chain_bypasses_enabled_but_requires_current_membership_without_paym
             .disabled_techniques
             .insert(crate::ActionKey(7));
         if !learned {
-            battle.learning_members[0].member.forget(176)?;
+            battle.learning_members[0].member.forget(TechniqueId(176))?;
         }
 
         let selected = battle.queue_pending_technique_chain(ActorId(0))?;
@@ -438,7 +416,10 @@ fn requested_chain_bypasses_enabled_but_requires_current_membership_without_paym
             Some(crate::ActionKey(7))
         );
         assert_eq!(battle.actors[0].tp, 40);
-        assert_eq!(battle.technique_uses(ActorId(0), 176), Some(49));
+        assert_eq!(
+            battle.technique_uses(ActorId(0), TechniqueId(176)),
+            Some(49)
+        );
     }
     Ok(())
 }
@@ -483,22 +464,25 @@ fn add_chain_learning(
     table.definitions[1].required_level = 1;
     let catalogue = crate::learning::LearningCatalogue::new(Arc::new(table));
     prepared.random_seed = seed;
-    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts = [0; 4];
+    Arc::make_mut(prepared.resources.actor_setup[0].control.as_mut().unwrap()).shortcuts =
+        [None; 4];
     let row = prepared.resources.actor_setup[0]
         .techniques
         .iter_mut()
         .find(|row| row.action == action)
         .expect("prepared learning action");
-    row.catalogue = 1;
+    row.catalogue = TechniqueId(1);
     prepared.with_technique_learning_members(vec![crate::learning::TechniqueLearningMember {
         actor: ActorId(0),
         member: catalogue.prepare_member(crate::learning::LearningEntry {
-            character: 1,
+            character: crate::Character::Lloyd,
             level: 1,
             balance: 0,
             story_unlocked: true,
-            current: current.iter().copied().collect(),
-            counts: [(1, 49), (34, 49)].into_iter().collect(),
+            current: current.iter().copied().map(TechniqueId).collect(),
+            counts: [(TechniqueId(1), 49), (TechniqueId(34), 49)]
+                .into_iter()
+                .collect(),
         })?,
     }])
 }
@@ -521,7 +505,7 @@ fn initial_shortcut_and_assist_reject_dormant_techniques() -> Result<()> {
         if assist {
             setup.assist_shortcuts[0] = Some((ActorId(0), crate::ActionKey(7)));
         } else {
-            Arc::make_mut(setup.control.as_mut().unwrap()).shortcuts[0] = 1;
+            Arc::make_mut(setup.control.as_mut().unwrap()).shortcuts[0] = Some(TechniqueId(1));
         }
         assert!(
             prepared
@@ -555,7 +539,7 @@ fn rejected_or_interrupted_normal_chain_does_not_attempt_learning() -> Result<()
             assert_eq!(actor_sequence(&battle).0, old);
         }
         assert!(battle.technique_acquisitions().is_empty());
-        assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
         assert_eq!(battle.actors[0].tp, 40);
     }
     Ok(())
@@ -616,7 +600,7 @@ fn buffered_normal_chain_starts_once_without_payment() -> Result<()> {
     assert_eq!(actor_sequence(&battle).1.target, ActorId(1));
 
     assert!(battle.technique_acquisitions().is_empty());
-    assert_eq!(battle.technique_uses(ActorId(0), 1), Some(49));
+    assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(1)), Some(49));
     assert_eq!(battle.actors[0].tp, 40);
     Ok(())
 }
@@ -902,7 +886,7 @@ fn committed_family_chains_obey_ability_plus_and_super_chain() -> Result<()> {
             let old = actor_sequence(&battle).0;
             let tp = battle.actors[0].tp;
             battle
-                .prepare_shortcut(ActorId(0), 0, Some(action))?
+                .prepare_shortcut(ActorId(0), crate::ShortcutSlot::Neutral, Some(action))?
                 .commit();
             battle.step(player_buttons(false, true, false, [0; 2]))?;
             until_age(&mut battle, 3)?;

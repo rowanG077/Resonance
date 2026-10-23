@@ -1,22 +1,21 @@
 use super::*;
 use crate::BattleClock;
+use crate::WeaponSlot;
 use crate::{
-    ActorAvailability, BattleInput, BattleResult, EquipmentReplacement, PreparedBattle, Side,
-    tests::actor,
+    ActorAvailability, BattleInput, BattleResult, EquipmentReplacement, ResourceId, Side,
+    tests::{actor, models, prepare_actors},
 };
 
 #[cfg(feature = "test-support")]
 #[test]
 fn fixture_hidden_defeat_requires_death_and_ends_on_revival() -> Result<()> {
     let mut battle = crate::tests::prepared(vec![actor(Side::Enemy)], 1).finish()?;
-    let mut models = Models::new(
+    let mut models = models(
         battle.actors(),
-        vec![Some(Arc::new(crate::tests::model_definition(
+        [Some(Arc::new(crate::tests::model_definition(
             7,
             [(0, 100.)],
         )))],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
     )?;
     let restore = ModelRequest::FixtureClock {
         actor: ActorId(0),
@@ -70,10 +69,10 @@ fn spell_release_animates_caster_attachments_without_advancing_textures_or_peers
         definition
             .weapons
             .push(Arc::new(crate::WeaponDefinition::new(
-                slot as u8,
+                WeaponSlot(slot as u8),
                 0,
                 vec![crate::WeaponLayerDefinition {
-                    resource: 8 + slot as u32,
+                    resource: ResourceId(8 + slot as u32),
                     skeleton: definition.skeleton.clone(),
                     motions: definition.motions.clone(),
                     playback,
@@ -87,12 +86,7 @@ fn spell_release_animates_caster_attachments_without_advancing_textures_or_peers
                 vec![],
             )?));
     }
-    let mut models = Models::new(
-        battle.actors(),
-        vec![Some(Arc::new(definition)); 2],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
-    )?;
+    let mut models = models(battle.actors(), vec![Some(Arc::new(definition)); 2])?;
     let mut frame = battle.publish(Vec::new());
     models.advance(&mut frame, BattleClock::Held, false)?;
     let bodies = frame.models.clone();
@@ -114,14 +108,14 @@ fn spell_release_animates_caster_attachments_without_advancing_textures_or_peers
             assert_eq!(frame.models[1].frame, bodies[1].frame);
             for (weapon, before) in frame.weapons.iter().zip(&attachments) {
                 let expected = before.frame
-                    + if weapon.owner == ActorId(0) && weapon.slot < 3 {
+                    + if weapon.owner == ActorId(0) && weapon.slot.is_some_and(|slot| slot.0 < 3) {
                         tick as f32 * initial.rate
                     } else {
                         0.
                     };
                 assert_eq!(
                     weapon.frame, expected,
-                    "attachment {} of {:?}",
+                    "attachment {:?} of {:?}",
                     weapon.slot, weapon.owner
                 );
                 assert_eq!(weapon.texture_scroll, before.texture_scroll);
@@ -142,12 +136,7 @@ fn action_tint_restores_stage_color_during_hit_stop_but_not_global_pause() -> Re
     let mut battle = crate::tests::prepared(vec![actor(Side::Party)], 1).finish()?;
     let mut definition = crate::tests::model_definition(7, [(0, 100.)]);
     definition.tint = [61, 60, 58, 255];
-    let mut models = Models::new(
-        battle.actors(),
-        vec![Some(Arc::new(definition))],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
-    )?;
+    let mut models = models(battle.actors(), [Some(Arc::new(definition))])?;
     battle.model_requests.push(ModelRequest::Tint {
         actor: ActorId(0),
         color: [64, 0, 0],
@@ -175,27 +164,20 @@ fn hit_stop_resumes_actor_before_model_playback() -> Result<()> {
         battle.advance_models(&mut frame, BattleClock::Running, false)?;
         Ok(frame)
     };
-    let mut battle = PreparedBattle::new(
-        vec![
-            (actor(Side::Party), Default::default()),
-            (actor(Side::Enemy), Default::default()),
-        ],
-        Default::default(),
-        1,
-    )?
-    .finish()?;
-    battle.set_models(Models::new(
+    let mut battle = prepare_actors(vec![actor(Side::Party), actor(Side::Enemy)], 1).finish()?;
+    battle.set_models(models(
         battle.actors(),
-        vec![
+        [
             Some(Arc::new(crate::tests::model_definition(7, [(0, 100.)]))),
             None,
         ],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
     )?);
     battle.request_pose(
         ActorId(0),
-        Some(MotionBinding { model: 7, clip: 0 }),
+        Some(MotionBinding {
+            model: ResourceId(7),
+            clip: 0,
+        }),
         Pose {
             frame: 8.5,
             blend: 0,
@@ -222,15 +204,11 @@ fn hit_stop_resumes_actor_before_model_playback() -> Result<()> {
 #[test]
 fn equipment_publication_composes_available_art_without_blocking_stats() -> anyhow::Result<()> {
     let owner = ActorId(0);
-    let prepared = PreparedBattle::new(
-        vec![(actor(Side::Party), Default::default())],
-        Default::default(),
-        1,
-    )?;
+    let prepared = prepare_actors(vec![actor(Side::Party)], 1);
     let mut model = Arc::new(crate::tests::model_definition(7, [(0, 100.)]));
     let part = |slot, resource| {
         Arc::new(crate::WeaponDefinition {
-            slot,
+            slot: Some(WeaponSlot(slot)),
             attachment: Some(0),
             effect_interval: None,
             initially_visible: true,
@@ -245,9 +223,9 @@ fn equipment_publication_composes_available_art_without_blocking_stats() -> anyh
             links: vec![],
         })
     };
-    let weapon = part(0, 10);
-    let shield = part(1, 11);
-    let temporary = part(0, 12);
+    let weapon = part(0, ResourceId(10));
+    let shield = part(1, ResourceId(11));
+    let temporary = part(0, ResourceId(12));
     Arc::make_mut(&mut model).weapons.push(weapon.clone());
     let mut battle = prepared.finish()?;
     let mut models = crate::Models::new(
@@ -274,7 +252,13 @@ fn equipment_publication_composes_available_art_without_blocking_stats() -> anyh
         let mut frame = battle.publish(Vec::new());
         models.advance(&mut frame, crate::BattleClock::Held, false)?;
         let slots: Vec<_> = frame.weapons.iter().map(|part| part.slot).collect();
-        assert_eq!(slots, expected);
+        assert_eq!(
+            slots,
+            expected
+                .into_iter()
+                .map(|slot| Some(WeaponSlot(slot)))
+                .collect::<Vec<_>>()
+        );
     }
     let mut attributes = battle.actors[0].equipment.clone();
     attributes.stats.defense += 10;
@@ -291,12 +275,12 @@ fn equipment_publication_composes_available_art_without_blocking_stats() -> anyh
     models.models[0]
         .as_mut()
         .unwrap()
-        .weapon_visible(0, false)?;
+        .weapon_visible(Some(WeaponSlot(0)), false)?;
     let ordinary = models.models[0].as_ref().unwrap().weapon_frames();
     models.begin_unison_weapons();
     models.override_unison_weapons(owner, std::slice::from_ref(&temporary))?;
     let shown = models.models[0].as_ref().unwrap().weapon_frames();
-    assert_eq!(shown[0].resource, 12);
+    assert_eq!(shown[0].resource, ResourceId(12));
     assert!(shown[0].visible);
     assert_eq!(shown[1], ordinary[1]);
     models.restore_unison_weapons(owner);
@@ -317,7 +301,7 @@ fn equipment_publication_composes_available_art_without_blocking_stats() -> anyh
             .iter()
             .map(|weapon| weapon.resource)
             .collect::<Vec<_>>(),
-        [12, 11]
+        [ResourceId(12), ResourceId(11)]
     );
     models.end_unison_weapons();
     assert_eq!(
@@ -333,26 +317,18 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
     let owner = ActorId(0);
     let mut stone = actor(Side::Enemy);
     stone.availability = ActorAvailability::Petrified;
-    let mut battle = PreparedBattle::new(
-        vec![
-            (actor(Side::Party), Default::default()),
-            (stone, Default::default()),
-        ],
-        Default::default(),
-        1,
-    )?
-    .finish()?;
+    let mut battle = prepare_actors(vec![actor(Side::Party), stone], 1).finish()?;
     let mut definition = crate::tests::model_definition(7, [(0, 100.), (1, 100.)]);
     definition.initial.rate = 0.5;
     definition.idle_motions[0] = Some(0);
     definition.weapons.push(Arc::new(WeaponDefinition {
-        slot: 0,
+        slot: Some(WeaponSlot(0)),
         attachment: Some(0),
         effect_interval: None,
         initially_visible: true,
         layers: vec![WeaponLayerDefinition {
             texture_animation: None,
-            resource: 8,
+            resource: ResourceId(8),
             skeleton: definition.skeleton.clone(),
             motions: BTreeMap::new(),
             playback: WeaponPlayback::Rigid,
@@ -361,15 +337,13 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
         links: vec![],
     }));
     let definition = Arc::new(definition);
-    let mut models = Models::new(
-        battle.actors(),
-        vec![Some(definition.clone()), Some(definition)],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
-    )?;
+    let mut models = models(battle.actors(), vec![Some(definition); 2])?;
     battle.request_pose(
         owner,
-        Some(MotionBinding { model: 7, clip: 1 }),
+        Some(MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        }),
         Pose {
             frame: 2.,
             blend: 0,
@@ -400,7 +374,7 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
     frame.actors[0].position = [20., 0., 0.];
     frame.weapon_flights.push(crate::WeaponFlightFrame {
         owner,
-        slot: 0,
+        slot: WeaponSlot(0),
         position: [100., 40., 0.],
         direction: [1., 0., 0.],
     });
@@ -412,7 +386,10 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
     assert_ne!(frame.weapons[0].world[3], [100., 40., 0., 1.]);
 
     models.models[0].as_mut().unwrap().play(
-        MotionBinding { model: 7, clip: 1 },
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        },
         100.,
         0.5,
         false,
@@ -437,7 +414,13 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
     battle.reset_result_actor(owner)?;
     battle.hide_result_enemies()?;
     battle.hide_result_weapons(owner)?;
-    battle.play_victory_pose(owner, MotionBinding { model: 7, clip: 1 })?;
+    battle.play_victory_pose(
+        owner,
+        MotionBinding {
+            model: ResourceId(7),
+            clip: 1,
+        },
+    )?;
     let mut frame = battle.step(BattleInput::default())?;
     models.advance(&mut frame, BattleClock::Running, false)?;
     assert!(frame.models[0].visible);
@@ -452,15 +435,10 @@ fn completed_frames_own_pose_requests_holds_flights_and_result_visibility() -> R
 #[test]
 fn visual_faults_cannot_reject_committed_equipment() -> Result<()> {
     for strict in [false, true] {
-        let mut battle = PreparedBattle::new(
-            vec![(actor(Side::Party), Default::default())],
-            Default::default(),
-            1,
-        )?
-        .finish()?;
+        let mut battle = prepare_actors(vec![actor(Side::Party)], 1).finish()?;
         let definition = Arc::new(crate::tests::model_definition(7, [(0, 10.)]));
         let broken = Arc::new(WeaponDefinition {
-            slot: 0,
+            slot: Some(WeaponSlot(0)),
             attachment: Some(99),
             effect_interval: None,
             initially_visible: true,
@@ -507,18 +485,8 @@ fn appearance_follows_casting_defeat_holds_revival_and_results() -> Result<()> {
     definition.fade_on_defeat = true;
     definition.reactions.defeated = Some(1);
     definition.reactions.stagger_get_up = Some(2);
-    let battle = PreparedBattle::new(
-        vec![(actor(Side::Party), Default::default())],
-        Default::default(),
-        1,
-    )?
-    .finish()?;
-    let mut models = Models::new(
-        battle.actors(),
-        vec![Some(Arc::new(definition))],
-        BTreeMap::new(),
-        resonance_content::diagnostics::Diagnostics::new(true),
-    )?;
+    let battle = prepare_actors(vec![actor(Side::Party)], 1).finish()?;
+    let mut models = models(battle.actors(), [Some(Arc::new(definition))])?;
     let mut frame = battle.snapshot();
     frame.actors[0].position = [10., 0., 20.];
     frame.actors[0].activity = crate::Activity::Casting { held: true };

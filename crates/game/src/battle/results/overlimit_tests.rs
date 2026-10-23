@@ -1,5 +1,5 @@
 //! Over Limit persistence through result rewards and battle entry.
-use super::item_tests::PreparedFixture;
+use super::item_tests::{PreparedFixture, native_battle};
 use super::*;
 use resonance_battle::OverLimit;
 
@@ -37,15 +37,7 @@ fn construct_rewards_keeps_partial_charge_and_clears_full_or_active_overlimit() 
                     actor.availability = ActorAvailability::Dead;
                 }
             }
-            resonance_battle::PreparedBattle::new(
-                (actors)
-                    .into_iter()
-                    .map(|actor| (actor, Default::default()))
-                    .collect(),
-                Default::default(),
-                1,
-            )?
-            .finish()
+            native_battle(actors)
         },
     )?;
     assert_eq!(battle.recognize_result(), Some(BattleResult::Victory));
@@ -78,10 +70,7 @@ fn construct_rewards_keeps_partial_charge_and_clears_full_or_active_overlimit() 
     {
         assert_eq!(battle.actors()[id.index()].overlimit.charge(), live);
         assert!(!battle.actors()[id.index()].overlimit.is_active());
-        assert_eq!(
-            candidate.party.members[usize::from(character - 1)].overlimit,
-            saved
-        );
+        assert_eq!(candidate.party.members[character.index()].overlimit, saved);
     }
     let before = serde_json::to_value(&candidate.party)?;
     let random = battle.random_state();

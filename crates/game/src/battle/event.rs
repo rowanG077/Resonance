@@ -179,9 +179,6 @@ impl Sequence {
     pub(super) fn playback(&self) -> Option<&Playback> {
         self.playback.as_ref()
     }
-    pub(super) fn playback_mut(&mut self) -> Option<&mut Playback> {
-        self.playback.as_mut()
-    }
     pub(super) fn restores_formation(&self) -> bool {
         matches!(self.phase, Phase::Finished)
     }

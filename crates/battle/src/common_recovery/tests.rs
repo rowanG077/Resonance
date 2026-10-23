@@ -1,25 +1,17 @@
 use super::*;
-use crate::PreparedBattle;
 use crate::Side;
 use crate::conditions::Condition;
 use crate::{
     ActorAvailability, BattleInput,
     conditions::{Conditions, Layers},
-    tests::actor,
+    tests::{actor, prepare_actors},
 };
+use anyhow::Result;
 
 fn battle() -> Battle {
-    PreparedBattle::new(
-        vec![
-            (actor(Side::Party), Default::default()),
-            (actor(Side::Enemy), Default::default()),
-        ],
-        Default::default(),
-        17,
-    )
-    .unwrap()
-    .finish()
-    .unwrap()
+    prepare_actors(vec![actor(Side::Party), actor(Side::Enemy)], 17)
+        .finish()
+        .unwrap()
 }
 
 #[test]
@@ -90,20 +82,20 @@ fn idle_recovery_requires_consecutive_idle_updates_and_stacks_equipped_traits() 
     };
     let mut cues = vec![];
     for _ in 0..119 {
-        battle.advance_common_ex_recovery(0, true, &mut cues)?;
+        battle.advance_common_ex_recovery(0, true, &mut cues);
     }
     assert_eq!((battle.actors[0].hp, battle.actors[0].tp), (950, 190));
     battle.actors[0].guard.active = true;
-    battle.advance_common_ex_recovery(0, true, &mut cues)?;
+    battle.advance_common_ex_recovery(0, true, &mut cues);
     assert_eq!(battle.runtime[0].recovery.idle_updates, 0);
     battle.actors[0].guard.active = false;
     for _ in 0..120 {
-        battle.advance_common_ex_recovery(0, true, &mut cues)?;
+        battle.advance_common_ex_recovery(0, true, &mut cues);
     }
     assert_eq!((battle.actors[0].hp, battle.actors[0].tp), (970, 194));
     assert_eq!(battle.runtime[0].recovery.idle_updates, 0);
     battle.actors[0].availability = ActorAvailability::Dead;
-    battle.advance_common_ex_recovery(0, true, &mut cues)?;
+    battle.advance_common_ex_recovery(0, true, &mut cues);
     assert_eq!(battle.runtime[0].recovery.idle_updates, 0);
     Ok(())
 }
@@ -138,7 +130,7 @@ fn enemy_idle_recovery_restores_hp_and_tp() -> Result<()> {
     battle.actors[1].equipment.recovery.common.idle_hp_tp = true;
     battle.actors[1].tp = 0;
     battle.runtime[1].recovery.idle_updates = 119;
-    battle.advance_common_ex_recovery(1, true, &mut vec![])?;
+    battle.advance_common_ex_recovery(1, true, &mut vec![]);
     assert_eq!((battle.actors[1].hp, battle.actors[1].tp), (51, 1));
 
     Ok(())

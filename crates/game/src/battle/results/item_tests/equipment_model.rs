@@ -97,17 +97,14 @@ fn strike(
         );
         let cues = candidate.world_update(
             battle,
-            BattleInput {
-                controllers: vec![ControlInput {
-                    attack: ButtonInput {
-                        pressed: press,
-                        held: press,
-                        released: false,
-                    },
-                    ..ControlInput::neutral(actor)
-                }],
-                ..Default::default()
-            },
+            BattleInput::from(ControlInput {
+                attack: ButtonInput {
+                    pressed: press,
+                    held: press,
+                    released: false,
+                },
+                ..ControlInput::neutral(actor)
+            }),
         )?;
         for cue in cues {
             if let Cue::Hit {
@@ -170,7 +167,7 @@ fn weapon_swap_preserves_active_contacts_and_native_state() -> Result<()> {
         .setup
         .actors
         .iter()
-        .find(|&&(_, character)| character == 1)
+        .find(|&&(_, character)| character == Character::Lloyd)
         .map(|&(actor, _)| actor)
         .context("missing Lloyd actor")?;
     release(

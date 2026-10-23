@@ -28,18 +28,8 @@ pub fn prepare(
     if let Some(contact) = std::sync::Arc::make_mut(&mut projectile).contact.as_mut() {
         contact.cooldown = rule.hit.cooldown;
     }
-    let startup = resonance_battle::EffectAppearance {
-        resource: bank.resource,
-        member: 23,
-    };
-    let mut effects = bank.clone();
-    effects.members = vec![startup.member];
-    super::require_effect(&mut resources.effects, effects)?;
+    let startup = resources.effect_member(bank, 23)?;
     Ok(resonance_battle::PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
-        recovery: vec![],
         projectiles: [4, 12, 20]
             .into_iter()
             .zip(launch.velocities)
@@ -54,12 +44,8 @@ pub fn prepare(
                 shot
             })
             .collect(),
-        origin: resonance_battle::SpellOrigin::Caster,
-        transition_ticks: 0,
-        stage_tint: None,
-        camera: None,
-        duration: 20,
         startup: Some((0, resonance_battle::SpellStartup::Effect(startup))),
         sound,
+        ..resonance_battle::PreparedSpell::new(resonance_battle::SpellOrigin::Caster, 20)
     })
 }

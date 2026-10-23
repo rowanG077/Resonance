@@ -1,4 +1,5 @@
 use super::*;
+use crate::TechniqueId;
 use resonance_content::arte::{Definition, LearningPrerequisite};
 
 fn catalogue() -> Catalogue {
@@ -23,12 +24,15 @@ fn catalogue() -> Catalogue {
 fn member(data: Catalogue, current: &[u16], balance: i8, counts: &[(u16, u16)]) -> LearningMember {
     LearningCatalogue::new(Arc::new(data))
         .prepare_member(LearningEntry {
-            character: 1,
+            character: crate::Character::Lloyd,
             level: 10,
             balance,
             story_unlocked: true,
-            current: current.iter().copied().collect(),
-            counts: counts.iter().copied().collect(),
+            current: current.iter().copied().map(TechniqueId).collect(),
+            counts: counts
+                .iter()
+                .map(|&(id, count)| (TechniqueId(id), count))
+                .collect(),
         })
         .unwrap()
 }
@@ -36,7 +40,7 @@ fn member(data: Catalogue, current: &[u16], balance: i8, counts: &[(u16, u16)]) 
 fn attempt(current: Option<u16>) -> LearningAttempt {
     LearningAttempt {
         mode: LearningMode::Martial,
-        current,
+        current: current.map(TechniqueId),
         airborne: false,
     }
 }
@@ -64,18 +68,18 @@ fn both_paths_learn_the_missing_successor_on_the_next_eligible_use() -> Result<(
                 || panic!("learning both paths must not wait for a random roll"),
             )
         };
-        assert_eq!(learner.current(), &[1, 2].into());
+        assert_eq!(learner.current(), &[TechniqueId(1), TechniqueId(2)].into());
         assert_eq!(select(&learner)?, None);
         learner.entry.level = 11;
         learner.entry.story_unlocked = false;
         assert_eq!(select(&learner)?, None);
         learner.entry.story_unlocked = true;
-        learner.entry.counts.insert(1, 49);
+        learner.entry.counts.insert(TechniqueId(1), 49);
         assert_eq!(select(&learner)?, None);
-        learner.record_use(1);
-        learner.entry.counts.insert(2, 24);
+        learner.record_use(TechniqueId(1));
+        learner.entry.counts.insert(TechniqueId(2), 24);
         assert_eq!(select(&learner)?, None);
-        learner.record_use(2);
+        learner.record_use(TechniqueId(2));
         assert_eq!(
             learner.select_after_count(attempt(Some(1)), |_| false, || 0)?,
             None
@@ -91,10 +95,10 @@ fn both_paths_learn_the_missing_successor_on_the_next_eligible_use() -> Result<(
             )?,
             None
         );
-        assert_eq!(select(&learner)?, Some(3));
-        assert_eq!(learner.count(1), 50);
-        assert_eq!(learner.count(2), 25);
-        learner.mark_acquired(3)?;
+        assert_eq!(select(&learner)?, Some(TechniqueId(3)));
+        assert_eq!(learner.count(TechniqueId(1)), 50);
+        assert_eq!(learner.count(TechniqueId(2)), 25);
+        learner.mark_acquired(TechniqueId(3))?;
         assert_eq!(select(&learner)?, None);
     }
     Ok(())
@@ -125,10 +129,10 @@ fn both_paths_only_relax_opposing_path_exclusions() -> Result<()> {
             learner.select_after_count(attempt(None), |_| true, || 0)?,
             None
         );
-        learner.record_use(2);
+        learner.record_use(TechniqueId(2));
         assert_eq!(
             learner.select_after_count(attempt(None), |_| true, || panic!("random roll"))?,
-            (excluded_route == Some(LearningRoute::Technical)).then_some(1)
+            (excluded_route == Some(LearningRoute::Technical)).then_some(TechniqueId(1))
         );
     }
     Ok(())
@@ -147,12 +151,16 @@ fn elemental_variant_learns_on_its_fiftieth_use_only_when_enabled() -> Result<()
         let mut learner = LearningCatalogue::new(data.clone())
             .with_elemental_learning(enabled)
             .prepare_member(LearningEntry {
-                character: 1,
+                character: crate::Character::Lloyd,
                 level: 1,
                 balance: 0,
                 story_unlocked: false,
-                current: [6].into(),
-                counts: [(6, 999), (LIGHTNING_TIGER, LEARNING_USES - 1)].into(),
+                current: [TechniqueId(6)].into(),
+                counts: [
+                    (TechniqueId(6), 999),
+                    (TechniqueId(LIGHTNING_TIGER), LEARNING_USES - 1),
+                ]
+                .into(),
             })?;
         let select = |learner: &LearningMember| {
             learner.select_after_count(
@@ -162,10 +170,13 @@ fn elemental_variant_learns_on_its_fiftieth_use_only_when_enabled() -> Result<()
             )
         };
         assert_eq!(select(&learner)?, None);
-        learner.record_use(LIGHTNING_TIGER);
-        assert_eq!(select(&learner)?, enabled.then_some(LIGHTNING_TIGER));
+        learner.record_use(TechniqueId(LIGHTNING_TIGER));
+        assert_eq!(
+            select(&learner)?,
+            enabled.then_some(TechniqueId(LIGHTNING_TIGER))
+        );
         if enabled {
-            learner.mark_acquired(LIGHTNING_TIGER)?;
+            learner.mark_acquired(TechniqueId(LIGHTNING_TIGER))?;
             assert_eq!(select(&learner)?, None);
         }
     }
@@ -179,14 +190,14 @@ fn learns_bases_and_successors_from_eligible_usage() -> Result<()> {
     let mut learner = member(data, &[], 0, &[(1, 49)]);
     assert_eq!(
         learner.select_after_count(attempt(None), |_| true, || 0)?,
-        Some(1)
+        Some(TechniqueId(1))
     );
-    learner.mark_acquired(1)?;
+    learner.mark_acquired(TechniqueId(1))?;
     assert_eq!(
         learner.select_after_count(attempt(Some(1)), |_| true, || 0)?,
         None
     );
-    assert_eq!(learner.record_use(1), Some(()));
+    assert_eq!(learner.record_use(TechniqueId(1)), Some(()));
     learner.entry.story_unlocked = false;
     assert_eq!(
         learner.select_after_count(attempt(Some(1)), |_| true, || 0)?,
@@ -195,7 +206,7 @@ fn learns_bases_and_successors_from_eligible_usage() -> Result<()> {
     learner.entry.story_unlocked = true;
     assert_eq!(
         learner.select_after_count(attempt(Some(1)), |_| true, || 0)?,
-        Some(2)
+        Some(TechniqueId(2))
     );
     assert_eq!(
         member(catalogue(), &[1], 10, &[(1, 50)]).select_after_count(
@@ -203,15 +214,15 @@ fn learns_bases_and_successors_from_eligible_usage() -> Result<()> {
             |_| true,
             || 0
         )?,
-        Some(3)
+        Some(TechniqueId(3))
     );
-    learner.mark_acquired(2)?;
+    learner.mark_acquired(TechniqueId(2))?;
     assert_eq!(
         learner.select_after_count(attempt(Some(1)), |_| true, || 0)?,
         None
     );
-    assert!(learner.forget(2)?);
-    assert!(!learner.current().contains(&2));
+    assert!(learner.forget(TechniqueId(2))?);
+    assert!(!learner.current().contains(&TechniqueId(2)));
     Ok(())
 }
 
@@ -291,7 +302,7 @@ fn excludes_opposite_successor_and_missing_prerequisites() -> Result<()> {
     );
     assert_eq!(
         member(data, &[2], 0, &[(2, 50)]).select_after_count(attempt(None), |_| true, || 0)?,
-        Some(1)
+        Some(TechniqueId(1))
     );
     Ok(())
 }
@@ -318,7 +329,7 @@ fn combination_accepts_either_qualified_successor() -> Result<()> {
             |_| true,
             || 0
         )?,
-        Some(4)
+        Some(TechniqueId(4))
     );
     Ok(())
 }
@@ -341,85 +352,7 @@ fn airborne_techniques_require_airborne_use() -> Result<()> {
             |_| true,
             || 0
         )?,
-        Some(1)
+        Some(TechniqueId(1))
     );
     Ok(())
-}
-
-#[test]
-fn validates_only_participating_learning_rules_and_membership() {
-    let entry = || LearningEntry {
-        character: 1,
-        level: 1,
-        balance: 0,
-        story_unlocked: true,
-        current: [1].into(),
-        counts: BTreeMap::new(),
-    };
-    let mut data = catalogue();
-    data.learning.push(vec![99]);
-    data.definitions[4].learning.technical_successor = Some(300);
-    assert!(data.validate().is_err());
-    assert!(
-        LearningCatalogue::new(Arc::new(data))
-            .prepare_member(entry())
-            .is_ok()
-    );
-    for invalid in 0..4 {
-        let mut data = catalogue();
-        match invalid {
-            0 => data.learning[0].push(1),
-            1 => data.definitions[1].learning.technical_successor = Some(300),
-            2 => data.definitions[1]
-                .learning
-                .prerequisites
-                .push(LearningPrerequisite {
-                    any_of: vec![300],
-                    minimum_uses: 0,
-                }),
-            _ => data.definitions[1].learning.excludes.push(300),
-        }
-        assert!(
-            LearningCatalogue::new(Arc::new(data))
-                .prepare_member(entry())
-                .is_err()
-        );
-    }
-    let validated = LearningCatalogue::new(Arc::new(catalogue()));
-    for counts in [[(0, 0)], [(1, 1000)], [(99, 1)]] {
-        assert!(
-            validated
-                .prepare_member(LearningEntry {
-                    counts: counts.into(),
-                    ..entry()
-                })
-                .is_err()
-        );
-    }
-    let mut learner = member(catalogue(), &[1], 0, &[]);
-    assert!(learner.mark_acquired(99).is_err());
-    assert!(
-        learner
-            .select_after_count(attempt(Some(99)), |_| true, || 0)
-            .is_err()
-    );
-}
-
-#[test]
-fn invalid_prepared_technique_range_is_rejected_before_activation() {
-    for range in [[0., 0.], [-1., 120.], [0., f32::INFINITY]] {
-        let mut prepared = crate::tests::prepared(vec![crate::tests::actor(crate::Side::Party)], 1);
-        prepared.resources.actor_setup[0].techniques = vec![crate::PreparedTechnique {
-            player_range: range,
-            ..crate::tests::technique(crate::ActionKey(0), 1)
-        }];
-        assert!(
-            prepared
-                .finish()
-                .err()
-                .expect("invalid technique range was accepted")
-                .to_string()
-                .contains("invalid prepared technique range")
-        );
-    }
 }

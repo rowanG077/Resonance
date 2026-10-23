@@ -1226,16 +1226,12 @@ mod tests {
             ],
             None,
         )?;
-        assert_eq!(
-            birth.offset[0],
-            Some(ValueRange {
-                min: -6.,
-                max: 14.,
-                step: 0.,
-                draw: Some(0),
-                reverse: false,
-            })
-        );
+        let offset = birth.offset[0].unwrap();
+        // Signed variation uses discrete tenths, then shifts by four units.
+        for (unit, expected) in [(0., -5.9), (0.001, -5.9), (0.5, 4.), (0.999, 13.9)] {
+            assert!((offset.sample(unit) - expected).abs() < 0.00001);
+        }
+        assert_eq!(offset.draw, Some(0));
         let uv = birth.uv[0].unwrap();
         assert_eq!(
             [0., 0.25, 0.5, 0.99].map(|unit| uv.sample(unit)),

@@ -4,6 +4,7 @@ use crate::menu::techniques::{
     BattlePage, Context, Edit, EditResult, Page, Step, TargetKind, Tech, Visit,
 };
 use anyhow::{Context as _, Result, ensure};
+use resonance_battle::TechniqueId;
 use resonance_battle::{ActorId, Battle, BattlePhase, Control};
 
 impl Candidate {
@@ -26,11 +27,7 @@ impl Candidate {
     }
 
     pub(in crate::battle) fn tech_actor(setup: &Setup, character: usize) -> Result<ActorId> {
-        let character = u8::try_from(
-            character
-                .checked_add(1)
-                .context("Tech character index overflow")?,
-        )?;
+        let character = Character::from_index(character)?;
         setup
             .actors
             .iter()
@@ -47,7 +44,8 @@ impl Candidate {
         let Some(selected) = target.selected else {
             return Ok(false);
         };
-        let Some(prepared) = battle.prepared_technique(target.actor, target.technique) else {
+        let Some(prepared) = battle.prepared_technique(target.actor, TechniqueId(target.technique))
+        else {
             return Ok(false);
         };
         battle.queue_technique_target_from(target.actor, prepared.action, selected, target.issuer)
@@ -116,12 +114,16 @@ impl Candidate {
                                 "player shortcut must keep its owner"
                             );
                             battle
-                                .prepared_technique(owner, shortcut.technique)
+                                .prepared_technique(owner, TechniqueId(shortcut.technique))
                                 .map(|entry| entry.action)
                                 .context("Tech shortcut action is not prepared")
                         })
                         .transpose()?;
-                    let edit = battle.prepare_shortcut(owner, slot, replacement)?;
+                    let edit = battle.prepare_shortcut(
+                        owner,
+                        resonance_battle::ShortcutSlot::from_index(slot)?,
+                        replacement,
+                    )?;
                     let changed = party
                         .assign_technique(member, slot, selected)
                         .map_err(anyhow::Error::msg)?;
@@ -132,7 +134,7 @@ impl Candidate {
                         .map(|shortcut| -> Result<_> {
                             let actor = Self::tech_actor(setup, shortcut.character)?;
                             let entry = battle
-                                .prepared_technique(actor, shortcut.technique)
+                                .prepared_technique(actor, TechniqueId(shortcut.technique))
                                 .context("Tech assist action is not prepared")?;
                             Ok((actor, entry.action))
                         })
@@ -162,7 +164,7 @@ impl Candidate {
                 if changed {
                     let actor = Self::tech_actor(setup, member)?;
                     let action = battle
-                        .prepared_technique(actor, technique)
+                        .prepared_technique(actor, TechniqueId(technique))
                         .context("Tech enabled action is not prepared")?
                         .action;
                     battle.set_technique_enabled(actor, action, enabled)?;
@@ -228,10 +230,10 @@ impl Candidate {
         {
             let actor = Self::tech_actor(&self.setup, exit.member)?;
             let prepared = *battle
-                .prepared_technique(actor, technique)
+                .prepared_technique(actor, TechniqueId(technique))
                 .context("Tech queue action is not prepared")?;
             let accepted = match prepared.capabilities.target {
-                TargetKind::Enemy => battle.technique_queue_admitted(actor, prepared.action)?,
+                TargetKind::Enemy => battle.technique_queue_admitted(actor, prepared.action),
                 kind => {
                     let target = if kind == TargetKind::SelfTarget {
                         Some(actor)

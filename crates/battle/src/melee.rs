@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MeleeAnchor {
-    pub resource: u32,
+    pub resource: crate::ResourceId,
     pub bone: u16,
 }
 
@@ -34,7 +34,7 @@ pub struct MeleeDefinition {
     pub hit: HitRule,
     pub volume: MeleeVolume,
     /// Optional weapon ribbon sampled while this contact window is active.
-    pub trail: Option<u8>,
+    pub trail: Option<crate::WeaponSlot>,
 }
 
 impl MeleeDefinition {

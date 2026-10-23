@@ -166,7 +166,7 @@ impl Markers {
             };
             let shared = controllers >= 2 && owners().count() >= 2;
             for (index, (actor_index, owner)) in owners().enumerate() {
-                let slot = usize::from(owner.control_slot);
+                let slot = owner.control_slot.index();
                 let party_index = frame.actors[..actor_index]
                     .iter()
                     .filter(|actor| actor.side == Side::Party)
@@ -175,10 +175,6 @@ impl Markers {
                     .tracks
                     .get_mut(party_index)
                     .context("too many battle party actors")?;
-                anyhow::ensure!(
-                    slot < CONTROLLER_COLORS.len(),
-                    "invalid battle controller slot"
-                );
                 active[party_index] = true;
                 track.follow(Vec3::from_array(anchor), elapsed);
                 if owner.control != Control::Auto {
@@ -254,7 +250,7 @@ mod tests {
                 } else {
                     Control::Enemy
                 };
-                actor.control_slot = (index % 4) as u8;
+                actor.control_slot = resonance_battle::ControllerPort::ALL[index % 4];
                 actor.position = [index as f32 * 40. - 100., 0., 0.];
                 actor.activity = Activity::Stunned;
                 actor

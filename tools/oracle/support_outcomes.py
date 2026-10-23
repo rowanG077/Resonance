@@ -50,6 +50,16 @@ def conditions(high, low):
     return sorted({name for bit, name in CONDITION_BITS.items() if flags & (1 << bit)})
 
 
+def observed_conditions(row, slot):
+    return conditions(word(row, f"actor_{slot}_condition_10"),
+                      word(row, f"actor_{slot}_condition_14"))
+
+
+def competing_action(row, setup, owner):
+    return any(word(row, f"battle_actor_{actor['source_slot']}_action") >> 24 == 5
+               for actor in setup["source_actor_map"] if actor["actor"] != owner)
+
+
 def snapshot(row, slot):
     prefix = f"actor_{slot}_"
     element = word(row, prefix + "raw_1e0") & 255
@@ -57,8 +67,7 @@ def snapshot(row, slot):
         raise ValueError(f"unsupported observed enchantment element: {element}")
     guard = (word(row, prefix + "raw_280") >> 8) & 255
     return {
-        "conditions": conditions(word(row, prefix + "condition_10"),
-                                 word(row, prefix + "condition_14")),
+        "conditions": observed_conditions(row, slot),
         "tp": word(row, f"battle_actor_{slot}_tp_word") & 65535,
         "enchantment": ELEMENTS[element],
         "special_guard": guard & 0x41 == 0x41,
@@ -222,8 +231,7 @@ def enemy_debuffs(case, previous, row, setup, events, common, admission):
             or not any(event["kind"] == "program_started" and event["owner"] == owner
                        and event["program"] == 7 and event["bank"] is not None
                        and event["combat_tick"] == admission for event in events)
-            or any(word(row, f"battle_actor_{entry['source_slot']}_action") >> 24 == 5
-                   for entry in setup["source_actor_map"] if entry["actor"] != owner)):
+            or competing_action(row, setup, owner)):
         raise ValueError("enemy debuff lacks its sole owned action callback")
     groups = ({"curse", "paralysis", "poison_severe"},
               {"attack_down", "defense_down", "weak"})
@@ -232,9 +240,7 @@ def enemy_debuffs(case, previous, row, setup, events, common, admission):
         target, slot = actor["actor"], actor["source_slot"]
         if setup["actors"][target]["side"] == setup["actors"][owner]["side"]:
             continue
-        before, after = [conditions(word(sample, f"actor_{slot}_condition_10"),
-                                    word(sample, f"actor_{slot}_condition_14"))
-                         for sample in (previous, row)]
+        before, after = [observed_conditions(sample, slot) for sample in (previous, row)]
         if before == after:
             continue
         if (before or len(after) != 2 or any(len(set(after) & group) != 1 for group in groups)
@@ -283,14 +289,11 @@ def spell_debuffs(case, rows, setup, frames, events):
             target, slot = actor["actor"], actor["source_slot"]
             if setup["actors"][target]["side"] == setup["actors"][owner]["side"]:
                 continue
-            before, after = [conditions(word(sample, f"actor_{slot}_condition_10"),
-                                        word(sample, f"actor_{slot}_condition_14"))
-                             for sample in (previous, row)]
+            before, after = [observed_conditions(sample, slot) for sample in (previous, row)]
             if before == after:
                 continue
             if (setup["opponent_control"]["mode"] != "manual"
-                    or any(word(row, f"battle_actor_{entry['source_slot']}_action") >> 24 == 5
-                           for entry in setup["source_actor_map"] if entry["actor"] != owner)
+                    or competing_action(row, setup, owner)
                     or not any(program["id"] == scene["id"] for program in frame["programs"])
                     or word(row, f"battle_actor_{slot}_hp") <= 0
                     or word(previous, f"battle_actor_{slot}_hp") != word(row, f"battle_actor_{slot}_hp")
@@ -345,8 +348,7 @@ def seal_branches(case, rows, setup, frames, events, banks):
             previous, row = rows[index - 1:index + 1]
             for entry in setup["source_actor_map"]:
                 target, target_slot = entry["actor"], entry["source_slot"]
-                before, after = [conditions(word(sample, f"actor_{target_slot}_condition_10"),
-                                            word(sample, f"actor_{target_slot}_condition_14"))
+                before, after = [observed_conditions(sample, target_slot)
                                  for sample in (previous, row)]
                 if before == after:
                     continue
@@ -360,8 +362,7 @@ def seal_branches(case, rows, setup, frames, events, banks):
                         word(previous, phase) & 65535 != 60 or word(row, phase) & 65535 != 61 or
                         word(row, f"actor_{slot}_native") & 65535 != native or
                         word(row, f"battle_actor_{slot}_action") >> 24 != 5 or
-                        any(word(row, f"battle_actor_{actor['source_slot']}_action") >> 24 == 5
-                            for actor in setup["source_actor_map"] if actor["actor"] != owner) or
+                        competing_action(row, setup, owner) or
                         word(previous, f"battle_actor_{target_slot}_hp") != word(row, f"battle_actor_{target_slot}_hp") or
                         condition in before or set(after) != set(before) | {condition} or
                         attachments != {owner, target}):
@@ -402,8 +403,7 @@ def seal_branches(case, rows, setup, frames, events, banks):
                 raise ValueError("seal callback lacks its live owned projectile")
             if contact["hp_change"] >= 0 or setup["actors"][target]["side"] == setup["actors"][owner]["side"]:
                 raise ValueError("seal callback lacks an effective opposing contact")
-            if any(word(row, f"battle_actor_{entry['source_slot']}_action") >> 24 == 5
-                   for entry in setup["source_actor_map"] if entry["actor"] != owner):
+            if competing_action(row, setup, owner):
                 raise ValueError("seal callback has a competing actor action")
             common = dict(clock=clock, presentation_clock=frame["presentation_tick"] - frames[0]["presentation_tick"])
             emitted = [event for event in emissions if all(event[key] == value for key, value in common.items())]
@@ -412,8 +412,7 @@ def seal_branches(case, rows, setup, frames, events, banks):
             if emitted and not any(matches(active) and active["attachment"] == dict(kind="center", actor=target)
                                    for active in frame["programs"]):
                 raise ValueError("seal emission lacks its bound victim attachment")
-            before, after = [conditions(word(sample, f"actor_{target_slot}_condition_10"),
-                                        word(sample, f"actor_{target_slot}_condition_14"))
+            before, after = [observed_conditions(sample, target_slot)
                              for sample in (previous, row)]
             if (emitted and set(after) != set(before) | {condition}) or (not emitted and before != after):
                 raise ValueError("seal condition transition disagrees with its observed emission")

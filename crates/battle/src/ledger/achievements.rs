@@ -1,4 +1,5 @@
 //! Per-encounter facts used by title awards. Counts belong to actor slots.
+use crate::TechniqueId;
 use crate::{ActionId, ActorId, Battle};
 use std::collections::BTreeSet;
 
@@ -7,7 +8,7 @@ pub struct ActorAchievements {
     pub spell_elements: u8,
     pub resisted_spells: u8,
     pub repeated_technique: u16,
-    last_technique: Option<u16>,
+    last_technique: Option<TechniqueId>,
     technique_streak: u16,
     pub weapon_changes: u8,
     pub guard_breaks: u8,
@@ -26,7 +27,12 @@ pub struct ActorAchievements {
     resisted_actions: BTreeSet<ActionId>,
 }
 impl ActorAchievements {
-    pub(crate) fn technique(&mut self, catalogue: u16, elements: u8, casting: bool) {
+    pub(crate) fn technique(
+        &mut self,
+        catalogue: TechniqueId,
+        element: Option<crate::Element>,
+        casting: bool,
+    ) {
         self.technique_streak = if self.last_technique == Some(catalogue) {
             self.technique_streak.saturating_add(1)
         } else {
@@ -34,8 +40,11 @@ impl ActorAchievements {
         };
         self.last_technique = Some(catalogue);
         self.repeated_technique = self.repeated_technique.max(self.technique_streak);
-        if casting && (1..=6).contains(&elements) {
-            self.spell_elements |= 1 << (elements - 1);
+        if casting
+            && let Some(element) = element
+            && !matches!(element, crate::Element::Light | crate::Element::Darkness)
+        {
+            self.spell_elements |= 1 << element as u8;
         }
     }
     pub(crate) fn resisted_spell(&mut self, action: ActionId) {
@@ -118,17 +127,17 @@ mod tests {
     fn technique_streak_and_element_cycle_track_distinct_requirements() {
         let mut facts = ActorAchievements::default();
         for _ in 0..9 {
-            facts.technique(223, 1, false);
+            facts.technique(TechniqueId(223), Some(crate::Element::Water), false);
         }
         assert_eq!(facts.repeated_technique, 9);
         assert_eq!(facts.spell_elements, 0, "martial elements are not spells");
-        facts.technique(224, 1, false);
+        facts.technique(TechniqueId(224), Some(crate::Element::Water), false);
         for _ in 0..10 {
-            facts.technique(223, 1, false);
+            facts.technique(TechniqueId(223), Some(crate::Element::Water), false);
         }
         assert_eq!(facts.repeated_technique, 10);
-        for element in 1..=8 {
-            facts.technique(60 + u16::from(element), element, true);
+        for element in crate::Element::ALL {
+            facts.technique(TechniqueId(61 + element as u16), Some(element), true);
         }
         assert_eq!(facts.spell_elements, 0b11_1111);
         assert_eq!(

@@ -4,10 +4,10 @@ use resonance_content::{
     diagnostics::Diagnostics, menu_data::MenuData, prepared::Cache, session::SessionData,
 };
 use resonance_events::{
-    battle::{DefeatPolicy, Setup},
+    battle::DefeatPolicy,
     party::{Party, Poison},
 };
-use resonance_game::battle::encounter::{Assets, PrepareOptions};
+use resonance_game::battle::encounter::Assets;
 
 #[test]
 #[ignore = "requires current opening encounter and poison effect publications; no devices"]
@@ -30,25 +30,8 @@ fn saved_poison_emits_scene_feedback_that_expires() -> Result<()> {
         &menus,
         &data,
         &party,
-        Setup {
-            route: [0; 5],
-            encounter: resonance_events::battle::Encounter::Formation(1),
-            arena: 13,
-            defeat: DefeatPolicy::GameOver,
-            music: None,
-        },
-        PrepareOptions {
-            hunting_symbol: None,
-            event_flags: Default::default(),
-            devils_arms_unlocked: false,
-            victory_story_flags: [false; 2],
-            random_seed: 17,
-            map: 332,
-            world_music: 0,
-            story: 2500,
-            colette_state: 0,
-            overlimit_boost: false,
-        },
+        opening_setup(1, DefeatPolicy::GameOver),
+        opening_options(17),
         &mut cache,
         || false,
     )?;

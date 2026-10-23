@@ -63,7 +63,7 @@ pub(crate) fn publish_source(extracted: &Path, sources: &Sources, output: &Path)
     let mut records = BTreeMap::new();
     for (id, range) in physical_ranges(&offsets, 0, length)? {
         let archive = MapArchive::decode(&read_range(&path, range.clone())?)?;
-        // DOL item category 17 is the original owner-linked kendama family.
+        // Kendamas share their owner's animation clips.
         let linked = id < 139 && items[usize::from(id) + 135].category == 17;
         records.insert(
             range.start as u32,

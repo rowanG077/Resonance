@@ -1,4 +1,6 @@
 //! Contact artwork/audio, camera impacts and controller pulses owned by the scene.
+#[cfg(test)]
+use resonance_battle::ResourceId;
 use resonance_battle::{
     Actor, BattleFrame, Control, Cue, EffectRequest, GuardResult, Random, Side, VoicePriority,
 };
@@ -79,16 +81,11 @@ impl Feedback {
                         cues.extend(actors.iter().map(|&actor| {
                             let owner = &frame.actors[actor.index()];
                             Cue::Effect(EffectRequest {
-                                owner: actor,
-                                target: actor,
-                                appearance: effect,
                                 origin: std::array::from_fn(|axis| {
                                     owner.position[axis] + owner.body.center_offset[axis] * 1.75
                                 }),
-                                heading: owner.heading,
-                                follow: None,
                                 scale: 0.8,
-                                tint: Default::default(),
+                                ..actor_effect(actor, owner, effect)
                             })
                         }));
                     }
@@ -117,16 +114,9 @@ impl Feedback {
                 Cue::TechniqueAcquired { actor, spell, .. } => {
                     let owner = &frame.actors[actor.index()];
                     if let Some(appearance) = self.resources.acquisition {
-                        cues.push(Cue::EffectDuringPause(EffectRequest {
-                            owner: actor,
-                            target: actor,
-                            appearance,
-                            origin: owner.effect_origin(),
-                            heading: owner.heading,
-                            follow: None,
-                            scale: owner.effect_scale,
-                            tint: Default::default(),
-                        }));
+                        cues.push(Cue::EffectDuringPause(actor_effect(
+                            actor, owner, appearance,
+                        )));
                     }
                     if !owner.airborne()
                         && let Some(motion) = self
@@ -215,16 +205,11 @@ impl Feedback {
                     if !summon_release {
                         if !matches!(phase, CastPhase::Started | CastPhase::Incantation) {
                             let request = EffectRequest {
-                                owner: actor,
-                                target: actor,
-                                appearance,
                                 origin: if chanting {
                                     owner.position
                                 } else {
                                     owner.effect_origin()
                                 },
-                                heading: owner.heading,
-                                scale: owner.effect_scale,
                                 follow: Some(if chanting {
                                     resonance_battle::EffectFollow::Actor(actor)
                                 } else {
@@ -235,6 +220,7 @@ impl Feedback {
                                 } else {
                                     cast.tint
                                 },
+                                ..actor_effect(actor, owner, appearance)
                             };
                             cues.push(if phase == CastPhase::SceneOpening {
                                 Cue::InitializedEffect(request)
@@ -403,17 +389,16 @@ impl Feedback {
                         }
                     }
                 }
-                Cue::Jumped { actor, position } => {
-                    if let Some(appearance) = self.resources.takeoff {
+                Cue::Jumped { actor, position } | Cue::Landed { actor, position } => {
+                    let appearance = if matches!(cue, Cue::Jumped { .. }) {
+                        self.resources.takeoff
+                    } else {
+                        self.resources.landing
+                    };
+                    if let Some(appearance) = appearance {
                         cues.push(Cue::Effect(EffectRequest {
-                            owner: actor,
-                            target: actor,
-                            appearance,
                             origin: position,
-                            heading: frame.actors[actor.index()].heading,
-                            scale: frame.actors[actor.index()].effect_scale,
-                            follow: None,
-                            tint: Default::default(),
+                            ..actor_effect(actor, &frame.actors[actor.index()], appearance)
                         }));
                     }
                 }
@@ -612,21 +597,6 @@ impl Feedback {
                         }
                     }
                 }
-                Cue::Landed { actor, position } => {
-                    if let Some(appearance) = self.resources.landing {
-                        let target = &frame.actors[actor.index()];
-                        cues.push(Cue::Effect(EffectRequest {
-                            owner: actor,
-                            target: actor,
-                            appearance,
-                            origin: position,
-                            heading: target.heading,
-                            follow: None,
-                            scale: target.effect_scale,
-                            tint: Default::default(),
-                        }));
-                    }
-                }
                 _ => {}
             }
         }
@@ -676,14 +646,9 @@ impl Feedback {
                 .get(usize::from(effect.bone))
                 .context("Over Limit attachment bone is unavailable")?;
             effects.push(Cue::EffectDuringPause(EffectRequest {
-                owner: actor,
-                target: actor,
-                appearance: effect.appearance,
                 origin: transform_point(model.world, transform_point(*bone, [0.; 3])),
-                heading: frame.actors[actor.index()].heading,
                 scale: effect.scale,
-                follow: None,
-                tint: Default::default(),
+                ..actor_effect(actor, &frame.actors[actor.index()], effect.appearance)
             }));
         }
         frame.cues.extend(effects);
@@ -922,10 +887,9 @@ impl Feedback {
     }
 
     fn pulse(&mut self, actor: &Actor, duration: u8) {
-        if actor.side == Side::Party
-            && matches!(actor.control, Control::Manual | Control::SemiAuto)
-            && let Some(motor) = self.motors.get_mut(usize::from(actor.control_slot))
+        if actor.side == Side::Party && matches!(actor.control, Control::Manual | Control::SemiAuto)
         {
+            let motor = &mut self.motors[actor.control_slot.index()];
             *motor = (*motor).max(duration);
         }
     }
@@ -935,7 +899,7 @@ impl Feedback {
     }
 }
 
-fn attached_effect(
+fn actor_effect(
     actor: resonance_battle::ActorId,
     target: &Actor,
     appearance: resonance_battle::EffectAppearance,
@@ -946,9 +910,20 @@ fn attached_effect(
         appearance,
         origin: target.effect_origin(),
         heading: target.heading,
-        follow: Some(resonance_battle::EffectFollow::Center(actor)),
+        follow: None,
         scale: target.effect_scale,
         tint: Default::default(),
+    }
+}
+
+fn attached_effect(
+    actor: resonance_battle::ActorId,
+    target: &Actor,
+    appearance: resonance_battle::EffectAppearance,
+) -> EffectRequest {
+    EffectRequest {
+        follow: Some(resonance_battle::EffectFollow::Center(actor)),
+        ..actor_effect(actor, target, appearance)
     }
 }
 
@@ -977,7 +952,7 @@ mod tests {
         .finish()?;
         let actor = battle.actor_ids().next().unwrap();
         let effect = EffectAppearance {
-            resource: 1,
+            resource: ResourceId(1),
             member: 1,
         };
         let mut feedback = Feedback::new(
@@ -991,7 +966,7 @@ mod tests {
                 casting: [(
                     ActionKey(0),
                     CastingFeedback {
-                        catalogue: 75,
+                        catalogue: resonance_battle::TechniqueId(75),
                         chant_voice: Some(Sound::Stream(4)),
                         release_voice: Some(Sound::Stream(5)),
                         start_sound: None,
@@ -1056,7 +1031,7 @@ mod tests {
         )?
         .finish()?;
         let effect = resonance_battle::EffectAppearance {
-            resource: 1,
+            resource: ResourceId(1),
             member: 20,
         };
         let sound = resonance_battle::Sound::Cue(resonance_game::battle::audio::RESULT_ADVANCEMENT);
@@ -1117,7 +1092,7 @@ mod tests {
         .finish()?;
         let actor = resonance_battle::ActorId::from_index(1)?;
         let appearance = resonance_battle::EffectAppearance {
-            resource: 1,
+            resource: ResourceId(1),
             member: 14,
         };
         let mut feedback = Feedback::new(
@@ -1177,7 +1152,7 @@ mod tests {
             discovered: true,
         };
         let appearance = EffectAppearance {
-            resource: 1,
+            resource: ResourceId(1),
             member: 9,
         };
         let mut feedback = Feedback::new(
@@ -1241,11 +1216,11 @@ mod tests {
                     resonance_battle::ActorSetup {
                         techniques: vec![resonance_battle::PreparedTechnique {
                             action: resonance_battle::ActionKey(0),
-                            catalogue: 1,
+                            catalogue: resonance_battle::TechniqueId(1),
                             player_range: [0., 120.],
                             ai_range: [0., 120.],
                             capabilities: Default::default(),
-                            element: 0,
+                            element: None,
                         }],
                         ..Default::default()
                     },
@@ -1259,28 +1234,16 @@ mod tests {
                 normal: None,
                 tp_cost: 0,
                 execution: ActionExecution::Attack(PreparedAttack {
-                    contact_recovery: None,
-                    chain_at: None,
-                    end_at: 10,
-                    opening: None,
                     events: vec![(
                         0,
                         resonance_battle::AttackEvent::Projectile(std::sync::Arc::new(
                             resonance_battle::ProjectileDefinition {
                                 lifetime: Some(30),
-                                velocity: [0.; 3],
-                                acceleration: [0.; 3],
-                                offset: [0.; 3],
-                                clamp_ground: false,
-                                active: None,
-                                birth: None,
-                                motion: Default::default(),
-                                effects: Default::default(),
-                                contact: None,
+                                ..Default::default()
                             },
                         )),
                     )],
-                    recovery: 0,
+                    ..PreparedAttack::new(10)
                 }),
             }])
             .into(),
@@ -1288,14 +1251,11 @@ mod tests {
         )?
         .finish()?;
         let ids: Vec<_> = battle.actor_ids().collect();
-        let admitted = battle.step(BattleInput {
-            actions: vec![ActionRequest {
-                actor: ids[0],
-                target: ids[1],
-                action: resonance_battle::ActionKey(0),
-            }],
-            ..Default::default()
-        })?;
+        let admitted = battle.step(BattleInput::from(ActionRequest {
+            actor: ids[0],
+            target: ids[1],
+            action: resonance_battle::ActionKey(0),
+        }))?;
         let source = ContactSource::Melee {
             actor: ids[0],
             action: admitted.actions[0].0,
@@ -1303,7 +1263,7 @@ mod tests {
         let base = battle.snapshot();
         let gameplay_random = battle.random_state();
         let effect = |member| EffectAppearance {
-            resource: 1,
+            resource: ResourceId(1),
             member,
         };
         let art = ContactArt {
@@ -1584,7 +1544,10 @@ mod tests {
             .resources
             .rescues
             .push(resonance_game::battle::feedback::RescueFeedback {
-                motion: Some(resonance_battle::MotionBinding { model: 1, clip: 3 }),
+                motion: Some(resonance_battle::MotionBinding {
+                    model: ResourceId(1),
+                    clip: 3,
+                }),
                 expression: None,
                 appearance: effect(19),
                 sound: None,
@@ -1672,7 +1635,7 @@ mod tests {
         feedback.resources.casting.insert(
             resonance_battle::ActionKey(0),
             resonance_game::battle::feedback::CastingFeedback {
-                catalogue: 75,
+                catalogue: resonance_battle::TechniqueId(75),
                 chant_voice: Some(Sound::Stream(26)),
                 release_voice: Some(Sound::Stream(27)),
                 start_sound: Some(Sound::Cue(109)),
@@ -1772,7 +1735,7 @@ mod tests {
             texture_tick: 0,
             light: None,
             shadow: None,
-            resource: 1,
+            resource: ResourceId(1),
             clip: 0,
             frame: 0.,
             blend_weight: 0.,
@@ -1927,7 +1890,7 @@ mod tests {
         .map(|(index, (side, control, slot))| {
             let mut actor = crate::test_support::actor(side, 100, 20);
             actor.control = control;
-            actor.control_slot = slot;
+            actor.control_slot = resonance_battle::ControllerPort::from_index(slot).unwrap();
             actor.position[0] = index as f32 * 100.;
             actor
         })

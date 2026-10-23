@@ -1,7 +1,7 @@
 //! Fierce Demon Fang keeps its character track and selects its shockwave at entry.
-use super::{ActionDefinition, Character, Sound, Technique};
+use super::{Character, PreparedAttack, Sound, Technique};
 use anyhow::{Context, Result};
-use resonance_battle::{ActionExecution, AttackEvent, ProjectileContact, ProjectileDefinition};
+use resonance_battle::{AttackEvent, HitShape, ProjectileDefinition};
 use std::sync::Arc;
 
 impl Technique {
@@ -13,7 +13,7 @@ impl Technique {
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
         grave_blade: bool,
-    ) -> Result<ActionDefinition> {
+    ) -> Result<PreparedAttack> {
         let base = if self.character == Character::Lloyd {
             4
         } else {
@@ -28,7 +28,7 @@ impl Technique {
             .fierce_fang
             .take()
             .context("missing Fierce Demon Fang recipe")?;
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+        let recoil = resources.recoil;
         let knight_delay = if self.character == Character::Lloyd {
             0
         } else {
@@ -43,7 +43,7 @@ impl Technique {
                 );
             }
         }
-        let mut earth = self.prepare_authored_attack(resources, model, tp_cost, earth)?;
+        let mut earth = self.prepare_authored_attack(resources, model, earth)?;
         let row = resources
             .projectiles
             .records
@@ -53,7 +53,7 @@ impl Technique {
         let mut projectile = resources.prepared.projectile(
             resources.files,
             &row,
-            crate::battle::hit::authored(&recipe.hits[1], &recoil)?,
+            crate::battle::hit::authored(&recipe.hits[1], recoil)?,
             &[(1, &resources.techniques)],
         )?;
         Arc::make_mut(&mut projectile)
@@ -61,39 +61,32 @@ impl Technique {
             .as_mut()
             .context("Grave Blade has no contact")?
             .cooldown = recipe.hits[1].cooldown;
-        let ActionExecution::Attack(attack) = &mut earth.execution else {
-            unreachable!()
-        };
         if !grave_blade {
-            attack
+            earth
                 .events
                 .retain(|(_, event)| !matches!(event, AttackEvent::Notice { .. }));
         }
         for index in 0..5 {
-            attack.events.push((
+            earth.events.push((
                 22 + knight_delay + index * 3,
                 AttackEvent::Projectile(Arc::clone(&projectile)),
             ));
         }
-        attack.events.sort_by_key(|(at, _)| *at);
+        earth.events.sort_by_key(|(at, _)| *at);
         if grave_blade {
             return Ok(earth);
         }
-        let mut ordinary = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
-        let ActionExecution::Attack(attack) = &mut ordinary.execution else {
-            unreachable!()
-        };
-        attack
+        let mut ordinary = self.prepare_authored_attack(resources, model, timeline)?;
+        ordinary
             .events
             .extend(resources.fierce_fang_shockwaves(&recipe.hits[0], 24 + knight_delay)?);
-        attack.events.sort_by_key(|(at, _)| *at);
+        ordinary.events.sort_by_key(|(at, _)| *at);
         let mut entry = ordinary.clone();
-        let ActionExecution::Attack(attack) = &mut entry.execution else {
-            unreachable!()
-        };
-        attack.events = vec![(
+        entry.events = vec![(
             0,
-            AttackEvent::ChooseGraveBlade([Arc::new(ordinary), Arc::new(earth)]),
+            AttackEvent::ChooseGraveBlade(
+                [ordinary, earth].map(|attack| Arc::new(super::attack_definition(attack, tp_cost))),
+            ),
         )];
         Ok(entry)
     }
@@ -107,7 +100,7 @@ impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
         hit: &resonance_content::battle_action::ActionHit,
         first_at: u16,
     ) -> Result<Vec<(u16, AttackEvent)>> {
-        let recoil = crate::battle::recoil::Parameters::load(self.files)?;
+        let recoil = self.recoil;
         [90., 120., 150.]
             .into_iter()
             .enumerate()
@@ -117,28 +110,8 @@ impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
                 Ok((
                     first_at + index as u16 * 4,
                     AttackEvent::Projectile(Arc::new(ProjectileDefinition {
-                        lifetime: Some(2),
-                        velocity: [0.; 3],
-                        acceleration: [0.; 3],
                         offset: [0., 50., forward],
-                        clamp_ground: false,
-                        active: None,
-                        birth: None,
-                        motion: Default::default(),
-                        effects: Default::default(),
-                        contact: Some(ProjectileContact {
-                            hit: crate::battle::hit::authored(&hit, &recoil)?,
-                            cooldown: hit.cooldown,
-                            repeat_limit: 0,
-                            radius: 90.,
-                            height: 90.,
-                            shape: resonance_battle::HitShape::Box,
-                            offset: [0.; 3],
-                            radius_growth: 0.,
-                            height_growth: 0.,
-                            survives_contact: true,
-                            clashes: false,
-                        }),
+                        ..super::stationary_contact(&hit, recoil, 2, HitShape::Box, [90.; 2])?
                     })),
                 ))
             })

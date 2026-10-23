@@ -1,5 +1,8 @@
 //! Persistent enemy behavior that is independent of the selected attack.
-use crate::{Activity, ActorId, Battle, PreparedBattle};
+#[cfg(test)]
+use crate::ResourceId;
+use crate::WeaponSlot;
+use crate::{Activity, ActorId, Battle, EnemyChoiceId, PreparedBattle};
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
     animation::Matrix,
@@ -7,7 +10,7 @@ use resonance_content::{
 };
 use std::sync::Arc;
 
-const STATION_ACTION: usize = 2;
+const STATION_ACTION: EnemyChoiceId = EnemyChoiceId(2);
 const STATION_REARM_TICKS: u64 = 900;
 
 #[derive(Debug, Clone)]
@@ -21,20 +24,20 @@ pub enum EnemyBehavior {
     HealthStage {
         hp_percent: u8,
         initial_station: EnemyStation,
-        initial_actions: std::ops::Range<u8>,
-        final_actions: std::ops::Range<u8>,
+        initial_actions: std::ops::Range<EnemyChoiceId>,
+        final_actions: std::ops::Range<EnemyChoiceId>,
     },
     CarriedAnimationRate {
-        slot: u8,
+        slot: WeaponSlot,
         rate: f32,
     },
     ReplaceWeapon {
-        action: u8,
+        action: EnemyChoiceId,
         hide_at: u32,
         replace_at: u32,
-        source: u8,
-        destination: u8,
-        disabled_action: u8,
+        source: WeaponSlot,
+        destination: WeaponSlot,
+        disabled_action: EnemyChoiceId,
     },
     /// Show the selected attack's weapons and hide them on leaving the attack.
     ActionWeapons {
@@ -59,8 +62,8 @@ pub enum EnemyBehavior {
         airborne_walk_speed: f32,
         airborne_motions: Vec<(u16, Option<u16>)>,
         hover_height: f32,
-        initial_actions: std::ops::Range<u8>,
-        final_actions: std::ops::Range<u8>,
+        initial_actions: std::ops::Range<EnemyChoiceId>,
+        final_actions: std::ops::Range<EnemyChoiceId>,
     },
 }
 
@@ -113,8 +116,8 @@ impl PreparedBattle {
                         && initial_station.heading.is_finite()
                         && !initial_actions.is_empty()
                         && !final_actions.is_empty()
-                        && usize::from(initial_actions.end) <= decision.choices.len()
-                        && usize::from(final_actions.end) <= decision.choices.len()
+                        && initial_actions.end.0 <= decision.choices.len()
+                        && final_actions.end.0 <= decision.choices.len()
                         && (initial_actions.end <= final_actions.start
                             || final_actions.end <= initial_actions.start),
                     "invalid enemy health stage"
@@ -133,8 +136,8 @@ impl PreparedBattle {
                     destination,
                     disabled_action,
                 }) => ensure!(
-                    usize::from(*action) < decision.choices.len()
-                        && usize::from(*disabled_action) < decision.choices.len()
+                    action.0 < decision.choices.len()
+                        && disabled_action.0 < decision.choices.len()
                         && source != destination
                         && hide_at < replace_at,
                     "invalid enemy weapon replacement"
@@ -144,7 +147,7 @@ impl PreparedBattle {
                     change_at,
                 }) => {
                     ensure!(
-                        decision.choices.len() > STATION_ACTION
+                        decision.choices.len() > STATION_ACTION.0
                             && *change_at > 0
                             && stations.iter().all(|station| {
                                 station.position.iter().all(|value| value.is_finite())
@@ -176,7 +179,9 @@ impl PreparedBattle {
                             .flatten()
                             .all(|group| usize::from(*group) < groups.len())
                         && groups.iter().all(|group| !group.is_empty()
-                            && group.iter().all(|weapon| weapon.slot < 2)
+                            && group
+                                .iter()
+                                .all(|weapon| weapon.slot.is_some_and(WeaponSlot::is_primary))
                             && group
                                 .iter()
                                 .enumerate()
@@ -208,8 +213,8 @@ impl PreparedBattle {
                         && *hover_height >= 0.
                         && !initial_actions.is_empty()
                         && !final_actions.is_empty()
-                        && usize::from(initial_actions.end) <= decision.choices.len()
-                        && usize::from(final_actions.end) <= decision.choices.len()
+                        && initial_actions.end.0 <= decision.choices.len()
+                        && final_actions.end.0 <= decision.choices.len()
                         && (initial_actions.end <= final_actions.start
                             || final_actions.end <= initial_actions.start),
                     "invalid enemy transformation"
@@ -285,7 +290,7 @@ impl Battle {
                 if let Some(falling) = &runtime.enemy_behavior.dropped_weapon {
                     self.model_requests.push(crate::ModelRequest::DropWeapon {
                         actor: owner,
-                        slot: drop.slot,
+                        slot: WeaponSlot(drop.slot),
                         world: falling.world,
                     });
                 }
@@ -314,7 +319,7 @@ impl Battle {
                 }
                 let age = match runtime.task() {
                     crate::state::ActorTask::Action { sequence, .. }
-                        if sequence.action == decision.choices[usize::from(*action)].action
+                        if sequence.action == decision.choices[action.0].action
                             && sequence.activity() == Activity::Action =>
                     {
                         sequence.age
@@ -325,7 +330,7 @@ impl Battle {
                 if age == *hide_at {
                     self.model_requests.push(crate::ModelRequest::Weapon {
                         actor,
-                        slot: *destination,
+                        slot: Some(*destination),
                         visible: false,
                     });
                 }
@@ -373,7 +378,7 @@ impl Battle {
                 }
                 let changing = match runtime.task() {
                     crate::state::ActorTask::Action { sequence, .. } => {
-                        sequence.action == decision.choices[STATION_ACTION].action
+                        sequence.action == decision.choices[STATION_ACTION.0].action
                             && sequence.activity() == Activity::Action
                             // Common behavior sees the completed action tick, whose
                             // contact-owned transition commits later in this update.
@@ -556,12 +561,12 @@ mod tests {
             .as_mut()
             .unwrap()
             .behavior = Some(EnemyBehavior::ReplaceWeapon {
-            action: 2,
+            action: EnemyChoiceId(2),
             hide_at: 57,
             replace_at: 158,
-            source: 1,
-            destination: 0,
-            disabled_action: 0,
+            source: WeaponSlot(1),
+            destination: WeaponSlot(0),
+            disabled_action: EnemyChoiceId(0),
         });
         let mut battle = prepared.finish()?;
         let bone = |name: &str, x| Bone {
@@ -589,10 +594,10 @@ mod tests {
             ),
         ] {
             model.weapons.push(Arc::new(crate::WeaponDefinition::new(
-                slot,
+                WeaponSlot(slot),
                 attachment,
                 vec![crate::WeaponLayerDefinition {
-                    resource,
+                    resource: ResourceId(resource),
                     skeleton: Skeleton { bones },
                     motions: BTreeMap::new(),
                     playback: crate::WeaponPlayback::Rigid,
@@ -628,14 +633,17 @@ mod tests {
             let frame = step(&mut battle)?;
             if age < 158 {
                 assert_eq!(frame.weapons.len(), 2);
-                assert_eq!(frame.weapons[0].resource, 8);
+                assert_eq!(frame.weapons[0].resource, ResourceId(8));
                 assert_eq!(frame.weapons[0].visible, age < 57);
                 assert!(frame.weapons[1].visible);
-                assert!(battle.enemy_behavior_allows_choice(owner, 0));
+                assert!(battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
             } else {
                 assert_eq!(frame.weapons.len(), 1);
                 let replacement = &frame.weapons[0];
-                assert_eq!((replacement.slot, replacement.resource), (0, 9));
+                assert_eq!(
+                    (replacement.slot, replacement.resource),
+                    (Some(WeaponSlot(0)), ResourceId(9))
+                );
                 assert!(replacement.visible);
                 assert_eq!(
                     replacement.world,
@@ -654,7 +662,7 @@ mod tests {
                         [120., 0., 0.]
                     ),
                 );
-                assert!(!battle.enemy_behavior_allows_choice(owner, 0));
+                assert!(!battle.enemy_behavior_allows_choice(owner, EnemyChoiceId(0)));
             }
             if age >= 173 {
                 if battle.activity(owner) == Activity::Idle {
@@ -675,7 +683,10 @@ mod tests {
         for _ in 0..=20 {
             let mut frame = step(&mut battle)?;
             assert_eq!(frame.weapons.len(), 1);
-            assert_eq!((frame.weapons[0].slot, frame.weapons[0].resource), (0, 9));
+            assert_eq!(
+                (frame.weapons[0].slot, frame.weapons[0].resource),
+                (Some(WeaponSlot(0)), ResourceId(9))
+            );
             assert!(frame.weapons[0].visible);
             let expected = resonance_content::animation::transform_point(
                 frame.weapons[0].world,

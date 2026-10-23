@@ -1,6 +1,7 @@
 //! Apply pose requests and publish animation readiness for combat transitions.
 use super::{Model, ModelDefinition, MotionBinding, WeaponDefinition, weapon::Weapon};
 use crate::BattleClock;
+use crate::WeaponSlot;
 use crate::{Activity, Actor, ActorAvailability, ActorId, BattleFrame};
 
 use anyhow::{Context, Result, ensure};
@@ -85,14 +86,14 @@ pub enum ModelRequest {
     },
     CarriedPose {
         actor: ActorId,
-        slot: u8,
+        slot: WeaponSlot,
         clip: u16,
         rate: f32,
         repeat: bool,
     },
     WeaponAnimationRate {
         actor: ActorId,
-        slot: u8,
+        slot: WeaponSlot,
         rate: f32,
     },
     AnimationRate {
@@ -128,18 +129,18 @@ pub enum ModelRequest {
     },
     Weapon {
         actor: ActorId,
-        slot: u8,
+        slot: Option<WeaponSlot>,
         visible: bool,
     },
     /// Replace one carried slot with another, keeping the destination's body binding.
     MoveWeapon {
         actor: ActorId,
-        source: u8,
-        destination: u8,
+        source: WeaponSlot,
+        destination: WeaponSlot,
     },
     DropWeapon {
         actor: ActorId,
-        slot: u8,
+        slot: WeaponSlot,
         world: resonance_content::animation::Matrix,
     },
     PrimaryWeapons {
@@ -243,7 +244,7 @@ pub struct Models {
 struct SavedWeapons {
     action: Option<crate::ActionId>,
     ordinary: Vec<Weapon>,
-    overridden: BTreeSet<u8>,
+    overridden: BTreeSet<Option<WeaponSlot>>,
 }
 
 impl Models {
@@ -452,7 +453,9 @@ impl Models {
                 .any(|definition| definition.slot == weapon.slot())
         });
         model.weapons.extend(replacements);
-        model.weapons.sort_by_key(Weapon::slot);
+        model
+            .weapons
+            .sort_by_key(|weapon| (weapon.slot().is_none(), weapon.slot()));
         Ok(())
     }
 
@@ -485,7 +488,9 @@ impl Models {
             .weapons
             .retain(|weapon| !slots.contains(&weapon.slot()));
         model.weapons.extend(replacements);
-        model.weapons.sort_by_key(Weapon::slot);
+        model
+            .weapons
+            .sort_by_key(|weapon| (weapon.slot().is_none(), weapon.slot()));
         saved.overridden.extend(slots);
         Ok(())
     }
@@ -1066,7 +1071,7 @@ impl Models {
                             .filter(|weapon| saved.overridden.contains(&weapon.slot()))
                             .cloned(),
                     );
-                    weapons.sort_by_key(|weapon| weapon.slot());
+                    weapons.sort_by_key(|weapon| (weapon.slot().is_none(), weapon.slot()));
                 }
                 model.install_weapons(weapons);
                 if let Some(error) = error {

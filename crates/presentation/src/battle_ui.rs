@@ -2,7 +2,7 @@
 use super::*;
 use anyhow::ensure;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use resonance_battle::{Activity, BattleFrame, Side};
+use resonance_battle::{Activity, BattleFrame, Character, Side};
 use resonance_content::battle_ui::Art;
 
 const HOURGLASS_FLASH_STEP: u8 = 16;
@@ -78,7 +78,7 @@ fn enemy_group_count(enemies: &[EnemyHud]) -> usize {
 /// Party-owned state consumed by the ordinary battle HUD rows.
 #[derive(Clone, Copy)]
 pub(crate) struct PartyHudInput<'a> {
-    pub characters: &'a [u8],
+    pub characters: &'a [Character],
     pub queued_techniques: &'a [bool],
     pub names: &'a [Option<&'a str>],
 }
@@ -209,8 +209,8 @@ impl Artwork {
             nearest,
         };
         let solid = |depth| palette.solid.clone().at(depth);
-        let text = |depth| palette.font.clone().at(depth).foreground();
-        let main_text = |depth| palette.main_font.clone().at(depth).foreground();
+        let text = |depth| palette.font.clone().at(depth).offset_depth(1.);
+        let main_text = |depth| palette.main_font.clone().at(depth).offset_depth(1.);
         let mut load = |texture: &resonance_content::font::UiTexture, repeat, required| {
             load_image(
                 texture.path.clone(),
@@ -224,7 +224,7 @@ impl Artwork {
             let layer = if let Some(texture) = portrait {
                 let image = load(texture, true, false);
                 LayerDefinition::new(image, [texture.width, texture.height], Depth::Party)
-                    .foreground()
+                    .offset_depth(1.)
             } else {
                 solid(Depth::Party)
             };
@@ -241,7 +241,7 @@ impl Artwork {
                 if index == party::StatusIcon::UpArrow as usize
                     || index == party::StatusIcon::DownArrow as usize
                 {
-                    definition.foreground()
+                    definition.offset_depth(1.)
                 } else {
                     definition
                 }
@@ -270,7 +270,7 @@ impl Artwork {
             font: make(text(Depth::Vitals)),
             patterned_vitals: make(
                 text(Depth::Vitals)
-                    .foreground()
+                    .offset_depth(1.)
                     .effect(TextureEffect::GlyphPattern),
             ),
             floating: make(text(Depth::Meters)),
@@ -285,10 +285,10 @@ impl Artwork {
                         [art.commands.texture.width, art.commands.texture.height],
                         Depth::Commands,
                     )
-                    .foreground(),
+                    .offset_depth(1.),
                 ),
-                make(main_text(Depth::Commands).foreground()),
-                make(text(Depth::Commands).foreground()),
+                make(main_text(Depth::Commands).offset_depth(1.)),
+                make(text(Depth::Commands).offset_depth(1.)),
             ],
             ribbons: [
                 make(solid(Depth::Commands)),

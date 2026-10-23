@@ -91,7 +91,7 @@ impl Battle {
         if let Some(candidate) = selected {
             let action = candidate.action;
             let [minimum, maximum] = candidate.range;
-            self.activate_counter(actor, cues)?;
+            self.activate_counter(actor, cues);
             self.request_selected_approach(
                 actor,
                 self.runtime[index].target,
@@ -137,7 +137,7 @@ impl Battle {
         let index = actor.index();
         let mut intent = self.actors[index].input;
         if !self.actors[index].needs_landing() {
-            self.advance_attack_charge(actor, cues)?;
+            self.advance_attack_charge(actor, cues);
         }
         if intent.action.is_none() && !self.actors[index].needs_landing() {
             if let Some(locomotion) = intent.motion.locomotion() {
@@ -146,7 +146,7 @@ impl Battle {
                     intent.face_target = false;
                     self.actors[index].input = intent;
                 }
-                self.apply_locomotion(index, definition, locomotion)?;
+                self.apply_locomotion(index, definition, locomotion);
             }
             if intent.face_target {
                 self.refresh_selector_facing(actor, self.runtime[index].target);
@@ -207,7 +207,7 @@ impl Battle {
             self.remember_idle_home(index);
         }
         if intent.motion == GroundMotion::Taunt {
-            self.begin_taunt(actor)?;
+            self.begin_taunt(actor);
             return Ok(());
         }
         let control = self.runtime[index].control.as_mut().unwrap();

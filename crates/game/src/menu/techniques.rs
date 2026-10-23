@@ -20,7 +20,7 @@ pub enum Context<'a> {
     },
     Battle {
         battle: &'a Battle,
-        actors: &'a [(ActorId, u8)],
+        actors: &'a [(ActorId, crate::battle::party::Character)],
         connected: &'a [bool; 4],
     },
 }
@@ -36,7 +36,7 @@ impl<'a> Context<'a> {
                 battle,
                 actors,
                 connected,
-            } => connected[usize::from(battle.actors()[actors[slot].0.index()].control_slot)],
+            } => connected[battle.actors()[actors[slot].0.index()].control_slot.index()],
         }
     }
     fn prepared(self, member: usize, catalogue: u16) -> Option<(ActorId, &'a PreparedTechnique)> {
@@ -45,9 +45,12 @@ impl<'a> Context<'a> {
         };
         let actor = actors
             .iter()
-            .find(|(_, character)| usize::from(*character) == member + 1)?
+            .find(|(_, character)| character.index() == member)?
             .0;
-        Some((actor, battle.prepared_technique(actor, catalogue)?))
+        Some((
+            actor,
+            battle.prepared_technique(actor, resonance_battle::TechniqueId(catalogue))?,
+        ))
     }
 }
 
@@ -406,9 +409,7 @@ impl<'a> Page<'a> {
             self.context
                 .prepared(member, id)
                 .is_some_and(|(actor, prepared)| {
-                    battle
-                        .technique_queue_admitted(actor, prepared.action)
-                        .unwrap_or(false)
+                    battle.technique_queue_admitted(actor, prepared.action)
                 })
         } else {
             self.technique_cost(member, id)

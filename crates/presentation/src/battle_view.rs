@@ -65,7 +65,14 @@ fn model_uv(rectangle: [i16; 4]) -> [f32; 2] {
         }
     })
 }
-fn weapon_layer(actor: usize, slot: u8, style: Option<WeaponStyle>, overlay: bool) -> Layer {
+fn weapon_layer(
+    actor: usize,
+    slot: Option<resonance_battle::WeaponSlot>,
+    style: Option<WeaponStyle>,
+    overlay: bool,
+) -> Layer {
+    // Secondary body layers draw after carried weapons within the same actor layer.
+    let slot = slot.map_or(u8::MAX, |slot| slot.0);
     Layer::Actor(
         actor,
         if style.is_some_and(|style| style.before_body) {
@@ -346,7 +353,7 @@ fn bone_effect_groups(skeleton: &Skeleton) -> [Vec<usize>; 16] {
 }
 
 struct Model {
-    skeleton: Skeleton,
+    bone_count: usize,
     effect_groups: [Vec<usize>; 16],
     shadow_bounds: shadows::Bounds,
     target_anchor: Option<resonance_game::battle::encounter::TargetAnchor>,
@@ -359,7 +366,7 @@ struct Model {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Key {
     Actor(ActorId),
-    Weapon(ActorId, u8),
+    Weapon(ActorId, Option<resonance_battle::WeaponSlot>),
     Independent(usize),
     Accessory(ActorId, u8),
 }
@@ -374,7 +381,7 @@ pub(super) struct View {
     scenery_tick: u64,
     scenery_update: Option<u64>,
     scenery_alpha: BTreeMap<u8, u8>,
-    models: BTreeMap<u32, Model>,
+    models: BTreeMap<resonance_battle::ResourceId, Model>,
     model_particles: model_particles::Pool,
     wings: Option<wings::State>,
     effects: effects::Effects,
@@ -537,25 +544,19 @@ impl View {
                     "duplicate battle render resource {}",
                     model.resource
                 );
-                ensure!(
-                    prepared
-                        .insert(
-                            model.resource,
-                            Model {
-                                effect_groups: bone_effect_groups(&model.skeleton),
-                                shadow_bounds: shadows::Bounds::prepare(&model.skeleton),
-                                target_anchor: model.target_anchor,
-                                skeleton: model.skeleton,
-                                lit: model.lit,
-                                texture_channels: model.texture_channels,
-                                weapon_style: model.weapon_style,
-                                suppressed_nodes: model.suppressed_nodes,
-                                instances
-                            }
-                        )
-                        .is_none(),
-                    "duplicate battle render resource {}",
-                    model.resource
+                prepared.insert(
+                    model.resource,
+                    Model {
+                        bone_count: model.skeleton.bones.len(),
+                        effect_groups: bone_effect_groups(&model.skeleton),
+                        shadow_bounds: shadows::Bounds::prepare(&model.skeleton),
+                        target_anchor: model.target_anchor,
+                        lit: model.lit,
+                        texture_channels: model.texture_channels,
+                        weapon_style: model.weapon_style,
+                        suppressed_nodes: model.suppressed_nodes,
+                        instances,
+                    },
                 );
                 Ok(())
             })();
@@ -760,7 +761,7 @@ impl View {
                         &mut self.sampled,
                         &self.toon,
                         model.lit,
-                        model.skeleton.bones.len(),
+                        model.bone_count,
                         model.weapon_style,
                         &model.suppressed_nodes,
                         model.weapon_style.is_none(),
@@ -1351,7 +1352,7 @@ impl View {
     #[allow(clippy::too_many_arguments)] // One authoritative pose and the existing ECS render resources.
     fn model(
         &mut self,
-        resource: u32,
+        resource: resonance_battle::ResourceId,
         key: Key,
         visible: bool,
         tint: [u8; 4],
@@ -1375,7 +1376,7 @@ impl View {
                 .get_mut(&resource)
                 .with_context(|| format!("unprepared battle render model {resource}"))?;
             ensure!(
-                bones.len() == model.skeleton.bones.len(),
+                bones.len() == model.bone_count,
                 "battle draw pose differs from prepared skeleton"
             );
             let index = model
@@ -1653,7 +1654,7 @@ impl Part {
                 gltf.meshes.len() == self.spec.scene.materials.len(),
                 "battle material count differs from cooked geometry"
             );
-            self.materials = surface_recipes(
+            let recipes = surface_recipes(
                 &self.spec,
                 &self.textures,
                 &mut assets.images,
@@ -1661,14 +1662,8 @@ impl Part {
                 toon,
                 lit,
                 weapon_style,
-            )?
-            .into_iter()
-            .map(|surface| assets.surfaces.add(surface))
-            .collect();
-            if body {
-                self.prepare_body_depth(&mut assets.surfaces)?;
-            }
-            self.prepare_red_materials(&mut assets.surfaces)?;
+            )?;
+            self.prepare_materials(recipes, body, &mut assets.surfaces);
             self.root = Some(
                 commands
                     .spawn((
@@ -1768,15 +1763,17 @@ impl Part {
                 }
                 // Instances share mesh layouts and material recipes. One set of
                 // variant draws prepares their pipelines without duplicate skins.
-                let warm_materials: Vec<_> = self
-                    .warm_materials()
-                    .filter(|_| warm_variants)
-                    .map(|variants| variants[index].clone())
-                    .collect();
-                for material in warm_materials {
+                for variants in [
+                    &self.depth_materials,
+                    &self.red_materials,
+                    &self.red_depth_materials,
+                ]
+                .into_iter()
+                .filter(|variants| warm_variants && !variants.is_empty())
+                {
                     let mut warm = commands.spawn((
                         mesh.clone(),
-                        MeshMaterial3d(material),
+                        MeshMaterial3d(variants[index].clone()),
                         Transform::default(),
                         Visibility::Inherited,
                         NoFrustumCulling,
@@ -1877,55 +1874,35 @@ impl Part {
         Ok(())
     }
 
-    fn prepare_body_depth(&mut self, surfaces: &mut Assets<TitleSurface>) -> Result<()> {
-        self.depth_materials = self
-            .materials
-            .iter()
-            .map(|handle| {
-                let mut surface = surfaces
-                    .get(handle)
-                    .context("missing body material")?
-                    .clone();
-                surface.depth_write = false;
-                // Retain less-or-equal depth testing when disabling depth writes.
-                surface.depth_equal = true;
-                Ok(surfaces.add(surface))
-            })
-            .collect::<Result<_>>()?;
-        Ok(())
-    }
-
-    fn prepare_red_materials(&mut self, surfaces: &mut Assets<TitleSurface>) -> Result<()> {
-        // Alternate outlines use constant-color draws.
-        if self.spec.scene.outline_color.is_some() {
-            return Ok(());
+    fn prepare_materials(
+        &mut self,
+        recipes: Vec<TitleSurface>,
+        body: bool,
+        surfaces: &mut Assets<TitleSurface>,
+    ) {
+        for surface in recipes {
+            let faded = body.then(|| TitleSurface {
+                depth_write: false,
+                depth_equal: true,
+                ..surface.clone()
+            });
+            if self.spec.scene.outline_color.is_none() {
+                self.red_materials.push(surfaces.add(TitleSurface {
+                    red_channel: true,
+                    ..surface.clone()
+                }));
+                if let Some(faded) = &faded {
+                    self.red_depth_materials.push(surfaces.add(TitleSurface {
+                        red_channel: true,
+                        ..faded.clone()
+                    }));
+                }
+            }
+            if let Some(faded) = faded {
+                self.depth_materials.push(surfaces.add(faded));
+            }
+            self.materials.push(surfaces.add(surface));
         }
-        let mut prepare = |handles: &[Handle<TitleSurface>]| -> Result<Vec<_>> {
-            handles
-                .iter()
-                .map(|handle| {
-                    let mut surface = surfaces
-                        .get(handle)
-                        .context("missing battle material for red-channel preparation")?
-                        .clone();
-                    surface.red_channel = true;
-                    Ok(surfaces.add(surface))
-                })
-                .collect()
-        };
-        self.red_materials = prepare(&self.materials)?;
-        self.red_depth_materials = prepare(&self.depth_materials)?;
-        Ok(())
-    }
-
-    fn warm_materials(&self) -> impl Iterator<Item = &Vec<Handle<TitleSurface>>> {
-        [
-            &self.depth_materials,
-            &self.red_materials,
-            &self.red_depth_materials,
-        ]
-        .into_iter()
-        .filter(|handles| !handles.is_empty())
     }
 
     fn appearance_materials(
@@ -1933,32 +1910,18 @@ impl Part {
         material: ModelMaterial,
         depth_write: bool,
     ) -> Result<&[Handle<TitleSurface>]> {
-        if material == ModelMaterial::RedChannel && self.spec.scene.outline_color.is_none() {
-            let handles = if depth_write {
-                &self.red_materials
-            } else {
-                &self.red_depth_materials
-            };
-            ensure!(
-                handles.len() == self.materials.len(),
-                "red-channel battle material was not prepared"
-            );
-            Ok(handles)
-        } else {
-            self.materials(depth_write)
-        }
-    }
-
-    fn materials(&self, depth_write: bool) -> Result<&[Handle<TitleSurface>]> {
-        if depth_write {
-            Ok(&self.materials)
-        } else {
-            ensure!(
-                self.depth_materials.len() == self.materials.len(),
-                "unprepared body depth material"
-            );
-            Ok(&self.depth_materials)
-        }
+        let red = material == ModelMaterial::RedChannel && self.spec.scene.outline_color.is_none();
+        let handles = match (red, depth_write) {
+            (false, true) => &self.materials,
+            (false, false) => &self.depth_materials,
+            (true, true) => &self.red_materials,
+            (true, false) => &self.red_depth_materials,
+        };
+        ensure!(
+            handles.len() == self.materials.len(),
+            "battle material variant was not prepared"
+        );
+        Ok(handles)
     }
 
     fn scroll_uv(
@@ -2889,98 +2852,63 @@ mod tests {
         );
     }
     #[test]
-    fn body_depth_materials_are_prepared_and_keep_both_passes_appearance() -> Result<()> {
+    fn fading_and_petrification_preserve_body_textures_and_weapon_blending() -> Result<()> {
         let mut surfaces = Assets::<TitleSurface>::default();
-        let mut images = Assets::<Image>::default();
-        let color = images.add(Image::default());
-        let sampling = images.add(Image::default());
-        let multiply = images.add(Image::default());
-        let primary = surfaces.add(TitleSurface {
-            color: Some(color),
-            sampling: Some(sampling),
-            multiply: Some(multiply),
-            depth_write: true,
-            blend: Some(Blend::Alpha),
-            depth_equal: true,
-            toon_ramp: Some(Handle::default()),
-            tint: Vec4::new(0.2, 0.3, 0.4, 0.5),
-            uv_offsets: Vec4::new(1., 2., 3., 4.),
-            ..Default::default()
-        });
-        let alternate = surfaces.add(TitleSurface {
-            depth_write: true,
-            constant_color: true,
-            blend: Some(Blend::Alpha),
-            cull: resonance_content::CullFace::Front,
-            ..Default::default()
-        });
-        let part = |handle: Handle<TitleSurface>, alternate: bool| -> Result<Part> {
+        let part = |outline: bool,
+                    body: bool,
+                    recipe: TitleSurface,
+                    surfaces: &mut Assets<TitleSurface>|
+         -> Result<Part> {
             let binding = |texture| {
                 serde_json::json!({
                     "texture": texture, "wrap_u": "repeat", "wrap_v": "repeat",
                     "nearest_min": false, "nearest_mag": false
                 })
             };
-            Ok(Part {
-                spec: PreviewPart {
-                    scene: serde_json::from_value(serde_json::json!({
-                        "resource": 0, "mesh": "unused.glb", "textures": ["color.ktx2", "multiply.ktx2"],
-                        "materials": [{
-                            "color": (!alternate).then(|| binding(0)),
-                            "multiply": (!alternate).then(|| binding(1)),
-                            "vertex_color": !alternate, "blend": true, "depth_write": true,
-                            "draw_order": 0, "cull": if alternate { "front" } else { "back" }
-                        }],
-                        "translation": [0, 0, 0], "clips": [], "autoplay": false,
-                        "texture_animations": [],
-                        "outline_color": alternate.then_some([0, 0, 0, 127])
-                    }))?,
-                    animation: None,
-                    attached_to: None,
-                    additive: false,
-                    uv_offsets: vec![[0.125, 0.25, 0.375, 0.5]],
-                }.into(),
-                gltf: Handle::default(),
-                textures: vec![],
-                root: None,
-                nodes: vec![],
-                draws: vec![],
-                suppressed_draws: vec![],
-                materials: vec![handle],
-
-                depth_materials: Vec::new(),
-                red_materials: Vec::new(),
-                red_depth_materials: Vec::new(),
-                warm: vec![],
-
-                bound: true,
-                disabled: false,
-            })
+            let spec = PreviewPart {
+                scene: serde_json::from_value(serde_json::json!({
+                    "resource": 0, "mesh": "unused.glb", "textures": ["color.ktx2", "multiply.ktx2"],
+                    "materials": [{
+                        "color": (!outline).then(|| binding(0)),
+                        "multiply": (!outline).then(|| binding(1)),
+                        "vertex_color": !outline, "blend": true, "depth_write": true,
+                        "draw_order": 0, "cull": if outline { "front" } else { "back" }
+                    }],
+                    "translation": [0, 0, 0], "clips": [], "autoplay": false,
+                    "texture_animations": [], "outline_color": outline.then_some([0, 0, 0, 127])
+                }))?,
+                animation: None,
+                attached_to: None,
+                additive: false,
+                uv_offsets: vec![[0.125, 0.25, 0.375, 0.5]],
+            };
+            let mut part = Part::unbound(spec.into(), Handle::default(), vec![]);
+            part.prepare_materials(vec![recipe], body, surfaces);
+            Ok(part)
         };
-        // Separate parts match the primary and constant-color alternate banks.
-        let mut primary_part = part(primary.clone(), false)?;
-        let mut alternate_part = part(alternate.clone(), true)?;
-        assert!(primary_part.materials(false).is_err());
-        assert!(alternate_part.materials(false).is_err());
-        primary_part.prepare_body_depth(&mut surfaces)?;
-        alternate_part.prepare_body_depth(&mut surfaces)?;
-        let count = surfaces.len();
-        assert_eq!(count, 4);
-        let primary_depth = primary_part.materials(false)?[0].clone();
-        let alternate_depth = alternate_part.materials(false)?[0].clone();
-        for (ordinary, faded) in [(&primary, &primary_depth), (&alternate, &alternate_depth)] {
-            let a = surfaces.get(ordinary).unwrap();
-            let b = surfaces.get(faded).unwrap();
-            assert!(a.depth_write);
-            assert!(!b.depth_write);
-            assert_eq!(a.tint, b.tint);
-            assert_eq!(a.uv_offsets, b.uv_offsets);
-            assert_eq!(a.toon_ramp, b.toon_ramp);
-            assert_eq!(a.blend, b.blend);
-            assert_eq!(a.constant_color, b.constant_color);
-            assert_eq!(a.cull, b.cull);
-            assert!(b.depth_equal);
-        }
+        let mut body = part(
+            false,
+            true,
+            TitleSurface {
+                depth_write: true,
+                blend: Some(Blend::Alpha),
+                toon_ramp: Some(Handle::default()),
+                ..Default::default()
+            },
+            &mut surfaces,
+        )?;
+        let outline = part(
+            true,
+            true,
+            TitleSurface {
+                depth_write: true,
+                constant_color: true,
+                blend: Some(Blend::Alpha),
+                cull: resonance_content::CullFace::Front,
+                ..Default::default()
+            },
+            &mut surfaces,
+        )?;
         let channels = [
             resonance_content::battle_profile::TextureChannel {
                 texture: 0,
@@ -2991,136 +2919,15 @@ mod tests {
                 frames: 8,
             },
         ];
-        for part in [&primary_part, &alternate_part] {
-            part.tint(
-                [192, 128, 128, 248],
-                Some([0, 0, 0, 124]),
-                ModelMaterial::Normal,
-                true,
-                [150., 300., 200.],
-                false,
-                &mut surfaces,
-            )?;
-            part.expression(
-                &channels,
-                [2, 3, 0, 0],
-                0,
-                ModelMaterial::Normal,
-                false,
-                &mut surfaces,
-            )?;
-        }
-        let body = surfaces.get(&primary_depth).unwrap();
-        assert_eq!(body.ambient_scale, Vec3::new(3., 2., 2.));
-        assert_eq!(body.tint, Vec4::new(1., 1., 1., 248. / 255.));
-        assert_eq!(body.field_light, Vec4::new(150., 300., 200., 192.));
-        assert_eq!(body.uv_offsets, Vec4::new(0.125, 0.75, 0.375, 0.875));
-        assert!(!body.constant_color);
-        let outline = surfaces.get(&alternate_depth).unwrap();
-        assert_eq!(outline.ambient_scale, Vec3::ONE);
-        assert_eq!(outline.tint, Vec4::new(0., 0., 0., 124. / 255.));
-        assert_eq!(outline.field_light, Vec4::ZERO);
-        assert_eq!(outline.uv_offsets, Vec4::new(0.125, 0.25, 0.375, 0.5));
-        assert!(outline.constant_color);
-        // The unused ordinary variant keeps its appearance until selected.
-        assert_eq!(
-            surfaces.get(&primary).unwrap().tint,
-            Vec4::new(0.2, 0.3, 0.4, 0.5)
-        );
-        assert_eq!(
-            surfaces.get(&primary).unwrap().uv_offsets,
-            Vec4::new(1., 2., 3., 4.)
-        );
-        primary_part.expression(
-            &channels,
-            [1, 2, 0, 0],
-            0,
-            ModelMaterial::Normal,
-            true,
-            &mut surfaces,
-        )?;
-        assert_eq!(
-            surfaces.get(&primary).unwrap().uv_offsets,
-            Vec4::new(0.125, 0.5, 0.375, 0.75)
-        );
-        assert_eq!(
-            surfaces.get(&primary_depth).unwrap().uv_offsets,
-            Vec4::new(0.125, 0.75, 0.375, 0.875)
-        );
-        // Wing layers draw without depth writes; scrolling must reach that
-        // selected material while preserving the unscrolled texture stage.
-        primary_part.scroll_uv(
-            ModelMaterial::Normal,
-            false,
-            Some(0),
-            [0.5, 0.],
-            &mut surfaces,
-        )?;
-        assert_eq!(
-            surfaces.get(&primary_depth).unwrap().uv_offsets,
-            Vec4::new(0.625, 0.25, 0.375, 0.5)
-        );
-        assert_eq!(
-            surfaces.get(&primary).unwrap().uv_offsets,
-            Vec4::new(0.125, 0.5, 0.375, 0.75)
-        );
-        assert_eq!(primary_part.materials(true)?, [primary]);
-        assert_eq!(alternate_part.materials(true)?, [alternate]);
-        assert_eq!(surfaces.len(), count); // Runtime appearance/selection allocates nothing.
-
-        // Both depth recipes must be warmed before either sampled material is used.
-        assert!(
-            primary_part
-                .appearance_materials(ModelMaterial::RedChannel, true)
-                .is_err()
-        );
-        primary_part.prepare_red_materials(&mut surfaces)?;
-        alternate_part.prepare_red_materials(&mut surfaces)?;
-        assert_eq!(surfaces.len(), count + 2); // No red constant-outline recipe.
-        assert!(alternate_part.red_materials.is_empty());
-        assert!(alternate_part.red_depth_materials.is_empty());
-        let red = primary_part.appearance_materials(ModelMaterial::RedChannel, true)?[0].clone();
-        let red_depth =
-            primary_part.appearance_materials(ModelMaterial::RedChannel, false)?[0].clone();
-        let warmed: Vec<_> = primary_part.warm_materials().flatten().cloned().collect();
-        assert_eq!(
-            warmed,
-            [primary_depth.clone(), red.clone(), red_depth.clone()]
-        );
-        for (normal, stone) in [
-            (&primary_part.materials[0], &red),
-            (&primary_depth, &red_depth),
-        ] {
-            let normal = surfaces.get(normal).unwrap();
-            let stone = surfaces.get(stone).unwrap();
-            assert!(!normal.red_channel);
-            assert!(stone.red_channel);
-            assert_eq!(normal.color, stone.color);
-            assert_eq!(normal.sampling, stone.sampling);
-            assert_eq!(normal.multiply, stone.multiply);
-            assert_eq!(normal.toon_ramp, stone.toon_ramp);
-            assert_eq!(normal.depth_write, stone.depth_write);
-            assert_eq!(normal.depth_equal, stone.depth_equal);
-            assert_eq!(normal.blend, stone.blend);
-            assert_eq!(normal.cull, stone.cull);
-        }
-        let prepared_count = surfaces.len();
-        // Repeated held samples, a depth change and cure select existing handles.
-        // The material operand is sampled with the body; no live condition read.
+        // Petrification, fading, and curing retain expression and lighting updates.
         for (material, depth, alpha) in [
-            (ModelMaterial::RedChannel, true, 77),
             (ModelMaterial::RedChannel, true, 77),
             (ModelMaterial::RedChannel, false, 64),
             (ModelMaterial::Normal, false, 248),
             (ModelMaterial::Normal, true, 255),
         ] {
-            let rgb = if material == ModelMaterial::RedChannel {
-                64
-            } else {
-                192
-            };
-            primary_part.tint(
-                [rgb, rgb, rgb, alpha],
+            body.tint(
+                [192, 128, 128, alpha],
                 None,
                 material,
                 true,
@@ -3128,32 +2935,51 @@ mod tests {
                 depth,
                 &mut surfaces,
             )?;
-            primary_part.expression(&channels, [2, 3, 0, 0], 0, material, depth, &mut surfaces)?;
-            let handle = &primary_part.appearance_materials(material, depth)?[0];
-            let surface = surfaces.get(handle).unwrap();
+            body.expression(&channels, [2, 3, 0, 0], 0, material, depth, &mut surfaces)?;
+            let surface = surfaces
+                .get(&body.appearance_materials(material, depth)?[0])
+                .unwrap();
+            assert_eq!(surface.depth_write, depth);
             assert_eq!(surface.red_channel, material == ModelMaterial::RedChannel);
-            assert_eq!(surface.ambient_scale, Vec3::splat(f32::from(rgb) / 64.));
+            assert_eq!(surface.ambient_scale, Vec3::new(3., 2., 2.));
             assert_eq!(surface.tint, Vec4::new(1., 1., 1., f32::from(alpha) / 255.));
+            assert_eq!(surface.field_light, Vec4::new(150., 300., 200., 192.));
             assert_eq!(surface.uv_offsets, Vec4::new(0.125, 0.75, 0.375, 0.875));
-            assert_eq!(surfaces.len(), prepared_count);
+            assert_eq!(surface.blend, Some(Blend::Alpha));
+
+            outline.tint(
+                [192, 128, 128, alpha],
+                Some([0, 0, 0, 38]),
+                material,
+                true,
+                [150., 300., 200.],
+                depth,
+                &mut surfaces,
+            )?;
+            let surface = surfaces
+                .get(&outline.appearance_materials(material, depth)?[0])
+                .unwrap();
+            assert!(!surface.red_channel);
+            assert_eq!(surface.depth_write, depth);
+            assert_eq!(surface.cull, resonance_content::CullFace::Front);
+            assert_eq!(surface.ambient_scale, Vec3::ONE);
+            assert_eq!(surface.field_light, Vec4::ZERO);
+            assert_eq!(surface.tint, Vec4::new(0., 0., 0., 38. / 255.));
         }
-        alternate_part.tint(
-            [64, 64, 64, 77],
-            Some([0, 0, 0, 38]),
-            ModelMaterial::RedChannel,
-            true,
-            [150., 300., 200.],
+        // Wing scrolling changes only the selected texture stage.
+        body.scroll_uv(
+            ModelMaterial::Normal,
             false,
+            Some(0),
+            [0.5, 0.],
             &mut surfaces,
         )?;
-        let outline = surfaces.get(&alternate_depth).unwrap();
-        assert!(!outline.red_channel);
-        assert_eq!(outline.tint, Vec4::new(0., 0., 0., 38. / 255.));
-
-        // Animated body textures compose with both expressions and base UV offsets.
-        Arc::make_mut(&mut primary_part.spec)
-            .scene
-            .texture_animations = vec![
+        assert_eq!(
+            surfaces.get(&body.depth_materials[0]).unwrap().uv_offsets,
+            Vec4::new(0.625, 0.25, 0.375, 0.5)
+        );
+        // Texture animation composes with expression layers and base offsets.
+        Arc::make_mut(&mut body.spec).scene.texture_animations = vec![
             resonance_content::TextureAnimation {
                 texture: 0,
                 delay_ticks: 0,
@@ -3167,34 +2993,31 @@ mod tests {
                 offsets: vec![[0.; 2], [0.25, 0.5]],
             },
         ];
-        for tick in [1, 1, 3] {
-            primary_part.expression(
-                &channels,
-                [2, 3, 0, 0],
-                tick,
-                ModelMaterial::Normal,
-                false,
-                &mut surfaces,
-            )?;
-            assert_eq!(
-                surfaces.get(&primary_depth).unwrap().uv_offsets,
-                Vec4::new(0.25, 1., 0.625, 1.375)
-            );
-            assert_eq!(surfaces.len(), prepared_count);
-        }
+        body.expression(
+            &channels,
+            [2, 3, 0, 0],
+            1,
+            ModelMaterial::Normal,
+            false,
+            &mut surfaces,
+        )?;
+        assert_eq!(
+            surfaces.get(&body.depth_materials[0]).unwrap().uv_offsets,
+            Vec4::new(0.25, 1., 0.625, 1.375)
+        );
 
-        // Carried parts have a single depth recipe, preserving weapon blend flags.
-        let weapon_handle = surfaces.add(TitleSurface {
-            blend: Some(Blend::Additive),
-            depth_write: false,
-            depth_equal: true,
-            cull: resonance_content::CullFace::None,
-            ..Default::default()
-        });
-        let mut weapon = part(weapon_handle.clone(), false)?;
-        weapon.prepare_red_materials(&mut surfaces)?;
-        assert_eq!(weapon.warm_materials().count(), 1);
-        let stone_weapon = weapon.appearance_materials(ModelMaterial::RedChannel, true)?[0].clone();
+        let weapon = part(
+            false,
+            false,
+            TitleSurface {
+                blend: Some(Blend::Additive),
+                depth_write: false,
+                depth_equal: true,
+                cull: resonance_content::CullFace::None,
+                ..Default::default()
+            },
+            &mut surfaces,
+        )?;
         weapon.tint(
             [64, 64, 64, 101],
             None,
@@ -3204,15 +3027,14 @@ mod tests {
             true,
             &mut surfaces,
         )?;
-        let surface = surfaces.get(&stone_weapon).unwrap();
-        assert!(
-            surface.red_channel && surface.blend == Some(Blend::Additive) && surface.depth_equal
-        );
+        let surface = surfaces
+            .get(&weapon.appearance_materials(ModelMaterial::RedChannel, true)?[0])
+            .unwrap();
+        assert!(surface.red_channel && surface.depth_equal);
         assert!(!surface.depth_write);
+        assert_eq!(surface.blend, Some(Blend::Additive));
         assert_eq!(surface.cull, resonance_content::CullFace::None);
         assert_eq!(surface.tint, Vec4::new(1., 1., 1., 101. / 255.));
-        assert!(!surfaces.get(&weapon_handle).unwrap().red_channel);
-
         Ok(())
     }
 }

@@ -79,15 +79,8 @@ pub(crate) fn publish_all_source(
         })
         .collect::<Vec<_>>();
     let skill = extracted.join("files").join(&sources.skill);
-    let offsets = module
-        .at((5, 0x11c4))?
-        .get(..4 * 4)
-        .context("truncated skill directory")?
-        .chunks_exact(4)
-        .map(|row| crate::read::u32(row, 0))
-        .collect::<Result<Vec<_>>>()?;
     let selectors = crate::arte::read(&fs::read(extracted.join("sys/main.dol"))?)?.skill_packages;
-    let ranges = physical_ranges(&offsets, 1, fs::metadata(&skill)?.len())?;
+    let ranges = super::skill_ranges(&module, &skill)?;
     ensure!(
         selectors
             .values()
@@ -135,8 +128,8 @@ pub(crate) fn publish_all_source(
             };
             if reused {
                 super::scene_effect_metadata(&bytes, output, &mut scene, &mut shared)?;
+                scene.projectiles = super::projectiles(&bytes, spell, &element_sounds)?;
             }
-            scene.projectiles = super::projectiles(&bytes, spell, &element_sounds)?;
             if let Some(id) = spell {
                 super::scene_settings(&module, id, &mut scene)?;
                 super::scene_actions(&bytes, id, &element_sounds, &mut scene)?;

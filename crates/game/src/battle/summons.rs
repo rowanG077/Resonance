@@ -106,9 +106,7 @@ pub fn prepare(
                 heading: SummonHeading::Caster,
             });
         }
-        let mut healing_effect = techniques.clone();
-        healing_effect.members = vec![healing.member];
-        resources.effect(healing_effect)?;
+        resources.effect_member(techniques, healing.member)?;
     }
     const ICE_LANES: [f32; 4] = [45., 135., 225., 315.];
     let announcements: &[(u16, u16)] = match catalogue {
@@ -150,29 +148,18 @@ pub fn prepare(
             .get(row)
             .context("missing summon contact")?;
         let rule = source.hit()?;
-        let mut hit = super::hit::authored(rule, &recoil)?;
-        if let Some(member) = rule.effect {
-            let mut effect = bank.clone();
-            effect.members = vec![member];
-            resources.effect(effect)?;
-            hit.effect = Some(appearance(member));
-        }
         let mut definition = source.projectile.clone();
         // Summon birth and trail effects belong to the active scene.
         definition.birth_effect.bank = 6;
         definition.trail_effect.bank = 6;
-        let mut projectile = resources.projectile(
+        resources.scene_projectile(
             files,
             &definition,
-            hit,
+            rule,
+            &recoil,
+            bank,
             &[(0, common), (1, techniques), (2, bank), (6, bank)],
-        )?;
-        Arc::make_mut(&mut projectile)
-            .contact
-            .as_mut()
-            .context("summon projectile has no contact")?
-            .cooldown = rule.cooldown;
-        Ok(projectile)
+        )
     };
     let mut contacts = Vec::new();
     for (index, &(tick, row)) in recipe.pulses.iter().enumerate() {
@@ -241,15 +228,10 @@ pub fn prepare(
         .map(|effect| effect.appearance.member)
         .collect();
     resources.effect(scene_effects)?;
-    let mut entry_effects = common.clone();
-    entry_effects.members = vec![ENTRY_EFFECT];
-    resources.effect(entry_effects)?;
+    let entry_effect = resources.effect_member(common, ENTRY_EFFECT)?;
     let summon = PreparedSummon {
         entry: SummonEntryDefinition {
-            effect: EffectAppearance {
-                resource: common.resource,
-                member: ENTRY_EFFECT,
-            },
+            effect: entry_effect,
             sound: sound(voice::Sound::Cue(ENTRY_SOUND))?,
         },
         origin: recipe.origin,
@@ -266,13 +248,7 @@ pub fn prepare(
         blessing_radius: BLESSING_RADIUS,
     };
     Ok(PreparedSpell {
-        policy: Default::default(),
         summon: Some(Arc::new(summon)),
-        effects: vec![],
-        projectiles: vec![],
-        recovery: vec![],
-        origin: SpellOrigin::CasterRoot,
-        transition_ticks: 0,
         stage_tint: stored_spells::stage_tint(
             Some(scene.stage_color.context("missing summon stage color")?),
             recipe.lifetime,
@@ -282,9 +258,7 @@ pub fn prepare(
             recipe.lifetime,
         )?,
         // Active(0) and cleanup follow the initialization update.
-        duration: recipe.lifetime + 2,
-        startup: None,
-        sound: None,
+        ..PreparedSpell::new(SpellOrigin::CasterRoot, recipe.lifetime + 2)
     })
 }
 

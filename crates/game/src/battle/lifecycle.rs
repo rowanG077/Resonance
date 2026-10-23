@@ -20,12 +20,32 @@ pub enum Request {
     PlayMusic { track: u16, fade_ms: u16 },
 }
 
+/// The three directional strategy presets, or a return to personal instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum QuickOrder {
+    Cancel = 0,
+    LeftPreset = 1,
+    UpperPreset = 2,
+    RightPreset = 3,
+}
+
+impl QuickOrder {
+    pub(crate) fn preset_index(self) -> Option<usize> {
+        match self {
+            Self::Cancel => None,
+            Self::LeftPreset => Some(0),
+            Self::UpperPreset => Some(1),
+            Self::RightPreset => Some(2),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Input {
     pub battle: BattleInput,
     pub command: command::Input,
-    /// Zero restores personal instructions; one through three select a strategy preset.
-    pub order: Option<u8>,
+    pub order: Option<QuickOrder>,
     pub confirm: bool,
     pub cook: bool,
 }
@@ -70,7 +90,7 @@ pub struct Lifecycle {
     command: command::Owner,
     command_setup: Option<command::Setup>,
     command_events: Vec<command::Event>,
-    order: u8,
+    order: QuickOrder,
     order_age: u8,
     order_revision: u32,
     order_issuer: Option<resonance_battle::ActorId>,
@@ -84,7 +104,7 @@ impl Lifecycle {
             command: command::Owner::default(),
             command_setup,
             command_events: Vec::new(),
-            order: 0,
+            order: QuickOrder::Cancel,
             order_age: ORDER_RESELECT_DELAY,
             order_revision: 0,
             order_issuer: None,
@@ -121,12 +141,6 @@ impl Lifecycle {
         self.events
             .as_mut()
             .map_or_else(Vec::new, super::event::Sequence::take_audio)
-    }
-
-    pub fn event_mut(&mut self) -> Option<&mut super::event::Playback> {
-        self.events
-            .as_mut()
-            .and_then(super::event::Sequence::playback_mut)
     }
 
     pub fn step(
@@ -190,14 +204,11 @@ impl Lifecycle {
                 presentation.present(&frame)?;
                 return Ok(frame);
             }
-            let cues = if input.battle.paused {
-                candidate.world_update(battle, input.battle)?
-            } else {
+            if !input.battle.paused {
                 if battle.phase() == BattlePhase::Combat
                     && self.command.input_kind() == command::InputKind::Command
                     && let Some(order) = input.order
                 {
-                    ensure!(order <= 3, "invalid battle order");
                     if order != self.order || self.order_age >= ORDER_RESELECT_DELAY {
                         if order != self.order {
                             self.command_events.push(command::Event::Cue(1));
@@ -221,9 +232,7 @@ impl Lifecycle {
                 let admission = self
                     .command_setup
                     .as_ref()
-                    .map(|setup| setup.admission(battle, input.command.controller))
-                    .transpose()?
-                    .flatten();
+                    .and_then(|setup| setup.admission(battle, input.command.controller));
                 let command = self.command.step_with_candidate(
                     input.command,
                     admission,
@@ -243,12 +252,12 @@ impl Lifecycle {
                     }
                     self.order_age = self.order_age.saturating_add(1).min(ORDER_RESELECT_DELAY);
                 }
-                if command.paused {
-                    input.battle.paused = true;
-                    candidate.world_update(battle, input.battle)?
-                } else {
-                    self.advance(battle, input, candidate, presentation)?
-                }
+                input.battle.paused = command.paused;
+            }
+            let cues = if input.battle.paused {
+                candidate.world_update(battle, input.battle)?
+            } else {
+                self.advance(battle, input, candidate, presentation)?
             };
             let frame = battle.publish(cues);
             presentation.present(&frame)?;
@@ -264,11 +273,11 @@ impl Lifecycle {
     }
 
     /// Pending and visible command visits keep the admitted controller slot.
-    pub fn command_controller(&self) -> Option<u8> {
+    pub fn command_controller(&self) -> Option<resonance_battle::ControllerPort> {
         self.command.controller()
     }
 
-    pub fn order_selection(&self) -> u8 {
+    pub fn order_selection(&self) -> QuickOrder {
         self.order
     }
 

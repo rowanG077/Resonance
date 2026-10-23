@@ -17,7 +17,7 @@ pub struct FixtureEffectBirth {
 
 #[derive(Default)]
 pub(super) struct Births {
-    scopes: BTreeSet<(ActorId, u32, u16, u8)>,
+    scopes: BTreeSet<(ActorId, EffectAppearance, u8)>,
     pending: Vec<FixtureEffectBirth>,
     pub(super) identities: BTreeMap<ParticleId, usize>,
 }
@@ -30,17 +30,11 @@ impl Births {
         birth: &ParticleBirth,
     ) -> Result<Option<FixtureEffectBirth>> {
         let owner = active.actor;
-        let appearance = EffectAppearance {
-            resource: active.resource,
-            member: active.program,
-        };
+        let appearance = active.appearance;
         let spawn = active.spawned.len();
         let first_draw = active.samples.len();
         let heading = active.heading;
-        if !self
-            .scopes
-            .contains(&(owner, appearance.resource, appearance.member, particle))
-        {
+        if !self.scopes.contains(&(owner, appearance, particle)) {
             return Ok(None);
         }
         let index = self
@@ -58,12 +52,7 @@ impl Births {
             .context("extra recorded effect birth")?;
         let input = self.pending.swap_remove(index);
         ensure!(
-            input.owner == owner
-                && input.appearance == appearance
-                && input.spawn == spawn
-                && input.particle == particle
-                && input.first_draw == first_draw
-                && &input.birth == birth,
+            input.first_draw == first_draw && &input.birth == birth,
             "recorded effect birth identity or authored distribution differs"
         );
         Ok(Some(input))
@@ -87,12 +76,9 @@ impl Effects {
                     .is_some(),
                 "recorded effect program is not prepared"
             );
-            self.recorded_births.scopes.insert((
-                owner,
-                appearance.resource,
-                appearance.member,
-                particle,
-            ));
+            self.recorded_births
+                .scopes
+                .insert((owner, appearance, particle));
         }
         Ok(())
     }

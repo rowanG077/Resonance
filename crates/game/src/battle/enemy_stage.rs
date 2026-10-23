@@ -1,6 +1,6 @@
 //! Sword Dancer's authored variants select appearance and available actions once.
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{EnemyBehavior, EnemyDecisionDefinition, ModelDefinition};
+use resonance_battle::{EnemyBehavior, EnemyChoiceId, EnemyDecisionDefinition, ModelDefinition};
 
 const LAST_STAGE: usize = 2;
 const WINGS: [&str; 2] = ["Bone_hane01_L", "Bone_hane01_R"];
@@ -55,8 +55,8 @@ pub fn apply_sword(
         })
         .collect::<Result<Vec<_>>>()?;
     decision.disabled_choices = match variant {
-        0 => (2..9).collect(),
-        1 => (5..8).collect(),
+        0 => (2..9).map(EnemyChoiceId).collect(),
+        1 => (5..8).map(EnemyChoiceId).collect(),
         _ => Vec::new(),
     };
     if variant == 0 {

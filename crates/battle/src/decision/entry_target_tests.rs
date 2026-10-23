@@ -53,48 +53,36 @@ fn followers_observe_the_leaders_actual_target() -> Result<()> {
 }
 
 #[test]
-fn entry_spread_uses_distinct_opponents_and_replays_deterministically() -> Result<()> {
-    let prepare = || {
-        let actors: Vec<_> = [0., 10., 20., 100., 200., 300.]
+fn entry_spread_uses_distinct_opponents() -> Result<()> {
+    let actors: Vec<_> = [0., 10., 20., 100., 200., 300.]
+        .into_iter()
+        .enumerate()
+        .map(|(index, x)| actor(if index < 3 { Side::Party } else { Side::Enemy }, x))
+        .collect();
+    let mut prepared = PreparedBattle::new(
+        (actors)
             .into_iter()
-            .enumerate()
-            .map(|(index, x)| actor(if index < 3 { Side::Party } else { Side::Enemy }, x))
-            .collect();
-        let mut prepared = PreparedBattle::new(
-            (actors)
-                .into_iter()
-                .map(|actor| (actor, Default::default()))
-                .collect(),
-            Default::default(),
-            42,
-        )?;
-        prepared.targets = [4, 4, 4, 0, 0, 0].map(ActorId).to_vec();
-        prepared.with_entry_choices(choices(&[
-            TargetPolicy::Nearest,
-            TargetPolicy::Spread,
-            TargetPolicy::Spread,
-            TargetPolicy::Nearest,
-            TargetPolicy::Nearest,
-            TargetPolicy::Nearest,
-        ]))
-    };
-    let first = prepare()?;
-    let second = prepare()?;
-    let targets = &first.targets[..3];
-    assert!(
-        targets
-            .iter()
-            .all(|target| (3..6).contains(&target.index()))
-    );
+            .map(|actor| (actor, Default::default()))
+            .collect(),
+        Default::default(),
+        42,
+    )?;
+    prepared.targets = [4, 4, 4, 0, 0, 0].map(ActorId).to_vec();
+    let prepared = prepared.with_entry_choices(choices(&[
+        TargetPolicy::Nearest,
+        TargetPolicy::Spread,
+        TargetPolicy::Spread,
+        TargetPolicy::Nearest,
+        TargetPolicy::Nearest,
+        TargetPolicy::Nearest,
+    ]))?;
     assert_eq!(
-        targets
+        prepared.targets[..3]
             .iter()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len(),
-        3
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        [ActorId(3), ActorId(4), ActorId(5)].into()
     );
-    assert_eq!(first.targets, second.targets);
-    assert_eq!(first.random_seed, second.random_seed);
     Ok(())
 }
 

@@ -18,7 +18,7 @@ fn preparation_binds_gameplay_and_distinct_effect_banks() -> Result<()> {
     hit.reaction.hits_down = true;
     let local = fixture_effect(&files, vec![])?;
     let common = EffectResource {
-        resource: 9,
+        resource: resonance_battle::ResourceId(9),
         ..local.clone()
     };
     let mut resources = ActionResources::default();

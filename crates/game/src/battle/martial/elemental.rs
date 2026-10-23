@@ -1,7 +1,7 @@
 //! Prepare elemental variants as complete, independently selectable actions.
-use super::{ActionDefinition, Sequence, Sound, Technique};
+use super::{PreparedAttack, Sequence, Sound, Technique};
 use anyhow::{Context, Result, bail};
-use resonance_battle::{ActionExecution, AttackEvent, AttackOrigin};
+use resonance_battle::{AttackEvent, AttackOrigin};
 use resonance_content::{
     arte::elemental,
     battle_action::{HitElement, Power},
@@ -18,8 +18,7 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
+    ) -> Result<PreparedAttack> {
         let mut attack = resources
             .voices
             .party_table()
@@ -34,7 +33,7 @@ impl Technique {
                 contact.hit.element = HitElement::Element(Element::Wind);
             }
         }
-        self.prepare_authored_attack(resources, model, tp_cost, attack)
+        self.prepare_authored_attack(resources, model, attack)
     }
 
     pub(super) fn prepare_elemental<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
@@ -42,7 +41,7 @@ impl Technique {
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
-    ) -> Result<ActionDefinition> {
+    ) -> Result<PreparedAttack> {
         match self.catalogue {
             elemental::RISING_PHOENIX => self.prepare_rising_falcon(resources, model, tp_cost),
             elemental::GRAVE_BLADE | elemental::KNIGHT_GRAVE_BLADE => Self {
@@ -51,11 +50,9 @@ impl Technique {
             }
             .prepare_fierce_fang(resources, model, tp_cost, true),
             elemental::ICE_HAMMER => self.prepare_hammer(resources, model, tp_cost, true),
-            elemental::SUPER_SWALLOW_DANCE => {
-                self.prepare_super_swallow_dance(resources, model, tp_cost)
-            }
+            elemental::SUPER_SWALLOW_DANCE => self.prepare_super_swallow_dance(resources, model),
             elemental::LIGHTNING_THRUST | elemental::LIGHTNING_TIGER => {
-                self.prepare_lightning_variant(resources, model, tp_cost)
+                self.prepare_lightning_variant(resources, model)
             }
             _ => bail!("unknown elemental arte"),
         }
@@ -65,8 +62,7 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&resonance_battle::ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
+    ) -> Result<PreparedAttack> {
         let tiger = self.catalogue == elemental::LIGHTNING_TIGER;
         let binding = if tiger {
             Binding {
@@ -107,7 +103,7 @@ impl Technique {
             hit.stun_chance = 10;
             hit.stagger = 0;
         }
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+        let recoil = resources.recoil;
         let mut projectile = resources
             .projectiles
             .records
@@ -122,7 +118,7 @@ impl Technique {
         let mut projectile = resources.prepared.projectile(
             resources.files,
             &projectile,
-            crate::battle::hit::authored(&hit, &recoil)?,
+            crate::battle::hit::authored(&hit, recoil)?,
             &[(1, &resources.techniques)],
         )?;
         Arc::make_mut(&mut projectile)
@@ -130,15 +126,12 @@ impl Technique {
             .as_mut()
             .context("lightning projectile has no contact")?
             .cooldown = hit.cooldown;
-        let mut definition = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
+        let mut definition = self.prepare_authored_attack(resources, model, timeline)?;
         if tiger {
             definition = super::tiger_blade::finish_on_landing(definition)?;
         }
-        let ActionExecution::Attack(attack) = &mut definition.execution else {
-            unreachable!("martial preparation produces an attack")
-        };
         const LIGHTNING_RELEASE_TICK: u16 = 29;
-        attack.events.push((
+        definition.events.push((
             LIGHTNING_RELEASE_TICK,
             if tiger {
                 AttackEvent::ProjectileAt {
@@ -154,7 +147,7 @@ impl Technique {
                 }
             },
         ));
-        attack.events.sort_by_key(|(at, _)| *at);
+        definition.events.sort_by_key(|(at, _)| *at);
         Ok(definition)
     }
 }

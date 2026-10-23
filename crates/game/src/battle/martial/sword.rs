@@ -1,9 +1,9 @@
 //! Martial projectiles retain the motion and impact feedback of each authored hit.
-use super::{ActionDefinition, Sound, Technique};
+use super::{PreparedAttack, Sound, Technique};
 use anyhow::{Context, Result, bail};
 use resonance_battle::{
-    ActionExecution, AttackEvent, AttackPose, EffectAppearance, HitShape, ModelDefinition,
-    ProjectileContact, ProjectileContactFeedback, ProjectileDefinition,
+    AttackEvent, AttackPose, EffectAppearance, HitShape, ModelDefinition,
+    ProjectileContactFeedback, ProjectileDefinition,
 };
 use resonance_content::{battle_action::ActionHit, battle_martial::ProjectileFeedback};
 use std::sync::Arc;
@@ -15,24 +15,16 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
-        let timeline = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .clone();
+    ) -> Result<PreparedAttack> {
+        let timeline = self.authored_timeline(resources.voices.party_table())?;
         let hit = timeline
             .callback_hits
             .get(&1)
             .context("missing Lightning Blade follow-up hit")?;
         let follow_up = resources.lightning_blade_follow_up(hit, self.catalogue == 151)?;
-        let mut action = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
-        let ActionExecution::Attack(attack) = &mut action.execution else {
-            unreachable!("martial preparation produces an attack")
-        };
-        attack.events.push(follow_up);
-        attack.events.sort_by_key(|(at, _)| *at);
+        let mut action = self.prepare_authored_attack(resources, model, timeline)?;
+        action.events.push(follow_up);
+        action.events.sort_by_key(|(at, _)| *at);
         Ok(action)
     }
 
@@ -43,7 +35,7 @@ impl Technique {
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&ModelDefinition>,
         tp_cost: u16,
-    ) -> Result<ActionDefinition> {
+    ) -> Result<PreparedAttack> {
         let elemental = resonance_content::arte::elemental::find(self.catalogue);
         let base = elemental.map_or(self.catalogue, |variant| variant.base);
         let member = resources
@@ -55,7 +47,7 @@ impl Technique {
             .and_then(|characters| characters.get(&(self.character as u8)))
             .context("missing Rising Falcon binding")?
             .member;
-        let mut prepare = |variant| -> Result<Arc<ActionDefinition>> {
+        let mut prepare = |variant| -> Result<PreparedAttack> {
             let mut timeline = resources
                 .voices
                 .party_table()
@@ -71,26 +63,17 @@ impl Technique {
                     }
                 }
             }
-            let mut action = self.prepare_authored_attack(resources, model, tp_cost, timeline)?;
-            let ActionExecution::Attack(attack) = &mut action.execution else {
-                unreachable!("martial preparation produces an attack")
-            };
-            let recovery_pose = attack
-                .events
-                .iter()
-                .find_map(|(at, event)| match event {
-                    AttackEvent::Pose(pose) if *at == attack.end_at => Some(*pose),
-                    _ => None,
-                })
-                .context("missing Rising Falcon recovery pose")?;
-            let dive_at = attack
+            let mut action = self.prepare_authored_attack(resources, model, timeline)?;
+            let recovery_pose =
+                super::recovery_pose(&action).context("missing Rising Falcon recovery pose")?;
+            let dive_at = action
                 .events
                 .iter()
                 .find_map(|(at, event)| {
                     matches!(event, AttackEvent::PassThrough { enabled: true, .. }).then_some(*at)
                 })
                 .context("missing Rising Falcon dive")?;
-            let contact_at = attack
+            let contact_at = action
                 .events
                 .iter()
                 .filter_map(|(at, event)| {
@@ -100,10 +83,10 @@ impl Technique {
                 .context("missing Rising Falcon dive contact")?;
             let landing_at = dive_at.max(contact_at) + 1;
             // Landing changes the pose; the strike and collision bypass keep their own lifetimes.
-            attack.events.retain(|(at, event)| {
+            action.events.retain(|(at, event)| {
                 *at < landing_at || matches!(event, AttackEvent::PassThrough { enabled: false, .. })
             });
-            for (at, event) in &mut attack.events {
+            for (at, event) in &mut action.events {
                 if matches!(event, AttackEvent::PassThrough { enabled: false, .. }) {
                     // The closing command's tick is the last bypassed update.
                     *at = at
@@ -111,7 +94,7 @@ impl Technique {
                         .context("Rising Falcon bypass exceeds timeline")?;
                 }
             }
-            attack.events.push((
+            action.events.push((
                 landing_at,
                 AttackEvent::Land {
                     pose: None,
@@ -120,11 +103,11 @@ impl Technique {
                     recovery_pose: None,
                 },
             ));
-            attack.events.push((
+            action.events.push((
                 landing_at,
                 AttackEvent::Sound((resources.sound)(Sound::Cue(138))?),
             ));
-            attack.events.push((
+            action.events.push((
                 landing_at,
                 AttackEvent::Land {
                     pose: Some(AttackPose {
@@ -141,19 +124,21 @@ impl Technique {
                     recovery_pose: Some(recovery_pose),
                 },
             ));
-            attack.events.sort_by_key(|(at, _)| *at);
-            Ok(Arc::new(action))
+            action.events.sort_by_key(|(at, _)| *at);
+            Ok(action)
         };
         let variants = if elemental.is_some() {
             [prepare(2)?, prepare(3)?]
         } else {
             [prepare(0)?, prepare(1)?]
         };
-        let mut entry = (*variants[0]).clone();
-        let ActionExecution::Attack(attack) = &mut entry.execution else {
-            unreachable!("martial preparation produces an attack")
-        };
-        attack.events = vec![(0, AttackEvent::ChooseAirborne(variants))];
+        let mut entry = variants[0].clone();
+        entry.events = vec![(
+            0,
+            AttackEvent::ChooseAirborne(
+                variants.map(|attack| Arc::new(super::attack_definition(attack, tp_cost))),
+            ),
+        )];
         Ok(entry)
     }
 
@@ -163,14 +148,9 @@ impl Technique {
         self,
         resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
         model: Option<&ModelDefinition>,
-        tp_cost: u16,
-    ) -> Result<ActionDefinition> {
+    ) -> Result<PreparedAttack> {
         use resonance_content::battle_normal::Event;
-        let mut timeline = resources
-            .voices
-            .party_table()
-            .martial_attack(self.catalogue, self.character as u8)?
-            .clone();
+        let mut timeline = self.authored_timeline(resources.voices.party_table())?;
         let hits = std::mem::take(&mut timeline.callback_hits);
         let poses = timeline
             .pose_sequence
@@ -216,21 +196,17 @@ impl Technique {
         let mut model = model.context("missing Falcon's Crest model")?.clone();
         for weapon in resources
             .skill_weapons
-            .get(&(self.character as u8, self.catalogue))
+            .get(&(self.character, self.catalogue))
             .context("missing Falcon's Crest sword")?
         {
             model.weapons.retain(|old| old.slot != weapon.slot);
             model.weapons.push(Arc::clone(weapon));
         }
-        let mut action =
-            self.prepare_authored_attack(resources, Some(&model), tp_cost, timeline)?;
-        let ActionExecution::Attack(attack) = &mut action.execution else {
-            unreachable!("martial preparation produces an attack")
-        };
+        let mut action = self.prepare_authored_attack(resources, Some(&model), timeline)?;
         // The final idle pose has already begun before recovery.
-        attack
+        action
             .events
-            .retain(|(at, event)| *at != attack.end_at || !matches!(event, AttackEvent::Pose(_)));
+            .retain(|(at, event)| *at != action.end_at || !matches!(event, AttackEvent::Pose(_)));
         let scene: resonance_content::battle_scene::Scene = resources
             .files
             .json(&resonance_content::battle_scene::skill_path(self.catalogue))?;
@@ -239,7 +215,7 @@ impl Technique {
             .get(&self.catalogue)
             .context("missing Falcon's Crest artwork")?
             .clone();
-        let recoil = crate::battle::recoil::Parameters::load(resources.files)?;
+        let recoil = resources.recoil;
         for (at, member, rule) in [(30, 1, 0), (105, 2, 1), (237, 3, 2), (284, 4, 3)] {
             let row = scene
                 .projectiles
@@ -251,7 +227,7 @@ impl Technique {
             let mut projectile = resources.prepared.projectile(
                 resources.files,
                 &row.projectile,
-                crate::battle::hit::authored(hit, &recoil)?,
+                crate::battle::hit::authored(hit, recoil)?,
                 &[
                     (0, &resources.common),
                     (1, &resources.techniques),
@@ -263,12 +239,12 @@ impl Technique {
                 .as_mut()
                 .context("Falcon's Crest projectile has no contact")?
                 .cooldown = hit.cooldown;
-            attack
+            action
                 .events
                 .push((at, AttackEvent::Projectile(projectile)));
         }
-        crate::battle::skill_scene::falcon(resources, attack, &model)?;
-        attack.events.sort_by_key(|(at, _)| *at);
+        crate::battle::skill_scene::falcon(resources, &mut action, &model)?;
+        action.events.sort_by_key(|(at, _)| *at);
         Ok(action)
     }
 }
@@ -281,7 +257,7 @@ impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
         hit: &ActionHit,
         with_impact: bool,
     ) -> Result<(u16, AttackEvent)> {
-        let recoil = crate::battle::recoil::Parameters::load(self.files)?;
+        let recoil = self.recoil;
         const LIGHTNING_EFFECT: u16 = 75;
         const IMPACT_EFFECT: u16 = 107;
         const RELEASE_AT: u16 = 34;
@@ -290,31 +266,12 @@ impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
             self.effect(true, &[IMPACT_EFFECT])?;
         }
         let projectile = Arc::new(ProjectileDefinition {
-            lifetime: Some(20),
-            velocity: [0.; 3],
-            acceleration: [0.; 3],
-            offset: [0.; 3],
             clamp_ground: true,
-            active: None,
             birth: Some(EffectAppearance {
                 resource: self.techniques.resource,
                 member: LIGHTNING_EFFECT,
             }),
-            motion: Default::default(),
-            effects: Default::default(),
-            contact: Some(ProjectileContact {
-                hit: crate::battle::hit::authored(hit, &recoil)?,
-                cooldown: hit.cooldown,
-                repeat_limit: 0,
-                radius: 40.,
-                height: 400.,
-                shape: HitShape::Cylinder,
-                offset: [0.; 3],
-                radius_growth: 0.,
-                height_growth: 0.,
-                survives_contact: true,
-                clashes: false,
-            }),
+            ..super::stationary_contact(hit, recoil, 20, HitShape::Cylinder, [40., 400.])?
         });
         Ok((
             RELEASE_AT,

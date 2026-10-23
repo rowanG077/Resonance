@@ -1,15 +1,15 @@
 //! Assemble the team-attack owner from the encounter's prepared party resources.
 use super::*;
 use resonance_battle::{
-    ActionKey, CameraPose, Pose, UnisonArte, UnisonDefinition, UnisonMember, UnisonPrelude,
-    UnisonRecipe,
+    ActionKey, CameraPose, Pose, UnisonArte, UnisonArteId, UnisonDefinition, UnisonMember,
+    UnisonPrelude, UnisonRecipe, UnisonRecipeId,
 };
 use resonance_content::{battle_profile::Profile, battle_unison};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct HostMember<'a> {
     pub actor: ActorId,
-    pub character: u8,
+    pub character: Character,
     pub model: &'a ModelDefinition,
     pub null_motions: &'a BTreeSet<u16>,
     pub profile: &'a Profile,
@@ -31,21 +31,12 @@ pub(crate) fn prepare_host<S: FnMut(Sound) -> Result<Option<Sound>>>(
     const WINDUP_CLIP: u16 = 29;
     const WINDUP_EFFECT: u16 = 13;
     let common = resources.common.clone();
-    action::effect(&common, WINDUP_EFFECT, resources)?;
-    let effect = EffectAppearance {
-        resource: common.resource,
-        member: WINDUP_EFFECT,
-    };
+    let effect = resources.prepared.effect_member(&common, WINDUP_EFFECT)?;
     let sound = (resources.sound)(Sound::Cue(77))?.context("missing Unison start sound")?;
     let mut members = Vec::with_capacity(party.len());
     let mut prelude_voices = Vec::new();
     for actor in party {
-        let index = usize::from(
-            actor
-                .character
-                .checked_sub(1)
-                .context("zero character ID")?,
-        );
+        let index = actor.character.index();
         let opener = catalogue
             .openers
             .get(index)
@@ -75,7 +66,7 @@ pub(crate) fn prepare_host<S: FnMut(Sound) -> Result<Option<Sound>>>(
                 groups.retain(|group| !actor.model.contact_group_anchors(*group).is_empty());
                 anyhow::ensure!(
                     !groups.is_empty(),
-                    "Unison opener for character {} has no contact anchors",
+                    "Unison opener for character {:?} has no contact anchors",
                     actor.character
                 );
             }
@@ -88,7 +79,9 @@ pub(crate) fn prepare_host<S: FnMut(Sound) -> Result<Option<Sound>>>(
             temporary_weapons: Vec::new(),
         };
         let opener_attack = action::prepare(&track, &participant, &common, resources)
-            .with_context(|| format!("prepare Unison opener for character {}", actor.character))?;
+            .with_context(|| {
+                format!("prepare Unison opener for character {:?}", actor.character)
+            })?;
         let mut artes = Vec::new();
         for (&catalogue_id, &action) in actor.techniques {
             let rule = resources.catalogue.definition(usize::from(catalogue_id))?;
@@ -112,7 +105,7 @@ pub(crate) fn prepare_host<S: FnMut(Sound) -> Result<Option<Sound>>>(
             };
             artes.push(UnisonArte {
                 action,
-                native_id: placement.native_id,
+                native_id: UnisonArteId(placement.native_id),
                 duration,
                 distance: f32::from(placement.distance),
                 altitude: placement.altitude as f32,
@@ -166,10 +159,11 @@ pub(crate) fn prepare_host<S: FnMut(Sound) -> Result<Option<Sound>>>(
                     .unwrap_or_default(),
             })
             .collect();
-        let eligible = combination
-            .recipes
-            .iter()
-            .any(|recipe| recipe.iter().all(|arte| available_artes.contains(arte)));
+        let eligible = combination.recipes.iter().any(|recipe| {
+            recipe
+                .iter()
+                .all(|arte| available_artes.contains(&UnisonArteId(*arte)))
+        });
         let execution = if eligible && family::has_pair(combination.native_id, &participants) {
             let scene: Scene = resources
                 .files
@@ -194,11 +188,15 @@ pub(crate) fn prepare_host<S: FnMut(Sound) -> Result<Option<Sound>>>(
             None
         };
         recipes.push(UnisonRecipe {
-            id: combination.id,
-            native_id: combination.native_id,
+            id: UnisonRecipeId(combination.id),
+            native_id: UnisonArteId(combination.native_id),
             duration: combination.duration,
             camera_pitch: combination.camera_pitch,
-            ingredients: combination.recipes.clone(),
+            ingredients: combination
+                .recipes
+                .iter()
+                .map(|row| row.iter().copied().map(UnisonArteId).collect())
+                .collect(),
             execution,
         });
     }

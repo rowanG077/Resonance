@@ -1,4 +1,5 @@
 //! Real-resource encounter coverage for mixed Ghoul, Pumpkin and Phantom groups.
+use super::{opening_options, opening_setup};
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{
     ActionRequest, Activity, ActorId, BattleInput, ButtonInput, ContactSource, ControlInput, Cue,
@@ -10,12 +11,11 @@ use resonance_content::{
     prepared::{Cache, Files},
     session::SessionData,
 };
-use resonance_events::{
-    battle::{DefeatPolicy, Setup},
-    libc_random,
-    party::Party,
+use resonance_events::{battle::DefeatPolicy, libc_random, party::Party};
+use resonance_game::battle::{
+    encounter::{Assets, PrepareOptions, Prepared},
+    party::Character,
 };
-use resonance_game::battle::encounter::{Assets, PrepareOptions, Prepared};
 use std::{collections::BTreeSet, sync::Arc};
 
 const SEED: u64 = 0x2345;
@@ -57,30 +57,28 @@ fn prepare(formation: u16, solo_regal: bool) -> Result<Fixture> {
         &menus,
         &data,
         &party,
-        Setup {
-            route: [0; 5],
-            encounter: resonance_events::battle::Encounter::Formation(formation),
-            arena: 13,
-            defeat: DefeatPolicy::ResumeEvent,
-            music: None,
-        },
+        opening_setup(formation, DefeatPolicy::ResumeEvent),
         PrepareOptions {
-            hunting_symbol: None,
-            event_flags: Default::default(),
-            random_seed: SEED,
-            map: 332,
-            world_music: 0,
             story: 0,
-            colette_state: 0,
-            devils_arms_unlocked: false,
-            victory_story_flags: [false; 2],
-            overlimit_boost: false,
+            ..opening_options(SEED)
         },
         &mut files,
         || false,
     )?;
 
-    assert_eq!(prepared.characters, party.formation);
+    assert_eq!(
+        prepared.characters,
+        if solo_regal {
+            vec![Character::Regal]
+        } else {
+            vec![
+                Character::Lloyd,
+                Character::Colette,
+                Character::Genis,
+                Character::Raine,
+            ]
+        }
+    );
     let phantom_cast = prepared
         .results
         .enemies

@@ -69,20 +69,16 @@ pub(super) fn canonicalize(
         "invalid attached model matrix"
     );
     let (sine, cosine) = (current_heading - previous_heading).to_radians().sin_cos();
+    world[3] -= previous[0];
+    world[11] -= previous[2];
     for column in 0..4 {
-        let mut x = world[column];
-        let mut z = world[8 + column];
-        if column == 3 {
-            x -= previous[0];
-            z -= previous[2];
-        }
+        let x = world[column];
+        let z = world[8 + column];
         world[column] = cosine * x + sine * z;
         world[8 + column] = cosine * z - sine * x;
-        if column == 3 {
-            world[column] += current[0];
-            world[8 + column] += current[2];
-        }
     }
+    world[3] += current[0];
+    world[11] += current[2];
     world[7] += current[1] - previous[1];
     model["model"]["world"] = serde_json::to_value(world)?;
     Ok(())
@@ -328,7 +324,10 @@ fn transitioned_joint(
     for program in &effects.programs {
         let births = program
             .iter()
-            .filter(|event| matches!(event.operation, EffectOperation::Spawn { .. }))
+            .filter_map(|event| match event.operation {
+                EffectOperation::Spawn { particle, .. } => Some((event.at, particle)),
+                _ => None,
+            })
             .collect::<Vec<_>>();
         for event in program {
             let EffectOperation::SetMotion { spawn, motion } = &event.operation else {
@@ -343,14 +342,11 @@ fn transitioned_joint(
             {
                 continue;
             }
-            let birth = births
+            let &(born, particle) = births
                 .get(*spawn)
                 .context("missing retained motion birth")?;
-            let EffectOperation::Spawn { particle, .. } = birth.operation else {
-                unreachable!();
-            };
             if relation["parent"]["member"] == u64::from(particle)
-                && event.at.checked_sub(birth.at).map(|age| u64::from(age) + 1) == Some(parent_age)
+                && event.at.checked_sub(born).map(|age| u64::from(age) + 1) == Some(parent_age)
             {
                 blended.push(animation);
             }
@@ -404,14 +400,11 @@ fn unpublished_birth(source: &Trace, frame: usize, relation: &Value) -> Result<b
         if particle["age"] != 1 || particle["initialized"] != true {
             return Ok(false);
         }
-        if frame > 0
-            && source.frames[frame - 1]["particles"]
-                .as_array()
-                .context("missing preceding retained birth particles")?
-                .iter()
-                .any(|previous| {
-                    previous["id"].as_u64() == Some(id) && previous["initialized"] == true
-                })
+        if source.frames[frame - 1]["particles"]
+            .as_array()
+            .context("missing preceding retained birth particles")?
+            .iter()
+            .any(|previous| previous["id"].as_u64() == Some(id) && previous["initialized"] == true)
         {
             return Ok(false);
         }

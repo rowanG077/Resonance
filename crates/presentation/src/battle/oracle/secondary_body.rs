@@ -96,7 +96,7 @@ pub(super) fn observe(bindings: &[Binding], frame: &BattleFrame) -> Result<Vec<V
         let mut layers = frame
             .weapons
             .iter()
-            .filter(|layer| layer.owner.index() == binding.actor && layer.slot == u8::MAX);
+            .filter(|layer| layer.owner.index() == binding.actor && layer.slot.is_none());
         let first = layers
             .next()
             .context("secondary rig disappeared from the frame")?;

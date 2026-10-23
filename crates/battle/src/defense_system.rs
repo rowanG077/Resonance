@@ -1,4 +1,6 @@
 //! A mechanical encounter shares deployment, attachments and core defeat.
+#[cfg(test)]
+use crate::ResourceId;
 use crate::{
     ActorId, Battle, Cue, MeleeAnchor, ModelRequest, MotionBinding, Pose, PreparedBattle, Side,
 };
@@ -125,20 +127,16 @@ impl Battle {
     }
 
     /// Run once per ordinary update, before individual enemy decisions.
-    pub(crate) fn advance_defense_system(&mut self, cues: &mut Vec<Cue>) -> Result<()> {
+    pub(crate) fn advance_defense_system(&mut self, cues: &mut Vec<Cue>) {
         self.advance_defense_system_on_clock(cues, self.phase() == crate::BattlePhase::Combat)
     }
 
-    fn advance_defense_system_on_clock(
-        &mut self,
-        cues: &mut Vec<Cue>,
-        in_combat: bool,
-    ) -> Result<()> {
+    fn advance_defense_system_on_clock(&mut self, cues: &mut Vec<Cue>, in_combat: bool) {
         let Some(definition) = &self.prepared.defense_system else {
-            return Ok(());
+            return;
         };
         if self.defense_system.cleaned_up {
-            return Ok(());
+            return;
         }
         if self.actors[definition.core.index()].availability == crate::ActorAvailability::Dead {
             for actor in definition.components.clone() {
@@ -154,11 +152,11 @@ impl Battle {
                 component.hit_stop = 0;
             }
             self.defense_system.cleaned_up = true;
-            return Ok(());
+            return;
         }
         let core = &self.actors[definition.core.index()];
         if !core.available() || core.hit_stop != 0 || core.time_stop != 0 {
-            return Ok(());
+            return;
         }
         if in_combat && let Some(age) = &mut self.defense_system.deployment_age {
             *age = age.saturating_add(1).min(definition.deployment_ticks);
@@ -172,7 +170,6 @@ impl Battle {
             });
             self.defense_system.deployment_age = Some(0);
         }
-        Ok(())
     }
 
     pub(crate) fn defense_arm_positions(&self) -> Result<Option<[[f32; 3]; 4]>> {
@@ -244,7 +241,7 @@ impl Battle {
         &mut self,
         frame: &mut crate::BattleFrame,
     ) -> Result<()> {
-        self.advance_defense_system_on_clock(&mut frame.cues, frame.combat_active)?;
+        self.advance_defense_system_on_clock(&mut frame.cues, frame.combat_active);
         let positions = self.defense_arm_positions()?;
         self.attach_defense_arms(positions);
         for (frame_actor, actor) in frame.actors.iter_mut().zip(&self.actors) {
@@ -270,7 +267,7 @@ mod tests {
         participants[core.index()].0.heading = -90.;
         participants[core.index()].0.hp = 67;
         let anchor = MeleeAnchor {
-            resource: 7,
+            resource: ResourceId(7),
             bone: 0,
         };
         let repair = ActorId(6);
@@ -284,7 +281,10 @@ mod tests {
                 actor: ActorId(index as u8 + 2),
                 anchor,
             }),
-            deployment: MotionBinding { model: 7, clip: 32 },
+            deployment: MotionBinding {
+                model: ResourceId(7),
+                clip: 32,
+            },
             deployment_ticks: 120,
             deployment_pose: Pose {
                 rate: 0.5,
@@ -437,7 +437,10 @@ mod tests {
                     release_on_defeat: false,
                     launch_on_release: true,
                 },
-                released_hurt: [Some(MotionBinding { model: 8, clip: 3 }); 2],
+                released_hurt: [Some(MotionBinding {
+                    model: ResourceId(8),
+                    clip: 3,
+                }); 2],
             }])?
             .finish()?;
         let mut host_model = crate::tests::model_definition(7, [(0, 30.)]);
@@ -544,11 +547,14 @@ mod tests {
             arms: std::array::from_fn(|index| DefenseArm {
                 actor: ActorId(index as u8 + 2),
                 anchor: MeleeAnchor {
-                    resource: 7,
+                    resource: ResourceId(7),
                     bone: index as u16,
                 },
             }),
-            deployment: MotionBinding { model: 7, clip: 32 },
+            deployment: MotionBinding {
+                model: ResourceId(7),
+                clip: 32,
+            },
             deployment_ticks: 120,
             deployment_pose: Pose {
                 rate: 0.5,
@@ -562,7 +568,7 @@ mod tests {
         let party_hp = battle.actors[0].hp;
         battle.actors[core.index()].availability = crate::ActorAvailability::Dead;
         let mut cues = Vec::new();
-        battle.advance_defense_system(&mut cues)?;
+        battle.advance_defense_system(&mut cues);
         assert!(
             battle.actors[2..]
                 .iter()
@@ -571,7 +577,7 @@ mod tests {
         assert!(!cues.iter().any(|cue| matches!(cue, Cue::Defeated { .. })));
         assert_eq!(battle.actors[0].hp, party_hp);
         let first = cues.len();
-        battle.advance_defense_system(&mut cues)?;
+        battle.advance_defense_system(&mut cues);
         assert_eq!(cues.len(), first);
         Ok(())
     }

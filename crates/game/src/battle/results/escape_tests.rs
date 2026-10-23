@@ -1,8 +1,8 @@
 //! Escape commands and result commits through a prepared CPU encounter.
-use super::item_tests::{Display, PreparedFixture, prepared_fixture};
+use super::item_tests::{Display, PreparedFixture, edge, prepared_fixture};
 use super::*;
 use crate::battle::{command, lifecycle};
-use resonance_battle::{BattleFrame, ButtonInput};
+use resonance_battle::BattleFrame;
 
 fn visit(f: &mut PreparedFixture, command: command::Input) -> Result<BattleFrame> {
     f.lifecycle.step(
@@ -24,13 +24,6 @@ fn ready(f: &mut PreparedFixture) -> Result<()> {
         visit(f, Default::default())?;
     }
     anyhow::bail!("ordinary Escape fixture entry did not finish")
-}
-fn edge() -> ButtonInput {
-    ButtonInput {
-        held: true,
-        pressed: true,
-        released: false,
-    }
 }
 
 #[test]
@@ -159,7 +152,7 @@ fn disabled_or_failed_escape_does_not_mutate_core_or_candidate() -> Result<()> {
         ready(&mut f)?;
         let actor = f.candidate.setup.actors[0].0;
         if !restricted {
-            f.candidate.setup.actors[1].1 = 99;
+            f.candidate.setup.actors[1].0 = ActorId::from_index(f.battle.actors().len())?;
         }
         let before = serde_json::to_value(&f.candidate.party)?;
         let progress = f.battle.escape_frame();

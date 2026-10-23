@@ -101,13 +101,7 @@ pub(super) fn prepare(
         _ => None,
     };
     let recipient_effect = if let Some(member) = recipient_member {
-        let mut artwork = techniques.clone();
-        artwork.members = vec![member];
-        resources.effect(artwork)?;
-        Some(EffectAppearance {
-            resource: techniques.resource,
-            member,
-        })
+        Some(resources.effect_member(techniques, member)?)
     } else {
         secondary_member
             .map(|member| EffectAppearance { member, ..effect })
@@ -154,38 +148,20 @@ pub(super) fn prepare(
         }));
     }
     Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
-        projectiles: Vec::new(),
         recovery,
-        // Ground circles and their upper layers must share the same floor origin.
-        origin: if matches!(catalogue, 117 | 118 | 120 | 121) {
-            SpellOrigin::TargetGround
-        } else {
-            SpellOrigin::Target
-        },
-        transition_ticks: stored_spells::TRANSITION_TICKS,
-        stage_tint: stored_spells::stage_tint(
-            Some(
-                scene
-                    .stage_color
-                    .context("missing recovery scene lighting")?,
-            ),
-            active_ticks,
-        )?,
-        camera: stored_spells::scene_camera(
-            Some(scene.camera.context("missing recovery scene camera")?),
-            active_ticks,
-        )?,
-        duration: stored_spells::TRANSITION_TICKS
-            + active_ticks
-            + stored_spells::SCENE_BOUNDARY_TICKS,
         startup: (age != 0).then_some((
             stored_spells::TRANSITION_TICKS + 1,
             SpellStartup::DeferredEffect(effect),
         )),
-        sound: None,
+        ..stored_spells::scene_spell(
+            scene, // Ground circles and their upper layers must share the same floor origin.
+            if matches!(catalogue, 117 | 118 | 120 | 121) {
+                SpellOrigin::TargetGround
+            } else {
+                SpellOrigin::Target
+            },
+            active_ticks,
+        )?
     })
 }
 
@@ -198,18 +174,8 @@ fn acid_rain(
     const APPLICATION_TICK: u16 = 120;
     const DEFENSE_AMOUNT: i16 = 15;
     const ACTOR_TINT: [u8; 3] = [32; 3];
-    let effect = EffectAppearance {
-        resource: bank.resource,
-        member: 1,
-    };
-    let mut artwork = bank.clone();
-    artwork.members = vec![effect.member];
-    resources.effect(artwork)?;
+    let effect = resources.effect_member(bank, 1)?;
     Ok(PreparedSpell {
-        policy: Default::default(),
-        summon: None,
-        effects: vec![],
-        projectiles: vec![],
         recovery: vec![SpellRecovery {
             duration: 1,
             effect_placement: Default::default(),
@@ -225,17 +191,14 @@ fn acid_rain(
             targets: RecoveryTargets::LivingOpponents,
             effect: None,
         }],
-        origin: SpellOrigin::SceneFixed { position: [0.; 3] },
-        transition_ticks: stored_spells::TRANSITION_TICKS,
-        stage_tint: stored_spells::stage_tint(scene.stage_color, ACTIVE_TICKS)?,
-        camera: stored_spells::scene_camera(scene.camera, ACTIVE_TICKS)?,
-        duration: stored_spells::TRANSITION_TICKS
-            + ACTIVE_TICKS
-            + stored_spells::SCENE_BOUNDARY_TICKS,
         startup: Some((
             stored_spells::TRANSITION_TICKS + 1,
             SpellStartup::DeferredEffect(effect),
         )),
-        sound: None,
+        ..stored_spells::scene_spell(
+            scene,
+            SpellOrigin::SceneFixed { position: [0.; 3] },
+            ACTIVE_TICKS,
+        )?
     })
 }

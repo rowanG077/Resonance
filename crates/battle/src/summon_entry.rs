@@ -432,7 +432,7 @@ mod tests {
             body_spheres: vec![],
             reception_spheres: None,
             fade_on_defeat: false,
-            resource: 7,
+            resource: crate::ResourceId(7),
             skeleton: Skeleton {
                 bones: vec![Bone {
                     name: "root".into(),
@@ -484,7 +484,7 @@ mod tests {
         assert!(battle.begin_summon_entry(
             SummonEntryDefinition {
                 effect: EffectAppearance {
-                    resource: 1,
+                    resource: crate::ResourceId(1),
                     member: 36
                 },
                 sound: None,

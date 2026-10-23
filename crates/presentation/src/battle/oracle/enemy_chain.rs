@@ -1,6 +1,7 @@
 //! Finite observed starting choices; authored successors execute through ordinary chaining.
 use super::{Binding, Case, Trace, random_inputs::Pin};
 use anyhow::{Context, Result, ensure};
+use resonance_battle::EnemyChoiceId;
 use resonance_battle::{
     ActionId, ActionRequest, ActorId, Battle, BattleInput, Cue, FixtureEnemyChainInput,
 };
@@ -151,7 +152,7 @@ impl Plan {
             branches.push(FixtureEnemyChainInput {
                 clock: branch.after_updates,
                 actor: owner,
-                row: branch.row,
+                row: EnemyChoiceId(branch.row),
                 chance,
                 selection,
             });
@@ -190,7 +191,7 @@ impl Plan {
             return Ok(());
         }
         let request = self.requests.pop_front().unwrap();
-        let action = core.select_fixture_enemy_row(self.owner, request.row)?;
+        let action = core.select_fixture_enemy_row(self.owner, EnemyChoiceId(request.row))?;
         let target = ActorId::from_index(request.target)?;
         let action = ActionRequest {
             actor: self.owner,
@@ -265,7 +266,7 @@ impl Plan {
             .pop_front()
             .context("unobserved action in enemy chain")?;
         ensure!(
-            core.fixture_enemy_choice(self.owner) == Some(expected.row)
+            core.fixture_enemy_choice(self.owner) == Some(EnemyChoiceId(expected.row))
                 && core.ledger().combat_ticks - self.origin == expected.after_updates,
             "enemy chain admission differs: expected row {}, combat offset {}; observed row {:?}, combat offset {}; recent native visits {:?}",
             expected.row,
@@ -278,12 +279,12 @@ impl Plan {
     }
 
     pub(super) fn target(&self, core: &Battle) -> bool {
-        core.fixture_enemy_choice(self.owner) == Some(self.target_row)
+        core.fixture_enemy_choice(self.owner) == Some(EnemyChoiceId(self.target_row))
     }
 
     pub(super) fn invocation(&self, core: &Battle) -> Result<Value> {
         Ok(json!({
-            "row": core.fixture_enemy_choice(self.owner).context("missing chain choice")?,
+            "row": core.fixture_enemy_choice(self.owner).context("missing chain choice")?.0,
             "bound_after_updates": core.ledger().combat_ticks - self.origin,
         }))
     }

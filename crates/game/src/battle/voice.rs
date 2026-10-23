@@ -68,9 +68,7 @@ impl<'a> Resolver<'a> {
             ModelSource::Party(character) => self
                 .party
                 .records
-                .get(usize::from(
-                    character.checked_sub(1).context("zero character ID")?,
-                ))
+                .get(character.index())
                 .context("missing character voice profile"),
             ModelSource::Enemy(id) => self
                 .enemies
@@ -168,7 +166,7 @@ impl<'a> Resolver<'a> {
         let policy = self
             .party
             .voice_sequences
-            .get(usize::from(character - 1))
+            .get(character.index())
             .context("missing character voice policy")?;
         Ok(Some(
             policy.techniques.get(&technique).unwrap_or(&policy.default),

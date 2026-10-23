@@ -175,10 +175,7 @@ impl Battle {
     pub(crate) fn consume_double_jump(&mut self, actor: ActorId) -> bool {
         let index = actor.index();
         let owner = &self.actors[index];
-        let edge = self
-            .cast_inputs
-            .get(usize::from(owner.control_slot))
-            .is_some_and(|input| input.up_pressed);
+        let edge = self.cast_inputs[owner.control_slot.index()].up_pressed;
         if !matches!(
             self.runtime[index].task().mobility(),
             Some(Mobility::Jump { launched: true })

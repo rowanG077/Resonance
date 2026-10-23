@@ -94,27 +94,17 @@ fn duration_accepts_full_tick_range_and_has_a_one_tick_minimum() {
 fn rhythm_uses_the_casters_physical_input_channel() {
     let mut battle = delay::controlled(Control::Manual, 20);
     battle.actors[0].equipment.casting.rhythm = true;
-    battle.actors[0].control_slot = 1;
+    battle.actors[0].control_slot = crate::ControllerPort::Two;
     start_cast(&mut battle);
     battle.step(BattleInput::default()).unwrap();
     let mut wrong_channel = crate::ControlInput::neutral(ActorId(2));
     wrong_channel.attack.pressed = true;
-    battle
-        .step(BattleInput {
-            controllers: vec![wrong_channel],
-            ..Default::default()
-        })
-        .unwrap();
+    battle.step(BattleInput::from(wrong_channel)).unwrap();
     let mut own = crate::ControlInput::neutral(ActorId(0));
     own.attack.pressed = true;
     let before = cast_remaining(&battle);
     for _ in 0..5 {
-        battle
-            .step(BattleInput {
-                controllers: vec![own],
-                ..Default::default()
-            })
-            .unwrap();
+        battle.step(BattleInput::from(own)).unwrap();
     }
     assert_eq!(cast_remaining(&battle), before - 6);
 }

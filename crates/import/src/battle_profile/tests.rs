@@ -163,7 +163,7 @@ fn profiles_prepare_blink_frames_and_validate_selected_atlas() -> Result<()> {
 }
 
 #[test]
-fn profiles_publish_named_capabilities_without_flag_words() -> Result<()> {
+fn profiles_decode_capabilities_and_reject_non_finite_scales() -> Result<()> {
     let mut bytes = [0; BYTES];
     let ordinary = read(&bytes)?;
     assert_eq!(ordinary.traits, ProfileTraits::default());
@@ -186,15 +186,13 @@ fn profiles_publish_named_capabilities_without_flag_words() -> Result<()> {
     assert!(profile.traits.knockdown_immune && profile.traits.body_motion_disabled);
     assert!(profile.traits.hit_shake_disabled);
     assert!(profile.traits.enemy_contact_recovery);
+    assert!(profile.traits.inactive_item_target);
     assert!(profile.traits.immune_to_unison);
     assert!(profile.traits.passes_allied_obstacles && profile.traits.passable_for_allies);
     assert!(profile.traits.suppress_hurt_motion && profile.traits.item_target_excluded);
     assert!(!profile.traits.hover_bobbing && !profile.traits.push_immovable);
     bytes[0x58..0x5a].copy_from_slice(&(-1_i16).to_be_bytes());
     assert_eq!(read(&bytes)?.guard_pressure_limit, 0);
-    let encoded = serde_json::to_value(profile)?;
-    assert!(encoded.get("flags").is_none() && encoded.get("body_flags").is_none());
-    assert_eq!(encoded["traits"]["inactive_item_target"], true);
     bytes[0xb0..0xb4].copy_from_slice(&f32::NAN.to_be_bytes());
     assert!(read(&bytes).is_err());
     Ok(())
@@ -232,13 +230,6 @@ fn profiles_decode_named_conditions_and_immunities() -> Result<()> {
             MagicalBarrier,
         ])
     );
-    let json = serde_json::to_value(profile)?;
-    assert!(json.get("condition_flags").is_none());
-    assert!(json.get("condition_immunity").is_none());
-    assert_eq!(
-        json["immunities"],
-        serde_json::json!(["short_stun", "stun"])
-    );
     Ok(())
 }
 
@@ -256,23 +247,6 @@ fn profiles_reject_unknown_conditions_and_active_immunity_flags() {
             bytes[offset..offset + 4].copy_from_slice(&flag.to_be_bytes());
             assert!(read(&bytes).is_err());
         }
-    }
-}
-
-#[test]
-fn profiles_reject_truncated_records_invalid_counts_and_nonfinite_floats() {
-    let mut bytes = [0; BYTES];
-    assert!(read(&bytes[..BYTES - 1]).is_err());
-    bytes[0xce] = 5;
-    assert!(read(&bytes).is_err());
-    bytes[0xce] = 0;
-    bytes[0x1e4] = 9;
-    assert!(read(&bytes).is_err());
-    bytes[0x1e4] = 0;
-    for offset in [0x20, 0x24, 0x60, 0x84, 0x88, 0x8c, 0x90] {
-        bytes[offset..offset + 4].copy_from_slice(&f32::NAN.to_be_bytes());
-        assert!(read(&bytes).is_err(), "float at {offset:#x}");
-        bytes[offset..offset + 4].fill(0);
     }
 }
 

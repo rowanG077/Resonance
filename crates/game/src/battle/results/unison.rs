@@ -37,7 +37,12 @@ impl Candidate {
             && self.unison_page(state).selection().is_some_and(|selected| {
                 Self::tech_actor(&self.setup, selected.character)
                     .ok()
-                    .and_then(|actor| battle.prepared_technique(actor, selected.technique))
+                    .and_then(|actor| {
+                        battle.prepared_technique(
+                            actor,
+                            resonance_battle::TechniqueId(selected.technique),
+                        )
+                    })
                     .is_none()
             })
         {

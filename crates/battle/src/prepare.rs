@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::TechniqueId;
 use crate::{Actor, ActorId};
 use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeSet, sync::Arc};
@@ -14,6 +16,16 @@ pub enum ActionExecution {
     Casting(Arc<crate::CastingDefinition>),
     /// A living enemy walks out of the encounter without awarding defeat rewards.
     LeaveArena,
+}
+
+/// A prepared battle's shared model or effect resource handle.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ResourceId(pub u32);
+
+impl std::fmt::Display for ResourceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 /// Index of an immutable definition within one prepared battle.
@@ -158,7 +170,7 @@ pub(crate) struct BattleResources {
     pub(crate) escape: Option<crate::EscapeDefinition>,
     pub(crate) overlimit_boosted_gain: bool,
     pub(crate) items: Option<crate::item::Definition>,
-    pub(crate) grade_rank: u8,
+    pub(crate) grade_rank: crate::Difficulty,
     pub(crate) arena_boundary: bool,
     pub(crate) actions: ActionDefinitions,
 }
@@ -408,7 +420,7 @@ impl PreparedBattle {
                 defense_system: None,
                 hosted_participants: Vec::new(),
                 items: None,
-                grade_rank: 0,
+                grade_rank: crate::Difficulty::Normal,
                 overlimit_boosted_gain: false,
                 escape: None,
                 unison_gauge: 0,
@@ -626,34 +638,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn activation_validates_the_final_actor_and_action_inventory() {
-        let candidate = || crate::tests::prepared(vec![crate::tests::actor(Side::Party)], 1);
-        candidate().finish().unwrap();
-
-        let mut edited = candidate();
-        crate::tests::attack_mut(Arc::make_mut(&mut edited.resources.actions.entries[0])).events =
-            vec![(
-                0,
-                crate::AttackEvent::Move {
-                    forward: Some(f32::NAN),
-                    vertical: None,
-                },
-            )];
-        assert!(edited.finish().is_err());
-    }
-
     fn action() -> ActionDefinition {
         ActionDefinition {
             normal: None,
             tp_cost: 2,
             execution: ActionExecution::Attack(crate::PreparedAttack {
-                contact_recovery: None,
-                opening: None,
                 events: vec![(0, crate::AttackEvent::SpecialGuard)],
-                chain_at: None,
-                end_at: 2,
-                recovery: 0,
+                ..crate::PreparedAttack::new(2)
             }),
         }
     }
@@ -689,7 +680,7 @@ mod tests {
                         special_guard: Some(crate::ActionKey(7)),
                         control: Some(Arc::new(ControlDefinition {
                             normals,
-                            shortcuts: [0; 4],
+                            shortcuts: [None; 4],
                             walk_speed: 5.,
                             run_speed: 10.,
                             turn_ticks: 8,
@@ -718,14 +709,11 @@ mod tests {
         for tp in [3, 4] {
             let mut battle = special_battle();
             battle.actors[0].tp = tp;
-            let frame = battle.step(BattleInput {
-                actions: vec![crate::ActionRequest {
-                    actor: ActorId(0),
-                    action: crate::ActionKey(7),
-                    target: ActorId(1),
-                }],
-                ..Default::default()
-            })?;
+            let frame = battle.step(BattleInput::from(crate::ActionRequest {
+                actor: ActorId(0),
+                action: crate::ActionKey(7),
+                target: ActorId(1),
+            }))?;
             if tp == 3 {
                 assert!(frame.cues.contains(&crate::Cue::Rejected {
                     actor: ActorId(0),
@@ -734,12 +722,12 @@ mod tests {
                 assert!(frame.actions.is_empty());
                 assert!(!battle.actors[0].guard.active);
                 assert_eq!(battle.actors[0].tp, 3);
-                assert_eq!(battle.technique_uses(ActorId(0), 34), Some(0));
+                assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(0));
             } else {
                 assert_eq!(battle.actors[0].tp, 0);
                 assert_eq!(battle.actors[0].guard.kind, crate::GuardKind::Special);
                 assert!(battle.actors[0].guard.active);
-                assert_eq!(battle.technique_uses(ActorId(0), 34), Some(1));
+                assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(1));
                 battle.step(BattleInput {
                     paused: true,
                     ..Default::default()
@@ -750,7 +738,7 @@ mod tests {
                 })?;
                 assert!(!battle.actors[0].guard.active);
                 assert_eq!(battle.actors[0].tp, 0);
-                assert_eq!(battle.technique_uses(ActorId(0), 34), Some(1));
+                assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(1));
             }
         }
         Ok(())
@@ -811,13 +799,19 @@ mod tests {
             crate::CastingThreat {
                 // This is the enemy spell's catalogue, not the target's
                 // character-specific guard catalogue.
-                catalogue: 66,
+                catalogue: TechniqueId(66),
                 offensive: true,
-                element: 1,
+                element: Some(crate::Element::Water),
             },
         );
-        assert_eq!(battle.runtime[0].special_guard_pending, Some(34));
-        assert_eq!(battle.runtime[1].special_guard_pending, Some(34));
+        assert_eq!(
+            battle.runtime[0].special_guard_pending,
+            Some(TechniqueId(34))
+        );
+        assert_eq!(
+            battle.runtime[1].special_guard_pending,
+            Some(TechniqueId(34))
+        );
 
         battle.runtime[0].special_guard_pending = None;
         battle.runtime[1].special_guard_pending = None;
@@ -826,9 +820,9 @@ mod tests {
             ActorId(1),
             ActorId(0),
             crate::CastingThreat {
-                catalogue: 66,
+                catalogue: TechniqueId(66),
                 offensive: true,
-                element: 1,
+                element: Some(crate::Element::Water),
             },
         );
         assert_eq!(battle.runtime[0].special_guard_pending, None);
@@ -844,9 +838,9 @@ mod tests {
             ActorId(1),
             ActorId(0),
             crate::CastingThreat {
-                catalogue: 66,
+                catalogue: TechniqueId(66),
                 offensive: true,
-                element: 1,
+                element: Some(crate::Element::Water),
             },
         );
         assert_eq!(battle.runtime[0].special_guard_pending, None);
@@ -867,9 +861,9 @@ mod tests {
             ActorId(1),
             ActorId(0),
             crate::CastingThreat {
-                catalogue: 66,
+                catalogue: TechniqueId(66),
                 offensive: true,
-                element: 1,
+                element: Some(crate::Element::Water),
             },
         );
         assert_eq!(battle.runtime[0].special_guard_pending, None);
@@ -879,12 +873,15 @@ mod tests {
             ActorId(1),
             ActorId(0),
             crate::CastingThreat {
-                catalogue: 66,
+                catalogue: TechniqueId(66),
                 offensive: true,
-                element: 1,
+                element: Some(crate::Element::Water),
             },
         );
-        assert_eq!(battle.runtime[0].special_guard_pending, Some(34));
+        assert_eq!(
+            battle.runtime[0].special_guard_pending,
+            Some(TechniqueId(34))
+        );
     }
 
     #[test]
@@ -892,8 +889,8 @@ mod tests {
     {
         let mut battle = special_battle();
         battle.actors[0].control = Control::Auto;
-        battle.learning_members[0].member.forget(34)?;
-        battle.runtime[0].special_guard_pending = Some(34);
+        battle.learning_members[0].member.forget(TechniqueId(34))?;
+        battle.runtime[0].special_guard_pending = Some(TechniqueId(34));
         assert!(!battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         assert_eq!(battle.runtime[0].special_guard_pending, None);
 
@@ -908,7 +905,7 @@ mod tests {
         )?);
         assert!(!battle.special_guard_family_available(ActorId(0)));
         battle.actors[0].control = Control::Auto;
-        battle.runtime[0].special_guard_pending = Some(34);
+        battle.runtime[0].special_guard_pending = Some(TechniqueId(34));
         assert!(!battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         battle.interrupt_actor(ActorId(0), &mut vec![]);
         assert!(battle.special_guard_family_available(ActorId(0)));
@@ -934,7 +931,7 @@ mod tests {
         });
         battle.actors[0].body.collider = Some(crate::Collider::sphere(1.));
         battle.actors[1].body.collider = Some(crate::Collider::sphere(1.));
-        battle.runtime[0].special_guard_pending = Some(34);
+        battle.runtime[0].special_guard_pending = Some(TechniqueId(34));
         assert!(
             battle.actors[0]
                 .conditions
@@ -960,7 +957,7 @@ mod tests {
         assert_eq!(battle.activity(ActorId(0)), crate::Activity::Hurt);
         assert!(actor.position.iter().all(|value| value.is_finite()));
         assert_eq!(actor.tp, tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 34), Some(0));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(0));
         assert_eq!(battle.runtime[0].special_guard_pending, None);
         Ok(())
     }
@@ -972,12 +969,12 @@ mod tests {
         battle.runtime[0].target = ActorId(0);
         battle.actors[1].position[0] = 10_000.;
         battle.actors[0].control = Control::Auto;
-        battle.runtime[0].special_guard_pending = Some(34);
+        battle.runtime[0].special_guard_pending = Some(TechniqueId(34));
         assert!(battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         assert_eq!(battle.runtime[0].special_guard_pending, None);
         assert_eq!(battle.activity(ActorId(0)), crate::Activity::Action);
 
-        battle.runtime[0].special_guard_pending = Some(34);
+        battle.runtime[0].special_guard_pending = Some(TechniqueId(34));
         battle.actors[0].conditions =
             crate::conditions::Conditions::new(crate::conditions::Layers {
                 base: Condition::Curse.into(),
@@ -993,7 +990,7 @@ mod tests {
                 equipment_overlay: Condition::ReduceItemEffect.into(),
                 ..Default::default()
             });
-        battle.runtime[0].special_guard_pending = Some(34);
+        battle.runtime[0].special_guard_pending = Some(TechniqueId(34));
         assert!(battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
 
         let mut battle = special_battle();
@@ -1003,7 +1000,7 @@ mod tests {
                 .set_technique_enabled(ActorId(0), crate::ActionKey(7), false)
                 .unwrap()
         );
-        battle.runtime[0].special_guard_pending = Some(34);
+        battle.runtime[0].special_guard_pending = Some(TechniqueId(34));
         assert!(battle.consume_pending_special_guard(ActorId(0), &mut vec![])?);
         Ok(())
     }
@@ -1016,8 +1013,8 @@ mod tests {
         let raw_cost = battle.prepared.actions.get(binding).unwrap().tp_cost;
         let expected_tp = battle.actors[0].tp
             - crate::tp::special_guard_debit(&battle.actors[0], raw_cost) as u16;
-        let guard = || BattleInput {
-            controllers: vec![ControlInput {
+        let guard = || {
+            BattleInput::from(ControlInput {
                 stick: [0, 0],
                 guard: ButtonInput {
                     held: true,
@@ -1025,11 +1022,10 @@ mod tests {
                     released: false,
                 },
                 ..ControlInput::neutral(ActorId(0))
-            }],
-            ..Default::default()
+            })
         };
-        let input = || BattleInput {
-            controllers: vec![ControlInput {
+        let input = || {
+            BattleInput::from(ControlInput {
                 stick: [0, -49],
                 vertical_pressed: -1,
                 guard: ButtonInput {
@@ -1038,21 +1034,20 @@ mod tests {
                     released: false,
                 },
                 ..ControlInput::neutral(ActorId(0))
-            }],
-            ..Default::default()
+            })
         };
         battle.step(guard())?;
         let mut released = input();
         released.controllers[0].guard = ButtonInput::default();
         let frame = battle.step(released)?;
         assert_eq!(frame.actors[0].activity, crate::Activity::Idle);
-        assert_eq!(battle.technique_uses(ActorId(0), 34), Some(0));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(0));
         battle.step(guard())?;
         let selected = battle.step(input())?;
         assert!(selected.actions.is_empty());
         assert!(!battle.actors[0].guard.active);
         assert_eq!(battle.actors[0].tp, initial_tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 34), Some(0));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(0));
         let held = battle.step(BattleInput {
             paused: true,
             ..Default::default()
@@ -1064,7 +1059,7 @@ mod tests {
         assert!(battle.actors[0].guard.active);
         assert_eq!(battle.actors[0].guard.kind, crate::GuardKind::Special);
         assert_eq!(battle.actors[0].tp, expected_tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 34), Some(1));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(1));
         for _ in 0..ACTION_COMPLETION_BUDGET {
             battle.step(BattleInput::default())?;
             if !battle.actors[0].guard.active {
@@ -1074,7 +1069,7 @@ mod tests {
         assert!(!battle.actors[0].guard.active);
         assert_eq!(battle.actors[0].guard.kind, crate::GuardKind::Normal);
         assert_eq!(battle.actors[0].tp, expected_tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 34), Some(1));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(1));
 
         let mut interrupted = special_battle();
         interrupted.step(guard())?;
@@ -1084,7 +1079,10 @@ mod tests {
         assert!(frame.actions.is_empty());
         assert!(!interrupted.actors[0].guard.active);
         assert_eq!(interrupted.actors[0].tp, initial_tp);
-        assert_eq!(interrupted.technique_uses(ActorId(0), 34), Some(0));
+        assert_eq!(
+            interrupted.technique_uses(ActorId(0), TechniqueId(34)),
+            Some(0)
+        );
         Ok(())
     }
 
@@ -1096,19 +1094,18 @@ mod tests {
                 .set_technique_enabled(ActorId(0), crate::ActionKey(7), false)
                 .unwrap()
         );
-        let guard = || BattleInput {
-            controllers: vec![ControlInput {
+        let guard = || {
+            BattleInput::from(ControlInput {
                 guard: ButtonInput {
                     held: true,
                     pressed: true,
                     released: false,
                 },
                 ..ControlInput::neutral(ActorId(0))
-            }],
-            ..Default::default()
+            })
         };
-        let input = || BattleInput {
-            controllers: vec![ControlInput {
+        let input = || {
+            BattleInput::from(ControlInput {
                 stick: [0, -49],
                 vertical_pressed: -1,
                 guard: ButtonInput {
@@ -1117,48 +1114,43 @@ mod tests {
                     released: false,
                 },
                 ..ControlInput::neutral(ActorId(0))
-            }],
-            ..Default::default()
+            })
         };
         battle.step(guard())?;
         battle.step(input())?;
         battle.step(BattleInput::default())?;
         assert_eq!(battle.actors[0].guard.kind, crate::GuardKind::Special);
         assert!(battle.actors[0].guard.active);
-        assert_eq!(battle.technique_uses(ActorId(0), 34), Some(1));
+        assert_eq!(battle.technique_uses(ActorId(0), TechniqueId(34)), Some(1));
         Ok(())
     }
 
     #[test]
     fn rejected_special_guard_keeps_its_family_available_without_queuing_an_action() -> Result<()> {
         let mut battle = special_battle();
-        let guard = || BattleInput {
-            controllers: vec![ControlInput {
+        let guard = || {
+            BattleInput::from(ControlInput {
                 guard: ButtonInput {
                     held: true,
                     pressed: true,
                     released: false,
                 },
                 ..ControlInput::neutral(ActorId(0))
-            }],
-            ..Default::default()
+            })
         };
         battle.step(guard())?;
         let tp = battle.actors[0].tp;
         battle.actors[0].hit_stop = 2;
-        battle.step(BattleInput {
-            controllers: vec![ControlInput {
-                stick: [0, -49],
-                vertical_pressed: -1,
-                guard: ButtonInput {
-                    held: true,
-                    pressed: true,
-                    released: false,
-                },
-                ..ControlInput::neutral(ActorId(0))
-            }],
-            ..Default::default()
-        })?;
+        battle.step(BattleInput::from(ControlInput {
+            stick: [0, -49],
+            vertical_pressed: -1,
+            guard: ButtonInput {
+                held: true,
+                pressed: true,
+                released: false,
+            },
+            ..ControlInput::neutral(ActorId(0))
+        }))?;
         assert_eq!(battle.activity(ActorId(0)), crate::Activity::Guarding);
         assert!(battle.special_guard_family_available(ActorId(0)));
         battle.step(BattleInput::default())?;

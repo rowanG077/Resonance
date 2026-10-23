@@ -23,11 +23,11 @@ fn charge_uses_held_input_once_and_preserves_charge_through_recovery() {
     battle.sample_cast_inputs(&[attack(true, false)]);
     let mut cues = vec![];
     for _ in 0..89 {
-        battle.advance_attack_charge(OWNER, &mut cues).unwrap();
+        battle.advance_attack_charge(OWNER, &mut cues);
     }
     assert_eq!(battle.actors[0].control_ex_state.charge, ChargeLevel::None);
     assert!(cues.is_empty());
-    battle.advance_attack_charge(OWNER, &mut cues).unwrap();
+    battle.advance_attack_charge(OWNER, &mut cues);
     assert_eq!(
         battle.actors[0].control_ex_state.charge,
         ChargeLevel::Normal
@@ -40,7 +40,7 @@ fn charge_uses_held_input_once_and_preserves_charge_through_recovery() {
         1
     );
     for _ in 0..200 {
-        battle.advance_attack_charge(OWNER, &mut cues).unwrap();
+        battle.advance_attack_charge(OWNER, &mut cues);
     }
     assert_eq!(cues.len(), 1);
     battle.enter_idle(OWNER);
@@ -56,7 +56,7 @@ fn charge_uses_held_input_once_and_preserves_charge_through_recovery() {
     battle.actors[0].control_ex_state.advance_charge();
     assert!(!battle.actors[0].control_ex_state.charge.charged());
     battle.sample_cast_inputs(&[attack(false, true)]);
-    battle.advance_attack_charge(OWNER, &mut cues).unwrap();
+    battle.advance_attack_charge(OWNER, &mut cues);
     assert_eq!(battle.actors[0].control_ex_state.charge_hold, 0);
 }
 
@@ -68,7 +68,7 @@ fn lucky_charge_clears_hold_and_reports_the_result() {
     battle.actors[0].control_ex_state.charge_hold = 89;
     battle.sample_cast_inputs(&[attack(true, false)]);
     let mut cues = vec![];
-    battle.advance_attack_charge(OWNER, &mut cues).unwrap();
+    battle.advance_attack_charge(OWNER, &mut cues);
     let state = &battle.actors[0].control_ex_state;
     assert_eq!(state.charge_hold, 0);
     assert!(matches!(
@@ -123,7 +123,7 @@ fn counter_requires_recent_guard_contact_and_holds_other_actors() {
         battle.actors[0].equipment.control_ex.counter = true;
         battle.actors[0].guard.recovery = remaining;
         let mut cues = vec![];
-        battle.activate_counter(OWNER, &mut cues).unwrap();
+        battle.activate_counter(OWNER, &mut cues);
         assert_eq!(battle.actors[0].control_ex_state.counter_active, active);
         if active {
             assert_eq!(
@@ -160,22 +160,12 @@ fn airborne_guard_combines_commands_and_double_jump_precedes_falling_attempt() {
         },
         ..attack(true, true)
     };
-    battle
-        .step(BattleInput {
-            controllers: vec![input],
-            ..Default::default()
-        })
-        .unwrap();
+    battle.step(BattleInput::from(input)).unwrap();
     assert_eq!(battle.activity(ActorId(0)), Activity::Jumping);
     assert!(battle.actors[0].movement.vertical > 0.);
     assert!(battle.actors[0].control_ex_state.double_jump_used);
     battle.actors[0].movement.vertical = -2.;
-    battle
-        .step(BattleInput {
-            controllers: vec![input],
-            ..Default::default()
-        })
-        .unwrap();
+    battle.step(BattleInput::from(input)).unwrap();
     assert!(battle.actors[0].movement.vertical < 0.);
 }
 
@@ -191,9 +181,9 @@ fn taunt_recovery_stacks_traits_caps_vitals_and_does_not_roll_lucky_healing() {
     battle.actors[0].equipment.max_tp = 50;
     battle.actors[0].tp = 49;
     let mut cues = vec![];
-    battle.complete_taunt_recovery(OWNER, &mut cues).unwrap();
+    battle.complete_taunt_recovery(OWNER, &mut cues);
     assert_eq!(battle.actors[0].hp, 1000);
-    assert_eq!(battle.actors[0].tp, 50); //1% truncateszero thenminimumone.
+    assert_eq!(battle.actors[0].tp, 50); // 1% truncates to zero, then clamps to one.
     for (kind, nominal, applied) in [
         (crate::RecoveryKind::Hp, 20, 20),
         (crate::RecoveryKind::Tp, 1, 1),

@@ -2,6 +2,7 @@
 use crate::{
     all_assets::roles,
     media::{self, Workspace, library::Pools},
+    read::Field,
 };
 use anyhow::{Context, Result, ensure};
 use resonance_audio::package::Package;
@@ -191,6 +192,7 @@ pub(crate) fn publish_in(
             );
         }
         if !selection.sounds.is_empty() {
+            let synthesis = media::synthesis_tables(&executable)?;
             let sources = crate::source_assets::Sources::read_with(extracted, &executable)?;
             input_paths.insert(format!("files/{}", sources.usual));
             let party = roles::party_banks(extracted, &executable)?;
@@ -250,7 +252,7 @@ pub(crate) fn publish_in(
                         output,
                         &resources,
                         score,
-                        media::synthesis_tables(&executable)?,
+                        synthesis.clone(),
                         reverbs,
                     )?;
                     sounds.insert(i16::try_from(id)?, publish(package)?);
@@ -318,13 +320,6 @@ pub(crate) fn publish_in(
             );
         }
     }
-    let spatial = |start| -> Result<[f32; 5]> {
-        let mut values = [0.; 5];
-        for (i, value) in values.iter_mut().enumerate() {
-            *value = crate::read::f32(module.at((4, start))?, i * 4)?;
-        }
-        Ok(values)
-    };
     let descriptor = Audio {
         assets: FieldAudio {
             version: FieldAudio::VERSION,
@@ -334,8 +329,8 @@ pub(crate) fn publish_in(
             voices,
             voice_gains: media::field_audio::voice_gains(&executable)?,
         },
-        effect_spatial: spatial(0x4d8)?,
-        voice_spatial: spatial(0x4668)?,
+        effect_spatial: <[f32; 5]>::read(module.at((4, 0x4d8))?, 0)?,
+        voice_spatial: <[f32; 5]>::read(module.at((4, 0x4668))?, 0)?,
         files,
     };
     descriptor.validate()?;
@@ -347,8 +342,7 @@ pub(crate) fn publish_in(
         inputs: input_paths
             .into_iter()
             .map(|path| {
-                // DOL declarations preserve authored casing; source inventories
-                // name the actual extracted file, just as archive loading does.
+                // Record the actual filename when a declaration's casing differs.
                 let path = if let Some(source) = path.strip_prefix("files/") {
                     format!(
                         "files/{}",

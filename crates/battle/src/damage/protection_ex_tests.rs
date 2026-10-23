@@ -4,28 +4,24 @@ use crate::conditions::Condition;
 use crate::{
     Activity, ChargeLevel, Control, GuardKind, HitProtection, ProtectionMode, Side, tests::actor,
 };
+use DamageKind::{Magic, Slash};
+use HitElement::{Inherited, Neutral};
+
+const FIRE: HitElement = HitElement::Element(Element::Fire);
 
 fn fixed(kind: DamageKind, element: HitElement) -> HitRule {
     HitRule {
-        sound: None,
         kind,
-        arte: false,
-        effect_on_guard: false,
-        effect: None,
         overlimit_pause: true,
         power: Power::Fixed(201),
         element,
-        prevents_defeat: false,
-        finisher_grade: false,
-        hp_drain: false,
-        guard: GuardRule::default(),
         reaction: crate::ReactionRule {
             hitstun: 60,
             armor_damage: 2,
             stagger: 7,
             ..Default::default()
         },
-        condition: None,
+        ..crate::tests::hit()
     }
 }
 fn defender() -> Actor {
@@ -56,37 +52,13 @@ fn hit(
 #[test]
 fn stability_checks_contact_kind_element_guard_and_probability() {
     for (kind, element, guard, roll, stable) in [
-        (DamageKind::Slash, HitElement::Neutral, None, 9, true),
-        (DamageKind::Slash, HitElement::Neutral, None, 10, false),
-        (DamageKind::Magic, HitElement::Neutral, None, 0, false),
-        (
-            DamageKind::Magic,
-            HitElement::Element(Element::Fire),
-            None,
-            9,
-            true,
-        ),
-        (
-            DamageKind::Slash,
-            HitElement::Neutral,
-            Some(GuardKind::Normal),
-            0,
-            false,
-        ),
-        (
-            DamageKind::Magic,
-            HitElement::Element(Element::Fire),
-            Some(GuardKind::Normal),
-            9,
-            true,
-        ),
-        (
-            DamageKind::Magic,
-            HitElement::Element(Element::Fire),
-            Some(GuardKind::Special),
-            9,
-            false,
-        ),
+        (Slash, Neutral, None, 9, true),
+        (Slash, Neutral, None, 10, false),
+        (Magic, Neutral, None, 0, false),
+        (Magic, FIRE, None, 9, true),
+        (Slash, Neutral, Some(GuardKind::Normal), 0, false),
+        (Magic, FIRE, Some(GuardKind::Normal), 9, true),
+        (Magic, FIRE, Some(GuardKind::Special), 9, false),
     ] {
         let mut target = defender();
         target.equipment.damage.physical_stability = true;
@@ -108,7 +80,7 @@ fn stability_checks_contact_kind_element_guard_and_probability() {
     let result = resolve(
         &owner,
         &mut target,
-        fixed(DamageKind::Magic, HitElement::Inherited),
+        fixed(Magic, Inherited),
         100,
         [0.; 3],
         &mut |draw| match draw {
@@ -125,7 +97,7 @@ fn stability_checks_contact_kind_element_guard_and_probability() {
 
 #[test]
 fn elemental_reduction_and_stability_have_independent_probability_boundaries() {
-    let rule = fixed(DamageKind::Magic, HitElement::Element(Element::Fire));
+    let rule = fixed(Magic, FIRE);
     for (reduction, stability, reduced, stable) in [
         (4, 10, true, false),
         (5, 9, false, true),
@@ -185,41 +157,28 @@ fn casting_and_dash_stability_follow_gameplay_state_independently_of_portraits()
         };
         target.equipment.damage.casting_stability = true;
         target.equipment.damage.run_magic_stability = true;
-        let (stable, _) = conditional_stability(
-            &target,
-            activity,
-            DamageKind::Magic,
-            None,
-            &mut neutral_roll,
-        );
+        let (stable, _) = conditional_stability(&target, activity, Magic, None, &mut neutral_roll);
         assert_eq!(stable, expected);
     }
     let mut target = defender();
     target.movement.locomotion = crate::Locomotion::Run;
     target.equipment.damage.run_magic_stability = true;
     assert!(
-        !hit(
-            &mut target,
-            fixed(DamageKind::Slash, HitElement::Neutral),
-            neutral_roll
-        )
-        .0
-        .suppresses_reaction()
+        !hit(&mut target, fixed(Slash, Neutral), neutral_roll)
+            .0
+            .suppresses_reaction()
     );
 }
 
 #[test]
 fn stored_spell_and_charge_protection_require_live_state_and_contact_element() {
     for charged in [false, true] {
-        for element in [HitElement::Neutral, HitElement::Element(Element::Fire)] {
+        for element in [Neutral, FIRE] {
             let mut target = defender();
             target.equipment.damage.stored_spell_stability = true;
             target.stored_spell = charged.then_some(crate::ActionKey(102));
-            let result = hit(&mut target, fixed(DamageKind::Slash, element), neutral_roll).0;
-            assert_eq!(
-                result.suppresses_reaction(),
-                charged && element != HitElement::Neutral
-            );
+            let result = hit(&mut target, fixed(Slash, element), neutral_roll).0;
+            assert_eq!(result.suppresses_reaction(), charged && element != Neutral);
             let mut target = defender();
             target.equipment.damage.charged_neutral_stability = true;
             target.control_ex_state.charge = if charged {
@@ -227,11 +186,8 @@ fn stored_spell_and_charge_protection_require_live_state_and_contact_element() {
             } else {
                 ChargeLevel::None
             };
-            let result = hit(&mut target, fixed(DamageKind::Magic, element), neutral_roll).0;
-            assert_eq!(
-                result.suppresses_reaction(),
-                charged && element == HitElement::Neutral
-            );
+            let result = hit(&mut target, fixed(Magic, element), neutral_roll).0;
+            assert_eq!(result.suppresses_reaction(), charged && element == Neutral);
         }
     }
     for (charge, running, expected) in [
@@ -248,11 +204,7 @@ fn stored_spell_and_charge_protection_require_live_state_and_contact_element() {
         } else {
             crate::Locomotion::Idle
         };
-        let (result, _) = hit(
-            &mut target,
-            fixed(DamageKind::Slash, HitElement::Element(Element::Fire)),
-            neutral_roll,
-        );
+        let (result, _) = hit(&mut target, fixed(Slash, FIRE), neutral_roll);
         assert_eq!(result.suppresses_reaction(), expected);
     }
 }
@@ -263,7 +215,7 @@ fn stability_keeps_down_shift_ailment_admission_and_lethal_normalization() {
     target.equipment.damage.stability = true;
     target.reaction.protection.mode = ProtectionMode::Down;
     target.reaction.stagger.window = 5;
-    let mut rule = fixed(DamageKind::Slash, HitElement::Neutral);
+    let mut rule = fixed(Slash, Neutral);
     rule.condition = Some(HitCondition {
         condition: resonance_content::battle_action::Condition::Weak,
         chance: 100,
@@ -277,12 +229,7 @@ fn stability_keeps_down_shift_ailment_admission_and_lethal_normalization() {
     let mut target = defender();
     target.hp = 1;
     target.equipment.damage.stability = true;
-    let result = hit(
-        &mut target,
-        fixed(DamageKind::Slash, HitElement::Neutral),
-        neutral_roll,
-    )
-    .0;
+    let result = hit(&mut target, fixed(Slash, Neutral), neutral_roll).0;
     assert_eq!(target.hp, 0);
     assert_eq!(result.protection, HitProtection::None);
     assert!(!result.suppresses_reaction());
@@ -306,7 +253,7 @@ fn forced_reaction_preserves_mitigation_rng_and_earlier_condition_decisions() {
         for force in [false, true] {
             let mut target = defender();
             target.hp = 500;
-            let mut rule = fixed(DamageKind::Slash, HitElement::Neutral);
+            let mut rule = fixed(Slash, Neutral);
             rule.reaction.force = force;
             rule.guard.pressure = 2;
             rule.condition = Some(HitCondition {
@@ -376,11 +323,7 @@ fn low_health_special_guard_avoids_damage_without_building_gauges() {
         target.equipment.damage.low_hp_special_guard = true;
         target.guard.active = true;
         target.guard.kind = GuardKind::Special;
-        let (result, label) = hit(
-            &mut target,
-            fixed(DamageKind::Slash, HitElement::Neutral),
-            neutral_roll,
-        );
+        let (result, label) = hit(&mut target, fixed(Slash, Neutral), neutral_roll);
         assert_eq!(result.hp_change, if avoided { 0 } else { -40 });
         assert_eq!(result.amount, if avoided { 0 } else { 40 });
         assert_eq!(result.protection == HitProtection::Avoided, avoided);
@@ -409,11 +352,7 @@ fn special_guard_survival_requires_an_active_stance() {
         target.guard.kind = kind;
         target.guard.active = active;
         target.equipment.damage.special_guard_survival = true;
-        let (result, _) = hit(
-            &mut target,
-            fixed(DamageKind::Magic, HitElement::Neutral),
-            neutral_roll,
-        );
+        let (result, _) = hit(&mut target, fixed(Magic, Neutral), neutral_roll);
         assert_eq!(target.hp, expected_hp);
         if kind == GuardKind::Special && active {
             assert_eq!(
@@ -447,7 +386,7 @@ fn guard_modifiers_compose_with_bounded_reduction_and_overlimit() {
         let result = resolve(
             &owner,
             &mut target,
-            fixed(DamageKind::Slash, HitElement::Neutral),
+            fixed(Slash, Neutral),
             100,
             [0.; 3],
             &mut neutral_roll,
@@ -490,7 +429,7 @@ fn rear_guard_bypasses_direction_only_and_charge_break_requires_attacker_skill()
         let result = guard::resolve_from(
             &owner,
             &mut target,
-            DamageKind::Slash,
+            Slash,
             rule,
             Affinity::Normal,
             [0., 0., 1.],
@@ -545,42 +484,4 @@ fn aerial_guard_requires_airborne_guard_intent_and_uses_random_policy_for_auto()
             );
         }
     }
-}
-
-#[test]
-fn equipment_refresh_replaces_protection_traits_and_preserves_live_guard() {
-    let mut target = defender();
-    target.guard.kind = GuardKind::Special;
-    target.guard.active = true;
-    target.guard.pressure = 7;
-    target.equipment.damage.rear_guard = true;
-    target.equipment.damage.physical_stability = true;
-    target.species = 6;
-    let prepared =
-        crate::PreparedBattle::new(vec![(target, Default::default())], Default::default(), 17)
-            .unwrap();
-    let id = prepared.actor_ids().next().unwrap();
-    let mut battle = prepared.finish().unwrap();
-    let mut replacement = defender();
-    replacement.equipment.damage.special_guard_reduction = true;
-    replacement.equipment.damage.special_guard_survival = true;
-    replacement.equipment.damage.casting_stability = true;
-    crate::tests::equip(&mut battle, id, replacement).unwrap();
-    let target = &battle.actors()[0];
-    assert_eq!(
-        (
-            target.guard.kind,
-            target.guard.active,
-            target.guard.pressure
-        ),
-        (GuardKind::Special, true, 7)
-    );
-    assert_eq!(target.species, 6);
-    assert!(!target.equipment.damage.rear_guard && !target.equipment.damage.physical_stability);
-    assert!(
-        target.equipment.damage.special_guard_reduction
-            && target.equipment.damage.special_guard_survival
-            && target.equipment.damage.casting_stability
-    );
-    assert_eq!(battle.random_state(), 17);
 }

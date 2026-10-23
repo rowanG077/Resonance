@@ -1,5 +1,6 @@
 use super::item_tests::{PreparedFixture, prepared_fixture_with_party};
 use super::*;
+use resonance_battle::TechniqueId;
 use resonance_content::menu_data::ex_effect as ex;
 use resonance_events::party::StatBuff;
 
@@ -25,7 +26,7 @@ fn startup_normalizes_formation_identities_and_preserves_reserve_and_absent_memb
         .setup
         .actors
         .iter()
-        .find(|&&(_, character)| character == 3)
+        .find(|&&(_, character)| character == Character::Genis)
         .unwrap()
         .0;
     assert_eq!(fixture.field.members[2].technique_balance, -99);
@@ -82,7 +83,9 @@ fn missing_victory_motions_fall_back_to_posture_and_strict_preparation_rejects_t
     assert!(fixture.battle.diagnostics().has_errors());
     assert!(fixture.candidate.setup.performances.is_empty());
     assert_eq!(fixture.candidate.setup.postures.len(), 1);
-    fixture.candidate.select_victory(&fixture.battle, 0, 0)?;
+    fixture
+        .candidate
+        .select_victory(&fixture.battle, victory_selection::Selection::Solo(0))?;
     assert_eq!(fixture.candidate.selection().unwrap().pose, None);
     assert!(prepare(true).is_err());
     Ok(())
@@ -108,7 +111,9 @@ fn victory_commits_item_rewards_and_learned_techniques_once() -> Result<()> {
     })?;
     let actor = fixture.candidate.setup.actors[0].0;
     assert_eq!(
-        fixture.battle.technique_is_current(actor, HEALER),
+        fixture
+            .battle
+            .technique_is_current(actor, TechniqueId(HEALER)),
         Some(false)
     );
     let before_items = fixture.candidate.party.items[&1];
@@ -162,7 +167,9 @@ fn victory_commits_item_rewards_and_learned_techniques_once() -> Result<()> {
             assert!(regal.techniques.contains(&HEALER));
             assert!(regal.shortcuts.contains(&HEALER));
             assert_eq!(
-                fixture.battle.technique_is_current(actor, HEALER),
+                fixture
+                    .battle
+                    .technique_is_current(actor, TechniqueId(HEALER)),
                 Some(false)
             );
         }
@@ -205,8 +212,17 @@ fn victory_commits_item_rewards_and_learned_techniques_once() -> Result<()> {
         Ok(())
     })?;
     let actor = next.candidate.setup.actors[0].0;
-    assert_eq!(next.battle.current_techniques(actor), Some(&techniques));
-    assert_eq!(next.battle.shortcuts(actor), Some(&shortcuts));
-    assert_eq!(next.battle.technique_uses(actor, HEALER), Some(0));
+    assert_eq!(
+        next.battle.current_techniques(actor),
+        Some(&techniques.iter().copied().map(TechniqueId).collect())
+    );
+    assert_eq!(
+        next.battle.shortcuts(actor),
+        Some(&shortcuts.map(|id| (id != 0).then_some(TechniqueId(id))))
+    );
+    assert_eq!(
+        next.battle.technique_uses(actor, TechniqueId(HEALER)),
+        Some(0)
+    );
     Ok(())
 }

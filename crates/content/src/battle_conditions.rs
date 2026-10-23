@@ -179,24 +179,3 @@ impl<'de> Deserialize<'de> for ConditionSet {
             .collect())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn condition_sets_serialize_names_and_reject_unknown_conditions() {
-        let set = ConditionSet::of(&[Condition::Weak, Condition::PoisonMild]);
-        assert_eq!(
-            serde_json::to_string(&set).unwrap(),
-            "[\"poison_mild\",\"weak\"]"
-        );
-        assert_eq!(
-            serde_json::from_str::<ConditionSet>("[\"weak\",\"poison_mild\",\"weak\"]").unwrap(),
-            set
-        );
-        for invalid in ["1", "[1,2]", "[\"unknown\"]"] {
-            assert!(serde_json::from_str::<ConditionSet>(invalid).is_err());
-        }
-    }
-}

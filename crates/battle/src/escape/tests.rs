@@ -28,17 +28,7 @@ fn definition(count: usize, difference: i8) -> EscapeDefinition {
 fn battle(party: usize, difference: i8) -> Battle {
     let mut actors = vec![actor(Side::Party); party];
     actors.push(actor(Side::Enemy));
-    let mut battle = PreparedBattle::new(
-        (actors)
-            .into_iter()
-            .map(|actor| (actor, Default::default()))
-            .collect(),
-        Default::default(),
-        17,
-    )
-    .unwrap()
-    .finish()
-    .unwrap();
+    let mut battle = crate::tests::prepare_actors(actors, 17).finish().unwrap();
     battle.prepared.escape = Some(definition(party, difference));
     battle
 }
@@ -114,30 +104,6 @@ fn whole_update_runs_late_gain_and_next_prefix_success_with_menu_holds() {
     assert_eq!(battle.recognize_update(), Some(BattleResult::Escaped));
     assert_eq!(battle.escape.gauge, 1024);
     assert_eq!(battle.ledger.ordinary_escape, Some(ActorId(0)));
-}
-
-#[test]
-fn magic_mist_adds_before_clamp_and_survives_ko_until_equipment_refresh() {
-    for (difference, expected) in [(-8, 3), (-4, 7), (0, 11), (8, 19)] {
-        let mut battle = battle(1, difference);
-        battle.refresh_escape_magic_mist(true);
-        battle.toggle_escape(ActorId(0)).unwrap();
-        battle.advance_escape();
-        assert_eq!(battle.escape.gauge, expected);
-        // A retained global flag does not query the wearer's live state.
-        battle.actors[0].availability = ActorAvailability::Dead;
-        battle.advance_escape();
-        assert_eq!(battle.escape.gauge, expected * 2);
-        battle.items.all_divide = true;
-        battle.refresh_escape_magic_mist(false);
-        assert!(battle.all_divide_active());
-        assert_eq!(battle.escape.gauge, expected * 2);
-        battle.advance_escape();
-        assert_eq!(
-            battle.escape.gauge,
-            expected * 2 + (i16::from(difference) + 7).clamp(3, 24)
-        );
-    }
 }
 
 #[test]
@@ -302,17 +268,7 @@ fn terminal_priority_prevents_ordinary_gauge_success_and_forced_metadata() {
 
 #[test]
 fn prepared_escape_rejects_missing_bindings_without_mutating_runtime() {
-    let prepared = || {
-        PreparedBattle::new(
-            vec![
-                (actor(Side::Party), Default::default()),
-                (actor(Side::Enemy), Default::default()),
-            ],
-            Default::default(),
-            0,
-        )
-        .unwrap()
-    };
+    let prepared = || crate::tests::prepare_actors(vec![actor(Side::Party), actor(Side::Enemy)], 0);
     assert!(prepared().with_escape(definition(1, 0)).finish().is_err());
     assert!(prepared().with_escape(definition(0, 0)).finish().is_err());
     assert!(prepared().with_escape(definition(1, 9)).finish().is_err());

@@ -36,7 +36,7 @@ impl Battle {
         (self.unison_gauge.clamp(0, MAX_UNISON_GAUGE) / SAVED_GAUGE_SCALE) as u8
     }
 
-    pub(crate) fn begin_taunt(&mut self, actor: ActorId) -> Result<()> {
+    pub(crate) fn begin_taunt(&mut self, actor: ActorId) {
         let index = actor.index();
         self.set_task(
             index,
@@ -60,7 +60,6 @@ impl Battle {
             pose: crate::CommonPose::Taunt,
         });
         self.pending_cues.push(Cue::Taunted { actor });
-        Ok(())
     }
 
     pub(crate) fn advance_taunt(
@@ -69,7 +68,7 @@ impl Battle {
         remaining: u32,
         input: crate::ControlInput,
         cues: &mut Vec<Cue>,
-    ) -> Result<bool> {
+    ) -> bool {
         let index = actor.index();
         if matches!(
             self.actors[index].control,
@@ -77,12 +76,12 @@ impl Battle {
         ) && self.actors[index].equipment.taunt_cancel
             && input.guard.held
         {
-            self.cancel_taunt(actor)?;
+            self.cancel_taunt(actor);
             self.integrate_taunt(actor);
-            return Ok(true);
+            return true;
         }
         if remaining <= 1 {
-            self.finish_taunt(actor, cues)?;
+            self.finish_taunt(actor, cues);
         } else {
             self.set_task(
                 index,
@@ -91,31 +90,29 @@ impl Battle {
                 },
             );
             self.integrate_taunt(actor);
-            self.advance_hover(index, true)?;
+            self.advance_hover(index, true);
         }
-        Ok(true)
+        true
     }
 
-    fn cancel_taunt(&mut self, actor: ActorId) -> Result<()> {
+    fn cancel_taunt(&mut self, actor: ActorId) {
         let index = actor.index();
         self.enter_player_guard(index);
         self.set_task(index, ActorTask::None);
         let control = self.runtime[index].control.as_mut().unwrap();
         self.actors[index].movement.locomotion = crate::control::Locomotion::Action;
         control.run_ticks = 0;
-        Ok(())
     }
 
-    fn finish_taunt(&mut self, actor: ActorId, cues: &mut Vec<Cue>) -> Result<()> {
+    fn finish_taunt(&mut self, actor: ActorId, cues: &mut Vec<Cue>) {
         let index = actor.index();
         if self.actors[index].side == crate::Side::Party {
             self.add_unison_gauge(TAUNT_GAUGE_GAIN, cues);
         }
-        self.complete_taunt_recovery(actor, cues)?;
+        self.complete_taunt_recovery(actor, cues);
         let owner = &mut self.actors[index];
         owner.movement.direction = owner.facing_direction;
         self.enter_idle(actor);
-        Ok(())
     }
 
     fn integrate_taunt(&mut self, actor: ActorId) {

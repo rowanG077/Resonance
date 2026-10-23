@@ -180,11 +180,8 @@ def capture(worker, state_path, target, marker, max_vis, owner, expected, done, 
                                     lambda observed: done(rows + observed))
         worker.validate_rows(rows[-1:] + tail, marker)
         rows.extend(tail)
-        target.mkdir()
-        receipt = json.loads((tail_target / "capture.json").read_text())
-        receipt["segments"] = [str(admission / "capture.json"), str(tail_target / "capture.json")]
-        (target / "capture.json").write_text(json.dumps(receipt, indent=2) + "\n")
-        (target / "observations.json").write_text(json.dumps(rows) + "\n")
+        combine(target, [admission, tail_target], rows, state_path, single_action_control=boundary)
+        return rows
     path = target / "capture.json"
     receipt = json.loads(path.read_text())
     receipt["single_action_control"] = boundary

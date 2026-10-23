@@ -44,7 +44,10 @@ fn pending_item_cancels_chanting_without_payment() {
         let frame = battle.step(BattleInput::default()).unwrap();
         assert_eq!(frame.actors[0].activity, crate::Activity::Idle);
         assert_eq!(frame.actors[0].tp, tp);
-        assert_eq!(battle.technique_uses(ActorId(0), 66), Some(49));
+        assert_eq!(
+            battle.technique_uses(ActorId(0), crate::TechniqueId(66)),
+            Some(49)
+        );
         assert_eq!(battle.pending_item(), Some(request));
         assert!(
             !frame

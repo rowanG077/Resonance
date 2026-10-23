@@ -1,4 +1,5 @@
 //! Each thrown weapon travels out, returns to its owner, and hits each target once.
+use crate::WeaponSlot;
 use crate::{ActionId, ActorId, HitRule};
 use anyhow::{Result, ensure};
 use glam::Vec3;
@@ -6,7 +7,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct WeaponFlightDefinition {
-    pub slot: u8,
+    pub slot: WeaponSlot,
     /// Launch and return point in actor-local units, independent of animation.
     pub origin: [f32; 3],
     pub outbound_ticks: u32,
@@ -21,7 +22,7 @@ impl WeaponFlightDefinition {
     pub(crate) fn validate(&self) -> Result<()> {
         self.hit.reaction.validate()?;
         ensure!(
-            self.slot < 2
+            self.slot.is_primary()
                 && self.origin.iter().all(|value| value.is_finite())
                 && self.speed.is_finite()
                 && self.speed > 0.
@@ -106,7 +107,7 @@ impl Flight {
 }
 
 impl crate::Battle {
-    pub(crate) fn retire_weapon_flight(&mut self, owner: ActorId, slot: u8) {
+    pub(crate) fn retire_weapon_flight(&mut self, owner: ActorId, slot: WeaponSlot) {
         self.weapon_flights.remove(&(owner, slot));
     }
 
@@ -139,7 +140,7 @@ impl crate::Battle {
         contacts: &mut crate::contact::Contacts,
         cues: &mut Vec<crate::Cue>,
     ) -> Result<()> {
-        for slot in 0..2 {
+        for slot in WeaponSlot::PRIMARY {
             let key = (owner, slot);
             if self
                 .weapon_flights
@@ -166,7 +167,7 @@ impl crate::Battle {
             })();
             if let Err(error) = result {
                 self.diagnostics.report(
-                    &format!("battle actor {} weapon {slot}", owner.index()),
+                    &format!("battle actor {} weapon {slot:?}", owner.index()),
                     error,
                 )?;
                 self.diagnostic = true;
@@ -184,7 +185,7 @@ mod tests;
 #[derive(Debug, Clone, PartialEq)]
 pub struct WeaponFlightFrame {
     pub owner: ActorId,
-    pub slot: u8,
+    pub slot: WeaponSlot,
     pub position: [f32; 3],
     pub direction: [f32; 3],
 }

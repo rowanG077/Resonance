@@ -2,9 +2,10 @@
 //! Comparison with independently observed source traces belongs to `compare`.
 use super::feedback::Feedback;
 use anyhow::{Context, Result, ensure};
+use resonance_battle::ControllerPort;
 use resonance_battle::{
     ActionId, ActionRequest, Activity, ActorId, BattleInput, BattlePhase, ContactSource, Cue,
-    EffectFollow, Effects, ParticleId, ProjectileId, Side,
+    EffectFollow, Effects, ParticleId, ProjectileId, ResourceId, Side,
 };
 use resonance_content::{
     arte::{Catalogue, RegalArteFamily, TechniqueTarget},
@@ -70,7 +71,7 @@ pub(super) struct Case {
     pub binding: Binding,
     pub context: ContextKind,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Trace {
     pub case: String,
     pub setup: Value,
@@ -132,9 +133,9 @@ fn cleanup_requires_the_native_tail_to_retire() {
 
 fn cleanup_baseline(
     setup: &Value,
-    banks: &BTreeMap<u32, String>,
+    banks: &BTreeMap<ResourceId, String>,
     member: &str,
-) -> Result<BTreeSet<(ActorId, u32, u16)>> {
+) -> Result<BTreeSet<(ActorId, ResourceId, u16)>> {
     let mut result = BTreeSet::new();
     for entry in setup["effect_baseline"].as_array().into_iter().flatten() {
         let owner = ActorId::from_index(field(entry, "owner")?)?;
@@ -630,11 +631,7 @@ impl Oracle {
             #[serde(default)]
             stick_intervals: Vec<StickInterval>,
         }
-        let recipient_input: Option<RecipientInput> = setup
-            .get("recipient_input")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?;
+        let recipient_input: Option<RecipientInput> = optional_field(setup, "recipient_input")?;
         if let Some(control) = &recipient_input {
             ensure!(
                 matches!(case.binding, Binding::Enemy { .. })
@@ -690,11 +687,7 @@ impl Oracle {
                 previous_release = interval.release_after_updates;
             }
         }
-        let support: Option<support::Observation> = setup
-            .get("support")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?;
+        let support: Option<support::Observation> = optional_field(setup, "support")?;
         let observe_time_stop = support.is_some_and(|observation| observation.time_stop);
         ensure!(
             !observe_time_stop
@@ -768,21 +761,11 @@ impl Oracle {
         let source_seed: u64 = field(setup, "seed")?;
         // Independent random streams can use explicit seeds to exercise the same
         // stochastic branch. Keep the captured source seed unchanged.
-        let seed = setup
-            .get("native_seed")
-            .cloned()
-            .map(serde_json::from_value::<u64>)
-            .transpose()?
-            .unwrap_or(source_seed);
+        let seed = optional_field::<u64>(setup, "native_seed")?.unwrap_or(source_seed);
         let input_arte = match case.binding {
-            Binding::Party { arte, .. } => Some(
-                setup["input"]
-                    .get("selection_arte")
-                    .cloned()
-                    .map(serde_json::from_value::<u16>)
-                    .transpose()?
-                    .unwrap_or(arte),
-            ),
+            Binding::Party { arte, .. } => {
+                Some(optional_field::<u16>(&setup["input"], "selection_arte")?.unwrap_or(arte))
+            }
             Binding::Enemy { .. } => None,
         };
         let support_input = input_arte
@@ -848,11 +831,8 @@ impl Oracle {
         } else {
             None
         };
-        let pending_entry: Option<u32> = setup["input"]
-            .get("pending_entry_after_updates")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?;
+        let pending_entry: Option<u32> =
+            optional_field(&setup["input"], "pending_entry_after_updates")?;
         ensure!(
             request_delay > 0,
             "source request must follow its ready snapshot"
@@ -867,12 +847,8 @@ impl Oracle {
             after_updates: u32,
             target: usize,
         }
-        let approach_target_changes: Vec<ApproachTargetChange> = setup
-            .get("approach_target_changes")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?
-            .unwrap_or_default();
+        let approach_target_changes: Vec<ApproachTargetChange> =
+            optional_field(setup, "approach_target_changes")?.unwrap_or_default();
         #[derive(Deserialize)]
         struct MenuControlChange {
             actor: usize,
@@ -886,11 +862,7 @@ impl Oracle {
             command_after_updates: u32,
             control_changes: Vec<MenuControlChange>,
         }
-        let menu_prelude: Option<MenuPrelude> = setup
-            .get("menu_prelude")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?;
+        let menu_prelude: Option<MenuPrelude> = optional_field(setup, "menu_prelude")?;
         if let Some(menu) = &menu_prelude {
             ensure!(
                 matches!(case.binding, Binding::Party { .. })
@@ -908,11 +880,7 @@ impl Oracle {
                 "source menu input is outside its observed prelude"
             );
         }
-        let defense_deployed: Option<bool> = setup
-            .get("defense_deployed")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?;
+        let defense_deployed: Option<bool> = optional_field(setup, "defense_deployed")?;
         let initial_effect_entry = initial_effect_entry(setup)?;
         let ready_combat: u32 = field(&setup["initial_battle"], "combat_tick")?;
         let ready_presentation: u32 = field(&setup["initial_battle"], "presentation_tick")?;
@@ -938,12 +906,8 @@ impl Oracle {
             actor: usize,
             position: [f32; 3],
         }
-        let ready_condition_visits: Vec<ReadyConditionVisit> = serde_json::from_value(
-            setup
-                .get("ready_condition_visits")
-                .cloned()
-                .unwrap_or_else(|| json!([])),
-        )?;
+        let ready_condition_visits: Vec<ReadyConditionVisit> =
+            optional_field(setup, "ready_condition_visits")?.unwrap_or_default();
         #[derive(Deserialize)]
         struct EntryPlayback {
             after_updates: u32,
@@ -956,12 +920,8 @@ impl Oracle {
             blend: u8,
             loop_start: f32,
         }
-        let entry_playback: Vec<EntryPlayback> = setup
-            .get("entry_model_transitions")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?
-            .unwrap_or_default();
+        let entry_playback: Vec<EntryPlayback> =
+            optional_field(setup, "entry_model_transitions")?.unwrap_or_default();
         ensure!(
             entry_playback
                 .iter()
@@ -978,12 +938,8 @@ impl Oracle {
             position: [f32; 3],
             heading: Option<f32>,
         }
-        let entry_placements: Vec<EntryPlacement> = setup
-            .get("entry_placements")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?
-            .unwrap_or_default();
+        let entry_placements: Vec<EntryPlacement> =
+            optional_field(setup, "entry_placements")?.unwrap_or_default();
         ensure!(
             entry_placements.iter().all(|placement| {
                 placement.after_updates > 0 && placement.after_updates <= entry_pose_updates
@@ -1023,12 +979,8 @@ impl Oracle {
             interval: u16,
             counter: u16,
         }
-        let carried_clocks: Vec<CarriedClock> = setup
-            .get("ready_attachment_effects")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?
-            .unwrap_or_default();
+        let carried_clocks: Vec<CarriedClock> =
+            optional_field(setup, "ready_attachment_effects")?.unwrap_or_default();
         #[derive(Deserialize)]
         struct PassiveClock {
             actor: usize,
@@ -1036,18 +988,10 @@ impl Oracle {
             interval: u16,
             counter: u16,
         }
-        let passive_clocks: Vec<PassiveClock> = setup
-            .get("ready_passive_effects")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?
-            .unwrap_or_default();
-        let idle_clocks: Vec<PassiveClock> = setup
-            .get("ready_idle_effects")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?
-            .unwrap_or_default();
+        let passive_clocks: Vec<PassiveClock> =
+            optional_field(setup, "ready_passive_effects")?.unwrap_or_default();
+        let idle_clocks: Vec<PassiveClock> =
+            optional_field(setup, "ready_idle_effects")?.unwrap_or_default();
         #[derive(Deserialize)]
         struct AmbientClock {
             bank: String,
@@ -1056,11 +1000,7 @@ impl Oracle {
             counter: u16,
             elapsed_updates: u16,
         }
-        let ambient_clock: Option<AmbientClock> = setup
-            .get("ready_ambient_effect")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?;
+        let ambient_clock: Option<AmbientClock> = optional_field(setup, "ready_ambient_effect")?;
         if let Some(observed) = &ambient_clock {
             ensure!(
                 observed.interval > 0
@@ -1132,11 +1072,7 @@ impl Oracle {
             route: [i32; 5],
             music: u16,
         }
-        let event_route: Option<EventRoute> = setup
-            .get("event_route")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?;
+        let event_route: Option<EventRoute> = optional_field(setup, "event_route")?;
         let options = || -> Result<PrepareOptions> {
             Ok(PrepareOptions {
                 hunting_symbol: None,
@@ -1177,12 +1113,8 @@ impl Oracle {
             clip: u16,
             motion: random_inputs::Pin,
         }
-        let entry_motions: Vec<EntryMotion> = setup
-            .get("entry_shared_motions")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()?
-            .unwrap_or_default();
+        let entry_motions: Vec<EntryMotion> =
+            optional_field(setup, "entry_shared_motions")?.unwrap_or_default();
         for motion in entry_motions {
             ensure!(
                 entry_playback
@@ -1271,7 +1203,7 @@ impl Oracle {
                                 .1
                                 .enemy_decision
                                 .as_ref()
-                                .is_some_and(|decision| decision.enemy_id == enemy),
+                                .is_some_and(|decision| decision.enemy_id == resonance_battle::EnemyId(enemy)),
                             "source owner is not the selected enemy"
                         ),
                     }
@@ -1280,7 +1212,7 @@ impl Oracle {
                             .1
                             .techniques
                             .iter()
-                            .find(|technique| technique.catalogue == arte)
+                            .find(|technique| technique.catalogue == resonance_battle::TechniqueId(arte))
                             .map(|technique| technique.action)
                             .context("catalogue arte has no prepared action")?,
                         Binding::Enemy { row, .. } => {
@@ -1323,7 +1255,7 @@ impl Oracle {
                             };
                             departure_companions.extend(participants.iter().enumerate()
                                 .filter(|(index, (_, setup))| *index != owner && setup.enemy_decision
-                                    .as_ref().is_some_and(|definition| u16::from(definition.enemy_id) == *enemy))
+                                    .as_ref().is_some_and(|definition| u16::from(definition.enemy_id.0) == *enemy))
                                 .map(|(index, _)| index));
                         }
                         departure_companions.sort_unstable();
@@ -1347,11 +1279,7 @@ impl Oracle {
                         actor.equipment.max_tp = field(observed, "max_tp")?;
                         actor.tp = field(observed, "tp")?;
                         // Older accepted fixtures required every observed charge to be zero.
-                        let charge = observed
-                            .get("overlimit_charge")
-                            .cloned()
-                            .map(serde_json::from_value)
-                            .transpose()?
+                        let charge = optional_field(observed, "overlimit_charge")?
                             .unwrap_or(0);
                         if observed.get("overlimit_remaining").is_some() {
                             ensure!(charge == 0, "active Over Limit retains saved charge");
@@ -1423,11 +1351,11 @@ impl Oracle {
                             if actor.control != resonance_battle::Control::Enemy {
                                 actor.control = resonance_battle::Control::Manual;
                             }
-                            actor.control_slot = field(control, "port")?;
+                            actor.control_slot = ControllerPort::from_index(field(control, "port")?)?;
                             if let Some(recipient) = &recipient_input
                                 && index == recipient.actor
                             {
-                                actor.control_slot = recipient.port;
+                                actor.control_slot = ControllerPort::from_index(usize::from(recipient.port))?;
                             }
                             actor_setup.recovery_return = None;
                         }
@@ -1447,8 +1375,8 @@ impl Oracle {
                         }
                         if let Some(decision) = &mut actor_setup.enemy_decision {
                             decision.disabled_choices = (0..decision.choices.len())
-                                .map(u8::try_from)
-                                .collect::<std::result::Result<_, _>>()?;
+                                .map(resonance_battle::EnemyChoiceId)
+                                .collect();
                         }
                     }
                     selected = Some((
@@ -1548,7 +1476,7 @@ impl Oracle {
         core.observe_fixture_contact_damage();
         let input_action = input_arte
             .map(|arte| {
-                core.prepared_technique(owner, arte)
+                core.prepared_technique(owner, resonance_battle::TechniqueId(arte))
                     .map(|row| row.action)
                     .context("requested input arte is not prepared")
             })
@@ -1612,7 +1540,12 @@ impl Oracle {
         observed_setup["actors"] = setup_actors(core.actors(), &setup["actors"]);
         observed_setup["initial_action_power"] = json!(core.actors().iter().enumerate().map(|(actor, state)|
             json!({"actor":actor,"attack_power":state.attack_power,"casting_strength":state.casting_state.power_percent})).collect::<Vec<_>>());
-        observed_setup["effect_banks"] = json!(banks);
+        observed_setup["effect_banks"] = json!(
+            banks
+                .iter()
+                .map(|(resource, bank)| (resource.0, bank))
+                .collect::<BTreeMap<_, _>>()
+        );
         observed_setup["common_effect_bank"] = json!(common_effect_bank);
         observed_setup["native_opponent_controls"] = json!(
             core.actors()
@@ -1621,7 +1554,7 @@ impl Oracle {
                 .filter(|(id, _)| *id != owner.index())
                 .map(
                     |(id, actor)| json!({"actor":id,"controller":format!("{:?}", actor.control),
-                "port":actor.control_slot,"ordinary_action_choices_disabled":true})
+                "port":actor.control_slot.index(),"ordinary_action_choices_disabled":true})
                 )
                 .collect::<Vec<_>>()
         );
@@ -1663,11 +1596,11 @@ impl Oracle {
         let mut onset_combat = None;
         let mut raw_events = Vec::new();
         let mut model_ordinals = BTreeMap::new();
-        let mut model_counts = BTreeMap::<(ActorId, u32, u16), usize>::new();
+        let mut model_counts = BTreeMap::<(ActorId, ResourceId, u16), usize>::new();
         let observe_model_births =
             |shown: &[resonance_battle::ParticleFrame],
              ordinals: &mut BTreeMap<ParticleId, usize>,
-             counts: &mut BTreeMap<(ActorId, u32, u16), usize>| {
+             counts: &mut BTreeMap<(ActorId, ResourceId, u16), usize>| {
                 for particle in shown {
                     if particle.model.is_some() && !ordinals.contains_key(&particle.id) {
                         let next = counts
@@ -1902,7 +1835,7 @@ impl Oracle {
                             control.actor,
                             control.stick[0],
                             elapsed == recipient.release_after_updates,
-                            recipient.port,
+                            ControllerPort::from_index(usize::from(recipient.port))?,
                         )?;
                         if elapsed == recipient.release_after_updates {
                             let actor = &core.actors()[recipient.actor];
@@ -2123,7 +2056,7 @@ impl Oracle {
                         trace.setup["cast_replacement_difference"] = json!({
                             "input":input_action.0,"selected":selected.0,"expected":action.0,
                             "random_before":previous_random,"random_after":core.random_state(),
-                            "tp":core.actors()[owner.index()].tp,"uses":core.technique_counts(owner),
+                            "tp":core.actors()[owner.index()].tp,"uses":core.technique_counts(owner).map(|counts| counts.iter().map(|(id, &uses)| (id.0, uses)).collect::<std::collections::BTreeMap<_, _>>()),
                         });
                         // Retain the actual spell and its contacts. A failed
                         // replacement remains an explicit comparison failure.
@@ -2192,12 +2125,8 @@ impl Oracle {
                     );
                     // A saved model can already have sampled part of its first
                     // observed visit. Keep that phase separate from scene time.
-                    let model_entry_updates: u32 = pose
-                        .get("entry_updates")
-                        .cloned()
-                        .map(serde_json::from_value)
-                        .transpose()?
-                        .unwrap_or(entry_pose_updates);
+                    let model_entry_updates: u32 =
+                        optional_field(pose, "entry_updates")?.unwrap_or(entry_pose_updates);
                     let secondary = secondary_body::ready(&secondary_bodies, index);
                     ensure!(
                         model_entry_updates <= entry_pose_updates
@@ -2273,10 +2202,7 @@ impl Oracle {
                             actor,
                             loop_start: field(pose, "loop_start")?,
                             secondary,
-                            defeated_hidden: pose
-                                .get("defeated_hidden")
-                                .map(|value| serde_json::from_value(value.clone()))
-                                .transpose()?
+                            defeated_hidden: optional_field(pose, "defeated_hidden")?
                                 .unwrap_or(false),
                             elapsed_updates: if replay_effect_entry {
                                 0
@@ -2356,7 +2282,10 @@ impl Oracle {
                     let weapon = frame
                         .weapons
                         .iter()
-                        .find(|weapon| weapon.owner == actor && weapon.slot == observed.slot)
+                        .find(|weapon| {
+                            weapon.owner == actor
+                                && weapon.slot == Some(resonance_battle::WeaponSlot(observed.slot))
+                        })
                         .context("observed carried clock has no prepared weapon")?;
                     effects.restore_fixture_passive_phase(
                         actor,
@@ -2371,31 +2300,21 @@ impl Oracle {
                     )?;
                 }
                 // Initial entry uses the ordinary newly initialized emitter clocks.
-                for observed in passive_clocks.iter().filter(|_| !initial_effect_entry) {
-                    effects.restore_fixture_passive_phase(
-                        ActorId::from_index(observed.actor)?,
-                        None,
-                        resonance_content::battle_profile::RecurringEffect {
-                            program: observed.program,
-                            interval: observed.interval,
-                        },
-                        observed.counter,
-                        entry_pose_updates + request_delay,
-                        false,
-                    )?;
-                }
-                for observed in idle_clocks.iter().filter(|_| !initial_effect_entry) {
-                    effects.restore_fixture_passive_phase(
-                        ActorId::from_index(observed.actor)?,
-                        None,
-                        resonance_content::battle_profile::RecurringEffect {
-                            program: observed.program,
-                            interval: observed.interval,
-                        },
-                        observed.counter,
-                        entry_pose_updates + request_delay,
-                        ready_combat == 0,
-                    )?;
+                for (clocks, idle) in [(&passive_clocks, false), (&idle_clocks, ready_combat == 0)]
+                {
+                    for observed in clocks.iter().filter(|_| !initial_effect_entry) {
+                        effects.restore_fixture_passive_phase(
+                            ActorId::from_index(observed.actor)?,
+                            None,
+                            resonance_content::battle_profile::RecurringEffect {
+                                program: observed.program,
+                                interval: observed.interval,
+                            },
+                            observed.counter,
+                            entry_pose_updates + request_delay,
+                            idle,
+                        )?;
+                    }
                 }
                 let update = frame.update;
                 let cues = std::mem::take(&mut frame.cues);
@@ -2670,15 +2589,14 @@ impl Oracle {
                                 "clock": combat - start, "target": recipient.index(), "stunned": stunned,
                             }));
                         }
-                        let mut event = json!({"kind":"hit","owner":actor.index(),"target":recipient.index(),"action":contact_action(*source, &actions, &projectile_actions),"projectile":match source { ContactSource::Projectile(id)=>Some(projectiles[id]), _=>None },"hp_change":result.hp_change,"critical":result.critical});
-                        let observations: Vec<_> = contact_damage.iter().filter(|input| {
+                        let mut event = json!({"kind":"hit","owner":actor.index(),"target":recipient.index(),"action":actions[&root],"projectile":match source { ContactSource::Projectile(id)=>Some(projectiles[id]), _=>None },"hp_change":result.hp_change,"critical":result.critical});
+                        let observation = exactly_one(contact_damage.iter().filter(|input| {
                             input.source == *source && input.owner_id == *actor && input.target_id == *recipient
-                        }).collect();
-                        ensure!(observations.len() == 1, "native contact lacks its unique pre-damage input observation");
-                        event["damage_inputs"] = contact_damage::observe(observations[0], *result)
+                        })).context("native contact lacks its unique pre-damage input observation")?;
+                        event["damage_inputs"] = contact_damage::observe(observation, *result)
                             .unwrap_or_else(|error| json!({"unsupported":error.to_string()}));
                         if result.protection == resonance_battle::HitProtection::Avoided {
-                            let target = &observations[0].target;
+                            let target = &observation.target;
                             if target.reaction.protection.mode == resonance_battle::ProtectionMode::Recovery {
                                 event["protection"] = json!("recovery");
                             } else if target.side == Side::Party
@@ -3252,7 +3170,7 @@ fn attachment(
             resource,
             bone,
         }) => {
-            json!({"kind":"weapon","actor":actor.index(),"resource":resource,"bone":bone})
+            json!({"kind":"weapon","actor":actor.index(),"resource":resource.0,"bone":bone})
         }
         Some(EffectFollow::Projectile(id)) => {
             json!({"kind":"projectile","projectile":projectiles.get(&id)})
@@ -3271,17 +3189,6 @@ fn linked(
         }
         ContactSource::Projectile(id) => projectiles.contains_key(&id),
     }
-}
-fn contact_action(
-    source: ContactSource,
-    actions: &BTreeMap<ActionId, usize>,
-    projectiles: &BTreeMap<ProjectileId, ActionId>,
-) -> usize {
-    let id = match source {
-        ContactSource::Melee { action, .. } | ContactSource::Weapon { action, .. } => action,
-        ContactSource::Projectile(id) => projectiles[&id],
-    };
-    actions[&id]
 }
 fn actors<'a>(
     actors: impl IntoIterator<Item = &'a resonance_battle::Actor>,
@@ -3349,14 +3256,19 @@ fn setup_actors(source: &[resonance_battle::Actor], observed: &Value) -> Value {
 fn affine(matrix: resonance_content::animation::Matrix) -> [f32; 12] {
     std::array::from_fn(|index| matrix[index % 4][index / 4])
 }
+fn exactly_one<T>(mut values: impl Iterator<Item = T>) -> Option<T> {
+    let value = values.next()?;
+    values.next().is_none().then_some(value)
+}
 fn field<T: serde::de::DeserializeOwned>(value: &Value, key: &str) -> Result<T> {
-    serde_json::from_value(
-        value
-            .get(key)
-            .with_context(|| format!("source setup lacks {key}"))?
-            .clone(),
-    )
-    .with_context(|| format!("invalid source setup field {key}"))
+    optional_field(value, key)?.with_context(|| format!("source setup lacks {key}"))
+}
+fn optional_field<T: serde::de::DeserializeOwned>(value: &Value, key: &str) -> Result<Option<T>> {
+    value
+        .get(key)
+        .map(T::deserialize)
+        .transpose()
+        .with_context(|| format!("invalid source setup field {key}"))
 }
 struct Display;
 impl resonance_game::battle::results::Presentation for Display {

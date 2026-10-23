@@ -27,7 +27,10 @@ pub struct ListFrame {
 use super::{Input, InputKind, InventoryMemory, View};
 use crate::battle::items::Inventory;
 use anyhow::{Context, Result, ensure};
-use resonance_battle::{Battle, item::Release};
+use resonance_battle::{
+    Battle,
+    item::{Effect, Release},
+};
 
 #[derive(Debug, Default)]
 pub(super) struct Memory {
@@ -129,56 +132,44 @@ impl Owner {
                 cues,
                 ..Default::default()
             };
-            if let Some(returned) = returned {
-                memory.row = list.row;
-                memory.first = list.first;
-                match returned {
-                    None => {
-                        visit.outcome = Outcome::Strip;
+            let Some(returned) = returned else {
+                return Ok(visit);
+            };
+            memory.row = list.row;
+            memory.first = list.first;
+            let Some(item) = returned else {
+                visit.outcome = Outcome::Strip;
+                return Ok(visit);
+            };
+            match battle.item_policy(item).map(|p| p.effect) {
+                Some(Effect::Scan) => {
+                    let preferred = battle.target(menu_owner).unwrap_or(menu_owner);
+                    let target = if battle.item_target_eligible(item, preferred)? {
+                        Some(preferred)
+                    } else {
+                        battle.cycle_item_target(item, menu_owner, preferred, 1)?
+                    };
+                    if let Some(target) = target {
+                        self.phase = Phase::Enemy { item, target };
+                    } else {
+                        visit.cues.push(4);
+                        self.phase = Phase::Inventory(List::open(memory, inventory, battle)?);
                     }
-                    Some(item)
-                        if matches!(
-                            battle.item_policy(item).map(|p| p.effect),
-                            Some(resonance_battle::item::Effect::Scan)
-                        ) =>
-                    {
-                        let preferred = battle.target(menu_owner).unwrap_or(menu_owner);
-                        let target = if battle.item_target_eligible(item, preferred)? {
-                            Some(preferred)
-                        } else {
-                            battle.cycle_item_target(item, menu_owner, preferred, 1)?
-                        };
-                        if let Some(target) = target {
-                            self.phase = Phase::Enemy { item, target };
-                        } else {
-                            visit.cues.push(4);
-                            self.phase = Phase::Inventory(List::open(memory, inventory, battle)?);
-                        }
-                    }
-                    Some(item)
-                        if matches!(
-                            battle.item_policy(item).map(|p| p.effect),
-                            Some(
-                                resonance_battle::item::Effect::PartyRecover { .. }
-                                    | resonance_battle::item::Effect::AllDivide
-                                    | resonance_battle::item::Effect::Hourglass
-                            )
-                        ) =>
-                    {
-                        let user = self.user.context("item inventory has no selected user")?;
-                        battle.queue_item(Release {
-                            user,
-                            target: user,
-                            item,
-                        })?;
-                        visit.outcome = Outcome::Close;
-                    }
-                    Some(item) => {
-                        self.phase = Phase::Ally {
-                            item,
-                            selected: selection(memory, inventory, battle, Some(item))?,
-                        };
-                    }
+                }
+                Some(Effect::PartyRecover { .. } | Effect::AllDivide | Effect::Hourglass) => {
+                    let user = self.user.context("item inventory has no selected user")?;
+                    battle.queue_item(Release {
+                        user,
+                        target: user,
+                        item,
+                    })?;
+                    visit.outcome = Outcome::Close;
+                }
+                _ => {
+                    self.phase = Phase::Ally {
+                        item,
+                        selected: selection(memory, inventory, battle, Some(item))?,
+                    };
                 }
             }
             return Ok(visit);
@@ -254,35 +245,38 @@ impl Owner {
         let user = self
             .user
             .context("item enemy picker has no selected user")?;
+        if input.cancel_b.pressed || input.cancel_y.pressed {
+            return Ok(Visit {
+                cues: vec![3],
+                outcome: Outcome::Strip,
+            });
+        }
         let mut cues = vec![];
-        let cancelling = input.cancel_b.pressed || input.cancel_y.pressed;
-        if !cancelling {
-            let direction = if !battle.item_target_eligible(*item, *target)? {
-                if input.step == 0 { 1 } else { input.step }
-            } else if !input.confirm_a.pressed {
-                input.step
-            } else {
-                0
+        let direction = if !battle.item_target_eligible(*item, *target)? {
+            if input.step == 0 { 1 } else { input.step }
+        } else if !input.confirm_a.pressed {
+            input.step
+        } else {
+            0
+        };
+        if direction != 0 {
+            let Some(next) = battle.cycle_item_target(*item, user, *target, direction)? else {
+                self.phase = Phase::Inventory(List::open(memory, inventory, battle)?);
+                return Ok(Visit {
+                    cues: vec![4],
+                    ..Default::default()
+                });
             };
-            if direction != 0 {
-                let Some(next) = battle.cycle_item_target(*item, user, *target, direction)? else {
-                    self.phase = Phase::Inventory(List::open(memory, inventory, battle)?);
-                    return Ok(Visit {
-                        cues: vec![4],
-                        ..Default::default()
-                    });
-                };
-                if next != *target {
-                    *target = next;
-                    cues.push(crate::battle::audio::TARGET_CHANGED);
-                }
+            if next != *target {
+                *target = next;
+                cues.push(crate::battle::audio::TARGET_CHANGED);
             }
         }
         let mut visit = Visit {
             cues,
             ..Default::default()
         };
-        if !cancelling && input.confirm_a.pressed && battle.can_queue_item(user)? {
+        if input.confirm_a.pressed && battle.can_queue_item(user)? {
             battle.queue_item(Release {
                 user,
                 target: *target,
@@ -290,11 +284,6 @@ impl Owner {
             })?;
             visit.cues.push(2);
             visit.outcome = Outcome::Close;
-            return Ok(visit);
-        }
-        if cancelling {
-            visit.cues.push(3);
-            visit.outcome = Outcome::Strip;
         }
         Ok(visit)
     }
@@ -310,10 +299,6 @@ fn selection(
         .roster
         .get(memory.slot)
         .context("item picker slot is absent")?;
-    let character = usize::from(character)
-        .checked_sub(1)
-        .filter(|i| *i < 9)
-        .context("invalid item picker character")?;
     let live = battle
         .actors()
         .get(actor.index())
@@ -321,7 +306,7 @@ fn selection(
     Ok(ActorSelection {
         actor,
         slot: memory.slot as u8,
-        name: inventory.names[character].to_owned(),
+        name: inventory.names[character.index()].to_owned(),
         eligible: match item {
             Some(item) => battle.item_target_eligible(item, actor)?,
             None => live.available(),
@@ -512,6 +497,7 @@ fn urgent(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::battle::party::Character;
 
     fn list(count: u16) -> List {
         List {
@@ -655,7 +641,7 @@ mod tests {
         let counts: BTreeMap<_, _> = (1..=32).map(|id| (id, 1)).collect();
         let (mut battle, setup) = super::super::tests::battle();
         let id = setup.actors[0];
-        let roster = [(id, 1)];
+        let roster = [(id, Character::Lloyd)];
         let inventory = Inventory {
             counts: &counts,
             definitions: &definitions,
@@ -809,7 +795,7 @@ mod tests {
         use resonance_content::menu_data::ItemAttention;
         use std::collections::BTreeMap;
         let (initial, setup) = super::super::tests::battle();
-        let roster = [(setup.actors[0], 1)];
+        let roster = [(setup.actors[0], Character::Lloyd)];
         let inventory = Inventory {
             counts: &BTreeMap::new(),
             definitions: &[],
