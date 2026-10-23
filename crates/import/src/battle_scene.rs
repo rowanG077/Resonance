@@ -17,6 +17,7 @@ use resonance_content::{
 use std::{collections::BTreeMap, fs, path::Path};
 
 mod catalogue;
+mod spell_recipe;
 pub use catalogue::{Publication, publish_all};
 pub(crate) use catalogue::{catalogue_paths, publish_all_source};
 
@@ -134,6 +135,10 @@ fn skill_ranges(module: &Rel, archive: &Path) -> Result<Vec<(u16, std::ops::Rang
 fn scene_settings(module: &Rel, spell: u16, scene: &mut Scene) -> Result<()> {
     scene.stage_color = None;
     scene.camera = None;
+    scene.spell_recipe = None;
+    if spell_recipe::bind(module, spell, scene)? {
+        return scene.validate();
+    }
     scene.recovery_radius = match spell {
         240 => Some(0x4d2c),
         255 => Some(0x5af4),
@@ -148,7 +153,6 @@ fn scene_settings(module: &Rel, spell: u16, scene: &mut Scene) -> Result<()> {
     })
     .transpose()?;
     scene.strike_points = match spell {
-        252 => Some((0x7dac, 9)),
         269 | 290 | 296 => Some((0x866c, 17)),
         233 | 292 => Some((0x941c, 14)),
         _ => None,
@@ -195,7 +199,6 @@ fn scene_settings(module: &Rel, spell: u16, scene: &mut Scene) -> Result<()> {
         247 => Some(([20, 16, 16], 2450.0, 8.0)),
         249 => Some(([16, 16, 20], 2950.0, 13.0)),
         250 => Some(([20, 20, 32], 2450.0, 10.5)),
-        252 => Some(([12, 12, 12], 3550.0, 11.5)),
         253 => Some(([12, 12, 12], 2700.0, 15.5)),
         255 => Some(([12, 12, 16], 3100.0, 15.5)),
         256 => Some(([12, 16, 12], 3100.0, 15.5)),
@@ -561,6 +564,7 @@ fn read(
     let parameters = members.model(0x100)?;
     let projectiles = projectiles(bytes, spell, element_sounds)?;
     Ok(Scene {
+        version: resonance_content::battle_scene::VERSION,
         source_sha256: crate::digest(bytes),
         effects: effects_path.into(),
         textures,
@@ -574,6 +578,7 @@ fn read(
         camera: None,
         strike_points: Vec::new(),
         recovery_radius: None,
+        spell_recipe: None,
         duration: parameters
             .map(|bytes| crate::read::u16(bytes, 16))
             .transpose()?

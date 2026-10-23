@@ -37,6 +37,7 @@ pub mod model;
 pub mod normal;
 pub mod nurse;
 pub mod party;
+mod pattern_spells;
 mod photon;
 mod prism;
 pub mod profile;

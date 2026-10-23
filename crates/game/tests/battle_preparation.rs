@@ -44,6 +44,8 @@ mod player_control;
 
 #[path = "battle_preparation/fire_ball.rs"]
 mod fire_ball;
+#[path = "battle_preparation/pattern_spell.rs"]
+mod pattern_spell;
 #[path = "battle_preparation/projectile_source.rs"]
 mod projectile_source;
 

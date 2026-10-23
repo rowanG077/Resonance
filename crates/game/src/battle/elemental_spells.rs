@@ -108,20 +108,6 @@ pub(super) fn prepare(
                 (210, 1, 0),
             ],
         ),
-        RAY => (
-            230,
-            &[
-                (60, 1, 0),
-                (68, 1, 0),
-                (76, 1, 0),
-                (84, 1, 0),
-                (92, 1, 0),
-                (100, 1, 0),
-                (108, 1, 0),
-                (116, 1, 0),
-                (124, 1, 0),
-            ],
-        ),
         _ => bail!("unknown elemental spell {catalogue}"),
     };
     let appearance = |member| EffectAppearance {
@@ -130,7 +116,7 @@ pub(super) fn prepare(
     };
     let mut required = bank.clone();
     required.members = match catalogue {
-        THUNDER_ARROW | RAY => vec![1, 2],
+        THUNDER_ARROW => vec![1, 2],
         METEOR_STORM => vec![1, 3],
         ABSOLUTE => vec![1, 2, 3],
         _ => vec![1],
@@ -268,9 +254,8 @@ pub(super) fn prepare(
             });
         }
     }
-    if matches!(catalogue, RAY | METEOR_STORM) {
-        let (heading_offset, effect_member): (f32, _) =
-            if catalogue == RAY { (20., 2) } else { (45., 3) };
+    if catalogue == METEOR_STORM {
+        let (heading_offset, effect_member): (f32, _) = (45., 3);
         if scene.strike_points.len() != spell.projectiles.len() {
             bail!(
                 "spell {catalogue} requires {} authored strike points",
@@ -282,7 +267,7 @@ pub(super) fn prepare(
             at: TRANSITION_TICKS + 1,
             appearance: appearance(1),
             placement: resonance_battle::SpellEffectPlacement::Scene([0.; 3]),
-            deferred: catalogue == RAY,
+            deferred: false,
             captured_heading_offset: Some(heading_offset),
         });
         let (sin, cos) = heading_offset.to_radians().sin_cos();
