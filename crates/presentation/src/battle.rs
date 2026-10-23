@@ -622,7 +622,7 @@ fn enemy_hud(
                 .get(spawn.resource)
                 .context("enemy HUD group is not prepared")?;
             Ok(super::field_ui::BattleEnemyHud {
-                actor: party_count + index,
+                actor: ActorId::from_index(party_count + index)?,
                 group: u8::try_from(
                     active_groups[&assets.enemies.resources[spawn.resource].monster.id],
                 )?,
@@ -1399,7 +1399,7 @@ fn update_hud(
         {
             diagnostics.attempt(
                 "battle effect notice",
-                hud.notice_request(actor.index(), text, *duration, frame),
+                hud.notice_request(*actor, text, *duration, frame),
             )?;
         }
         if let resonance_battle::Cue::ItemNotice {
@@ -1410,13 +1410,13 @@ fn update_hud(
         {
             diagnostics.attempt(
                 "battle item notice",
-                hud.item_notice_request(actor.index(), *item, *duration, frame),
+                hud.item_notice_request(*actor, *item, *duration, frame),
             )?;
         }
         if let Some((actor, text)) = feedback.notice(cue) {
             diagnostics.attempt(
                 "battle recovery notice",
-                hud.notice_request(actor.index(), text, 90, frame),
+                hud.notice_request(actor, text, 90, frame),
             )?;
         }
         if let resonance_battle::Cue::Notice {
@@ -1429,7 +1429,7 @@ fn update_hud(
                 let name = action_names
                     .get(action)
                     .with_context(|| format!("action {action} has no prepared notice text"))?;
-                hud.notice_request(actor.index(), name, *duration, frame)
+                hud.notice_request(*actor, name, *duration, frame)
             })();
             diagnostics.attempt("battle technique notice", result)?;
         }

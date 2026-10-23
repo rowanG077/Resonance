@@ -20,15 +20,15 @@ pub fn party(
     normal_attacks: &[resonance_content::battle_normal::Attack; 7],
     actions: [resonance_battle::ActionKey; 7],
     motions: Option<ControlMotions>,
-) -> ControlDefinition {
-    ControlDefinition {
-        normals: super::normal::controls(normal_attacks, actions),
+) -> Result<ControlDefinition> {
+    Ok(ControlDefinition {
+        normals: super::normal::controls(normal_attacks, actions)?,
         shortcuts: [None; 4],
         walk_speed: profile.walk_speed,
         run_speed: profile.run_speed,
         turn_ticks: profile.turn_ticks,
         motions,
-    }
+    })
 }
 
 /// Technique metadata shared by player control, companion policy, learning and commands.

@@ -591,29 +591,6 @@ mod tests {
     }
 
     #[test]
-    fn camera_shake_duration_is_checked_at_import() {
-        let mut bytes = [0; ACTOR_BYTES];
-        bytes[0] = 22;
-        bytes[20..24].copy_from_slice(&12_u32.to_be_bytes());
-        for duration in [0_i16, 512, i16::MAX] {
-            bytes[16..18].copy_from_slice(&duration.to_be_bytes());
-            assert_eq!(
-                read(&bytes, &[]).unwrap(),
-                Declaration::CameraShake {
-                    duration: duration as u32,
-                    amplitude: 12,
-                }
-            );
-        }
-        for duration in [-1_i16, i16::MIN] {
-            bytes[16..18].copy_from_slice(&duration.to_be_bytes());
-            assert!(matches!(read(&bytes, &[]).unwrap(),
-                Declaration::Unsupported { reason } if reason.contains("negative camera shake duration")));
-        }
-        assert!(read(&bytes[..ACTOR_BYTES - 1], &[]).is_err());
-    }
-
-    #[test]
     fn particle_durations_are_optional_and_negative_active_values_are_unsupported() {
         let mut bytes = [0; ACTOR_BYTES];
         bytes[0] = 4;

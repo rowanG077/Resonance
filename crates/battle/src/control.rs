@@ -179,9 +179,15 @@ impl NormalAttack {
 #[derive(Debug, Clone, Copy)]
 pub struct NormalControl {
     pub action: crate::ActionKey,
-    pub continuation: resonance_content::battle_normal::Continuation,
+    pub continuation: NormalContinuation,
     pub reach: f32,
     pub minimum_reach: f32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NormalContinuation {
+    pub directions: u8,
+    pub fallback: Option<NormalAttack>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,11 +247,11 @@ impl NormalState {
         self,
         definition: &ControlDefinition,
         jump_combo: bool,
-    ) -> resonance_content::battle_normal::Continuation {
+    ) -> NormalContinuation {
         use NormalAttack::*;
         match self {
             Self::Attack(attack) => definition.normals[attack as usize].continuation,
-            Self::Landing if jump_combo => resonance_content::battle_normal::Continuation {
+            Self::Landing if jump_combo => NormalContinuation {
                 directions: (1 << Neutral as u8)
                     | (1 << Rising as u8)
                     | (1 << Thrust as u8)
@@ -349,11 +355,7 @@ impl PreparedBattle {
             );
             for (kind, normal) in NormalAttack::ALL.into_iter().zip(definition.normals) {
                 ensure!(
-                    normal.continuation.directions & 0x80 == 0
-                        && normal
-                            .continuation
-                            .fallback
-                            .is_none_or(|fallback| fallback < 7),
+                    normal.continuation.directions & 0x80 == 0,
                     "invalid normal continuation"
                 );
                 ensure!(
@@ -1096,11 +1098,7 @@ impl Battle {
                 normal.continuations(definition, owner.equipment.combo_traits.jump_combo);
             let next = (continuation.directions & (1 << direction as u8) != 0)
                 .then_some(direction)
-                .or_else(|| {
-                    continuation
-                        .fallback
-                        .map(|index| NormalAttack::ALL[index as usize])
-                });
+                .or(continuation.fallback);
             next.map(BufferedAction::Normal)
         } else if input.technique.pressed {
             let direction = ShortcutSlot::from_input(input.stick).index();

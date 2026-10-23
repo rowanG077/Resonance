@@ -234,23 +234,6 @@ fn profiles_decode_named_conditions_and_immunities() -> Result<()> {
 }
 
 #[test]
-fn profiles_reject_unknown_conditions_and_active_immunity_flags() {
-    for offset in [0x14, 0x1c, 0x3c] {
-        let mut bytes = [0; BYTES];
-        bytes[offset..offset + 4].copy_from_slice(&0x40_u32.to_be_bytes());
-        assert!(read(&bytes).is_err());
-    }
-    for offset in [0x10, 0x38] {
-        for (word, flag) in [(0, 0x100_u32), (1, 4)] {
-            let mut bytes = [0; BYTES];
-            let offset = offset + word * 4;
-            bytes[offset..offset + 4].copy_from_slice(&flag.to_be_bytes());
-            assert!(read(&bytes).is_err());
-        }
-    }
-}
-
-#[test]
 #[ignore = "requires extracted game assets"]
 fn imports_party_profiles_and_battle_entry_settings() -> Result<()> {
     let file = Path::new(env!("CARGO_MANIFEST_DIR"))

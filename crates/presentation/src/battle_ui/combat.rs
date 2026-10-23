@@ -214,7 +214,7 @@ fn enemy_portraits<'a>(
     if stacked {
         let mut groups: std::collections::BTreeMap<_, EnemyPortrait<'_>> = Default::default();
         for enemy in enemies {
-            let actor = &frame.actors[enemy.actor];
+            let actor = &frame.actors[enemy.actor.index()];
             if !actor.available() || actor.hp <= 0 {
                 continue;
             }
@@ -222,7 +222,7 @@ fn enemy_portraits<'a>(
                 .entry(enemy.group)
                 .or_insert(EnemyPortrait { enemy, number: 0 });
             portrait.number += 1;
-            if selected.is_some_and(|target| target.index() == enemy.actor) {
+            if selected.is_some_and(|target| target == enemy.actor) {
                 portrait.enemy = enemy;
             }
         }
@@ -285,11 +285,7 @@ fn draw_enemies(
         portraits.len().div_ceil(2)
     };
     let page = selected
-        .and_then(|target| {
-            portraits
-                .iter()
-                .position(|p| p.enemy.actor == target.index())
-        })
+        .and_then(|target| portraits.iter().position(|p| p.enemy.actor == target))
         .unwrap_or(0)
         / ENEMY_PAGE_SIZE;
     if portraits.len() > ENEMY_PAGE_SIZE {
@@ -314,7 +310,7 @@ fn draw_enemies(
     for (index, portrait) in portraits.iter().enumerate() {
         let enemy = portrait.enemy;
         let group = usize::from(enemy.group);
-        let actor = &frame.actors[enemy.actor];
+        let actor = &frame.actors[enemy.actor.index()];
         if !actor.available()
             || actor.hp <= 0
             || (portraits.len() > ENEMY_PAGE_SIZE && index / ENEMY_PAGE_SIZE != page)
@@ -334,7 +330,7 @@ fn draw_enemies(
         if let Some(layer) = icon_layers[group] {
             let mut rect = [x, y, x + 32., y + 32.];
             let mut uv = [0., 0., 32., 32.];
-            if selected.is_some_and(|target| target.index() == enemy.actor) {
+            if selected.is_some_and(|target| target == enemy.actor) {
                 let pulse =
                     (4. + 4. * (f32::from(motion_tick % 60) * 6.).to_radians().sin()) as u16;
                 let size = 32. + f32::from(pulse);
@@ -363,7 +359,7 @@ fn draw_enemies(
             [12., 12.],
             [128, 128, 128, 255],
         )?;
-        if let Some((owner, _)) = selection.filter(|(_, target)| target.index() == enemy.actor) {
+        if let Some((owner, _)) = selection.filter(|(_, target)| *target == enemy.actor) {
             let owner = frame
                 .actors
                 .get(owner.index())
@@ -428,7 +424,7 @@ mod tests {
         // Interleave two enemy types, as when their formations are combined.
         let enemies = (0..14)
             .map(|actor| EnemyHud {
-                actor,
+                actor: ActorId::from_index(actor).unwrap(),
                 group: u8::from(actor % 7 == 1),
                 name: String::new(),
                 icon: None,
@@ -438,7 +434,7 @@ mod tests {
         let roster = |frame: &BattleFrame| {
             enemy_portraits(&enemies, frame, selected, true)
                 .iter()
-                .map(|p| (p.enemy.group, p.enemy.actor, p.number))
+                .map(|p| (p.enemy.group, p.enemy.actor.index(), p.number))
                 .collect::<Vec<_>>()
         };
         assert_eq!(roster(&frame), [(0, 13, 12), (1, 1, 2)]);
@@ -473,12 +469,13 @@ mod tests {
         frame.camera = None;
         hud.combat.enemies = (1..=2)
             .map(|actor| EnemyHud {
-                actor,
+                actor: ActorId::from_index(actor).unwrap(),
                 group: 0,
                 name: format!("Slime {actor} %s"),
                 icon: None,
             })
             .collect();
+        hud.combat.icon_layers = vec![None];
         let party = PartyHudInput {
             characters: &[Character::Lloyd],
             queued_techniques: &[false],
@@ -494,13 +491,13 @@ mod tests {
                 std::mem::take(&mut batches[COMBO_TEXT]),
             ])
         };
-        hud.item_notice_request(0, 1, 12, &frame)?;
+        hud.item_notice_request(ActorId::from_index(0)?, 1, 12, &frame)?;
         assert_eq!(
             hud.party_notice_text(),
             Some(hud.menu_data.item_text(1)?.name.as_str())
         );
-        hud.notice_request(0, "Indignation Judgment", 12, &frame)?;
-        hud.notice_request(1, "Enemy action", 12, &frame)?;
+        hud.notice_request(ActorId::from_index(0)?, "Indignation Judgment", 12, &frame)?;
+        hud.notice_request(ActorId::from_index(1)?, "Enemy action", 12, &frame)?;
         frame.cues = vec![
             Cue::Combo {
                 actor: ActorId::from_index(1)?,
@@ -583,7 +580,7 @@ mod tests {
                 .all(|b| b.indices.is_empty())
         );
 
-        hud.notice_request(0, "Magic Lens", 90, &frame)?;
+        hud.notice_request(ActorId::from_index(0)?, "Magic Lens", 90, &frame)?;
         frame.cues.push(Cue::EnemyScanned {
             actor: ActorId::from_index(1)?,
         });
@@ -645,7 +642,7 @@ mod tests {
                 .all(|b| b.indices.is_empty())
         );
 
-        hud.notice_request(0, "Victory", 90, &frame)?;
+        hud.notice_request(ActorId::from_index(0)?, "Victory", 90, &frame)?;
         frame.cues = vec![
             Cue::EnemyScanned {
                 actor: ActorId::from_index(1)?,
@@ -701,7 +698,7 @@ mod tests {
         frame.actors = vec![frame.actors[0].clone(); 3];
         let enemies = (0..3)
             .map(|actor| EnemyHud {
-                actor,
+                actor: ActorId::from_index(actor).unwrap(),
                 group: if actor < 2 { 0 } else { 1 },
                 name: String::new(),
                 icon: None,

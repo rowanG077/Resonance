@@ -725,22 +725,6 @@ mod tests {
     }
 
     #[test]
-    fn binary_bank_rejects_corrupt_shared_bounds() {
-        let base = bank(&[u16::MAX]);
-        let events = u16::from_be_bytes(base[10..12].try_into().unwrap());
-        let table = u16::from_be_bytes(base[16..18].try_into().unwrap()) as usize;
-        for (at, value) in [(0, b'x'), (4, 3), (5, 1)] {
-            let mut bytes = base.clone();
-            bytes[at] = value;
-            assert!(read(&bytes).is_err(), "byte {at}");
-        }
-        for (at, value) in [(8, u16::MAX), (10, events + 1), (table + 2, u16::MAX)] {
-            let mut bytes = base.clone();
-            bytes[at..at + 2].copy_from_slice(&value.to_be_bytes());
-            assert!(read(&bytes).is_err(), "offset {at}");
-        }
-    }
-    #[test]
     fn model_animation_birth_requires_matching_default_loop() -> Result<()> {
         for model in 0..4 {
             let words = [

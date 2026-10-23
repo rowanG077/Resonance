@@ -595,9 +595,7 @@ impl Battle {
             })
             .collect();
         let next = if choices.is_empty() {
-            continuation
-                .fallback
-                .map(|index| NormalAttack::ALL[index as usize])
+            continuation.fallback
         } else {
             Some(choices[usize::from(self.random.next_u16()) % choices.len()])
         };

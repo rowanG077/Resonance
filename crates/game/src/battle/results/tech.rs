@@ -44,8 +44,7 @@ impl Candidate {
         let Some(selected) = target.selected else {
             return Ok(false);
         };
-        let Some(prepared) = battle.prepared_technique(target.actor, TechniqueId(target.technique))
-        else {
+        let Some(prepared) = battle.prepared_technique(target.actor, target.technique) else {
             return Ok(false);
         };
         battle.queue_technique_target_from(target.actor, prepared.action, selected, target.issuer)

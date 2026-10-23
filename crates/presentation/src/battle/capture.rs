@@ -406,7 +406,7 @@ impl Owner {
                 ResultNotice::HappinessGald { character, amount } =>
                     json!({"kind": "happiness_gald", "character": *character as u8, "amount": amount}),
                 ResultNotice::Technique { character, technique } =>
-                    json!({"kind": "technique", "character": *character as u8, "technique": technique}),
+                    json!({"kind": "technique", "character": *character as u8, "technique": technique.0}),
                 ResultNotice::CompoundEx { character } =>
                     json!({"kind": "compound_ex", "character": *character as u8}),
                 ResultNotice::Title { character, title } =>

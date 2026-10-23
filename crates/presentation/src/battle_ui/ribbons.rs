@@ -150,7 +150,7 @@ impl State {
             let selected_group = input.target.and_then(|target| {
                 enemies
                     .iter()
-                    .find(|enemy| enemy.actor == target.index())
+                    .find(|enemy| enemy.actor == target)
                     .map(|enemy| enemy.group)
             });
             let mut y = 354.;
@@ -158,8 +158,8 @@ impl State {
                 .filter(|&group| {
                     enemies.iter().any(|e| {
                         usize::from(e.group) == group
-                            && frame.actors[e.actor].available()
-                            && frame.actors[e.actor].hp > 0
+                            && frame.actors[e.actor.index()].available()
+                            && frame.actors[e.actor.index()].hp > 0
                     })
                 })
                 .collect();
@@ -172,7 +172,7 @@ impl State {
                     usize::from(enemy.group) == group
                         && frame
                             .actors
-                            .get(enemy.actor)
+                            .get(enemy.actor.index())
                             .is_some_and(|actor| actor.available() && actor.hp > 0)
                 }) else {
                     continue;

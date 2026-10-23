@@ -228,7 +228,7 @@ impl ActorRow<'_> {
                     .context("missing normal attack table")?,
                 actions.normals,
                 battle::control::motions(model),
-            );
+            )?;
             definition.shortcuts = member
                 .shortcuts
                 .map(|id| (id != 0).then_some(TechniqueId(id)));

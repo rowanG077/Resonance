@@ -382,7 +382,7 @@ impl Playback {
                         self.next_voice += 1;
                         let complete = Arc::new(AtomicBool::new(false));
                         self.enqueue(Command::Voice {
-                            actor: actor.index(),
+                            actor,
                             playback,
                             binding: sound,
                             source,
@@ -487,7 +487,7 @@ pub(super) enum Command {
         priority: u8,
     },
     Voice {
-        actor: usize,
+        actor: ActorId,
         playback: VoiceId,
         binding: Sound,
         source: Source,
@@ -606,7 +606,7 @@ impl VoiceSource {
     }
 }
 struct Voice {
-    actor: usize,
+    actor: ActorId,
     playback: VoiceId,
     source: VoiceSource,
     submitted_until: u64,
@@ -862,7 +862,7 @@ impl Frames {
                 });
                 debug!(
                     source_frame = self.frame,
-                    actor,
+                    actor = actor.index(),
                     ?playback,
                     ?binding,
                     level,
@@ -1013,7 +1013,7 @@ impl State {
             if active {
                 index += 1;
             } else {
-                debug!(source_frame = frame, actor = self.voices[index].actor,
+                debug!(source_frame = frame, actor = self.voices[index].actor.index(),
                         playback = ?self.voices[index].playback, "Battle voice source completed");
                 complete(
                     completions,
@@ -1324,7 +1324,7 @@ mod tests {
     fn push_stream(frames: &mut Frames, playback: VoiceId, source: VoiceSource) -> Arc<AtomicBool> {
         let complete = Arc::new(AtomicBool::new(false));
         frames.battle.as_mut().unwrap().voices.push(Voice {
-            actor: 0,
+            actor: ActorId::from_index(0).unwrap(),
             playback,
             source,
             submitted_until: 0,
@@ -1355,7 +1355,7 @@ mod tests {
                         None,
                     ))?;
                     frames.apply_battle_command(Command::Voice {
-                        actor: 0,
+                        actor: ActorId::from_index(0)?,
                         playback: VoiceId(1),
                         binding: Sound::Stream(1),
                         source: Source::Stream(Arc::new(test_clip(
@@ -1514,7 +1514,7 @@ mod tests {
         frames.apply_battle_command(Command::Begin(assets(), settings(), None))?;
         let token = Arc::new(AtomicBool::new(false));
         frames.apply_battle_command(Command::Voice {
-            actor: 0,
+            actor: ActorId::from_index(0)?,
             playback,
             binding: Sound::Cue(1),
             source: Source::Score(test_score()),

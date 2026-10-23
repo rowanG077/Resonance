@@ -146,7 +146,7 @@ fn draw_frame(left: f32, top: f32, tiles: u32, tint: [u8; 4], alpha: u8, batches
 }
 
 struct Message {
-    actor: usize,
+    actor: ActorId,
     icon: Icon,
     text: String,
     age: u64,
@@ -202,7 +202,7 @@ impl Notices {
         }
         for slot in &mut self.messages {
             if let Some(message) = slot {
-                let rescue = matches!(frame.clock, resonance_battle::BattleClock::Rescue(actor) if actor.index() == message.actor);
+                let rescue = matches!(frame.clock, resonance_battle::BattleClock::Rescue(actor) if actor == message.actor);
                 message.age =
                     message
                         .age
@@ -223,18 +223,18 @@ impl Artwork {
 
     pub fn notice_request(
         &mut self,
-        actor: usize,
+        actor: ActorId,
         text: &str,
         duration: u16,
         frame: &BattleFrame,
     ) -> Result<()> {
         let icon = if frame.cues.iter().any(|cue| matches!(cue,
             resonance_battle::Cue::Rescued { actor: owner, kind: resonance_battle::RescueKind::Revive }
-                if owner.index() == actor)) {
+                if *owner == actor)) {
             Icon::Item
         } else if frame.cues.iter().any(|cue| matches!(cue,
             resonance_battle::Cue::Casting { actor: owner, phase: resonance_battle::CastPhase::SceneOpening | resonance_battle::CastPhase::Released, .. }
-                if owner.index() == actor)) {
+                if *owner == actor)) {
             Icon::Spell
         } else {
             Icon::Arte
@@ -244,7 +244,7 @@ impl Artwork {
 
     pub(super) fn notice_with_icon(
         &mut self,
-        actor: usize,
+        actor: ActorId,
         text: &str,
         duration: u16,
         frame: &BattleFrame,
@@ -253,7 +253,7 @@ impl Artwork {
         ensure!(duration != 0, "empty battle notice lifetime");
         let side = frame
             .actors
-            .get(actor)
+            .get(actor.index())
             .context("unknown notice actor")?
             .side;
         self.font.validate_text(text)?;
@@ -365,7 +365,7 @@ impl Artwork {
                     &mut batches[start..start + FACES],
                 );
                 if side == Side::Party as usize {
-                    let slot = frame.actors[..message.actor]
+                    let slot = frame.actors[..message.actor.index()]
                         .iter()
                         .filter(|a| a.side == Side::Party)
                         .count();
@@ -468,7 +468,7 @@ mod tests {
         hud.settings.colors.dialogue = [60, 140, 180, 232];
         for (name, emblem_left, text_left) in [("Fire Ball", 379., 260.), ("Aqua Edge", 416., 255.)]
         {
-            hud.notice_request(0, name, 90, &frame)?;
+            hud.notice_request(ActorId::from_index(0)?, name, 90, &frame)?;
             hud.notices.advance(&frame, 8);
             let batches = hud.draw_notices(&frame, party)?;
             let border = &batches[FRAME];
@@ -486,7 +486,7 @@ mod tests {
             assert!(hud.ui.notice[FRAME].definition.nearest);
             assert!(!hud.ui.notice[TEXT].definition.nearest);
         }
-        hud.notice_request(1, "Poisonous Pollen", 12, &frame)?;
+        hud.notice_request(ActorId::from_index(1)?, "Poisonous Pollen", 12, &frame)?;
         hud.notices.advance(&frame, 8);
         let paired = hud.draw_notices(&frame, party)?;
         assert_eq!(paired[FRAME].colors[0][3], 190. / 255.);

@@ -133,8 +133,8 @@ pub use casting::{
 };
 pub use control::{
     ButtonInput, ControlDefinition, ControlInput, ControlMotions, ControllerPort, Locomotion,
-    NormalAttack, NormalControl, ShortcutEdit, ShortcutSlot, direction_from_heading,
-    project_screen_point, project_screen_x,
+    NormalAttack, NormalContinuation, NormalControl, ShortcutEdit, ShortcutSlot,
+    direction_from_heading, project_screen_point, project_screen_x,
 };
 pub use damage::{
     Affinity, AttackElements, CombatAdjustments, CombatStats, DamageKind, DamageTraits, Element,

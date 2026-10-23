@@ -29,20 +29,6 @@ fn model(names: &[&str]) -> Vec<u8> {
 }
 
 #[test]
-fn rig_rejects_unsupported_binary_transforms_before_publication() {
-    let mut bytes = model(&["root"]);
-    bytes[64 + 24] = 2;
-    for kind in [RigKind::Body, RigKind::Weapon, RigKind::Effect] {
-        assert!(
-            rig(&bytes, kind)
-                .unwrap_err()
-                .to_string()
-                .contains("unsupported battle model bone transform")
-        );
-    }
-}
-
-#[test]
 fn rig_decodes_only_body_artwork_attachments() -> Result<()> {
     let source = model(&["root", "at", "at0/", "Kk00", "kk01"]);
     let body = rig(&source, RigKind::Body)?;

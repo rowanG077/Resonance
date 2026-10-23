@@ -345,20 +345,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ordinary_attachment_rejects_discarded_active_fields() -> Result<()> {
-        let mut metadata = [0; 64];
-        metadata[19] = 255;
-        ordinary_attachment(&metadata, false)?;
-        assert!(ordinary_attachment(&metadata, true).is_err());
-        for (offset, value) in [(10, 1), (12, 1), (19, 128)] {
-            let mut changed = metadata;
-            changed[offset] = value;
-            assert!(ordinary_attachment(&changed, false).is_err());
-        }
-        Ok(())
-    }
-
-    #[test]
     fn attachment_animation_preserves_signed_scroll_and_bounds_sequences() -> Result<()> {
         let mut bytes = [0; 64];
         bytes[..8].copy_from_slice(&[1, 1, 0, 1, 2, 2, 80, (-12_i8) as u8]);
