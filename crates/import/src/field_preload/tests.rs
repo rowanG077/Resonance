@@ -66,6 +66,7 @@ fn build(root: &Fixture, inputs: Inputs) -> Result<Manifest> {
     let mut inventory = Inventory::new(&root.0);
     inventory.paths(root.1.iter().map(String::as_str))?;
     close_skits(&mut inventory, &font())?;
+    close_battle_audio(&mut inventory)?;
     let field: FieldAssets = inventory.json(&inputs.field, None, Role::Field)?;
     build_field(inventory, inputs, &field)
 }
@@ -238,7 +239,7 @@ fn current_shared_descriptors_close_against_published_inventory() -> Result<()> 
     let root = asset_root();
     let published: Shared = serde_json::from_slice(&fs::read(root.join(SHARED_PATH))?)?;
     published.validate()?;
-    let roots = ["game/skits.json"]
+    let roots = ["game/skits.json", resonance_content::battle_formation::PATH]
         .into_iter()
         .filter(|path| published.files.contains_key(*path))
         .map(str::to_owned)
@@ -303,7 +304,7 @@ fn complete_field_includes_hidden_actors_all_clips_and_deduplicates_files() {
     let skits = "game/skits.json";
     root.json(
         skits,
-        &json!({"version":2,"skits":[],"preview_order":[],"portrait_recipes":[],"portraits":{
+        &json!({"version":3,"skits":[],"preview_order":[],"portrait_recipes":[],"portraits":{
             "851968":{"size":[16,16],"images":[
                 {"texture":"textures/shared.ktx2","size":[16,16]},
                 {"texture":expression,"size":[8,8]}
@@ -470,6 +471,35 @@ fn hashes_current_payload_and_rejects_missing_files_and_unsafe_paths() {
     let mut inputs = root.inputs();
     inputs.movies.insert("../outside.json".into());
     assert!(build(&root, inputs).is_err());
+}
+
+#[test]
+fn late_battle_audio_descriptor_is_verified_without_loading_its_packages() {
+    let mut root = fixture();
+    let marker = resonance_content::battle_formation::PATH;
+    root.write(marker, b"source formation fixture");
+    root.1.insert(marker.into());
+    // Structural preparation can run before the selected audio publication.
+    assert!(build(&root, root.inputs()).unwrap().is_complete());
+    let path = resonance_content::battle_audio::PATH;
+    let package_hash = audio_package(&root);
+    let descriptor = json!({
+        "assets": {"version":resonance_content::field_audio::FieldAudio::VERSION,
+            "music_reverbs":{"presets":[[0.5,0.5,1.0,0.5,0.0],[0.5,0.5,1.0,0.5,0.0]],"selectors":vec![1u8;112]},
+            "music":{},"sounds":{"60":{"path":"audio/package.json","sha256":package_hash}},"voices":{},
+            "voice_gains":(0..128).map(|v| v as f32 /127.).collect::<Vec<_>>()},
+        "effect_spatial":[320.,5.,64.,0.,127.],"voice_spatial":[320.,5.,64.,24.,104.],
+        "files":{"audio/package.json":{"sha256":package_hash,"bytes":fs::metadata(root.0.join("audio/package.json")).unwrap().len(),"roles":["audio_package"]}}
+    });
+    let hash = root.json(path, &descriptor);
+    let manifest = build(&root, root.inputs()).unwrap();
+    assert_eq!(manifest.files[path].sha256, hash);
+    assert!(manifest.files[path].roles.contains(&Role::Data));
+    assert!(!manifest.files.contains_key("audio/package.json"));
+    let mut broken = descriptor;
+    broken["voice_spatial"][1] = json!(0.);
+    root.json(path, &broken);
+    assert!(build(&root, root.inputs()).is_err());
 }
 
 #[test]

@@ -53,7 +53,11 @@ and decoded payloads retire after their last consumer. Model preparation uses
 ordinary sequential functions inside each package job; only the main graph
 schedules parallel conversion.
 The scheduler also supports estimated scratch and retained-output budgets; these
-estimates are admission controls, not process RSS limits.
+estimates are admission controls, not process RSS limits. `--memory-budget-mib`
+sets that budget (2048 MiB by default), independently of `--jobs`. If a complete
+library's retained dependencies exhaust the budget, rerun the full cook with a
+larger budget suited to the machine, for example `--memory-budget-mib 8192`.
+The budget changes scheduling admission, never which resources are cooked.
 
 An output session coordinates final publication across workers and holds an
 exclusive lock against independent cooks targeting the same directory. Equal
@@ -126,6 +130,45 @@ After a format change, rerun `cook-all`. There is no
 compatibility layer for obsolete cooked formats: version mismatches request a
 recook.
 
+### Repairing a stale saved-state fingerprint
+
+If a save belongs to an older library whose stored fingerprint is stale, an
+explicit tool can create a separate copy for a freshly cooked library:
+
+```sh
+cargo run -p resonance-presentation --example repair_checkpoint_identity -- \
+  path/to/original-save.json path/to/old-library path/to/current-library \
+  path/to/new-save.json
+```
+
+For a read-only check, put `--check` before the save path and omit the new-save
+path. This performs the same comparison, admission and scene preparation, then
+reports the proposed output hash without writing it.
+
+Supply the old library used with that save. The tool requires the save's header
+to match that library, compares the actual saved-gameplay definitions and every
+field/battle/standard script in both libraries, and verifies the target's stored
+fingerprint against a fresh computation. Any semantic difference rejects the
+repair. Support is bounded to save schema 5 and source menu formats 34–37; normal
+gameplay still requires the current cooked format.
+
+The copy preserves the checkpoint payload and metadata except for its identity.
+Before writing, it must pass normal target admission and strict native scene
+preparation. The output must be a new file; the original is never replaced. The
+JSON report records both identities and file hashes. Scene preparation does not
+replace a replay of the resulting copy through restoration and resumed play.
+Offline checkpoint replay preserves saved preferences; interactive loads apply
+the user's `config.toml` preferences.
+
+Stored battle scenes now require scene format 1. The Ray fixed-pattern recipe in
+`crates/import/src/battle_scene/spell_recipes.json` translates its verified native
+schedule and extracts heading, strike points, camera and color from the original
+REL tables. Cooking includes the resulting typed recipe in the scene descriptor
+and its normal preparation identity. Preparation resolves the declared contacts
+and effects into `PreparedSpell`; transition clocks, TP payment, interruption and
+released-effect ownership remain native. Changing this representation requires a
+complete cook, including scenes that retain their existing native controllers.
+
 ## Authored events
 
 The SymphoniaScript DSL and compiler ship with the cooking system. Authored code
@@ -179,3 +222,25 @@ It does not prove every native controller is implemented or every scene renders
 correctly; native late-actor phases remain unsupported by the runtime. Continue
 recovery when a concrete failure or original consumer proves
 a gap; battle preparation has its own implementation and validation boundary.
+
+The current data-driven migration requires menu format 37, skit catalogue format 3,
+world package format 4 and battle scene format 1. Shop visit groups retain saved
+shop IDs; skit resources carry authored skip permission; world landmarks carry
+validated entry overrides. Skit exceptions are extracted from checked original
+instructions. Shop groups and world entry selection are translated recipes with
+source provenance; entry angles and heights come from the original REL constants.
+Runtime callers still constrain skit skipping, and native placement, save admission
+and battle lifecycle rules remain authoritative. Recook the complete library when
+updating to these formats.
+
+Party profiles now require format 1 and contain validated standing-capsule dimensions.
+The collider recipe preserves Resonance's maintained body envelopes; these are not
+extracted original values, and authored MO/DM reception geometry remains separate.
+The new required `battle/defense-system.json` format 2 declares composition, PA slots,
+placement, deployment, repair/revival cycles, messages, sound and camera parameters
+for the existing native controller. Repair cycles retain independent orbit counters,
+increasing self-revival delays and the core defense ratio; native recovery owns
+revival, protection, health caps and feedback.
+Its placement/rate constants are extracted from the original REL, while the camera
+restriction is an explicitly maintained Resonance setting. Both records include
+their recipe hashes and enter the shared preload inventory. A full recook is required.

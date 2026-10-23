@@ -22,8 +22,8 @@ struct Args {
     /// Temporary playground: start above Sylvarant on unlocked Rheairds.
     #[arg(long, conflicts_with_all = ["record_music", "record_playthrough"])]
     test_overworld: bool,
-    /// Resolve battles as victories for replay testing until combat is implemented.
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    /// Resolve encounters as victories for exploration testing.
+    #[arg(long)]
     skip_battles: bool,
     /// Fixed render resolution for this session (default 640x480); restart to change it.
     #[arg(long, conflicts_with_all = ["capture", "record_music", "record_playthrough"])]

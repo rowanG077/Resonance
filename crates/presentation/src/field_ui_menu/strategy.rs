@@ -357,7 +357,13 @@ fn main_opacity(state: &Strategy) -> u8 {
         255 - state.transition.page_fade
     }
 }
-
+fn main_alpha(state: &Strategy) -> u8 {
+    if state.focus == Focus::Rename {
+        127
+    } else {
+        255
+    }
+}
 fn rename_visible(state: &Strategy) -> bool {
     state.focus.preset() && (state.focus == Focus::Rename || state.rename_opacity != 0)
 }
@@ -381,6 +387,44 @@ fn key_position(column: usize, row: usize) -> [f32; 2] {
     ]
 }
 
+impl MenuArtwork {
+    #[allow(clippy::too_many_arguments)] // Already prepared resources and one immutable shared page.
+    pub(crate) fn render_battle_strategy(
+        &mut self,
+        page: StrategyPage<'_>,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        tick: u32,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        self.set_page(Some(ActivePage::Menu(Page::Strategy)));
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
+        draw.opacity = 255 - page.state.transition.page_fade;
+        // Fade the gradient with the page while the captured backdrop remains opaque.
+        draw.shade(draw.screen);
+        draw.plane = 1;
+        draw.strategy_page(page)?;
+        let trail = draw.trail;
+        let drawing = draw.batches;
+        self.trail = trail;
+        self.submit_drawing(drawing, commands, meshes)
+    }
+}
+
+impl Drawing<'_> {
+    fn strategy_page(&mut self, page: StrategyPage<'_>) -> Result<()> {
+        let anchor = self.strategy(page)?;
+        self.plane = main_plane(page.state);
+        self.strategy_cursors(page);
+        self.cursor(anchor, main_alpha(page.state));
+        if let Some(anchor) = self.strategy_rename(page)? {
+            self.cursor(anchor, 255);
+        }
+        Ok(())
+    }
+}
 #[cfg(test)]
 #[path = "strategy_tests.rs"]
 mod tests;

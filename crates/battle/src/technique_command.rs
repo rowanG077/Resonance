@@ -1,0 +1,579 @@
+use crate::{ActorId, Battle, Control, PreparedBattle};
+use anyhow::{Context, Result, ensure};
+
+pub use resonance_content::arte::{
+    ArteFamily, RegalArteFamily, TechniqueCapabilities, TechniqueTarget,
+};
+
+/// Identity in the shared technique catalogue, distinct from an action handle or use count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TechniqueId(pub u16);
+
+impl TechniqueId {
+    pub fn index(self) -> usize {
+        usize::from(self.0)
+    }
+}
+
+impl std::fmt::Display for TechniqueId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Immutable technique metadata shared by player commands and autonomous policy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PreparedTechnique {
+    pub action: crate::ActionKey,
+    pub catalogue: TechniqueId,
+    pub player_range: [f32; 2],
+    pub ai_range: [f32; 2],
+    pub capabilities: TechniqueCapabilities,
+    pub element: Option<crate::Element>,
+}
+
+#[cfg(test)]
+mod elemental_tests {
+    use super::*;
+    use crate::{ActionKey, ActionRequest, BattleInput, Side};
+    use resonance_content::arte::{Catalogue, elemental};
+    use std::sync::Arc;
+
+    #[test]
+    fn elemental_use_learns_at_fifty_and_remains_available_without_equipment() -> Result<()> {
+        for enabled in [false, true] {
+            for variant in elemental::VARIANTS {
+                let mut owner = crate::tests::actor(Side::Party);
+                owner.control = crate::Control::Auto;
+                owner.equipment.base_element = Some(variant.element);
+                let mut target = crate::tests::actor(Side::Enemy);
+                target.position[0] = 100.;
+                let definition = crate::ActionDefinition {
+                    normal: None,
+                    tp_cost: 7,
+                    execution: crate::ActionExecution::Attack(crate::tests::attack(1)),
+                };
+                let catalogue = Catalogue {
+                    definitions: vec![Default::default(); usize::from(variant.id) + 1],
+                    learning: vec![vec![variant.base, variant.id]],
+                };
+                let member = crate::learning::LearningCatalogue::new(Arc::new(catalogue))
+                    .with_elemental_learning(enabled)
+                    .prepare_member(crate::learning::LearningEntry {
+                        character: crate::Character::Lloyd,
+                        level: 1,
+                        balance: 0,
+                        story_unlocked: true,
+                        current: [TechniqueId(variant.base)].into_iter().collect(),
+                        counts: [
+                            (TechniqueId(variant.base), 199),
+                            (TechniqueId(variant.id), 49),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    })?;
+                let mut battle = PreparedBattle::new(
+                    vec![
+                        (
+                            owner,
+                            crate::ActorSetup {
+                                techniques: vec![
+                                    crate::tests::technique(ActionKey(0), variant.base),
+                                    crate::tests::technique(ActionKey(1), variant.id),
+                                ],
+                                ..Default::default()
+                            },
+                        ),
+                        (target, Default::default()),
+                    ],
+                    vec![definition.clone(), definition].into(),
+                    1,
+                )?
+                .with_technique_learning_members(vec![crate::learning::TechniqueLearningMember {
+                    actor: ActorId(0),
+                    member,
+                }])?
+                .finish()?;
+                let request = ActionRequest {
+                    actor: ActorId(0),
+                    target: ActorId(1),
+                    action: ActionKey(0),
+                };
+                battle.record_unison_use(ActorId(0), ActionKey(1))?;
+                assert_eq!(
+                    battle.technique_uses(ActorId(0), TechniqueId(variant.id)),
+                    Some(49)
+                );
+                battle.start(request, &mut vec![])?;
+                let (&id, action) = battle.sequences().next().expect("elemental action starts");
+                assert_eq!(action.action, ActionKey(1));
+                assert_eq!(
+                    battle.technique_uses(ActorId(0), TechniqueId(variant.base)),
+                    Some(200)
+                );
+                assert_eq!(
+                    battle.technique_uses(ActorId(0), TechniqueId(variant.id)),
+                    Some(50)
+                );
+                assert_eq!(battle.actors[0].proficiency, 4);
+                assert_eq!(battle.technique_acquisitions().len(), usize::from(enabled));
+                while battle.timed_hold_remaining().is_some() {
+                    battle.step(BattleInput::default())?;
+                }
+                battle.step(BattleInput {
+                    interrupt: vec![id],
+                    ..Default::default()
+                })?;
+                battle.actors[0].equipment.base_element = None;
+                assert_eq!(
+                    battle.technique_available(ActorId(0), ActionKey(1)),
+                    enabled
+                );
+                if enabled {
+                    battle.start(
+                        ActionRequest {
+                            action: ActionKey(1),
+                            ..request
+                        },
+                        &mut vec![],
+                    )?;
+                    assert_eq!(
+                        battle.technique_uses(ActorId(0), TechniqueId(variant.id)),
+                        Some(51)
+                    );
+                    assert_eq!(battle.actors[0].proficiency, 4);
+                    assert_eq!(battle.technique_acquisitions().len(), 1);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+pub type AssistShortcuts = [Option<(ActorId, crate::ActionKey)>; 2];
+
+impl crate::prepare::BattleResources {
+    pub(crate) fn technique(
+        &self,
+        actor: ActorId,
+        action: crate::ActionKey,
+    ) -> Option<&PreparedTechnique> {
+        self.actor_setup
+            .get(actor.index())?
+            .techniques
+            .iter()
+            .find(|row| row.action == action)
+    }
+}
+
+impl PreparedBattle {
+    pub(crate) fn validate_actor_techniques(&self) -> Result<()> {
+        for (index, setup) in self.resources.actor_setup.iter().enumerate() {
+            ensure!(
+                setup.techniques.is_empty() || self.actors[index].side == crate::Side::Party,
+                "techniques require a party actor"
+            );
+            if let Some(rule) = setup.cast_replacement {
+                ensure!(
+                    rule.input != rule.output
+                        && !matches!(
+                            rule.trigger,
+                            crate::CastReplacementTrigger::Chance { one_in: 0 }
+                        )
+                        && !rule.required_uses.is_empty()
+                        && [rule.input, rule.output].iter().all(|&action| {
+                            self.resources.casting(action).is_some()
+                                && setup.techniques.iter().any(|row| row.action == action)
+                        })
+                        && rule.required_uses.iter().all(|&(arte, minimum)| {
+                            minimum > 0 && setup.techniques.iter().any(|row| row.catalogue == arte)
+                        }),
+                    "invalid prepared cast replacement"
+                );
+            }
+            let mut actions = std::collections::BTreeSet::new();
+            let mut catalogues = std::collections::BTreeSet::new();
+            for row in &setup.techniques {
+                ensure!(row.catalogue.0 > 0, "invalid technique catalogue identity");
+                ensure!(
+                    row.capabilities.target != TechniqueTarget::Unavailable,
+                    "technique target is unavailable"
+                );
+                ensure!(
+                    actions.insert(row.action) && catalogues.insert(row.catalogue),
+                    "duplicate prepared technique identity"
+                );
+                for [minimum, maximum] in [row.player_range, row.ai_range] {
+                    ensure!(
+                        minimum.is_finite()
+                            && maximum.is_finite()
+                            && minimum >= 0.
+                            && (maximum > minimum
+                                || row.capabilities.target == TechniqueTarget::SelfTarget
+                                    && minimum == 0.
+                                    && maximum == 0.),
+                        "invalid prepared technique range"
+                    );
+                }
+                ensure!(
+                    self.resources
+                        .actions
+                        .get(row.action)
+                        .is_some_and(|action| action.normal.is_none()),
+                    "technique needs a prepared action distinct from normal attacks"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Battle {
+    /// Elemental weapon bonuses select a complete arte before its use is counted.
+    pub(crate) fn elemental_action(
+        &mut self,
+        actor: ActorId,
+        action: crate::ActionKey,
+        cues: &mut Vec<crate::Cue>,
+    ) -> (
+        crate::ActionKey,
+        Option<std::sync::Arc<crate::ActionDefinition>>,
+    ) {
+        use resonance_content::arte::elemental;
+        let Some(base) = self.technique_catalogue_for_action(actor, action) else {
+            return (action, None);
+        };
+        let uses = self
+            .technique_uses(actor, base)
+            .unwrap_or(0)
+            .saturating_add(1);
+        let owner = &self.actors[actor.index()];
+        let element = crate::damage::resolve_element(crate::HitElement::Inherited, owner);
+        let Some(variant) = elemental::VARIANTS.iter().find(|variant| {
+            variant.base == base.0
+                && element == Some(variant.element)
+                && uses >= elemental::ACTIVATION_USES
+        }) else {
+            return (action, None);
+        };
+        let Some(replacement) = self
+            .prepared_technique(actor, TechniqueId(variant.id))
+            .map(|row| row.action)
+        else {
+            return (action, None);
+        };
+        // Pow Hammer's lucky Toss Hammer takes precedence over its ice variant.
+        // Select its existing inline track here so the luck roll happens once.
+        if variant.id == elemental::ICE_HAMMER
+            && let crate::ActionExecution::Attack(attack) = &self.prepared.actions[action].execution
+            && let Some((0, crate::AttackEvent::ChooseHammer(variants))) = attack.events.first()
+        {
+            let choice =
+                crate::attack::hammer_choice(uses, owner.equipment.luck, element, &mut self.random);
+            if choice != crate::attack::HammerVariant::Ice {
+                if let Some(text) = choice.notice() {
+                    cues.push(crate::Cue::EffectNotice {
+                        actor,
+                        text: text.into(),
+                        duration: 90,
+                    });
+                }
+                return (
+                    action,
+                    Some(std::sync::Arc::clone(&variants[choice as usize])),
+                );
+            }
+        }
+        (replacement, None)
+    }
+
+    pub fn prepared_techniques(&self, actor: ActorId) -> &[PreparedTechnique] {
+        self.prepared
+            .actor_setup
+            .get(actor.index())
+            .map_or(&[], |setup| &setup.techniques)
+    }
+
+    pub fn prepared_technique(
+        &self,
+        actor: ActorId,
+        catalogue: TechniqueId,
+    ) -> Option<&PreparedTechnique> {
+        self.prepared_techniques(actor)
+            .iter()
+            .find(|row| row.catalogue == catalogue)
+    }
+
+    /// Shared by menu confirmation and command admission. Revival selects a
+    /// fallen ally; other techniques require an available recipient.
+    pub fn technique_target_eligible(
+        &self,
+        actor: ActorId,
+        action: crate::ActionKey,
+        target: ActorId,
+    ) -> bool {
+        let Some(row) = self.learned_technique(actor, action) else {
+            return false;
+        };
+        let Some(owner) = self.actors.get(actor.index()) else {
+            return false;
+        };
+        let Some(recipient) = self.actors.get(target.index()) else {
+            return false;
+        };
+        let side_matches = match row.capabilities.target {
+            TechniqueTarget::Unavailable => false,
+            TechniqueTarget::Enemy => recipient.side != owner.side && !self.target_excluded(target),
+            TechniqueTarget::Ally => recipient.side == owner.side,
+            TechniqueTarget::SelfTarget => target == actor,
+        };
+        side_matches
+            && if row.capabilities.revives {
+                recipient.availability == crate::ActorAvailability::Dead
+            } else {
+                recipient.available()
+                    || self.prepared.casting(action).is_some_and(|cast| {
+                        cast.release
+                            .recovery
+                            .iter()
+                            .any(|pulse| pulse.benefit.accepts(recipient))
+                    })
+            }
+    }
+
+    /// Current membership selects from the actor's immutable action capacity.
+    pub(crate) fn learned_technique(
+        &self,
+        actor: ActorId,
+        action: crate::ActionKey,
+    ) -> Option<PreparedTechnique> {
+        let row = self.prepared.technique(actor, action)?;
+        if self
+            .learning_members
+            .iter()
+            .find(|member| member.actor == actor)
+            .is_some_and(|member| !member.member.current().contains(&row.catalogue))
+        {
+            return None;
+        }
+        Some(*row)
+    }
+
+    pub(crate) fn technique_available(&self, actor: ActorId, action: crate::ActionKey) -> bool {
+        self.learned_technique(actor, action).is_some()
+    }
+
+    pub fn pending_technique(&self, actor: ActorId) -> Option<crate::ActionKey> {
+        Some(
+            self.runtime
+                .get(actor.index())?
+                .control
+                .as_ref()?
+                .queued_technique?
+                .action,
+        )
+    }
+
+    pub fn pending_technique_issuer(&self, actor: ActorId) -> Option<crate::ControllerPort> {
+        self.runtime
+            .get(actor.index())?
+            .control
+            .as_ref()?
+            .queued_technique?
+            .issuer
+    }
+
+    /// Target retained by an explicit Tech command, kept separate from the
+    /// actor's ordinary decision target until the command is released.
+    pub fn pending_technique_target(&self, actor: ActorId) -> Option<ActorId> {
+        self.runtime
+            .get(actor.index())?
+            .control
+            .as_ref()?
+            .queued_technique?
+            .target
+    }
+
+    pub(crate) fn clear_technique_command(&mut self, actor: ActorId) {
+        if let Some(control) = &mut self.runtime[actor.index()].control {
+            control.queued_technique = None;
+        }
+    }
+
+    pub(crate) fn clear_matching_technique_command(
+        &mut self,
+        actor: ActorId,
+        action: crate::ActionKey,
+    ) {
+        if self
+            .pending_technique(actor)
+            .is_some_and(|pending| pending == action)
+        {
+            self.clear_technique_command(actor);
+        }
+    }
+
+    pub(crate) fn request_queued_technique(
+        &mut self,
+        actor: ActorId,
+        cues: &mut Vec<crate::Cue>,
+    ) -> Result<bool> {
+        let index = actor.index();
+        if self.actors[index].control != Control::Auto || !self.companion_mode_ready(actor) {
+            return Ok(false);
+        }
+        let Some(control) = self.runtime[index].control.as_ref() else {
+            return Ok(false);
+        };
+        let Some(pending) = control.queued_technique else {
+            return Ok(false);
+        };
+        let action = pending.action;
+        let Some(binding) = self.learned_technique(actor, action) else {
+            return Ok(false);
+        };
+        let target = if let Some(target) = pending.target {
+            target
+        } else if binding.capabilities.target == TechniqueTarget::Enemy {
+            let policy = self
+                .companion_policy(actor)
+                .context("queued command has no policy")?;
+            let strategy = if policy.choices[0] == 0 {
+                self.prepared.actor_setup[index]
+                    .companion
+                    .as_ref()
+                    .context("queued command has no companion")?
+                    .defaults[0]
+            } else {
+                policy.choices[0]
+            };
+            let Some(target) =
+                self.decision_target(actor, crate::TargetPolicy::try_from(strategy)?)?
+            else {
+                return Ok(false);
+            };
+            target
+        } else {
+            let target = self
+                .actors
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| {
+                    self.technique_target_eligible(actor, action, ActorId(*index as u8))
+                })
+                .min_by_key(|(_, candidate)| candidate.hp_percent())
+                .map(|(index, _)| ActorId(index as u8));
+            let Some(target) = target else {
+                return Ok(false);
+            };
+            target
+        };
+        if !self.technique_target_eligible(actor, action, target) {
+            self.clear_technique_command(actor);
+            return Ok(false);
+        }
+        if self.prepared.special_guard(actor) == Some(action) {
+            return self.start_special_guard(actor, action, cues);
+        }
+        let Ok(candidate) = self.action_candidate(actor, action, binding.player_range) else {
+            return Ok(false);
+        };
+        if binding.capabilities.target != TechniqueTarget::Enemy {
+            let request = crate::ActionRequest {
+                actor,
+                target,
+                action,
+            };
+            if self.action_rejection(request)?.is_some() {
+                return Ok(false);
+            }
+            if crate::conditions::paralysis_controller_roll(&self.actors[index], &mut self.random) {
+                self.clear_technique_command(actor);
+                self.begin_paralysis(actor, cues);
+                return Ok(true);
+            }
+            self.runtime[index].support_target = target;
+            self.actors[index].movement.forward = 0.;
+            self.start_admitted_action(request, cues)?;
+            return Ok(true);
+        }
+        let definition = self.prepared.actor_setup[index]
+            .control
+            .as_ref()
+            .context("queued command has no controller")?;
+        let parameters = crate::ApproachParameters {
+            minimum: candidate.range[0],
+            maximum: candidate.range[1],
+            motion: definition.motions.map(|motions| motions.run),
+            motion_rate: 0.5,
+            speed: definition.run_speed,
+            turn_ticks: definition.turn_ticks,
+        };
+        let accepted = self.request_selected_approach(actor, target, action, parameters)?;
+        if accepted {
+            self.set_decision_target(actor, target)?;
+        }
+        Ok(accepted)
+    }
+
+    pub(crate) fn queue_pending_technique_chain(&mut self, actor: ActorId) -> Result<Option<bool>> {
+        let Some(action) = self.pending_technique(actor) else {
+            return Ok(None);
+        };
+        if !self.actors[actor.index()].conditions.arte_queue_allowed()
+            || !self.technique_available(actor, action)
+            || self.prepared.actions.get(action).is_some_and(|definition| {
+                matches!(&definition.execution, crate::ActionExecution::Casting(_))
+            })
+        {
+            return Ok(Some(false));
+        }
+        Ok(Some(self.queue_companion_chain(actor, action)?))
+    }
+
+    pub(crate) fn consume_assist_input(
+        &mut self,
+        owner: ActorId,
+        input: crate::ControlInput,
+    ) -> Result<()> {
+        if self.phase() != crate::BattlePhase::Combat {
+            return Ok(());
+        }
+        let control = self.runtime[owner.index()].control.as_ref().unwrap();
+        let selected = if input.assist[1].pressed {
+            control.assist_shortcuts[1]
+        } else if input.assist[0].pressed {
+            control.assist_shortcuts[0]
+        } else {
+            None
+        };
+        let Some((actor, binding)) = selected else {
+            return Ok(());
+        };
+        if actor != owner && !self.actors[actor.index()].available() {
+            self.record_command(owner);
+        }
+        if actor == owner
+            || self.actors[actor.index()].control != Control::Auto
+            || !self.actors[actor.index()].available()
+        {
+            return Ok(());
+        }
+        if u32::from(self.actors[actor.index()].tp) < self.action_quote(actor, binding) {
+            return Ok(());
+        }
+        if self.queue_technique_from(actor, binding, owner)? {
+            self.runtime[actor.index()]
+                .control
+                .as_mut()
+                .unwrap()
+                .queued_technique
+                .as_mut()
+                .unwrap()
+                .target = None;
+            let count = &mut self.ledger.achievements[owner.index()].assist_commands;
+            *count = count.saturating_add(1).min(10);
+        }
+        Ok(())
+    }
+}

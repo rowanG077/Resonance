@@ -13,6 +13,7 @@ mod status;
 mod strategy;
 mod synopsis;
 mod text;
+mod title_awards;
 mod world_map;
 pub use cooking::*;
 pub use customize::*;
@@ -24,6 +25,7 @@ pub use status::*;
 pub use strategy::{STRATEGY_COUNTS, StrategyData, StrategyOption, StrategyPreset};
 pub use synopsis::*;
 pub use text::*;
+pub use title_awards::*;
 pub use world_map::*;
 
 pub const MANUAL_PATH: &str = "game/menu/manual.json";
@@ -66,6 +68,7 @@ pub struct MenuData {
     pub version: u32,
     pub items: Vec<Item>,
     pub titles: Vec<Vec<Title>>,
+    pub title_awards: TitleAwardRules,
     pub initial_names: [String; 9],
     pub techniques: Vec<Technique>,
     pub strategy: StrategyData,
@@ -181,7 +184,7 @@ pub enum Costume {
 }
 
 impl MenuData {
-    pub const VERSION: u32 = 34;
+    pub const VERSION: u32 = 37;
     /// Admit optional labels independently while keeping gameplay records typed.
     pub fn load(files: &crate::prepared::Files) -> Result<Self> {
         let mut data = Self::decode(&files.read("game/menu-data.json")?, files.diagnostics())?;
@@ -218,6 +221,7 @@ impl MenuData {
     /// Shared inventory, character, technique and battle data. Optional page
     /// resources are validated when that page is selected.
     pub fn validate_gameplay(&self) -> Result<()> {
+        self.title_awards.validate(&self.titles, self.items.len())?;
         ensure!(
             self.version == Self::VERSION && !self.items.is_empty(),
             "invalid menu item data"

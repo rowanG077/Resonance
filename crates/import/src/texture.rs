@@ -70,6 +70,46 @@ pub(crate) fn decode_source(bytes: &[u8]) -> Result<Decoded> {
     decode_source_with_palette_step(bytes, 0)
 }
 
+/// Publish an explicitly selected effect palette without changing its index width.
+pub(crate) fn publish_palette_window(
+    bytes: &[u8],
+    texture: usize,
+    first_color: usize,
+    output: &Path,
+) -> Result<resonance_content::font::UiTexture> {
+    let descriptor = crate::tpl::parse_tpl(bytes)?
+        .get(texture)
+        .context("missing effect palette texture")?
+        .clone();
+    let name = format!(
+        "textures/{}/texture-{texture}-palette-offset-{first_color}",
+        crate::digest(bytes)
+    );
+    let size = [u32::from(descriptor.width), u32::from(descriptor.height)];
+    Image {
+        name: name.clone(),
+        size,
+        levels: descriptor
+            .levels(bytes)?
+            .iter()
+            .map(|level| {
+                Ok(crate::tpl::decode_palette_window(
+                    bytes,
+                    level,
+                    first_color,
+                )?)
+            })
+            .collect(),
+        published: None,
+    }
+    .publish(output)?;
+    Ok(resonance_content::font::UiTexture {
+        path: format!("{name}.ktx2"),
+        width: size[0],
+        height: size[1],
+    })
+}
+
 /// Effect banks can select overlapping TLUT windows within a shared palette.
 pub(crate) fn decode_source_with_palette_step(bytes: &[u8], page_step: u16) -> Result<Decoded> {
     let expanded;

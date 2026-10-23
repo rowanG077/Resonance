@@ -33,6 +33,17 @@ impl Prepared {
         definition.validate()?;
         let files =
             Arc::new(shared.with_dependencies(root, definition.files.clone(), cache, cancelled)?);
+        let audio: resonance_content::field_audio::FieldAudio = files.json("worlds/audio.json")?;
+        audio.validate()?;
+        for scene in definition.visuals.cinematics.values() {
+            scene.presentation.validate_audio(&audio)?;
+            for line in &scene.dialogue {
+                anyhow::ensure!(
+                    audio.voices.contains_key(&line.voice),
+                    "cinematic voice is not prepared"
+                );
+            }
+        }
         let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
         let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
         skits.validate()?;

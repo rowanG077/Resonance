@@ -1,6 +1,7 @@
 use super::*;
 use anyhow::ensure;
 use resonance_content::menu_data::MenuSpan;
+use resonance_game::battle::command::ListFrame;
 use resonance_game::menu::items::{Description, Focus, ItemRow, VISIBLE_ITEMS};
 
 const KEY_ITEM_CATEGORY: u8 = 45;
@@ -74,6 +75,52 @@ fn inventory_layout(list: &InventoryList<'_>) -> Result<InventoryLayout> {
             96. + (cell / 2) as f32 * 26.,
         ],
     })
+}
+
+impl MenuArtwork {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn render_battle_items(
+        &mut self,
+        frame: &ListFrame,
+        data: &resonance_content::menu_data::MenuData,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        tick: u32,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        self.set_page(Some(ActivePage::Menu(Page::Items)));
+        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
+        draw.opacity = 255 - frame.fade;
+        draw.shade(draw.screen);
+        let selected = (!frame.rows.is_empty()).then_some(frame.selected);
+        let list = InventoryList {
+            rows: &frame.rows,
+            selected,
+            first: frame.first,
+            scroll: frame.scroll,
+            fade: frame.fade,
+            selection_alpha: 255,
+            description: frame
+                .rows
+                .get(frame.selected)
+                .map_or(Description::None, |row| Description::Item(row.id)),
+            previous_description: if frame.description_previous == 0 {
+                Description::None
+            } else {
+                Description::Item(frame.description_previous)
+            },
+            description_opacity: 255 - frame.description_blend,
+        };
+        if let Some(anchor) = draw.inventory_list(&list, data)? {
+            draw.cursor(anchor, 255);
+        }
+        let trail = draw.trail;
+        let drawing = draw.batches;
+        self.trail = trail;
+        self.submit_drawing(drawing, commands, meshes)
+    }
 }
 
 fn target_panel(menu: &Menu, opacity: u8) -> (f32, f32) {

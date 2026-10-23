@@ -154,7 +154,12 @@ pub(crate) fn prepare(
     catalogue: &Catalogue,
     ui: &inventory_ui::Catalogue,
 ) -> Result<MonsterBook> {
+    let voices = crate::battle_voice::read(usual)?;
+    let mut shared = crate::battle_effect::SharedPalettes::read(usual, output)?;
     let files = extracted.join("files");
+    let guard_bonus = crate::battle_recoil::guard_defaults(&crate::rel::Rel::read(
+        &files.join(&sources.module),
+    )?)?[0];
     let archive = files.join(&sources.enemy);
     ensure!(
         catalogue.records.len() == MONSTER_COUNT,
@@ -173,6 +178,17 @@ pub(crate) fn prepare(
         )?;
         preview.behavior = behaviors.bind(crate::model_behavior::Subject::Monster(id));
         let monster = self::metadata(id, record, preview, catalogue, ui)?;
+        crate::battle_model::publish_enemy(
+            &bytes,
+            usual,
+            &voices,
+            guard_bonus,
+            id,
+            &monster.preview,
+            &mut shared,
+            output,
+            output,
+        )?;
         write_atomic(
             &output.join(format!("monsters/{id:03}.json")),
             &serde_json::to_vec_pretty(&monster)?,

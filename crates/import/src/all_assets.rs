@@ -21,8 +21,10 @@ pub(crate) use field::CameraTrack;
 pub(crate) use field::camera;
 pub(crate) mod field_unlocks;
 pub(crate) mod geometry;
+mod overworld_cinematics;
 mod overworld_collision;
 mod overworld_encounters;
+mod overworld_entries;
 mod overworld_landmarks;
 mod overworld_movement;
 mod overworld_preparation;
@@ -113,6 +115,9 @@ pub struct Options<'a> {
     pub output: &'a Path,
     /// Maximum number of concurrent asset converters.
     pub jobs: usize,
+    /// Admission limit for estimated decoded inputs, outputs and scratch, in bytes.
+    /// This is independent of worker count and does not limit process RSS.
+    pub memory_budget: usize,
 }
 
 struct File {
@@ -128,6 +133,7 @@ struct Disc<'a> {
     executable_hash: String,
     skit_key: String,
     battle_sources: crate::source_assets::Sources,
+    battle_stages: Vec<String>,
     usual: Vec<u8>,
 }
 
@@ -326,6 +332,12 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     let mut sources = BTreeMap::new();
     let mut excluded = BTreeMap::new();
     let mut outputs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut battle_table_paths = BTreeMap::<String, Vec<String>>::new();
+    let mut battle_module_paths = BTreeMap::<(String, String), Vec<String>>::new();
+    let mut battle_scene_paths = BTreeMap::new();
+    let mut battle_stage_paths = BTreeMap::new();
+    let mut battle_ui_paths = BTreeMap::new();
+    let mut battle_victory_paths = BTreeMap::new();
     let mut all_jobs = Vec::new();
     let mut pending = BTreeMap::new();
     for (&disc, &extracted) in &discs {
@@ -394,6 +406,194 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         let mut jobs = Vec::new();
         let battle_sources = crate::source_assets::Sources::read_with(extracted, executable)?;
         let usual = fs::read(extracted.join("files").join(&battle_sources.usual))?;
+        let usual_hash = crate::digest(&usual);
+        let table_paths = if let Some(paths) = battle_table_paths.get(&usual_hash) {
+            paths.clone()
+        } else {
+            let prefix = if battle_table_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{usual_hash}")
+            };
+            let path = format!("{prefix}/formations.json");
+            crate::battle_formation::publish(&usual, &options.output.join(&path))?;
+            let mut paths = vec![path];
+            paths.extend(crate::battle_effect::publish(
+                &usual,
+                options.output,
+                &prefix,
+            )?);
+            paths.push(crate::battle_projectile::publish(
+                &usual,
+                &extracted.join("files").join(&battle_sources.module),
+                options.output,
+                &prefix,
+            )?);
+            battle_table_paths.insert(usual_hash.clone(), paths.clone());
+            paths
+        };
+        outputs
+            .entry(usual_hash.clone())
+            .or_default()
+            .extend(table_paths);
+        // Shared field inventories need these operands before the later embedded
+        // artwork pass. Publish once per source module in the same cooking run.
+        let module_hash = hashed
+            .get(&battle_sources.module)
+            .context("missing battle module")?;
+        let module_key = (module_hash.clone(), usual_hash.clone());
+        let module_paths = if let Some(paths) = battle_module_paths.get(&module_key) {
+            paths.clone()
+        } else {
+            let prefix = if battle_module_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{module_hash}/{usual_hash}")
+            };
+            let module = extracted.join("files").join(&battle_sources.module);
+            let paths = vec![
+                crate::battle_recoil::publish(&module, options.output, &prefix)?,
+                crate::battle_profile::publish_party(&module, &usual, options.output, &prefix)?,
+                crate::battle_defense_system::publish(&module, options.output, &prefix)?,
+                crate::battle_effect::publish_tints(&module, options.output, &prefix)?,
+            ];
+            battle_module_paths.insert(module_key, paths.clone());
+            paths
+        };
+        for hash in [module_hash, &usual_hash] {
+            outputs
+                .entry(hash.clone())
+                .or_default()
+                .extend(module_paths.clone());
+        }
+        let victory_inputs = crate::battle_victory::inputs(extracted)?;
+        let victory_key = crate::digest(&serde_json::to_vec(&victory_inputs)?);
+        let victory = if let Some(path) = battle_victory_paths.get(&victory_key) {
+            String::clone(path)
+        } else {
+            let prefix = if battle_victory_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{victory_key}")
+            };
+            let path = crate::battle_victory::publish_source(extracted, options.output, &prefix)?;
+            battle_victory_paths.insert(victory_key, path.clone());
+            path
+        };
+        for hash in victory_inputs.values() {
+            outputs
+                .entry(hash.clone())
+                .or_default()
+                .push(victory.clone());
+        }
+        let performances: resonance_content::battle_victory::Performances =
+            serde_json::from_slice(&fs::read(options.output.join(&victory))?)?;
+        let victory_complete = performances
+            .ordinary
+            .iter()
+            .all(|row| row.timeline.is_some() && row.unsupported_reason.is_none());
+        let magic_hash = hashed
+            .get(&battle_sources.magic)
+            .context("missing spell archive")?;
+        let skill_hash = hashed
+            .get(&battle_sources.skill)
+            .context("missing skill archive")?;
+        let skill_bindings = crate::digest(&serde_json::to_vec(
+            &crate::arte::read(executable)?.skill_packages,
+        )?);
+        let scene_key = (
+            module_hash.clone(),
+            usual_hash.clone(),
+            magic_hash.clone(),
+            skill_hash.clone(),
+            skill_bindings.clone(),
+        );
+        let scenes = if let Some(publication) = battle_scene_paths.get(&scene_key) {
+            crate::battle_scene::Publication::clone(publication)
+        } else {
+            let prefix = if battle_scene_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!(
+                    "battle/variants/{module_hash}/{usual_hash}/{magic_hash}/{skill_hash}/{skill_bindings}"
+                )
+            };
+            let publication = crate::battle_scene::publish_all_source(
+                extracted,
+                &battle_sources,
+                options.output,
+                &prefix,
+            )?;
+            battle_scene_paths.insert(scene_key, publication.clone());
+            publication
+        };
+        for (path, error) in &scenes.failures {
+            report.fail(Failure {
+                path: format!("disc{disc}/{path}"),
+                error: error.clone(),
+            });
+        }
+        for hash in [
+            module_hash,
+            &usual_hash,
+            magic_hash,
+            skill_hash,
+            &executable_hash,
+        ] {
+            outputs
+                .entry(hash.clone())
+                .or_default()
+                .extend(scenes.paths.clone());
+        }
+        let stage_hash = hashed
+            .get(&battle_sources.stages)
+            .context("missing stage archive")?;
+        let stage_key = (module_hash.clone(), stage_hash.clone());
+        let (stages, pending_stages) =
+            if let Some(publications) = battle_stage_paths.get(&stage_key) {
+                Clone::clone(publications)
+            } else {
+                let prefix = if battle_stage_paths.is_empty() {
+                    "battle".to_owned()
+                } else {
+                    format!("battle/variants/{module_hash}/{stage_hash}")
+                };
+                let publications = crate::battle_stage::publish_all_source(
+                    extracted,
+                    &battle_sources,
+                    options.output,
+                    &prefix,
+                )?;
+                battle_stage_paths.insert(stage_key, publications.clone());
+                publications
+            };
+        for hash in [module_hash, stage_hash] {
+            outputs
+                .entry(hash.clone())
+                .or_default()
+                .extend(stages.clone());
+        }
+        let ui_key = (module_hash.clone(), usual_hash.clone());
+        let ui_paths = if let Some(paths) = battle_ui_paths.get(&ui_key) {
+            Vec::clone(paths)
+        } else {
+            let prefix = if battle_ui_paths.is_empty() {
+                "battle".to_owned()
+            } else {
+                format!("battle/variants/{module_hash}/{usual_hash}")
+            };
+            let module =
+                crate::rel::Rel::read(&extracted.join("files").join(&battle_sources.module))?;
+            let paths = crate::battle_ui::publish_source(&usual, &module, options.output, &prefix)?;
+            battle_ui_paths.insert(ui_key, paths.clone());
+            paths
+        };
+        for hash in [module_hash, &usual_hash] {
+            outputs
+                .entry(hash.clone())
+                .or_default()
+                .extend(ui_paths.clone());
+        }
         let deferred_sources = battle_sources.deferred_paths();
         let audio = audio::Cooker::new(extracted, &output_session, &hashed);
         let mut movies = Vec::new();
@@ -433,6 +633,13 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 );
                 continue;
             }
+            if (role == Some(Role::Victory) && victory_complete)
+                || (relative == battle_sources.stages
+                    && !stages.is_empty()
+                    && pending_stages.is_empty())
+            {
+                continue;
+            }
             if role == Some(Role::BattleSkit) {
                 excluded.insert(label, Exclusion::NativeResultSequence);
                 continue;
@@ -442,7 +649,18 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 report.deferred.push(DeferredAsset {
                     path: label,
                     source_sha256: Some(hash.clone()),
-                    reason: "battle gameplay resources are deferred".into(),
+                    reason: if relative == battle_sources.stages {
+                        format!("{} arenas cooked; remaining arena features: {}", stages.len(),
+                            pending_stages.iter().map(|(arena, feature)| format!("{arena}: {feature}")).collect::<Vec<_>>().join(", "))
+                    } else { (if relative == battle_sources.usual {
+                        "formations, common action/projectile tables and common/technique effect sources are cooked; remaining battle tables and presentation are pending"
+                    } else if relative == battle_sources.enemy {
+                        "enemy statistics and models are cooked; behavior, effects and embedded sound banks are pending"
+                    } else if relative == battle_sources.weapons {
+                        "weapon archive is pending successful shared publication"
+                    } else {
+                        "remaining battle semantics and presentation are pending; shared menu/audio readers consume applicable records"
+                    }).into() },
                 });
                 continue;
             }
@@ -520,6 +738,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 executable_hash,
                 skit_key,
                 battle_sources,
+                battle_stages: stages,
                 usual,
             },
         );
@@ -543,10 +762,21 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             .collect::<Result<BTreeSet<_>>>()?;
         Ok((source, requested))
     })();
+    let party_sources = crate::battle_model::party::discover(
+        primary,
+        primary_disc,
+        &documents[&primary_disc].catalogues.resources,
+        &mut sources,
+    )?;
     let required = fields
         .iter()
         .flat_map(|field| field.dependencies.iter().cloned())
         .chain(overworld.dependencies.iter().cloned())
+        .chain(
+            party_sources
+                .iter()
+                .flat_map(|source| source.keys.iter().cloned()),
+        )
         .collect::<BTreeSet<_>>();
     let maps = fields
         .iter()
@@ -606,7 +836,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                         resolver.get(*input)?.require_success()?;
                     }
                     let document = &documents[&primary_disc];
-                    let shared = crate::shared::prepare(
+                    let mut shared = crate::shared::prepare(
                         primary,
                         options.output,
                         sources,
@@ -619,6 +849,9 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                             .map_err(|error| anyhow::anyhow!("{error:#}"))?
                             .0,
                     )?;
+                    shared
+                        .files
+                        .extend(pending[&primary_disc].battle_stages.iter().cloned());
                     for document in documents.values() {
                         ensure!(
                             document.catalogues.resources == shared.catalogue,
@@ -701,11 +934,13 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         }
         packages.insert(job.output_key().to_owned(), handle);
     }
+    let party = preparation::party(&mut dag, &party_sources, &packages, options.output)?;
     preparation::add(
         &mut dag,
         &fields,
         &packages,
         shared.context("no field preparation jobs")?,
+        party,
         options.output,
     )?;
     // Bind each terrain package as soon as its decoder finishes. Keeping all
@@ -783,7 +1018,11 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                     .find(|&&path| path != primary)
                     .map(|path| path.to_path_buf()),
             )?;
-            audio.world(&fs::read(primary.join("files").join(&overworld.script))?)?;
+            audio.world(
+                &fs::read(primary.join("files").join(&overworld.script))?,
+                overworld.visuals.cinematic_sounds(),
+                overworld.visuals.cinematic_voices(),
+            )?;
             overworld_preparation::prepare(
                 &overworld,
                 primary,
@@ -797,9 +1036,13 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     dag.estimate(world_task, 0, 256 * 1024 * 1024)?;
     let mut prepared_fields = BTreeMap::new();
     let mut shared_paths = BTreeSet::new();
+    let weapon_owner_motion = crate::battle_model::weapon::owner_motion_path(
+        pending[&primary_disc].extracted,
+        &pending[&primary_disc].document.executable,
+    )?;
     dag.run_bounded(
         workers,
-        2 * 1024 * 1024 * 1024,
+        options.memory_budget,
         || (),
         |completion| {
             if let Some(error) = completion.error() {
@@ -818,8 +1061,72 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 report.merge(result.report.clone());
             } else if let Ok(field) = completion.result::<preparation::PreparedField>() {
                 prepared_fields.insert(field.0, field.1.clone());
+            } else if let Ok(party) = completion.result::<preparation::PreparedParty>() {
+                shared_paths.extend(party.files.iter().cloned());
+                for (key, paths) in &party.outputs {
+                    outputs
+                        .entry(key.clone())
+                        .or_default()
+                        .extend(paths.clone());
+                }
             } else if let Ok(shared) = completion.result::<crate::shared::Prepared>() {
                 shared_paths.extend(shared.files.iter().cloned());
+                outputs
+                    .entry(pending[&primary_disc].document.hash.clone())
+                    .or_default()
+                    .push(resonance_content::battle_unison::PATH.into());
+                let unison_module = format!(
+                    "disc{primary_disc}/{}",
+                    pending[&primary_disc].battle_sources.module
+                );
+                outputs
+                    .entry(sources[&unison_module].clone())
+                    .or_default()
+                    .push(resonance_content::battle_unison::PATH.into());
+                for path in [
+                    &weapon_owner_motion,
+                    &pending[&primary_disc].battle_sources.weapons,
+                    &pending[&primary_disc].battle_sources.module,
+                ] {
+                    let source = format!("disc{primary_disc}/{path}");
+                    outputs
+                        .entry(sources[&source].clone())
+                        .or_default()
+                        .push(resonance_content::battle_model::WEAPONS_PATH.into());
+                }
+                if shared
+                    .files
+                    .contains(resonance_content::battle_model::WEAPONS_PATH)
+                {
+                    let primary = format!(
+                        "disc{primary_disc}/{}",
+                        pending[&primary_disc].battle_sources.weapons
+                    );
+                    let completed_hash = &sources[&primary];
+                    for (disc, state) in &pending {
+                        let source = format!("disc{disc}/{}", state.battle_sources.weapons);
+                        if sources.get(&source) == Some(completed_hash) {
+                            report.deferred.retain(|entry| {
+                                entry.path != source
+                                    || entry.source_sha256.as_ref() != Some(completed_hash)
+                            });
+                            excluded.remove(&source);
+                        }
+                    }
+                }
+                let source = format!(
+                    "disc{primary_disc}/{}",
+                    pending[&primary_disc].battle_sources.enemy
+                );
+                outputs.entry(sources[&source].clone()).or_default().extend(
+                    (0..resonance_content::monster::MONSTER_COUNT).flat_map(|id| {
+                        [
+                            format!("monsters/{id:03}.json"),
+                            resonance_content::battle_model::enemy_path(id as u8),
+                            resonance_content::battle_enemy::path(id as u8),
+                        ]
+                    }),
+                );
             }
         },
     )?;
@@ -1337,6 +1644,7 @@ mod tests {
             discs: &[],
             output,
             jobs: 1,
+            memory_budget: 2 * 1024 * 1024 * 1024,
         }
     }
 
@@ -1590,8 +1898,7 @@ mod tests {
             let output = root.join("output");
             let error = cook(&Options {
                 discs: &duplicate,
-                output: &output,
-                jobs: 1,
+                ..options(&output)
             })
             .err()
             .context("duplicate disc unexpectedly admitted")?;

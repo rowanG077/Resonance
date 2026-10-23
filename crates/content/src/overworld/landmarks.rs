@@ -45,6 +45,57 @@ pub struct Landmark {
     pub ship_camera_clearance: Option<ShipCameraClearance>,
     pub name: String,
     pub automatic: bool,
+    pub entry_overrides: Vec<EntryOverride>,
+}
+
+/// Authored field-return placement. Directional perimeter geometry stays native.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntryOverride {
+    pub direction: Option<u8>,
+    pub placement: EntryPlacement,
+    pub mount: Option<super::Mount>,
+    pub heading: Option<f32>,
+    pub camera_yaw: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EntryPlacement {
+    Fixed { position: [f32; 3] },
+    LandmarkCenter { height: f32 },
+    Perimeter { allow_disabled: bool },
+}
+
+impl EntryOverride {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.direction.is_none_or(|direction| direction < 8),
+            "invalid entry direction"
+        );
+        ensure!(
+            [self.heading, self.camera_yaw]
+                .into_iter()
+                .flatten()
+                .all(|angle| angle.is_finite() && (0. ..std::f32::consts::TAU).contains(&angle)),
+            "invalid entry angle"
+        );
+        match self.placement {
+            EntryPlacement::Fixed { position } => {
+                ensure!(
+                    (0. ..WORLD_WIDTH).contains(&position[0])
+                        && (0. ..WORLD_DEPTH).contains(&position[1])
+                        && position[2].is_finite(),
+                    "invalid fixed entry position"
+                );
+            }
+            EntryPlacement::LandmarkCenter { height } => {
+                ensure!(height.is_finite(), "invalid entry height")
+            }
+            EntryPlacement::Perimeter { .. } => {}
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +143,19 @@ impl Landmarks {
                     );
                 }
                 ensure!(ids.insert(entry.id), "duplicate landmark");
+                ensure!(
+                    entry.entry_overrides.len() <= 8,
+                    "too many landmark entry overrides"
+                );
+                let mut directions = BTreeSet::new();
+                for rule in &entry.entry_overrides {
+                    rule.validate()?;
+                    ensure!(
+                        directions.insert(rule.direction)
+                            && (rule.direction.is_some() || entry.entry_overrides.len() == 1),
+                        "ambiguous landmark entry overrides"
+                    );
+                }
             }
         }
         ensure!(

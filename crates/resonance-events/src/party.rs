@@ -455,6 +455,7 @@ pub(crate) mod tests {
             "version": resonance_content::menu_data::MenuData::VERSION,
             "grade_shop": {"options": [], "labels": {}}, "crafting": resonance_content::menu_data::crafting::Data::default(),
             "items": [], "titles": vec![vec![serde_json::json!({"growth":vec![0;7],"costume":null})];9],
+            "title_awards": resonance_content::menu_data::TitleAwardRules::default(),
             "initial_names":([""; 9]),
             "techniques": techniques,
             "strategy": {"groups": [[], [], []],
@@ -462,7 +463,7 @@ pub(crate) mod tests {
                 "default_positions": ([0; 9]), "positions": ([0; 6])},
             "cooking": {"recipes": [], "groups": [], "preferences": [], "bonus_skill": 0},
             "status": {"equipment_effects": {}},
-            "world_map": {"locations": {}, "field_locations": {}, "shops": []},
+            "world_map": {"locations": {}, "field_locations": {}, "shops": [], "shop_visit_groups": []},
             "ex_skills": {"skills": {"31": {
                 "stat_bonuses": [], "save_point_tp_cost": 1, "tendency": null, "activation": "constant"}},
                 "characters": vec![serde_json::json!({"levels": ([[31; 4]; 4]), "compounds": []}); 9],

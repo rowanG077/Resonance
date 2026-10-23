@@ -44,7 +44,7 @@ fn original_world_script_initializes_and_routes_all_landmark_handlers() -> Resul
     let index: SkitIndex = serde_json::from_slice(&fs::read(cooked.join("game/skits.json"))?)?;
     let skits = Arc::new(resonance_content::skit::SkitCatalog {
         preview_order: Vec::new(),
-        version: 2,
+        version: resonance_content::skit::VERSION,
         skits: index.skits,
         resources: index.resources,
         portraits: Default::default(),

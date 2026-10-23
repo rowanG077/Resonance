@@ -19,6 +19,10 @@ pub(super) fn title_reverbs(executable: &[u8]) -> Result<[[f32; 5]; 2]> {
     song_reverbs(executable, 1)
 }
 
+pub(crate) fn battle_reverbs(executable: &[u8]) -> Result<[[f32; 5]; 2]> {
+    preset_parameters(executable, 2)
+}
+
 pub(crate) fn song_reverbs(executable: &[u8], song: u16) -> Result<[[f32; 5]; 2]> {
     match song_reverb_change(executable, song)? {
         ReverbChange::Set { parameters } => Ok(parameters),

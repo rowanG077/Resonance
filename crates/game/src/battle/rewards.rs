@@ -1,0 +1,1130 @@
+//! Ordinary victory rewards. The session applies these to its candidate party
+//! once, before publishing results; presentation ticks never recalculate them.
+use super::party::Character;
+use anyhow::{Context, Result, ensure};
+use resonance_battle::ActorAvailability;
+use resonance_content::{
+    arte::Catalogue, grade::Benefit, menu_data::Title, monster::Monster, session::SessionData,
+};
+use resonance_events::{GameplayRandom, party::Party};
+
+const MAX_GALD: u32 = 99_999_999;
+const GALD_FINDER_PERCENT_RANGE: u32 = 20;
+
+/// One admitted enemy instance, in battle roster order. Excluded encounter
+/// categories are removed by the caller before any reward random draws.
+#[derive(Debug, Clone)]
+pub struct EnemyReward {
+    pub monster: u8,
+    pub experience: u32,
+    pub gald: u32,
+    pub drops: [Option<u16>; 2],
+    pub drop_chances: [u8; 2],
+}
+
+impl EnemyReward {
+    pub fn from_monster(monster: &Monster, variant: usize) -> Result<Self> {
+        let stats = monster
+            .statistics
+            .get(variant)
+            .context("missing reward statistics variant")?;
+        Ok(Self {
+            monster: monster.id,
+            experience: stats.experience,
+            gald: stats.gald,
+            drops: monster.drops,
+            drop_chances: monster.drop_chances,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemAward {
+    pub item: u16,
+    pub count: u16,
+    /// Knowledge is awarded even when the inventory stack is already full.
+    pub discoveries: Vec<(u8, usize)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rewards {
+    pub experience: u32,
+    pub combo_experience: u32,
+    pub gald: u32,
+    pub items: Vec<ItemAward>,
+}
+
+/// Successful Happiness bonuses for an active member.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HappinessAward {
+    pub character: Character,
+    pub experience: u32,
+    pub gald: u32,
+}
+
+/// Floor, equipment and skill reward modifiers. Gald Finder applies last.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RewardModifiers {
+    pub floor_experience_double: bool,
+    pub floor_gald_double: bool,
+    /// Maximum-vital growth for available active members, indexed by character and then HP/TP.
+    pub maximum_vital_growth: [[bool; 2]; 9],
+    /// Local EX72 or partywide EX92 takes precedence over local EX152.
+    /// This bonus uses base EXP, excluding combo EXP.
+    pub experience_bonus_percent: [u8; 9],
+    /// Experience bonuses from each admitted member's committed equipment at reward time.
+    pub equipment_experience_percent: [u8; 9],
+    pub item_drop_bonus: u8,
+    pub gald_one_and_a_half: bool,
+    pub gald_double: bool,
+    pub gald_finder: bool,
+    /// Raine's luck for the enemy-drop bonus, when she is available.
+    pub happiness_luck: Option<u16>,
+    /// Raine's luck for recipient bonuses; each recipient's skill and availability determine eligibility.
+    pub happiness_recipient_luck: Option<u16>,
+    pub happiness_recipients: [bool; 9],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaximumVital {
+    Hp,
+    Tp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaximumVitalAward {
+    pub character: Character,
+    pub vital: MaximumVital,
+    /// Actual base-stat increase after applying the stat cap.
+    pub amount: u16,
+}
+
+pub struct RewardInput<'a> {
+    pub enemies: &'a [EnemyReward],
+    pub formation_count: usize,
+    pub maximum_combo: u16,
+    pub technical_smash_bonus: u8,
+    pub level_difference: i8,
+    pub modifiers: RewardModifiers,
+}
+
+/// A complete reward transaction. Publish the party and random state together.
+pub struct Awarded {
+    pub party: Party,
+    pub random: GameplayRandom,
+    pub rewards: Rewards,
+    pub advancement: Vec<Advancement>,
+    pub maximum_vitals: Vec<MaximumVitalAward>,
+    pub happiness: Vec<HappinessAward>,
+    pub overflow: Vec<bool>,
+}
+
+/// Work on owned state so an invalid resource cannot publish partial rewards or random draws.
+pub fn award(
+    mut party: Party,
+    session: &SessionData,
+    techniques: &Catalogue,
+    titles: &[Vec<Title>],
+    input: RewardInput<'_>,
+    mut random: GameplayRandom,
+) -> Result<Awarded> {
+    for enemy in input.enemies {
+        ensure!(
+            usize::from(enemy.monster) < resonance_content::monster::MONSTER_COUNT,
+            "invalid reward monster"
+        );
+    }
+    let mut rewards = Rewards::calculate(&input, &mut random)?;
+    let benefits = &party.new_game_plus.benefits;
+    let (numerator, denominator) = if benefits.contains(&Benefit::HalfExperience) {
+        (1, 2)
+    } else if benefits.contains(&Benefit::DoubleExperience) {
+        (2, 1)
+    } else if benefits.contains(&Benefit::TenfoldExperience) {
+        (10, 1)
+    } else {
+        (1, 1)
+    };
+    rewards.experience = u32::try_from(u64::from(rewards.experience) * numerator / denominator)
+        .context("Grade Shop experience overflow")?;
+    rewards.combo_experience = combo_experience(rewards.experience, &input)?;
+    if benefits.contains(&Benefit::ComboExperience) {
+        rewards.experience = 1;
+        rewards.combo_experience = rewards
+            .combo_experience
+            .checked_mul(10)
+            .context("Grade Shop combo experience overflow")?;
+    }
+    let overflow = rewards
+        .items
+        .iter()
+        .map(|award| {
+            let item = session
+                .items
+                .get(usize::from(award.item))
+                .context("missing awarded item")?;
+            Ok(
+                u16::from(*party.items.get(&award.item).unwrap_or(&0)) + award.count
+                    > u16::from(party.item_limit(item)),
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let (maximum_vitals, advancement, happiness) = rewards.apply(
+        &mut party,
+        session,
+        techniques,
+        titles,
+        input.modifiers,
+        &mut random,
+    )?;
+    Ok(Awarded {
+        party,
+        random,
+        rewards,
+        advancement,
+        maximum_vitals,
+        happiness,
+        overflow,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Advancement {
+    /// Persistent character identity, independent of its battle slot.
+    pub character: Character,
+    pub levels: u8,
+    pub techniques: Vec<u16>,
+    /// Last learned technique for each gained level.
+    pub notices: Vec<u16>,
+}
+
+/// Each extra formation adds 50%; two halves represent an ordinary battle.
+pub(super) fn combined_multiplier_halves(formation_count: usize) -> Result<u32> {
+    ensure!(formation_count > 0, "empty reward encounter");
+    u32::try_from(formation_count)?
+        .checked_add(1)
+        .context("combined reward multiplier overflow")
+}
+
+/// Apply ordinary drop bonuses before the combined-battle multiplier.
+fn drop_chance(base: u8, bonus: u8, item_bonus: u8, multiplier_halves: u32) -> u32 {
+    let base = u32::from(base);
+    let chance = base + base * u32::from(bonus) / 100 + u32::from(item_bonus);
+    (u64::from(chance) * u64::from(multiplier_halves) / 2).min(100) as u32
+}
+
+fn succeeds(chance: u32, total: u32, roll: impl FnOnce() -> u32) -> bool {
+    chance != 0 && (chance >= total || roll() % total < chance)
+}
+
+fn happiness_chance(luck: u16) -> u32 {
+    (u32::from(luck) / 20 + 5).min(100)
+}
+
+/// Increase and EXP Plus take precedence over the low-HP Tough bonus.
+pub(super) fn experience_bonus_percent(increase: bool, tough: bool, hp: i32, maximum: i32) -> u8 {
+    if increase {
+        10
+    } else if tough && maximum > 0 {
+        ((3 - (i64::from(hp.max(0)) * 100 / i64::from(maximum)) / 25).max(0) * 5) as u8
+    } else {
+        0
+    }
+}
+
+impl Rewards {
+    fn calculate(input: &RewardInput<'_>, random: &mut GameplayRandom) -> Result<Self> {
+        let RewardInput {
+            enemies,
+            formation_count,
+            maximum_combo: _,
+            technical_smash_bonus,
+            level_difference,
+            modifiers,
+        } = *input;
+        let multiplier_halves = combined_multiplier_halves(formation_count)?;
+        ensure!(
+            (-8..=8).contains(&level_difference)
+                && technical_smash_bonus <= 100
+                && enemies.iter().all(|enemy| enemy
+                    .drops
+                    .iter()
+                    .zip(enemy.drop_chances)
+                    .all(|(item, chance)| item.is_none() || chance <= 100)),
+            "invalid victory reward inputs"
+        );
+        let mut reward = Self {
+            experience: 0,
+            combo_experience: 0,
+            gald: 0,
+            items: Vec::new(),
+        };
+        let drop_bonus = technical_smash_bonus;
+        for enemy in enemies {
+            let bonus_can_help = (0..2).any(|slot| {
+                enemy.drops[slot].is_some()
+                    && drop_chance(
+                        enemy.drop_chances[slot],
+                        drop_bonus,
+                        modifiers.item_drop_bonus,
+                        multiplier_halves,
+                    ) < 100
+            });
+            let mut item_bonus = modifiers.item_drop_bonus;
+            if bonus_can_help
+                && let Some(luck) = modifiers.happiness_luck
+                && succeeds(happiness_chance(luck), 100, || random.next_u32())
+            {
+                item_bonus = item_bonus.saturating_add(10);
+            }
+            for slot in 0..2 {
+                if let Some(item) = enemy.drops[slot]
+                    && succeeds(
+                        drop_chance(
+                            enemy.drop_chances[slot],
+                            drop_bonus,
+                            item_bonus,
+                            multiplier_halves,
+                        ),
+                        100,
+                        || random.next_u32(),
+                    )
+                {
+                    let index = reward.items.iter().position(|award| award.item == item);
+                    let award = if let Some(index) = index {
+                        &mut reward.items[index]
+                    } else {
+                        reward.items.push(ItemAward {
+                            item,
+                            count: 0,
+                            discoveries: Vec::new(),
+                        });
+                        reward.items.last_mut().unwrap()
+                    };
+                    award.count += 1;
+                    award.discoveries.push((enemy.monster, slot));
+                }
+            }
+            reward.experience = reward
+                .experience
+                .checked_add(enemy.experience)
+                .context("victory experience overflow")?;
+            reward.gald = reward
+                .gald
+                .checked_add(enemy.gald)
+                .context("victory gald overflow")?;
+        }
+        for (value, double) in [
+            (&mut reward.experience, modifiers.floor_experience_double),
+            (&mut reward.gald, modifiers.floor_gald_double),
+        ] {
+            if double {
+                *value = value
+                    .checked_mul(2)
+                    .context("floor reward multiplier overflow")?;
+            }
+        }
+        if level_difference > 2 {
+            let percent = (100 - 10 * (i32::from(level_difference) - 2)).max(50) as u64;
+            reward.experience = (u64::from(reward.experience) * percent / 100) as u32;
+        }
+        // Round down once, before combo, equipment and skill bonuses.
+        for value in [&mut reward.experience, &mut reward.gald] {
+            *value = (u64::from(*value) * u64::from(multiplier_halves) / 2)
+                .try_into()
+                .context("combined reward overflow")?;
+        }
+        reward.combo_experience = combo_experience(reward.experience, input)?;
+        if modifiers.gald_double {
+            reward.gald = reward
+                .gald
+                .checked_mul(2)
+                .context("Gald reward multiplier overflow")?;
+        } else if modifiers.gald_one_and_a_half {
+            reward.gald = reward
+                .gald
+                .checked_add(reward.gald >> 1)
+                .context("Gald reward multiplier overflow")?;
+        }
+        if modifiers.gald_finder
+            && reward.gald < MAX_GALD
+            && u64::from(reward.gald) * u64::from(GALD_FINDER_PERCENT_RANGE - 1) / 100 != 0
+        {
+            let percent = u64::from(random.next_u32() % GALD_FINDER_PERCENT_RANGE);
+            let bonus = u64::from(reward.gald) * percent / 100;
+            let gald = u64::from(reward.gald)
+                .checked_add(bonus)
+                .context("Gald Finder reward overflow")?;
+            reward.gald = gald.min(u64::from(MAX_GALD)) as u32;
+        } else {
+            reward.gald = reward.gald.min(MAX_GALD);
+        }
+        Ok(reward)
+    }
+
+    /// Roll maximum-vital growth for active members before adding experience.
+    fn grow_vitals(
+        &self,
+        party: &mut Party,
+        formation: &[Character],
+        session: &SessionData,
+        modifiers: RewardModifiers,
+        random: &mut GameplayRandom,
+    ) -> Result<Vec<MaximumVitalAward>> {
+        let experience = self.experience.saturating_add(self.combo_experience);
+        let mut awards = Vec::new();
+        if experience == 0 {
+            return Ok(awards);
+        }
+        for &character in formation.iter().take(4) {
+            let index = character.index();
+            let member = &mut party.members[index];
+            let skills = modifiers.maximum_vital_growth[index];
+            if member.level >= 250 || member.hp == 0 || member.ailments.petrified {
+                continue;
+            }
+            for (index, enabled) in skills.into_iter().enumerate() {
+                let before = member.base_stats[index];
+                let gain = if index == 0 {
+                    (before / 100) >> 1
+                } else {
+                    before / 100
+                };
+                let cap = if index == 0 { 9999 } else { 999 };
+                if !enabled || gain == 0 || before >= cap {
+                    continue;
+                }
+                let level = usize::from(member.level);
+                let span = session
+                    .experience
+                    .get(level + 1)
+                    .zip(session.experience.get(level))
+                    .and_then(|(&next, &current)| next.checked_sub(current))
+                    .filter(|&span| span != 0)
+                    .context("invalid maximum-vital growth EXP interval")?;
+                if !succeeds(experience, span, || random.next_u32()) {
+                    continue;
+                }
+                member.base_stats[index] = before.saturating_add(gain).min(cap);
+                awards.push(MaximumVitalAward {
+                    character,
+                    vital: if index == 0 {
+                        MaximumVital::Hp
+                    } else {
+                        MaximumVital::Tp
+                    },
+                    amount: member.base_stats[index] - before,
+                });
+            }
+        }
+        Ok(awards)
+    }
+
+    fn apply(
+        &self,
+        party: &mut Party,
+        session: &SessionData,
+        techniques: &Catalogue,
+        titles: &[Vec<Title>],
+        modifiers: RewardModifiers,
+        random: &mut GameplayRandom,
+    ) -> Result<(
+        Vec<MaximumVitalAward>,
+        Vec<Advancement>,
+        Vec<HappinessAward>,
+    )> {
+        let formation = party
+            .formation
+            .iter()
+            .copied()
+            .map(Character::try_from)
+            .collect::<Result<Vec<_>>>()
+            .context("invalid reward recipient")?;
+        ensure!(
+            formation
+                .iter()
+                .all(|character| character.index() < party.members.len()),
+            "invalid reward recipient"
+        );
+        let maximum_vitals = self.grow_vitals(party, &formation, session, modifiers, random)?;
+        let gald = i32::try_from(self.gald).context("victory gald exceeds session range")?;
+
+        party.add_gald(gald);
+        let experience = self.experience.saturating_add(self.combo_experience);
+        for (slot, &character) in formation.iter().enumerate() {
+            let index = character.index();
+            let member = &mut party.members[index];
+            if member.hp > 0 && !member.ailments.petrified {
+                // Equipment and skill bonuses round separately and exclude combo experience.
+                let bonus = if slot < 4 {
+                    let base = u64::from(self.experience);
+                    base * u64::from(modifiers.equipment_experience_percent[index]) / 100
+                        + base * u64::from(modifiers.experience_bonus_percent[index]) / 100
+                } else {
+                    0
+                };
+                member.experience = (u64::from(member.experience) + u64::from(experience) + bonus)
+                    .min(9_999_999) as u32;
+            }
+        }
+        let mut happiness_awards = Vec::new();
+        if let Some(luck) = modifiers.happiness_recipient_luck {
+            // Only active recipients with Happiness receive its additional rolls.
+            for &character in formation.iter().take(4) {
+                let index = character.index();
+                let member = &party.members[index];
+                if member.hp == 0
+                    || member.ailments.petrified
+                    || !modifiers.happiness_recipients[index]
+                {
+                    continue;
+                }
+                let exp_bonus = self.experience / 20;
+                let exp_success = exp_bonus != 0
+                    && member.experience < 9_999_999
+                    && succeeds(happiness_chance(luck), 100, || random.next_u32());
+                let exp = if exp_success { exp_bonus } else { 0 };
+                if exp_success {
+                    let member = &mut party.members[index];
+                    member.experience = member.experience.saturating_add(exp).min(9_999_999);
+                }
+                let gald_bonus = self.gald / 20;
+                let gald_success = gald_bonus != 0
+                    && party.gald < MAX_GALD
+                    && succeeds(happiness_chance(luck), 100, || random.next_u32());
+                let gald = if gald_success { gald_bonus } else { 0 };
+                if gald_success {
+                    party.add_gald(
+                        i32::try_from(gald).context("Happiness Gald exceeds session range")?,
+                    );
+                }
+                if exp_success || gald_success {
+                    happiness_awards.push(HappinessAward {
+                        character,
+                        experience: exp,
+                        gald,
+                    });
+                }
+            }
+        }
+        let mut advancement = Vec::new();
+        for (slot, &character) in formation.iter().enumerate() {
+            let index = character.index();
+            let member = &party.members[index];
+            let before = member.level;
+            if before >= 250
+                || session
+                    .experience
+                    .get(usize::from(before) + 1)
+                    .is_none_or(|&threshold| member.experience < threshold)
+            {
+                continue;
+            }
+            let growth = titles
+                .get(index)
+                .and_then(|rows| {
+                    member
+                        .title
+                        .checked_sub(1)
+                        .and_then(|id| rows.get(usize::from(id)))
+                })
+                .context("missing reward title growth")?
+                .growth;
+            let learned = party
+                .gain_experience(
+                    session,
+                    index,
+                    0,
+                    growth,
+                    |id| {
+                        if slot >= 4 {
+                            Ok(true)
+                        } else {
+                            techniques
+                                .definition(usize::from(id))
+                                .map(|row| row.learn_on_level_up)
+                                .map_err(|error| error.to_string())
+                        }
+                    },
+                    || random.next_u32(),
+                )
+                .map_err(anyhow::Error::msg)?;
+            let levels = party.members[index].level - before;
+            if levels != 0 || !learned.techniques.is_empty() {
+                advancement.push(Advancement {
+                    character,
+                    levels,
+                    techniques: learned.techniques,
+                    notices: learned.notices,
+                });
+            }
+        }
+        for award in &self.items {
+            let count = i8::try_from(award.count).context("victory item quantity exceeds limit")?;
+            for &(monster, slot) in &award.discoveries {
+                party.monsters.entry(monster).or_default().drops[slot] = true;
+            }
+            party
+                .change_item(session, award.item, count)
+                .map_err(anyhow::Error::msg)?;
+        }
+        Ok((maximum_vitals, advancement, happiness_awards))
+    }
+}
+
+/// Technical Smash contributes to both item chances and the EXP bonus.
+fn combo_experience(experience: u32, input: &RewardInput<'_>) -> Result<u32> {
+    let percent = u64::from(input.maximum_combo) + u64::from(input.technical_smash_bonus);
+    u32::try_from(u64::from(experience) * percent / 100)
+        .context("victory combo experience overflow")
+}
+
+/// Only living, active actors with a nonzero maximum TP receive recovery.
+pub fn recover_tp_for_actor(
+    current: u16,
+    maximum: u16,
+    percent_bonus: u8,
+    availability: ActorAvailability,
+    hp: i32,
+) -> Option<u16> {
+    (availability == ActorAvailability::Active && hp > 0 && maximum != 0).then(|| {
+        let amount = (u32::from(maximum) * (8 + u32::from(percent_bonus)) / 100).max(10);
+        (u32::from(current) + amount).min(u32::from(maximum)) as u16
+    })
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+    use resonance_content::session::{CharacterDefinition, ItemDefinition, StatGrowth};
+    pub(in crate::battle) fn reward_fixture() -> (SessionData, Catalogue, Vec<Vec<Title>>, Party) {
+        let session = SessionData {
+            rules: None,
+            version: 1,
+            executable_sha256: "0".repeat(64),
+            experience: vec![0, 0, 10, 30],
+            items: (0..51)
+                .map(|_| ItemDefinition {
+                    equipment_kind: None,
+                    allowed_characters: 511,
+                    stack_limit: 20,
+                })
+                .collect(),
+            characters: (0..9)
+                .map(|_| CharacterDefinition {
+                    cooking: [0; resonance_content::menu_data::RECIPE_COUNT],
+                    ex_skills: [0; 4],
+                    ex_gems: [0; 4],
+                    compound_ex_skills: vec![],
+                    recent_compound_ex_skills: vec![],
+                    technique_balance: 0,
+                    affinity: 0,
+                    level: 1,
+                    experience: 8,
+                    base_stats: [100, 20, 30, 40, 50, 60, 70],
+                    luck: 10,
+                    overlimit: 0,
+                    equipment: [0; 6],
+                    techniques: vec![],
+
+                    allowed_techniques: vec![2, 1],
+                    shortcuts: [0; 4],
+                    growth: std::array::from_fn(|_| StatGrowth {
+                        base: 1,
+                        random: 1,
+                        title_bonus: 0,
+                    }),
+                    level_techniques: [(2, vec![1, 2])].into(),
+                })
+                .collect(),
+        };
+        let mut techniques = Catalogue {
+            definitions: vec![Default::default(); 3],
+            learning: vec![],
+        };
+        techniques.definitions[1].learn_on_level_up = true;
+        let titles = vec![
+            vec![Title {
+                growth: [0; 7],
+                costume: None
+            }];
+            9
+        ];
+        let party = Party::new(&session, Default::default()).unwrap();
+        (session, techniques, titles, party)
+    }
+
+    fn input(enemies: &[EnemyReward]) -> RewardInput<'_> {
+        RewardInput {
+            enemies,
+            formation_count: 1,
+            maximum_combo: 0,
+            technical_smash_bonus: 0,
+            level_difference: 0,
+            modifiers: Default::default(),
+        }
+    }
+
+    fn enemy(experience: u32, gald: u32) -> EnemyReward {
+        EnemyReward {
+            monster: 36,
+            experience,
+            gald,
+            drops: [None; 2],
+            drop_chances: [0; 2],
+        }
+    }
+
+    #[test]
+    fn grade_shop_experience_reaches_members_and_stacks_with_encounter_bonuses() {
+        let (mut session, techniques, titles, party) = reward_fixture();
+        session.experience = vec![0, 0, 100_000, 300_000];
+        let enemies = [enemy(101, 100)];
+        for (benefit, formations, floor_double, experience, combo, gald) in [
+            (None, 1, false, 101, 14, 100),
+            (Some(Benefit::HalfExperience), 1, false, 50, 7, 100),
+            (Some(Benefit::DoubleExperience), 1, false, 202, 28, 100),
+            (Some(Benefit::TenfoldExperience), 1, false, 1010, 141, 100),
+            (Some(Benefit::ComboExperience), 1, false, 1, 140, 100),
+            (Some(Benefit::HalfExperience), 2, false, 75, 10, 150),
+            (Some(Benefit::DoubleExperience), 3, true, 808, 113, 200),
+            (Some(Benefit::ComboExperience), 3, true, 1, 560, 200),
+        ] {
+            let mut party = party.clone();
+            party.new_game_plus.benefits = benefit.into_iter().collect();
+            let mut request = input(&enemies);
+            request.formation_count = formations;
+            request.modifiers.floor_experience_double = floor_double;
+            request.maximum_combo = 9;
+            request.technical_smash_bonus = 5;
+            let awarded = award(
+                party,
+                &session,
+                &techniques,
+                &titles,
+                request,
+                GameplayRandom::new(1),
+            )
+            .unwrap();
+            assert_eq!(
+                (
+                    awarded.rewards.experience,
+                    awarded.rewards.combo_experience,
+                    awarded.rewards.gald
+                ),
+                (experience, combo, gald),
+                "{benefit:?}, {formations}, {floor_double}"
+            );
+            assert_eq!(awarded.party.members[0].experience, 8 + experience + combo);
+        }
+    }
+
+    #[test]
+    fn excluded_enemies_award_nothing_and_consume_no_reward_randomness() {
+        let (session, techniques, titles, party) = reward_fixture();
+        let random = GameplayRandom::new(1);
+        let awarded = award(
+            party.clone(),
+            &session,
+            &techniques,
+            &titles,
+            input(&[]),
+            random,
+        )
+        .unwrap();
+        assert_eq!((awarded.rewards.experience, awarded.rewards.gald), (0, 0));
+        assert!(awarded.rewards.items.is_empty());
+        assert_eq!(awarded.party.gald, party.gald);
+        assert_eq!(
+            awarded
+                .party
+                .members
+                .iter()
+                .map(|member| member.experience)
+                .collect::<Vec<_>>(),
+            party
+                .members
+                .iter()
+                .map(|member| member.experience)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(awarded.random, random);
+    }
+
+    #[test]
+    fn combined_rosters_scale_experience_gald_and_drop_chances() {
+        let mut enemies = vec![
+            EnemyReward {
+                drops: [Some(1), None],
+                drop_chances: [50, 0],
+                ..enemy(5, 7)
+            };
+            18
+        ];
+        enemies[0].experience += 1;
+        enemies[0].gald += 1;
+        for (formation_count, experience, gald, chance) in [
+            (1, 91, 127, 50),
+            (2, 136, 190, 75),
+            (3, 182, 254, 100),
+            (4, 227, 317, 100),
+        ] {
+            let mut request = input(&enemies);
+            request.formation_count = formation_count;
+            request.maximum_combo = 20;
+            request.modifiers.gald_double = true;
+            let mut random = GameplayRandom::new(1);
+            let reward = Rewards::calculate(&request, &mut random).unwrap();
+            assert_eq!((reward.experience, reward.gald), (experience, gald * 2));
+            assert_eq!(reward.combo_experience, experience / 5);
+            let mut expected_random = GameplayRandom::new(1);
+            let drops = (0..enemies.len())
+                .filter(|_| chance == 100 || expected_random.next_u32() % 100 < chance)
+                .count();
+            assert_eq!(usize::from(reward.items[0].count), drops);
+            assert_eq!(reward.items[0].discoveries.len(), drops);
+            assert_eq!(random, expected_random);
+        }
+    }
+
+    #[test]
+    fn floor_rewards_compose_with_combined_encounters_equipment_and_combo() {
+        let enemies = [EnemyReward {
+            drops: [Some(1), None],
+            drop_chances: [20, 0],
+            ..enemy(91, 127)
+        }];
+        for (formations, experience, gald, chance) in [(2, 244, 762, 82), (3, 326, 1016, 100)] {
+            let mut request = input(&enemies);
+            request.formation_count = formations;
+            request.level_difference = 3;
+            request.maximum_combo = 20;
+            request.modifiers.floor_experience_double = true;
+            request.modifiers.floor_gald_double = true;
+            request.modifiers.gald_double = true;
+            request.modifiers.item_drop_bonus = 25 + 10;
+            let mut random = GameplayRandom::new(1);
+            let reward = Rewards::calculate(&request, &mut random).unwrap();
+            assert_eq!((reward.experience, reward.gald), (experience, gald));
+            assert_eq!(reward.combo_experience, experience / 5);
+            let mut expected_random = GameplayRandom::new(1);
+            let dropped = chance == 100 || expected_random.next_u32() % 100 < chance;
+            assert_eq!(!reward.items.is_empty(), dropped);
+            assert_eq!(random, expected_random);
+        }
+    }
+
+    #[test]
+    fn probability_boundaries_and_luck_have_the_expected_rates() {
+        assert_eq!(happiness_chance(0), 5);
+        assert_eq!(happiness_chance(100), 10);
+        assert_eq!(happiness_chance(u16::MAX), 100);
+        assert_eq!(drop_chance(49, 4, 0, 2), 50);
+        assert_eq!(drop_chance(100, 100, 0, 2), 100);
+        assert_eq!(drop_chance(50, 0, 0, 3), 75);
+        assert_eq!(drop_chance(50, 0, 0, 4), 100);
+        assert_eq!(drop_chance(0, 0, 0, 4), 0);
+        assert_eq!(drop_chance(40, 50, 10, 3), 100);
+        assert_eq!(drop_chance(40, 0, 10, 3), 75);
+        assert!(!succeeds(0, 100, || 0));
+        assert!(succeeds(100, 100, || 99));
+        assert!(succeeds(200, 100, || 99));
+        assert!(succeeds(20, 100, || 19));
+        assert!(!succeeds(20, 100, || 20));
+    }
+
+    #[test]
+    fn technical_smash_finder_and_happiness_raise_drop_chances() {
+        let (session, techniques, titles, party) = reward_fixture();
+        for bonus in 0..3 {
+            let enemies = [EnemyReward {
+                drops: [Some(1), None],
+                drop_chances: [if bonus == 0 { 50 } else { 90 }, 0],
+                ..enemy(0, 0)
+            }];
+            let mut request = input(&enemies);
+            match bonus {
+                0 => request.technical_smash_bonus = 100,
+                1 => request.modifiers.item_drop_bonus = 10,
+                _ => request.modifiers.happiness_luck = Some(u16::MAX),
+            }
+            let awarded = award(
+                party.clone(),
+                &session,
+                &techniques,
+                &titles,
+                request,
+                GameplayRandom::new(7),
+            )
+            .unwrap();
+            assert_eq!(awarded.party.items[&1], 1);
+            assert_eq!(awarded.rewards.items[0].discoveries, [(36, 0)]);
+        }
+    }
+
+    #[test]
+    fn bonuses_preserve_precedence_rounding_caps_and_reserve_eligibility() {
+        let (mut session, techniques, titles, mut party) = reward_fixture();
+        session.experience = vec![0, 0, 1000, 3000];
+        party.formation = vec![1, 2, 3, 4, 5];
+        party.members[1].hp = 0;
+        party.members[2].ailments.petrified = true;
+        let enemies = [enemy(19, 101)];
+        let mut request = input(&enemies);
+        request.maximum_combo = 40;
+        request.modifiers.experience_bonus_percent = [10; 9];
+        request.modifiers.equipment_experience_percent = [50; 9];
+        request.modifiers.experience_bonus_percent[3] = 15;
+        request.modifiers.equipment_experience_percent[3] = 100;
+        request.modifiers.gald_double = true;
+        request.modifiers.gald_one_and_a_half = true;
+        let awarded = award(
+            party,
+            &session,
+            &techniques,
+            &titles,
+            request,
+            GameplayRandom::new(1),
+        )
+        .unwrap();
+        assert_eq!(awarded.rewards.gald, 202);
+        assert_eq!(awarded.rewards.combo_experience, 7);
+        assert_eq!(
+            awarded
+                .party
+                .members
+                .iter()
+                .map(|member| member.experience)
+                .collect::<Vec<_>>(),
+            [44, 8, 8, 55, 34, 8, 8, 8, 8]
+        );
+        assert!(awarded.advancement.is_empty());
+        assert_eq!(experience_bonus_percent(false, true, i32::MAX, i32::MAX), 0);
+        assert_eq!(
+            experience_bonus_percent(false, true, i32::MAX / 2, i32::MAX),
+            10
+        );
+        for (hp, expected) in [(1, 15), (249, 15), (250, 10), (500, 5), (750, 0), (1000, 0)] {
+            assert_eq!(experience_bonus_percent(false, true, hp, 1000), expected);
+            assert_eq!(experience_bonus_percent(true, true, hp, 1000), 10);
+        }
+    }
+
+    #[test]
+    fn level_penalty_combo_and_gald_finder_apply_to_their_base_awards() {
+        let (mut session, techniques, titles, mut party) = reward_fixture();
+        session.experience = vec![0, 0, 1000, 3000];
+        party.formation = vec![1];
+        for (level_difference, experience, combo) in [(3, 98, 8), (8, 54, 4)] {
+            let enemies = [enemy(109, 101)];
+            let mut request = input(&enemies);
+            request.maximum_combo = 9;
+            request.level_difference = level_difference;
+            request.modifiers.gald_one_and_a_half = true;
+            request.modifiers.gald_finder = true;
+            let awarded = award(
+                party.clone(),
+                &session,
+                &techniques,
+                &titles,
+                request,
+                GameplayRandom::new(3),
+            )
+            .unwrap();
+            assert_eq!(
+                (awarded.rewards.experience, awarded.rewards.combo_experience),
+                (experience, combo)
+            );
+            assert!((151..=179).contains(&awarded.rewards.gald));
+        }
+        let enemies = [enemy(0, 60_000_000)];
+        let mut request = input(&enemies);
+        request.modifiers.gald_double = true;
+        request.modifiers.gald_finder = true;
+        let awarded = award(
+            party,
+            &session,
+            &techniques,
+            &titles,
+            request,
+            GameplayRandom::new(3),
+        )
+        .unwrap();
+        assert_eq!(awarded.rewards.gald, MAX_GALD);
+        assert_eq!(awarded.party.gald, MAX_GALD);
+    }
+
+    #[test]
+    fn drops_record_discoveries_even_at_capacity_and_levels_preserve_vitals() {
+        let (mut session, techniques, titles, mut party) = reward_fixture();
+        party.formation = vec![1, 2, 3, 4, 5];
+        // Future and already learned active techniques need no catalogue row.
+        session.characters[0].allowed_techniques.extend([300, 301]);
+        session.characters[0].level_techniques.insert(3, vec![300]);
+        session.characters[0]
+            .level_techniques
+            .get_mut(&2)
+            .unwrap()
+            .push(301);
+        party.members[0].techniques.insert(301);
+        // Reserve learning uses session level data without battle learning policy.
+        session.characters[4].allowed_techniques.push(302);
+        session.characters[4]
+            .level_techniques
+            .get_mut(&2)
+            .unwrap()
+            .push(302);
+        for member in &mut party.members {
+            member.hp = 73;
+            member.tp = 12;
+        }
+        party.members[1].hp = 0;
+        party.members[2].ailments.petrified = true;
+        party.items.insert(1, 20);
+        let enemies = [EnemyReward {
+            drops: [Some(1), Some(50)],
+            drop_chances: [100; 2],
+            ..enemy(8, 12)
+        }];
+        let awarded = award(
+            party,
+            &session,
+            &techniques,
+            &titles,
+            input(&enemies),
+            GameplayRandom::new(1),
+        )
+        .unwrap();
+        assert_eq!(awarded.overflow, [true, false]);
+        assert_eq!(awarded.party.items[&1], 20);
+        assert_eq!(awarded.party.items[&50], 1);
+        assert_eq!(awarded.party.monsters[&36].drops, [true, true]);
+        assert!(!awarded.party.monsters[&36].scanned);
+        assert_eq!(awarded.party.members[0].shortcuts, [1, 0, 0, 0]);
+        assert_eq!(awarded.party.members[4].shortcuts, [2, 1, 302, 0]);
+        assert!(!awarded.party.members[0].techniques.contains(&300));
+        assert!(awarded.party.members[0].techniques.contains(&301));
+        assert_eq!(
+            (awarded.party.members[0].hp, awarded.party.members[0].tp),
+            (73, 12)
+        );
+        assert_eq!(
+            awarded
+                .advancement
+                .iter()
+                .map(|row| row.character)
+                .collect::<Vec<_>>(),
+            [Character::Lloyd, Character::Raine, Character::Sheena]
+        );
+    }
+
+    #[test]
+    fn happiness_and_maximum_vitals_apply_only_to_eligible_active_members() {
+        let (mut session, techniques, titles, mut party) = reward_fixture();
+        use resonance_content::menu_data::{
+            CharacterExSkills, ExActivation, ExSkill, ExSkillData, ExTendency,
+        };
+        let (mut rules, _) = crate::battle::party::projection_tests::fixture().unwrap();
+        rules.ex_skills = ExSkillData {
+            foraging: Default::default(),
+            skills: [(
+                33,
+                ExSkill {
+                    stat_bonuses: vec![],
+                    save_point_tp_cost: None,
+                    tendency: Some(ExTendency::Technical),
+                    activation: ExActivation::BattleEnd,
+                },
+            )]
+            .into(),
+            characters: vec![
+                CharacterExSkills {
+                    levels: [[33; 4]; 4],
+                    compounds: vec![]
+                };
+                9
+            ],
+            gem_items: [1, 2, 3, 4, 5],
+        };
+        session.rules = Some(std::sync::Arc::new(rules));
+        party.bind_rules(&session);
+        session.experience = vec![0, 0, 100, 300];
+        party.formation = vec![1, 2, 3, 4, 5];
+        party.members[0].base_stats[..2].copy_from_slice(&[9990, 995]);
+        party.members[1].hp = 0;
+        party.members[2].ailments.petrified = true;
+        for member in &mut party.members {
+            member.ex_skills[0] = 33;
+        }
+        let enemies = [enemy(100, 200)];
+        let mut request = input(&enemies);
+        request.modifiers.maximum_vital_growth = [[true; 2]; 9];
+        request.modifiers.happiness_recipient_luck = Some(u16::MAX);
+        request.modifiers.happiness_recipients = [true; 9];
+        let awarded = award(
+            party,
+            &session,
+            &techniques,
+            &titles,
+            request,
+            GameplayRandom::new(1),
+        )
+        .unwrap();
+        assert!(awarded.maximum_vitals.contains(&MaximumVitalAward {
+            character: Character::Lloyd,
+            vital: MaximumVital::Hp,
+            amount: 9
+        }));
+        assert!(awarded.maximum_vitals.contains(&MaximumVitalAward {
+            character: Character::Lloyd,
+            vital: MaximumVital::Tp,
+            amount: 4
+        }));
+        assert!(
+            awarded
+                .maximum_vitals
+                .iter()
+                .all(|row| row.character == Character::Lloyd)
+        );
+        assert_eq!(
+            awarded
+                .happiness
+                .iter()
+                .map(|row| row.character)
+                .collect::<Vec<_>>(),
+            [Character::Lloyd, Character::Raine]
+        );
+        assert!(
+            awarded
+                .happiness
+                .iter()
+                .all(|row| row.experience == 5 && row.gald == 10)
+        );
+        assert_eq!(awarded.party.gald, 220);
+        assert_eq!(awarded.party.members[4].experience, 108);
+    }
+
+    #[test]
+    fn result_tp_caps_actual_recovery_and_requires_a_living_active_actor() {
+        assert_eq!(
+            recover_tp_for_actor(28, 32, 0, ActorAvailability::Active, 100),
+            Some(32)
+        );
+        assert_eq!(
+            recover_tp_for_actor(0, 250, 5, ActorAvailability::Active, 100),
+            Some(32)
+        );
+        for (availability, hp, maximum) in [
+            (ActorAvailability::Active, 0, 250),
+            (ActorAvailability::Dead, 100, 250),
+            (ActorAvailability::Petrified, 100, 250),
+            (ActorAvailability::Active, 100, 0),
+        ] {
+            assert_eq!(recover_tp_for_actor(0, maximum, 5, availability, hp), None);
+        }
+        assert_eq!(
+            recover_tp_for_actor(249, 250, 5, ActorAvailability::Active, 100),
+            Some(250)
+        );
+    }
+}

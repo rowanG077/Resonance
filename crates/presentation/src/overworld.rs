@@ -197,6 +197,7 @@ impl Plugin for OverworldPlugin {
                 FixedUpdate,
                 advance
                     .run_if(super::dungeons::running)
+                    .run_if(super::battle::field_running)
                     .before(super::new_game::advance)
                     .before(super::field_view::advance_live),
             )
@@ -216,11 +217,14 @@ impl Plugin for OverworldPlugin {
                 )
                     .chain()
                     .after(super::new_game::transition)
-                    .after(super::field_view::FieldPreparation),
+                    .after(super::field_view::FieldPreparation)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
-                animate.before(bevy::transform::TransformSystems::Propagate),
+                animate
+                    .before(bevy::transform::TransformSystems::Propagate)
+                    .run_if(super::battle::field_presenting),
             );
     }
 }
@@ -534,7 +538,7 @@ fn instances(
                     }
                     if let Model::Cinematic(actor) = model {
                         cinematic::surface(
-                            scene.session.cinematic.as_ref().unwrap().id,
+                            &scene.session.cinematic.as_ref().unwrap().definition,
                             actor,
                             &mut s,
                         );
@@ -674,7 +678,7 @@ fn bind(
                         // Complete the terrain and water before drawing the scene's
                         // actors, preserving each actor's own material sequence.
                         cinematic::draw_order(
-                            art.cinematic.unwrap(),
+                            &art.package.definition.visuals.cinematics[&art.cinematic.unwrap()],
                             actor,
                             part.spec.materials[slot].draw_order,
                         )
@@ -782,6 +786,7 @@ fn terrain_order(
 }
 fn pose(
     owner: State,
+    clock: Res<super::Clock>,
     art: Option<Res<Art>>,
     mut roots: Query<(&mut Instance, &mut Transform, &mut Visibility)>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
@@ -1024,7 +1029,7 @@ fn pose(
                     slot = Some(0);
                     alpha = cinematic::opacity(playback, actor);
                     visible = alpha > 0.;
-                    if cinematic::background(playback.id, actor) {
+                    if cinematic::background(&playback.definition, actor) {
                         cinematic::sky_position(playback)
                     } else {
                         state.position
@@ -1116,7 +1121,7 @@ fn pose(
             } else if let Model::Cinematic(actor) = instance.model {
                 let uv = [&binding.color, &binding.multiply].map(|binding| {
                     binding.as_ref().map_or(Vec2::ZERO, |b| {
-                        cinematic::uv(cinema.unwrap(), actor, b.texture)
+                        cinematic::uv(cinema.unwrap(), actor, b.texture, clock.0.tick())
                     })
                 });
                 offset = Vec4::new(uv[0].x, uv[0].y, uv[1].x, uv[1].y);
@@ -1139,7 +1144,7 @@ fn pose(
             }) * Vec4::new(brightness, brightness, brightness, alpha);
             let background = matches!(instance.model, Model::Sky(_))
                 || matches!(instance.model, Model::Cinematic(actor)
-                    if cinematic::background(cinema.unwrap().id, actor));
+                    if cinematic::background(&cinema.unwrap().definition, actor));
             let fog_range = if !background {
                 let far = if cinema.is_some() {
                     cinematic::FAR_CLIP

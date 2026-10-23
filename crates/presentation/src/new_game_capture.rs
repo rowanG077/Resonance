@@ -14,6 +14,10 @@ pub(super) fn screenshot_held(
     failed: Arc<AtomicBool>,
     written: Arc<AtomicU32>,
 ) -> Result<()> {
+    let fixed_battle = app
+        .world()
+        .get_resource::<battle::Owner>()
+        .and_then(|battle| battle.diagnostic());
     let fixed_presentation = app.world().resource::<Clock>().0.tick();
     let fixed_tick = app
         .world()
@@ -50,6 +54,7 @@ pub(super) fn screenshot_held(
             "checkpoint":field.checkpoint().ok(), "restored_checkpoint":session.restored_checkpoint,
             "output_stage":app.world().resource::<display::OutputStage>(),
             "talking":field.talking, "state_tick_locked":true,
+            "battle":fixed_battle.as_ref(),
             "secondary_chains":secondary,
             "contact_shadows":shadows,
             "camera":field.events.world.field_camera.as_ref().map(|c|serde_json::json!({"position":c.position,"target":c.target,"fov_degrees":c.fov_degrees()})),
@@ -98,8 +103,12 @@ pub(super) fn screenshot_held(
                 "field checkpoint advanced gameplay during readback"
             );
             anyhow::ensure!(
-                app.world().resource::<Clock>().0.tick() == fixed_presentation,
-                "presentation checkpoint changed during readback"
+                app.world()
+                    .get_resource::<battle::Owner>()
+                    .and_then(|battle| battle.diagnostic())
+                    == fixed_battle
+                    && app.world().resource::<Clock>().0.tick() == fixed_presentation,
+                "battle checkpoint changed during readback"
             );
             anyhow::ensure!(
                 crate::saves::recording_scene(app.world())? == fixed_scene,

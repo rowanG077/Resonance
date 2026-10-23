@@ -10,6 +10,7 @@ use std::{
 mod media;
 pub(crate) mod portraits;
 pub(crate) mod recipe;
+mod skip_policy;
 
 /// Portrait IDs use resource group 13; its source comes from the resource directory.
 pub(crate) fn portrait_path(extracted: &Path, executable: &[u8]) -> Result<String> {
@@ -38,6 +39,7 @@ fn read_script(path: &Path) -> Result<Script> {
             paths: SkitResourcePaths {
                 script: format!("{directory}/script.ssb"),
                 messages: format!("{directory}/messages.json"),
+                allow_skip: true,
                 title: None,
             },
             requested_media: media::requests(script.bytes)?,
@@ -71,7 +73,7 @@ impl Source {
     pub(crate) fn read(extracted: &Path, executable: &[u8]) -> Result<Self> {
         let physical = Catalog::read(extracted, executable)?;
         let mut catalog = SkitCatalog {
-            version: 2,
+            version: resonance_content::skit::VERSION,
             skits: physical.definitions()?,
             preview_order: physical.preview_order.clone(),
             resources: BTreeMap::new(),
@@ -83,6 +85,7 @@ impl Source {
                 .collect(),
             media: BTreeMap::new(),
         };
+        let skip_disabled = skip_policy::read(executable)?;
         let files = extracted.join("files");
         let mut sources = BTreeMap::<String, Vec<u16>>::new();
         for skit in &catalog.skits {
@@ -109,6 +112,7 @@ impl Source {
             requested.extend(&script.binding.requested_media);
             for id in ids {
                 let mut paths = script.binding.paths.clone();
+                paths.allow_skip = !skip_disabled.contains(&id);
                 paths.title = direct.get(&id).cloned().flatten();
                 catalog.resources.insert(id, paths);
             }
@@ -233,6 +237,11 @@ fn original_skit_resources_prepare_from_both_discs() -> Result<()> {
             available.insert(id);
             let original = read_script(&extracted.join("files").join(path))?;
             let resource = &catalog.resources[&id];
+            assert_eq!(
+                resource.allow_skip,
+                !skip_policy::read(&executable)?.contains(&id),
+                "disc {disc} skit {id} skip policy"
+            );
             assert_eq!(resource.title, title, "disc {disc} skit {id} title");
             assert_eq!(
                 fs::read(output.join(&resource.script))?,

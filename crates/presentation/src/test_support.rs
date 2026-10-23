@@ -1,4 +1,5 @@
 //! Helpers shared by presentation tests.
+use resonance_battle::{Actor, PreparedBattle, Side};
 
 pub(crate) fn run_options(assets: impl Into<std::path::PathBuf>) -> crate::RunOptions {
     crate::RunOptions {
@@ -50,4 +51,28 @@ pub(crate) fn field_checkpoint(
         progress,
         played_ticks: 0,
     })
+}
+
+pub(crate) fn actor(side: Side, hp: i32, tp: u16) -> Actor {
+    Actor::new(
+        side,
+        Default::default(),
+        resonance_battle::EquipmentAttributes {
+            normal_combo_limit: 3,
+            ..resonance_battle::EquipmentAttributes::new(hp, tp, Default::default())
+        },
+    )
+}
+
+pub(crate) fn prepare_battle(
+    actors: impl IntoIterator<Item = Actor>,
+) -> anyhow::Result<PreparedBattle> {
+    PreparedBattle::new(
+        actors
+            .into_iter()
+            .map(|actor| (actor, Default::default()))
+            .collect(),
+        Default::default(),
+        1,
+    )
 }

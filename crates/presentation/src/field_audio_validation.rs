@@ -92,7 +92,10 @@ impl Playback {
         while self.frames.frame < admitted {
             self.frame()?;
         }
-
+        if self.frames.battle.is_some() {
+            self.frames
+                .battle_command(0, super::battle::Command::End(false))?;
+        }
         self.frames.music = None;
         self.frames.sounds.clear();
 
@@ -128,6 +131,26 @@ impl Playback {
 
     pub(crate) fn voice_position(&self) -> Option<u64> {
         self.frames.voice.as_ref().map(|voice| voice.frame)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn control(&self) -> Control {
+        self.control.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn next_output_sample(&mut self) -> Option<f32> {
+        self.frames.next()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn battle_state(&self) -> Result<(bool, Option<i16>)> {
+        self.control.acknowledge_frames(self.frames.frame);
+        self.control.check()?;
+        Ok((
+            self.frames.battle.is_some(),
+            self.frames.music.as_ref().map(|music| music.id),
+        ))
     }
 }
 

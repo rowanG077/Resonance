@@ -1,8 +1,14 @@
 //! Native numbered world scenes have their own clock and retire their caller.
 use anyhow::{Context, Result, ensure};
-use resonance_content::{CameraKey, overworld::Cinematic};
+use resonance_content::{
+    CameraKey,
+    overworld::{Cinematic, CinematicAudio},
+};
 use resonance_events::{AudioCommand, SceneDestination};
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests;
 
 pub struct Playback {
     pub id: u16,
@@ -17,6 +23,7 @@ impl Playback {
             definition.camera.len() >= 2,
             "missing world cinematic camera"
         );
+        definition.presentation.validate(&definition.actors)?;
         Ok(Self {
             id,
             definition,
@@ -55,41 +62,13 @@ impl Playback {
     fn duration(&self) -> u32 {
         (self.definition.camera.last().unwrap().time * 2.).ceil() as u32
     }
-    fn fade_rate(&self) -> u32 {
-        if matches!(self.id, 513..=515 | 518 | 520) {
-            4
-        } else {
-            8
-        }
-    }
     pub fn fade(&self) -> (f32, bool) {
-        let white = matches!(self.id, 516 | 517 | 520);
-        if self.ticks > self.duration() {
-            return (
-                (self.ticks - self.duration())
-                    .saturating_mul(self.fade_rate())
-                    .min(255) as f32
-                    / 255.,
-                white,
-            );
-        }
-        if self.id == 521 && (299..=302).contains(&self.ticks) {
-            return (
-                if matches!(self.ticks, 300 | 301) {
-                    1.
-                } else {
-                    127. / 255.
-                },
-                true,
-            );
-        }
-        if matches!(self.id, 513 | 520) && self.ticks < 64 {
-            return (
-                (255 - (self.ticks * 4).min(255)) as f32 / 255.,
-                self.id == 520,
-            );
-        }
-        (0., white)
+        let (alpha, white) = self
+            .definition
+            .presentation
+            .fade
+            .sample(self.ticks, self.duration());
+        (f32::from(alpha) / 255., white)
     }
     pub fn dialogue(&self) -> Option<(&resonance_content::overworld::CinematicDialogue, f32)> {
         let line = self
@@ -111,81 +90,88 @@ impl Playback {
         Some((line, alpha as f32 / 255.))
     }
     pub fn initial_audio(&self) -> Vec<AudioCommand> {
-        let id = match self.id {
-            513..=515 => 177,
-            516..=518 => 24,
-            520 => 183,
-            521 => 182,
-            _ => return vec![],
-        };
-        vec![AudioCommand::RepeatSound {
-            id,
-            pan: 64,
-            volume: 127,
-            slot: 15,
-        }]
+        self.definition
+            .presentation
+            .initial_audio
+            .iter()
+            .map(audio_command)
+            .collect()
     }
     pub fn step(&mut self, audio: &mut Vec<AudioCommand>) -> bool {
         self.ticks += 1;
+        let complete =
+            self.ticks >= self.duration() + self.definition.presentation.fade.end_ticks();
         if self.ticks > self.duration() {
-            return self.ticks >= self.duration() + 255u32.div_ceil(self.fade_rate());
+            return complete;
         }
-        for line in self
-            .definition
-            .dialogue
-            .iter()
-            .filter(|line| line.tick == self.ticks)
-        {
-            if line.tick == 540 {
-                audio.push(AudioCommand::Sound {
-                    id: 438,
-                    pan: 64,
-                    volume: 127,
-                    slot: None,
-                });
-                audio.push(AudioCommand::SoundVolume {
-                    slot: 15,
-                    volume: 32,
-                });
+        for before_dialogue in [true, false] {
+            if !before_dialogue {
+                audio.extend(
+                    self.definition
+                        .dialogue
+                        .iter()
+                        .filter(|line| line.tick == self.ticks)
+                        .map(|line| AudioCommand::Voice {
+                            resource: line.voice,
+                            completion: None,
+                        }),
+                );
             }
-            audio.push(AudioCommand::Voice {
-                resource: line.voice,
-                completion: None,
-            });
-        }
-        let sounds: &[(u32, i16)] = match self.id {
-            516 => &[(1, 26), (1, 443), (40, 443), (74, 443), (130, 443)],
-            517 => &[
-                (140, 443),
-                (170, 443),
-                (190, 443),
-                (220, 443),
-                (520, 438),
-                (1540, 438),
-                (1620, 437),
-                (1650, 437),
-            ],
-            518 => &[(1, 443), (170, 443), (190, 443), (220, 443)],
-            519 => &[(50, 282), (50, 282)],
-            520 => &[(220, 217), (272, 217), (340, 193)],
-            521 => &[(300, 133)],
-            522 | 523 => &[(46, 193), (62, 193), (88, 193), (46, 182), (88, 182)],
-            525 => &[(1, 445)],
-            526 => &[(1, 160)],
-            _ => &[],
-        };
-        for &(_, id) in sounds.iter().filter(|(tick, _)| *tick == self.ticks) {
-            audio.push(AudioCommand::Sound {
-                id,
-                pan: 64,
-                volume: 127,
-                slot: None,
-            });
+            audio.extend(
+                self.definition
+                    .presentation
+                    .audio
+                    .iter()
+                    .filter(|event| {
+                        event.tick == self.ticks && event.before_dialogue == before_dialogue
+                    })
+                    .map(|event| audio_command(&event.action)),
+            );
         }
         if self.ticks == self.duration() {
-            audio.push(AudioCommand::StopSound(15));
+            audio.extend(
+                self.definition
+                    .presentation
+                    .end_audio
+                    .iter()
+                    .map(audio_command),
+            );
         }
-        self.ticks >= self.duration() + 255u32.div_ceil(self.fade_rate())
+        complete
+    }
+}
+
+fn audio_command(action: &CinematicAudio) -> AudioCommand {
+    match *action {
+        CinematicAudio::Sound {
+            id,
+            pan,
+            volume,
+            slot,
+            repeat: true,
+        } => AudioCommand::RepeatSound {
+            id,
+            pan,
+            volume,
+            slot: slot.expect("validated cinematic loop slot"),
+        },
+        CinematicAudio::Sound {
+            id,
+            pan,
+            volume,
+            slot,
+            repeat: false,
+        } => AudioCommand::Sound {
+            id,
+            pan,
+            volume,
+            slot,
+        },
+        CinematicAudio::Volume { slot, volume } => AudioCommand::SoundVolume {
+            slot: u16::from(slot),
+            volume,
+        },
+        CinematicAudio::Stop { slot } => AudioCommand::StopSound(u16::from(slot)),
     }
 }
 

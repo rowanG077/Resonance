@@ -131,6 +131,11 @@ pub(crate) fn fixture() -> App {
         TextureFormat::Rgba8Unorm,
         default(),
     ));
+    let mut materials = Assets::<TitleText>::default();
+    let material = materials.add(TitleText {
+        source: movie.texture.clone(),
+        opacity_pulse: Vec4::X,
+    });
     let manifest = serde_json::from_slice(&fs::read(root.join("title.json")).unwrap()).unwrap();
     let mut field = FieldAssets::default();
     field.ready = true;
@@ -143,6 +148,7 @@ pub(crate) fn fixture() -> App {
     // MinimalPlugins and AssetPlugin have no window, renderer, or audio device.
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .insert_resource(images)
+        .insert_resource(materials)
         .insert_resource(crate::diagnostics::Diagnostics(
             resonance_content::diagnostics::Diagnostics::new(true),
         ))
@@ -179,7 +185,8 @@ pub(crate) fn fixture() -> App {
                 .chain(),
         );
     app.world_mut().spawn((Camera::default(), MovieCamera));
-    app.world_mut().spawn((Transform::default(), MovieSurface));
+    app.world_mut()
+        .spawn((Transform::default(), MeshMaterial2d(material), MovieSurface));
     crate::audio::validate_startup(&app, true, true).unwrap();
     app
 }
@@ -193,17 +200,27 @@ pub(crate) fn verify_surface(app: &mut App) {
         .get(&movie.texture)
         .unwrap();
     let size = Vec3::new(asset.width as f32, asset.height as f32, 1.);
+    let texture = movie.texture.clone();
     assert_eq!(image.size(), UVec2::new(asset.width, asset.height));
     assert_eq!(
         image.data.as_ref().unwrap().len(),
         asset.width as usize * asset.height as usize * 4
     );
-    let surface = app
+    let (surface, material) = app
         .world_mut()
-        .query_filtered::<&Transform, With<MovieSurface>>()
+        .query_filtered::<(&Transform, &MeshMaterial2d<TitleText>), With<MovieSurface>>()
         .single(app.world())
         .unwrap();
     assert_eq!(surface.scale, size);
+    assert_eq!(
+        app.world()
+            .resource::<Assets<TitleText>>()
+            .get(&material.0)
+            .unwrap()
+            .source,
+        texture,
+        "movie surface must bind the image receiving decoded frames"
+    );
 }
 
 #[test]

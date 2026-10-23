@@ -80,6 +80,10 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
         ("fragment", include_str!("title_surface.wgsl")),
         ("vertex", include_str!("title_surface_vertex.wgsl")),
         ("refraction", include_str!("field_refraction.wgsl")),
+        (
+            "battle_scene_sample",
+            include_str!("battle_view/scene_sample.wgsl"),
+        ),
     ]
     .map(|(name, source)| {
         let shader = Shader::from_wgsl(source, name);

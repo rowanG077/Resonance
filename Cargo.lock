@@ -4387,6 +4387,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "resonance-battle"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glam",
+ "resonance-content",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "resonance-content"
 version = "0.1.0"
 dependencies = [
@@ -4415,6 +4426,7 @@ name = "resonance-game"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "resonance-battle",
  "resonance-content",
  "resonance-events",
  "serde",
@@ -4546,6 +4558,7 @@ dependencies = [
  "hound",
  "resonance-audio",
  "resonance-audio-device",
+ "resonance-battle",
  "resonance-content",
  "resonance-events",
  "resonance-game",

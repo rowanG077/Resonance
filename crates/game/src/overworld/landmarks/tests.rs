@@ -14,6 +14,7 @@ pub(crate) fn definitions() -> Landmarks {
                     ship_camera_clearance: None,
                     name: format!("Place {id}"),
                     automatic: false,
+                    entry_overrides: Vec::new(),
                 })
                 .collect()
         }),

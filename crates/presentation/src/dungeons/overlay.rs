@@ -310,3 +310,16 @@ fn text(rgba: &mut [u8], x: u32, y: u32, text: &str, color: [u8; 4]) {
         }
     }
 }
+
+#[cfg(test)]
+mod battle_isolation_tests {
+    use super::*;
+
+    #[test]
+    fn battle_cameras_cannot_draw_the_closed_developer_menu() {
+        let overlay = RenderLayers::layer(LAYER);
+        for layer in [crate::battle_view::LAYER, crate::battle_view::WARM_LAYER] {
+            assert!(!overlay.intersects(&RenderLayers::layer(layer)));
+        }
+    }
+}

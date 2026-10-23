@@ -46,6 +46,7 @@ pub(super) struct Resident {
     cache: Arc<Mutex<Cache>>,
     pub active: Arc<AtomicBool>,
     /// Battle preparation and rendering temporarily own the shared asset reader.
+    pub battle: Arc<AtomicBool>,
     pub memory_reads: Arc<AtomicU64>,
     pub unprepared_reads: Arc<AtomicU64>,
 }
@@ -56,6 +57,7 @@ impl Default for Resident {
             files: Default::default(),
             cache: Default::default(),
             active: Default::default(),
+            battle: Default::default(),
             memory_reads: Default::default(),
             unprepared_reads: Default::default(),
         }
@@ -168,6 +170,7 @@ pub(super) fn install(app: &mut App, root: &Path) {
 
 pub(super) type Pending = Task<super::new_game::Session>;
 pub(super) type FieldPending = Task<super::new_game::FieldPackage>;
+pub(super) type BattlePending = Task<super::battle::Package>;
 #[derive(Resource)]
 pub(super) struct Task<T: Send + 'static> {
     receiver: Mutex<mpsc::Receiver<Result<T>>>,
@@ -334,6 +337,59 @@ impl WorldPending {
         })
     }
 }
+impl BattlePending {
+    pub fn battle(root: PathBuf, entry: super::battle::Entry, resident: &Resident) -> Result<Self> {
+        let cache = resident.cache.clone();
+        Self::spawn(move |stop| {
+            let super::battle::Entry {
+                files: retained,
+                party,
+                setup,
+                options,
+                data,
+                menus,
+                gameplay_random,
+            } = entry;
+            let mut cache = cache.lock().unwrap();
+            let entry_seed = options.random_seed;
+            let (assets, prepared) = resonance_game::battle::encounter::Assets::load(
+                &root,
+                &retained,
+                &menus,
+                &data,
+                &party,
+                setup,
+                options,
+                &mut cache.bytes,
+                || stop.load(Ordering::Relaxed),
+            )?;
+            let audio = super::battle_audio::Assets::load(
+                &assets.files,
+                assets.audio.as_ref(),
+                &mut cache.audio,
+            )?;
+            let catalogue = assets.catalogue.clone();
+            // View retains its diagnostic and skip policy for an invalid stage.
+            let scenery_models = if assets.stage.validate().is_ok() {
+                resonance_game::battle::stage::Model::load(&assets.files, &assets.stage)?
+            } else {
+                Default::default()
+            };
+            Ok(super::battle::Package {
+                assets: Arc::new(assets),
+                scenery_models,
+                prepared,
+                audio,
+                party,
+                menus,
+                data,
+                catalogue,
+                gameplay_random,
+                entry_seed,
+            })
+        })
+    }
+}
 
 impl<T: Send + 'static> Task<T> {
     pub(super) fn spawn(
@@ -377,12 +433,14 @@ pub(super) fn black_hold(
     session: Option<Res<super::new_game::Session>>,
     resident: Res<Resident>,
     mut outputs: ResMut<Assets<super::materials::TitleOutput>>,
+    battle: Option<Res<super::battle::Owner>>,
     title_return: Option<Res<super::game_over::Returning>>,
 ) {
+    let battle_visible = battle.is_some();
     let held = title_return.is_some()
         || pending.is_some()
         || field.is_some()
-        || session.is_some() && !resident.active.load(Ordering::Acquire);
+        || session.is_some() && !resident.active.load(Ordering::Acquire) && !battle_visible;
     let portal = title_return.is_none()
         && session
             .as_ref()
