@@ -55,6 +55,7 @@ pub struct Inputs {
     pub enemies: Enemies,
     pub(super) party: Party,
     pub(super) party_profiles: battle_profile::Table,
+    pub(in crate::battle) defense_system: resonance_content::battle_defense_system::Definition,
     pub(super) party_actors: Vec<PartyInput>,
     pub(super) weapons: BTreeMap<u16, battle_model::Weapon>,
     pub(super) enemy_definitions: BTreeMap<u8, battle_enemy::Definition>,
@@ -248,6 +249,9 @@ impl Inputs {
         )?;
         let party_profiles: battle_profile::Table = retained.json(battle_profile::PARTY_PATH)?;
         party_profiles.validate()?;
+        let defense_system: resonance_content::battle_defense_system::Definition =
+            retained.json(resonance_content::battle_defense_system::PATH)?;
+        defense_system.validate()?;
         let party_positions = party_positions(menus, party)?;
         ensure!(
             session.items.len() == menus.items.len(),
@@ -637,6 +641,7 @@ impl Inputs {
             enemies,
             party: party.clone(),
             party_profiles,
+            defense_system,
             party_actors,
             weapons,
             enemy_definitions,

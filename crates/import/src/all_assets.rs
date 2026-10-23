@@ -454,6 +454,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             let paths = vec![
                 crate::battle_recoil::publish(&module, options.output, &prefix)?,
                 crate::battle_profile::publish_party(&module, &usual, options.output, &prefix)?,
+                crate::battle_defense_system::publish(&module, options.output, &prefix)?,
                 crate::battle_effect::publish_tints(&module, options.output, &prefix)?,
             ];
             battle_module_paths.insert(module_key, paths.clone());

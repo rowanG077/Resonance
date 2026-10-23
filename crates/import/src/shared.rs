@@ -101,6 +101,7 @@ pub(crate) fn prepare(
         resonance_content::battle_projectile::PATH.into(),
         resonance_content::battle_recoil::PATH.into(),
         resonance_content::battle_profile::PARTY_PATH.into(),
+        resonance_content::battle_defense_system::PATH.into(),
         weapons,
         techniques,
         unison,

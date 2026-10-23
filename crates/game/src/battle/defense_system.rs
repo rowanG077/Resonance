@@ -3,81 +3,87 @@ use anyhow::{Context, Result, ensure};
 use resonance_battle::{
     ActorId, DefenseArm, DefenseSystemDefinition, MeleeAnchor, ModelDefinition, Pose,
 };
+use resonance_content::battle_defense_system::Definition;
 
-/// Keep the door behind the combatants instead of letting the view pass through it.
-pub const CAMERA_YAW_LIMITS: [f32; 2] = [102., 256.];
-
-const CORE: u8 = 211;
-const ORBIT: u8 = 212;
-const ARM: u8 = 213;
-const REPAIR: u8 = 214;
-const ARM_BONES: [&str; 4] = ["PA00_Arm_R", "PA01_Arm_R", "PA02_Arm_L", "PA03_Arm_L"];
-const DEPLOYMENT_CLIP: u16 = 32;
-const DEPLOYMENT_TICKS: u16 = 120;
-const DEPLOYMENT_RATE: f32 = 0.175;
-const DEPLOYMENT_BLEND: u8 = 4;
-
-pub fn initial_position(enemy: u8) -> Option<[f32; 3]> {
-    match enemy {
-        CORE => Some([850., 0., 0.]),
-        REPAIR => Some([200., 0., 0.]),
-        _ => None,
-    }
-}
+#[cfg(test)]
+mod tests;
 
 pub fn definition(
+    content: &Definition,
     members: &[(ActorId, u8)],
     core_model: &ModelDefinition,
+    mut sound: impl FnMut(resonance_battle::Sound) -> Result<Option<resonance_battle::Sound>>,
 ) -> Result<DefenseSystemDefinition> {
+    content.validate()?;
     let instances = |enemy| {
         members
             .iter()
             .filter_map(move |&(actor, id)| (id == enemy).then_some(actor))
     };
-    let cores: Vec<_> = instances(CORE).collect();
-    let arms: Vec<_> = instances(ARM).collect();
+    let cores: Vec<_> = instances(content.core.enemy).collect();
+    let arms: Vec<_> = instances(content.arm).collect();
     ensure!(
         cores.len() == 1
             && arms.len() == 4
-            && instances(ORBIT).count() == 2
-            && instances(REPAIR).count() == 1,
-        "Defense System requires one core, four arms, two orbits and one repair unit"
+            && instances(content.orbit).count() == usize::from(content.orbit_count)
+            && instances(content.repair.enemy).count() == 1
+            && members.iter().all(|&(_, enemy)| content.contains(enemy)),
+        "Defense System members do not match its composition"
     );
     let mut anchors = Vec::new();
-    for (actor, name) in arms.into_iter().zip(ARM_BONES) {
-        let bone = core_model
+    for (actor, slot) in arms.into_iter().zip(content.arm_slots) {
+        let marker = format!("pa{slot:02}_");
+        let bones: Vec<_> = core_model
             .skeleton
             .bones
             .iter()
-            .position(|bone| bone.name == name)
-            .with_context(|| format!("Defense System is missing attachment {name}"))?;
+            .enumerate()
+            .filter_map(|(index, bone)| {
+                bone.name
+                    .to_ascii_lowercase()
+                    .starts_with(&marker)
+                    .then_some(index)
+            })
+            .collect();
+        ensure!(
+            bones.len() == 1,
+            "Defense System requires one attachment for {marker}"
+        );
         anchors.push(DefenseArm {
             actor,
             anchor: MeleeAnchor {
                 resource: core_model.resource,
-                bone: u16::try_from(bone)?,
+                bone: u16::try_from(bones[0])?,
             },
         });
     }
     Ok(DefenseSystemDefinition {
         core: cores[0],
         repair: (
-            instances(REPAIR).next().unwrap(),
-            initial_position(REPAIR).unwrap(),
+            instances(content.repair.enemy).next().unwrap(),
+            content.repair.position,
         ),
+        repair_heading: content.repair.heading,
+        orbits: instances(content.orbit).collect(),
+        repair_cycle: content.repair_cycle,
+        repair_sound: sound(resonance_battle::Sound::Cue(content.repair_sound))?
+            .context("Defense System repair sound is not prepared")?,
+        repair_sound_priority: content.repair_sound_priority,
+        messages: content.messages.clone(),
         components: members
             .iter()
-            .filter_map(|&(actor, enemy)| matches!(enemy, ORBIT | ARM | REPAIR).then_some(actor))
+            .filter_map(|&(actor, enemy)| (enemy != content.core.enemy).then_some(actor))
             .collect(),
         arms: anchors
             .try_into()
             .map_err(|_| anyhow::anyhow!("invalid Defense System arm count"))?,
-        deployment: super::model::motion(Some(core_model), DEPLOYMENT_CLIP)
+        deployment: super::model::motion(Some(core_model), content.deployment.clip)
             .context("Defense System deployment motion is not prepared")?,
-        deployment_ticks: DEPLOYMENT_TICKS,
+        deployment_ticks: content.deployment.ticks,
+        deployment_hp_percent: content.deployment.hp_percent,
         deployment_pose: Pose {
-            rate: DEPLOYMENT_RATE,
-            blend: DEPLOYMENT_BLEND,
+            rate: content.deployment.rate,
+            blend: content.deployment.blend,
             ..Default::default()
         },
     })
