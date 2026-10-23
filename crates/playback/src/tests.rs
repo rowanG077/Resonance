@@ -145,7 +145,7 @@ fn decoded_pcm_is_bounded_contiguous_and_reports_missing_content() {
     pcm.push(0, vec![1., 2., 3., 4., 5., 6., 7., 8.]).unwrap();
     assert!(!pcm.needs_data());
     assert!(pcm.push(4, vec![9., 10.]).is_err());
-    let mut source = pcm.source(false);
+    let mut source = pcm.source(false, 1.);
     assert_eq!(source.next(), Some(1.));
     assert_eq!(source.next(), Some(2.));
     assert!(pcm.push(8, vec![9., 10.]).is_err());
@@ -204,7 +204,7 @@ fn replacing_output_replays_unheard_pcm_without_restarting_the_source() {
 fn decoded_starvation_refills_without_advancing_the_movie_clock() {
     let pcm = Arc::new(Pcm::new(8));
     pcm.push(0, vec![1., 2.]).unwrap();
-    let source = pcm.source(false);
+    let source = pcm.source(false, 1.);
     let (control, mut output) = Offline::new();
     let handle = control.play(false, move || Ok(Box::new(source))).unwrap();
     assert_eq!(

@@ -81,9 +81,9 @@ impl Party {
             next.travel.visited_shops = self.travel.visited_shops.clone();
         }
         if has(Benefit::BattleInfo) {
-            next.battles = self.battles.clone();
+            next.battles = self.battles.for_new_game_plus();
         }
-        for (member, previous) in next.members.iter_mut().zip(&self.members) {
+        for (index, (member, previous)) in next.members.iter_mut().zip(&self.members).enumerate() {
             member.name = previous.name.clone();
             if has(Benefit::ExSkills) {
                 member.ex_skills = previous.ex_skills;
@@ -99,6 +99,22 @@ impl Party {
             if has(Benefit::Titles) {
                 member.title = previous.title;
                 member.titles = previous.titles.clone();
+                member.costume = data
+                    .rules
+                    .as_ref()
+                    .and_then(|rules| rules.titles.get(index))
+                    .and_then(|titles| titles.get(usize::from(member.title - 1)))
+                    .and_then(|title| title.costume)
+                    .map_or_else(
+                        || {
+                            resonance_content::appearance::story_costume(
+                                index as u32 + 1,
+                                0,
+                                &BTreeSet::new(),
+                            )
+                        },
+                        |costume| costume as u8,
+                    );
             }
             if has(Benefit::Tech) {
                 member.techniques = previous.techniques.clone();
@@ -181,6 +197,78 @@ impl crate::GameWorld {
 mod tests {
     use super::*;
     use resonance_content::grade::Purchase;
+
+    #[test]
+    fn battle_info_preserves_records_without_disqualifying_new_run_titles() {
+        let data = crate::party::tests::data();
+        let mut party = Party::new(&data, Default::default()).unwrap();
+        party.battles.total = 500;
+        party.battles.maximum_combo = 99;
+        party.battles.deaths[0] = 250;
+        party.battles.battle_gel_used = true;
+        party.battles.lloyd_non_wooden_blade_used = true;
+        party.battles.ordinary_escape_used = true;
+        party.battles.hunting_symbol = Some(42);
+        party.battles.hunting_streak = 4;
+        // Saves predating the separate eligibility flag retain their restrictions.
+        let mut old_save = serde_json::to_value(&party).unwrap();
+        old_save["battles"]
+            .as_object_mut()
+            .unwrap()
+            .remove("death_this_run");
+        let mut party: Party = serde_json::from_value(old_save).unwrap();
+        assert!(party.battles.has_death_this_run());
+        party.new_game_plus.purchases = Some([Benefit::BattleInfo].into());
+        party.start_new_game_plus(&data).unwrap();
+        let mut party: Party =
+            serde_json::from_slice(&serde_json::to_vec(&party).unwrap()).unwrap();
+        party.validate(&data).unwrap();
+        assert_eq!(party.battles.total, 500);
+        assert_eq!(party.battles.maximum_combo, 99);
+        assert_eq!(party.battles.deaths[0], 250);
+        assert!(!party.battles.battle_gel_used);
+        assert!(!party.battles.lloyd_non_wooden_blade_used);
+        assert!(!party.battles.ordinary_escape_used);
+        assert!(!party.battles.has_death_this_run());
+        assert_eq!(party.battles.hunting_symbol, None);
+        party.battles.record_deaths(0, 0);
+        assert!(!party.battles.has_death_this_run());
+        party.battles.record_deaths(0, 1);
+        assert!(party.battles.has_death_this_run());
+        assert_eq!(party.battles.deaths[0], 250);
+    }
+
+    #[test]
+    fn carried_titles_restore_their_outfits_without_carrying_story_costumes() {
+        use resonance_content::menu_data::{Costume, Title};
+        let mut data = crate::party::tests::data();
+        let mut menus = crate::party::tests::technique_menu();
+        menus.titles[0].push(Title {
+            growth: [0; 7],
+            costume: Some(Costume::Variant2),
+        });
+        data.rules = Some(std::sync::Arc::new(menus));
+        for carry in [false, true] {
+            let mut party = Party::new(&data, Default::default()).unwrap();
+            party.members[0].title = 2;
+            party.members[0].titles.insert(2);
+            // Deliberately stale appearance: derive from the title, not this value.
+            party.members[0].costume = 1;
+            party.members[1].costume = 3;
+            party.new_game_plus.purchases = Some(if carry {
+                [Benefit::Titles].into()
+            } else {
+                Default::default()
+            });
+            party.start_new_game_plus(&data).unwrap();
+            assert_eq!(party.members[0].title, if carry { 2 } else { 1 });
+            assert_eq!(party.members[0].costume, if carry { 2 } else { 0 });
+            assert_eq!(party.members[1].costume, 0);
+            let saved = serde_json::to_vec(&party).unwrap();
+            let loaded: Party = serde_json::from_slice(&saved).unwrap();
+            assert_eq!(loaded.members[0].costume, party.members[0].costume);
+        }
+    }
 
     #[test]
     fn a_new_run_keeps_only_purchased_progress_and_resets_story_and_vitals() {

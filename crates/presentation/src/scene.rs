@@ -449,17 +449,18 @@ pub(super) fn update_materials(
             field
                 .texture_animations
                 .iter()
-                .filter(|animation| {
+                .enumerate()
+                .filter(|(_, animation)| {
                     animation.actor.resolve(&world.texture_bindings) == binding.texture_actor
                         && texture.is_some_and(|texture| {
                             animation.texture.resolve(&world.texture_bindings) == texture as i32
                         })
                 })
-                .fold([0.; 2], |mut offset, animation| {
-                    let uv = animation.offset(
-                        world.texture_animation_tick,
-                        world.texture_animation_effect_tick,
-                    );
+                .fold([0.; 2], |mut offset, (index, _)| {
+                    let uv = world
+                        .texture_animation_states
+                        .get(index)
+                        .map_or([0.; 2], |state| state.offset);
                     offset[0] += uv[0];
                     offset[1] += uv[1];
                     offset

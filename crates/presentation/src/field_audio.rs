@@ -696,11 +696,17 @@ impl ScorePlayer {
         })
     }
     fn prepare_shared(&self, gains: impl FnOnce() -> [f32; CONTROLS_PER_BLOCK]) -> Result<()> {
-        self.stream
-            .set_shared_controls(gains().map(|gain| LiveControls {
-                volume: self.volume * gain,
-                ..self.controls
-            }))
+        self.stream.set_shared_controls(gains().map(|gain| {
+            let mut controls = self.controls;
+            if self.cue.is_some() {
+                // Field sound levels govern the whole cue, including pre-fader
+                // reverb. They also remain live for slotted and looping sounds.
+                controls.source_volume = self.volume * gain;
+            } else {
+                controls.volume = self.volume * gain;
+            }
+            controls
+        }))
     }
     fn frame(&mut self) -> Option<BusFrame> {
         let frame = self.stream.shared_frame();

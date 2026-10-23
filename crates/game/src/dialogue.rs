@@ -20,6 +20,7 @@ const GLYPH_ALPHA_STEP: u8 = 32;
 pub struct Glyph {
     pub character: char,
     pub color: [u8; 3],
+    flashing: bool,
     pub delay: u16,
     pub followed_by_control: bool,
 }
@@ -88,6 +89,8 @@ pub struct DialoguePlayer {
     voice_durations: Arc<BTreeMap<u32, u32>>,
     glyph_alpha: Vec<u8>,
     instant_glyphs: bool,
+    // Text animation must not consume gameplay randomness.
+    color_random: resonance_content::random::Random,
 }
 impl DialoguePlayer {
     pub fn status(&self) -> DialogueStatus {
@@ -133,6 +136,7 @@ impl DialoguePlayer {
             voice_durations: Default::default(),
             glyph_alpha: Vec::new(),
             instant_glyphs: dialogue.flags & flags::INSTANT != 0,
+            color_random: resonance_content::random::Random::new(dialogue.operation.id()),
         })
     }
     pub fn current(&self) -> &Page {
@@ -271,6 +275,17 @@ impl DialoguePlayer {
                 self.visible += 1;
             }
         }
+        let mut flashing_color = None;
+        for glyph in &mut self.pages[self.page].glyphs {
+            if glyph.flashing {
+                glyph.color = *flashing_color.get_or_insert_with(|| {
+                    let [r, g, b, _] = self.color_random.next_u32().to_le_bytes();
+                    [r, g, b]
+                });
+            } else {
+                flashing_color = None;
+            }
+        }
         for glyph in &self.pages[self.page].glyphs[self.glyph_alpha.len()..self.visible] {
             self.glyph_alpha
                 .push(if self.instant_glyphs || glyph.character == '\n' {
@@ -357,10 +372,67 @@ pub fn step_requests(
     }
     Ok(())
 }
+
+/// Instant notices created during a script update must be drawable that frame.
+/// Existing players keep their clocks; only newly replaced requests are stepped.
+pub(crate) fn refresh_instant_requests(
+    world: &mut resonance_events::GameWorld,
+    players: &mut BTreeMap<u8, DialoguePlayer>,
+    voice_feedback: bool,
+) -> Result<()> {
+    let mut audio = Vec::new();
+    for (&slot, request) in &mut world.dialogue {
+        if request.flags & flags::INSTANT == 0
+            || request.opening_actor.is_some()
+            || !request.operation.is_pending()
+            || players
+                .get(&slot)
+                .is_some_and(|player| player.operation.id() == request.operation.id())
+        {
+            continue;
+        }
+        let mut player = DialoguePlayer::new(
+            request,
+            world.party.as_ref().map_or(3, |party| {
+                u16::from(party.settings.preferences.message_speed)
+            }),
+        )?
+        .with_voice_durations(world.voice_durations.clone())
+        .with_voice_feedback(voice_feedback);
+        audio.extend(player.step(false, false)?);
+        request.status = player.status();
+        players.insert(slot, player);
+    }
+    publish_field_audio(world, audio);
+    Ok(())
+}
+
+pub(crate) fn publish_field_audio(
+    world: &mut resonance_events::GameWorld,
+    commands: impl IntoIterator<Item = AudioCommand>,
+) {
+    for command in commands {
+        match &command {
+            AudioCommand::Voice { resource, .. } => {
+                world.voice = Some(resonance_events::VoicePlayback {
+                    resource: *resource,
+                    end_tick: world.tick.saturating_add(
+                        world.voice_durations.get(resource).copied().unwrap_or(0),
+                    ),
+                });
+            }
+            AudioCommand::StopVoice => world.voice = None,
+            _ => {}
+        }
+        world.audio_commands.push(command);
+    }
+}
+
 pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>> {
     ensure!(default_delay <= 120, "text delay exceeds supported range");
     let mut pages = vec![Page::default()];
     let mut color = [255; 3];
+    let mut flashing = false;
     let mut delay = default_delay;
     let mut count = 0;
     for token in &message.tokens {
@@ -381,6 +453,7 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
                         pages.last_mut().unwrap().glyphs.push(Glyph {
                             character,
                             color,
+                            flashing,
                             delay: if character == '\n' { 0 } else { delay },
                             followed_by_control: false,
                         });
@@ -397,6 +470,7 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
                     }
                 }
                 3 => {
+                    flashing = *value == 7;
                     color = match value {
                         0 => [255; 3],
                         1 => [0, 0, 255],
@@ -405,7 +479,7 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
                         4 => [52, 255, 17],
                         5 => [20, 250, 250],
                         6 => [235, 255, 17],
-                        _ => anyhow::bail!("unsupported text color"),
+                        _ => [255; 3],
                     }
                 }
                 9 => {
@@ -426,6 +500,7 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
                     page.glyphs.extend((0..*value).map(|_| Glyph {
                         character: '0',
                         color,
+                        flashing,
                         delay: 0,
                         followed_by_control: false,
                     }));
@@ -441,6 +516,50 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flashing_text_animates_as_a_run_and_respects_color_resets() {
+        let message = ResolvedMessage::from_spans(
+            &[
+                (0, "Name "),
+                (7, "Title\u{c}More"),
+                (2, "Red"),
+                (255, "White"),
+            ]
+            .map(|(color, text)| resonance_content::font::TextSpan {
+                color,
+                text: text.into(),
+            }),
+        );
+        let (mut player, _scope) = player("", flags::INSTANT);
+        player.pages = pages(&message, 0).unwrap();
+        player.step(false, false).unwrap();
+        let first_color = player.current().glyphs[5].color;
+        player.step(false, false).unwrap();
+        assert_ne!(player.current().glyphs[5].color, first_color);
+        assert!(
+            player.current().glyphs[..5]
+                .iter()
+                .all(|g| g.color == [255; 3])
+        );
+        let title = &player.current().glyphs[5..];
+        assert!(title.iter().all(|g| g.color == title[0].color));
+        player.step(true, false).unwrap();
+        assert_eq!(player.page, 1);
+        player.step(false, false).unwrap();
+        let more = &player.current().glyphs[..4];
+        assert!(more.iter().all(|g| g.flashing && g.color == more[0].color));
+        assert!(
+            player.current().glyphs[4..7]
+                .iter()
+                .all(|g| g.color == [255, 0, 0])
+        );
+        assert!(
+            player.current().glyphs[7..]
+                .iter()
+                .all(|g| g.color == [255; 3])
+        );
+    }
 
     #[test]
     fn text_speed_controls_can_restore_the_default_or_disable_delay() {

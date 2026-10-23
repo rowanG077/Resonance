@@ -71,7 +71,11 @@ impl Artwork {
         let mut map = Batch::default();
         let mut decoration = Batch::default();
         if visible {
-            self.compass(&mut decoration, state.camera_yaw, session.events.tick());
+            self.compass(
+                &mut decoration,
+                state.camera_yaw,
+                session.travel.camera_turn_input(),
+            );
             let [x, y, _] = state.position.map();
             for (index, opacity) in session.travel.map_opacity().into_iter().enumerate() {
                 if opacity == 0 {
@@ -139,9 +143,11 @@ impl Artwork {
         self.decorations.show(shown, commands);
         Ok(())
     }
-    fn compass(&self, batch: &mut Batch, yaw: f32, tick: u32) {
+    fn compass(&self, batch: &mut Batch, yaw: f32, steering: f32) {
         let center = [80., 64.];
-        for (index, angle) in [(1, ((tick / 8) % 360) as f32 * PI / 180.), (2, yaw)] {
+        // The centre tilts with steering; the directional layer follows yaw.
+        let tilt = (steering / 8.).trunc().to_radians();
+        for (index, angle) in [(1, tilt), (2, yaw)] {
             let start = batch.positions.len();
             sprite(
                 batch,

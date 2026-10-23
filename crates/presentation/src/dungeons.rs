@@ -106,13 +106,21 @@ pub(super) fn controls(world: &mut World) {
             ))
         });
     let available = available(world);
+    let battle_button = pointer
+        .filter(|_| clicked)
+        .and_then(|(cursor, size)| overlay::battle_button_at(cursor, size));
     if world.resource::<Menu>().open()
-        && (keys.just_pressed(KeyCode::KeyB)
-            || clicked
-                && pointer.is_some_and(|(cursor, size)| overlay::battle_button_at(cursor, size)))
+        && (keys.just_pressed(KeyCode::KeyB) || battle_button == Some(0))
     {
         let mut options = world.resource_mut::<super::RunOptions>();
         options.skip_battles = !options.skip_battles;
+        return;
+    }
+    if world.resource::<Menu>().open()
+        && (keys.just_pressed(KeyCode::KeyK) || battle_button == Some(1))
+    {
+        let mut testing = world.resource_mut::<super::testing::Controls>();
+        testing.instant_kill = !testing.instant_kill;
         return;
     }
     if clicked

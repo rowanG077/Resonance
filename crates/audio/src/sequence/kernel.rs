@@ -259,7 +259,7 @@ impl<'a> Kernel<'a> {
             self.bpm = self.tempos.next().unwrap().bpm_1024;
         }
     }
-    fn dispatch_events(&mut self, frame: u64) -> Result<()> {
+    fn dispatch_events(&mut self, frame: u64, sound_velocity: Option<u8>) -> Result<()> {
         let tick = self.clock.tick() - self.loop_offset;
         while self
             .events
@@ -286,6 +286,13 @@ impl<'a> Kernel<'a> {
                         result.notes += 1;
                     }
                     for &note in notes {
+                        let mut note = note;
+                        if source.origin() == crate::data::ScoreOrigin::SoundEffect
+                            && let Some(velocity) = sound_velocity
+                        {
+                            note.velocity =
+                                (u16::from(note.velocity) * u16::from(velocity) / 127) as u8;
+                        }
                         let mut voice = Voice::new_at(
                             self.bank,
                             self.tables,
@@ -357,17 +364,18 @@ impl<'a> Kernel<'a> {
         });
         for channel in &mut self.controls {
             channel.group_volume = input.volume;
+            channel.source_volume = input.source_volume;
             channel.mono = input.mono;
         }
         self.apply_tempos();
-        self.dispatch_events(frame)?;
+        self.dispatch_events(frame, input.sound_velocity)?;
         while self.looping && self.clock.tick() - self.loop_offset >= u128::from(end_tick) {
             self.loop_offset += u128::from(end_tick - loop_tick);
             self.events = loop_events.iter().peekable();
             self.tempos = song.tempos.iter().peekable();
             self.bpm = song.initial_bpm_1024;
             self.apply_tempos();
-            self.dispatch_events(frame)?;
+            self.dispatch_events(frame, input.sound_velocity)?;
             if let Some(result) = &mut self.result {
                 result.loop_starts.push(frame as u32);
             }
@@ -399,6 +407,7 @@ impl<'a> Kernel<'a> {
         for active in &mut self.voices {
             if let Some(controls) = &mut active.sound_controls {
                 controls.group_volume = input.volume;
+                controls.source_volume = input.source_volume;
                 controls.mono = input.mono;
             }
             active.voice.set_tempo(self.bpm);

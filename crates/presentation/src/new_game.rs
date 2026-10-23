@@ -872,7 +872,9 @@ fn transition_world(world: &mut World) {
             world.insert_resource(pending);
             return Ok(());
         };
-        super::field_audio::leave_field(world)?;
+        if !super::field_audio::leave_field(world)? {
+            return Ok(());
+        }
         world.resource_mut::<Session>().change_world(package)?;
         *world
             .resource::<super::loading::Resident>()
@@ -963,13 +965,6 @@ pub(super) fn advance(
                 &mut images,
             )?;
             session.movie_started = true;
-            movie.mono = session
-                .field()
-                .events
-                .world
-                .party
-                .as_ref()
-                .is_some_and(|party| !party.settings.preferences.stereo);
             session.ready_for_field = false;
         } else {
             session.pending_movie = None;
@@ -979,7 +974,7 @@ pub(super) fn advance(
     if let Err(error) = result {
         let diagnostics = session.files().diagnostics().clone();
         if diagnostics
-            .report("New Game movie; skipping video", error)
+            .report("Field movie; skipping video", error)
             .is_err()
         {
             session.field_mut().events.cancel();

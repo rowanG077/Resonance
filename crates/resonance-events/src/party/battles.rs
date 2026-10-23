@@ -49,9 +49,17 @@ pub struct BattleStatistics {
     pub total: u16,
     /// Victories at Hard or Mania difficulty.
     pub hard_victories: u16,
+    /// Consecutive victories against the same field symbol while leading with Presea.
+    #[serde(default)]
+    pub hunting_symbol: Option<u32>,
+    #[serde(default)]
+    pub hunting_streak: u8,
     pub escaped: u32,
     /// Duration of the most recently completed battle, not a cumulative clock.
     pub combat_ticks: u32,
+    /// Zero before a battle or in saves without this statistic.
+    #[serde(default)]
+    pub formation_count: u32,
     /// Signed hundredths, with a cap only on the positive total.
     pub grade: i32,
     pub maximum_combo: u16,
@@ -60,12 +68,40 @@ pub struct BattleStatistics {
     pub participation: [u16; 9],
     pub kills: [u16; 9],
     pub deaths: [u8; 9],
+    /// Older saves use their death totals until a new playthrough resets eligibility.
+    #[serde(default)]
+    pub death_this_run: Option<bool>,
     pub items: [u8; 9],
     /// Accepted victory voice groups, recorded at confirmation.
     pub victory_groups: u64,
 }
 
 impl BattleStatistics {
+    pub fn has_death_this_run(&self) -> bool {
+        self.death_this_run
+            .unwrap_or_else(|| self.deaths.iter().any(|&n| n != 0))
+    }
+
+    pub fn record_deaths(&mut self, character: usize, count: u8) {
+        self.death_this_run = Some(self.has_death_this_run() || count != 0);
+        self.deaths[character] = self.deaths[character].saturating_add(count).min(250);
+    }
+
+    pub(super) fn for_new_game_plus(&self) -> Self {
+        Self {
+            previous_formation: None,
+            battle_gel_used: false,
+            lloyd_non_wooden_blade_used: false,
+            ordinary_escape_used: false,
+            death_this_run: Some(false),
+            hunting_symbol: None,
+            hunting_streak: 0,
+            combat_ticks: 0,
+            formation_count: 0,
+            ..self.clone()
+        }
+    }
+
     pub fn count(&self, member: i32) -> std::result::Result<u16, String> {
         match member {
             0 => Ok(self.total),
@@ -78,6 +114,7 @@ impl BattleStatistics {
         ensure!(
             self.total <= 9_999
                 && self.hard_victories <= 9_999
+                && self.hunting_streak <= 5
                 && self.escaped <= 99_999
                 && self.sheena_escapes <= 50
                 && self.combat_ticks <= 359_999
@@ -106,7 +143,19 @@ impl BattleStatistics {
         }
     }
 
+    pub fn record_hunt(&mut self, symbol: Option<u32>) {
+        self.hunting_streak = match symbol {
+            Some(_) if symbol == self.hunting_symbol => {
+                self.hunting_streak.saturating_add(1).min(5)
+            }
+            Some(_) => 1,
+            None => 0,
+        };
+        self.hunting_symbol = symbol;
+    }
+
     pub fn record_escape(&mut self) {
+        self.record_hunt(None);
         self.escaped = self.escaped.saturating_add(1).min(99_999);
     }
 
@@ -243,5 +292,28 @@ mod tests {
         history.observe_lloyd_battle_weapon(136);
         history.observe_lloyd_battle_weapon(135);
         assert!(history.lloyd_non_wooden_blade_used);
+    }
+
+    #[test]
+    fn hunter_streak_survives_saves_and_resets_on_another_symbol_or_escape() -> Result<()> {
+        let mut history = BattleStatistics::default();
+        for _ in 0..4 {
+            history.record_hunt(Some(42));
+        }
+        let mut history: BattleStatistics = serde_json::from_slice(&serde_json::to_vec(&history)?)?;
+        history.record_hunt(Some(42));
+        assert_eq!(history.hunting_streak, 5);
+        history.record_hunt(Some(42));
+        assert_eq!(history.hunting_streak, 5);
+        history.record_hunt(Some(43));
+        assert_eq!(history.hunting_streak, 1);
+        history.record_escape();
+        assert_eq!((history.hunting_symbol, history.hunting_streak), (None, 0));
+        let mut old = serde_json::to_value(&history)?;
+        old.as_object_mut().unwrap().remove("hunting_symbol");
+        old.as_object_mut().unwrap().remove("hunting_streak");
+        let restored: BattleStatistics = serde_json::from_value(old)?;
+        assert_eq!(restored, history);
+        Ok(())
     }
 }

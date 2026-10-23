@@ -37,6 +37,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     raster.a = (opacity + floor(opacity / 128.)) / 256.;
 #endif
 #endif
+#ifndef FIELD_LIGHTING
+#ifdef VERTEX_NORMALS
+    if material.scenery_lighting.ambient.w != 0.0 {
+        raster = vec4<f32>(raster.rgb * in.world_normal, raster.a);
+    }
+#endif
+#endif
     raster = tev_input(raster);
     var color = raster;
 #ifdef MULTIPLY_ALPHA_ONLY
@@ -47,6 +54,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let primary = tev_input(sample_primary(slot, in.uv * material.uv_scales.xy + uv_offsets.xy));
     texture_color *= primary;
     color *= primary;
+#endif
+#ifndef FIELD_LIGHTING
+#ifdef VERTEX_NORMALS
+    if material.scenery_lighting.ambient.w != 0.0 {
+        // Scenery channel lighting doubles the first color stage before clamping.
+        color = vec4<f32>(min(color.rgb * 2.0, vec3<f32>(1.0)), color.a);
+    }
+#endif
 #endif
 #ifdef VERTEX_UVS_B
     let secondary = tev_input(sample_secondary(slot, in.uv_b * material.uv_scales.zw + uv_offsets.zw));

@@ -42,6 +42,10 @@ impl FieldSession {
 
     pub(super) fn player_menu_checkpoint(&self) -> Result<FieldCheckpoint> {
         ensure!(
+            !self.events.battle_pending(),
+            "quicksave unavailable during battle"
+        );
+        ensure!(
             self.authored_entry.is_none(),
             "quicksave unavailable before an authored entry event"
         );
@@ -54,6 +58,13 @@ impl FieldSession {
             "quicksave unavailable while a menu is open"
         );
         let world = &self.events.world;
+        ensure!(
+            world
+                .actors
+                .get(&world.controlled_actor)
+                .is_none_or(|actor| { !self.player_movement.sliding(actor) }),
+            "quicksave unavailable while sliding"
+        );
         ensure!(
             !world.menu_blocked(),
             "quicksave unavailable while a field effect owns the menu"
@@ -75,9 +86,10 @@ impl FieldSession {
             "quicksave unavailable during a control handoff"
         );
         ensure!(
-            self.dialogue.values().all(|d| d.closed)
-                && world.dialogue.values().all(|d| !d.operation.is_pending())
-                && world.choices.values().all(|c| !c.operation.is_pending()),
+            world.dialogue.values().all(|d| {
+                !d.operation.is_pending()
+                    || d.flags & resonance_events::dialogue::flags::NON_MODAL != 0
+            }) && world.choices.values().all(|c| !c.operation.is_pending()),
             "quicksave unavailable during dialogue or a choice"
         );
         ensure!(

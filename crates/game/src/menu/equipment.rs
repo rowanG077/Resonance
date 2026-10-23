@@ -159,8 +159,8 @@ impl Equipment {
         if matches!(self.focus, Focus::Character | Focus::Slots)
             && (page_up || page_down || self.focus == Focus::Character && (left || right))
         {
-            let count = party.formation.len().min(VISIBLE_PARTY);
-            ensure!(count != 0, "equipment page has no active party");
+            let count = party.formation.len();
+            ensure!(count != 0, "equipment page has no party members");
             let back = page_up || self.focus == Focus::Character && left;
             for _ in 0..count {
                 *member = (*member + if back { count.saturating_sub(1) } else { 1 }) % count;

@@ -45,7 +45,10 @@ impl Preferences {
     }
 
     pub fn apply(&self, session: &mut Session, new_game: bool) {
-        let apply = |settings: &mut CustomizeSettings| {
+        let apply = |party: &mut resonance_events::party::Party| {
+            let settings = &mut party.settings.preferences;
+            let forget_opposite_path =
+                settings.learn_both_arte_paths && !self.settings.learn_both_arte_paths;
             let rank = if new_game {
                 self.settings.battle_rank
             } else {
@@ -53,20 +56,26 @@ impl Preferences {
             };
             *settings = self.settings.clone();
             settings.battle_rank = rank;
+            if !settings.learn_elemental_artes {
+                party.forget_elemental_artes();
+            }
+            if forget_opposite_path {
+                party.forget_opposite_path_artes();
+            }
         };
         if let Some(party) = &mut session.events_mut().world.party {
-            apply(&mut party.settings.preferences);
+            apply(party);
         }
         if let Some(menu) = session.menu_mut()
             && let Some(checkpoint) = &mut menu.checkpoint
         {
-            apply(&mut checkpoint.progress_mut().party.settings.preferences);
+            apply(&mut checkpoint.progress_mut().party);
         }
     }
 }
 
-/// Runs before save loading and session retirement. A Customize draft only reaches
-/// the party when Apply is pressed, so previews and Cancel never write the file.
+/// Runs before save loading and session retirement. Customize commits its draft
+/// on exit, after any destructive changes have been confirmed.
 pub(crate) fn update(world: &mut World) {
     let Some(preferences) = world.get_resource::<Preferences>() else {
         return;

@@ -274,6 +274,14 @@ impl Query<'_> {
         self.face(self.origin, mode)
             .map(|f| f.ground(self.origin, self.tables, mode))
     }
+    /// Flight clearance includes terrain that cannot be walked on or landed on.
+    pub fn flight_floor(&self) -> f32 {
+        self.faces
+            .iter()
+            .filter(|face| face.contains(self.origin))
+            .map(|face| face.ground(self.origin, self.tables, Mode::Ground).height)
+            .fold(0., f32::max)
+    }
     pub fn has_clearance(&self, mode: Mode) -> bool {
         self.clear_at(self.origin, mode)
     }

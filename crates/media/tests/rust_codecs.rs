@@ -161,7 +161,7 @@ fn full_video_queues_do_not_block_audio_or_discard_future_frames() {
     let decoder = MovieDecoder::open(&path.0, asset.clone()).unwrap();
     let stream = MovieStream::start(decoder, VecDeque::new(), asset.sample_rate).unwrap();
     let pcm = stream.audio();
-    let mut source = pcm.source(false);
+    let mut source = pcm.source(false, 1.);
     let mut actual = Vec::new();
     // Play all audio without consuming video: the bounded video queue fills
     // and stops video decoding while FLAC keeps progressing.

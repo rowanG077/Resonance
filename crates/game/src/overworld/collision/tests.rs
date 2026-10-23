@@ -115,6 +115,7 @@ fn slope_correction_projects_onto_the_plane_and_invalid_input_is_rejected() -> R
     let groups = [ramp];
     let q = query(&groups, &tables, [0.; 3]);
     assert_eq!(q.surface(Mode::Ground).unwrap().height, 100.);
+    assert_eq!(q.flight_floor(), 100.);
     let motion = q.motion(0., 0., Mode::Ground)?;
     assert!((motion.delta[2] - 50.).abs() < 0.0001);
     assert!((motion.slope[1] + std::f32::consts::FRAC_PI_4).abs() < 0.0001);

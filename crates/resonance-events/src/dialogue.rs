@@ -11,6 +11,8 @@ pub mod flags {
     pub const ABOVE: u16 = 0x80;
     pub const BELOW: u16 = 0x100;
     pub const POINTER: u16 = 0x400;
+    /// Display information without taking ownership of field input.
+    pub const NON_MODAL: u16 = 0x800;
     pub const INSTANT: u16 = 0x1000;
     pub const PLACEMENT: u16 = AUTO_SIDE | ABOVE | BELOW;
 }

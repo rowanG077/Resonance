@@ -1,11 +1,9 @@
 //! Thin CPAL output. Stream callbacks only consume the playback ring.
-mod priority;
 use anyhow::{Context, Result, ensure};
 use cpal::{
     FromSample, SampleFormat, SizedSample,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
-pub use priority::prioritize;
 use resonance_playback::{Callback, Clock, Output};
 use std::sync::Arc;
 

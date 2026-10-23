@@ -92,10 +92,11 @@ pub(super) fn testing_button_at(cursor: Vec2, size: Vec2) -> Option<usize> {
     .then(|| ((point.x - 16.) / ((WIDTH - 32) as f32 / 3.)) as usize)
 }
 
-pub(super) fn battle_button_at(cursor: Vec2, size: Vec2) -> bool {
+pub(super) fn battle_button_at(cursor: Vec2, size: Vec2) -> Option<usize> {
     let point = (cursor - size / 2.) / scale(size) + Vec2::new(WIDTH as f32, HEIGHT as f32) / 2.;
-    (16. ..WIDTH as f32 - 16.).contains(&point.x)
-        && (BATTLE_TOP as f32..(BATTLE_TOP + BUTTON_HEIGHT) as f32).contains(&point.y)
+    ((16. ..WIDTH as f32 - 16.).contains(&point.x)
+        && (BATTLE_TOP as f32..(BATTLE_TOP + BUTTON_HEIGHT) as f32).contains(&point.y))
+    .then(|| ((point.x - 16.) / ((WIDTH - 32) as f32 / 2.)) as usize)
 }
 
 #[expect(
@@ -255,22 +256,29 @@ fn pixels(menu: &Menu, testing: &super::super::testing::Controls, skip_battles: 
         }
         text(&mut rgba, left + 8, BUTTON_TOP + 5, label, accent);
     }
-    for y in BATTLE_TOP..BATTLE_TOP + BUTTON_HEIGHT {
-        for x in 16..WIDTH - 16 {
-            put(&mut rgba, x, y, [32, 69, 80, 255]);
-        }
-    }
-    text(
-        &mut rgba,
-        24,
-        BATTLE_TOP + 5,
+    for (index, label) in [
         if skip_battles {
             "B SKIP BATTLES: ON"
         } else {
             "B SKIP BATTLES: OFF"
         },
-        accent,
-    );
+        if testing.instant_kill {
+            "K INSTANT KILL: ON"
+        } else {
+            "K INSTANT KILL: OFF"
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let left = 16 + index as u32 * ((WIDTH - 32) / 2);
+        for y in BATTLE_TOP..BATTLE_TOP + BUTTON_HEIGHT {
+            for x in left..left + (WIDTH - 32) / 2 - 4 {
+                put(&mut rgba, x, y, [32, 69, 80, 255]);
+            }
+        }
+        text(&mut rgba, left + 8, BATTLE_TOP + 5, label, accent);
+    }
     rgba
 }
 

@@ -371,6 +371,7 @@ fn original_representative_fields_share_the_production_graph() -> Result<()> {
         resource_catalogue: "game/resource-catalogue.json".into(),
         font: read(&media, &ui.font)?,
         effects: crate::field_effects::Prepared {
+            environment: read(&media, crate::field::environment::TEXTURES_PATH)?,
             path: reference.effects,
             files: effect_files,
             blink: reference.blink,

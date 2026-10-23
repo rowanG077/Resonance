@@ -11,6 +11,36 @@ use symphonia_script::Program;
 use symphonia_script_vm::Memory;
 
 #[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn field_entry_has_a_pose_before_the_first_update() {
+    use resonance_events::animation::slot;
+    use resonance_game::field::{FieldEntry, FieldSession};
+
+    for map in [7, 332, 481] {
+        let assets: FieldAssets = cooked(&format!("fields/map-{map}.json"));
+        let script = fs::read(asset_root().join(&assets.script)).unwrap();
+        for idle_animation in [None, Some(slot::WALK)] {
+            let session = FieldSession::enter(
+                &script,
+                vec![],
+                &assets,
+                FieldEntry {
+                    idle_animation,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let world = &session.events.world;
+            let actor = &world.actors[&world.controlled_actor];
+            let animation = actor.animation.as_ref().expect("entry pose is missing");
+            assert_eq!(animation.resource, actor.resource);
+            assert_eq!(animation.slot, idle_animation.unwrap_or(slot::IDLE));
+            assert_eq!(animation.blend_weight(world.tick), 1.);
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires locally cooked GQSEAF setup scenario/session data; no devices"]
 fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
     let root = asset_root();

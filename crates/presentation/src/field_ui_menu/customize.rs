@@ -1,5 +1,8 @@
 use super::*;
-use resonance_content::menu_data::CUSTOMIZE_OPTIONS;
+use resonance_content::menu_data::{
+    COMBINED_BATTLES_OPTION, CUSTOMIZE_OPTIONS, FLEXIBLE_BATTLE_PARTY_OPTION,
+    LEARN_BOTH_ARTE_PATHS_OPTION, LEARN_ELEMENTAL_ARTES_OPTION,
+};
 use resonance_game::menu::customize::{Focus, VISIBLE_OPTIONS};
 
 impl Drawing<'_> {
@@ -32,7 +35,7 @@ impl Drawing<'_> {
                 [
                     32.,
                     y,
-                    self.text_width(&data.options[state.row].name, 20.)?,
+                    self.text_width(data.option_name(state.row), 20.)?,
                     24.,
                 ],
                 255,
@@ -46,7 +49,7 @@ impl Drawing<'_> {
             .enumerate()
         {
             let y = 62. + index as f32 * 26. - scroll as f32;
-            self.text(&data.options[row].name, [32., y], 20., GOLD)?;
+            self.text(data.option_name(row), [32., y], 20., GOLD)?;
             let mut x = 320.;
             match row {
                 0..=3 => {
@@ -100,18 +103,32 @@ impl Drawing<'_> {
                     }
                 }
                 6 => self.sprite(self.spec.sprite(Sprite::Buttons, 6)?, [x, y]),
-                7..=12 => {
-                    let on = [
-                        settings.battle_voiceover,
-                        settings.event_voiceover,
-                        settings.skit_notifications,
-                        settings.movie_subtitles,
-                        settings.battle_auto_zoom,
-                        settings.rumble,
-                    ][row - 7];
+                7..=12
+                | FLEXIBLE_BATTLE_PARTY_OPTION
+                | COMBINED_BATTLES_OPTION
+                | LEARN_ELEMENTAL_ARTES_OPTION
+                | LEARN_BOTH_ARTE_PATHS_OPTION => {
+                    let on = if row == FLEXIBLE_BATTLE_PARTY_OPTION {
+                        settings.flexible_battle_party
+                    } else if row == COMBINED_BATTLES_OPTION {
+                        settings.combined_battles
+                    } else if row == LEARN_ELEMENTAL_ARTES_OPTION {
+                        settings.learn_elemental_artes
+                    } else if row == LEARN_BOTH_ARTE_PATHS_OPTION {
+                        settings.learn_both_arte_paths
+                    } else {
+                        [
+                            settings.battle_voiceover,
+                            settings.event_voiceover,
+                            settings.skit_notifications,
+                            settings.movie_subtitles,
+                            settings.battle_auto_zoom,
+                            settings.rumble,
+                        ][row - 7]
+                    };
                     for (index, key) in ["on", "off"].into_iter().enumerate() {
                         self.text(
-                            &data.labels[key],
+                            menu_label(&data.labels, key)?,
                             [x + index as f32 * 60., y],
                             20.,
                             if on == (index == 0) { WHITE } else { DISABLED },
@@ -361,12 +378,7 @@ impl Drawing<'_> {
                     20.,
                     WHITE,
                 )?,
-                _ => self.text(
-                    &data.options[state.row].description,
-                    [32., 316.],
-                    20.,
-                    WHITE,
-                )?,
+                _ => self.text(data.option_description(state.row), [32., 316.], 20., WHITE)?,
             }
         }
         if matches!(state.focus, Focus::Colors | Focus::Volume | Focus::Controls) {
@@ -374,6 +386,17 @@ impl Drawing<'_> {
         }
         self.offset = [0.; 2];
         self.opacity = 255;
+        if let Focus::ForgetArtes { yes } = state.focus {
+            cursor = self
+                .popup(
+                    state
+                        .forget_confirmation()
+                        .context("missing arte confirmation")?,
+                    Some(yes),
+                    255,
+                )?
+                .context("arte confirmation has no choices")?;
+        }
         Ok(cursor)
     }
 }

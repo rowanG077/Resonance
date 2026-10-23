@@ -6,6 +6,81 @@ use crate::{
 };
 use resonance_content::model_preview::ModelPreview;
 
+/// Body atlas frames and scrolling overlays share the ordinary scene animation path.
+pub(super) fn animate_body(
+    parts: &mut [resonance_content::model_preview::PreviewPart],
+    metadata: &[u8],
+) -> Result<()> {
+    let settings = metadata
+        .get(0xfa..0x102)
+        .context("missing body texture animation settings")?;
+    let mut animations = Vec::new();
+    for channel in 0..2 {
+        let texture = usize::from(settings[2 + channel]);
+        let amount = settings[4 + channel] as i8;
+        let rate = settings[6 + channel] as i8;
+        let (delay_ticks, offsets) = match settings[channel] {
+            0 => continue,
+            1 => {
+                ensure!(
+                    amount > 0 && rate >= 0,
+                    "invalid body texture atlas animation"
+                );
+                let interval = rate as usize + 1;
+                (
+                    1,
+                    (0..amount as usize * interval)
+                        .map(|tick| [0., (tick / interval) as f32 / f32::from(amount)])
+                        .collect(),
+                )
+            }
+            2 => {
+                // Authored velocities are in thousandths of a texture per update.
+                let mut phase = [0i32; 2];
+                let mut offsets = Vec::new();
+                loop {
+                    offsets.push(phase.map(|value| value as f32 / 1000.));
+                    phase[0] = (phase[0] + i32::from(amount)).rem_euclid(1000);
+                    phase[1] = (phase[1] + i32::from(rate)).rem_euclid(1000);
+                    if phase == [0; 2] {
+                        break;
+                    }
+                }
+                (0, offsets)
+            }
+            mode => anyhow::bail!("unsupported body texture animation mode {mode}"),
+        };
+        animations.push(resonance_content::TextureAnimation {
+            texture,
+            delay_ticks,
+            loop_start: 0,
+            offsets,
+        });
+    }
+    // Only the primary body and its outline use these channels; carried models
+    // and additional bodies have their own animation settings.
+    let count = 1 + usize::from(
+        parts
+            .get(1)
+            .is_some_and(|part| part.scene.outline_color.is_some()),
+    );
+    for part in parts.iter_mut().take(count) {
+        part.scene.texture_animations = animations
+            .iter()
+            .filter(|animation| {
+                part.scene.materials.iter().any(|material| {
+                    [&material.color, &material.multiply]
+                        .into_iter()
+                        .flatten()
+                        .any(|binding| binding.texture == animation.texture)
+                })
+            })
+            .cloned()
+            .collect();
+    }
+    Ok(())
+}
+
 fn attachment_models<T>(members: &[Option<T>], slot: usize) -> (Option<&T>, Option<&T>) {
     // The menu independently admits a missing primary and a first-slot extra.
     (
@@ -108,6 +183,7 @@ pub(crate) fn from_package(
         output,
         &mut decoded,
     )?;
+    animate_body(&mut parts, metadata)?;
     let bones = parts[0].scene.bone_names.clone();
     let bone = |prefix: &str| -> Result<String> {
         bones

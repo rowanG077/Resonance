@@ -16,6 +16,22 @@ pub(super) fn emit(
     if !clock.is_multiple_of(if smoke { 8 } else { 4 }) {
         return;
     }
+    for sprite in sprites(center, born, size, smoke, rng)
+        .into_iter()
+        .take(if smoke { 1 } else { 2 })
+    {
+        out.push(sprite);
+    }
+}
+
+/// Shared fire layers for scripted emitters and continuous field scenery.
+pub fn sprites(
+    center: [f32; 3],
+    born: u32,
+    size: f32,
+    smoke: bool,
+    rng: &mut u32,
+) -> [BillboardEffect; 2] {
     let red_size = size + (random(rng) % 16) as f32;
     let red_rise = 2. + (random(rng) % 16) as f32 / 16.;
     let drift = (random(rng) % 16) as f32 / 32.;
@@ -27,7 +43,7 @@ pub(super) fn emit(
             2. + (random(rng) % 16) as f32 / 32.,
         )
     };
-    for (diameter, velocity, rgba, lifetime, growth) in [
+    [
         (
             red_size,
             [drift, 0., red_rise],
@@ -47,10 +63,8 @@ pub(super) fn emit(
             0.,
         ),
     ]
-    .into_iter()
-    .take(if smoke { 1 } else { 2 })
-    {
-        out.push(BillboardEffect {
+    .map(
+        |(diameter, velocity, rgba, lifetime, growth)| BillboardEffect {
             recipe: GLOW_SPRITE,
             uv: Some([0., 0.25, 0.25, 0.5]),
             born,
@@ -64,6 +78,6 @@ pub(super) fn emit(
             angular_velocity: [0., 0., -3.],
             blend: Some(if smoke { Blend::Alpha } else { Blend::Additive }),
             ..Default::default()
-        });
-    }
+        },
+    )
 }

@@ -94,6 +94,7 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
                 (true, false, false),
                 (false, true, false),
                 (false, true, true),
+                (true, true, true),
             ] {
                 let mut defs: Vec<ShaderDefVal> = [
                     ("MATERIAL_BIND_GROUP", 3),

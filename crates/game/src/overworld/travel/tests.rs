@@ -28,7 +28,7 @@ pub(crate) fn state(mount: Mount) -> State {
 pub(crate) fn terrain(surface: u32) -> collision::Terrain {
     terrain_at_height(surface, 0.)
 }
-fn terrain_at_height(surface: u32, height: f32) -> collision::Terrain {
+pub(crate) fn terrain_at_height(surface: u32, height: f32) -> collision::Terrain {
     let mut groups = Vec::new();
     for x in 0..16 {
         for z in 0..16 {
@@ -52,6 +52,36 @@ fn terrain_at_height(surface: u32, height: f32) -> collision::Terrain {
 }
 fn rules() -> Rules {
     Rules::new(crate::overworld::tests::tables()).unwrap()
+}
+
+#[test]
+fn compass_steering_follows_camera_input_instead_of_accumulating() -> Result<()> {
+    let terrain = terrain(1);
+    let rules = rules();
+    let context = Context {
+        event_flags: &Default::default(),
+        rheairds_owned: true,
+        landing_clear: true,
+    };
+    let mut travel = Travel::new(state(Mount::Foot), parameters())?;
+    for steering in [0., 1., 1., -1., 0., 0.] {
+        let previous = travel.state().camera_yaw;
+        travel.step(
+            Input {
+                rotate_camera: steering,
+                ..Default::default()
+            },
+            &context,
+            &terrain,
+            &rules,
+        )?;
+        assert_eq!(
+            travel.camera_turn_input(),
+            steering * parameters().stick_maximum
+        );
+        assert_eq!(travel.state().camera_yaw == previous, steering == 0.);
+    }
+    Ok(())
 }
 
 #[test]
@@ -289,6 +319,17 @@ fn rheairds_require_ownership_and_permission_and_land_only_on_clear_ground() -> 
     finish(&mut travel, &context, &ground, &rules);
     assert_eq!(travel.state.altitude, 0.);
     assert_eq!(travel.displayed_mount(), Mount::Foot);
+    // A raised flight floor changes the takeoff destination without snapping
+    // the vehicle upward. Landing must still finish on the underlying terrain.
+    travel.step(board, &context, &ground, &rules)?;
+    travel.clear_flight_obstacle(500.)?;
+    assert_eq!(travel.state.altitude, 2.5);
+    finish(&mut travel, &context, &ground, &rules);
+    assert_eq!(travel.state.altitude, 800.);
+    travel.step(board, &context, &ground, &rules)?;
+    assert_eq!(travel.state.position.map()[2], 0.);
+    finish(&mut travel, &context, &ground, &rules);
+    assert_eq!(travel.state.altitude, 0.);
     Ok(())
 }
 

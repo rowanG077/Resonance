@@ -51,9 +51,13 @@ pub enum ShipAction {
     Disembark,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Cue {
     Denied,
+    Barrier {
+        position: Position,
+        heading: f32,
+    },
     /// Play the party leader's mounting/dismounting clip. Completion is tied to
     /// this token, so an old clip cannot unlock a subsequent transition.
     Animation {
@@ -95,6 +99,7 @@ pub struct Travel {
     transition: Option<Transition>,
     next_animation: u64,
     camera_distance: f32,
+    camera_turn_input: f32,
     map_opacity: [u8; 2],
     stick_divisor: f32,
     speed: f32,
@@ -122,6 +127,7 @@ impl Travel {
             transition: None,
             next_animation: 1,
             camera_distance,
+            camera_turn_input: 0.,
             stick_divisor,
             speed: 0.,
             vehicle_speed: 0.,
@@ -133,6 +139,23 @@ impl Travel {
     }
     pub fn state(&self) -> &State {
         &self.state
+    }
+    /// Current camera steering in controller units, shared with the compass.
+    pub fn camera_turn_input(&self) -> f32 {
+        self.camera_turn_input
+    }
+    pub(super) fn clear_flight_obstacle(&mut self, floor: f32) -> Result<()> {
+        self.state.position =
+            self.state
+                .position
+                .translated([0., 0., floor - self.state.position.map()[2]])?;
+        if self.transition.is_none() {
+            self.state.altitude = self
+                .state
+                .altitude
+                .max(floor + self.parameters.flight_clearance);
+        }
+        Ok(())
     }
     pub(super) fn reject_displacement(&mut self, previous: Position) {
         self.stop();
@@ -267,6 +290,7 @@ impl Travel {
         terrain: &collision::Terrain,
         rules: &Rules,
     ) -> Result<Vec<Cue>> {
+        self.camera_turn_input = 0.;
         let mut cues = Vec::new();
         let query = terrain.query(self.state.position, self.parameters.collision_radius)?;
         let mode = if self.state.mount == Mount::Ship {
@@ -282,7 +306,13 @@ impl Travel {
             if input.cycle_map {
                 self.state.map_display = self.state.map_display.next();
             }
+            let from = self.state.mount;
             self.actions(input, context, rules, &mut cues)?;
+            if from.airborne() && !self.state.mount.airborne() {
+                // Descent ends on terrain, not the elevated flight floor.
+                let floor = query.motion(0., self.state.heading, mode)?;
+                self.state.position = self.state.position.translated([0., 0., floor.delta[2]])?;
+            }
         }
         for (alpha, goal) in self
             .map_opacity
@@ -334,6 +364,7 @@ impl Travel {
             self.response = response;
         }
         self.state.position = self.state.position.translated(delta)?;
+        self.camera_turn_input = camera_input;
         self.state.camera_yaw = (self.state.camera_yaw
             + camera_input * self.parameters.camera_turn_degrees.to_radians())
         .rem_euclid(TAU);

@@ -45,6 +45,7 @@ pub(crate) fn textures(
 
 pub(crate) struct Prepared {
     pub path: String,
+    pub environment: crate::field::environment::Textures,
     pub files: Vec<String>,
     pub blink: BlinkCycle,
     pub shadow: ContactShadow,
@@ -126,6 +127,12 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
             Ok((id, recipe))
         })
         .collect::<Result<BTreeMap<_, _>>>()?;
+    let environment = crate::field::environment::Textures::cook(
+        extracted,
+        output,
+        image(Atlas::Effect(0))?,
+        image(Atlas::Effect(6))?,
+    )?;
     let path = "effects/field.json";
     write_atomic(&output.join(path), &serde_json::to_vec_pretty(&effects)?)?;
     let files = [
@@ -139,11 +146,13 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
     .chain(effects.sprites.values().map(|s| &s.texture))
     .chain(particles.values().map(|p| &p.texture))
     .cloned()
+    .chain(environment.files().map(str::to_owned))
     .collect::<std::collections::BTreeSet<_>>()
     .into_iter()
     .collect();
     Ok(Prepared {
         path: path.into(),
+        environment,
         files,
         blink: recipe.blink,
         shadow,

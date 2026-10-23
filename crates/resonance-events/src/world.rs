@@ -142,13 +142,13 @@ pub struct Enemy {
     pub normal_speed: f32,
     pub alert_speed: f32,
     pub random_turns: u8,
-    pub chase_on_sight: bool,
+    pub alert_response: u8,
     pub sight_angle: f32,
     pub sight_distance: f32,
     /// Result of the field's most recent native sight query (property 49).
     pub alerted: bool,
     pub event_parameters: [i16; 2],
-    /// Shared contact/ring/script timer (property 54); negatives pause indefinitely.
+    /// Ring/script stun timer (property 54); negatives pause indefinitely.
     pub pause_ticks: i16,
     pub pause_outside_view: bool,
     /// A script-controlled marker, independent of movement and reaction state.
@@ -161,6 +161,10 @@ impl Enemy {
     }
 }
 impl Actor {
+    pub(crate) fn particle_blend(&self) -> Option<crate::effect::Blend> {
+        self.blend.and_then(crate::effect::Blend::particle_override)
+    }
+
     /// Custom lighting retains script colours and also disables view culling.
     pub fn keeps_script_lighting(&self) -> bool {
         self.culling_flags[1] == Some(true)
@@ -307,9 +311,9 @@ impl Actor {
                     high[axis]
                 }
             }));
-            for axis in 0..3 {
-                bounds.0[axis] = bounds.0[axis].min(point[axis]);
-                bounds.1[axis] = bounds.1[axis].max(point[axis]);
+            for (axis, value) in point.into_iter().enumerate() {
+                bounds.0[axis] = bounds.0[axis].min(value);
+                bounds.1[axis] = bounds.1[axis].max(value);
             }
         }
         Some(bounds)
@@ -442,6 +446,8 @@ impl Actor {
         }
         let speed = if controlled {
             20.
+        } else if self.enemy.is_some() && self.motion.is_none() {
+            4.
         } else {
             self.turn_speed
                 * if moving && self.enemy.is_none() {
@@ -467,7 +473,7 @@ impl Actor {
         let delta = self.heading_delta();
         if delta == 0. { 0. } else { delta.signum() }
     }
-    pub(crate) fn step_motion(&mut self) {
+    pub(crate) fn step_motion(&mut self, battle_space: bool) {
         let speed = self.movement_speed();
         self.set_movement_speed(speed);
         let Some(motion) = &self.motion else {
@@ -475,14 +481,15 @@ impl Actor {
         };
         let mut delta: [f32; 3] = std::array::from_fn(|i| motion.target[i] - self.position[i]);
         if self.grounded {
-            delta[2] = 0.;
+            delta[if battle_space { 1 } else { 2 }] = 0.;
         }
         let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
         if distance < 1. {
             self.motion = None;
             return;
         }
-        self.target_heading = delta[0].atan2(-delta[1]).to_degrees().rem_euclid(360.);
+        let forward = if battle_space { delta[2] } else { -delta[1] };
+        self.target_heading = delta[0].atan2(forward).to_degrees().rem_euclid(360.);
         let fraction = (motion.speed / distance).min(1.);
         for (i, delta) in delta.into_iter().enumerate() {
             self.position[i] += delta * fraction;
@@ -571,6 +578,8 @@ impl BoneScale {
 }
 #[derive(Debug, Clone)]
 pub struct BoneTranslation {
+    /// Replace the node's local position; otherwise apply a world-space offset.
+    pub absolute: bool,
     pub from: [f32; 3],
     pub to: [f32; 3],
     pub duration_ticks: u32,
@@ -644,6 +653,8 @@ pub struct GameWorld {
     pub texture_animation_tick: u64,
     /// Running clock sampled by the last enabled field texture callback.
     pub texture_animation_effect_tick: u32,
+    pub texture_animation_states: Vec<resonance_content::field::TextureAnimationState>,
+    pub environment_wind: BTreeMap<u32, [f32; 3]>,
     /// Two enlarged framebuffer copies, selected by their native depth test.
     /// Zero disables a pass; values are orthographic screen depths.
     pub screen_copy_depth: [f32; 2],
@@ -659,6 +670,8 @@ pub struct GameWorld {
     pub voice: Option<VoicePlayback>,
     pub voice_durations: std::sync::Arc<BTreeMap<u32, u32>>,
     pub field_camera: Option<crate::camera::CameraRig>,
+    /// Present only in the encounter-owned event runtime.
+    pub battle_event: Option<crate::battle_event::State>,
     pub input_enabled: bool,
     pub menu_disabled: bool,
     pub input: crate::input::Input,
@@ -699,9 +712,9 @@ pub struct GameWorld {
     pub random_state: u32,
     pub gameplay_random: crate::GameplayRandom,
     pub battle_request: Option<crate::battle::Request>,
+    /// Brief contact/movement grace after battle; independent of ring stun and tint.
+    pub(crate) enemy_encounter_cooldown: u8,
     pub(crate) restore_battle_music: bool,
-    /// Overworld bottles count movement updates; their scene owns that clock.
-    pub external_encounter_clock: bool,
     pub(crate) loaded_resources: BTreeMap<i32, (crate::ResourceKind, u32)>,
     pub(crate) operations: crate::operation::OperationScope,
     pub(crate) next_particle: i32,

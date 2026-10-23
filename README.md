@@ -154,6 +154,7 @@ the game. Ordinary saves and quicksaves share the same underlying format.
 System → Customize edits saved preferences. Escape applies the draft and returns
 to the main menu; its Cancel action discards edits, and Default restores defaults.
 Music volume previews while editing; effect levels and stereo apply when you leave Customize.
+Movies and credits use Music volume for their premixed soundtracks.
 In Adjust Screen, Home (or controller Start) resets the offset. Resolution remains
 a startup option.
 Development checkpoints are tied to the session data and scripts of the supported

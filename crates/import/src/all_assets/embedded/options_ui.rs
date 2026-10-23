@@ -2,7 +2,9 @@
 use super::text::{TextPool, TextRef};
 use crate::dol;
 use anyhow::{Context, Result};
-use resonance_content::menu_data::{CUSTOMIZE_OPTIONS, CustomizeSettings, Volumes, WindowColors};
+use resonance_content::menu_data::{
+    CustomizeSettings, IMPORTED_CUSTOMIZE_OPTIONS, Volumes, WindowColors,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::path::Path;
@@ -19,7 +21,7 @@ pub(crate) struct Catalogue {
     texts: Vec<String>,
     pub(crate) headings: [Option<TextRef>; 2],
     /// Native option selector order; each name binds to the corresponding help row.
-    pub(crate) options: [OptionEntry; CUSTOMIZE_OPTIONS],
+    pub(crate) options: [OptionEntry; IMPORTED_CUSTOMIZE_OPTIONS],
     pub(crate) difficulties: [Option<TextRef>; 3],
     pub(crate) actions: [Option<TextRef>; 7],
     pub(crate) help: Help,
@@ -142,6 +144,10 @@ fn defaults(bytes: &[u8; DEFAULTS_SIZE]) -> (CustomizeSettings, u8) {
             movie_subtitles: enabled(16),
             battle_auto_zoom: enabled(8),
             rumble: enabled(4),
+            flexible_battle_party: false,
+            combined_battles: false,
+            learn_elemental_artes: false,
+            learn_both_arte_paths: false,
             screen_position: [
                 i16::from_be_bytes(bytes[44..46].try_into().unwrap()),
                 i16::from_be_bytes(bytes[46..48].try_into().unwrap()),
@@ -153,8 +159,8 @@ fn defaults(bytes: &[u8; DEFAULTS_SIZE]) -> (CustomizeSettings, u8) {
 
 pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut texts = TextPool::default();
-    let names = texts.array::<CUSTOMIZE_OPTIONS>(executable, NAMES)?;
-    let descriptions = texts.array::<CUSTOMIZE_OPTIONS>(executable, DESCRIPTIONS)?;
+    let names = texts.array::<IMPORTED_CUSTOMIZE_OPTIONS>(executable, NAMES)?;
+    let descriptions = texts.array::<IMPORTED_CUSTOMIZE_OPTIONS>(executable, DESCRIPTIONS)?;
     let options = std::array::from_fn(|i| OptionEntry {
         name: names[i],
         description: descriptions[i],

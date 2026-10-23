@@ -3,6 +3,8 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+pub mod elemental;
+
 pub const PATH: &str = "game/techniques.json";
 pub const MAX_USES: u16 = 999;
 
@@ -162,17 +164,23 @@ impl CastingEffects {
 #[serde(deny_unknown_fields)]
 pub struct Catalogue {
     pub definitions: Vec<Definition>,
-    pub learning: Vec<Vec<u8>>,
+    pub learning: Vec<Vec<u16>>,
 }
 
 impl Catalogue {
+    pub fn load(files: &crate::prepared::Files) -> Result<Self> {
+        let mut data: Self = files.json(PATH)?;
+        elemental::extend_catalogue(&mut data)?;
+        Ok(data)
+    }
+
     pub fn definition(&self, id: usize) -> Result<&Definition> {
         self.definitions
             .get(id)
             .context("arte ID outside catalogue")
     }
 
-    pub fn learned_by(&self, character: u8) -> Result<&[u8]> {
+    pub fn learned_by(&self, character: u8) -> Result<&[u16]> {
         self.learning
             .get(usize::from(
                 character.checked_sub(1).context("zero character ID")?,
@@ -192,7 +200,7 @@ impl Catalogue {
         Ok(())
     }
 
-    pub fn validate_learning(&self, character: u8) -> Result<&[u8]> {
+    pub fn validate_learning(&self, character: u8) -> Result<&[u16]> {
         let list = self.learned_by(character)?;
         let unique: BTreeSet<_> = list.iter().copied().collect();
         ensure!(
