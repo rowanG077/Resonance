@@ -53,7 +53,11 @@ and decoded payloads retire after their last consumer. Model preparation uses
 ordinary sequential functions inside each package job; only the main graph
 schedules parallel conversion.
 The scheduler also supports estimated scratch and retained-output budgets; these
-estimates are admission controls, not process RSS limits.
+estimates are admission controls, not process RSS limits. `--memory-budget-mib`
+sets that budget (2048 MiB by default), independently of `--jobs`. If a complete
+library's retained dependencies exhaust the budget, rerun the full cook with a
+larger budget suited to the machine, for example `--memory-budget-mib 8192`.
+The budget changes scheduling admission, never which resources are cooked.
 
 An output session coordinates final publication across workers and holds an
 exclusive lock against independent cooks targeting the same directory. Equal

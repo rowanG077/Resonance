@@ -113,6 +113,9 @@ pub struct Options<'a> {
     pub output: &'a Path,
     /// Maximum number of concurrent asset converters.
     pub jobs: usize,
+    /// Admission limit for estimated decoded inputs, outputs and scratch, in bytes.
+    /// This is independent of worker count and does not limit process RSS.
+    pub memory_budget: usize,
 }
 
 struct File {
@@ -1032,7 +1035,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     )?;
     dag.run_bounded(
         workers,
-        2 * 1024 * 1024 * 1024,
+        options.memory_budget,
         || (),
         |completion| {
             if let Some(error) = completion.error() {
@@ -1634,6 +1637,7 @@ mod tests {
             discs: &[],
             output,
             jobs: 1,
+            memory_budget: 2 * 1024 * 1024 * 1024,
         }
     }
 
@@ -1887,8 +1891,7 @@ mod tests {
             let output = root.join("output");
             let error = cook(&Options {
                 discs: &duplicate,
-                output: &output,
-                jobs: 1,
+                ..options(&output)
             })
             .err()
             .context("duplicate disc unexpectedly admitted")?;

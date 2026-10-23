@@ -31,6 +31,9 @@ enum Action {
         /// Parallel asset workers; codecs run within this worker limit.
         #[arg(long, default_value_t = std::thread::available_parallelism().map_or(1, |n| n.get().min(resonance_import::all_assets::MAX_WORKERS)) as u8, value_parser = clap::value_parser!(u8).range(1..=resonance_import::all_assets::MAX_WORKERS as i64))]
         jobs: u8,
+        /// Estimated retained data and scratch budget; not a process RSS limit.
+        #[arg(long, default_value_t = 2048, value_parser = clap::value_parser!(u16).range(1..))]
+        memory_budget_mib: u16,
         #[arg(long, num_args=1.., default_values=["local/extracted/disc1", "local/extracted/disc2"])]
         extracted: Vec<PathBuf>,
         #[arg(long, default_value = "local/all-assets")]
@@ -179,12 +182,14 @@ fn main() -> anyhow::Result<()> {
         }
         Action::CookAll {
             jobs,
+            memory_budget_mib,
             extracted,
             output,
         } => {
             let report =
                 resonance_import::all_assets::cook(&resonance_import::all_assets::Options {
                     jobs: usize::from(jobs),
+                    memory_budget: usize::from(memory_budget_mib) * 1024 * 1024,
                     discs: &extracted,
                     output: &output,
                 })?;
