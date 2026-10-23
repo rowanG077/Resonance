@@ -53,17 +53,7 @@ pub enum WeaponTextureAnimation {
 
 const UV_REPEAT: i16 = 1000;
 
-/// A carried weapon binding within one actor's model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WeaponSlot(pub u8);
-
-impl WeaponSlot {
-    pub const PRIMARY: [Self; 2] = [Self(0), Self(1)];
-
-    pub const fn is_primary(self) -> bool {
-        self.0 < 2
-    }
-}
+pub use resonance_content::battle_action::WeaponSlot;
 
 #[derive(Debug, Clone)]
 pub struct WeaponDefinition {

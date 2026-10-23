@@ -1,5 +1,6 @@
 //! Prepare elemental variants as complete, independently selectable actions.
-use super::{PreparedAttack, Sequence, Sound, Technique};
+use super::{PreparedAttack, Sequence, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result, bail};
 use resonance_battle::{AttackEvent, AttackOrigin};
 use resonance_content::{
@@ -12,11 +13,9 @@ use resonance_content::{
 use std::sync::Arc;
 
 impl Technique {
-    pub(super) fn prepare_super_swallow_dance<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_super_swallow_dance(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let mut attack = resources
@@ -36,9 +35,9 @@ impl Technique {
         self.prepare_authored_attack(resources, model, attack)
     }
 
-    pub(super) fn prepare_elemental<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    pub(super) fn prepare_elemental(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
     ) -> Result<PreparedAttack> {
@@ -58,9 +57,9 @@ impl Technique {
         }
     }
 
-    fn prepare_lightning_variant<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    fn prepare_lightning_variant(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let tiger = self.catalogue == elemental::LIGHTNING_TIGER;

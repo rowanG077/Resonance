@@ -23,7 +23,7 @@ pub(super) fn profile() -> battle_profile::Profile {
         immunities: ConditionSet::of(&[Stun, ShortStun]),
         intrinsic_conditions: ConditionSet::EMPTY,
         weight: 2,
-        species: 6,
+        species: resonance_content::battle_profile::Species(6),
         stun_resistance: 35,
         stagger_threshold: 100,
         stagger_ticks: 45,

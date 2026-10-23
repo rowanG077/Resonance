@@ -1,5 +1,6 @@
 //! Martial projectiles retain the motion and impact feedback of each authored hit.
 use super::{PreparedAttack, Sound, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result, bail};
 use resonance_battle::{
     AttackEvent, AttackPose, EffectAppearance, HitShape, ModelDefinition,
@@ -9,11 +10,9 @@ use resonance_content::{battle_action::ActionHit, battle_martial::ProjectileFeed
 use std::sync::Arc;
 
 impl Technique {
-    pub(super) fn prepare_lightning_blade<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_lightning_blade(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let timeline = self.authored_timeline(resources.voices.party_table())?;
@@ -28,11 +27,9 @@ impl Technique {
         Ok(action)
     }
 
-    pub(super) fn prepare_rising_falcon<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_rising_falcon(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&ModelDefinition>,
         tp_cost: u16,
     ) -> Result<PreparedAttack> {
@@ -142,11 +139,9 @@ impl Technique {
         Ok(entry)
     }
 
-    pub(super) fn prepare_falcons_crest<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_falcons_crest(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&ModelDefinition>,
     ) -> Result<PreparedAttack> {
         use resonance_content::battle_normal::Event;
@@ -249,9 +244,7 @@ impl Technique {
     }
 }
 
-impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
-    crate::battle::encounter::resources::Resources<'_, S>
-{
+impl Resources<'_> {
     pub(crate) fn lightning_blade_follow_up(
         &mut self,
         hit: &ActionHit,
@@ -286,8 +279,8 @@ impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
     }
 }
 
-pub(super) fn projectile<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
-    resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+pub(super) fn projectile(
+    resources: &mut Resources<'_>,
     row: &resonance_content::battle_projectile::Projectile,
     hit: &ActionHit,
     feedback: Option<ProjectileFeedback>,

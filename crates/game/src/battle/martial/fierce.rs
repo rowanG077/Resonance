@@ -1,15 +1,14 @@
 //! Fierce Demon Fang keeps its character track and selects its shockwave at entry.
-use super::{Character, PreparedAttack, Sound, Technique};
+use super::{Character, PreparedAttack, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result};
 use resonance_battle::{AttackEvent, HitShape, ProjectileDefinition};
 use std::sync::Arc;
 
 impl Technique {
-    pub(super) fn prepare_fierce_fang<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_fierce_fang(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
         grave_blade: bool,
@@ -92,9 +91,7 @@ impl Technique {
     }
 }
 
-impl<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>
-    crate::battle::encounter::resources::Resources<'_, S>
-{
+impl Resources<'_> {
     pub(crate) fn fierce_fang_shockwaves(
         &mut self,
         hit: &resonance_content::battle_action::ActionHit,

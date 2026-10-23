@@ -23,12 +23,12 @@ pub(crate) struct Participant<'a> {
     pub temporary_weapons: Vec<Arc<WeaponDefinition>>,
 }
 
-pub(crate) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
+pub(crate) fn prepare(
     combination: &Combination,
     scene: &Scene,
     bank: &EffectResource,
     participants: &[Participant<'_>],
-    resources: &mut Resources<'_, S>,
+    resources: &mut Resources<'_>,
     actions: &mut ActionDefinitions,
 ) -> Result<Option<UnisonCombination>> {
     family::prepare(combination, scene, bank, participants, resources, actions)

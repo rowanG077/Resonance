@@ -231,8 +231,11 @@ fn cold_party_projects_starting_stats_models_and_controller_slots() -> Result<()
     session.formation = vec![9, 3, 1];
     // Kratos's starting Long Sword selects the human species bonus.
     let reordered = prepare_party_fixture(&files, &menus, &session, setups(3))?;
-    assert_eq!(reordered[0].actor.equipment.damage.weapon_species, Some(6));
-    assert_eq!(reordered[0].actor.species, 6);
+    assert_eq!(
+        reordered[0].actor.equipment.damage.weapon_species,
+        Some(resonance_battle::Species(6))
+    );
+    assert_eq!(reordered[0].actor.species, resonance_battle::Species(6));
 
     // The same saved knockout state governs field actions and battle admission.
     let mut data: SessionData = files.json("game/session-data.json")?;

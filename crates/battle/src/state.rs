@@ -55,11 +55,7 @@ pub enum Side {
     Enemy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpellSlot {
-    Primary,
-    Secondary,
-}
+pub use resonance_content::{battle_action::SpellSlot, battle_profile::Species};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContactSource {
@@ -95,7 +91,7 @@ pub struct RecoveryTraits {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Actor {
     pub side: Side,
-    pub species: u16,
+    pub species: Species,
     pub equipment: EquipmentAttributes,
     pub combat_adjustments: crate::CombatAdjustments,
     pub control: crate::Control,
@@ -155,7 +151,7 @@ impl Actor {
             body: Default::default(),
             movement: Default::default(),
             reaction: Default::default(),
-            species: 0,
+            species: Species::default(),
             control_slot: crate::ControllerPort::One,
             stored_spell: None,
             attack_power: 100,
@@ -1055,7 +1051,7 @@ impl EquipmentAttributes {
         ensure!(
             self.damage
                 .weapon_species
-                .is_none_or(|species| (1..=12).contains(&species)),
+                .is_none_or(|species| (1..=12).contains(&species.0)),
             "invalid weapon species bonus"
         );
         ensure!(

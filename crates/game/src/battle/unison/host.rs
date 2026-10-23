@@ -18,13 +18,13 @@ pub(crate) struct HostMember<'a> {
     pub short_weapon: bool,
 }
 
-pub(crate) fn prepare_host<S: FnMut(Sound) -> Result<Option<Sound>>>(
+pub(crate) fn prepare_host(
     catalogue: &battle_unison::Catalogue,
     party: &[HostMember<'_>],
     immune_targets: BTreeSet<ActorId>,
     retain_gauge: bool,
     damage_bonus: bool,
-    resources: &mut Resources<'_, S>,
+    resources: &mut Resources<'_>,
     actions: &mut ActionDefinitions,
 ) -> Result<UnisonDefinition> {
     let host = &catalogue.host;

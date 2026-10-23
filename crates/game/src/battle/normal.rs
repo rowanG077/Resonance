@@ -165,13 +165,13 @@ pub fn prepare_resources(
 }
 
 fn flight(
-    slot: u8,
+    slot: WeaponSlot,
     profile: WeaponFlight,
     radius: f32,
     hit: resonance_battle::HitRule,
 ) -> resonance_battle::WeaponFlightDefinition {
     resonance_battle::WeaponFlightDefinition {
-        slot: WeaponSlot(slot),
+        slot,
         origin: [0., 70., 25.],
         outbound_ticks: u32::from(profile.outbound_ticks),
         speed: profile.speed,
@@ -212,10 +212,10 @@ pub(super) fn movement_event(event: &Event) -> Result<AttackEvent> {
             vertical: Some(*value),
         },
         Event::WeaponVisibility { slot, visible } => {
-            AttackEvent::WeaponVisibility(vec![(Some(WeaponSlot(*slot)), *visible)])
+            AttackEvent::WeaponVisibility(vec![(Some(*slot), *visible)])
         }
         Event::Trail { slot, duration } => AttackEvent::Trail {
-            slot: WeaponSlot(*slot),
+            slot: *slot,
             duration: *duration,
         },
         Event::Pose(_)

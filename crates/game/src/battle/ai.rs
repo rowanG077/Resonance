@@ -1,6 +1,5 @@
 //! Bind prepared enemy choices to executable battle actions.
 use anyhow::{Context, Result, ensure};
-use resonance_battle::WeaponSlot;
 use resonance_battle::{Difficulty, EnemyChoice, EnemyChoiceId, EnemyDecisionDefinition, EnemyId};
 use resonance_content::battle_enemy;
 use std::collections::BTreeSet;
@@ -138,7 +137,7 @@ fn behavior(
                 ..EnemyChoiceId(usize::from(final_actions.end)),
         },
         Source::CarriedAnimationRate { slot, rate } => EnemyBehavior::CarriedAnimationRate {
-            slot: WeaponSlot(*slot),
+            slot: *slot,
             rate: *rate,
         },
         Source::ThreeStations {
@@ -161,15 +160,15 @@ fn behavior(
                 [source, destination].into_iter().all(|slot| model
                     .weapons
                     .iter()
-                    .any(|weapon| weapon.slot == Some(WeaponSlot(*slot)))),
+                    .any(|weapon| weapon.slot == Some(*slot))),
                 "enemy weapon replacement has an unprepared slot"
             );
             EnemyBehavior::ReplaceWeapon {
                 action: EnemyChoiceId(usize::from(*action)),
                 hide_at: u32::from(*hide_at),
                 replace_at: u32::from(*replace_at),
-                source: WeaponSlot(*source),
-                destination: WeaponSlot(*destination),
+                source: *source,
+                destination: *destination,
                 disabled_action: EnemyChoiceId(usize::from(*disabled_action)),
             }
         }

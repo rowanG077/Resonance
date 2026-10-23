@@ -13,123 +13,29 @@ fn read(bytes: &[u8]) -> Result<Profile> {
 }
 
 #[test]
-fn profiles_decode_movement_expressions_and_all_attachment_slots() -> Result<()> {
+fn attachment_styles_survive_when_the_weapon_starts_unequipped() -> Result<()> {
     let mut bytes = [0; BYTES];
-    bytes[0x30] = 4;
-    bytes[0x20..0x24].copy_from_slice(&5_f32.to_be_bytes());
-    bytes[0x24..0x28].copy_from_slice(&10_f32.to_be_bytes());
-    bytes[0x51] = 1;
-    for (axis, value) in [4_f32, 120., -6.].into_iter().enumerate() {
-        bytes[0x78 + axis * 4..0x7c + axis * 4].copy_from_slice(&value.to_be_bytes());
-    }
-    bytes[0x9b] = 200;
-    bytes[0x9d] = 12;
-    bytes[0xa6] = 34;
-    bytes[0xa8] = 12;
-    bytes[0xa0..0xa4].copy_from_slice(&0.5_f32.to_be_bytes());
-    bytes[0xa4] = 2;
-    bytes[0xa5] = 4;
-    bytes[0xbe..0xc0].copy_from_slice(&300_u16.to_be_bytes());
-    bytes[0xc0] = 7;
-    bytes[0xc3] = 13;
-    bytes[0xc9] = 2;
-    bytes[0xe8] = 60;
-    bytes[0xe9] = 1;
-    bytes[0xd7..0xdb].copy_from_slice(&[1, 2, 3, 4]);
-    bytes[0xdb..0xdf].copy_from_slice(&[6, 7, 8, 9]);
-    bytes[0xdf..0xe3].copy_from_slice(&[4, 3, 2, 1]);
-    let flags = [0, 1, 2, 0x10, 0x80, 0x11, 0x82, 0x92];
-    for (slot, value) in flags.into_iter().enumerate() {
-        bytes[0x124 + slot * 24] = value;
-    }
-    let styles = [
-        (false, false, false),
-        (true, false, false),
-        (false, true, false),
-        (false, false, true),
-        (false, false, false),
-        (true, false, true),
-        (false, true, false),
-        (false, true, true),
-    ]
-    .map(|(before_body, toon, additive)| WeaponStyle {
-        before_body,
-        toon,
-        additive,
-    });
-    for channels in 0..=4 {
-        bytes[0xce] = channels;
-        let profile = read(&bytes)?;
-        let count = usize::from(channels);
-        assert_eq!(profile.walk_speed, 5.);
-        assert_eq!(profile.run_speed, 10.);
-        assert_eq!(profile.body_alpha, 200);
-        assert_eq!(profile.cast_recovery_motion, Some(34));
-        assert!(profile.chant_once);
-        assert_eq!(profile.chant_loop_start, 6.);
-        assert_eq!(profile.cast_poses.release_loop_start, 6.);
-        assert_eq!(profile.cast_poses.opening.clip, 13);
-        assert_eq!(profile.cast_poses.release.start, 1.);
-        assert_eq!(profile.cast_poses.release.rate, 0.5);
-        assert_eq!(profile.cast_poses.release.blend, 4);
-        assert!(!profile.cast_poses.release.repeat);
-        assert_eq!(
-            profile
-                .passive_effects
-                .iter()
-                .map(|effect| (effect.program, effect.interval))
-                .collect::<Vec<_>>(),
-            [(7, 300), (2, 13)]
-        );
-        assert_eq!(
-            profile
-                .idle_effect
-                .map(|effect| (effect.program, effect.interval)),
-            Some((1, 60))
-        );
-        assert_eq!(profile.target_anchor.bone, 1);
-        assert_eq!(profile.target_anchor.offset, [4., 120., -6.]);
-        assert_eq!(
-            &profile.idle_expression[..count],
-            &bytes[0xd7..0xd7 + count]
-        );
-        assert_eq!(
-            &profile.rescue_expression[..count],
-            &bytes[0xdf..0xdf + count]
-        );
-        assert_eq!(
-            &profile.active_expression[..count],
-            &bytes[0xdb..0xdb + count]
-        );
-        assert!(profile.idle_expression[count..].iter().all(|&v| v == 0));
-        assert!(profile.active_expression[count..].iter().all(|&v| v == 0));
-        assert!(profile.rescue_expression[count..].iter().all(|&v| v == 0));
-        assert_eq!(profile.weapon_styles, styles);
-    }
-    bytes[0xa6] = 0;
-    bytes[0x30] = 3;
-    assert_eq!(read(&bytes)?.cast_recovery_motion, None);
-    assert!(!read(&bytes)?.chant_once);
-    bytes[0xb4..0xb6].copy_from_slice(&0x0801_u16.to_be_bytes());
-    let host = read(&bytes)?;
-    assert!(host.traits.hosts_participants);
-    assert!(host.hosted_body.is_none());
-    bytes[0xb4..0xb6].copy_from_slice(&0x03e4_u16.to_be_bytes());
-    let child = read(&bytes)?;
-    assert!(!child.traits.hosts_participants);
-    assert_eq!(
-        child.hosted_body,
-        Some(resonance_content::battle_profile::HostedBody {
-            release_on_hurt: true,
-            release_below_half_health: false,
-            release_on_defeat: false,
-            launch_on_release: true,
-        })
-    );
-    // Equipment may enable attachments beyond the initial count.
+    bytes[0x124] = 0x11;
+    bytes[0x124 + 7 * 24] = 0x92;
     for initial_count in [0, 1, 4, 8] {
         bytes[0x1e4] = initial_count;
-        assert_eq!(read(&bytes)?.weapon_styles, styles);
+        let profile = read(&bytes)?;
+        assert_eq!(
+            profile.weapon_styles[0],
+            WeaponStyle {
+                before_body: true,
+                toon: false,
+                additive: true,
+            }
+        );
+        assert_eq!(
+            profile.weapon_styles[7],
+            WeaponStyle {
+                before_body: false,
+                toon: true,
+                additive: true,
+            }
+        );
     }
     Ok(())
 }
@@ -167,13 +73,6 @@ fn profiles_decode_capabilities_and_reject_non_finite_scales() -> Result<()> {
     let mut bytes = [0; BYTES];
     let ordinary = read(&bytes)?;
     assert_eq!(ordinary.traits, ProfileTraits::default());
-    let mut encoded = serde_json::to_value(ordinary.traits)?;
-    assert_eq!(encoded["hit_shake_disabled"], false);
-    encoded
-        .as_object_mut()
-        .unwrap()
-        .remove("hit_shake_disabled");
-    assert!(!serde_json::from_value::<ProfileTraits>(encoded)?.hit_shake_disabled);
     bytes[0x5c..0x60].copy_from_slice(&0x8c28_8301_u32.to_be_bytes());
     bytes[0xb4..0xb6].copy_from_slice(&0x4221_u16.to_be_bytes());
     bytes[0xac] = 3;

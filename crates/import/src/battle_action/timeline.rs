@@ -700,7 +700,7 @@ impl<'a> ActionPackage<'a> {
                     }
                     (
                         EnemyEvent::WeaponVisibility {
-                            slot,
+                            slot: WeaponSlot(slot),
                             visible: visible != 0,
                         },
                         6,

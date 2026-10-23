@@ -1,12 +1,13 @@
 //! Each technique owns its complete native attack and optional feedback.
 use super::{ActionDefinition, PreparedAttack, Sequence, Sound, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Result, bail};
 use resonance_battle::{AttackEvent as Event, AttackOrigin, EffectAppearance};
 
 impl Technique {
-    pub(crate) fn prepare<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    pub(crate) fn prepare(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<ActionDefinition> {
         let tp_cost = u16::from(
@@ -21,9 +22,9 @@ impl Technique {
         ))
     }
 
-    fn prepare_attack<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    fn prepare_attack(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
     ) -> Result<PreparedAttack> {

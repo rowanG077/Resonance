@@ -1,13 +1,14 @@
 //! Stealing keeps authored contacts and exchanges its tail on acquisition.
 use super::{PreparedAttack, Sound, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result, ensure};
 use resonance_battle::{AttackEvent, StealDefinition};
 use std::sync::Arc;
 
 impl Technique {
-    pub(super) fn prepare_steal<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    pub(super) fn prepare_steal(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
         tp_cost: u16,
     ) -> Result<PreparedAttack> {

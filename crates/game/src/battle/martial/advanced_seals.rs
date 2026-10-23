@@ -1,5 +1,6 @@
 //! Cyclone lifts its target, then strikes again while the target is airborne.
-use super::{PreparedAttack, Sound, Technique};
+use super::{PreparedAttack, Technique};
+use crate::battle::encounter::resources::Resources;
 use anyhow::{Context, Result};
 use resonance_battle::{
     AttackEvent, AttackOrigin, EffectAppearance, HitShape, ProjectileDefinition,
@@ -7,9 +8,9 @@ use resonance_battle::{
 use std::sync::Arc;
 
 impl Technique {
-    pub(super) fn prepare_force_seal<S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>>(
+    pub(super) fn prepare_force_seal(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         const TALISMANS: u16 = 85;
@@ -43,11 +44,9 @@ impl Technique {
         Ok(definition)
     }
 
-    pub(super) fn prepare_cyclone_seal<
-        S: FnMut(Sound) -> Result<Option<resonance_battle::Sound>>,
-    >(
+    pub(super) fn prepare_cyclone_seal(
         self,
-        resources: &mut crate::battle::encounter::resources::Resources<'_, S>,
+        resources: &mut Resources<'_>,
         model: Option<&resonance_battle::ModelDefinition>,
     ) -> Result<PreparedAttack> {
         let timeline = self.authored_timeline(resources.voices.party_table())?;

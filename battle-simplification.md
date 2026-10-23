@@ -55,7 +55,7 @@ cross-module behavior. Remove tests that only mirror copied fields, obsolete
 capabilities or private scheduling details. Validate coherent batches and rerun
 only affected checks after failures or further edits.
 
-Fire Ball is the supported spell release. Additional spells, artes, enemy
-variants and complete Unison execution are separate feature work. Physical
-controller testing remains an accepted manual follow-up. Automated routes do
-not establish subjective feel, all-character balance or audio quality.
+The simplification preserves prepared party artes, enemy actions, spell releases
+and Unison execution. Physical controller testing remains an accepted manual
+follow-up. Automated routes do not establish subjective feel, all-character
+balance or audio quality.

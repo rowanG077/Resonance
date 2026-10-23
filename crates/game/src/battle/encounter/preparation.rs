@@ -670,7 +670,7 @@ impl Inputs {
             {
                 for group in groups {
                     let mut weapons = Vec::new();
-                    for &(identity, slot) in group {
+                    for &(identity, resonance_battle::WeaponSlot(slot)) in group {
                         if let std::collections::btree_map::Entry::Vacant(entry) =
                             prepared_weapons.entry((identity, slot))
                         {
@@ -1624,7 +1624,7 @@ impl Inputs {
                                 .map(|&slot| anchor(slot))
                                 .collect::<Result<_>>()?,
                             drop_on_hurt: drop_on_hurt
-                                .map(|drop| Ok::<_, anyhow::Error>((drop, anchor(drop.slot)?)))
+                                .map(|drop| Ok::<_, anyhow::Error>((drop, anchor(drop.slot.0)?)))
                                 .transpose()?,
                         });
                     }

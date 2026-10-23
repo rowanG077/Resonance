@@ -2,6 +2,27 @@
 use crate::menu_data::Element;
 use serde::{Deserialize, Serialize};
 
+/// A carried weapon binding within one actor's model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct WeaponSlot(pub u8);
+
+impl WeaponSlot {
+    pub const PRIMARY: [Self; 2] = [Self(0), Self(1)];
+
+    pub const fn is_primary(self) -> bool {
+        self.0 < 2
+    }
+}
+
+impl TryFrom<u16> for WeaponSlot {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        u8::try_from(value).map(Self)
+    }
+}
+
 /// Enemy choices and their resolved contact resources.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnemyActions {
@@ -42,7 +63,7 @@ pub enum EnemyBehavior {
         final_actions: std::ops::Range<u8>,
     },
     CarriedAnimationRate {
-        slot: u8,
+        slot: WeaponSlot,
         rate: f32,
     },
     /// Break the equipped weapon, then move the carried spare into its slot.
@@ -50,13 +71,13 @@ pub enum EnemyBehavior {
         action: u8,
         hide_at: u16,
         replace_at: u16,
-        source: u8,
-        destination: u8,
+        source: WeaponSlot,
+        destination: WeaponSlot,
         disabled_action: u8,
     },
     ActionWeapons {
         /// Model identity and destination attachment slot for each equipped group.
-        groups: Vec<Vec<(u8, u8)>>,
+        groups: Vec<Vec<(u8, WeaponSlot)>>,
         actions: Vec<Option<u8>>,
         /// Restore this group outside attacks; absent means the weapons stay hidden.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,7 +111,7 @@ pub enum EnemyBehavior {
 /// Equipment knocked loose by a hit at low health, then left on the ground.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct WeaponDrop {
-    pub slot: u8,
+    pub slot: WeaponSlot,
     pub hp_percent: u8,
     pub upward_speed: f32,
     pub gravity: f32,
@@ -289,7 +310,7 @@ pub enum EnemyEvent {
     Effect(u16),
     /// A burst at a carried model's current bone position.
     CarriedEffect {
-        slot: u8,
+        slot: WeaponSlot,
         bone: u16,
         member: u16,
     },
@@ -323,7 +344,7 @@ pub enum EnemyEvent {
     },
     PoseKeepingParts(ActionPose),
     CarriedPose {
-        slot: u8,
+        slot: WeaponSlot,
         clip: u16,
         rate: f32,
         repeat: bool,
@@ -392,7 +413,7 @@ pub enum EnemyEvent {
     },
     Stun,
     WeaponVisibility {
-        slot: u8,
+        slot: WeaponSlot,
         visible: bool,
     },
     PassThrough {
@@ -401,7 +422,7 @@ pub enum EnemyEvent {
         duration: u8,
     },
     Trail {
-        slot: u8,
+        slot: WeaponSlot,
         duration: u16,
     },
     Sound(u16),

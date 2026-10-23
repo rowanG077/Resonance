@@ -5,11 +5,11 @@ use resonance_content::{
     battle_normal::Event,
 };
 
-pub(super) fn prepare<S: FnMut(Sound) -> Result<Option<Sound>>>(
+pub(super) fn prepare(
     source: &resonance_content::battle_martial::Attack,
     actor: &Participant<'_>,
     bank: &EffectResource,
-    resources: &mut Resources<'_, S>,
+    resources: &mut Resources<'_>,
 ) -> Result<resonance_battle::PreparedAttack> {
     let recoil = resources.recoil;
     let mut model = actor.model.clone();
@@ -364,7 +364,7 @@ mod tests {
             (
                 0,
                 Event::Trail {
-                    slot: 0,
+                    slot: resonance_battle::WeaponSlot(0),
                     duration: 90,
                 },
             ),

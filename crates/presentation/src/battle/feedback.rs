@@ -937,17 +937,8 @@ mod tests {
     {
         use resonance_battle::{ActionKey, CastPhase, EffectAppearance, Sound};
         use resonance_game::battle::feedback::{ActorFeedback, CastingFeedback};
-        let mut battle = PreparedBattle::new(
-            [Side::Party, Side::Enemy]
-                .map(|side| {
-                    (
-                        crate::test_support::actor(side, 100, 20),
-                        Default::default(),
-                    )
-                })
-                .into(),
-            Default::default(),
-            1,
+        let mut battle = crate::test_support::prepare_battle(
+            [Side::Party, Side::Enemy].map(|side| crate::test_support::actor(side, 100, 20)),
         )?
         .finish()?;
         let actor = battle.actor_ids().next().unwrap();
@@ -1016,18 +1007,9 @@ mod tests {
 
     #[test]
     fn result_advancement_uses_one_fanfare_for_all_awarded_members() -> anyhow::Result<()> {
-        let battle = PreparedBattle::new(
+        let battle = crate::test_support::prepare_battle(
             [Side::Party, Side::Party, Side::Enemy]
-                .into_iter()
-                .map(|side| {
-                    (
-                        crate::test_support::actor(side, 100, 20),
-                        Default::default(),
-                    )
-                })
-                .collect(),
-            Default::default(),
-            1,
+                .map(|side| crate::test_support::actor(side, 100, 20)),
         )?
         .finish()?;
         let effect = resonance_battle::EffectAppearance {
@@ -1076,18 +1058,8 @@ mod tests {
 
     #[test]
     fn confirmed_enemy_defeat_defers_its_attached_burst_to_contact_phase() -> anyhow::Result<()> {
-        let battle = PreparedBattle::new(
-            [Side::Party, Side::Enemy]
-                .into_iter()
-                .map(|side| {
-                    (
-                        crate::test_support::actor(side, 100, 20),
-                        Default::default(),
-                    )
-                })
-                .collect(),
-            Default::default(),
-            1,
+        let battle = crate::test_support::prepare_battle(
+            [Side::Party, Side::Enemy].map(|side| crate::test_support::actor(side, 100, 20)),
         )?
         .finish()?;
         let actor = resonance_battle::ActorId::from_index(1)?;
@@ -1129,19 +1101,8 @@ mod tests {
         use resonance_game::battle::items::{
             ActorFeedback as ItemActorFeedback, Feedback as ItemFeedback,
         };
-        let battle = PreparedBattle::new(
-            vec![
-                (
-                    crate::test_support::actor(Side::Party, 100, 20),
-                    Default::default(),
-                ),
-                (
-                    crate::test_support::actor(Side::Enemy, 100, 20),
-                    Default::default(),
-                ),
-            ],
-            Default::default(),
-            1,
+        let battle = crate::test_support::prepare_battle(
+            [Side::Party, Side::Enemy].map(|side| crate::test_support::actor(side, 100, 20)),
         )?
         .finish()?;
         let ids: Vec<_> = battle.actor_ids().collect();
@@ -1895,15 +1856,7 @@ mod tests {
             actor
         })
         .collect();
-        let prepared = PreparedBattle::new(
-            (actors)
-                .into_iter()
-                .map(|actor| (actor, Default::default()))
-                .collect(),
-            Default::default(),
-            1,
-        )
-        .unwrap();
+        let prepared = crate::test_support::prepare_battle(actors).unwrap();
         let leader = prepared.actor_ids().next().unwrap();
         let battle = prepared
             .with_camera(CameraDefinition {

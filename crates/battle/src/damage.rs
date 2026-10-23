@@ -113,7 +113,7 @@ pub struct DamageTraits {
     pub stability: bool,
     pub alone: bool,
     /// Only the equipped weapon's primary effect selects a species bonus.
-    pub weapon_species: Option<u16>,
+    pub weapon_species: Option<crate::Species>,
     /// Combined equipment critical chance bonus, bounded to 100%.
     pub critical_chance_bonus: u16,
     /// Increase physical arte damage.
@@ -253,7 +253,7 @@ fn physical_attack(owner: &Actor, kind: DamageKind) -> i32 {
 
 fn physical_bonuses(
     owner: &Actor,
-    species: u16,
+    species: crate::Species,
     element: Option<Element>,
     mut amount: i64,
 ) -> (i64, bool) {
@@ -1193,7 +1193,7 @@ mod tests {
         owner.equipment.stats.accuracy = 25;
         let mut target = actor(Side::Enemy);
         target.hp = 1000;
-        target.species = 2;
+        target.species = crate::Species(2);
         for (base, power, ordinary, matching) in [
             (7, Power::Normal, 7, 7),
             (8, Power::Normal, 8, 9),
@@ -1205,7 +1205,7 @@ mod tests {
             owner.equipment.stats.thrust = base * 2;
             owner.equipment.stats.intelligence = base;
             for kind in [DamageKind::Slash, DamageKind::Thrust, DamageKind::Magic] {
-                for species in [None, Some(2), Some(3)] {
+                for species in [None, Some(crate::Species(2)), Some(crate::Species(3))] {
                     owner.equipment.damage.weapon_species = species;
                     let result = resolve(
                         &owner,

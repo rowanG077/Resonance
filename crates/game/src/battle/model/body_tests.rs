@@ -84,7 +84,7 @@ fn profile() -> battle_profile::Profile {
         ]),
         intrinsic_conditions: ConditionSet::EMPTY,
         weight: 2,
-        species: 6,
+        species: resonance_content::battle_profile::Species(6),
         stun_resistance: 35,
         stagger_threshold: 100,
         stagger_ticks: 45,

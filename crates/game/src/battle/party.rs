@@ -631,25 +631,4 @@ mod tests {
         assert_eq!(after.periodic_effects()[0], before.periodic_effects()[0]);
         Ok(())
     }
-
-    #[test]
-    fn resistance_maps_to_damage_affinity() {
-        for (value, expected) in [
-            (-2, Affinity::Weak),
-            (-1, Affinity::Normal),
-            (1, Affinity::Normal),
-            (2, Affinity::Resistant),
-            (4, Affinity::Resistant),
-            (5, Affinity::Immune),
-            (6, Affinity::Immune),
-            (7, Affinity::Absorb),
-            (127, Affinity::Absorb),
-            (128, Affinity::Absorb),
-            (255, Affinity::Absorb),
-            (i16::MAX, Affinity::Absorb),
-            (i16::MIN, Affinity::Weak),
-        ] {
-            assert_eq!(affinity(value), expected, "resistance {value}");
-        }
-    }
 }

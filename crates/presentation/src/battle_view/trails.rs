@@ -631,19 +631,16 @@ fn curved_edge(previous: Vec3, start: Vec3, end: Vec3, next: Vec3, t: f32) -> Ve
 mod tests {
     use super::*;
     use bevy::mesh::VertexAttributeValues;
-    use resonance_battle::{BattleResult, ModelMaterial, PreparedBattle, Side};
+    use resonance_battle::{BattleResult, ModelMaterial, Side};
     use std::sync::Arc;
 
     #[test]
     fn weapon_ribbons_follow_equipment_hold_fade_and_omit_bad_art() -> Result<()> {
-        let mut frame = PreparedBattle::new(
-            vec![(
-                crate::test_support::actor(Side::Party, 100, 20),
-                Default::default(),
-            )],
-            Default::default(),
-            1,
-        )?
+        let mut frame = crate::test_support::prepare_battle([crate::test_support::actor(
+            Side::Party,
+            100,
+            20,
+        )])?
         .finish()?
         .snapshot();
         let actor = ActorId::from_index(0)?;
