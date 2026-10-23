@@ -222,3 +222,25 @@ It does not prove every native controller is implemented or every scene renders
 correctly; native late-actor phases remain unsupported by the runtime. Continue
 recovery when a concrete failure or original consumer proves
 a gap; battle preparation has its own implementation and validation boundary.
+
+The current data-driven migration requires menu format 37, skit catalogue format 3,
+world package format 4 and battle scene format 1. Shop visit groups retain saved
+shop IDs; skit resources carry authored skip permission; world landmarks carry
+validated entry overrides. Skit exceptions are extracted from checked original
+instructions. Shop groups and world entry selection are translated recipes with
+source provenance; entry angles and heights come from the original REL constants.
+Runtime callers still constrain skit skipping, and native placement, save admission
+and battle lifecycle rules remain authoritative. Recook the complete library when
+updating to these formats.
+
+Party profiles now require format 1 and contain validated standing-capsule dimensions.
+The collider recipe preserves Resonance's maintained body envelopes; these are not
+extracted original values, and authored MO/DM reception geometry remains separate.
+The new required `battle/defense-system.json` format 2 declares composition, PA slots,
+placement, deployment, repair/revival cycles, messages, sound and camera parameters
+for the existing native controller. Repair cycles retain independent orbit counters,
+increasing self-revival delays and the core defense ratio; native recovery owns
+revival, protection, health caps and feedback.
+Its placement/rate constants are extracted from the original REL, while the camera
+restriction is an explicitly maintained Resonance setting. Both records include
+their recipe hashes and enter the shared preload inventory. A full recook is required.
