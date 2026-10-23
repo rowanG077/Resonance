@@ -4,7 +4,7 @@ use crate::{ScenePart, ScriptAsset, field::CollisionGroup, field_preload::File};
 use std::collections::BTreeMap;
 
 pub const PACKAGE_PATH: &str = "worlds/world.json";
-pub const PACKAGE_VERSION: u32 = 2;
+pub const PACKAGE_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +42,7 @@ pub struct Visuals {
 #[serde(deny_unknown_fields)]
 pub struct Cinematic {
     pub world: World,
+    pub presentation: CinematicPresentation,
     /// Resource frames at 30 Hz. The native camera advances twice by 0.25
     /// on each 60 Hz world update; actor clips use the same authored clock.
     pub camera: Vec<crate::CameraKey>,
@@ -62,6 +63,7 @@ pub struct CinematicDialogue {
 }
 impl Cinematic {
     pub fn validate(&self, contains: impl Fn(&str) -> bool + Copy) -> Result<()> {
+        self.presentation.validate(&self.actors)?;
         ensure!(self.camera.len() >= 2, "empty world cinematic camera");
         ensure!(
             self.camera[0].time == 0.,
@@ -71,6 +73,7 @@ impl Cinematic {
             ensure!(
                 key.time.is_finite()
                     && key.time >= 0.
+                    && key.time <= 18000.
                     && key
                         .position
                         .iter()

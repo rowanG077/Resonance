@@ -14,11 +14,13 @@ pub(super) struct Sources {
     skies: [Vec<u8>; 2],
     dust: Vec<u8>,
     cinematics: Vec<String>,
-    dialogue: Vec<resonance_content::overworld::CinematicDialogue>,
+    cinematic_rules: BTreeMap<u16, super::overworld_cinematics::Definition>,
+    cinematic_sounds: Vec<i16>,
 }
 impl Sources {
     pub(super) fn read(extracted: &Path, rel: &Rel, executable: &[u8]) -> Result<Self> {
         let files = extracted.join("files");
+        let (cinematic_rules, cinematic_sounds) = super::overworld_cinematics::read(rel)?;
         let resolve =
             |path: &str| crate::field_resources::resolve_path(&files, path.trim_start_matches('/'));
         let common = resolve(&rel.text((5, 0x930))?)?;
@@ -63,29 +65,8 @@ impl Sources {
             markers,
             party,
             cinematics,
-            dialogue: (0..9)
-                .map(|index| {
-                    let row = rel.at((6, index * 12))?;
-                    let (duration, speaker) = [
-                        (120, 1),
-                        (120, 5),
-                        (140, 4),
-                        (240, 5),
-                        (120, 5),
-                        (80, 3),
-                        (120, 5),
-                        (60, 1),
-                        (60, 3),
-                    ][index];
-                    Ok(resonance_content::overworld::CinematicDialogue {
-                        tick: crate::read::u32(row, 0)?,
-                        voice: crate::read::u32(row, 4)?,
-                        text: rel.text(rel.pointer(6, index * 12 + 8)?)?,
-                        duration,
-                        speaker,
-                    })
-                })
-                .collect::<Result<_>>()?,
+            cinematic_rules,
+            cinematic_sounds,
             animation_members,
             dust: rel.at((6, 0x2f100))?.to_vec(),
             skies: [
@@ -93,6 +74,16 @@ impl Sources {
                 crate::compression::payload(rel.at(rel.pointer(6, 0x2a570)?)?.to_vec())?,
             ],
         })
+    }
+    pub(super) fn cinematic_sounds(&self) -> &[i16] {
+        &self.cinematic_sounds
+    }
+    pub(super) fn cinematic_voices(
+        &self,
+    ) -> impl Iterator<Item = &crate::media::field_audio::WorldVoiceArchive> {
+        self.cinematic_rules
+            .values()
+            .filter_map(|scene| scene.voices.as_ref())
     }
     pub(super) fn prepare(&self, output: &Path, decoded: &Package) -> Result<Visuals> {
         let read = |path: &str| crate::compression::payload(decoded.source(path)?.as_ref().clone());
@@ -235,12 +226,13 @@ impl Sources {
             )?)?;
             // These slots are actors. The e04 member 9 is
             // additional media; it is not an actor created by that scene.
-            let count = [1, 1, 1, 9, 8, 8, 2, 2, 4, 7, 7, 7, 2, 2][index];
+            let rule = &self.cinematic_rules[&id];
             let mut actors = BTreeMap::new();
-            for index in 1..=count {
-                let package = member(&archive, index)?.context("missing cinematic actor")?;
+            for &index in rule.presentation.actors.keys() {
+                let package =
+                    member(&archive, usize::from(index))?.context("missing cinematic actor")?;
                 actors.insert(
-                    index as u8,
+                    index,
                     parts(
                         output,
                         &format!("world cinematic {id} actor {index}"),
@@ -253,18 +245,11 @@ impl Sources {
             visuals.cinematics.insert(
                 id,
                 resonance_content::overworld::Cinematic {
-                    world: if matches!(id, 513..=516 | 522..=525) {
-                        resonance_content::overworld::World::Sylvarant
-                    } else {
-                        resonance_content::overworld::World::TetheAlla
-                    },
+                    world: rule.world,
+                    presentation: rule.presentation.clone(),
                     camera,
                     actors,
-                    dialogue: if id == 517 {
-                        self.dialogue.clone()
-                    } else {
-                        Vec::new()
-                    },
+                    dialogue: rule.dialogue.clone(),
                 },
             );
         }
