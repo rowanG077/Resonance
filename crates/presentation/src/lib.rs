@@ -77,9 +77,10 @@ mod overworld;
 pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
-    CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
-    prepare_overworld_test_fixture, record_battle, record_checkpoint, record_checkpoint_window,
-    record_new_game, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
+    CheckpointRecordingOptions, CheckpointReplay, IdentityRepair, SaveOptions,
+    check_checkpoint_identity, prepare_checkpoint_fixture, prepare_overworld_test_fixture,
+    record_battle, record_checkpoint, record_checkpoint_window, record_new_game,
+    repair_checkpoint_identity, run_menu_probe, run_overworld_field_probe, run_quicksave_probe,
     run_title_load_probe,
 };
 mod new_game_capture;

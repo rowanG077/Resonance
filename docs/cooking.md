@@ -130,6 +130,36 @@ After a format change, rerun `cook-all`. There is no
 compatibility layer for obsolete cooked formats: version mismatches request a
 recook.
 
+### Repairing a stale saved-state fingerprint
+
+If a save belongs to an older library whose stored fingerprint is stale, an
+explicit tool can create a separate copy for a freshly cooked library:
+
+```sh
+cargo run -p resonance-presentation --example repair_checkpoint_identity -- \
+  path/to/original-save.json path/to/old-library path/to/current-library \
+  path/to/new-save.json
+```
+
+For a read-only check, put `--check` before the save path and omit the new-save
+path. This performs the same comparison, admission and scene preparation, then
+reports the proposed output hash without writing it.
+
+Supply the old library used with that save. The tool requires the save's header
+to match that library, compares the actual saved-gameplay definitions and every
+field/battle/standard script in both libraries, and verifies the target's stored
+fingerprint against a fresh computation. Any semantic difference rejects the
+repair. Support is bounded to save schema 5 and source menu formats 34–37; normal
+gameplay still requires the current cooked format.
+
+The copy preserves the checkpoint payload and metadata except for its identity.
+Before writing, it must pass normal target admission and strict native scene
+preparation. The output must be a new file; the original is never replaced. The
+JSON report records both identities and file hashes. Scene preparation does not
+replace a replay of the resulting copy through restoration and resumed play.
+Offline checkpoint replay preserves saved preferences; interactive loads apply
+the user's `config.toml` preferences.
+
 Stored battle scenes now require scene format 1. The Ray fixed-pattern recipe in
 `crates/import/src/battle_scene/spell_recipes.json` translates its verified native
 schedule and extracts heading, strike points, camera and color from the original
