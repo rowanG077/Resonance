@@ -203,6 +203,60 @@ fn all_shop_stock_can_be_bought_and_sold_without_losing_native_continuation() {
 }
 
 #[test]
+#[ignore = "requires current full cooked shops and session definitions; no devices"]
+fn shop_visit_groups_follow_content_preserve_saved_ids_and_reject_invalid_data() {
+    let original = resources();
+    for group in [&[17, 50][..], &[18, 40], &[29, 45]] {
+        for &id in group {
+            let party = Party::new(&original.session, Default::default()).unwrap();
+            let (events, _) = open(&original, id, party);
+            assert_eq!(
+                events.world.party.unwrap().travel.visited_shops,
+                group.iter().copied().collect()
+            );
+        }
+    }
+    let mut changed = Resources {
+        session: original.session.clone(),
+        data: original.data.clone(),
+        files: original.files.clone(),
+    };
+    let mut data = (*changed.data).clone();
+    data.world_map.shop_visit_groups = vec![vec![1, 2, 3]];
+    changed.data = Arc::new(data);
+    let changed = Arc::new(changed);
+    for id in [1, 2, 3, 17] {
+        let party = Party::new(&changed.session, Default::default()).unwrap();
+        let (events, _) = open(&changed, id, party);
+        let party = events.world.party.unwrap();
+        let expected = if id == 17 {
+            [17].into()
+        } else {
+            [1, 2, 3].into()
+        };
+        assert_eq!(party.travel.visited_shops, expected);
+        let saved = serde_json::to_vec(&party.travel).unwrap();
+        let restored: resonance_events::party::Travel = serde_json::from_slice(&saved).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(restored.visited_shops, expected);
+    }
+    let mut invalid = Resources {
+        session: changed.session.clone(),
+        data: changed.data.clone(),
+        files: changed.files.clone(),
+    };
+    let mut data = (*invalid.data).clone();
+    data.world_map.shop_visit_groups = vec![vec![1, 52]];
+    invalid.data = Arc::new(data);
+    let invalid = Arc::new(invalid);
+    let party = Party::new(&invalid.session, Default::default()).unwrap();
+    let mut events = request(&invalid, 1, party);
+    let operation = events.world.menu_request.take().unwrap().operation;
+    assert!(Shop::open(1, invalid, events.world.party.as_mut().unwrap(), operation).is_err());
+    assert!(events.world.party.unwrap().travel.visited_shops.is_empty());
+}
+
+#[test]
 #[ignore = "requires locally cooked shops and session definitions; no devices"]
 fn cancelling_shop_or_main_menu_returns_zero_and_clears_script_status() {
     let resources = resources();

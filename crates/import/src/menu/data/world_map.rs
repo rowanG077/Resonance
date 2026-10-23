@@ -5,6 +5,21 @@ use resonance_content::menu_data::{
 };
 use std::collections::BTreeMap;
 
+#[derive(serde::Deserialize)]
+struct ShopVisits {
+    provenance: String,
+    groups: Vec<Vec<u8>>,
+}
+
+fn shop_visit_groups() -> Result<Vec<Vec<u8>>> {
+    let recipe: ShopVisits = serde_json::from_str(include_str!("shop_visits.json"))?;
+    ensure!(
+        !recipe.provenance.is_empty(),
+        "missing shop visit provenance"
+    );
+    Ok(recipe.groups)
+}
+
 pub(crate) fn cook(
     source: &source::Catalogue,
     phases: &phases::Phases,
@@ -82,6 +97,7 @@ pub(crate) fn cook(
             })
             .collect(),
         shops,
+        shop_visit_groups: shop_visit_groups()?,
     };
     Ok((
         data,
