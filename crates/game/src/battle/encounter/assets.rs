@@ -247,6 +247,7 @@ impl Inputs {
             setup.formations()?,
         )?;
         let party_profiles: battle_profile::Table = retained.json(battle_profile::PARTY_PATH)?;
+        party_profiles.validate()?;
         let party_positions = party_positions(menus, party)?;
         ensure!(
             session.items.len() == menus.items.len(),

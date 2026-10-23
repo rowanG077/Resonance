@@ -34,6 +34,7 @@ pub(super) fn prepare_actor(
     heading: f32,
     devils_arms_unlocked: bool,
     profile: &resonance_content::battle_profile::Profile,
+    collider: resonance_content::battle_profile::StandingCollider,
 ) -> Result<Actor> {
     let character = *party
         .formation
@@ -66,10 +67,11 @@ pub(super) fn prepare_actor(
         defense_eighths: floor_bonus(Rules::DEFENSE_UP, Rules::DEFENSE_DOWN),
         accuracy_quarters: floor_bonus(Rules::ACCURACY_UP, Rules::ACCURACY_DOWN),
     };
-    actor.body.collider = Some(match character {
-        Character::Genis | Character::Presea => resonance_battle::Collider::standing(24., 110.),
-        _ => resonance_battle::Collider::standing(30., 150.),
-    });
+    collider.validate()?;
+    actor.body.collider = Some(resonance_battle::Collider::standing(
+        collider.radius,
+        collider.height,
+    ));
     // Project the battle-entry technique balance without changing the suspended party.
     actor.equipment.contact.technique_balance = member.activated_technique_balance(menus)?;
     actor.equipment.stats = loadout.battle_stats(
@@ -544,6 +546,10 @@ mod tests {
             ..Default::default()
         };
         let mut profiles: battle_profile::Table = files.json(battle_profile::PARTY_PATH)?;
+        profiles.body_colliders[0] = battle_profile::StandingCollider {
+            radius: 42.,
+            height: 180.,
+        };
         profiles.records[0].initial_conditions = AttackUp.into();
         profiles.records[0].intrinsic_conditions =
             ConditionSet::of(&[CastingSpeed, AilmentResistance]);
@@ -590,6 +596,12 @@ mod tests {
             resonance_battle::ResourceId(100),
             None,
         )?;
+        assert_eq!(
+            member.actor.body.collider,
+            Some(resonance_battle::Collider::standing(42., 180.))
+        );
+        assert_eq!(member.actor.body_radius(), 42. * member.actor.body.scale);
+        assert_eq!(member.actor.body_top(), 180. * member.actor.body.scale);
         let mut battle = PreparedBattle::new(
             vec![(member.actor, Default::default())],
             Default::default(),

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const PARTY_PATH: &str = "battle/party-profiles.json";
+pub const PARTY_VERSION: u32 = 1;
 
 /// Actor category matched by species-specific weapon bonuses.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,7 +15,11 @@ pub struct Species(pub u16);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Table {
+    pub version: u32,
     pub source_sha256: String,
+    pub collider_recipe_sha256: String,
+    /// Maintained standing capsules for characters 1..=9, separate from authored MO/DM geometry.
+    pub body_colliders: [StandingCollider; 9],
     /// Seven directional normal attacks for each ordinary party character.
     pub normal_attacks: Vec<[crate::battle_normal::Attack; 7]>,
     /// Complete common-action tracks, with separate character bindings.
@@ -48,6 +53,17 @@ pub struct CastPoses {
 }
 
 impl Table {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.version == PARTY_VERSION,
+            "unsupported party profiles; recook content"
+        );
+        for collider in self.body_colliders {
+            collider.validate()?;
+        }
+        Ok(())
+    }
+
     pub fn martial_attack(
         &self,
         catalogue: u16,
@@ -55,6 +71,51 @@ impl Table {
     ) -> Result<&crate::battle_martial::Attack> {
         self.martial_attacks.attack(catalogue, character)
     }
+}
+
+/// Fixed actor-local body envelope; posed reception markers remain authoritative for hits.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StandingCollider {
+    pub radius: f32,
+    pub height: f32,
+}
+
+impl StandingCollider {
+    pub fn validate(self) -> Result<()> {
+        ensure!(
+            self.radius.is_finite()
+                && self.radius > 0.
+                && self.height.is_finite()
+                && self.height / 2. >= self.radius,
+            "invalid standing body collider"
+        );
+        Ok(())
+    }
+}
+
+#[test]
+fn standing_colliders_reject_non_finite_or_inverted_capsules() -> Result<()> {
+    StandingCollider {
+        radius: 24.,
+        height: 110.,
+    }
+    .validate()?;
+    StandingCollider {
+        radius: 30.,
+        height: 60.,
+    }
+    .validate()?;
+    for (radius, height) in [
+        (0., 100.),
+        (-1., 100.),
+        (30., 59.),
+        (f32::NAN, 100.),
+        (30., f32::INFINITY),
+    ] {
+        assert!(StandingCollider { radius, height }.validate().is_err());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
