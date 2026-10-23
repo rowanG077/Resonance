@@ -144,6 +144,27 @@ fn imports_party_profiles_and_battle_entry_settings() -> Result<()> {
     let path = publish_party(&file, &usual, output.path(), "battle")?;
     assert_eq!(path, resonance_content::battle_profile::PARTY_PATH);
     let table: Table = serde_json::from_slice(&std::fs::read(output.path().join(path))?)?;
+    table.validate()?;
+    assert_eq!(
+        table.body_colliders.map(|body| (body.radius, body.height)),
+        [
+            (30., 150.),
+            (30., 150.),
+            (24., 110.),
+            (30., 150.),
+            (30., 150.),
+            (30., 150.),
+            (24., 110.),
+            (30., 150.),
+            (30., 150.)
+        ]
+    );
+    let mut invalid = table.clone();
+    invalid.version = 0;
+    assert!(invalid.validate().is_err());
+    invalid.version = table.version;
+    invalid.body_colliders[0].height = 1.;
+    assert!(invalid.validate().is_err());
     assert_eq!(table.records.len(), 11);
     assert_eq!(table.records[0].guard_reduction, 75);
     assert_eq!(table.records[0].stagger_threshold, 100);

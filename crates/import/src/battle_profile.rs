@@ -259,8 +259,23 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
             "unsupported party casting playback"
         );
     }
+    let collider_recipe = include_str!("battle_profile/colliders.json");
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Colliders {
+        provenance: String,
+        characters: [resonance_content::battle_profile::StandingCollider; 9],
+    }
+    let colliders: Colliders = serde_json::from_str(collider_recipe)?;
+    ensure!(
+        !colliders.provenance.is_empty(),
+        "missing collider provenance"
+    );
     let table = Table {
+        version: resonance_content::battle_profile::PARTY_VERSION,
         source_sha256: crate::digest(&module.bytes),
+        collider_recipe_sha256: crate::digest(collider_recipe.as_bytes()),
+        body_colliders: colliders.characters,
         item_use_offsets: <[[f32; 3]; 9]>::read(module.at((5, 0xc3c))?, 0)?,
         normal_attacks: crate::battle_normal::read(&module)?,
         martial_attacks: crate::battle_martial::read(usual, &module)?,
@@ -314,6 +329,7 @@ pub fn publish_party(file: &Path, usual: &[u8], output: &Path, prefix: &str) -> 
             .map(|bytes| read(bytes, &voices, crate::battle_voice::PARTY_ROLES))
             .collect::<Result<_>>()?,
     };
+    table.validate()?;
     let path = format!("{prefix}/party-profiles.json");
     crate::write_atomic(&output.join(&path), &serde_json::to_vec(&table)?)?;
     Ok(path)

@@ -19,6 +19,12 @@ fn death_feedback_uses_affinity_and_configured_pairs() -> Result<()> {
         record.overlimit_gain = [15, 11, 12][index % 3];
     }
     let table = battle_profile::Table {
+        version: battle_profile::PARTY_VERSION,
+        collider_recipe_sha256: "a".repeat(64),
+        body_colliders: [battle_profile::StandingCollider {
+            radius: 30.,
+            height: 150.,
+        }; 9],
         normal_attacks: vec![],
         martial_attacks: resonance_content::battle_martial::Catalogue {
             members: Default::default(),

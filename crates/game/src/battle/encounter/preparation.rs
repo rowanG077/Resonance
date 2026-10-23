@@ -734,6 +734,7 @@ impl Inputs {
             setup.heading,
             devils_arms_unlocked,
             profile,
+            self.party_profiles.body_colliders[character.index()],
         )?;
         let mut models = Vec::new();
         let mut body = None;
