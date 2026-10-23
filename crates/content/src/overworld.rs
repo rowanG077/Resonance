@@ -10,7 +10,10 @@ pub use position::{Position, TileCoordinate, World};
 mod travel;
 pub use travel::{MapDisplay, Mount, TravelState};
 mod landmarks;
-pub use landmarks::{Guidepost, Interaction, Landmark, Landmarks, Marker, ShipCameraClearance};
+pub use landmarks::{
+    EntryOverride, EntryPlacement, Guidepost, Interaction, Landmark, Landmarks, Marker,
+    ShipCameraClearance,
+};
 mod cinematic;
 mod package;
 pub use cinematic::*;
